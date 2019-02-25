@@ -40,11 +40,11 @@
 
 ----
 
-<img src="/images/android.jpg" width="" height="" alt="Android系统结构" />
-<img src="/images/Zygote.jpg" width="" height="" alt="Zygote启动流程" />
-<img src="/images/SystemServer.jpg" width="" height="" alt="System Server启动流程" />
-<img src="/images/Context.jpg" width="" height="" alt="Context结构" />
-<img src="/images/HandlerMsgLooper.jpg" width="" height="" alt="Handler-Msg-Looper" />
+<img src="/images/android.jpg" width="" height="" alt="Android系统结构"/>
+<img src="/images/Zygote.jpg" width="" height="" alt="Zygote启动流程"/>
+<img src="/images/SystemServer.jpg" width="" height="" alt="System Server启动流程"/>
+<img src="/images/Context.jpg" width="" height="" alt="Context结构"/>
+<img src="/images/HandlerMsgLooper.jpg" width="" height="" alt="Handler-Msg-Looper"/>
 <img src="/images/registerReceiver.jpg" width="" height="" alt="广播"/>
 
 
