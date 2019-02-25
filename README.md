@@ -40,17 +40,17 @@
 
 ----
 
-![Android系统结构](E:\github\Android-Framework-Source\images\android.png)
+![Android系统结构](images\android.png)
 
-![Zygote](E:\github\Android-Framework-Source\images\Zygote.jpg)
+![Zygote](images\Zygote.jpg)
 
-![SystemServer](E:\github\Android-Framework-Source\images\SystemServer.jpg)
+![SystemServer](images\SystemServer.jpg)
 
-![Context](E:\github\Android-Framework-Source\images\Context.jpg)
+![Context](images\Context.jpg)
 
-![HandlerMsgLooper](E:\github\Android-Framework-Source\images\HandlerMsgLooper.jpg)
+![HandlerMsgLooper](images\HandlerMsgLooper.jpg)
 
-![registerReceiver](E:\github\Android-Framework-Source\images\registerReceiver.jpg)
+![registerReceiver](images\registerReceiver.jpg)
 
 
 
