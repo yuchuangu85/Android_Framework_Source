@@ -50,7 +50,7 @@
 
 ![HandlerMsgLooper](images\HandlerMsgLooper.jpg)
 
-![registerReceiver](images\registerReceiver.jpg)
+![registerReceiver](/images/registerReceiver.jpg)
 
 
 
