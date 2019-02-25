@@ -1,6 +1,18 @@
 # Android-25 Framework源码
 
-## 博客
+基于Android 25版本的framework源码，添加了详细注释。
+
+### 更新时间：
+
+---
+
+2019-02-25
+
+
+
+###  博客：
+
+----
 
 [Android系统源码分析--消息循环机制](http://codemx.cn/2017/07/13/AndroidOS004-HandleMessageLooper/)
 
@@ -21,4 +33,24 @@
 [Android系统源码分析--View绘制流程之-setContentView](http://codemx.cn/2018/11/12/AndroidOS012-View-setContentView/)
 
 [Android系统源码分析--View绘制流程之-inflate](http://codemx.cn/2018/11/20/AndroidOS013-View-inflate/)
+
+
+
+### 流程图：
+
+----
+
+![Android系统结构](E:\github\Android-Framework-Source\images\android.png)
+
+![Zygote](E:\github\Android-Framework-Source\images\Zygote.jpg)
+
+![SystemServer](E:\github\Android-Framework-Source\images\SystemServer.jpg)
+
+![Context](E:\github\Android-Framework-Source\images\Context.jpg)
+
+![HandlerMsgLooper](E:\github\Android-Framework-Source\images\HandlerMsgLooper.jpg)
+
+![registerReceiver](E:\github\Android-Framework-Source\images\registerReceiver.jpg)
+
+
 
