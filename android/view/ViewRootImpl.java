@@ -1533,11 +1533,8 @@ public final class ViewRootImpl implements ViewParent,
             host.debug();
         }
 
-<<<<<<< HEAD
         // DecorView是空或者mWindow添加到WMS失败了
-=======
         // 添加的DecorView是空或者不是添加的
->>>>>>> 078649b5f1dad21665a95bf51272ad457d00d865
         if (host == null || !mAdded)
             return;
 
