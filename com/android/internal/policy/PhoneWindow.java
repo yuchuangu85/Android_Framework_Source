@@ -2293,7 +2293,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             Context applicationContext = getContext().getApplicationContext();
             if (applicationContext == null) {// 系统进程时没有Application的context，所以就用现有的context
                 context = getContext();
-            } else {// 应用会有application的Context
+            } else {// 应用有application的Context
                 context = new DecorContext(applicationContext, getContext().getResources());
                 if (mTheme != -1) {
                     // 设置主题

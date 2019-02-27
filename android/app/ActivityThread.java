@@ -163,12 +163,16 @@ final class RemoteServiceException extends AndroidRuntimeException {
  * {@hide}
  */
 public final class ActivityThread {
-    /** @hide */
+    /**
+     *
+     */
     public static final String TAG = "ActivityThread";
     private static final android.graphics.Bitmap.Config THUMBNAIL_FORMAT = Bitmap.Config.RGB_565;
     static final boolean localLOGV = false;
     static final boolean DEBUG_MESSAGES = false;
-    /** @hide */
+    /**
+     *
+     */
     public static final boolean DEBUG_BROADCAST = false;
     private static final boolean DEBUG_RESULTS = false;
     private static final boolean DEBUG_BACKUP = false;
@@ -6183,7 +6187,7 @@ public final class ActivityThread {
     private void attach(boolean system) {
         sCurrentActivityThread = this;
         mSystemThread = system;
-        if (!system) {
+        if (!system) {// 非系统进程
             ViewRootImpl.addFirstDrawHandler(new Runnable() {
                 @Override
                 public void run() {
@@ -6284,6 +6288,7 @@ public final class ActivityThread {
         });
     }
 
+    // 这里是系统调用，创建ActivityThread
     public static ActivityThread systemMain() {
         // The system process on low-memory devices do not get to use hardware
         // accelerated drawing, since this can add too much overhead to the
@@ -6348,11 +6353,13 @@ public final class ActivityThread {
 
 
     /**
+     * 这里是应用调用，创建ActivityThread
+     * <p>
      * 启动新的进程时调用Process的start方法会最终调用该函数(AMS.startProcessLocked开始)
      * 启动新的进程主要做了两件事：
      * 1.在进程中创建了一个ActivityThread对象，并调用了它的成员函数attach向AMS发送一个启动完成的通知
      * 2.调用Looper类的静态成员函数prepareMainLooper创建一个消息循环，并且在向AMS发送启动完成通知后，
-     *   使得当前进程进入到这个消息循环中
+     * 使得当前进程进入到这个消息循环中
      *
      * @param args
      */
@@ -6376,7 +6383,7 @@ public final class ActivityThread {
 
         Process.setArgV0("<pre-initialized>");
 
-        // 创建looper，因此主线程使用Handler的时候不需要创建Looper
+        // 创建Looper（每一个线程对应一个Looper，当前线程为App的主线程），因此主线程使用Handler的时候不需要创建Looper
         Looper.prepareMainLooper();
 
         ActivityThread thread = new ActivityThread();

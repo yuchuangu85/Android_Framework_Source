@@ -17420,7 +17420,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         int oldR = mRight;
 
         boolean changed = isLayoutModeOptical(mParent) ?
-                setOpticalFrame(l, t, r, b) : set Frame(l, t, r, b);// 设置四个顶点坐标
+                setOpticalFrame(l, t, r, b) : setFrame(l, t, r, b);// 设置四个顶点坐标
 
         if (changed || (mPrivateFlags & PFLAG_LAYOUT_REQUIRED) == PFLAG_LAYOUT_REQUIRED) {
             // 调用回调函数onLayout

@@ -313,7 +313,7 @@ public final class SystemServer {
                 android.os.Process.THREAD_PRIORITY_FOREGROUND);
             android.os.Process.setCanSelfBackground(false);
 
-            // 准备主线程的Looper
+            // 准备主线程的Looper(当前线程为系统的主线程)
             Looper.prepareMainLooper();
 
             // Initialize native services.
@@ -325,7 +325,7 @@ public final class SystemServer {
             performPendingShutdown();
 
             // Initialize the system context.
-            // 初始化系统上下文
+            // 初始化系统上下文(包括系统进程的ActivityThread)
             createSystemContext();
 
             // Create the system service manager.

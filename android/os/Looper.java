@@ -97,7 +97,8 @@ public final class Looper {
      * is created by the Android environment, so you should never need
      * to call this function yourself.  See also: {@link #prepare()}
      *
-     * 住线程Looper，不需要自己调用，系统创建主线程时会自动调用该方法初始化一个Looper
+     * 主线程Looper，不需要自己调用，系统创建主线程时会自动调用该方法初始化一个Looper
+     * 调用该方法有两个地方，一个是系统启动创建Looper（系统主线程），另一个是App启动创建Looper（App主线程）
      */
     public static void prepareMainLooper() {
         prepare(false);
