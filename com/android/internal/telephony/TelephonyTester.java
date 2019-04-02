@@ -23,15 +23,14 @@ import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.BadParcelableException;
 import android.os.Build;
-import android.telephony.NetworkRegistrationState;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
-import android.telephony.ims.ImsCallProfile;
-import android.telephony.ims.ImsConferenceState;
-import android.telephony.ims.ImsExternalCallState;
-import android.telephony.ims.ImsReasonInfo;
 
 import com.android.ims.ImsCall;
+import com.android.ims.ImsCallProfile;
+import com.android.ims.ImsConferenceState;
+import com.android.ims.ImsExternalCallState;
+import com.android.ims.ImsReasonInfo;
 import com.android.internal.telephony.gsm.SuppServiceNotification;
 import com.android.internal.telephony.imsphone.ImsExternalCallTracker;
 import com.android.internal.telephony.imsphone.ImsPhone;
@@ -51,10 +50,6 @@ import java.util.List;
  * adb shell am broadcast -a com.android.internal.telephony.{name}.action_attached
  * adb shell am broadcast -a com.android.internal.telephony.TestConferenceEventPackage -e filename
  *      test_filename.xml
- * adb shell am broadcast -a com.android.internal.telephony.TestServiceState --ei data_rat 10 --ei
- *      data_roaming_type 3
- * adb shell am broadcast -a com.android.internal.telephony.TestServiceState --es action reset
- *
  */
 public class TelephonyTester {
     private static final String LOG_TAG = "TelephonyTester";
@@ -103,24 +98,8 @@ public class TelephonyTester {
             "com.android.internal.telephony.TestSuppSrvcNotification";
 
     private static final String EXTRA_CODE = "code";
-    private static final String EXTRA_TYPE = "type";
-
-    private static final String ACTION_TEST_SERVICE_STATE =
-            "com.android.internal.telephony.TestServiceState";
-
-    private static final String EXTRA_ACTION = "action";
-    private static final String EXTRA_VOICE_RAT = "voice_rat";
-    private static final String EXTRA_DATA_RAT = "data_rat";
-    private static final String EXTRA_VOICE_REG_STATE = "voice_reg_state";
-    private static final String EXTRA_DATA_REG_STATE = "data_reg_state";
-    private static final String EXTRA_VOICE_ROAMING_TYPE = "voice_roaming_type";
-    private static final String EXTRA_DATA_ROAMING_TYPE = "data_roaming_type";
-
-    private static final String ACTION_RESET = "reset";
 
     private static List<ImsExternalCallState> mImsExternalCallStates = null;
-
-    private Intent mServiceStateTestIntent;
 
     private Phone mPhone;
 
@@ -154,13 +133,6 @@ public class TelephonyTester {
                 } else if (action.equals(ACTION_TEST_SUPP_SRVC_NOTIFICATION)) {
                     log("handle supp service notification test intent");
                     sendTestSuppServiceNotification(intent);
-                } else if (action.equals(ACTION_TEST_SERVICE_STATE)) {
-                    log("handle test service state changed intent");
-                    // Trigger the service state update. The replacement will be done in
-                    // overrideServiceState().
-                    mServiceStateTestIntent = intent;
-                    mPhone.getServiceStateTracker().sendEmptyMessage(
-                            ServiceStateTracker.EVENT_NETWORK_STATE_CHANGED);
                 } else {
                     if (DBG) log("onReceive: unknown action=" + action);
                 }
@@ -190,9 +162,6 @@ public class TelephonyTester {
                 filter.addAction(ACTION_TEST_HANDOVER_FAIL);
                 filter.addAction(ACTION_TEST_SUPP_SRVC_NOTIFICATION);
                 mImsExternalCallStates = new ArrayList<ImsExternalCallState>();
-            } else {
-                filter.addAction(ACTION_TEST_SERVICE_STATE);
-                log("register for intent action=" + ACTION_TEST_SERVICE_STATE);
             }
 
             phone.getContext().registerReceiver(mIntentReceiver, filter, null, mPhone.getHandler());
@@ -317,9 +286,8 @@ public class TelephonyTester {
     }
 
     private void sendTestSuppServiceNotification(Intent intent) {
-        if (intent.hasExtra(EXTRA_CODE) && intent.hasExtra(EXTRA_TYPE)) {
+        if (intent.hasExtra(EXTRA_CODE)) {
             int code = intent.getIntExtra(EXTRA_CODE, -1);
-            int type = intent.getIntExtra(EXTRA_TYPE, -1);
             ImsPhone imsPhone = (ImsPhone) mPhone;
             if (imsPhone == null) {
                 return;
@@ -327,47 +295,7 @@ public class TelephonyTester {
             log("Test supp service notification:" + code);
             SuppServiceNotification suppServiceNotification = new SuppServiceNotification();
             suppServiceNotification.code = code;
-            suppServiceNotification.notificationType = type;
             imsPhone.notifySuppSvcNotification(suppServiceNotification);
-        }
-    }
-
-    void overrideServiceState(ServiceState ss) {
-        if (mServiceStateTestIntent == null || ss == null) return;
-        if (mServiceStateTestIntent.hasExtra(EXTRA_ACTION)
-                && ACTION_RESET.equals(mServiceStateTestIntent.getStringExtra(EXTRA_ACTION))) {
-            log("Service state override reset");
-            return;
-        }
-        if (mServiceStateTestIntent.hasExtra(EXTRA_VOICE_REG_STATE)) {
-            ss.setVoiceRegState(mServiceStateTestIntent.getIntExtra(EXTRA_VOICE_REG_STATE,
-                    NetworkRegistrationState.REG_STATE_UNKNOWN));
-            log("Override voice reg state with " + ss.getVoiceRegState());
-        }
-        if (mServiceStateTestIntent.hasExtra(EXTRA_DATA_REG_STATE)) {
-            ss.setDataRegState(mServiceStateTestIntent.getIntExtra(EXTRA_DATA_REG_STATE,
-                    NetworkRegistrationState.REG_STATE_UNKNOWN));
-            log("Override data reg state with " + ss.getDataRegState());
-        }
-        if (mServiceStateTestIntent.hasExtra(EXTRA_VOICE_RAT)) {
-            ss.setRilVoiceRadioTechnology(mServiceStateTestIntent.getIntExtra(EXTRA_VOICE_RAT,
-                    ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN));
-            log("Override voice rat with " + ss.getRilVoiceRadioTechnology());
-        }
-        if (mServiceStateTestIntent.hasExtra(EXTRA_DATA_RAT)) {
-            ss.setRilDataRadioTechnology(mServiceStateTestIntent.getIntExtra(EXTRA_DATA_RAT,
-                    ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN));
-            log("Override data rat with " + ss.getRilDataRadioTechnology());
-        }
-        if (mServiceStateTestIntent.hasExtra(EXTRA_VOICE_ROAMING_TYPE)) {
-            ss.setVoiceRoamingType(mServiceStateTestIntent.getIntExtra(EXTRA_VOICE_ROAMING_TYPE,
-                    ServiceState.ROAMING_TYPE_UNKNOWN));
-            log("Override voice roaming type with " + ss.getVoiceRoamingType());
-        }
-        if (mServiceStateTestIntent.hasExtra(EXTRA_DATA_ROAMING_TYPE)) {
-            ss.setDataRoamingType(mServiceStateTestIntent.getIntExtra(EXTRA_DATA_ROAMING_TYPE,
-                    ServiceState.ROAMING_TYPE_UNKNOWN));
-            log("Override data roaming type with " + ss.getDataRoamingType());
         }
     }
 }

@@ -226,9 +226,10 @@ public abstract class Collator
      * @see java.util.Locale
      * @see java.util.ResourceBundle
      */
-    // Android-changed: Switched to ICU.
-    public static synchronized Collator getInstance(Locale desiredLocale)
+    public static synchronized
+    Collator getInstance(Locale desiredLocale)
     {
+        // Android-changed: Switched to ICU.
         if (desiredLocale == null) {
             throw new NullPointerException("locale == null");
         }
@@ -301,7 +302,6 @@ public abstract class Collator
      */
     public boolean equals(String source, String target)
     {
-        // Android-changed: remove use of unnecessary EQUAL constant.
         return (compare(source, target) == 0);
     }
 
@@ -400,7 +400,6 @@ public abstract class Collator
         return ICU.getAvailableCollatorLocales();
     }
 
-    // BEGIN Android-added: conversion method for decompositionMode constants.
     private int decompositionMode_Java_ICU(int mode) {
         switch (mode) {
             case Collator.CANONICAL_DECOMPOSITION:
@@ -423,9 +422,7 @@ public abstract class Collator
         }
         return javaMode;
     }
-    // END Android-added: conversion method for decompositionMode constants.
 
-    // Android-changed: improve documentation.
     /**
      * Returns a new collator with the same decomposition mode and
      * strength value as this collator.
@@ -487,13 +484,9 @@ public abstract class Collator
         icuColl = android.icu.text.RuleBasedCollator.getInstance(Locale.getDefault());
     }
 
-    // Android-added: ICU Collator this delegates to.
     android.icu.text.Collator icuColl;
 
-    // Android-added: protected constructor taking a Collator.
     Collator(android.icu.text.Collator icuColl) {
         this.icuColl = icuColl;
     }
-
-    // Android-removed: Fields and constants.
 }

@@ -1354,7 +1354,6 @@ public class PopupWindow {
         }
 
         mDecorView = createDecorView(mBackgroundView);
-        mDecorView.setIsRootNamespace(true);
 
         // The background owner should be elevated so that it casts a shadow.
         mBackgroundView.setElevation(mElevation);
@@ -1583,7 +1582,7 @@ public class PopupWindow {
      *
      * @hide
      */
-    protected boolean findDropDownPosition(View anchor, WindowManager.LayoutParams outParams,
+    protected final boolean findDropDownPosition(View anchor, WindowManager.LayoutParams outParams,
             int xOffset, int yOffset, int width, int height, int gravity, boolean allowScroll) {
         final int anchorHeight = anchor.getHeight();
         final int anchorWidth = anchor.getWidth();
@@ -2462,14 +2461,14 @@ public class PopupWindow {
             for (int i = 0; i < count; i++) {
                 final View child = getChildAt(i);
                 enterTransition.addTarget(child);
-                child.setTransitionVisibility(View.INVISIBLE);
+                child.setVisibility(View.INVISIBLE);
             }
 
             TransitionManager.beginDelayedTransition(this, enterTransition);
 
             for (int i = 0; i < count; i++) {
                 final View child = getChildAt(i);
-                child.setTransitionVisibility(View.VISIBLE);
+                child.setVisibility(View.VISIBLE);
             }
         }
 
@@ -2563,9 +2562,7 @@ public class PopupWindow {
                     public void onViewDetachedFromWindow(View v) {
                         v.removeOnAttachStateChangeListener(this);
 
-                        if (isAttachedToWindow()) {
-                            TransitionManager.endTransitions(PopupDecorView.this);
-                        }
+                        TransitionManager.endTransitions(PopupDecorView.this);
                     }
                 };
 

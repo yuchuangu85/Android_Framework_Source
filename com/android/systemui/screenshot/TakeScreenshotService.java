@@ -67,8 +67,6 @@ public class TakeScreenshotService extends Service {
                 case WindowManager.TAKE_SCREENSHOT_SELECTED_REGION:
                     mScreenshot.takeScreenshotPartial(finisher, msg.arg1 > 0, msg.arg2 > 0);
                     break;
-                default:
-                    Log.d(TAG, "Invalid screenshot option: " + msg.what);
             }
         }
     };

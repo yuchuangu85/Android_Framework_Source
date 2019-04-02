@@ -17,9 +17,8 @@
 
 package com.android.printservice.recommendation.util;
 
+import android.annotation.NonNull;
 import android.net.nsd.NsdServiceInfo;
-
-import androidx.annotation.NonNull;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;

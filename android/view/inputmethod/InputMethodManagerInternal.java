@@ -16,8 +16,6 @@
 
 package android.view.inputmethod;
 
-import android.content.ComponentName;
-
 /**
  * Input method manager local system service interface.
  *
@@ -39,9 +37,4 @@ public interface InputMethodManagerInternal {
      * Hides the current input method, if visible.
      */
     void hideCurrentInputMethod();
-
-    /**
-     * Switches to VR InputMethod defined in the packageName of {@param componentName}.
-     */
-    void startVrInputMethodNoCheck(ComponentName componentName);
 }

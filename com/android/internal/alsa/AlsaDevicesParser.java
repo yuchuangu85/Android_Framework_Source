@@ -27,9 +27,6 @@ import java.util.ArrayList;
  * @hide
  * Retrieves information from an ALSA "devices" file.
  */
-/*
- * NOTE: This class is currently not being used, but may be needed in the future.
- */
 public class AlsaDevicesParser {
     private static final String TAG = "AlsaDevicesParser";
     protected static final boolean DEBUG = false;
@@ -48,12 +45,6 @@ public class AlsaDevicesParser {
     private boolean mHasCaptureDevices = false;
     private boolean mHasPlaybackDevices = false;
     private boolean mHasMIDIDevices = false;
-
-    public static final int SCANSTATUS_NOTSCANNED = -1;
-    public static final int SCANSTATUS_SUCCESS = 0;
-    public static final int SCANSTATUS_FAIL = 1;
-    public static final int SCANSTATUS_EMPTY = 2;
-    private int mScanStatus = SCANSTATUS_NOTSCANNED;
 
     public class AlsaDeviceRecord {
         public static final int kDeviceType_Unknown = -1;
@@ -210,6 +201,12 @@ public class AlsaDevicesParser {
     //
     // Predicates
     //
+/*
+   public boolean hasPlaybackDevices() {
+        return mHasPlaybackDevices;
+    }
+*/
+
     public boolean hasPlaybackDevices(int card) {
         for (AlsaDeviceRecord deviceRecord : mDeviceRecords) {
             if (deviceRecord.mCardNum == card &&
@@ -221,6 +218,12 @@ public class AlsaDevicesParser {
         return false;
     }
 
+/*
+    public boolean hasCaptureDevices() {
+        return mHasCaptureDevices;
+    }
+*/
+
     public boolean hasCaptureDevices(int card) {
         for (AlsaDeviceRecord deviceRecord : mDeviceRecords) {
             if (deviceRecord.mCardNum == card &&
@@ -231,6 +234,12 @@ public class AlsaDevicesParser {
         }
         return false;
     }
+
+/*
+    public boolean hasMIDIDevices() {
+        return mHasMIDIDevices;
+    }
+*/
 
     public boolean hasMIDIDevices(int card) {
         for (AlsaDeviceRecord deviceRecord : mDeviceRecords) {
@@ -249,11 +258,7 @@ public class AlsaDevicesParser {
         return line.charAt(kIndex_CardDeviceField) == '[';
     }
 
-    public int scan() {
-        if (DEBUG) {
-            Slog.i(TAG, "AlsaDevicesParser.scan()....");
-        }
-
+    public void scan() {
         mDeviceRecords.clear();
 
         File devicesFile = new File(kDevicesFilePath);
@@ -265,32 +270,15 @@ public class AlsaDevicesParser {
                 if (isLineDeviceRecord(line)) {
                     AlsaDeviceRecord deviceRecord = new AlsaDeviceRecord();
                     deviceRecord.parse(line);
-                    Slog.i(TAG, deviceRecord.textFormat());
                     mDeviceRecords.add(deviceRecord);
                 }
             }
             reader.close();
-            // success if we add at least 1 record
-            if (mDeviceRecords.size() > 0) {
-                mScanStatus = SCANSTATUS_SUCCESS;
-            } else {
-                mScanStatus = SCANSTATUS_EMPTY;
-            }
         } catch (FileNotFoundException e) {
             e.printStackTrace();
-            mScanStatus = SCANSTATUS_FAIL;
         } catch (IOException e) {
             e.printStackTrace();
-            mScanStatus = SCANSTATUS_FAIL;
         }
-        if (DEBUG) {
-            Slog.i(TAG, "  status:" + mScanStatus);
-        }
-        return mScanStatus;
-    }
-
-    public int getScanStatus() {
-        return mScanStatus;
     }
 
     //

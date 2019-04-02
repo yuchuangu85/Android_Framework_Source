@@ -18,7 +18,6 @@ package com.android.server.autofill;
 
 import static android.service.autofill.FillRequest.INVALID_REQUEST_ID;
 
-import static com.android.internal.util.function.pooled.PooledLambda.obtainMessage;
 import static com.android.server.autofill.Helper.sDebug;
 import static com.android.server.autofill.Helper.sVerbose;
 
@@ -27,12 +26,12 @@ import android.annotation.Nullable;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentSender;
 import android.content.ServiceConnection;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.IBinder.DeathRecipient;
 import android.os.ICancellationSignal;
+import android.os.Message;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import android.os.UserHandle;
@@ -47,6 +46,7 @@ import android.text.format.DateUtils;
 import android.util.Slog;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.internal.os.HandlerCaller;
 import com.android.server.FgThread;
 
 import java.io.PrintWriter;
@@ -62,13 +62,12 @@ import java.lang.ref.WeakReference;
  */
 final class RemoteFillService implements DeathRecipient {
     private static final String LOG_TAG = "RemoteFillService";
+
     // How long after the last interaction with the service we would unbind
     private static final long TIMEOUT_IDLE_BIND_MILLIS = 5 * DateUtils.SECOND_IN_MILLIS;
 
     // How long after we make a remote request to a fill service we timeout
     private static final long TIMEOUT_REMOTE_REQUEST_MILLIS = 5 * DateUtils.SECOND_IN_MILLIS;
-
-    private static final int MSG_UNBIND = 3;
 
     private final Context mContext;
 
@@ -82,9 +81,7 @@ final class RemoteFillService implements DeathRecipient {
 
     private final ServiceConnection mServiceConnection = new RemoteServiceConnection();
 
-    private final Handler mHandler;
-
-    private final boolean mBindInstantServiceAllowed;
+    private final HandlerCaller mHandler;
 
     private IAutoFillService mAutoFillService;
 
@@ -99,37 +96,31 @@ final class RemoteFillService implements DeathRecipient {
     private PendingRequest mPendingRequest;
 
     public interface FillServiceCallbacks {
-        void onFillRequestSuccess(int requestId, @Nullable FillResponse response,
-                @NonNull String servicePackageName, int requestFlags);
-        void onFillRequestFailure(int requestId, @Nullable CharSequence message,
+        void onFillRequestSuccess(int requestFlags, @Nullable FillResponse response, int serviceUid,
                 @NonNull String servicePackageName);
-        void onFillRequestTimeout(int requestId, @NonNull String servicePackageName);
-        void onSaveRequestSuccess(@NonNull String servicePackageName,
-                @Nullable IntentSender intentSender);
-        // TODO(b/80093094): add timeout here too?
+        void onFillRequestFailure(@Nullable CharSequence message,
+                @NonNull String servicePackageName);
+        void onSaveRequestSuccess(@NonNull String servicePackageName);
         void onSaveRequestFailure(@Nullable CharSequence message,
                 @NonNull String servicePackageName);
         void onServiceDied(RemoteFillService service);
     }
 
     public RemoteFillService(Context context, ComponentName componentName,
-            int userId, FillServiceCallbacks callbacks, boolean bindInstantServiceAllowed) {
+            int userId, FillServiceCallbacks callbacks) {
         mContext = context;
         mCallbacks = callbacks;
         mComponentName = componentName;
         mIntent = new Intent(AutofillService.SERVICE_INTERFACE).setComponent(mComponentName);
         mUserId = userId;
-        mHandler = new Handler(FgThread.getHandler().getLooper());
-        mBindInstantServiceAllowed = bindInstantServiceAllowed;
+        mHandler = new MyHandler(context);
     }
 
     public void destroy() {
-        mHandler.sendMessage(obtainMessage(
-                RemoteFillService::handleDestroy, this));
+        mHandler.obtainMessage(MyHandler.MSG_DESTROY).sendToTarget();
     }
 
     private void handleDestroy() {
-        if (checkIfDestroyed()) return;
         if (mPendingRequest != null) {
             mPendingRequest.cancel();
             mPendingRequest = null;
@@ -140,12 +131,10 @@ final class RemoteFillService implements DeathRecipient {
 
     @Override
     public void binderDied() {
-        mHandler.sendMessage(obtainMessage(
-                RemoteFillService::handleBinderDied, this));
+        mHandler.obtainMessage(MyHandler.MSG_BINDER_DIED).sendToTarget();
     }
 
     private void handleBinderDied() {
-        if (checkIfDestroyed()) return;
         if (mAutoFillService != null) {
             mAutoFillService.asBinder().unlinkToDeath(this, 0);
         }
@@ -183,17 +172,14 @@ final class RemoteFillService implements DeathRecipient {
 
     public void onFillRequest(@NonNull FillRequest request) {
         cancelScheduledUnbind();
-        scheduleRequest(new PendingFillRequest(request, this));
+        final PendingFillRequest pendingRequest = new PendingFillRequest(request, this);
+        mHandler.obtainMessageO(MyHandler.MSG_ON_PENDING_REQUEST, pendingRequest).sendToTarget();
     }
 
     public void onSaveRequest(@NonNull SaveRequest request) {
         cancelScheduledUnbind();
-        scheduleRequest(new PendingSaveRequest(request, this));
-    }
-
-    private void scheduleRequest(PendingRequest pendingRequest) {
-        mHandler.sendMessage(obtainMessage(
-                RemoteFillService::handlePendingRequest, this, pendingRequest));
+        final PendingSaveRequest pendingRequest = new PendingSaveRequest(request, this);
+        mHandler.obtainMessageO(MyHandler.MSG_ON_PENDING_REQUEST, pendingRequest).sendToTarget();
     }
 
     // Note: we are dumping without a lock held so this is a bit racy but
@@ -212,30 +198,25 @@ final class RemoteFillService implements DeathRecipient {
                 .append(String.valueOf(isBound())).println();
         pw.append(prefix).append(tab).append("hasPendingRequest=")
                 .append(String.valueOf(mPendingRequest != null)).println();
-        pw.append(prefix).append("mBindInstantServiceAllowed=").println(mBindInstantServiceAllowed);
         pw.println();
     }
 
     private void cancelScheduledUnbind() {
-        mHandler.removeMessages(MSG_UNBIND);
+        mHandler.removeMessages(MyHandler.MSG_UNBIND);
     }
 
     private void scheduleUnbind() {
         cancelScheduledUnbind();
-        mHandler.sendMessageDelayed(
-                obtainMessage(RemoteFillService::handleUnbind, this)
-                        .setWhat(MSG_UNBIND),
-                TIMEOUT_IDLE_BIND_MILLIS);
+        Message message = mHandler.obtainMessage(MyHandler.MSG_UNBIND);
+        mHandler.sendMessageDelayed(message, TIMEOUT_IDLE_BIND_MILLIS);
     }
 
     private void handleUnbind() {
-        if (checkIfDestroyed()) return;
         ensureUnbound();
     }
 
     private void handlePendingRequest(PendingRequest pendingRequest) {
-        if (checkIfDestroyed()) return;
-        if (mCompleted) {
+        if (mDestroyed || mCompleted) {
             return;
         }
         if (!isBound()) {
@@ -264,17 +245,12 @@ final class RemoteFillService implements DeathRecipient {
         if (sVerbose) Slog.v(LOG_TAG, "[user: " + mUserId + "] ensureBound()");
         mBinding = true;
 
-        int flags = Context.BIND_AUTO_CREATE | Context.BIND_FOREGROUND_SERVICE;
-        if (mBindInstantServiceAllowed) {
-            flags |= Context.BIND_ALLOW_INSTANT;
-        }
-
-        final boolean willBind = mContext.bindServiceAsUser(mIntent, mServiceConnection, flags,
+        boolean willBind = mContext.bindServiceAsUser(mIntent, mServiceConnection,
+                Context.BIND_AUTO_CREATE | Context.BIND_FOREGROUND_SERVICE,
                 new UserHandle(mUserId));
 
         if (!willBind) {
-            Slog.w(LOG_TAG, "[user: " + mUserId + "] could not bind to " + mIntent + " using flags "
-                    + flags);
+            if (sDebug) Slog.d(LOG_TAG, "[user: " + mUserId + "] could not bind to " + mIntent);
             mBinding = false;
 
             if (!mServiceDied) {
@@ -303,37 +279,27 @@ final class RemoteFillService implements DeathRecipient {
         mContext.unbindService(mServiceConnection);
     }
 
-    private void dispatchOnFillRequestSuccess(@NonNull PendingFillRequest pendingRequest,
-            @Nullable FillResponse response, int requestFlags) {
-        mHandler.post(() -> {
+    private void dispatchOnFillRequestSuccess(PendingRequest pendingRequest,
+            int callingUid, int requestFlags, FillResponse response) {
+        mHandler.getHandler().post(() -> {
             if (handleResponseCallbackCommon(pendingRequest)) {
-                mCallbacks.onFillRequestSuccess(pendingRequest.mRequest.getId(), response,
-                        mComponentName.getPackageName(), requestFlags);
+                mCallbacks.onFillRequestSuccess(requestFlags, response, callingUid,
+                        mComponentName.getPackageName());
             }
         });
     }
 
-    private void dispatchOnFillRequestFailure(@NonNull PendingFillRequest pendingRequest,
+    private void dispatchOnFillRequestFailure(PendingRequest pendingRequest,
             @Nullable CharSequence message) {
-        mHandler.post(() -> {
+        mHandler.getHandler().post(() -> {
             if (handleResponseCallbackCommon(pendingRequest)) {
-                mCallbacks.onFillRequestFailure(pendingRequest.mRequest.getId(), message,
-                        mComponentName.getPackageName());
-            }
-        });
-    }
-
-    private void dispatchOnFillRequestTimeout(@NonNull PendingFillRequest pendingRequest) {
-        mHandler.post(() -> {
-            if (handleResponseCallbackCommon(pendingRequest)) {
-                mCallbacks.onFillRequestTimeout(pendingRequest.mRequest.getId(),
-                        mComponentName.getPackageName());
+                mCallbacks.onFillRequestFailure(message, mComponentName.getPackageName());
             }
         });
     }
 
     private void dispatchOnFillTimeout(@NonNull ICancellationSignal cancellationSignal) {
-        mHandler.post(() -> {
+        mHandler.getHandler().post(() -> {
             try {
                 cancellationSignal.cancel();
             } catch (RemoteException e) {
@@ -342,18 +308,17 @@ final class RemoteFillService implements DeathRecipient {
         });
     }
 
-    private void dispatchOnSaveRequestSuccess(PendingRequest pendingRequest,
-            IntentSender intentSender) {
-        mHandler.post(() -> {
+    private void dispatchOnSaveRequestSuccess(PendingRequest pendingRequest) {
+        mHandler.getHandler().post(() -> {
             if (handleResponseCallbackCommon(pendingRequest)) {
-                mCallbacks.onSaveRequestSuccess(mComponentName.getPackageName(), intentSender);
+                mCallbacks.onSaveRequestSuccess(mComponentName.getPackageName());
             }
         });
     }
 
     private void dispatchOnSaveRequestFailure(PendingRequest pendingRequest,
             @Nullable CharSequence message) {
-        mHandler.post(() -> {
+        mHandler.getHandler().post(() -> {
             if (handleResponseCallbackCommon(pendingRequest)) {
                 mCallbacks.onSaveRequestFailure(message, mComponentName.getPackageName());
             }
@@ -377,8 +342,7 @@ final class RemoteFillService implements DeathRecipient {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
             if (mDestroyed || !mBinding) {
-                // This is abnormal. Unbinding the connection has been requested already.
-                Slog.wtf(LOG_TAG, "onServiceConnected was dispatched after unbindService.");
+                mContext.unbindService(mServiceConnection);
                 return;
             }
             mBinding = false;
@@ -411,14 +375,44 @@ final class RemoteFillService implements DeathRecipient {
         }
     }
 
-    private boolean checkIfDestroyed() {
-        if (mDestroyed) {
-            if (sVerbose) {
-                Slog.v(LOG_TAG, "Not handling operation as service for "
-                        + mComponentName + " is already destroyed");
-            }
+    private final class MyHandler extends HandlerCaller {
+        public static final int MSG_DESTROY = 1;
+        public static final int MSG_BINDER_DIED = 2;
+        public static final int MSG_UNBIND = 3;
+        public static final int MSG_ON_PENDING_REQUEST = 4;
+
+        public MyHandler(Context context) {
+            // Cannot use lambda - doesn't compile
+            super(context, FgThread.getHandler().getLooper(), new Callback() {
+                @Override
+                public void executeMessage(Message message) {
+                    if (mDestroyed) {
+                        if (sVerbose) {
+                            Slog.v(LOG_TAG, "Not handling " + message + " as service for "
+                                    + mComponentName + " is already destroyed");
+                        }
+                        return;
+                    }
+                    switch (message.what) {
+                        case MSG_DESTROY: {
+                            handleDestroy();
+                        } break;
+
+                        case MSG_BINDER_DIED: {
+                            handleBinderDied();
+                        } break;
+
+                        case MSG_UNBIND: {
+                            handleUnbind();
+                        } break;
+
+                        case MSG_ON_PENDING_REQUEST: {
+                            handlePendingRequest((PendingRequest) message.obj);
+                        } break;
+                    }
+                }
+            }, false);
         }
-        return mDestroyed;
     }
 
     private static abstract class PendingRequest implements Runnable {
@@ -436,7 +430,7 @@ final class RemoteFillService implements DeathRecipient {
 
         PendingRequest(RemoteFillService service) {
             mWeakService = new WeakReference<>(service);
-            mServiceHandler = service.mHandler;
+            mServiceHandler = service.mHandler.getHandler();
             mTimeoutTrigger = () -> {
                 synchronized (mLock) {
                     if (mCancelled) {
@@ -478,7 +472,6 @@ final class RemoteFillService implements DeathRecipient {
             return true;
         }
 
-        @GuardedBy("mLock")
         protected boolean isCancelledLocked() {
             return mCancelled;
         }
@@ -550,18 +543,18 @@ final class RemoteFillService implements DeathRecipient {
                     final RemoteFillService remoteService = getService();
                     if (remoteService != null) {
                         remoteService.dispatchOnFillRequestSuccess(PendingFillRequest.this,
-                                response, request.getFlags());
+                                getCallingUid(), request.getFlags(), response);
                     }
                 }
 
                 @Override
-                public void onFailure(int requestId, CharSequence message) {
+                public void onFailure(CharSequence message) {
                     if (!finish()) return;
 
                     final RemoteFillService remoteService = getService();
                     if (remoteService != null) {
-                        remoteService.dispatchOnFillRequestFailure(PendingFillRequest.this,
-                                message);
+                        remoteService.dispatchOnFillRequestFailure(
+                                PendingFillRequest.this, message);
                     }
                 }
             };
@@ -578,7 +571,7 @@ final class RemoteFillService implements DeathRecipient {
             if (cancellation != null) {
                 remoteService.dispatchOnFillTimeout(cancellation);
             }
-            remoteService.dispatchOnFillRequestTimeout(PendingFillRequest.this);
+            remoteService.dispatchOnFillRequestFailure(PendingFillRequest.this, null);
         }
 
         @Override
@@ -631,13 +624,12 @@ final class RemoteFillService implements DeathRecipient {
 
             mCallback = new ISaveCallback.Stub() {
                 @Override
-                public void onSuccess(IntentSender intentSender) {
+                public void onSuccess() {
                     if (!finish()) return;
 
                     final RemoteFillService remoteService = getService();
                     if (remoteService != null) {
-                        remoteService.dispatchOnSaveRequestSuccess(PendingSaveRequest.this,
-                                intentSender);
+                        remoteService.dispatchOnSaveRequestSuccess(PendingSaveRequest.this);
                     }
                 }
 

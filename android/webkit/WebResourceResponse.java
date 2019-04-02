@@ -16,12 +16,11 @@
 
 package android.webkit;
 
-import android.annotation.NonNull;
-import android.annotation.SystemApi;
-
 import java.io.InputStream;
 import java.io.StringBufferInputStream;
 import java.util.Map;
+
+import android.annotation.SystemApi;
 
 /**
  * Encapsulates a resource response. Applications can return an instance of this
@@ -64,15 +63,15 @@ public class WebResourceResponse {
      * @param encoding the resource response's encoding
      * @param statusCode the status code needs to be in the ranges [100, 299], [400, 599].
      *                   Causing a redirect by specifying a 3xx code is not supported.
-     * @param reasonPhrase the phrase describing the status code, for example "OK". Must be
-     *                     non-empty.
+     * @param reasonPhrase the phrase describing the status code, for example "OK". Must be non-null
+     *                     and not empty.
      * @param responseHeaders the resource response's headers represented as a mapping of header
      *                        name -> header value.
      * @param data the input stream that provides the resource response's data. Must not be a
      *             StringBufferInputStream.
      */
     public WebResourceResponse(String mimeType, String encoding, int statusCode,
-            @NonNull String reasonPhrase, Map<String, String> responseHeaders, InputStream data) {
+            String reasonPhrase, Map<String, String> responseHeaders, InputStream data) {
         this(mimeType, encoding, data);
         setStatusCodeAndReasonPhrase(statusCode, reasonPhrase);
         setResponseHeaders(responseHeaders);
@@ -122,10 +121,10 @@ public class WebResourceResponse {
      *
      * @param statusCode the status code needs to be in the ranges [100, 299], [400, 599].
      *                   Causing a redirect by specifying a 3xx code is not supported.
-     * @param reasonPhrase the phrase describing the status code, for example "OK". Must be
-     *                     non-empty.
+     * @param reasonPhrase the phrase describing the status code, for example "OK". Must be non-null
+     *                     and not empty.
      */
-    public void setStatusCodeAndReasonPhrase(int statusCode, @NonNull String reasonPhrase) {
+    public void setStatusCodeAndReasonPhrase(int statusCode, String reasonPhrase) {
         checkImmutable();
         if (statusCode < 100)
             throw new IllegalArgumentException("statusCode can't be less than 100.");

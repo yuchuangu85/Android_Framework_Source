@@ -37,8 +37,6 @@ import android.graphics.Bitmap;
 import android.graphics.drawable.Drawable;
 
 import android.net.Uri;
-import android.os.Bundle;
-
 import com.android.internal.R;
 import com.android.server.policy.IconUtilities;
 
@@ -74,23 +72,20 @@ class AlertWindowNotification {
     }
 
     /** Cancels the notification */
-    void cancel(boolean deleteChannel) {
+    void cancel() {
         // We can't call into NotificationManager with WM lock held since it might call into AM.
         // So, we post a message to do it later.
-        mService.mH.post(() -> onCancelNotification(deleteChannel));
+        mService.mH.post(this::onCancelNotification);
     }
 
     /** Don't call with the window manager lock held! */
-    private void onCancelNotification(boolean deleteChannel) {
+    private void onCancelNotification() {
         if (!mPosted) {
             // Notification isn't currently posted...
             return;
         }
         mPosted = false;
         mNotificationManager.cancel(mNotificationTag, NOTIFICATION_ID);
-        if (deleteChannel) {
-            mNotificationManager.deleteNotificationChannel(mNotificationTag);
-        }
     }
 
     /** Don't call with the window manager lock held! */
@@ -111,8 +106,6 @@ class AlertWindowNotification {
 
         final String message = context.getString(R.string.alert_windows_notification_message,
                 appName);
-        Bundle extras = new Bundle();
-        extras.putStringArray(Notification.EXTRA_FOREGROUND_APPS, new String[] {mPackageName});
         final Notification.Builder builder = new Notification.Builder(context, mNotificationTag)
                 .setOngoing(true)
                 .setContentTitle(
@@ -122,7 +115,6 @@ class AlertWindowNotification {
                 .setColor(context.getColor(R.color.system_notification_accent_color))
                 .setStyle(new Notification.BigTextStyle().bigText(message))
                 .setLocalOnly(true)
-                .addExtras(extras)
                 .setContentIntent(getContentIntent(context, mPackageName));
 
         if (aInfo != null) {
@@ -154,17 +146,12 @@ class AlertWindowNotification {
 
         final String nameChannel =
                 context.getString(R.string.alert_windows_notification_channel_name, appName);
-
-        NotificationChannel channel = mNotificationManager.getNotificationChannel(mNotificationTag);
-        if (channel != null) {
-            return;
-        }
-        channel = new NotificationChannel(mNotificationTag, nameChannel, IMPORTANCE_MIN);
+        final NotificationChannel channel =
+                new NotificationChannel(mNotificationTag, nameChannel, IMPORTANCE_MIN);
         channel.enableLights(false);
         channel.enableVibration(false);
         channel.setBlockableSystem(true);
         channel.setGroup(sChannelGroup.getId());
-        channel.setBypassDnd(true);
         mNotificationManager.createNotificationChannel(channel);
     }
 

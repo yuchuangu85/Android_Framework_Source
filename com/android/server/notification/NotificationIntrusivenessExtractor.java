@@ -85,9 +85,4 @@ public class NotificationIntrusivenessExtractor implements NotificationSignalExt
     public void setConfig(RankingConfig config) {
         // ignore: config has no relevant information yet.
     }
-
-    @Override
-    public void setZenHelper(ZenModeHelper helper) {
-
-    }
 }

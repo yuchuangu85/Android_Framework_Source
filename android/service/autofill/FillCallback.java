@@ -70,7 +70,7 @@ public final class FillCallback {
         assertNotCalled();
         mCalled = true;
         try {
-            mCallback.onFailure(mRequestId, message);
+            mCallback.onFailure(message);
         } catch (RemoteException e) {
             e.rethrowAsRuntimeException();
         }

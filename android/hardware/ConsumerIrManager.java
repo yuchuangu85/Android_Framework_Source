@@ -16,10 +16,8 @@
 
 package android.hardware;
 
-import android.annotation.RequiresFeature;
 import android.annotation.SystemService;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.ServiceManager.ServiceNotFoundException;
@@ -29,7 +27,6 @@ import android.util.Log;
  * Class that operates consumer infrared on the device.
  */
 @SystemService(Context.CONSUMER_IR_SERVICE)
-@RequiresFeature(PackageManager.FEATURE_CONSUMER_IR)
 public final class ConsumerIrManager {
     private static final String TAG = "ConsumerIr";
 

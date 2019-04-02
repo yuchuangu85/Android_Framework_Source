@@ -16,7 +16,6 @@
 
 package java.math;
 
-import dalvik.annotation.optimization.ReachabilitySensitive;
 import libcore.util.NativeAllocationRegistry;
 
 /*
@@ -30,16 +29,15 @@ final class BigInt {
             BigInt.class.getClassLoader(), NativeBN.getNativeFinalizer(), NativeBN.size());
 
     /* Fields used for the internal representation. */
-    @ReachabilitySensitive
-    private transient long bignum = 0;
+    transient long bignum = 0;
 
     @Override
     public String toString() {
         return this.decString();
     }
 
-    boolean hasNativeBignum() {
-        return this.bignum != 0;
+    long getNativeBIGNUM() {
+        return this.bignum;
     }
 
     private void makeValid() {

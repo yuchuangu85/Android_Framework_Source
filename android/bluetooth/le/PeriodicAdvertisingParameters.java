@@ -29,33 +29,29 @@ public final class PeriodicAdvertisingParameters implements Parcelable {
     private static final int INTERVAL_MIN = 80;
     private static final int INTERVAL_MAX = 65519;
 
-    private final boolean mIncludeTxPower;
-    private final int mInterval;
+    private final boolean includeTxPower;
+    private final int interval;
 
     private PeriodicAdvertisingParameters(boolean includeTxPower, int interval) {
-        mIncludeTxPower = includeTxPower;
-        mInterval = interval;
+        this.includeTxPower = includeTxPower;
+        this.interval = interval;
     }
 
     private PeriodicAdvertisingParameters(Parcel in) {
-        mIncludeTxPower = in.readInt() != 0;
-        mInterval = in.readInt();
+        includeTxPower = in.readInt() != 0 ? true : false;
+        interval = in.readInt();
     }
 
     /**
      * Returns whether the TX Power will be included.
      */
-    public boolean getIncludeTxPower() {
-        return mIncludeTxPower;
-    }
+    public boolean getIncludeTxPower() { return includeTxPower; }
 
     /**
      * Returns the periodic advertising interval, in 1.25ms unit.
      * Valid values are from 80 (100ms) to 65519 (81.89875s).
      */
-    public int getInterval() {
-        return mInterval;
-    }
+    public int getInterval() { return interval; }
 
     @Override
     public int describeContents() {
@@ -64,34 +60,34 @@ public final class PeriodicAdvertisingParameters implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeInt(mIncludeTxPower ? 1 : 0);
-        dest.writeInt(mInterval);
+        dest.writeInt(includeTxPower ? 1 : 0);
+        dest.writeInt(interval);
     }
 
     public static final Parcelable
-            .Creator<PeriodicAdvertisingParameters> CREATOR =
-            new Creator<PeriodicAdvertisingParameters>() {
-                @Override
-                public PeriodicAdvertisingParameters[] newArray(int size) {
-                    return new PeriodicAdvertisingParameters[size];
-                }
+        .Creator<PeriodicAdvertisingParameters> CREATOR =
+        new Creator<PeriodicAdvertisingParameters>() {
+            @Override
+            public PeriodicAdvertisingParameters[] newArray(int size) {
+                return new PeriodicAdvertisingParameters[size];
+            }
 
-                @Override
-                public PeriodicAdvertisingParameters createFromParcel(Parcel in) {
-                    return new PeriodicAdvertisingParameters(in);
-                }
-            };
+            @Override
+            public PeriodicAdvertisingParameters createFromParcel(Parcel in) {
+                return new PeriodicAdvertisingParameters(in);
+            }
+        };
 
     public static final class Builder {
-        private boolean mIncludeTxPower = false;
-        private int mInterval = INTERVAL_MAX;
+        private boolean includeTxPower = false;
+        private int interval = INTERVAL_MAX;
 
         /**
          * Whether the transmission power level should be included in the periodic
          * packet.
          */
         public Builder setIncludeTxPower(boolean includeTxPower) {
-            mIncludeTxPower = includeTxPower;
+            this.includeTxPower = includeTxPower;
             return this;
         }
 
@@ -99,15 +95,14 @@ public final class PeriodicAdvertisingParameters implements Parcelable {
          * Set advertising interval for periodic advertising, in 1.25ms unit.
          * Valid values are from 80 (100ms) to 65519 (81.89875s).
          * Value from range [interval, interval+20ms] will be picked as the actual value.
-         *
          * @throws IllegalArgumentException If the interval is invalid.
          */
         public Builder setInterval(int interval) {
             if (interval < INTERVAL_MIN || interval > INTERVAL_MAX) {
-                throw new IllegalArgumentException("Invalid interval (must be " + INTERVAL_MIN
-                        + "-" + INTERVAL_MAX + ")");
+                throw new IllegalArgumentException("Invalid interval (must be " + INTERVAL_MIN +
+                                                   "-" + INTERVAL_MAX + ")");
             }
-            mInterval = interval;
+            this.interval = interval;
             return this;
         }
 
@@ -115,7 +110,7 @@ public final class PeriodicAdvertisingParameters implements Parcelable {
          * Build the {@link AdvertisingSetParameters} object.
          */
         public PeriodicAdvertisingParameters build() {
-            return new PeriodicAdvertisingParameters(mIncludeTxPower, mInterval);
+            return new PeriodicAdvertisingParameters(includeTxPower, interval);
         }
     }
 }

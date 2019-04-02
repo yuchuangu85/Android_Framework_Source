@@ -159,7 +159,7 @@ public class BridgeXmlBlockParser implements XmlResourceParser {
 
     @Override
     public String getNamespace(String prefix) {
-        return mParser.getNamespace(prefix);
+        throw new RuntimeException("getNamespace() not supported");
     }
 
     @Override

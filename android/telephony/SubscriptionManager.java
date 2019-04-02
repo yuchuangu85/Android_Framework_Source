@@ -16,49 +16,37 @@
 
 package android.telephony;
 
-import static android.net.NetworkPolicyManager.OVERRIDE_CONGESTED;
-import static android.net.NetworkPolicyManager.OVERRIDE_UNMETERED;
-
-import android.annotation.DurationMillisLong;
 import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
-import android.annotation.SdkConstant.SdkConstantType;
-import android.annotation.SuppressAutoDoc;
 import android.annotation.SystemApi;
+import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemService;
-import android.app.BroadcastOptions;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.net.INetworkPolicyManager;
-import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Handler;
-import android.os.Looper;
 import android.os.Message;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.util.DisplayMetrics;
-
 import com.android.internal.telephony.IOnSubscriptionsChangedListener;
 import com.android.internal.telephony.ISub;
 import com.android.internal.telephony.ITelephonyRegistry;
 import com.android.internal.telephony.PhoneConstants;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 /**
  * SubscriptionManager is the application interface to SubscriptionController
  * and provides information about the current Telephony Subscriptions.
+ * <p>
+ * All SDK public methods require android.Manifest.permission.READ_PHONE_STATE unless otherwise
+ * specified.
  */
 @SystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE)
 public class SubscriptionManager {
@@ -282,14 +270,6 @@ public class SubscriptionManager {
     public static final String IS_EMBEDDED = "is_embedded";
 
     /**
-     * TelephonyProvider column name for SIM card identifier. For UICC card it is the ICCID of the
-     * current enabled profile on the card, while for eUICC card it is the EID of the card.
-     * <P>Type: TEXT (String)</P>
-     * @hide
-     */
-     public static final String CARD_ID = "card_id";
-
-    /**
      * TelephonyProvider column name for the encoded {@link UiccAccessRule}s from
      * {@link UiccAccessRule#encodeRules}. Only present if {@link #IS_EMBEDDED} is 1.
      * <p>TYPE: BLOB
@@ -380,45 +360,6 @@ public class SubscriptionManager {
     public static final String CB_OPT_OUT_DIALOG = "show_cmas_opt_out_dialog";
 
     /**
-     * TelephonyProvider column name for enable Volte.
-     *
-     * If this setting is not initialized (set to -1)  then we use the Carrier Config value
-     * {@link CarrierConfigManager#KEY_ENHANCED_4G_LTE_ON_BY_DEFAULT_BOOL}.
-     *@hide
-     */
-    public static final String ENHANCED_4G_MODE_ENABLED = "volte_vt_enabled";
-
-    /**
-     * TelephonyProvider column name for enable VT (Video Telephony over IMS)
-     *@hide
-     */
-    public static final String VT_IMS_ENABLED = "vt_ims_enabled";
-
-    /**
-     * TelephonyProvider column name for enable Wifi calling
-     *@hide
-     */
-    public static final String WFC_IMS_ENABLED = "wfc_ims_enabled";
-
-    /**
-     * TelephonyProvider column name for Wifi calling mode
-     *@hide
-     */
-    public static final String WFC_IMS_MODE = "wfc_ims_mode";
-
-    /**
-     * TelephonyProvider column name for Wifi calling mode in roaming
-     *@hide
-     */
-    public static final String WFC_IMS_ROAMING_MODE = "wfc_ims_roaming_mode";
-
-    /**
-     * TelephonyProvider column name for enable Wifi calling in roaming
-     *@hide
-     */
-    public static final String WFC_IMS_ROAMING_ENABLED = "wfc_ims_roaming_enabled";
-
-    /**
      * Broadcast Action: The user has changed one of the default subs related to
      * data, phone calls, or sms</p>
      *
@@ -449,58 +390,6 @@ public class SubscriptionManager {
             = "android.telephony.action.DEFAULT_SMS_SUBSCRIPTION_CHANGED";
 
     /**
-     * Activity Action: Display UI for managing the billing relationship plans
-     * between a carrier and a specific subscriber.
-     * <p>
-     * Carrier apps are encouraged to implement this activity, and the OS will
-     * provide an affordance to quickly enter this activity, typically via
-     * Settings. This affordance will only be shown when the carrier app is
-     * actively providing subscription plan information via
-     * {@link #setSubscriptionPlans(int, List)}.
-     * <p>
-     * Contains {@link #EXTRA_SUBSCRIPTION_INDEX} to indicate which subscription
-     * the user is interested in.
-     */
-    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
-    @SystemApi
-    public static final String ACTION_MANAGE_SUBSCRIPTION_PLANS
-            = "android.telephony.action.MANAGE_SUBSCRIPTION_PLANS";
-
-    /**
-     * Broadcast Action: Request a refresh of the billing relationship plans
-     * between a carrier and a specific subscriber.
-     * <p>
-     * Carrier apps are encouraged to implement this receiver, and the OS will
-     * provide an affordance to request a refresh. This affordance will only be
-     * shown when the carrier app is actively providing subscription plan
-     * information via {@link #setSubscriptionPlans(int, List)}.
-     * <p>
-     * Contains {@link #EXTRA_SUBSCRIPTION_INDEX} to indicate which subscription
-     * the user is interested in.
-     * <p>
-     * Receivers should protect themselves by checking that the sender holds the
-     * {@code android.permission.MANAGE_SUBSCRIPTION_PLANS} permission.
-     */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @SystemApi
-    public static final String ACTION_REFRESH_SUBSCRIPTION_PLANS
-            = "android.telephony.action.REFRESH_SUBSCRIPTION_PLANS";
-
-    /**
-     * Broadcast Action: The billing relationship plans between a carrier and a
-     * specific subscriber has changed.
-     * <p>
-     * Contains {@link #EXTRA_SUBSCRIPTION_INDEX} to indicate which subscription
-     * changed.
-     *
-     * @hide
-     */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @RequiresPermission(android.Manifest.permission.MANAGE_SUBSCRIPTION_PLANS)
-    public static final String ACTION_SUBSCRIPTION_PLANS_CHANGED
-            = "android.telephony.action.SUBSCRIPTION_PLANS_CHANGED";
-
-    /**
      * Integer extra used with {@link #ACTION_DEFAULT_SUBSCRIPTION_CHANGED} and
      * {@link #ACTION_DEFAULT_SMS_SUBSCRIPTION_CHANGED} to indicate the subscription
      * which has changed.
@@ -508,7 +397,6 @@ public class SubscriptionManager {
     public static final String EXTRA_SUBSCRIPTION_INDEX = "android.telephony.extra.SUBSCRIPTION_INDEX";
 
     private final Context mContext;
-    private volatile INetworkPolicyManager mNetworkPolicy;
 
     /**
      * A listener class for monitoring changes to {@link SubscriptionInfo} records.
@@ -522,15 +410,7 @@ public class SubscriptionManager {
      * for #onSubscriptionsChanged to be invoked.
      */
     public static class OnSubscriptionsChangedListener {
-        private class OnSubscriptionsChangedListenerHandler extends Handler {
-            OnSubscriptionsChangedListenerHandler() {
-                super();
-            }
-
-            OnSubscriptionsChangedListenerHandler(Looper looper) {
-                super(looper);
-            }
-
+        private final Handler mHandler  = new Handler() {
             @Override
             public void handleMessage(Message msg) {
                 if (DBG) {
@@ -538,22 +418,7 @@ public class SubscriptionManager {
                 }
                 OnSubscriptionsChangedListener.this.onSubscriptionsChanged();
             }
-        }
-
-        private final Handler mHandler;
-
-        public OnSubscriptionsChangedListener() {
-            mHandler = new OnSubscriptionsChangedListenerHandler();
-        }
-
-        /**
-         * Allow a listener to be created with a custom looper
-         * @param looper the looper that the underlining handler should run on
-         * @hide
-         */
-        public OnSubscriptionsChangedListener(Looper looper) {
-            mHandler = new OnSubscriptionsChangedListenerHandler(looper);
-        }
+        };
 
         /**
          * Callback invoked when there is any change to any SubscriptionInfo. Typically
@@ -587,21 +452,16 @@ public class SubscriptionManager {
     }
 
     /**
-     * @deprecated developers should always obtain references directly from
-     *             {@link Context#getSystemService(Class)}.
+     * Get an instance of the SubscriptionManager from the Context.
+     * This invokes {@link android.content.Context#getSystemService
+     * Context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE)}.
+     *
+     * @param context to use.
+     * @return SubscriptionManager instance
      */
-    @Deprecated
     public static SubscriptionManager from(Context context) {
-        return (SubscriptionManager) context
-                .getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
-    }
-
-    private final INetworkPolicyManager getNetworkPolicy() {
-        if (mNetworkPolicy == null) {
-            mNetworkPolicy = INetworkPolicyManager.Stub
-                    .asInterface(ServiceManager.getService(Context.NETWORK_POLICY_SERVICE));
-        }
-        return mNetworkPolicy;
+        return (SubscriptionManager) context.getSystemService(
+                Context.TELEPHONY_SUBSCRIPTION_SERVICE);
     }
 
     /**
@@ -613,9 +473,9 @@ public class SubscriptionManager {
      *                 onSubscriptionsChanged overridden.
      */
     public void addOnSubscriptionsChangedListener(OnSubscriptionsChangedListener listener) {
-        String pkgName = mContext != null ? mContext.getOpPackageName() : "<unknown>";
+        String pkgForDebug = mContext != null ? mContext.getOpPackageName() : "<unknown>";
         if (DBG) {
-            logd("register OnSubscriptionsChangedListener pkgName=" + pkgName
+            logd("register OnSubscriptionsChangedListener pkgForDebug=" + pkgForDebug
                     + " listener=" + listener);
         }
         try {
@@ -624,7 +484,7 @@ public class SubscriptionManager {
             ITelephonyRegistry tr = ITelephonyRegistry.Stub.asInterface(ServiceManager.getService(
                     "telephony.registry"));
             if (tr != null) {
-                tr.addOnSubscriptionsChangedListener(pkgName, listener.callback);
+                tr.addOnSubscriptionsChangedListener(pkgForDebug, listener.callback);
             }
         } catch (RemoteException ex) {
             // Should not happen
@@ -660,15 +520,9 @@ public class SubscriptionManager {
     /**
      * Get the active SubscriptionInfo with the input subId.
      *
-     * <p>Requires Permission: {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
-     * or that the calling app has carrier privileges (see
-     * {@link TelephonyManager#hasCarrierPrivileges}).
-     *
      * @param subId The unique SubscriptionInfo key in database.
      * @return SubscriptionInfo, maybe null if its not active.
      */
-    @SuppressAutoDoc // Blocked by b/72967236 - no support for carrier privileges
-    @RequiresPermission(android.Manifest.permission.READ_PHONE_STATE)
     public SubscriptionInfo getActiveSubscriptionInfo(int subId) {
         if (VDBG) logd("[getActiveSubscriptionInfo]+ subId=" + subId);
         if (!isValidSubscriptionId(subId)) {
@@ -722,16 +576,9 @@ public class SubscriptionManager {
 
     /**
      * Get the active SubscriptionInfo associated with the slotIndex
-     *
-     * <p>Requires Permission: {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
-     * or that the calling app has carrier privileges (see
-     * {@link TelephonyManager#hasCarrierPrivileges}).
-     *
      * @param slotIndex the slot which the subscription is inserted
      * @return SubscriptionInfo, maybe null if its not active
      */
-    @SuppressAutoDoc // Blocked by b/72967236 - no support for carrier privileges
-    @RequiresPermission(android.Manifest.permission.READ_PHONE_STATE)
     public SubscriptionInfo getActiveSubscriptionInfoForSimSlotIndex(int slotIndex) {
         if (VDBG) logd("[getActiveSubscriptionInfoForSimSlotIndex]+ slotIndex=" + slotIndex);
         if (!isValidSlotIndex(slotIndex)) {
@@ -783,11 +630,6 @@ public class SubscriptionManager {
      * Get the SubscriptionInfo(s) of the currently inserted SIM(s). The records will be sorted
      * by {@link SubscriptionInfo#getSimSlotIndex} then by {@link SubscriptionInfo#getSubscriptionId}.
      *
-     * <p>Requires Permission: {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
-     * or that the calling app has carrier privileges (see
-     * {@link TelephonyManager#hasCarrierPrivileges}). In the latter case, only records accessible
-     * to the calling app are returned.
-     *
      * @return Sorted list of the currently {@link SubscriptionInfo} records available on the device.
      * <ul>
      * <li>
@@ -804,8 +646,6 @@ public class SubscriptionManager {
      * </li>
      * </ul>
      */
-    @SuppressAutoDoc // Blocked by b/72967236 - no support for carrier privileges
-    @RequiresPermission(android.Manifest.permission.READ_PHONE_STATE)
     public List<SubscriptionInfo> getActiveSubscriptionInfoList() {
         List<SubscriptionInfo> result = null;
 
@@ -843,13 +683,10 @@ public class SubscriptionManager {
      * if the list is non-empty the list is sorted by {@link SubscriptionInfo#getSimSlotIndex}
      * then by {@link SubscriptionInfo#getSubscriptionId}.
      * </ul>
-     *
-     * <p>
-     * Permissions android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE is required
-     * for #getAvailableSubscriptionInfoList to be invoked.
      * @hide
+     *
+     * TODO(b/35851809): Make this a SystemApi.
      */
-    @SystemApi
     public List<SubscriptionInfo> getAvailableSubscriptionInfoList() {
         List<SubscriptionInfo> result = null;
 
@@ -887,6 +724,9 @@ public class SubscriptionManager {
      * if the list is non-empty the list is sorted by {@link SubscriptionInfo#getSimSlotIndex}
      * then by {@link SubscriptionInfo#getSubscriptionId}.
      * </ul>
+     * @hide
+     *
+     * TODO(b/35851809): Make this public.
      */
     public List<SubscriptionInfo> getAccessibleSubscriptionInfoList() {
         List<SubscriptionInfo> result = null;
@@ -912,8 +752,9 @@ public class SubscriptionManager {
      *
      * <p>Requires the {@link android.Manifest.permission#WRITE_EMBEDDED_SUBSCRIPTIONS} permission.
      * @hide
+     *
+     * TODO(b/35851809): Make this a SystemApi.
      */
-    @SystemApi
     public void requestEmbeddedSubscriptionInfoListRefresh() {
         try {
             ISub iSub = ISub.Stub.asInterface(ServiceManager.getService("isub"));
@@ -948,18 +789,10 @@ public class SubscriptionManager {
     }
 
     /**
-     *
-     * Requires Permission: {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
-     * or that the calling app has carrier privileges (see
-     * {@link TelephonyManager#hasCarrierPrivileges}). In the latter case, the count will include
-     * only those subscriptions accessible to the caller.
-     *
      * @return the current number of active subscriptions. There is no guarantee the value
      * returned by this method will be the same as the length of the list returned by
      * {@link #getActiveSubscriptionInfoList}.
      */
-    @SuppressAutoDoc // Blocked by b/72967236 - no support for carrier privileges
-    @RequiresPermission(android.Manifest.permission.READ_PHONE_STATE)
     public int getActiveSubscriptionInfoCount() {
         int result = 0;
 
@@ -1016,8 +849,6 @@ public class SubscriptionManager {
             if (iSub != null) {
                 // FIXME: This returns 1 on success, 0 on error should should we return it?
                 iSub.addSubInfoRecord(iccId, slotIndex);
-            } else {
-                logd("[addSubscriptionInfoRecord]- ISub service is null");
             }
         } catch (RemoteException ex) {
             // ignore it
@@ -1718,20 +1549,21 @@ public class SubscriptionManager {
      * This method is only accessible to the following narrow set of apps:
      * <ul>
      * <li>The carrier app for this subscriberId, as determined by
-     * {@link TelephonyManager#hasCarrierPrivileges()}.
+     * {@link TelephonyManager#hasCarrierPrivileges(int)}.
      * <li>The carrier app explicitly delegated access through
      * {@link CarrierConfigManager#KEY_CONFIG_PLANS_PACKAGE_OVERRIDE_STRING}.
      * </ul>
      *
      * @param subId the subscriber this relationship applies to
-     * @throws SecurityException if the caller doesn't meet the requirements
-     *             outlined above.
+     * @hide
      */
     @SystemApi
     public @NonNull List<SubscriptionPlan> getSubscriptionPlans(int subId) {
+        final INetworkPolicyManager npm = INetworkPolicyManager.Stub
+                .asInterface(ServiceManager.getService(Context.NETWORK_POLICY_SERVICE));
         try {
             SubscriptionPlan[] subscriptionPlans =
-                    getNetworkPolicy().getSubscriptionPlans(subId, mContext.getOpPackageName());
+                    npm.getSubscriptionPlans(subId, mContext.getOpPackageName());
             return subscriptionPlans == null
                     ? Collections.emptyList() : Arrays.asList(subscriptionPlans);
         } catch (RemoteException e) {
@@ -1746,238 +1578,26 @@ public class SubscriptionManager {
      * This method is only accessible to the following narrow set of apps:
      * <ul>
      * <li>The carrier app for this subscriberId, as determined by
-     * {@link TelephonyManager#hasCarrierPrivileges()}.
+     * {@link TelephonyManager#hasCarrierPrivileges(int)}.
      * <li>The carrier app explicitly delegated access through
      * {@link CarrierConfigManager#KEY_CONFIG_PLANS_PACKAGE_OVERRIDE_STRING}.
      * </ul>
      *
-     * @param subId the subscriber this relationship applies to. An empty list
-     *            may be sent to clear any existing plans.
+     * @param subId the subscriber this relationship applies to
      * @param plans the list of plans. The first plan is always the primary and
      *            most important plan. Any additional plans are secondary and
      *            may not be displayed or used by decision making logic.
-     * @throws SecurityException if the caller doesn't meet the requirements
-     *             outlined above.
+     * @hide
      */
     @SystemApi
     public void setSubscriptionPlans(int subId, @NonNull List<SubscriptionPlan> plans) {
+        final INetworkPolicyManager npm = INetworkPolicyManager.Stub
+                .asInterface(ServiceManager.getService(Context.NETWORK_POLICY_SERVICE));
         try {
-            getNetworkPolicy().setSubscriptionPlans(subId,
-                    plans.toArray(new SubscriptionPlan[plans.size()]), mContext.getOpPackageName());
+            npm.setSubscriptionPlans(subId, plans.toArray(new SubscriptionPlan[plans.size()]),
+                    mContext.getOpPackageName());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
-    }
-
-    /** @hide */
-    private String getSubscriptionPlansOwner(int subId) {
-        try {
-            return getNetworkPolicy().getSubscriptionPlansOwner(subId);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Temporarily override the billing relationship plan between a carrier and
-     * a specific subscriber to be considered unmetered. This will be reflected
-     * to apps via {@link NetworkCapabilities#NET_CAPABILITY_NOT_METERED}.
-     * <p>
-     * This method is only accessible to the following narrow set of apps:
-     * <ul>
-     * <li>The carrier app for this subscriberId, as determined by
-     * {@link TelephonyManager#hasCarrierPrivileges()}.
-     * <li>The carrier app explicitly delegated access through
-     * {@link CarrierConfigManager#KEY_CONFIG_PLANS_PACKAGE_OVERRIDE_STRING}.
-     * </ul>
-     *
-     * @param subId the subscriber this override applies to.
-     * @param overrideUnmetered set if the billing relationship should be
-     *            considered unmetered.
-     * @param timeoutMillis the timeout after which the requested override will
-     *            be automatically cleared, or {@code 0} to leave in the
-     *            requested state until explicitly cleared, or the next reboot,
-     *            whichever happens first.
-     * @throws SecurityException if the caller doesn't meet the requirements
-     *             outlined above.
-     */
-    @SystemApi
-    public void setSubscriptionOverrideUnmetered(int subId, boolean overrideUnmetered,
-            @DurationMillisLong long timeoutMillis) {
-        try {
-            final int overrideValue = overrideUnmetered ? OVERRIDE_UNMETERED : 0;
-            getNetworkPolicy().setSubscriptionOverride(subId, OVERRIDE_UNMETERED, overrideValue,
-                    timeoutMillis, mContext.getOpPackageName());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Temporarily override the billing relationship plan between a carrier and
-     * a specific subscriber to be considered congested. This will cause the
-     * device to delay certain network requests when possible, such as developer
-     * jobs that are willing to run in a flexible time window.
-     * <p>
-     * This method is only accessible to the following narrow set of apps:
-     * <ul>
-     * <li>The carrier app for this subscriberId, as determined by
-     * {@link TelephonyManager#hasCarrierPrivileges()}.
-     * <li>The carrier app explicitly delegated access through
-     * {@link CarrierConfigManager#KEY_CONFIG_PLANS_PACKAGE_OVERRIDE_STRING}.
-     * </ul>
-     *
-     * @param subId the subscriber this override applies to.
-     * @param overrideCongested set if the subscription should be considered
-     *            congested.
-     * @param timeoutMillis the timeout after which the requested override will
-     *            be automatically cleared, or {@code 0} to leave in the
-     *            requested state until explicitly cleared, or the next reboot,
-     *            whichever happens first.
-     * @throws SecurityException if the caller doesn't meet the requirements
-     *             outlined above.
-     */
-    @SystemApi
-    public void setSubscriptionOverrideCongested(int subId, boolean overrideCongested,
-            @DurationMillisLong long timeoutMillis) {
-        try {
-            final int overrideValue = overrideCongested ? OVERRIDE_CONGESTED : 0;
-            getNetworkPolicy().setSubscriptionOverride(subId, OVERRIDE_CONGESTED, overrideValue,
-                    timeoutMillis, mContext.getOpPackageName());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Create an {@link Intent} that can be launched towards the carrier app
-     * that is currently defining the billing relationship plan through
-     * {@link #setSubscriptionPlans(int, List)}.
-     *
-     * @return ready to launch Intent targeted towards the carrier app, or
-     *         {@code null} if no carrier app is defined, or if the defined
-     *         carrier app provides no management activity.
-     * @hide
-     */
-    public @Nullable Intent createManageSubscriptionIntent(int subId) {
-        // Bail if no owner
-        final String owner = getSubscriptionPlansOwner(subId);
-        if (owner == null) return null;
-
-        // Bail if no plans
-        final List<SubscriptionPlan> plans = getSubscriptionPlans(subId);
-        if (plans.isEmpty()) return null;
-
-        final Intent intent = new Intent(ACTION_MANAGE_SUBSCRIPTION_PLANS);
-        intent.setPackage(owner);
-        intent.putExtra(EXTRA_SUBSCRIPTION_INDEX, subId);
-
-        // Bail if not implemented
-        if (mContext.getPackageManager().queryIntentActivities(intent,
-                PackageManager.MATCH_DEFAULT_ONLY).isEmpty()) {
-            return null;
-        }
-
-        return intent;
-    }
-
-    /** @hide */
-    private @Nullable Intent createRefreshSubscriptionIntent(int subId) {
-        // Bail if no owner
-        final String owner = getSubscriptionPlansOwner(subId);
-        if (owner == null) return null;
-
-        // Bail if no plans
-        final List<SubscriptionPlan> plans = getSubscriptionPlans(subId);
-        if (plans.isEmpty()) return null;
-
-        final Intent intent = new Intent(ACTION_REFRESH_SUBSCRIPTION_PLANS);
-        intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
-        intent.setPackage(owner);
-        intent.putExtra(EXTRA_SUBSCRIPTION_INDEX, subId);
-
-        // Bail if not implemented
-        if (mContext.getPackageManager().queryBroadcastReceivers(intent, 0).isEmpty()) {
-            return null;
-        }
-
-        return intent;
-    }
-
-    /**
-     * Check if there is a carrier app that is currently defining the billing
-     * relationship plan through {@link #setSubscriptionPlans(int, List)} that
-     * supports refreshing of subscription plans.
-     *
-     * @hide
-     */
-    public boolean isSubscriptionPlansRefreshSupported(int subId) {
-        return createRefreshSubscriptionIntent(subId) != null;
-    }
-
-    /**
-     * Request that the carrier app that is currently defining the billing
-     * relationship plan through {@link #setSubscriptionPlans(int, List)}
-     * refresh its subscription plans.
-     * <p>
-     * If the app is able to successfully update the plans, you'll expect to
-     * receive the {@link #ACTION_SUBSCRIPTION_PLANS_CHANGED} broadcast.
-     *
-     * @hide
-     */
-    public void requestSubscriptionPlansRefresh(int subId) {
-        final Intent intent = createRefreshSubscriptionIntent(subId);
-        final BroadcastOptions options = BroadcastOptions.makeBasic();
-        options.setTemporaryAppWhitelistDuration(TimeUnit.MINUTES.toMillis(1));
-        mContext.sendBroadcast(intent, null, options.toBundle());
-    }
-
-    /**
-     * Checks whether the app with the given context is authorized to manage the given subscription
-     * according to its metadata. Only supported for embedded subscriptions (if
-     * {@code SubscriptionInfo#isEmbedded} returns true).
-     *
-     * @param info The subscription to check.
-     * @return whether the app is authorized to manage this subscription per its metadata.
-     * @throws IllegalArgumentException if this subscription is not embedded.
-     */
-    public boolean canManageSubscription(SubscriptionInfo info) {
-        return canManageSubscription(info, mContext.getPackageName());
-    }
-
-    /**
-     * Checks whether the given app is authorized to manage the given subscription. An app can only
-     * be authorized if it is included in the {@link android.telephony.UiccAccessRule} of the
-     * {@link android.telephony.SubscriptionInfo} with the access status.
-     * Only supported for embedded subscriptions (if {@link SubscriptionInfo#isEmbedded}
-     * returns true).
-     *
-     * @param info The subscription to check.
-     * @param packageName Package name of the app to check.
-     * @return whether the app is authorized to manage this subscription per its access rules.
-     * @throws IllegalArgumentException if this subscription is not embedded.
-     * @hide
-     */
-    public boolean canManageSubscription(SubscriptionInfo info, String packageName) {
-        if (!info.isEmbedded()) {
-            throw new IllegalArgumentException("Not an embedded subscription");
-        }
-        if (info.getAccessRules() == null) {
-            return false;
-        }
-        PackageManager packageManager = mContext.getPackageManager();
-        PackageInfo packageInfo;
-        try {
-            packageInfo = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES);
-        } catch (PackageManager.NameNotFoundException e) {
-            throw new IllegalArgumentException("Unknown package: " + packageName, e);
-        }
-        for (UiccAccessRule rule : info.getAccessRules()) {
-            if (rule.getCarrierPrivilegeStatus(packageInfo)
-                    == TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS) {
-                return true;
-            }
-        }
-        return false;
     }
 }

@@ -21,7 +21,6 @@ import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Pools;
-import android.view.accessibility.AccessibilityNodeInfo;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,7 +46,7 @@ public class WindowInfo implements Parcelable {
     public final Rect boundsInScreen = new Rect();
     public List<IBinder> childTokens;
     public CharSequence title;
-    public long accessibilityIdOfAnchor = AccessibilityNodeInfo.UNDEFINED_NODE_ID;
+    public int accessibilityIdOfAnchor = View.NO_ID;
     public boolean inPictureInPicture;
 
     private WindowInfo() {
@@ -106,7 +105,7 @@ public class WindowInfo implements Parcelable {
         parcel.writeInt(focused ? 1 : 0);
         boundsInScreen.writeToParcel(parcel, flags);
         parcel.writeCharSequence(title);
-        parcel.writeLong(accessibilityIdOfAnchor);
+        parcel.writeInt(accessibilityIdOfAnchor);
         parcel.writeInt(inPictureInPicture ? 1 : 0);
 
         if (childTokens != null && !childTokens.isEmpty()) {
@@ -143,7 +142,7 @@ public class WindowInfo implements Parcelable {
         focused = (parcel.readInt() == 1);
         boundsInScreen.readFromParcel(parcel);
         title = parcel.readCharSequence();
-        accessibilityIdOfAnchor = parcel.readLong();
+        accessibilityIdOfAnchor = parcel.readInt();
         inPictureInPicture = (parcel.readInt() == 1);
 
         final boolean hasChildren = (parcel.readInt() == 1);

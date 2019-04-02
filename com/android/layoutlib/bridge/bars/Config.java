@@ -74,8 +74,8 @@ public class Config {
     }
 
     public static String getTime(int platformVersion) {
-        if (isGreaterOrEqual(platformVersion, O)) {
-            return "8:00";
+        if (isGreaterOrEqual(platformVersion, N)) {
+            return "7:00";
         }
         if (platformVersion < GINGERBREAD) {
             return "2:20";
@@ -100,9 +100,6 @@ public class Config {
         }
         if (platformVersion < N) {
             return "6:00";
-        }
-        if (platformVersion < O) {
-            return "7:00";
         }
         // Should never happen.
         return "4:04";

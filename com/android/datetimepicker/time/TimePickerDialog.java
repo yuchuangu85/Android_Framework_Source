@@ -46,10 +46,7 @@ import java.util.Locale;
 
 /**
  * Dialog to set a time.
- *
- * @deprecated Use {@link android.app.TimePickerDialog}.
  */
-@Deprecated
 public class TimePickerDialog extends DialogFragment implements OnValueSelectedListener{
     private static final String TAG = "TimePickerDialog";
 

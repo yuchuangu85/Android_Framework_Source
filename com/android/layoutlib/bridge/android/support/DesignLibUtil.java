@@ -31,22 +31,14 @@ import static com.android.layoutlib.bridge.util.ReflectionUtils.invoke;
  * Utility class for working with the design support lib.
  */
 public class DesignLibUtil {
-    public static final String[] CN_COORDINATOR_LAYOUT = {
-            "android.support.design.widget.CoordinatorLayout",
-            "androidx.widget.CoordinatorLayout"
-    };
-    public static final String[] CN_APPBAR_LAYOUT = {
-            "android.support.design.widget.AppBarLayout",
-            "androidx.design.widget.AppBarLayout"
-    };
-    public static final String[] CN_COLLAPSING_TOOLBAR_LAYOUT = {
-            "android.support.design.widget.CollapsingToolbarLayout",
-            "androidx.design.widget.CollapsingToolbarLayout"
-    };
-    public static final String[] CN_TOOLBAR = {
-            "android.support.v7.widget.Toolbar",
-            "androidx.widget.Toolbar"
-    };
+
+    private static final String PKG_PREFIX = "android.support.design.widget.";
+    public static final String CN_COORDINATOR_LAYOUT = PKG_PREFIX + "CoordinatorLayout";
+    public static final String CN_APPBAR_LAYOUT = PKG_PREFIX + "AppBarLayout";
+    public static final String CN_COLLAPSING_TOOLBAR_LAYOUT =
+            PKG_PREFIX + "CollapsingToolbarLayout";
+    public static final String CN_TOOLBAR = "android.support.v7.widget.Toolbar";
+    public static final int SCROLL_AXIS_VERTICAL = 1 << 1;
 
     /**
      * Tries to set the title of a view. This is used to set the title in a

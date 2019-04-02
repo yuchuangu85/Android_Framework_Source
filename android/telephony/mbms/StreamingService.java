@@ -29,11 +29,12 @@ import java.lang.annotation.RetentionPolicy;
 
 /**
  * Class used to represent a single MBMS stream. After a stream has been started with
- * {@link MbmsStreamingSession#startStreaming(StreamingServiceInfo, java.util.concurrent.Executor,
- * StreamingServiceCallback)},
+ * {@link MbmsStreamingSession#startStreaming(StreamingServiceInfo,
+ * StreamingServiceCallback, android.os.Handler)},
  * this class is used to hold information about the stream and control it.
+ * @hide
  */
-public class StreamingService implements AutoCloseable {
+public class StreamingService {
     private static final String LOG_TAG = "MbmsStreamingService";
 
     /**
@@ -41,7 +42,7 @@ public class StreamingService implements AutoCloseable {
      * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "STATE_" }, value = {STATE_STOPPED, STATE_STARTED, STATE_STALLED})
+    @IntDef({STATE_STOPPED, STATE_STARTED, STATE_STALLED})
     public @interface StreamingState {}
     public final static int STATE_STOPPED = 1;
     public final static int STATE_STARTED = 2;
@@ -53,8 +54,7 @@ public class StreamingService implements AutoCloseable {
      * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "REASON_" },
-            value = {REASON_BY_USER_REQUEST, REASON_END_OF_SESSION, REASON_FREQUENCY_CONFLICT,
+    @IntDef({REASON_BY_USER_REQUEST, REASON_END_OF_SESSION, REASON_FREQUENCY_CONFLICT,
             REASON_OUT_OF_MEMORY, REASON_NOT_CONNECTED_TO_HOMECARRIER_LTE,
             REASON_LEFT_MBMS_BROADCAST_AREA, REASON_NONE})
     public @interface StreamingStateChangeReason {}
@@ -65,9 +65,9 @@ public class StreamingService implements AutoCloseable {
     public static final int REASON_NONE = 0;
 
     /**
-     * State changed due to a call to {@link #close()} or
+     * State changed due to a call to {@link #stopStreaming()} or
      * {@link MbmsStreamingSession#startStreaming(StreamingServiceInfo,
-     * java.util.concurrent.Executor, StreamingServiceCallback)}
+     * StreamingServiceCallback, android.os.Handler)}
      */
     public static final int REASON_BY_USER_REQUEST = 1;
 
@@ -162,8 +162,7 @@ public class StreamingService implements AutoCloseable {
      *
      * May throw an {@link IllegalArgumentException} or an {@link IllegalStateException}
      */
-    @Override
-    public void close() {
+    public void stopStreaming() {
         if (mService == null) {
             throw new IllegalStateException("No streaming service attached");
         }

@@ -26,19 +26,12 @@ import java.lang.annotation.Target;
 
 /**
  * Description of a system service available through
- * {@link Context#getSystemService(Class)}. This is used to auto-generate
- * documentation explaining how to obtain a reference to the service.
+ * {@link Context#getSystemService(Class)}.
  *
  * @hide
  */
 @Retention(SOURCE)
 @Target(TYPE)
 public @interface SystemService {
-    /**
-     * The string name of the system service that can be passed to
-     * {@link Context#getSystemService(String)}.
-     *
-     * @see Context#getSystemServiceName(Class)
-     */
     String value();
 }

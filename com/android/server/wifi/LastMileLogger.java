@@ -50,7 +50,7 @@ public class LastMileLogger {
      */
     public void reportConnectionEvent(long connectionId, byte event) {
         if (connectionId < 0) {
-            mLog.warn("Ignoring negative connection id: %").c(connectionId).flush();
+            mLog.warn("Ignoring negative connection id: %").c(connectionId);
             return;
         }
 

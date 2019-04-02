@@ -253,7 +253,6 @@ class ServerSocket implements java.io.Closeable {
      * @since 1.4
      * @hide
      */
-    // Android-changed: Make ctor public and @hide, for internal use.
     public SocketImpl getImpl() throws SocketException {
         if (!created)
             createImpl();
@@ -447,7 +446,8 @@ class ServerSocket implements java.io.Closeable {
     }
 
     /**
-     * Returns the address of the endpoint this socket is bound to.
+     * Returns the address of the endpoint this socket is bound to, or
+     * {@code null} if it is not bound yet.
      * <p>
      * If the socket was bound prior to being {@link #close closed},
      * then this method will continue to return the address of the endpoint
@@ -922,7 +922,7 @@ class ServerSocket implements java.io.Closeable {
         /* Not implemented yet */
     }
 
-    // Android-added: getFileDescriptor$(), for testing / internal use.
+    // Android-added: for testing and internal use.
     /**
      * @hide internal use only
      */

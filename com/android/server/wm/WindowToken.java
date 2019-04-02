@@ -16,29 +16,23 @@
 
 package com.android.server.wm;
 
+import java.util.Comparator;
 import static android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER;
-import static android.view.WindowManager.LayoutParams.TYPE_NAVIGATION_BAR;
+import static android.view.WindowManager.LayoutParams.TYPE_APPLICATION_STARTING;
+
 import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_ADD_REMOVE;
 import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_FOCUS;
 import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_WINDOW_MOVEMENT;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WITH_CLASS_NAME;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
 import static com.android.server.wm.WindowManagerService.UPDATE_FOCUS_NORMAL;
-import static com.android.server.wm.WindowTokenProto.HASH_CODE;
-import static com.android.server.wm.WindowTokenProto.HIDDEN;
-import static com.android.server.wm.WindowTokenProto.PAUSED;
-import static com.android.server.wm.WindowTokenProto.WAITING_TO_SHOW;
-import static com.android.server.wm.WindowTokenProto.WINDOWS;
-import static com.android.server.wm.WindowTokenProto.WINDOW_CONTAINER;
 
-import android.annotation.CallSuper;
 import android.os.Debug;
 import android.os.IBinder;
 import android.util.Slog;
-import android.util.proto.ProtoOutputStream;
+import android.view.SurfaceControl;
 
 import java.io.PrintWriter;
-import java.util.Comparator;
 
 /**
  * Container of a set of related windows in the window manager. Often this is an AppWindowToken,
@@ -48,14 +42,14 @@ import java.util.Comparator;
 class WindowToken extends WindowContainer<WindowState> {
     private static final String TAG = TAG_WITH_CLASS_NAME ? "WindowToken" : TAG_WM;
 
+    // The window manager!
+    protected final WindowManagerService mService;
+
     // The actual token.
     final IBinder token;
 
     // The type of window this token is for, as per WindowManager.LayoutParams.
     final int windowType;
-
-    /** {@code true} if this holds the rounded corner overlay */
-    final boolean mRoundedCornerOverlay;
 
     // Set if this token was explicitly added by a client, so should
     // persist (not be removed) when all windows are removed.
@@ -68,7 +62,7 @@ class WindowToken extends WindowContainer<WindowState> {
     boolean paused = false;
 
     // Should this token's windows be hidden?
-    private boolean mHidden;
+    boolean hidden;
 
     // Temporary for finding which tokens no longer have visible windows.
     boolean hasVisible;
@@ -109,29 +103,12 @@ class WindowToken extends WindowContainer<WindowState> {
 
     WindowToken(WindowManagerService service, IBinder _token, int type, boolean persistOnEmpty,
             DisplayContent dc, boolean ownerCanManageAppTokens) {
-        this(service, _token, type, persistOnEmpty, dc, ownerCanManageAppTokens,
-                false /* roundedCornersOverlay */);
-    }
-
-    WindowToken(WindowManagerService service, IBinder _token, int type, boolean persistOnEmpty,
-            DisplayContent dc, boolean ownerCanManageAppTokens, boolean roundedCornerOverlay) {
-        super(service);
+        mService = service;
         token = _token;
         windowType = type;
         mPersistOnEmpty = persistOnEmpty;
         mOwnerCanManageAppTokens = ownerCanManageAppTokens;
-        mRoundedCornerOverlay = roundedCornerOverlay;
         onDisplayChanged(dc);
-    }
-
-    void setHidden(boolean hidden) {
-        if (hidden != mHidden) {
-            mHidden = hidden;
-        }
-    }
-
-    boolean isHidden() {
-        return mHidden;
     }
 
     void removeAllWindowsIfPossible() {
@@ -144,15 +121,10 @@ class WindowToken extends WindowContainer<WindowState> {
     }
 
     void setExiting() {
-        if (mChildren.size() == 0) {
-            super.removeImmediately();
-            return;
-        }
-
         // This token is exiting, so allow it to be removed when it no longer contains any windows.
         mPersistOnEmpty = false;
 
-        if (mHidden) {
+        if (hidden) {
             return;
         }
 
@@ -168,7 +140,7 @@ class WindowToken extends WindowContainer<WindowState> {
             changed |= win.onSetAppExiting();
         }
 
-        setHidden(true);
+        hidden = true;
 
         if (changed) {
             mService.mWindowPlacerLocked.performSurfacePlacement();
@@ -209,6 +181,11 @@ class WindowToken extends WindowContainer<WindowState> {
     /** Returns true if the token windows list is empty. */
     boolean isEmpty() {
         return mChildren.isEmpty();
+    }
+
+    // Used by AppWindowToken.
+    int getAnimLayerAdjustment() {
+        return 0;
     }
 
     WindowState getReplacingWindow() {
@@ -270,41 +247,24 @@ class WindowToken extends WindowContainer<WindowState> {
         dc.reParentWindowToken(this);
         mDisplayContent = dc;
 
-        // The rounded corner overlay should not be rotated. We ensure that by moving it outside
-        // the windowing layer.
-        if (mRoundedCornerOverlay) {
-            mDisplayContent.reparentToOverlay(mPendingTransaction, mSurfaceControl);
-        }
-
         // TODO(b/36740756): One day this should perhaps be hooked
         // up with goodToGo, so we don't move a window
         // to another display before the window behind
         // it is ready.
+        SurfaceControl.openTransaction();
+        for (int i = mChildren.size() - 1; i >= 0; --i) {
+            final WindowState win = mChildren.get(i);
+            win.mWinAnimator.updateLayerStackInTransaction();
+        }
+        SurfaceControl.closeTransaction();
 
         super.onDisplayChanged(dc);
     }
 
-    @CallSuper
-    @Override
-    public void writeToProto(ProtoOutputStream proto, long fieldId, boolean trim) {
-        final long token = proto.start(fieldId);
-        super.writeToProto(proto, WINDOW_CONTAINER, trim);
-        proto.write(HASH_CODE, System.identityHashCode(this));
-        for (int i = 0; i < mChildren.size(); i++) {
-            final WindowState w = mChildren.get(i);
-            w.writeToProto(proto, WINDOWS, trim);
-        }
-        proto.write(HIDDEN, mHidden);
-        proto.write(WAITING_TO_SHOW, waitingToShow);
-        proto.write(PAUSED, paused);
-        proto.end(token);
-    }
-
-    void dump(PrintWriter pw, String prefix, boolean dumpAll) {
-        super.dump(pw, prefix, dumpAll);
+    void dump(PrintWriter pw, String prefix) {
         pw.print(prefix); pw.print("windows="); pw.println(mChildren);
         pw.print(prefix); pw.print("windowType="); pw.print(windowType);
-                pw.print(" hidden="); pw.print(mHidden);
+                pw.print(" hidden="); pw.print(hidden);
                 pw.print(" hasVisible="); pw.println(hasVisible);
         if (waitingToShow || sendingToBottom) {
             pw.print(prefix); pw.print("waitingToShow="); pw.print(waitingToShow);
@@ -335,17 +295,5 @@ class WindowToken extends WindowContainer<WindowState> {
 
     boolean okToAnimate() {
         return mDisplayContent != null && mDisplayContent.okToAnimate();
-    }
-
-    /**
-     * Return whether windows from this token can layer above the
-     * system bars, or in other words extend outside of the "Decor Frame"
-     */
-    boolean canLayerAboveSystemBars() {
-        int layer = mService.mPolicy.getWindowLayerFromTypeLw(windowType,
-                mOwnerCanManageAppTokens);
-        int navLayer = mService.mPolicy.getWindowLayerFromTypeLw(TYPE_NAVIGATION_BAR,
-                mOwnerCanManageAppTokens);
-        return mOwnerCanManageAppTokens && (layer > navLayer);
     }
 }

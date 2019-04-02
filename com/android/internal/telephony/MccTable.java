@@ -17,6 +17,7 @@
 package com.android.internal.telephony;
 
 import android.app.ActivityManager;
+import android.app.AlarmManager;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.net.wifi.WifiManager;
@@ -31,7 +32,7 @@ import com.android.internal.app.LocaleStore;
 import com.android.internal.app.LocaleStore.LocaleInfo;
 
 import libcore.icu.ICU;
-import libcore.util.TimeZoneFinder;
+import libcore.icu.TimeZoneNames;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -93,8 +94,24 @@ public final class MccTable {
         if (entry == null) {
             return null;
         }
-        final String lowerCaseCountryCode = entry.mIso;
-        return TimeZoneFinder.getInstance().lookupDefaultTimeZoneIdByCountry(lowerCaseCountryCode);
+        Locale locale = new Locale("", entry.mIso);
+        String[] tz = TimeZoneNames.forLocale(locale);
+        if (tz.length == 0) return null;
+
+        String zoneName = tz[0];
+
+        /* Use Australia/Sydney instead of Australia/Lord_Howe for Australia.
+         * http://b/33228250
+         * Todo: remove the code, see b/62418027
+         */
+        if (mcc == 505  /* Australia / Norfolk Island */) {
+            for (String zone : tz) {
+                if (zone.contains("Sydney")) {
+                    zoneName = zone;
+                }
+            }
+        }
+        return zoneName;
     }
 
     /**
@@ -358,11 +375,21 @@ public final class MccTable {
      * @param mcc Mobile Country Code of the SIM or SIM-like entity (build prop on CDMA)
      */
     private static void setTimezoneFromMccIfNeeded(Context context, int mcc) {
-        if (!TimeServiceHelper.isTimeZoneSettingInitializedStatic()) {
+        String timezone = SystemProperties.get(ServiceStateTracker.TIMEZONE_PROPERTY);
+        // timezone.equals("GMT") will be true and only true if the timezone was
+        // set to a default value by the system server (when starting, system server.
+        // sets the persist.sys.timezone to "GMT" if it's not set)."GMT" is not used by
+        // any code that sets it explicitly (in case where something sets GMT explicitly,
+        // "Etc/GMT" Olsen ID would be used).
+        // TODO(b/64056758): Remove "timezone.equals("GMT")" hack when there's a
+        // better way of telling if the value has been defaulted.
+        if (timezone == null || timezone.length() == 0 || timezone.equals("GMT")) {
             String zoneId = defaultTimeZoneForMcc(mcc);
             if (zoneId != null && zoneId.length() > 0) {
                 // Set time zone based on MCC
-                TimeServiceHelper.setDeviceTimeZoneStatic(context, zoneId);
+                AlarmManager alarm =
+                        (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+                alarm.setTimeZone(zoneId);
                 Slog.d(LOG_TAG, "timezone set to " + zoneId);
             }
         }
@@ -407,7 +434,7 @@ public final class MccTable {
         String country = MccTable.countryCodeForMcc(mcc);
         Slog.d(LOG_TAG, "WIFI_COUNTRY_CODE set to " + country);
         WifiManager wM = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
-        wM.setCountryCode(country);
+        wM.setCountryCode(country, false);
     }
 
     static {

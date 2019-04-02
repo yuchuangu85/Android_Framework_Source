@@ -20,11 +20,40 @@ import org.junit.runner.notification.RunNotifier;
 import org.junit.runners.model.FrameworkMethod;
 import org.junit.runners.model.InitializationError;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
+import org.robolectric.internal.ManifestFactory;
 
 public class SuwLibRobolectricTestRunner extends RobolectricTestRunner {
 
+    private String mModuleRootPath;
+
     public SuwLibRobolectricTestRunner(Class<?> testClass) throws InitializationError {
         super(testClass);
+    }
+
+    // Hack to determine the module root path in the build folder (e.g. out/gradle/setup-wizard-lib)
+    private void updateModuleRootPath(Config config) {
+        String moduleRoot = config.constants().getResource("").toString()
+                .replace("file:", "").replace("jar:", "");
+        mModuleRootPath =
+                moduleRoot.substring(0, moduleRoot.lastIndexOf("/build")) + "/setup-wizard-lib";
+    }
+
+    /**
+     * Return the default config used to run Robolectric tests.
+     */
+    @Override
+    protected Config buildGlobalConfig() {
+        Config parent = super.buildGlobalConfig();
+        updateModuleRootPath(parent);
+        return new Config.Builder(parent)
+                .setBuildDir(mModuleRootPath + "/build")
+                .build();
+    }
+
+    @Override
+    protected ManifestFactory getManifestFactory(Config config) {
+        return new PatchedGradleManifestFactory();
     }
 
     @Override

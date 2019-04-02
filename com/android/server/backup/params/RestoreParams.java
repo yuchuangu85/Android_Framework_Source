@@ -16,133 +16,88 @@
 
 package com.android.server.backup.params;
 
-import android.annotation.Nullable;
 import android.app.backup.IBackupManagerMonitor;
 import android.app.backup.IRestoreObserver;
 import android.content.pm.PackageInfo;
 
-import com.android.server.backup.internal.OnTaskFinishedListener;
-import com.android.server.backup.transport.TransportClient;
+import com.android.internal.backup.IBackupTransport;
 
 public class RestoreParams {
-    public final TransportClient transportClient;
-    public final IRestoreObserver observer;
-    public final IBackupManagerMonitor monitor;
-    public final long token;
-    @Nullable public final PackageInfo packageInfo;
-    public final int pmToken; // in post-install restore, the PM's token for this transaction
-    public final boolean isSystemRestore;
-    @Nullable public final String[] filterSet;
-    public final OnTaskFinishedListener listener;
+
+    public IBackupTransport transport;
+    public String dirName;
+    public IRestoreObserver observer;
+    public IBackupManagerMonitor monitor;
+    public long token;
+    public PackageInfo pkgInfo;
+    public int pmToken; // in post-install restore, the PM's token for this transaction
+    public boolean isSystemRestore;
+    public String[] filterSet;
 
     /**
-     * No kill after restore.
+     * Restore a single package; no kill after restore
      */
-    public static RestoreParams createForSinglePackage(
-            TransportClient transportClient,
-            IRestoreObserver observer,
-            IBackupManagerMonitor monitor,
-            long token,
-            PackageInfo packageInfo,
-            OnTaskFinishedListener listener) {
-        return new RestoreParams(
-                transportClient,
-                observer,
-                monitor,
-                token,
-                packageInfo,
-                /* pmToken */ 0,
-                /* isSystemRestore */ false,
-                /* filterSet */ null,
-                listener);
+    public RestoreParams(IBackupTransport _transport, String _dirName, IRestoreObserver _obs,
+            IBackupManagerMonitor _monitor, long _token, PackageInfo _pkg) {
+        transport = _transport;
+        dirName = _dirName;
+        observer = _obs;
+        monitor = _monitor;
+        token = _token;
+        pkgInfo = _pkg;
+        pmToken = 0;
+        isSystemRestore = false;
+        filterSet = null;
     }
 
     /**
-     * Kill after restore.
+     * Restore at install: PM token needed, kill after restore
      */
-    public static RestoreParams createForRestoreAtInstall(
-            TransportClient transportClient,
-            IRestoreObserver observer,
-            IBackupManagerMonitor monitor,
-            long token,
-            String packageName,
-            int pmToken,
-            OnTaskFinishedListener listener) {
-        String[] filterSet = {packageName};
-        return new RestoreParams(
-                transportClient,
-                observer,
-                monitor,
-                token,
-                /* packageInfo */ null,
-                pmToken,
-                /* isSystemRestore */ false,
-                filterSet,
-                listener);
+    public RestoreParams(IBackupTransport _transport, String _dirName, IRestoreObserver _obs,
+            IBackupManagerMonitor _monitor, long _token, String _pkgName, int _pmToken) {
+        transport = _transport;
+        dirName = _dirName;
+        observer = _obs;
+        monitor = _monitor;
+        token = _token;
+        pkgInfo = null;
+        pmToken = _pmToken;
+        isSystemRestore = false;
+        filterSet = new String[]{_pkgName};
     }
 
     /**
-     * This is the form that Setup Wizard or similar restore UXes use.
+     * Restore everything possible.  This is the form that Setup Wizard or similar
+     * restore UXes use.
      */
-    public static RestoreParams createForRestoreAll(
-            TransportClient transportClient,
-            IRestoreObserver observer,
-            IBackupManagerMonitor monitor,
-            long token,
-            OnTaskFinishedListener listener) {
-        return new RestoreParams(
-                transportClient,
-                observer,
-                monitor,
-                token,
-                /* packageInfo */ null,
-                /* pmToken */ 0,
-                /* isSystemRestore */ true,
-                /* filterSet */ null,
-                listener);
+    public RestoreParams(IBackupTransport _transport, String _dirName, IRestoreObserver _obs,
+            IBackupManagerMonitor _monitor, long _token) {
+        transport = _transport;
+        dirName = _dirName;
+        observer = _obs;
+        monitor = _monitor;
+        token = _token;
+        pkgInfo = null;
+        pmToken = 0;
+        isSystemRestore = true;
+        filterSet = null;
     }
 
     /**
-     * Caller specifies whether is considered a system-level restore.
+     * Restore some set of packages.  Leave this one up to the caller to specify
+     * whether it's to be considered a system-level restore.
      */
-    public static RestoreParams createForRestoreSome(
-            TransportClient transportClient,
-            IRestoreObserver observer,
-            IBackupManagerMonitor monitor,
-            long token,
-            String[] filterSet,
-            boolean isSystemRestore,
-            OnTaskFinishedListener listener) {
-        return new RestoreParams(
-                transportClient,
-                observer,
-                monitor,
-                token,
-                /* packageInfo */ null,
-                /* pmToken */ 0,
-                isSystemRestore,
-                filterSet,
-                listener);
-    }
-
-    private RestoreParams(
-            TransportClient transportClient,
-            IRestoreObserver observer,
-            IBackupManagerMonitor monitor,
-            long token,
-            @Nullable PackageInfo packageInfo,
-            int pmToken,
-            boolean isSystemRestore,
-            @Nullable String[] filterSet,
-            OnTaskFinishedListener listener) {
-        this.transportClient = transportClient;
-        this.observer = observer;
-        this.monitor = monitor;
-        this.token = token;
-        this.packageInfo = packageInfo;
-        this.pmToken = pmToken;
-        this.isSystemRestore = isSystemRestore;
-        this.filterSet = filterSet;
-        this.listener = listener;
+    public RestoreParams(IBackupTransport _transport, String _dirName, IRestoreObserver _obs,
+            IBackupManagerMonitor _monitor, long _token,
+            String[] _filterSet, boolean _isSystemRestore) {
+        transport = _transport;
+        dirName = _dirName;
+        observer = _obs;
+        monitor = _monitor;
+        token = _token;
+        pkgInfo = null;
+        pmToken = 0;
+        isSystemRestore = _isSystemRestore;
+        filterSet = _filterSet;
     }
 }

@@ -92,8 +92,8 @@ final class SystemAudioStatusAction extends HdmiCecFeatureAction {
 
     private void handleReportAudioStatus(HdmiCecMessage cmd) {
         byte[] params = cmd.getParams();
-        boolean mute = HdmiUtils.isAudioStatusMute(cmd);
-        int volume = HdmiUtils.getAudioStatusVolume(cmd);
+        boolean mute = (params[0] & 0x80) == 0x80;
+        int volume = params[0] & 0x7F;
         tv().setAudioStatus(mute, volume);
 
         if (!(tv().isSystemAudioActivated() ^ mute)) {

@@ -16,10 +16,12 @@
 
 package com.android.server.ethernet;
 
-import android.annotation.Nullable;
 import android.net.IpConfiguration;
+import android.net.IpConfiguration.IpAssignment;
+import android.net.IpConfiguration.ProxySettings;
 import android.os.Environment;
-import android.util.ArrayMap;
+import android.util.Log;
+import android.util.SparseArray;
 
 import com.android.server.net.IpConfigStore;
 
@@ -27,62 +29,34 @@ import com.android.server.net.IpConfigStore;
 /**
  * This class provides an API to store and manage Ethernet network configuration.
  */
-public class EthernetConfigStore {
+public class EthernetConfigStore extends IpConfigStore {
+    private static final String TAG = "EthernetConfigStore";
+
     private static final String ipConfigFile = Environment.getDataDirectory() +
             "/misc/ethernet/ipconfig.txt";
 
-    private IpConfigStore mStore = new IpConfigStore();
-    private ArrayMap<String, IpConfiguration> mIpConfigurations;
-    private IpConfiguration mIpConfigurationForDefaultInterface;
-    private final Object mSync = new Object();
-
     public EthernetConfigStore() {
-        mIpConfigurations = new ArrayMap<>(0);
     }
 
-    public void read() {
-        synchronized (mSync) {
-            ArrayMap<String, IpConfiguration> configs =
-                    IpConfigStore.readIpConfigurations(ipConfigFile);
+    public IpConfiguration readIpAndProxyConfigurations() {
+        SparseArray<IpConfiguration> networks = readIpAndProxyConfigurations(ipConfigFile);
 
-            // This configuration may exist in old file versions when there was only a single active
-            // Ethernet interface.
-            if (configs.containsKey("0")) {
-                mIpConfigurationForDefaultInterface = configs.remove("0");
-            }
-
-            mIpConfigurations = configs;
+        if (networks.size() == 0) {
+            Log.w(TAG, "No Ethernet configuration found. Using default.");
+            return new IpConfiguration(IpAssignment.DHCP, ProxySettings.NONE, null, null);
         }
+
+        if (networks.size() > 1) {
+            // Currently we only support a single Ethernet interface.
+            Log.w(TAG, "Multiple Ethernet configurations detected. Only reading first one.");
+        }
+
+        return networks.valueAt(0);
     }
 
-    public void write(String iface, IpConfiguration config) {
-        boolean modified;
-
-        synchronized (mSync) {
-            if (config == null) {
-                modified = mIpConfigurations.remove(iface) != null;
-            } else {
-                IpConfiguration oldConfig = mIpConfigurations.put(iface, config);
-                modified = !config.equals(oldConfig);
-            }
-
-            if (modified) {
-                mStore.writeIpConfigurations(ipConfigFile, mIpConfigurations);
-            }
-        }
-    }
-
-    public ArrayMap<String, IpConfiguration> getIpConfigurations() {
-        synchronized (mSync) {
-            return new ArrayMap<>(mIpConfigurations);
-        }
-    }
-
-    @Nullable
-    public IpConfiguration getIpConfigurationForDefaultInterface() {
-        synchronized (mSync) {
-            return mIpConfigurationForDefaultInterface == null
-                    ? null : new IpConfiguration(mIpConfigurationForDefaultInterface);
-        }
+    public void writeIpAndProxyConfigurations(IpConfiguration config) {
+        SparseArray<IpConfiguration> networks = new SparseArray<IpConfiguration>();
+        networks.put(0, config);
+        writeIpAndProxyConfigurations(ipConfigFile, networks);
     }
 }

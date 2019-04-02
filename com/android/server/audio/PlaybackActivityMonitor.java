@@ -267,7 +267,6 @@ public final class PlaybackActivityMonitor
 
     public void releasePlayer(int piid, int binderUid) {
         if (DEBUG) { Log.v(TAG, "releasePlayer() for piid=" + piid); }
-        boolean change = false;
         synchronized(mPlayerLock) {
             final AudioPlaybackConfiguration apc = mPlayers.get(new Integer(piid));
             if (checkConfigurationCaller(piid, apc, binderUid)) {
@@ -276,11 +275,8 @@ public final class PlaybackActivityMonitor
                 mPlayers.remove(new Integer(piid));
                 mDuckingManager.removeReleased(apc);
                 checkVolumeForPrivilegedAlarm(apc, AudioPlaybackConfiguration.PLAYER_STATE_RELEASED);
-                change = apc.handleStateEvent(AudioPlaybackConfiguration.PLAYER_STATE_RELEASED);
+                apc.handleStateEvent(AudioPlaybackConfiguration.PLAYER_STATE_RELEASED);
             }
-        }
-        if (change) {
-            dispatchPlaybackChange(true /*iplayerreleased*/);
         }
     }
 
@@ -425,7 +421,7 @@ public final class PlaybackActivityMonitor
     private final DuckingManager mDuckingManager = new DuckingManager();
 
     @Override
-    public boolean duckPlayers(FocusRequester winner, FocusRequester loser, boolean forceDuck) {
+    public boolean duckPlayers(FocusRequester winner, FocusRequester loser) {
         if (DEBUG) {
             Log.v(TAG, String.format("duckPlayers: uids winner=%d loser=%d",
                     winner.getClientUid(), loser.getClientUid()));
@@ -445,8 +441,8 @@ public final class PlaybackActivityMonitor
                         && loser.hasSameUid(apc.getClientUid())
                         && apc.getPlayerState() == AudioPlaybackConfiguration.PLAYER_STATE_STARTED)
                 {
-                    if (!forceDuck && (apc.getAudioAttributes().getContentType() ==
-                            AudioAttributes.CONTENT_TYPE_SPEECH)) {
+                    if (apc.getAudioAttributes().getContentType() ==
+                            AudioAttributes.CONTENT_TYPE_SPEECH) {
                         // the player is speaking, ducking will make the speech unintelligible
                         // so let the app handle it instead
                         Log.v(TAG, "not ducking player " + apc.getPlayerInterfaceId()

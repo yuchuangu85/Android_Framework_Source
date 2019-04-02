@@ -93,10 +93,6 @@ final class RemoteConnectionService {
                     // failure on the providing end, so immediately mark it destroyed
                     connection.setDestroyed();
                 }
-                connection.setStatusHints(parcel.getStatusHints());
-                connection.setIsVoipAudioMode(parcel.getIsVoipAudioMode());
-                connection.setRingbackRequested(parcel.isRingbackRequested());
-                connection.putExtras(parcel.getExtras());
             }
         }
 
@@ -210,14 +206,6 @@ final class RemoteConnectionService {
             // The event has already been handled and there is no state to update
             // in the underlying connection or conference objects
         }
-
-        @Override
-        public void onPhoneAccountChanged(String callId, PhoneAccountHandle pHandle,
-                Session.Info sessionInfo) {
-        }
-
-        @Override
-        public void onConnectionServiceFocusReleased(Session.Info sessionInfo) {}
 
         @Override
         public void addConferenceCall(
@@ -405,8 +393,7 @@ final class RemoteConnectionService {
         }
 
         @Override
-        public void setAudioRoute(String callId, int audioRoute, String bluetoothAddress,
-                Session.Info sessionInfo) {
+        public void setAudioRoute(String callId, int audioRoute, Session.Info sessionInfo) {
             if (hasConnection(callId)) {
                 // TODO(3pcalls): handle this for remote connections.
                 // Likely we don't want to do anything since it doesn't make sense for self-managed

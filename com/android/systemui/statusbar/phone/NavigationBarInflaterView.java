@@ -25,7 +25,6 @@ import android.view.Display;
 import android.view.Display.Mode;
 import android.view.Gravity;
 import android.view.LayoutInflater;
-import android.view.Surface;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -34,12 +33,11 @@ import android.widget.LinearLayout;
 import android.widget.Space;
 
 import com.android.systemui.Dependency;
-import com.android.systemui.OverviewProxyService;
 import com.android.systemui.R;
 import com.android.systemui.plugins.PluginListener;
 import com.android.systemui.plugins.PluginManager;
 import com.android.systemui.plugins.statusbar.phone.NavBarButtonProvider;
-import com.android.systemui.statusbar.phone.ReverseLinearLayout.ReverseRelativeLayout;
+import com.android.systemui.statusbar.phone.ReverseLinearLayout.ReverseFrameLayout;
 import com.android.systemui.statusbar.policy.KeyButtonView;
 import com.android.systemui.tuner.TunerService;
 import com.android.systemui.tuner.TunerService.Tunable;
@@ -59,7 +57,7 @@ public class NavigationBarInflaterView extends FrameLayout
     public static final String NAV_BAR_LEFT = "sysui_nav_bar_left";
     public static final String NAV_BAR_RIGHT = "sysui_nav_bar_right";
 
-    public static final String MENU_IME_ROTATE = "menu_ime";
+    public static final String MENU_IME = "menu_ime";
     public static final String BACK = "back";
     public static final String HOME = "home";
     public static final String RECENT = "recent";
@@ -68,7 +66,6 @@ public class NavigationBarInflaterView extends FrameLayout
     public static final String KEY = "key";
     public static final String LEFT = "left";
     public static final String RIGHT = "right";
-    public static final String CONTEXTUAL = "contextual";
 
     public static final String GRAVITY_SEPARATOR = ";";
     public static final String BUTTON_SEPARATOR = ",";
@@ -83,7 +80,6 @@ public class NavigationBarInflaterView extends FrameLayout
     private static final String WEIGHT_CENTERED_SUFFIX = "WC";
 
     private final List<NavBarButtonProvider> mPlugins = new ArrayList<>();
-    private final Display mDisplay;
 
     protected LayoutInflater mLayoutInflater;
     protected LayoutInflater mLandscapeInflater;
@@ -99,18 +95,14 @@ public class NavigationBarInflaterView extends FrameLayout
     private View mLastLandscape;
 
     private boolean mAlternativeOrder;
-    private boolean mUsingCustomLayout;
-
-    private OverviewProxyService mOverviewProxyService;
 
     public NavigationBarInflaterView(Context context, AttributeSet attrs) {
         super(context, attrs);
         createInflaters();
-        mDisplay = ((WindowManager)
+        Display display = ((WindowManager)
                 context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay();
-        Mode displayMode = mDisplay.getMode();
+        Mode displayMode = display.getMode();
         isRot0Landscape = displayMode.getPhysicalWidth() > displayMode.getPhysicalHeight();
-        mOverviewProxyService = Dependency.get(OverviewProxyService.class);
     }
 
     private void createInflaters() {
@@ -142,10 +134,7 @@ public class NavigationBarInflaterView extends FrameLayout
     }
 
     protected String getDefaultLayout() {
-        final int defaultResource = mOverviewProxyService.shouldShowSwipeUpUI()
-                ? R.string.config_navBarLayoutQuickstep
-                : R.string.config_navBarLayout;
-        return mContext.getString(defaultResource);
+        return mContext.getString(R.string.config_navBarLayout);
     }
 
     @Override
@@ -168,7 +157,6 @@ public class NavigationBarInflaterView extends FrameLayout
     public void onTuningChanged(String key, String newValue) {
         if (NAV_BAR_VIEWS.equals(key)) {
             if (!Objects.equals(mCurrentLayout, newValue)) {
-                mUsingCustomLayout = newValue != null;
                 clearViews();
                 inflateLayout(newValue);
             }
@@ -178,35 +166,10 @@ public class NavigationBarInflaterView extends FrameLayout
         }
     }
 
-    public void onLikelyDefaultLayoutChange() {
-        // Don't override custom layouts
-        if (mUsingCustomLayout) return;
-
-        // Reevaluate new layout
-        final String newValue = getDefaultLayout();
-        if (!Objects.equals(mCurrentLayout, newValue)) {
-            clearViews();
-            inflateLayout(newValue);
-        }
-    }
-
-    public void setButtonDispatchers(SparseArray<ButtonDispatcher> buttonDispatchers) {
-        mButtonDispatchers = buttonDispatchers;
-        for (int i = 0; i < buttonDispatchers.size(); i++) {
-            initiallyFill(buttonDispatchers.valueAt(i));
-        }
-    }
-
-    public void updateButtonDispatchersCurrentView() {
-        if (mButtonDispatchers != null) {
-            final int rotation = mDisplay.getRotation();
-            final boolean portrait = rotation == Surface.ROTATION_0
-                    || rotation == Surface.ROTATION_180;
-            final View view = portrait ? mRot0 : mRot90;
-            for (int i = 0; i < mButtonDispatchers.size(); i++) {
-                final ButtonDispatcher dispatcher = mButtonDispatchers.valueAt(i);
-                dispatcher.setCurrentView(view);
-            }
+    public void setButtonDispatchers(SparseArray<ButtonDispatcher> buttonDisatchers) {
+        mButtonDispatchers = buttonDisatchers;
+        for (int i = 0; i < buttonDisatchers.size(); i++) {
+            initiallyFill(buttonDisatchers.valueAt(i));
         }
     }
 
@@ -244,8 +207,7 @@ public class NavigationBarInflaterView extends FrameLayout
             // and will only happen once.
             if (parent.getChildAt(i).getId() == buttonDispatcher.getId()) {
                 buttonDispatcher.addView(parent.getChildAt(i));
-            }
-            if (parent.getChildAt(i) instanceof ViewGroup) {
+            } else if (parent.getChildAt(i) instanceof ViewGroup) {
                 addAll(buttonDispatcher, (ViewGroup) parent.getChildAt(i));
             }
         }
@@ -257,11 +219,6 @@ public class NavigationBarInflaterView extends FrameLayout
             newLayout = getDefaultLayout();
         }
         String[] sets = newLayout.split(GRAVITY_SEPARATOR, 3);
-        if (sets.length != 3) {
-            Log.d(TAG, "Invalid layout.");
-            newLayout = getDefaultLayout();
-            sets = newLayout.split(GRAVITY_SEPARATOR, 3);
-        }
         String[] start = sets[0].split(BUTTON_SEPARATOR);
         String[] center = sets[1].split(BUTTON_SEPARATOR);
         String[] end = sets[2].split(BUTTON_SEPARATOR);
@@ -277,8 +234,6 @@ public class NavigationBarInflaterView extends FrameLayout
 
         inflateButtons(end, mRot0.findViewById(R.id.ends_group), isRot0Landscape, false);
         inflateButtons(end, mRot90.findViewById(R.id.ends_group), !isRot0Landscape, false);
-
-        updateButtonDispatchersCurrentView();
     }
 
     private void addGravitySpacer(LinearLayout layout) {
@@ -312,8 +267,8 @@ public class NavigationBarInflaterView extends FrameLayout
         addToDispatchers(v);
         View lastView = landscape ? mLastLandscape : mLastPortrait;
         View accessibilityView = v;
-        if (v instanceof ReverseRelativeLayout) {
-            accessibilityView = ((ReverseRelativeLayout) v).getChildAt(0);
+        if (v instanceof ReverseFrameLayout) {
+            accessibilityView = ((ReverseFrameLayout) v).getChildAt(0);
         }
         if (lastView != null) {
             accessibilityView.setAccessibilityTraversalAfter(lastView.getId());
@@ -331,33 +286,21 @@ public class NavigationBarInflaterView extends FrameLayout
         if (sizeStr == null) return v;
 
         if (sizeStr.contains(WEIGHT_SUFFIX)) {
-            // To support gravity, wrap in RelativeLayout and apply gravity to it.
-            // Children wanting to use gravity must be smaller then the frame.
             float weight = Float.parseFloat(sizeStr.substring(0, sizeStr.indexOf(WEIGHT_SUFFIX)));
-            ReverseRelativeLayout frame = new ReverseRelativeLayout(mContext);
+            FrameLayout frame = new ReverseFrameLayout(mContext);
             LayoutParams childParams = new LayoutParams(v.getLayoutParams());
-
-            // Compute gravity to apply
-            int gravity = (landscape) ? (start ? Gravity.TOP : Gravity.BOTTOM)
-                    : (start ? Gravity.START : Gravity.END);
-            if (sizeStr.endsWith(WEIGHT_CENTERED_SUFFIX)) gravity = Gravity.CENTER;
-
-            // Set default gravity, flipped if needed in reversed layouts (270 RTL and 90 LTR)
-            frame.setDefaultGravity(gravity);
-            frame.setGravity(gravity); // Apply gravity to root
-
+            if (sizeStr.endsWith(WEIGHT_CENTERED_SUFFIX)) {
+                childParams.gravity = Gravity.CENTER;
+            } else {
+                childParams.gravity = landscape ? (start ? Gravity.BOTTOM : Gravity.TOP)
+                        : (start ? Gravity.START : Gravity.END);
+            }
             frame.addView(v, childParams);
-
-            // Use weighting to set the width of the frame
             frame.setLayoutParams(new LinearLayout.LayoutParams(0, MATCH_PARENT, weight));
-
-            // Ensure ripples can be drawn outside bounds
             frame.setClipChildren(false);
             frame.setClipToPadding(false);
-
             return frame;
         }
-
         float size = Float.parseFloat(sizeStr);
         ViewGroup.LayoutParams params = v.getLayoutParams();
         params.width = (int) (params.width * size);
@@ -371,7 +314,7 @@ public class NavigationBarInflaterView extends FrameLayout
             String s = Dependency.get(TunerService.class).getValue(NAV_BAR_LEFT, NAVSPACE);
             button = extractButton(s);
         } else if (RIGHT.equals(button)) {
-            String s = Dependency.get(TunerService.class).getValue(NAV_BAR_RIGHT, MENU_IME_ROTATE);
+            String s = Dependency.get(TunerService.class).getValue(NAV_BAR_RIGHT, MENU_IME);
             button = extractButton(s);
         }
         // Let plugins go first so they can override a standard view if they want.
@@ -385,14 +328,12 @@ public class NavigationBarInflaterView extends FrameLayout
             v = inflater.inflate(R.layout.back, parent, false);
         } else if (RECENT.equals(button)) {
             v = inflater.inflate(R.layout.recent_apps, parent, false);
-        } else if (MENU_IME_ROTATE.equals(button)) {
+        } else if (MENU_IME.equals(button)) {
             v = inflater.inflate(R.layout.menu_ime, parent, false);
         } else if (NAVSPACE.equals(button)) {
             v = inflater.inflate(R.layout.nav_key_space, parent, false);
         } else if (CLIPBOARD.equals(button)) {
             v = inflater.inflate(R.layout.clipboard, parent, false);
-        } else if (CONTEXTUAL.equals(button)) {
-            v = inflater.inflate(R.layout.contextual, parent, false);
         } else if (button.startsWith(KEY)) {
             String uri = extractImage(button);
             int code = extractKeycode(button);
@@ -450,8 +391,7 @@ public class NavigationBarInflaterView extends FrameLayout
             final int indexOfKey = mButtonDispatchers.indexOfKey(v.getId());
             if (indexOfKey >= 0) {
                 mButtonDispatchers.valueAt(indexOfKey).addView(v);
-            }
-            if (v instanceof ViewGroup) {
+            } else if (v instanceof ViewGroup) {
                 final ViewGroup viewGroup = (ViewGroup)v;
                 final int N = viewGroup.getChildCount();
                 for (int i = 0; i < N; i++) {

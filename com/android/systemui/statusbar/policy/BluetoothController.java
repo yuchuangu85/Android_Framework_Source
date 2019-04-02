@@ -21,7 +21,6 @@ import com.android.systemui.Dumpable;
 import com.android.systemui.statusbar.policy.BluetoothController.Callback;
 
 import java.util.Collection;
-import java.util.List;
 
 public interface BluetoothController extends CallbackController<Callback>, Dumpable {
     boolean isBluetoothSupported();
@@ -31,7 +30,7 @@ public interface BluetoothController extends CallbackController<Callback>, Dumpa
 
     boolean isBluetoothConnected();
     boolean isBluetoothConnecting();
-    String getConnectedDeviceName();
+    String getLastDeviceName();
     void setBluetoothEnabled(boolean enabled);
     Collection<CachedBluetoothDevice> getDevices();
     void connect(CachedBluetoothDevice device);
@@ -40,7 +39,7 @@ public interface BluetoothController extends CallbackController<Callback>, Dumpa
 
     int getMaxConnectionState(CachedBluetoothDevice device);
     int getBondState(CachedBluetoothDevice device);
-    List<CachedBluetoothDevice> getConnectedDevices();
+    CachedBluetoothDevice getLastDevice();
 
     public interface Callback {
         void onBluetoothStateChange(boolean enabled);

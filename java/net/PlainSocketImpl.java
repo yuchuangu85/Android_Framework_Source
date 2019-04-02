@@ -61,13 +61,6 @@ import static sun.net.ExtendedOptionsImpl.*;
 
 class PlainSocketImpl extends AbstractPlainSocketImpl
 {
-    // Android-removed: Android doesn't need to call native initProto.
-    /*
-    static {
-        initProto();
-    }
-    */
-
     /**
      * Constructs an empty instance.
      */
@@ -108,7 +101,6 @@ class PlainSocketImpl extends AbstractPlainSocketImpl
         return (T)flow;
     }
 
-    // BEGIN Android-changed: Rewrote on top of Libcore.io.
     protected void socketSetOption(int opt, Object val) throws SocketException {
         try {
             socketSetOption0(opt, val);
@@ -301,6 +293,5 @@ class PlainSocketImpl extends AbstractPlainSocketImpl
             throw errnoException.rethrowAsSocketException();
         }
     }
-    // END Android-changed: Rewrote on top of Libcore.io.
 
 }

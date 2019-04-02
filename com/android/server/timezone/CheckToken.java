@@ -46,8 +46,8 @@ final class CheckToken {
         ByteArrayOutputStream baos = new ByteArrayOutputStream(12 /* (3 * sizeof(int)) */);
         try (DataOutputStream dos = new DataOutputStream(baos)) {
             dos.writeInt(mOptimisticLockId);
-            dos.writeLong(mPackageVersions.mUpdateAppVersion);
-            dos.writeLong(mPackageVersions.mDataAppVersion);
+            dos.writeInt(mPackageVersions.mUpdateAppVersion);
+            dos.writeInt(mPackageVersions.mDataAppVersion);
         } catch (IOException e) {
             throw new RuntimeException("Unable to write into a ByteArrayOutputStream", e);
         }
@@ -58,8 +58,8 @@ final class CheckToken {
         ByteArrayInputStream bais = new ByteArrayInputStream(tokenBytes);
         try (DataInputStream dis = new DataInputStream(bais)) {
             int versionId = dis.readInt();
-            long updateAppVersion = dis.readLong();
-            long dataAppVersion = dis.readLong();
+            int updateAppVersion = dis.readInt();
+            int dataAppVersion = dis.readInt();
             return new CheckToken(versionId, new PackageVersions(updateAppVersion, dataAppVersion));
         }
     }

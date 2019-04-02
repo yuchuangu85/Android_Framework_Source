@@ -122,7 +122,7 @@ public final class SelectPrinterActivity extends Activity implements
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getActionBar().setIcon(com.android.internal.R.drawable.ic_print);
+        getActionBar().setIcon(R.drawable.ic_print);
 
         setContentView(R.layout.select_printer_activity);
 
@@ -284,11 +284,6 @@ public final class SelectPrinterActivity extends Activity implements
         if (view == mListView) {
             final int position = ((AdapterContextMenuInfo) menuInfo).position;
             PrinterInfo printer = (PrinterInfo) mListView.getAdapter().getItem(position);
-
-            // Printer is null if this is a context menu for the "add printer" entry
-            if (printer == null) {
-                return;
-            }
 
             menu.setHeaderTitle(printer.getName());
 

@@ -46,7 +46,6 @@ import java.util.Arrays;
 public class SysuiColorExtractor extends ColorExtractor implements Dumpable {
     private static final String TAG = "SysuiColorExtractor";
     private boolean mWallpaperVisible;
-    private boolean mMediaBackdropVisible;
     // Colors to return when the wallpaper isn't visible
     private final GradientColors mWpHiddenColors;
 
@@ -158,18 +157,13 @@ public class SysuiColorExtractor extends ColorExtractor implements Dumpable {
     public GradientColors getColors(int which, int type, boolean ignoreWallpaperVisibility) {
         // mWallpaperVisible only handles the "system wallpaper" and will be always set to false
         // if we have different lock and system wallpapers.
-        if (which == WallpaperManager.FLAG_SYSTEM) {
-            if (mWallpaperVisible || ignoreWallpaperVisibility) {
-                return super.getColors(which, type);
-            } else {
-                return mWpHiddenColors;
-            }
+        if (which == WallpaperManager.FLAG_LOCK) {
+            ignoreWallpaperVisibility = true;
+        }
+        if (mWallpaperVisible || ignoreWallpaperVisibility) {
+            return super.getColors(which, type);
         } else {
-            if (mMediaBackdropVisible) {
-                return mWpHiddenColors;
-            } else {
-                return super.getColors(which, type);
-            }
+            return mWpHiddenColors;
         }
     }
 
@@ -178,13 +172,6 @@ public class SysuiColorExtractor extends ColorExtractor implements Dumpable {
         if (mWallpaperVisible != visible) {
             mWallpaperVisible = visible;
             triggerColorsChanged(WallpaperManager.FLAG_SYSTEM);
-        }
-    }
-
-    public void setMediaBackdropVisible(boolean visible) {
-        if (mMediaBackdropVisible != visible) {
-            mMediaBackdropVisible = visible;
-            triggerColorsChanged(WallpaperManager.FLAG_LOCK);
         }
     }
 

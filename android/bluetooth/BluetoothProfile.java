@@ -19,7 +19,6 @@ package android.bluetooth;
 
 import android.Manifest;
 import android.annotation.RequiresPermission;
-import android.annotation.SystemApi;
 
 import java.util.List;
 
@@ -38,7 +37,7 @@ public interface BluetoothProfile {
      * This extra represents the current connection state of the profile of the
      * Bluetooth device.
      */
-    String EXTRA_STATE = "android.bluetooth.profile.extra.STATE";
+    public static final String EXTRA_STATE = "android.bluetooth.profile.extra.STATE";
 
     /**
      * Extra for the connection state intents of the individual profiles.
@@ -46,178 +45,142 @@ public interface BluetoothProfile {
      * This extra represents the previous connection state of the profile of the
      * Bluetooth device.
      */
-    String EXTRA_PREVIOUS_STATE =
-            "android.bluetooth.profile.extra.PREVIOUS_STATE";
+    public static final String EXTRA_PREVIOUS_STATE =
+        "android.bluetooth.profile.extra.PREVIOUS_STATE";
 
     /** The profile is in disconnected state */
-    int STATE_DISCONNECTED = 0;
+    public static final int STATE_DISCONNECTED  = 0;
     /** The profile is in connecting state */
-    int STATE_CONNECTING = 1;
+    public static final int STATE_CONNECTING    = 1;
     /** The profile is in connected state */
-    int STATE_CONNECTED = 2;
+    public static final int STATE_CONNECTED     = 2;
     /** The profile is in disconnecting state */
-    int STATE_DISCONNECTING = 3;
+    public static final int STATE_DISCONNECTING = 3;
 
     /**
      * Headset and Handsfree profile
      */
-    int HEADSET = 1;
+    public static final int HEADSET = 1;
 
     /**
      * A2DP profile.
      */
-    int A2DP = 2;
+    public static final int A2DP = 2;
 
     /**
      * Health Profile
      */
-    int HEALTH = 3;
+    public static final int HEALTH = 3;
 
     /**
-     * HID Host
-     *
+     * Input Device Profile
      * @hide
      */
-    int HID_HOST = 4;
+    public static final int INPUT_DEVICE = 4;
 
     /**
      * PAN Profile
-     *
      * @hide
      */
-    int PAN = 5;
+    public static final int PAN = 5;
 
     /**
      * PBAP
-     *
      * @hide
      */
-    int PBAP = 6;
+    public static final int PBAP = 6;
 
     /**
      * GATT
      */
-    int GATT = 7;
+    static public final int GATT = 7;
 
     /**
      * GATT_SERVER
      */
-    int GATT_SERVER = 8;
+    static public final int GATT_SERVER = 8;
 
     /**
      * MAP Profile
-     *
      * @hide
      */
-    int MAP = 9;
+    public static final int MAP = 9;
 
     /*
      * SAP Profile
      * @hide
      */
-    int SAP = 10;
+    public static final int SAP = 10;
 
     /**
      * A2DP Sink Profile
-     *
      * @hide
      */
-    int A2DP_SINK = 11;
+    public static final int A2DP_SINK = 11;
 
     /**
      * AVRCP Controller Profile
-     *
      * @hide
      */
-    int AVRCP_CONTROLLER = 12;
-
-    /**
-     * AVRCP Target Profile
-     *
-     * @hide
-     */
-    int AVRCP = 13;
+    public static final int AVRCP_CONTROLLER = 12;
 
     /**
      * Headset Client - HFP HF Role
-     *
      * @hide
      */
-    int HEADSET_CLIENT = 16;
+    public static final int HEADSET_CLIENT = 16;
 
     /**
      * PBAP Client
-     *
      * @hide
      */
-    int PBAP_CLIENT = 17;
+    public static final int PBAP_CLIENT = 17;
 
     /**
      * MAP Messaging Client Equipment (MCE)
-     *
      * @hide
      */
-    int MAP_CLIENT = 18;
+    public static final int MAP_CLIENT = 18;
 
     /**
-     * HID Device
-     */
-    int HID_DEVICE = 19;
-
-    /**
-     * Object Push Profile (OPP)
-     *
+     * Input Host
      * @hide
      */
-    int OPP = 20;
-
-    /**
-     * Hearing Aid Device
-     *
-     * @hide
-     */
-    int HEARING_AID = 21;
+    static public final int INPUT_HOST = 19;
 
     /**
      * Max profile ID. This value should be updated whenever a new profile is added to match
      * the largest value assigned to a profile.
-     *
      * @hide
      */
-    int MAX_PROFILE_ID = 21;
+    public static final int MAX_PROFILE_ID = 19;
 
     /**
      * Default priority for devices that we try to auto-connect to and
      * and allow incoming connections for the profile
-     *
      * @hide
      **/
-    int PRIORITY_AUTO_CONNECT = 1000;
+    public static final int PRIORITY_AUTO_CONNECT = 1000;
 
     /**
-     * Default priority for devices that allow incoming
+     *  Default priority for devices that allow incoming
      * and outgoing connections for the profile
-     *
      * @hide
      **/
-    @SystemApi
-    int PRIORITY_ON = 100;
+    public static final int PRIORITY_ON = 100;
 
     /**
      * Default priority for devices that does not allow incoming
      * connections and outgoing connections for the profile.
-     *
      * @hide
      **/
-    @SystemApi
-    int PRIORITY_OFF = 0;
+    public static final int PRIORITY_OFF = 0;
 
     /**
      * Default priority when not set or when the device is unpaired
-     *
      * @hide
-     */
-    int PRIORITY_UNDEFINED = -1;
+     * */
+    public static final int PRIORITY_UNDEFINED = -1;
 
     /**
      * Get connected devices for this specific profile.
@@ -236,8 +199,9 @@ public interface BluetoothProfile {
      * <p> If none of the devices match any of the given states,
      * an empty list will be returned.
      *
-     * @param states Array of states. States can be one of {@link #STATE_CONNECTED}, {@link
-     * #STATE_CONNECTING}, {@link #STATE_DISCONNECTED}, {@link #STATE_DISCONNECTING},
+     * @param states Array of states. States can be one of
+     *              {@link #STATE_CONNECTED}, {@link #STATE_CONNECTING},
+     *              {@link #STATE_DISCONNECTED}, {@link #STATE_DISCONNECTING},
      * @return List of devices. The list will be empty on error.
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH)
@@ -247,8 +211,9 @@ public interface BluetoothProfile {
      * Get the current connection state of the profile
      *
      * @param device Remote bluetooth device.
-     * @return State of the profile connection. One of {@link #STATE_CONNECTED}, {@link
-     * #STATE_CONNECTING}, {@link #STATE_DISCONNECTED}, {@link #STATE_DISCONNECTING}
+     * @return State of the profile connection. One of
+     *               {@link #STATE_CONNECTED}, {@link #STATE_CONNECTING},
+     *               {@link #STATE_DISCONNECTED}, {@link #STATE_DISCONNECTING}
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH)
     public int getConnectionState(BluetoothDevice device);
@@ -261,43 +226,19 @@ public interface BluetoothProfile {
         /**
          * Called to notify the client when the proxy object has been
          * connected to the service.
-         *
-         * @param profile - One of {@link #HEALTH}, {@link #HEADSET} or {@link #A2DP}
-         * @param proxy - One of {@link BluetoothHealth}, {@link BluetoothHeadset} or {@link
-         * BluetoothA2dp}
+         * @param profile - One of {@link #HEALTH}, {@link #HEADSET} or
+         *                  {@link #A2DP}
+         * @param proxy - One of {@link BluetoothHealth}, {@link BluetoothHeadset} or
+         *                {@link BluetoothA2dp}
          */
         public void onServiceConnected(int profile, BluetoothProfile proxy);
 
         /**
          * Called to notify the client that this proxy object has been
          * disconnected from the service.
-         *
-         * @param profile - One of {@link #HEALTH}, {@link #HEADSET} or {@link #A2DP}
+         * @param profile - One of {@link #HEALTH}, {@link #HEADSET} or
+         *                  {@link #A2DP}
          */
         public void onServiceDisconnected(int profile);
-    }
-
-    /**
-     * Convert an integer value of connection state into human readable string
-     *
-     * @param connectionState - One of {@link #STATE_DISCONNECTED}, {@link #STATE_CONNECTING},
-     * {@link #STATE_CONNECTED}, or {@link #STATE_DISCONNECTED}
-     * @return a string representation of the connection state, STATE_UNKNOWN if the state
-     * is not defined
-     * @hide
-     */
-    static String getConnectionStateName(int connectionState) {
-        switch (connectionState) {
-            case STATE_DISCONNECTED:
-                return "STATE_DISCONNECTED";
-            case STATE_CONNECTING:
-                return "STATE_CONNECTING";
-            case STATE_CONNECTED:
-                return "STATE_CONNECTED";
-            case STATE_DISCONNECTING:
-                return "STATE_DISCONNECTING";
-            default:
-                return "STATE_UNKNOWN";
-        }
     }
 }

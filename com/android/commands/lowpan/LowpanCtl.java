@@ -16,7 +16,6 @@
 
 package com.android.commands.lowpan;
 
-import android.net.LinkAddress;
 import android.net.lowpan.ILowpanInterface;
 import android.net.lowpan.LowpanBeaconInfo;
 import android.net.lowpan.LowpanCredential;
@@ -27,6 +26,7 @@ import android.net.lowpan.LowpanInterface;
 import android.net.lowpan.LowpanManager;
 import android.net.lowpan.LowpanProvision;
 import android.net.lowpan.LowpanScanner;
+import android.net.LinkAddress;
 import android.os.RemoteException;
 import android.os.ServiceSpecificException;
 import android.util.AndroidRuntimeException;
@@ -85,6 +85,7 @@ public class LowpanCtl extends BaseCommand {
                         + "subcommand-options:\n"
                         + "       -r / --raw ........................ Print only key contents\n"
                         + "\n");
+
     }
 
     private class CommandErrorException extends AndroidRuntimeException {
@@ -93,43 +94,21 @@ public class LowpanCtl extends BaseCommand {
         }
     }
 
-    private class ArgumentErrorException extends IllegalArgumentException {
-        public ArgumentErrorException(String desc) {
-            super(desc);
-        }
-    }
-
     private void throwCommandError(String desc) {
         throw new CommandErrorException(desc);
-    }
-
-    private void throwArgumentError(String desc) {
-        throw new ArgumentErrorException(desc);
-    }
-
-    private LowpanManager getLowpanManager() {
-        if (mLowpanManager == null) {
-            mLowpanManager = LowpanManager.getManager();
-
-            if (mLowpanManager == null) {
-                System.err.println(NO_SYSTEM_ERROR_CODE);
-                throwCommandError("Can't connect to LoWPAN service; is the service running?");
-            }
-        }
-        return mLowpanManager;
     }
 
     private LowpanInterface getLowpanInterface() {
         if (mLowpanInterface == null) {
             if (mLowpanInterfaceName == null) {
-                String interfaceArray[] = getLowpanManager().getInterfaceList();
+                String interfaceArray[] = mLowpanManager.getInterfaceList();
                 if (interfaceArray.length != 0) {
                     mLowpanInterfaceName = interfaceArray[0];
                 } else {
                     throwCommandError("No LoWPAN interfaces are present");
                 }
             }
-            mLowpanInterface = getLowpanManager().getInterface(mLowpanInterfaceName);
+            mLowpanInterface = mLowpanManager.getInterface(mLowpanInterfaceName);
 
             if (mLowpanInterface == null) {
                 throwCommandError("Unknown LoWPAN interface \"" + mLowpanInterfaceName + "\"");
@@ -147,16 +126,20 @@ public class LowpanCtl extends BaseCommand {
 
     @Override
     public void onRun() throws Exception {
+        mLowpanManager = LowpanManager.getManager();
+
+        if (mLowpanManager == null) {
+            System.err.println(NO_SYSTEM_ERROR_CODE);
+            throwCommandError("Can't connect to LoWPAN service; is the service running?");
+        }
+
         try {
             String op;
             while ((op = nextArgRequired()) != null) {
                 if (op.equals("-I") || op.equals("--interface")) {
                     mLowpanInterfaceName = nextArgRequired();
-                } else if (op.equals("-h") || op.equals("--help") || op.equals("help")) {
-                    onShowUsage(System.out);
-                    break;
                 } else if (op.startsWith("-")) {
-                    throwArgumentError("Unrecognized argument \"" + op + "\"");
+                    throwCommandError("Unrecognized argument \"" + op + "\"");
                 } else if (op.equals("status") || op.equals("stat")) {
                     runStatus();
                     break;
@@ -194,31 +177,15 @@ public class LowpanCtl extends BaseCommand {
                     runReset();
                     break;
                 } else {
-                    throwArgumentError("Unrecognized argument \"" + op + "\"");
+                    showError("Error: unknown command '" + op + "'");
                     break;
                 }
             }
         } catch (ServiceSpecificException x) {
             System.out.println(
                     "ServiceSpecificException: " + x.errorCode + ": " + x.getLocalizedMessage());
-            throw x;
-
-        } catch (ArgumentErrorException x) {
-            // Rethrow so we get syntax help.
-            throw x;
-
-        } catch (IllegalArgumentException x) {
-            // This was an argument exception that wasn't an
-            // argument error. We dump our stack trace immediately
-            // because this might not be from a command line argument.
-            x.printStackTrace(System.err);
-            System.exit(1);
-
         } catch (CommandErrorException x) {
-            // Command errors are normal errors that just
-            // get printed out without any fanfare.
             System.out.println("error: " + x.getLocalizedMessage());
-            System.exit(1);
         }
     }
 
@@ -258,8 +225,10 @@ public class LowpanCtl extends BaseCommand {
                 masterKey = HexDump.hexStringToByteArray(nextArgRequired());
             } else if (arg.equals("--master-key-index")) {
                 masterKeyIndex = Integer.decode(nextArgRequired());
+            } else if (arg.equals("--help")) {
+                throwCommandError("");
             } else if (arg.startsWith("-") || hasName) {
-                throwArgumentError("Unrecognized argument \"" + arg + "\"");
+                throwCommandError("Unrecognized argument \"" + arg + "\"");
             } else {
                 // This is the network name
                 identityBuilder.setName(arg);
@@ -278,7 +247,7 @@ public class LowpanCtl extends BaseCommand {
         if (credential != null) {
             builder.setLowpanCredential(credential);
         } else if (credentialRequired) {
-            throwArgumentError("No credential (like a master key) was specified!");
+            throwCommandError("No credential (like a master key) was specified!");
         }
 
         return builder.setLowpanIdentity(identityBuilder.build()).build();
@@ -315,7 +284,9 @@ public class LowpanCtl extends BaseCommand {
 
         if (provision.getLowpanCredential() != null) {
             System.out.println(
-                    "Forming " + provision.getLowpanIdentity() + " with provided credential");
+                    "Forming "
+                            + provision.getLowpanIdentity()
+                            + " with provided credential");
         } else {
             System.out.println("Forming " + provision.getLowpanIdentity());
         }
@@ -331,37 +302,26 @@ public class LowpanCtl extends BaseCommand {
 
         sb.append(iface.getName())
                 .append("\t")
-                .append(iface.getState());
+                .append(iface.getState() + " (" + iface.getRole() + ")");
 
-        if (!iface.isEnabled()) {
-            sb.append(" DISABLED");
+        if (iface.isUp()) {
+            sb.append(" UP");
+        }
 
-        } else if (iface.getState() != LowpanInterface.STATE_FAULT) {
-            sb.append(" (" + iface.getRole() + ")");
+        if (iface.isConnected()) {
+            sb.append(" CONNECTED");
+        }
 
-            if (iface.isUp()) {
-                sb.append(" UP");
-            }
+        if (iface.isCommissioned()) {
+            sb.append(" COMMISSIONED");
+        }
 
-            if (iface.isConnected()) {
-                sb.append(" CONNECTED");
-            }
+        sb
+            .append("\n\t")
+            .append(getLowpanInterface().getLowpanIdentity());
 
-            if (iface.isCommissioned()) {
-                sb.append(" COMMISSIONED");
-
-                LowpanIdentity identity = getLowpanInterface().getLowpanIdentity();
-
-                if (identity != null) {
-                    sb.append("\n\t").append(identity);
-                }
-            }
-
-            if (iface.isUp()) {
-                for (LinkAddress addr : iface.getLinkAddresses()) {
-                    sb.append("\n\t").append(addr);
-                }
-            }
+        for (LinkAddress addr : iface.getLinkAddresses()) {
+            sb.append("\n\t").append(addr);
         }
 
         sb.append("\n");
@@ -376,7 +336,7 @@ public class LowpanCtl extends BaseCommand {
             if (arg.equals("--raw") || arg.equals("-r")) {
                 raw = true;
             } else {
-                throwArgumentError("Unrecognized argument \"" + arg + "\"");
+                throwCommandError("Unrecognized argument \"" + arg + "\"");
             }
         }
 
@@ -384,12 +344,13 @@ public class LowpanCtl extends BaseCommand {
         if (raw) {
             System.out.println(HexDump.toHexString(credential.getMasterKey()));
         } else {
-            System.out.println(iface.getName() + "\t" + credential.toSensitiveString());
+            System.out.println(
+                iface.getName() + "\t" + credential.toSensitiveString());
         }
     }
 
     private void runListInterfaces() {
-        for (String name : getLowpanManager().getInterfaceList()) {
+        for (String name : mLowpanManager.getInterfaceList()) {
             System.out.println(name);
         }
     }
@@ -402,7 +363,7 @@ public class LowpanCtl extends BaseCommand {
             if (arg.equals("-c") || arg.equals("--channel")) {
                 scanner.addChannel(Integer.decode(nextArgRequired()));
             } else {
-                throwArgumentError("Unrecognized argument \"" + arg + "\"");
+                throwCommandError("Unrecognized argument \"" + arg + "\"");
             }
         }
 
@@ -440,7 +401,7 @@ public class LowpanCtl extends BaseCommand {
             if (arg.equals("-c") || arg.equals("--channel")) {
                 scanner.addChannel(Integer.decode(nextArgRequired()));
             } else {
-                throwArgumentError("Unrecognized argument \"" + arg + "\"");
+                throwCommandError("Unrecognized argument \"" + arg + "\"");
             }
         }
 

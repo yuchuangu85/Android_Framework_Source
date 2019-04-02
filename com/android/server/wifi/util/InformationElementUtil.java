@@ -247,10 +247,6 @@ public class InformationElementUtil {
                         "Bad Interworking element length: " + ie.bytes.length);
             }
 
-            if (ie.bytes.length == 3 || ie.bytes.length == 9) {
-                int venueInfo = (int) ByteBufferReader.readInteger(data, ByteOrder.BIG_ENDIAN, 2);
-            }
-
             if (ie.bytes.length == 7 || ie.bytes.length == 9) {
                 hessid = ByteBufferReader.readInteger(data, ByteOrder.BIG_ENDIAN, 6);
             }
@@ -259,12 +255,7 @@ public class InformationElementUtil {
 
     public static class RoamingConsortium {
         public int anqpOICount = 0;
-
-        private long[] roamingConsortiums = null;
-
-        public long[] getRoamingConsortiums() {
-            return roamingConsortiums;
-        }
+        public long[] roamingConsortiums = null;
 
         public void from(InformationElement ie) {
             if (ie.id != InformationElement.EID_ROAMING_CONSORTIUM) {

@@ -24,25 +24,25 @@ import libcore.util.Objects;
  * @hide
  */
 public final class StructCapUserHeader {
-    /**
-     * Version of the header. Note this is not final as capget() may mutate the field when an
-     * invalid version is provided. See
-     * <a href="http://man7.org/linux/man-pages/man2/capget.2.html">capget(2)</a>.
-     */
-    public int version; /* __u32 */
+  /**
+   * Version of the header. Note this is not final as capget() may mutate the field when an
+   * invalid version is provided. See
+   * <a href="http://man7.org/linux/man-pages/man2/capget.2.html">capget(2)</a>.
+   */
+  public int version; /* __u32 */
 
-    /** Pid of the header. The pid a call applies to. */
-    public final int pid;
+  /** Pid of the header. The pid a call applies to. */
+  public final int pid;
 
-    /**
-     * Constructs an instance with the given field values.
-     */
-    public StructCapUserHeader(int version, int pid) {
-        this.version = version;
-        this.pid = pid;
-    }
+  /**
+   * Constructs an instance with the given field values.
+   */
+  public StructCapUserHeader(int version, int pid) {
+    this.version = version;
+    this.pid = pid;
+  }
 
-    @Override public String toString() {
-        return Objects.toString(this);
-    }
+  @Override public String toString() {
+    return Objects.toString(this);
+  }
 }

@@ -119,7 +119,6 @@ public class TestSuiteBuilder {
      *
      * @param predicates Predicates to add to the list of requirements.
      * @return The builder for method chaining.
-     * @hide
      */
     public TestSuiteBuilder addRequirements(List<Predicate<TestMethod>> predicates) {
         this.predicates.addAll(predicates);
@@ -157,7 +156,7 @@ public class TestSuiteBuilder {
 
     /**
      * Override the default name for the suite being built. This should generally be called if you
-     * call {@code addRequirements(com.android.internal.util.Predicate[])} to make it clear which
+     * call {@link #addRequirements(com.android.internal.util.Predicate[])} to make it clear which
      * tests will be included. The name you specify is automatically prefixed with the package
      * containing the tests to be run. If more than one package is specified, the first is used.
      *
@@ -216,7 +215,6 @@ public class TestSuiteBuilder {
      *
      * @param predicates Predicates to add to the list of requirements.
      * @return The builder for method chaining.
-     * @hide
      */
     public final TestSuiteBuilder addRequirements(Predicate<TestMethod>... predicates) {
         ArrayList<Predicate<TestMethod>> list = new ArrayList<Predicate<TestMethod>>();

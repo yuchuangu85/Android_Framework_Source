@@ -55,7 +55,7 @@ public class DataSaverTile extends QSTileImpl<BooleanState> implements
 
     @Override
     public Intent getLongClickIntent() {
-        return CellularTile.getCellularSettingIntent();
+        return CellularTile.getCellularSettingIntent(mContext);
     }
     @Override
     protected void handleClick() {

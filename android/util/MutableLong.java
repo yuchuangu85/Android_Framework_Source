@@ -17,13 +17,11 @@
 package android.util;
 
 /**
- * @deprecated This class will be removed from a future version of the Android API.
  */
-@Deprecated
 public final class MutableLong {
-    public long value;
+  public long value;
 
-    public MutableLong(long value) {
-        this.value = value;
-    }
+  public MutableLong(long value) {
+    this.value = value;
+  }
 }

@@ -16,9 +16,6 @@
 
 package com.android.internal.inputmethod;
 
-import static android.view.inputmethod.InputMethodManager.CONTROL_WINDOW_IS_TEXT_EDITOR;
-import static android.view.inputmethod.InputMethodManager.CONTROL_WINDOW_VIEW_HAS_FOCUS;
-
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.UserIdInt;
@@ -29,7 +26,6 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
-import android.os.Build;
 import android.os.LocaleList;
 import android.os.RemoteException;
 import android.provider.Settings;
@@ -37,7 +33,6 @@ import android.text.TextUtils;
 import android.text.TextUtils.SimpleStringSplitter;
 import android.util.ArrayMap;
 import android.util.ArraySet;
-import android.util.Log;
 import android.util.Pair;
 import android.util.Printer;
 import android.util.Slog;
@@ -320,8 +315,8 @@ public class InputMethodUtils {
         return builder;
     }
 
-    public static ArrayList<InputMethodInfo> getDefaultEnabledImes(
-            Context context, ArrayList<InputMethodInfo> imis, boolean onlyMinimum) {
+    public static ArrayList<InputMethodInfo> getDefaultEnabledImes(final Context context,
+            final ArrayList<InputMethodInfo> imis) {
         final Locale fallbackLocale = getFallbackLocaleForDefaultIme(imis, context);
         // We will primarily rely on the system locale, but also keep relying on the fallback locale
         // as a last resort.
@@ -329,19 +324,11 @@ public class InputMethodUtils {
         // then pick up suitable auxiliary IMEs when necessary (e.g. Voice IMEs with "automatic"
         // subtype)
         final Locale systemLocale = getSystemLocaleFromContext(context);
-        final InputMethodListBuilder builder =
-                getMinimumKeyboardSetWithSystemLocale(imis, context, systemLocale, fallbackLocale);
-        if (!onlyMinimum) {
-            builder.fillImes(imis, context, true /* checkDefaultAttribute */, systemLocale,
-                    true /* checkCountry */, SUBTYPE_MODE_ANY)
-                    .fillAuxiliaryImes(imis, context);
-        }
-        return builder.build();
-    }
-
-    public static ArrayList<InputMethodInfo> getDefaultEnabledImes(
-            Context context, ArrayList<InputMethodInfo> imis) {
-        return getDefaultEnabledImes(context, imis, false /* onlyMinimum */);
+        return getMinimumKeyboardSetWithSystemLocale(imis, context, systemLocale, fallbackLocale)
+                .fillImes(imis, context, true /* checkDefaultAttribute */, systemLocale,
+                        true /* checkCountry */, SUBTYPE_MODE_ANY)
+                .fillAuxiliaryImes(imis, context)
+                .build();
     }
 
     public static Locale constructLocaleFromString(String localeStr) {
@@ -849,6 +836,7 @@ public class InputMethodUtils {
         private final Resources mRes;
         private final ContentResolver mResolver;
         private final HashMap<String, InputMethodInfo> mMethodMap;
+        private final ArrayList<InputMethodInfo> mMethodList;
 
         /**
          * On-memory data store to emulate when {@link #mCopyOnWrite} is {@code true}.
@@ -918,6 +906,7 @@ public class InputMethodUtils {
             mRes = res;
             mResolver = resolver;
             mMethodMap = methodMap;
+            mMethodList = methodList;
             switchCurrentUser(userId, copyOnWrite);
         }
 
@@ -1098,7 +1087,7 @@ public class InputMethodUtils {
             final ArrayList<InputMethodInfo> res = new ArrayList<>();
             for (Pair<String, ArrayList<String>> ims: imsList) {
                 InputMethodInfo info = mMethodMap.get(ims.first);
-                if (info != null && !info.isVrOnly()) {
+                if (info != null) {
                     res.add(info);
                 }
             }
@@ -1523,20 +1512,4 @@ public class InputMethodUtils {
         }
         return locales;
     }
-
-    public static boolean isSoftInputModeStateVisibleAllowed(
-            int targetSdkVersion, int controlFlags) {
-        if (targetSdkVersion < Build.VERSION_CODES.P) {
-            // for compatibility.
-            return true;
-        }
-        if ((controlFlags & CONTROL_WINDOW_VIEW_HAS_FOCUS) == 0) {
-            return false;
-        }
-        if ((controlFlags & CONTROL_WINDOW_IS_TEXT_EDITOR) == 0) {
-            return false;
-        }
-        return true;
-    }
-
 }

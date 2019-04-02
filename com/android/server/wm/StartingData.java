@@ -16,7 +16,7 @@
 
 package com.android.server.wm;
 
-import com.android.server.policy.WindowManagerPolicy.StartingSurface;
+import android.view.WindowManagerPolicy.StartingSurface;
 
 /**
  * Represents the model about how a starting window should be constructed.

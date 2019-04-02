@@ -494,7 +494,7 @@ public final class MediaBrowser {
             sub = new Subscription();
             mSubscriptions.put(parentId, sub);
         }
-        sub.putCallback(mContext, options, callback);
+        sub.putCallback(options, callback);
 
         // If we are connected, tell the service that we are watching. If we aren't connected,
         // the service will be told when we connect.
@@ -671,8 +671,7 @@ public final class MediaBrowser {
                 final Subscription subscription = mSubscriptions.get(parentId);
                 if (subscription != null) {
                     // Tell the app.
-                    SubscriptionCallback subscriptionCallback =
-                            subscription.getCallback(mContext, options);
+                    SubscriptionCallback subscriptionCallback = subscription.getCallback(options);
                     if (subscriptionCallback != null) {
                         List<MediaItem> data = list == null ? null : list.getList();
                         if (options == null) {
@@ -1142,10 +1141,7 @@ public final class MediaBrowser {
             return mCallbacks;
         }
 
-        public SubscriptionCallback getCallback(Context context, Bundle options) {
-            if (options != null) {
-                options.setClassLoader(context.getClassLoader());
-            }
+        public SubscriptionCallback getCallback(Bundle options) {
             for (int i = 0; i < mOptionsList.size(); ++i) {
                 if (MediaBrowserUtils.areSameOptions(mOptionsList.get(i), options)) {
                     return mCallbacks.get(i);
@@ -1154,10 +1150,7 @@ public final class MediaBrowser {
             return null;
         }
 
-        public void putCallback(Context context, Bundle options, SubscriptionCallback callback) {
-            if (options != null) {
-                options.setClassLoader(context.getClassLoader());
-            }
+        public void putCallback(Bundle options, SubscriptionCallback callback) {
             for (int i = 0; i < mOptionsList.size(); ++i) {
                 if (MediaBrowserUtils.areSameOptions(mOptionsList.get(i), options)) {
                     mCallbacks.set(i, callback);

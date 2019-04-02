@@ -22,10 +22,7 @@ import android.os.Message;
 import android.telecom.Connection;
 import android.telephony.Rlog;
 
-import com.android.internal.annotations.VisibleForTesting;
-
 import java.io.IOException;
-import java.util.concurrent.CountDownLatch;
 
 public class ImsRttTextHandler extends Handler {
     public interface NetworkWriter {
@@ -60,11 +57,9 @@ public class ImsRttTextHandler extends Handler {
     // limiter. msg.arg1 should be set to N.
     private static final int EXPIRE_SENT_CODEPOINT_COUNT = 5;
     // Indicates that the call is over and we should teardown everything we have set up.
-    private static final int TEARDOWN = 9999;
+    private static final int TEARDOWN = 6;
 
     private Connection.RttTextStream mRttTextStream;
-    // For synchronization during testing
-    private CountDownLatch mReadNotifier;
 
     private class InCallReaderThread extends Thread {
         private final Connection.RttTextStream mReaderThreadRttTextStream;
@@ -100,9 +95,6 @@ public class ImsRttTextHandler extends Handler {
                 }
                 obtainMessage(APPEND_TO_NETWORK_BUFFER, charsReceived)
                         .sendToTarget();
-                if (mReadNotifier != null) {
-                    mReadNotifier.countDown();
-                }
             }
         }
     }
@@ -207,14 +199,5 @@ public class ImsRttTextHandler extends Handler {
 
     public void tearDown() {
         obtainMessage(TEARDOWN).sendToTarget();
-    }
-
-    @VisibleForTesting
-    public void setReadNotifier(CountDownLatch latch) {
-        mReadNotifier = latch;
-    }
-
-    public String getNetworkBufferText() {
-        return mBufferedTextToNetwork.toString();
     }
 }

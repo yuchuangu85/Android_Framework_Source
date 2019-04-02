@@ -26,7 +26,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageManagerInternal;
 import android.database.ContentObserver;
 import android.location.LocationManager;
 import android.net.INetworkRecommendationProvider;
@@ -47,21 +46,19 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.Process;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.provider.Settings.Global;
-import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.ArraySet;
-import android.util.IntArray;
 import android.util.Log;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.content.PackageMonitor;
 import com.android.internal.os.TransferPipe;
-import com.android.internal.telephony.SmsApplication;
 import com.android.internal.util.DumpUtils;
 
 import java.io.FileDescriptor;
@@ -95,8 +92,7 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
     private final Object mPackageMonitorLock = new Object();
     private final Object mServiceConnectionLock = new Object();
     private final Handler mHandler;
-    private final DispatchingContentObserver mRecommendationSettingsObserver;
-    private final ContentObserver mUseOpenWifiPackageObserver;
+    private final DispatchingContentObserver mContentObserver;
     private final Function<NetworkScorerAppData, ScoringServiceConnection> mServiceConnProducer;
 
     @GuardedBy("mPackageMonitorLock")
@@ -127,30 +123,6 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
             }
         }
     };
-
-    public static final class Lifecycle extends SystemService {
-        private final NetworkScoreService mService;
-
-        public Lifecycle(Context context) {
-            super(context);
-            mService = new NetworkScoreService(context);
-        }
-
-        @Override
-        public void onStart() {
-            Log.i(TAG, "Registering " + Context.NETWORK_SCORE_SERVICE);
-            publishBinderService(Context.NETWORK_SCORE_SERVICE, mService);
-        }
-
-        @Override
-        public void onBootPhase(int phase) {
-            if (phase == PHASE_SYSTEM_SERVICES_READY) {
-                mService.systemReady();
-            } else if (phase == PHASE_BOOT_COMPLETED) {
-                mService.systemRunning();
-            }
-        }
-    }
 
     /**
      * Clears scores when the active scorer package is no longer valid and
@@ -284,40 +256,8 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
         mContext.registerReceiverAsUser(
                 mLocationModeReceiver, UserHandle.SYSTEM, locationModeFilter,
                 null /* broadcastPermission*/, mHandler);
-        mRecommendationSettingsObserver = new DispatchingContentObserver(context, mHandler);
+        mContentObserver = new DispatchingContentObserver(context, mHandler);
         mServiceConnProducer = serviceConnProducer;
-        mUseOpenWifiPackageObserver = new ContentObserver(mHandler) {
-            @Override
-            public void onChange(boolean selfChange, Uri uri, int userId) {
-                Uri useOpenWifiPkgUri = Global.getUriFor(Global.USE_OPEN_WIFI_PACKAGE);
-                if (useOpenWifiPkgUri.equals(uri)) {
-                    String useOpenWifiPackage = Global.getString(mContext.getContentResolver(),
-                            Global.USE_OPEN_WIFI_PACKAGE);
-                    if (!TextUtils.isEmpty(useOpenWifiPackage)) {
-                        LocalServices.getService(PackageManagerInternal.class)
-                                .grantDefaultPermissionsToDefaultUseOpenWifiApp(useOpenWifiPackage,
-                                        userId);
-                    }
-                }
-            }
-        };
-        mContext.getContentResolver().registerContentObserver(
-                Global.getUriFor(Global.USE_OPEN_WIFI_PACKAGE),
-                false /*notifyForDescendants*/,
-                mUseOpenWifiPackageObserver);
-        // Set a callback for the package manager to query the use open wifi app.
-        LocalServices.getService(PackageManagerInternal.class).setUseOpenWifiAppPackagesProvider(
-                new PackageManagerInternal.PackagesProvider() {
-                    @Override
-                    public String[] getPackages(int userId) {
-                        String useOpenWifiPackage = Global.getString(mContext.getContentResolver(),
-                                Global.USE_OPEN_WIFI_PACKAGE);
-                        if (!TextUtils.isEmpty(useOpenWifiPackage)) {
-                            return new String[]{useOpenWifiPackage};
-                        }
-                        return null;
-                    }
-                });
     }
 
     /** Called when the system is ready to run third-party code but before it actually does so. */
@@ -348,11 +288,11 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
 
     private void registerRecommendationSettingsObserver() {
         final Uri packageNameUri = Global.getUriFor(Global.NETWORK_RECOMMENDATIONS_PACKAGE);
-        mRecommendationSettingsObserver.observe(packageNameUri,
+        mContentObserver.observe(packageNameUri,
                 ServiceHandler.MSG_RECOMMENDATIONS_PACKAGE_CHANGED);
 
         final Uri settingUri = Global.getUriFor(Global.NETWORK_RECOMMENDATIONS_ENABLED);
-        mRecommendationSettingsObserver.observe(settingUri,
+        mContentObserver.observe(settingUri,
                 ServiceHandler.MSG_RECOMMENDATION_ENABLED_SETTING_CHANGED);
     }
 
@@ -700,22 +640,42 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
         }
     }
 
+    private boolean canCallerRequestScores() {
+        // REQUEST_NETWORK_SCORES is a signature only permission.
+        return mContext.checkCallingOrSelfPermission(permission.REQUEST_NETWORK_SCORES) ==
+                 PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean canCallerScoreNetworks() {
+        return mContext.checkCallingOrSelfPermission(permission.SCORE_NETWORKS) ==
+                PackageManager.PERMISSION_GRANTED;
+    }
+
     @Override
     public boolean clearScores() {
         // Only the active scorer or the system should be allowed to flush all scores.
-        enforceSystemOrIsActiveScorer(getCallingUid());
-        final long token = Binder.clearCallingIdentity();
-        try {
-            clearInternal();
-            return true;
-        } finally {
-            Binder.restoreCallingIdentity(token);
+        if (isCallerActiveScorer(getCallingUid()) || canCallerRequestScores()) {
+            final long token = Binder.clearCallingIdentity();
+            try {
+                clearInternal();
+                return true;
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        } else {
+            throw new SecurityException(
+                    "Caller is neither the active scorer nor the scorer manager.");
         }
     }
 
     @Override
     public boolean setActiveScorer(String packageName) {
-        enforceSystemOrHasScoreNetworks();
+        // Only the system can set the active scorer
+        if (!isCallerSystemProcess(getCallingUid()) && !canCallerScoreNetworks()) {
+            throw new SecurityException(
+                    "Caller is neither the system process or a network scorer.");
+        }
+
         return mNetworkScorerAppManager.setActiveScorer(packageName);
     }
 
@@ -733,29 +693,8 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
         }
     }
 
-    private void enforceSystemOnly() throws SecurityException {
-        // REQUEST_NETWORK_SCORES is a signature only permission.
-        mContext.enforceCallingOrSelfPermission(permission.REQUEST_NETWORK_SCORES,
-                "Caller must be granted REQUEST_NETWORK_SCORES.");
-    }
-
-    private void enforceSystemOrHasScoreNetworks() throws SecurityException {
-        if (mContext.checkCallingOrSelfPermission(permission.REQUEST_NETWORK_SCORES)
-                != PackageManager.PERMISSION_GRANTED
-                && mContext.checkCallingOrSelfPermission(permission.SCORE_NETWORKS)
-                != PackageManager.PERMISSION_GRANTED) {
-            throw new SecurityException(
-                    "Caller is neither the system process or a network scorer.");
-        }
-    }
-
-    private void enforceSystemOrIsActiveScorer(int callingUid) throws SecurityException {
-        if (mContext.checkCallingOrSelfPermission(permission.REQUEST_NETWORK_SCORES)
-                != PackageManager.PERMISSION_GRANTED
-                && !isCallerActiveScorer(callingUid)) {
-            throw new SecurityException(
-                    "Caller is neither the system process or the active network scorer.");
-        }
+    private boolean isCallerSystemProcess(int callingUid) {
+        return callingUid == Process.SYSTEM_UID;
     }
 
     /**
@@ -766,12 +705,17 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
      */
     @Override
     public String getActiveScorerPackage() {
-        enforceSystemOrHasScoreNetworks();
-        synchronized (mServiceConnectionLock) {
-            if (mServiceConnection != null) {
-                return mServiceConnection.getPackageName();
+        if (canCallerRequestScores() || canCallerScoreNetworks()) {
+            synchronized (mServiceConnectionLock) {
+                if (mServiceConnection != null) {
+                    return mServiceConnection.getPackageName();
+                }
             }
+        } else {
+            throw new SecurityException(
+                    "Caller is not a network scorer/requester.");
         }
+
         return null;
     }
 
@@ -781,11 +725,15 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
     @Override
     public NetworkScorerAppData getActiveScorer() {
         // Only the system can access this data.
-        enforceSystemOnly();
-        synchronized (mServiceConnectionLock) {
-            if (mServiceConnection != null) {
-                return mServiceConnection.getAppData();
+        if (isCallerSystemProcess(getCallingUid()) || canCallerRequestScores()) {
+            synchronized (mServiceConnectionLock) {
+                if (mServiceConnection != null) {
+                    return mServiceConnection.getAppData();
+                }
             }
+        } else {
+            throw new SecurityException(
+                    "Caller is neither the system process nor a score requester.");
         }
 
         return null;
@@ -798,14 +746,22 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
     @Override
     public List<NetworkScorerAppData> getAllValidScorers() {
         // Only the system can access this data.
-        enforceSystemOnly();
+        if (!isCallerSystemProcess(getCallingUid()) && !canCallerRequestScores()) {
+            throw new SecurityException(
+                    "Caller is neither the system process nor a score requester.");
+        }
+
         return mNetworkScorerAppManager.getAllValidScorers();
     }
 
     @Override
     public void disableScoring() {
         // Only the active scorer or the system should be allowed to disable scoring.
-        enforceSystemOrIsActiveScorer(getCallingUid());
+        if (!isCallerActiveScorer(getCallingUid()) && !canCallerRequestScores()) {
+            throw new SecurityException(
+                    "Caller is neither the active scorer nor the scorer manager.");
+        }
+
         // no-op for now but we could write to the setting if needed.
     }
 
@@ -829,7 +785,7 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
     public void registerNetworkScoreCache(int networkType,
                                           INetworkScoreCache scoreCache,
                                           int filterType) {
-        enforceSystemOnly();
+        mContext.enforceCallingOrSelfPermission(permission.REQUEST_NETWORK_SCORES, TAG);
         final long token = Binder.clearCallingIdentity();
         try {
             synchronized (mScoreCaches) {
@@ -854,7 +810,7 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
 
     @Override
     public void unregisterNetworkScoreCache(int networkType, INetworkScoreCache scoreCache) {
-        enforceSystemOnly();
+        mContext.enforceCallingOrSelfPermission(permission.REQUEST_NETWORK_SCORES, TAG);
         final long token = Binder.clearCallingIdentity();
         try {
             synchronized (mScoreCaches) {
@@ -875,7 +831,7 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
 
     @Override
     public boolean requestScores(NetworkKey[] networks) {
-        enforceSystemOnly();
+        mContext.enforceCallingOrSelfPermission(permission.REQUEST_NETWORK_SCORES, TAG);
         final long token = Binder.clearCallingIdentity();
         try {
             final INetworkRecommendationProvider provider = getRecommendationProvider();

@@ -201,7 +201,7 @@ public final class CardEmulation {
      */
     public boolean isDefaultServiceForCategory(ComponentName service, String category) {
         try {
-            return sService.isDefaultServiceForCategory(mContext.getUserId(), service, category);
+            return sService.isDefaultServiceForCategory(UserHandle.myUserId(), service, category);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -210,7 +210,7 @@ public final class CardEmulation {
                 return false;
             }
             try {
-                return sService.isDefaultServiceForCategory(mContext.getUserId(), service,
+                return sService.isDefaultServiceForCategory(UserHandle.myUserId(), service,
                         category);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to recover CardEmulationService.");
@@ -232,7 +232,7 @@ public final class CardEmulation {
      */
     public boolean isDefaultServiceForAid(ComponentName service, String aid) {
         try {
-            return sService.isDefaultServiceForAid(mContext.getUserId(), service, aid);
+            return sService.isDefaultServiceForAid(UserHandle.myUserId(), service, aid);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -241,7 +241,7 @@ public final class CardEmulation {
                 return false;
             }
             try {
-                return sService.isDefaultServiceForAid(mContext.getUserId(), service, aid);
+                return sService.isDefaultServiceForAid(UserHandle.myUserId(), service, aid);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to reach CardEmulationService.");
                 return false;
@@ -326,7 +326,7 @@ public final class CardEmulation {
             List<String> aids) {
         AidGroup aidGroup = new AidGroup(aids, category);
         try {
-            return sService.registerAidGroupForService(mContext.getUserId(), service, aidGroup);
+            return sService.registerAidGroupForService(UserHandle.myUserId(), service, aidGroup);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -335,7 +335,7 @@ public final class CardEmulation {
                 return false;
             }
             try {
-                return sService.registerAidGroupForService(mContext.getUserId(), service,
+                return sService.registerAidGroupForService(UserHandle.myUserId(), service,
                         aidGroup);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to reach CardEmulationService.");
@@ -360,7 +360,7 @@ public final class CardEmulation {
      */
     public List<String> getAidsForService(ComponentName service, String category) {
         try {
-            AidGroup group =  sService.getAidGroupForService(mContext.getUserId(), service,
+            AidGroup group =  sService.getAidGroupForService(UserHandle.myUserId(), service,
                     category);
             return (group != null ? group.getAids() : null);
         } catch (RemoteException e) {
@@ -370,7 +370,7 @@ public final class CardEmulation {
                 return null;
             }
             try {
-                AidGroup group = sService.getAidGroupForService(mContext.getUserId(), service,
+                AidGroup group = sService.getAidGroupForService(UserHandle.myUserId(), service,
                         category);
                 return (group != null ? group.getAids() : null);
             } catch (RemoteException ee) {
@@ -397,7 +397,7 @@ public final class CardEmulation {
      */
     public boolean removeAidsForService(ComponentName service, String category) {
         try {
-            return sService.removeAidGroupForService(mContext.getUserId(), service, category);
+            return sService.removeAidGroupForService(UserHandle.myUserId(), service, category);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -406,7 +406,7 @@ public final class CardEmulation {
                 return false;
             }
             try {
-                return sService.removeAidGroupForService(mContext.getUserId(), service, category);
+                return sService.removeAidGroupForService(UserHandle.myUserId(), service, category);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to reach CardEmulationService.");
                 return false;
@@ -537,7 +537,7 @@ public final class CardEmulation {
      */
     public boolean setDefaultServiceForCategory(ComponentName service, String category) {
         try {
-            return sService.setDefaultServiceForCategory(mContext.getUserId(), service, category);
+            return sService.setDefaultServiceForCategory(UserHandle.myUserId(), service, category);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -546,7 +546,7 @@ public final class CardEmulation {
                 return false;
             }
             try {
-                return sService.setDefaultServiceForCategory(mContext.getUserId(), service,
+                return sService.setDefaultServiceForCategory(UserHandle.myUserId(), service,
                         category);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to reach CardEmulationService.");
@@ -560,7 +560,7 @@ public final class CardEmulation {
      */
     public boolean setDefaultForNextTap(ComponentName service) {
         try {
-            return sService.setDefaultForNextTap(mContext.getUserId(), service);
+            return sService.setDefaultForNextTap(UserHandle.myUserId(), service);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -569,7 +569,7 @@ public final class CardEmulation {
                 return false;
             }
             try {
-                return sService.setDefaultForNextTap(mContext.getUserId(), service);
+                return sService.setDefaultForNextTap(UserHandle.myUserId(), service);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to reach CardEmulationService.");
                 return false;
@@ -582,7 +582,7 @@ public final class CardEmulation {
      */
     public List<ApduServiceInfo> getServices(String category) {
         try {
-            return sService.getServices(mContext.getUserId(), category);
+            return sService.getServices(UserHandle.myUserId(), category);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -591,7 +591,7 @@ public final class CardEmulation {
                 return null;
             }
             try {
-                return sService.getServices(mContext.getUserId(), category);
+                return sService.getServices(UserHandle.myUserId(), category);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to reach CardEmulationService.");
                 return null;

@@ -40,10 +40,10 @@ import android.os.UserHandle;
 import android.provider.Settings;
 import android.provider.Settings.Global;
 import android.provider.Settings.Secure;
-import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Log;
 
+import com.android.ims.ImsConfig;
 import com.android.internal.content.PackageHelper;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.RILConstants;
@@ -87,6 +87,7 @@ class DatabaseHelper extends SQLiteOpenHelper {
 
     private static final HashSet<String> mValidTables = new HashSet<String>();
 
+    private static final String DATABASE_JOURNAL_SUFFIX = "-journal";
     private static final String DATABASE_BACKUP_SUFFIX = "-backup";
 
     private static final String TABLE_SYSTEM = "system";
@@ -147,7 +148,12 @@ class DatabaseHelper extends SQLiteOpenHelper {
         }
         File databaseFile = mContext.getDatabasePath(getDatabaseName());
         if (databaseFile.exists()) {
-            SQLiteDatabase.deleteDatabase(databaseFile);
+            databaseFile.delete();
+        }
+        File databaseJournalFile = mContext.getDatabasePath(getDatabaseName()
+                + DATABASE_JOURNAL_SUFFIX);
+        if (databaseJournalFile.exists()) {
+            databaseJournalFile.delete();
         }
     }
 
@@ -1504,7 +1510,7 @@ class DatabaseHelper extends SQLiteOpenHelper {
                 try {
                     stmt = db.compileStatement("INSERT OR REPLACE INTO global(name,value)"
                             + " VALUES(?,?);");
-                    loadStringSetting(stmt, Settings.Global.CHARGING_STARTED_SOUND,
+                    loadStringSetting(stmt, Settings.Global.WIRELESS_CHARGING_STARTED_SOUND,
                             R.string.def_wireless_charging_started_sound);
                     db.setTransactionSuccessful();
                 } finally {
@@ -1830,10 +1836,20 @@ class DatabaseHelper extends SQLiteOpenHelper {
         }
 
         if (upgradeVersion < 116) {
-            /*
-             * To control the default value by carrier config manager, initializing
-             * ENHANCED_4G_MODE_ENABLED has been removed.
-             */
+            if (mUserHandle == UserHandle.USER_SYSTEM) {
+                db.beginTransaction();
+                SQLiteStatement stmt = null;
+                try {
+                    stmt = db.compileStatement("INSERT OR IGNORE INTO global(name,value)"
+                            + " VALUES(?,?);");
+                    loadSetting(stmt, Settings.Global.ENHANCED_4G_MODE_ENABLED,
+                            ImsConfig.FeatureValueConstants.ON);
+                    db.setTransactionSuccessful();
+                } finally {
+                    db.endTransaction();
+                    if (stmt != null) stmt.close();
+                }
+            }
             upgradeVersion = 116;
         }
 
@@ -2300,11 +2316,10 @@ class DatabaseHelper extends SQLiteOpenHelper {
             loadIntegerSetting(stmt, Settings.System.SCREEN_BRIGHTNESS,
                     R.integer.def_screen_brightness);
 
-            loadIntegerSetting(stmt, Settings.System.SCREEN_BRIGHTNESS_FOR_VR,
-                    com.android.internal.R.integer.config_screenBrightnessForVrSettingDefault);
-
             loadBooleanSetting(stmt, Settings.System.SCREEN_BRIGHTNESS_MODE,
                     R.bool.def_screen_brightness_automatic_mode);
+
+            loadDefaultAnimationSettings(stmt);
 
             loadBooleanSetting(stmt, Settings.System.ACCELEROMETER_ROTATION,
                     R.bool.def_accelerometer_rotation);
@@ -2499,8 +2514,6 @@ class DatabaseHelper extends SQLiteOpenHelper {
             loadSetting(stmt, Settings.Global.MODE_RINGER,
                     AudioManager.RINGER_MODE_NORMAL);
 
-            loadDefaultAnimationSettings(stmt);
-
             // --- Previously in 'secure'
             loadBooleanSetting(stmt, Settings.Global.PACKAGE_VERIFIER_ENABLE,
                     R.bool.def_package_verifier_enable);
@@ -2581,7 +2594,7 @@ class DatabaseHelper extends SQLiteOpenHelper {
                     R.string.def_car_dock_sound);
             loadStringSetting(stmt, Settings.Global.CAR_UNDOCK_SOUND,
                     R.string.def_car_undock_sound);
-            loadStringSetting(stmt, Settings.Global.CHARGING_STARTED_SOUND,
+            loadStringSetting(stmt, Settings.Global.WIRELESS_CHARGING_STARTED_SOUND,
                     R.string.def_wireless_charging_started_sound);
 
             loadIntegerSetting(stmt, Settings.Global.DOCK_AUDIO_MEDIA_ENABLED,
@@ -2598,26 +2611,15 @@ class DatabaseHelper extends SQLiteOpenHelper {
             loadSetting(stmt, Settings.Global.CALL_AUTO_RETRY, 0);
 
             // Set the preferred network mode to target desired value or Default
-            // value defined in system property
-            String val = "";
-            String mode;
-            for (int phoneId = 0;
-                    phoneId < TelephonyManager.getDefault().getPhoneCount(); phoneId++) {
-                mode = TelephonyManager.getTelephonyProperty(phoneId,
-                        "ro.telephony.default_network",
-                        Integer.toString(RILConstants.PREFERRED_NETWORK_MODE));
-                if (phoneId == 0) {
-                    val = mode;
-                } else {
-                    val = val + "," + mode;
-                }
-            }
-            loadSetting(stmt, Settings.Global.PREFERRED_NETWORK_MODE, val);
+            // value defined in RILConstants
+            int type;
+            type = RILConstants.PREFERRED_NETWORK_MODE;
+            loadSetting(stmt, Settings.Global.PREFERRED_NETWORK_MODE, type);
 
             // Set the preferred cdma subscription source to target desired value or default
             // value defined in Phone
-            int type = SystemProperties.getInt("ro.telephony.default_cdma_sub",
-                    Phone.PREFERRED_CDMA_SUBSCRIPTION);
+            type = SystemProperties.getInt("ro.telephony.default_cdma_sub",
+                        Phone.PREFERRED_CDMA_SUBSCRIPTION);
             loadSetting(stmt, Settings.Global.CDMA_SUBSCRIPTION_MODE, type);
 
             loadIntegerSetting(stmt, Settings.Global.LOW_BATTERY_SOUND_TIMEOUT,
@@ -2630,6 +2632,9 @@ class DatabaseHelper extends SQLiteOpenHelper {
                     R.integer.def_heads_up_enabled);
 
             loadSetting(stmt, Settings.Global.DEVICE_NAME, getDefaultDeviceName());
+
+            loadSetting(stmt, Settings.Global.ENHANCED_4G_MODE_ENABLED,
+                    ImsConfig.FeatureValueConstants.ON);
 
             /*
              * IMPORTANT: Do not add any more upgrade steps here as the global,

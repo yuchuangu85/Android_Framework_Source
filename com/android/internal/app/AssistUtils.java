@@ -156,12 +156,9 @@ public class AssistUtils {
         if (activeServiceSupportsAssistGesture()) {
             return getActiveServiceComponentName();
         }
-        final SearchManager searchManager =
-            (SearchManager) mContext.getSystemService(Context.SEARCH_SERVICE);
-        if (searchManager == null) {
-            return null;
-        }
-        final Intent intent = searchManager.getAssistIntent(false);
+
+        Intent intent = ((SearchManager) mContext.getSystemService(Context.SEARCH_SERVICE))
+                .getAssistIntent(false);
         PackageManager pm = mContext.getPackageManager();
         ResolveInfo info = pm.resolveActivityAsUser(intent, PackageManager.MATCH_DEFAULT_ONLY,
                 userId);

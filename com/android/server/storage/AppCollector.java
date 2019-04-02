@@ -135,7 +135,7 @@ public class AppCollector {
                                 PackageStats packageStats = new PackageStats(app.packageName,
                                         user.id);
                                 packageStats.cacheSize = storageStats.getCacheBytes();
-                                packageStats.codeSize = storageStats.getAppBytes();
+                                packageStats.codeSize = storageStats.getCodeBytes();
                                 packageStats.dataSize = storageStats.getDataBytes();
                                 stats.add(packageStats);
                             } catch (NameNotFoundException | IOException e) {

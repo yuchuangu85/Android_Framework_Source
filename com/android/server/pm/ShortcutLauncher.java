@@ -25,7 +25,6 @@ import android.util.ArraySet;
 import android.util.Slog;
 
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.server.pm.ShortcutService.DumpFilter;
 import com.android.server.pm.ShortcutUser.PackageWithUser;
 
 import org.json.JSONException;
@@ -83,16 +82,11 @@ class ShortcutLauncher extends ShortcutPackageItem {
         return mOwnerUserId;
     }
 
-    @Override
-    protected boolean canRestoreAnyVersion() {
-        // Launcher's pinned shortcuts can be restored to an older version.
-        return true;
-    }
-
     /**
      * Called when the new package can't receive the backup, due to signature or version mismatch.
      */
-    private void onRestoreBlocked() {
+    @Override
+    protected void onRestoreBlocked() {
         final ArrayList<PackageWithUser> pinnedPackages =
                 new ArrayList<>(mPinnedShortcuts.keySet());
         mPinnedShortcuts.clear();
@@ -106,21 +100,15 @@ class ShortcutLauncher extends ShortcutPackageItem {
     }
 
     @Override
-    protected void onRestored(int restoreBlockReason) {
-        // For launcher, possible reasons here are DISABLED_REASON_SIGNATURE_MISMATCH or
-        // DISABLED_REASON_BACKUP_NOT_SUPPORTED.
-        // DISABLED_REASON_VERSION_LOWER will NOT happen because we don't check version
-        // code for launchers.
-        if (restoreBlockReason != ShortcutInfo.DISABLED_REASON_NOT_DISABLED) {
-            onRestoreBlocked();
-        }
+    protected void onRestored() {
+        // Nothing to do.
     }
 
     /**
      * Pin the given shortcuts, replacing the current pinned ones.
      */
     public void pinShortcuts(@UserIdInt int packageUserId,
-            @NonNull String packageName, @NonNull List<String> ids, boolean forPinRequest) {
+            @NonNull String packageName, @NonNull List<String> ids) {
         final ShortcutPackage packageShortcuts =
                 mShortcutUser.getPackageShortcutsIfExists(packageName);
         if (packageShortcuts == null) {
@@ -135,12 +123,8 @@ class ShortcutLauncher extends ShortcutPackageItem {
         } else {
             final ArraySet<String> prevSet = mPinnedShortcuts.get(pu);
 
-            // Actually pin shortcuts.
-            // This logic here is to make sure a launcher cannot pin a shortcut that is floating
-            // (i.e. not dynamic nor manifest but is pinned) and pinned by another launcher.
-            // In this case, technically the shortcut doesn't exist to this launcher, so it can't
-            // pin it.
-            // (Maybe unnecessarily strict...)
+            // Pin shortcuts.  Make sure only pin the ones that were visible to the caller.
+            // i.e. a non-dynamic, pinned shortcut by *other launchers* shouldn't be pinned here.
 
             final ArraySet<String> newSet = new ArraySet<>();
 
@@ -150,10 +134,8 @@ class ShortcutLauncher extends ShortcutPackageItem {
                 if (si == null) {
                     continue;
                 }
-                if (si.isDynamic()
-                        || si.isManifestShortcut()
-                        || (prevSet != null && prevSet.contains(id))
-                        || forPinRequest) {
+                if (si.isDynamic() || si.isManifestShortcut()
+                        || (prevSet != null && prevSet.contains(id))) {
                     newSet.add(id);
                 }
             }
@@ -172,7 +154,7 @@ class ShortcutLauncher extends ShortcutPackageItem {
     }
 
     /**
-     * Return true if the given shortcut is pinned by this launcher.<code></code>
+     * Return true if the given shortcut is pinned by this launcher.
      */
     public boolean hasPinned(ShortcutInfo shortcut) {
         final ArraySet<String> pinned =
@@ -181,10 +163,10 @@ class ShortcutLauncher extends ShortcutPackageItem {
     }
 
     /**
-     * Additionally pin a shortcut. c.f. {@link #pinShortcuts(int, String, List, boolean)}
+     * Additionally pin a shortcut. c.f. {@link #pinShortcuts(int, String, List)}
      */
     public void addPinnedShortcut(@NonNull String packageName, @UserIdInt int packageUserId,
-            String id, boolean forPinRequest) {
+            String id) {
         final ArraySet<String> pinnedSet = getPinnedShortcutIds(packageName, packageUserId);
         final ArrayList<String> pinnedList;
         if (pinnedSet != null) {
@@ -195,21 +177,21 @@ class ShortcutLauncher extends ShortcutPackageItem {
         }
         pinnedList.add(id);
 
-        pinShortcuts(packageUserId, packageName, pinnedList, forPinRequest);
+        pinShortcuts(packageUserId, packageName, pinnedList);
     }
 
     boolean cleanUpPackage(String packageName, @UserIdInt int packageUserId) {
         return mPinnedShortcuts.remove(PackageWithUser.of(packageUserId, packageName)) != null;
     }
 
-    public void ensurePackageInfo() {
+    public void ensureVersionInfo() {
         final PackageInfo pi = mShortcutUser.mService.getPackageInfoWithSignatures(
                 getPackageName(), getPackageUserId());
         if (pi == null) {
             Slog.w(TAG, "Package not found: " + getPackageName());
             return;
         }
-        getPackageInfo().updateFromPackageInfo(pi);
+        getPackageInfo().updateVersionInfo(pi);
     }
 
     /**
@@ -218,10 +200,6 @@ class ShortcutLauncher extends ShortcutPackageItem {
     @Override
     public void saveToXml(XmlSerializer out, boolean forBackup)
             throws IOException {
-        if (forBackup && !getPackageInfo().isBackupAllowed()) {
-            // If an launcher app doesn't support backup&restore, then nothing to do.
-            return;
-        }
         final int size = mPinnedShortcuts.size();
         if (size == 0) {
             return; // Nothing to write.
@@ -230,7 +208,7 @@ class ShortcutLauncher extends ShortcutPackageItem {
         out.startTag(null, TAG_ROOT);
         ShortcutService.writeAttr(out, ATTR_PACKAGE_NAME, getPackageName());
         ShortcutService.writeAttr(out, ATTR_LAUNCHER_USER_ID, getPackageUserId());
-        getPackageInfo().saveToXml(mShortcutUser.mService, out, forBackup);
+        getPackageInfo().saveToXml(out);
 
         for (int i = 0; i < size; i++) {
             final PackageWithUser pu = mPinnedShortcuts.keyAt(i);
@@ -315,7 +293,7 @@ class ShortcutLauncher extends ShortcutPackageItem {
         return ret;
     }
 
-    public void dump(@NonNull PrintWriter pw, @NonNull String prefix, DumpFilter filter) {
+    public void dump(@NonNull PrintWriter pw, @NonNull String prefix) {
         pw.println();
 
         pw.print(prefix);

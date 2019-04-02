@@ -253,8 +253,7 @@ public class BurnInProtectionHelper implements DisplayManager.DisplayListener,
     public void onDisplayChanged(int displayId) {
         if (displayId == mDisplay.getDisplayId()) {
             if (mDisplay.getState() == Display.STATE_DOZE
-                    || mDisplay.getState() == Display.STATE_DOZE_SUSPEND
-                    || mDisplay.getState() == Display.STATE_ON_SUSPEND) {
+                    || mDisplay.getState() == Display.STATE_DOZE_SUSPEND) {
                 startBurnInProtection();
             } else {
                 cancelBurnInProtection();

@@ -16,6 +16,8 @@
 
 package com.android.location.provider;
 
+import android.hardware.location.IFusedLocationHardware;
+import android.location.IFusedProvider;
 import android.os.IBinder;
 
 /**
@@ -24,12 +26,17 @@ import android.os.IBinder;
  * <p>Fused providers can be implemented as services and return the result of
  * {@link com.android.location.provider.FusedProvider#getBinder()} in its getBinder() method.
  *
- * @deprecated This class should no longer be used. The location service does not uses this.
- * This class exist here just to prevent existing apps having reference to this class from
- * breaking.
+ * <p>IMPORTANT: This class is effectively a public API for unbundled applications, and must remain
+ * API stable. See README.txt in the root of this package for more information.
  */
-@Deprecated
 public abstract class FusedProvider {
+    private IFusedProvider.Stub mProvider = new IFusedProvider.Stub() {
+        @Override
+        public void onFusedLocationHardwareChange(IFusedLocationHardware instance) {
+            setFusedLocationHardware(new FusedLocationHardware(instance));
+        }
+    };
+
     /**
      * Gets the Binder associated with the provider.
      * This is intended to be used for the onBind() method of a service that implements a fused
@@ -38,6 +45,13 @@ public abstract class FusedProvider {
      * @return The IBinder instance associated with the provider.
      */
     public IBinder getBinder() {
-        return null;
+        return mProvider;
     }
+
+    /**
+     * Sets the FusedLocationHardware instance in the provider..
+     * @param value     The instance to set. This can be null in cases where the service connection
+     *                  is disconnected.
+     */
+    public abstract void setFusedLocationHardware(FusedLocationHardware value);
 }

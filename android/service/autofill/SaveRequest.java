@@ -19,9 +19,9 @@ package android.service.autofill;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.os.Bundle;
+import android.os.CancellationSignal;
 import android.os.Parcel;
 import android.os.Parcelable;
-
 import com.android.internal.util.Preconditions;
 
 import java.util.ArrayList;
@@ -36,19 +36,16 @@ import java.util.List;
 public final class SaveRequest implements Parcelable {
     private final @NonNull ArrayList<FillContext> mFillContexts;
     private final @Nullable Bundle mClientState;
-    private final @Nullable ArrayList<String> mDatasetIds;
 
     /** @hide */
     public SaveRequest(@NonNull ArrayList<FillContext> fillContexts,
-            @Nullable Bundle clientState, @Nullable ArrayList<String> datasetIds) {
+            @Nullable Bundle clientState) {
         mFillContexts = Preconditions.checkNotNull(fillContexts, "fillContexts");
         mClientState = clientState;
-        mDatasetIds = datasetIds;
     }
 
     private SaveRequest(@NonNull Parcel parcel) {
-        this(parcel.createTypedArrayList(FillContext.CREATOR),
-                parcel.readBundle(), parcel.createStringArrayList());
+        this(parcel.readTypedArrayList(null), parcel.readBundle());
     }
 
     /**
@@ -59,28 +56,14 @@ public final class SaveRequest implements Parcelable {
     }
 
     /**
-     * Gets the latest client state bundle set by the service in a
-     * {@link FillResponse.Builder#setClientState(Bundle) fill response}.
-     *
-     * <p><b>Note:</b> Prior to Android {@link android.os.Build.VERSION_CODES#P}, only client state
-     * bundles set by {@link FillResponse.Builder#setClientState(Bundle)} were considered. On
-     * Android {@link android.os.Build.VERSION_CODES#P} and higher, bundles set in the result of
-     * an authenticated request through the
-     * {@link android.view.autofill.AutofillManager#EXTRA_CLIENT_STATE} extra are
-     * also considered (and take precedence when set).
+     * Gets the extra client state returned from the last {@link
+     * AutofillService#onFillRequest(FillRequest, CancellationSignal, FillCallback)}
+     * fill request}.
      *
      * @return The client state.
      */
     public @Nullable Bundle getClientState() {
         return mClientState;
-    }
-
-    /**
-     * Gets the ids of the datasets selected by the user, in the order in which they were selected.
-     */
-    @Nullable
-    public List<String> getDatasetIds() {
-        return mDatasetIds;
     }
 
     @Override
@@ -90,9 +73,8 @@ public final class SaveRequest implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel parcel, int flags) {
-        parcel.writeTypedList(mFillContexts, flags);
+        parcel.writeTypedArrayList(mFillContexts, flags);
         parcel.writeBundle(mClientState);
-        parcel.writeStringList(mDatasetIds);
     }
 
     public static final Creator<SaveRequest> CREATOR =

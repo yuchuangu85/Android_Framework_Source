@@ -16,11 +16,10 @@
 
 package com.android.printservice.recommendation.util;
 
+import android.annotation.NonNull;
 import android.net.nsd.NsdManager;
 import android.net.nsd.NsdServiceInfo;
-
-import androidx.annotation.GuardedBy;
-import androidx.annotation.NonNull;
+import com.android.internal.annotations.GuardedBy;
 
 import java.util.LinkedList;
 

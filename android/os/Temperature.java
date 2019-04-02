@@ -30,8 +30,8 @@ public class Temperature implements Parcelable {
     private int mType;
 
     public Temperature() {
-        this(HardwarePropertiesManager.UNDEFINED_TEMPERATURE,
-            Integer.MIN_VALUE);
+        mType = Integer.MIN_VALUE;
+        mValue = HardwarePropertiesManager.UNDEFINED_TEMPERATURE;
     }
 
     public Temperature(float value, int type) {

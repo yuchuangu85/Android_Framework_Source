@@ -28,5 +28,4 @@ public interface ToggleSlider {
     default boolean isChecked() { return false; }
     void setMax(int max);
     void setValue(int value);
-    int getValue();
 }

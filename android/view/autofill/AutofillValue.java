@@ -177,7 +177,7 @@ public final class AutofillValue implements Parcelable {
                 .append("[type=").append(mType)
                 .append(", value=");
         if (isText()) {
-            Helper.appendRedacted(string, (CharSequence) mValue);
+            string.append(((CharSequence) mValue).length()).append("_chars");
         } else {
             string.append(mValue);
         }

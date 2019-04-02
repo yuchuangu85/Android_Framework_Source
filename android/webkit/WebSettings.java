@@ -17,7 +17,6 @@
 package android.webkit;
 
 import android.annotation.IntDef;
-import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.content.Context;
 
@@ -29,10 +28,10 @@ import java.lang.annotation.Target;
 /**
  * Manages settings state for a WebView. When a WebView is first created, it
  * obtains a set of default settings. These default settings will be returned
- * from any getter call. A {@code WebSettings} object obtained from
- * {@link WebView#getSettings()} is tied to the life of the WebView. If a WebView has
- * been destroyed, any method call on {@code WebSettings} will throw an
- * {@link IllegalStateException}.
+ * from any getter call. A WebSettings object obtained from
+ * WebView.getSettings() is tied to the life of the WebView. If a WebView has
+ * been destroyed, any method call on WebSettings will throw an
+ * IllegalStateException.
  */
 // This is an abstract base class: concrete WebViewProviders must
 // create a class derived from this, and return an instance of it in the
@@ -41,13 +40,13 @@ public abstract class WebSettings {
     /**
      * Enum for controlling the layout of html.
      * <ul>
-     *   <li>{@code NORMAL} means no rendering changes. This is the recommended choice for maximum
+     *   <li>NORMAL means no rendering changes. This is the recommended choice for maximum
      *       compatibility across different platforms and Android versions.</li>
-     *   <li>{@code SINGLE_COLUMN} moves all content into one column that is the width of the
+     *   <li>SINGLE_COLUMN moves all content into one column that is the width of the
      *       view.</li>
-     *   <li>{@code NARROW_COLUMNS} makes all columns no wider than the screen if possible. Only use
+     *   <li>NARROW_COLUMNS makes all columns no wider than the screen if possible. Only use
      *       this for API levels prior to {@link android.os.Build.VERSION_CODES#KITKAT}.</li>
-     *   <li>{@code TEXT_AUTOSIZING} boosts font size of paragraphs based on heuristics to make
+     *   <li>TEXT_AUTOSIZING boosts font size of paragraphs based on heuristics to make
      *       the text readable when viewing a wide-viewport layout in the overview mode.
      *       It is recommended to enable zoom support {@link #setSupportZoom} when
      *       using this mode. Supported from API level
@@ -98,9 +97,9 @@ public abstract class WebSettings {
     /**
      * Enum for specifying the WebView's desired density.
      * <ul>
-     *   <li>{@code FAR} makes 100% looking like in 240dpi</li>
-     *   <li>{@code MEDIUM} makes 100% looking like in 160dpi</li>
-     *   <li>{@code CLOSE} makes 100% looking like in 120dpi</li>
+     *   <li>FAR makes 100% looking like in 240dpi</li>
+     *   <li>MEDIUM makes 100% looking like in 160dpi</li>
+     *   <li>CLOSE makes 100% looking like in 120dpi</li>
      * </ul>
      */
     public enum ZoomDensity {
@@ -122,13 +121,7 @@ public abstract class WebSettings {
     }
 
     /** @hide */
-    @IntDef(prefix = { "LOAD_" }, value = {
-            LOAD_DEFAULT,
-            LOAD_NORMAL,
-            LOAD_CACHE_ELSE_NETWORK,
-            LOAD_NO_CACHE,
-            LOAD_CACHE_ONLY
-    })
+    @IntDef({LOAD_DEFAULT, LOAD_NORMAL, LOAD_CACHE_ELSE_NETWORK, LOAD_NO_CACHE, LOAD_CACHE_ONLY})
     @Retention(RetentionPolicy.SOURCE)
     public @interface CacheMode {}
 
@@ -224,7 +217,7 @@ public abstract class WebSettings {
 
     /**
      * Enables dumping the pages navigation cache to a text file. The default
-     * is {@code false}.
+     * is false.
      *
      * @deprecated This method is now obsolete.
      * @hide Since API level {@link android.os.Build.VERSION_CODES#JELLY_BEAN_MR1}
@@ -250,7 +243,7 @@ public abstract class WebSettings {
      * controls and gestures. The particular zoom mechanisms that should be used
      * can be set with {@link #setBuiltInZoomControls}. This setting does not
      * affect zooming performed using the {@link WebView#zoomIn()} and
-     * {@link WebView#zoomOut()} methods. The default is {@code true}.
+     * {@link WebView#zoomOut()} methods. The default is true.
      *
      * @param support whether the WebView should support zoom
      */
@@ -259,14 +252,14 @@ public abstract class WebSettings {
     /**
      * Gets whether the WebView supports zoom.
      *
-     * @return {@code true} if the WebView supports zoom
+     * @return true if the WebView supports zoom
      * @see #setSupportZoom
      */
     public abstract boolean supportZoom();
 
     /**
      * Sets whether the WebView requires a user gesture to play media.
-     * The default is {@code true}.
+     * The default is true.
      *
      * @param require whether the WebView requires a user gesture to play media
      */
@@ -275,7 +268,7 @@ public abstract class WebSettings {
     /**
      * Gets whether the WebView requires a user gesture to play media.
      *
-     * @return {@code true} if the WebView requires a user gesture to play media
+     * @return true if the WebView requires a user gesture to play media
      * @see #setMediaPlaybackRequiresUserGesture
      */
     public abstract boolean getMediaPlaybackRequiresUserGesture();
@@ -285,7 +278,7 @@ public abstract class WebSettings {
      * built-in zoom mechanisms comprise on-screen zoom controls, which are
      * displayed over the WebView's content, and the use of a pinch gesture to
      * control zooming. Whether or not these on-screen controls are displayed
-     * can be set with {@link #setDisplayZoomControls}. The default is {@code false}.
+     * can be set with {@link #setDisplayZoomControls}. The default is false.
      * <p>
      * The built-in mechanisms are the only currently supported zoom
      * mechanisms, so it is recommended that this setting is always enabled.
@@ -300,7 +293,7 @@ public abstract class WebSettings {
     /**
      * Gets whether the zoom mechanisms built into WebView are being used.
      *
-     * @return {@code true} if the zoom mechanisms built into WebView are being used
+     * @return true if the zoom mechanisms built into WebView are being used
      * @see #setBuiltInZoomControls
      */
     public abstract boolean getBuiltInZoomControls();
@@ -308,7 +301,7 @@ public abstract class WebSettings {
     /**
      * Sets whether the WebView should display on-screen zoom controls when
      * using the built-in zoom mechanisms. See {@link #setBuiltInZoomControls}.
-     * The default is {@code true}.
+     * The default is true.
      *
      * @param enabled whether the WebView should display on-screen zoom controls
      */
@@ -318,7 +311,7 @@ public abstract class WebSettings {
      * Gets whether the WebView displays on-screen zoom controls when using
      * the built-in zoom mechanisms.
      *
-     * @return {@code true} if the WebView displays on-screen zoom controls when using
+     * @return true if the WebView displays on-screen zoom controls when using
      *         the built-in zoom mechanisms
      * @see #setDisplayZoomControls
      */
@@ -358,7 +351,7 @@ public abstract class WebSettings {
      * zooms out the content to fit on screen by width. This setting is
      * taken into account when the content width is greater than the width
      * of the WebView control, for example, when {@link #getUseWideViewPort}
-     * is enabled. The default is {@code false}.
+     * is enabled. The default is false.
      */
     public abstract void setLoadWithOverviewMode(boolean overview);
 
@@ -373,9 +366,9 @@ public abstract class WebSettings {
     /**
      * Sets whether the WebView will enable smooth transition while panning or
      * zooming or while the window hosting the WebView does not have focus.
-     * If it is {@code true}, WebView will choose a solution to maximize the performance.
+     * If it is true, WebView will choose a solution to maximize the performance.
      * e.g. the WebView's content may not be updated during the transition.
-     * If it is false, WebView will keep its fidelity. The default value is {@code false}.
+     * If it is false, WebView will keep its fidelity. The default value is false.
      *
      * @deprecated This method is now obsolete, and will become a no-op in future.
      */
@@ -395,8 +388,8 @@ public abstract class WebSettings {
 
     /**
      * Sets whether the WebView uses its background for over scroll background.
-     * If {@code true}, it will use the WebView's background. If {@code false}, it will use an
-     * internal pattern. Default is {@code true}.
+     * If true, it will use the WebView's background. If false, it will use an
+     * internal pattern. Default is true.
      *
      * @deprecated This method is now obsolete.
      * @hide Since API level {@link android.os.Build.VERSION_CODES#JELLY_BEAN_MR1}
@@ -440,7 +433,7 @@ public abstract class WebSettings {
     public abstract boolean getSaveFormData();
 
     /**
-     * Sets whether the WebView should save passwords. The default is {@code true}.
+     * Sets whether the WebView should save passwords. The default is true.
      * @deprecated Saving passwords in WebView will not be supported in future versions.
      */
     @Deprecated
@@ -634,9 +627,9 @@ public abstract class WebSettings {
     /**
      * Sets whether the WebView should enable support for the &quot;viewport&quot;
      * HTML meta tag or should use a wide viewport.
-     * When the value of the setting is {@code false}, the layout width is always set to the
+     * When the value of the setting is false, the layout width is always set to the
      * width of the WebView control in device-independent (CSS) pixels.
-     * When the value is {@code true} and the page contains the viewport meta tag, the value
+     * When the value is true and the page contains the viewport meta tag, the value
      * of the width specified in the tag is used. If the page does not contain the tag or
      * does not provide a width, then a wide viewport will be used.
      *
@@ -648,7 +641,7 @@ public abstract class WebSettings {
      * Gets whether the WebView supports the &quot;viewport&quot;
      * HTML meta tag or will use a wide viewport.
      *
-     * @return {@code true} if the WebView supports the viewport meta tag
+     * @return true if the WebView supports the viewport meta tag
      * @see #setUseWideViewPort
      */
     public abstract boolean getUseWideViewPort();
@@ -656,22 +649,22 @@ public abstract class WebSettings {
     /**
      * Sets whether the WebView whether supports multiple windows. If set to
      * true, {@link WebChromeClient#onCreateWindow} must be implemented by the
-     * host application. The default is {@code false}.
+     * host application. The default is false.
      *
-     * @param support whether to support multiple windows
+     * @param support whether to suport multiple windows
      */
     public abstract void setSupportMultipleWindows(boolean support);
 
     /**
      * Gets whether the WebView supports multiple windows.
      *
-     * @return {@code true} if the WebView supports multiple windows
+     * @return true if the WebView supports multiple windows
      * @see #setSupportMultipleWindows
      */
     public abstract boolean supportMultipleWindows();
 
     /**
-     * Sets the underlying layout algorithm. This will cause a re-layout of the
+     * Sets the underlying layout algorithm. This will cause a relayout of the
      * WebView. The default is {@link LayoutAlgorithm#NARROW_COLUMNS}.
      *
      * @param l the layout algorithm to use, as a {@link LayoutAlgorithm} value
@@ -845,9 +838,9 @@ public abstract class WebSettings {
      * controls loading of all images, including those embedded using the data
      * URI scheme. Use {@link #setBlockNetworkImage} to control loading only
      * of images specified using network URI schemes. Note that if the value of this
-     * setting is changed from {@code false} to {@code true}, all images resources referenced
+     * setting is changed from false to true, all images resources referenced
      * by content currently displayed by the WebView are loaded automatically.
-     * The default is {@code true}.
+     * The default is true.
      *
      * @param flag whether the WebView should load image resources
      */
@@ -857,7 +850,7 @@ public abstract class WebSettings {
      * Gets whether the WebView loads image resources. This includes
      * images embedded using the data URI scheme.
      *
-     * @return {@code true} if the WebView loads image resources
+     * @return true if the WebView loads image resources
      * @see #setLoadsImagesAutomatically
      */
     public abstract boolean getLoadsImagesAutomatically();
@@ -866,12 +859,12 @@ public abstract class WebSettings {
      * Sets whether the WebView should not load image resources from the
      * network (resources accessed via http and https URI schemes).  Note
      * that this method has no effect unless
-     * {@link #getLoadsImagesAutomatically} returns {@code true}. Also note that
+     * {@link #getLoadsImagesAutomatically} returns true. Also note that
      * disabling all network loads using {@link #setBlockNetworkLoads}
      * will also prevent network images from loading, even if this flag is set
-     * to false. When the value of this setting is changed from {@code true} to {@code false},
+     * to false. When the value of this setting is changed from true to false,
      * network images resources referenced by content currently displayed by
-     * the WebView are fetched automatically. The default is {@code false}.
+     * the WebView are fetched automatically. The default is false.
      *
      * @param flag whether the WebView should not load image resources from the
      *             network
@@ -882,7 +875,7 @@ public abstract class WebSettings {
     /**
      * Gets whether the WebView does not load image resources from the network.
      *
-     * @return {@code true} if the WebView does not load image resources from the network
+     * @return true if the WebView does not load image resources from the network
      * @see #setBlockNetworkImage
      */
     public abstract boolean getBlockNetworkImage();
@@ -891,17 +884,17 @@ public abstract class WebSettings {
      * Sets whether the WebView should not load resources from the network.
      * Use {@link #setBlockNetworkImage} to only avoid loading
      * image resources. Note that if the value of this setting is
-     * changed from {@code true} to {@code false}, network resources referenced by content
+     * changed from true to false, network resources referenced by content
      * currently displayed by the WebView are not fetched until
      * {@link android.webkit.WebView#reload} is called.
      * If the application does not have the
      * {@link android.Manifest.permission#INTERNET} permission, attempts to set
-     * a value of {@code false} will cause a {@link java.lang.SecurityException}
-     * to be thrown. The default value is {@code false} if the application has the
+     * a value of false will cause a {@link java.lang.SecurityException}
+     * to be thrown. The default value is false if the application has the
      * {@link android.Manifest.permission#INTERNET} permission, otherwise it is
-     * {@code true}.
+     * true.
      *
-     * @param flag {@code true} means block network loads by the WebView
+     * @param flag true means block network loads by the WebView
      * @see android.webkit.WebView#reload
      */
     public abstract void setBlockNetworkLoads(boolean flag);
@@ -909,16 +902,16 @@ public abstract class WebSettings {
     /**
      * Gets whether the WebView does not load any resources from the network.
      *
-     * @return {@code true} if the WebView does not load any resources from the network
+     * @return true if the WebView does not load any resources from the network
      * @see #setBlockNetworkLoads
      */
     public abstract boolean getBlockNetworkLoads();
 
     /**
      * Tells the WebView to enable JavaScript execution.
-     * <b>The default is {@code false}.</b>
+     * <b>The default is false.</b>
      *
-     * @param flag {@code true} if the WebView should execute JavaScript
+     * @param flag true if the WebView should execute JavaScript
      */
     public abstract void setJavaScriptEnabled(boolean flag);
 
@@ -931,12 +924,12 @@ public abstract class WebSettings {
      * Note that this setting affects only JavaScript access to file scheme
      * resources. Other access to such resources, for example, from image HTML
      * elements, is unaffected. To prevent possible violation of same domain policy
-     * when targeting {@link android.os.Build.VERSION_CODES#ICE_CREAM_SANDWICH_MR1} and earlier,
-     * you should explicitly set this value to {@code false}.
+     * on {@link android.os.Build.VERSION_CODES#ICE_CREAM_SANDWICH} and earlier
+     * devices, you should explicitly set this value to {@code false}.
      * <p>
-     * The default value is {@code true} for apps targeting
+     * The default value is true for API level
      * {@link android.os.Build.VERSION_CODES#ICE_CREAM_SANDWICH_MR1} and below,
-     * and {@code false} when targeting {@link android.os.Build.VERSION_CODES#JELLY_BEAN}
+     * and false for API level {@link android.os.Build.VERSION_CODES#JELLY_BEAN}
      * and above.
      *
      * @param flag whether JavaScript running in the context of a file scheme
@@ -947,18 +940,18 @@ public abstract class WebSettings {
     /**
      * Sets whether JavaScript running in the context of a file scheme URL
      * should be allowed to access content from other file scheme URLs. To
-     * enable the most restrictive, and therefore secure, policy this setting
+     * enable the most restrictive, and therefore secure policy, this setting
      * should be disabled. Note that the value of this setting is ignored if
-     * the value of {@link #getAllowUniversalAccessFromFileURLs} is {@code true}.
+     * the value of {@link #getAllowUniversalAccessFromFileURLs} is true.
      * Note too, that this setting affects only JavaScript access to file scheme
      * resources. Other access to such resources, for example, from image HTML
      * elements, is unaffected. To prevent possible violation of same domain policy
-     * when targeting {@link android.os.Build.VERSION_CODES#ICE_CREAM_SANDWICH_MR1} and earlier,
-     * you should explicitly set this value to {@code false}.
+     * on {@link android.os.Build.VERSION_CODES#ICE_CREAM_SANDWICH} and earlier
+     * devices, you should explicitly set this value to {@code false}.
      * <p>
-     * The default value is {@code true} for apps targeting
+     * The default value is true for API level
      * {@link android.os.Build.VERSION_CODES#ICE_CREAM_SANDWICH_MR1} and below,
-     * and {@code false} when targeting {@link android.os.Build.VERSION_CODES#JELLY_BEAN}
+     * and false for API level {@link android.os.Build.VERSION_CODES#JELLY_BEAN}
      * and above.
      *
      * @param flag whether JavaScript running in the context of a file scheme
@@ -968,9 +961,9 @@ public abstract class WebSettings {
     public abstract void setAllowFileAccessFromFileURLs(boolean flag);
 
     /**
-     * Sets whether the WebView should enable plugins. The default is {@code false}.
+     * Sets whether the WebView should enable plugins. The default is false.
      *
-     * @param flag {@code true} if plugins should be enabled
+     * @param flag true if plugins should be enabled
      * @deprecated This method has been deprecated in favor of
      *             {@link #setPluginState}
      * @hide Since API level {@link android.os.Build.VERSION_CODES#JELLY_BEAN_MR2}
@@ -1035,11 +1028,11 @@ public abstract class WebSettings {
 
     /**
      * Sets whether the Application Caches API should be enabled. The default
-     * is {@code false}. Note that in order for the Application Caches API to be
+     * is false. Note that in order for the Application Caches API to be
      * enabled, a valid database path must also be supplied to
      * {@link #setAppCachePath}.
      *
-     * @param flag {@code true} if the WebView should enable Application Caches
+     * @param flag true if the WebView should enable Application Caches
      */
     public abstract void setAppCacheEnabled(boolean flag);
 
@@ -1079,21 +1072,21 @@ public abstract class WebSettings {
      * page load within a given process, as the WebView implementation may ignore
      * changes to this setting after that point.
      *
-     * @param flag {@code true} if the WebView should use the database storage API
+     * @param flag true if the WebView should use the database storage API
      */
     public abstract void setDatabaseEnabled(boolean flag);
 
     /**
-     * Sets whether the DOM storage API is enabled. The default value is {@code false}.
+     * Sets whether the DOM storage API is enabled. The default value is false.
      *
-     * @param flag {@code true} if the WebView should use the DOM storage API
+     * @param flag true if the WebView should use the DOM storage API
      */
     public abstract void setDomStorageEnabled(boolean flag);
 
     /**
      * Gets whether the DOM Storage APIs are enabled.
      *
-     * @return {@code true} if the DOM Storage APIs are enabled
+     * @return true if the DOM Storage APIs are enabled
      * @see #setDomStorageEnabled
      */
     public abstract boolean getDomStorageEnabled();
@@ -1111,13 +1104,13 @@ public abstract class WebSettings {
     /**
      * Gets whether the database storage API is enabled.
      *
-     * @return {@code true} if the database storage API is enabled
+     * @return true if the database storage API is enabled
      * @see #setDatabaseEnabled
      */
     public abstract boolean getDatabaseEnabled();
 
     /**
-     * Sets whether Geolocation is enabled. The default is {@code true}.
+     * Sets whether Geolocation is enabled. The default is true.
      * <p>
      * Please note that in order for the Geolocation API to be usable
      * by a page in the WebView, the following requirements must be met:
@@ -1139,7 +1132,7 @@ public abstract class WebSettings {
     /**
      * Gets whether JavaScript is enabled.
      *
-     * @return {@code true} if JavaScript is enabled
+     * @return true if JavaScript is enabled
      * @see #setJavaScriptEnabled
      */
     public abstract boolean getJavaScriptEnabled();
@@ -1168,7 +1161,7 @@ public abstract class WebSettings {
     /**
      * Gets whether plugins are enabled.
      *
-     * @return {@code true} if plugins are enabled
+     * @return true if plugins are enabled
      * @see #setPluginsEnabled
      * @deprecated This method has been replaced by {@link #getPluginState}
      * @hide Since API level {@link android.os.Build.VERSION_CODES#JELLY_BEAN_MR2}
@@ -1204,17 +1197,17 @@ public abstract class WebSettings {
 
     /**
      * Tells JavaScript to open windows automatically. This applies to the
-     * JavaScript function {@code window.open()}. The default is {@code false}.
+     * JavaScript function window.open(). The default is false.
      *
-     * @param flag {@code true} if JavaScript can open windows automatically
+     * @param flag true if JavaScript can open windows automatically
      */
     public abstract void setJavaScriptCanOpenWindowsAutomatically(boolean flag);
 
     /**
      * Gets whether JavaScript can open windows automatically.
      *
-     * @return {@code true} if JavaScript can open windows automatically during
-     *         {@code window.open()}
+     * @return true if JavaScript can open windows automatically during
+     *         window.open()
      * @see #setJavaScriptCanOpenWindowsAutomatically
      */
     public abstract boolean getJavaScriptCanOpenWindowsAutomatically();
@@ -1236,7 +1229,7 @@ public abstract class WebSettings {
     public abstract String getDefaultTextEncodingName();
 
     /**
-     * Sets the WebView's user-agent string. If the string is {@code null} or empty,
+     * Sets the WebView's user-agent string. If the string is null or empty,
      * the system default value will be used.
      *
      * Note that starting from {@link android.os.Build.VERSION_CODES#KITKAT} Android
@@ -1245,7 +1238,7 @@ public abstract class WebSettings {
      *
      * @param ua new user-agent string
      */
-    public abstract void setUserAgentString(@Nullable String ua);
+    public abstract void setUserAgentString(String ua);
 
     /**
      * Gets the WebView's user-agent string.
@@ -1269,7 +1262,7 @@ public abstract class WebSettings {
     /**
      * Tells the WebView whether it needs to set a node to have focus when
      * {@link WebView#requestFocus(int, android.graphics.Rect)} is called. The
-     * default value is {@code true}.
+     * default value is true.
      *
      * @param flag whether the WebView needs to set a node
      */
@@ -1362,7 +1355,7 @@ public abstract class WebSettings {
     /**
      * Gets whether a video overlay will be used for embedded encrypted video.
      *
-     * @return {@code true} if WebView uses a video overlay for embedded encrypted video.
+     * @return true if WebView uses a video overlay for embedded encrypted video.
      * @see #setVideoOverlayForEmbeddedEncryptedVideoEnabled
      * @hide
      */
@@ -1387,33 +1380,35 @@ public abstract class WebSettings {
     /**
      * Gets whether this WebView should raster tiles when it is
      * offscreen but attached to a window.
-     * @return {@code true} if this WebView will raster tiles when it is
+     * @return true if this WebView will raster tiles when it is
      * offscreen but attached to a window.
      */
     public abstract boolean getOffscreenPreRaster();
 
 
     /**
-     * Sets whether Safe Browsing is enabled. Safe Browsing allows WebView to
+     * Sets whether Safe Browsing is enabled. Safe browsing allows WebView to
      * protect against malware and phishing attacks by verifying the links.
      *
      * <p>
-     * Safe Browsing can be disabled for all WebViews using a manifest tag (read <a
-     * href="{@docRoot}reference/android/webkit/WebView.html">general Safe Browsing info</a>). The
-     * manifest tag has a lower precedence than this API.
+     * Safe browsing is disabled by default. The recommended way to enable Safe browsing is using a
+     * manifest tag to change the default value to enabled for all WebViews (read <a
+     * href="{@docRoot}reference/android/webkit/WebView.html">general Safe Browsing info</a>).
+     * </p>
      *
      * <p>
-     * Safe Browsing is enabled by default for devices which support it.
+     * This API overrides the manifest tag value for this WebView.
+     * </p>
      *
-     * @param enabled Whether Safe Browsing is enabled.
+     * @param enabled Whether Safe browsing is enabled.
      */
     public abstract void setSafeBrowsingEnabled(boolean enabled);
 
     /**
-     * Gets whether Safe Browsing is enabled.
+     * Gets whether Safe browsing is enabled.
      * See {@link #setSafeBrowsingEnabled}.
      *
-     * @return {@code true} if Safe Browsing is enabled and {@code false} otherwise.
+     * @return true if Safe browsing is enabled and false otherwise.
      */
     public abstract boolean getSafeBrowsingEnabled();
 
@@ -1421,12 +1416,13 @@ public abstract class WebSettings {
     /**
      * @hide
      */
-    @IntDef(flag = true, prefix = { "MENU_ITEM_" }, value = {
-            MENU_ITEM_NONE,
-            MENU_ITEM_SHARE,
-            MENU_ITEM_WEB_SEARCH,
-            MENU_ITEM_PROCESS_TEXT
-    })
+    @IntDef(flag = true,
+            value = {
+                    MENU_ITEM_NONE,
+                    MENU_ITEM_SHARE,
+                    MENU_ITEM_WEB_SEARCH,
+                    MENU_ITEM_PROCESS_TEXT
+            })
     @Retention(RetentionPolicy.SOURCE)
     @Target({ElementType.PARAMETER, ElementType.METHOD})
     private @interface MenuItemFlags {}

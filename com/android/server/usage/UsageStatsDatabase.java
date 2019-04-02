@@ -503,7 +503,7 @@ class UsageStatsDatabase {
                     mCal.getTimeInMillis());
 
             mCal.setTimeInMillis(currentTimeMillis);
-            mCal.addDays(-10);
+            mCal.addDays(-7);
             pruneFilesOlderThan(mIntervalDirs[UsageStatsManager.INTERVAL_DAILY],
                     mCal.getTimeInMillis());
 

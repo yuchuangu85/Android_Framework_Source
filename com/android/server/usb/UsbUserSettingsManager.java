@@ -25,20 +25,15 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.hardware.usb.UsbAccessory;
-import android.hardware.usb.UsbConstants;
 import android.hardware.usb.UsbDevice;
-import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.os.Binder;
 import android.os.Process;
 import android.os.UserHandle;
-import android.service.usb.UsbSettingsAccessoryPermissionProto;
-import android.service.usb.UsbSettingsDevicePermissionProto;
-import android.service.usb.UsbUserSettingsManagerProto;
 import android.util.Slog;
 import android.util.SparseBooleanArray;
 
-import com.android.internal.util.dump.DualDumpOutputStream;
+import com.android.internal.util.IndentingPrintWriter;
 
 import java.util.HashMap;
 
@@ -100,70 +95,10 @@ class UsbUserSettingsManager {
         }
     }
 
-    /**
-     * Check whether a particular device or any of its interfaces
-     * is of class VIDEO.
-     *
-     * @param device The device that needs to get scanned
-     * @return True in case a VIDEO device or interface is present,
-     *         False otherwise.
-     */
-    private boolean isCameraDevicePresent(UsbDevice device) {
-        if (device.getDeviceClass() == UsbConstants.USB_CLASS_VIDEO) {
-            return true;
-        }
 
-        for (int i = 0; i < device.getInterfaceCount(); i++) {
-            UsbInterface iface = device.getInterface(i);
-            if (iface.getInterfaceClass() == UsbConstants.USB_CLASS_VIDEO) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Check for camera permission of the calling process.
-     *
-     * @param packageName Package name of the caller.
-     * @param uid Linux uid of the calling process.
-     *
-     * @return True in case camera permission is available, False otherwise.
-     */
-    private boolean isCameraPermissionGranted(String packageName, int uid) {
-        int targetSdkVersion = android.os.Build.VERSION_CODES.P;
-        try {
-            ApplicationInfo aInfo = mPackageManager.getApplicationInfo(packageName, 0);
-            // compare uid with packageName to foil apps pretending to be someone else
-            if (aInfo.uid != uid) {
-                Slog.i(TAG, "Package " + packageName + " does not match caller's uid " + uid);
-                return false;
-            }
-            targetSdkVersion = aInfo.targetSdkVersion;
-        } catch (PackageManager.NameNotFoundException e) {
-            Slog.i(TAG, "Package not found, likely due to invalid package name!");
-            return false;
-        }
-
-        if (targetSdkVersion >= android.os.Build.VERSION_CODES.P) {
-            int allowed = mUserContext.checkCallingPermission(android.Manifest.permission.CAMERA);
-            if (android.content.pm.PackageManager.PERMISSION_DENIED == allowed) {
-                Slog.i(TAG, "Camera permission required for USB video class devices");
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    public boolean hasPermission(UsbDevice device, String packageName, int uid) {
+    public boolean hasPermission(UsbDevice device) {
         synchronized (mLock) {
-            if (isCameraDevicePresent(device)) {
-                if (!isCameraPermissionGranted(packageName, uid)) {
-                    return false;
-                }
-            }
+            int uid = Binder.getCallingUid();
             if (uid == Process.SYSTEM_UID || mDisablePermissionDialogs) {
                 return true;
             }
@@ -189,8 +124,8 @@ class UsbUserSettingsManager {
         }
     }
 
-    public void checkPermission(UsbDevice device, String packageName, int uid) {
-        if (!hasPermission(device, packageName, uid)) {
+    public void checkPermission(UsbDevice device) {
+        if (!hasPermission(device)) {
             throw new SecurityException("User has not given permission to device " + device);
         }
     }
@@ -231,11 +166,11 @@ class UsbUserSettingsManager {
         }
     }
 
-    public void requestPermission(UsbDevice device, String packageName, PendingIntent pi, int uid) {
+    public void requestPermission(UsbDevice device, String packageName, PendingIntent pi) {
       Intent intent = new Intent();
 
         // respond immediately if permission has already been granted
-      if (hasPermission(device, packageName, uid)) {
+      if (hasPermission(device)) {
             intent.putExtra(UsbManager.EXTRA_DEVICE, device);
             intent.putExtra(UsbManager.EXTRA_PERMISSION_GRANTED, true);
             try {
@@ -244,18 +179,6 @@ class UsbUserSettingsManager {
                 if (DEBUG) Slog.d(TAG, "requestPermission PendingIntent was cancelled");
             }
             return;
-        }
-        if (isCameraDevicePresent(device)) {
-            if (!isCameraPermissionGranted(packageName, uid)) {
-                intent.putExtra(UsbManager.EXTRA_DEVICE, device);
-                intent.putExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
-                try {
-                    pi.send(mUserContext, 0, intent);
-                } catch (PendingIntent.CanceledException e) {
-                    if (DEBUG) Slog.d(TAG, "requestPermission PendingIntent was cancelled");
-                }
-                return;
-            }
         }
 
         // start UsbPermissionActivity so user can choose an activity
@@ -305,44 +228,28 @@ class UsbUserSettingsManager {
         }
     }
 
-    public void dump(@NonNull DualDumpOutputStream dump, @NonNull String idName, long id) {
-        long token = dump.start(idName, id);
-
+    public void dump(IndentingPrintWriter pw) {
         synchronized (mLock) {
-            dump.write("user_id", UsbUserSettingsManagerProto.USER_ID, mUser.getIdentifier());
-
+            pw.println("Device permissions:");
             for (String deviceName : mDevicePermissionMap.keySet()) {
-                long devicePermissionToken = dump.start("device_permissions",
-                        UsbUserSettingsManagerProto.DEVICE_PERMISSIONS);
-
-                dump.write("device_name", UsbSettingsDevicePermissionProto.DEVICE_NAME, deviceName);
-
+                pw.print("  " + deviceName + ": ");
                 SparseBooleanArray uidList = mDevicePermissionMap.get(deviceName);
                 int count = uidList.size();
                 for (int i = 0; i < count; i++) {
-                    dump.write("uids", UsbSettingsDevicePermissionProto.UIDS, uidList.keyAt(i));
+                    pw.print(Integer.toString(uidList.keyAt(i)) + " ");
                 }
-
-                dump.end(devicePermissionToken);
+                pw.println();
             }
+            pw.println("Accessory permissions:");
             for (UsbAccessory accessory : mAccessoryPermissionMap.keySet()) {
-                long accessoryPermissionToken = dump.start("accessory_permissions",
-                        UsbUserSettingsManagerProto.ACCESSORY_PERMISSIONS);
-
-                dump.write("accessory_description",
-                        UsbSettingsAccessoryPermissionProto.ACCESSORY_DESCRIPTION,
-                        accessory.getDescription());
-
+                pw.print("  " + accessory + ": ");
                 SparseBooleanArray uidList = mAccessoryPermissionMap.get(accessory);
                 int count = uidList.size();
                 for (int i = 0; i < count; i++) {
-                    dump.write("uids", UsbSettingsAccessoryPermissionProto.UIDS, uidList.keyAt(i));
+                    pw.print(Integer.toString(uidList.keyAt(i)) + " ");
                 }
-
-                dump.end(accessoryPermissionToken);
+                pw.println();
             }
         }
-
-        dump.end(token);
     }
 }

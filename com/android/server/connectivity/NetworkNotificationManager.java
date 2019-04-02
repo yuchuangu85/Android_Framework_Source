@@ -23,10 +23,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
 import android.net.NetworkCapabilities;
-import android.net.wifi.WifiInfo;
 import android.os.UserHandle;
 import android.telephony.TelephonyManager;
-import android.text.TextUtils;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
@@ -132,17 +130,16 @@ public class NetworkNotificationManager {
         final String tag = tagFor(id);
         final int eventId = notifyType.eventId;
         final int transportType;
-        final String name;
+        final String extraInfo;
         if (nai != null) {
             transportType = getFirstTransportType(nai);
-            final String extraInfo = nai.networkInfo.getExtraInfo();
-            name = TextUtils.isEmpty(extraInfo) ? nai.networkCapabilities.getSSID() : extraInfo;
+            extraInfo = nai.networkInfo.getExtraInfo();
             // Only notify for Internet-capable networks.
             if (!nai.networkCapabilities.hasCapability(NET_CAPABILITY_INTERNET)) return;
         } else {
             // Legacy notifications.
             transportType = TRANSPORT_CELLULAR;
-            name = null;
+            extraInfo = null;
         }
 
         // Clear any previous notification with lower priority, otherwise return. http://b/63676954.
@@ -159,8 +156,9 @@ public class NetworkNotificationManager {
 
         if (DBG) {
             Slog.d(TAG, String.format(
-                    "showNotification tag=%s event=%s transport=%s name=%s highPriority=%s",
-                    tag, nameOf(eventId), getTransportName(transportType), name, highPriority));
+                    "showNotification tag=%s event=%s transport=%s extraInfo=%s highPrioriy=%s",
+                    tag, nameOf(eventId), getTransportName(transportType), extraInfo,
+                    highPriority));
         }
 
         Resources r = Resources.getSystem();
@@ -178,8 +176,7 @@ public class NetworkNotificationManager {
             switch (transportType) {
                 case TRANSPORT_WIFI:
                     title = r.getString(R.string.wifi_available_sign_in, 0);
-                    details = r.getString(R.string.network_available_sign_in_detailed,
-                            WifiInfo.removeDoubleQuotes(nai.networkCapabilities.getSSID()));
+                    details = r.getString(R.string.network_available_sign_in_detailed, extraInfo);
                     break;
                 case TRANSPORT_CELLULAR:
                     title = r.getString(R.string.network_available_sign_in, 0);
@@ -189,7 +186,7 @@ public class NetworkNotificationManager {
                     break;
                 default:
                     title = r.getString(R.string.network_available_sign_in, 0);
-                    details = r.getString(R.string.network_available_sign_in_detailed, name);
+                    details = r.getString(R.string.network_available_sign_in_detailed, extraInfo);
                     break;
             }
         } else if (notifyType == NotificationType.NETWORK_SWITCH) {

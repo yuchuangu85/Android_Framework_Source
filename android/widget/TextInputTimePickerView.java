@@ -174,8 +174,7 @@ public class TextInputTimePickerView extends RelativeLayout {
      */
     void updateTextInputValues(int localizedHour, int minute, int amOrPm, boolean is24Hour,
             boolean hourFormatStartsAtZero) {
-        final String hourFormat = "%d";
-        final String minuteFormat = "%02d";
+        final String format = "%d";
 
         mIs24Hour = is24Hour;
         mHourFormatStartsAtZero = hourFormatStartsAtZero;
@@ -188,8 +187,8 @@ public class TextInputTimePickerView extends RelativeLayout {
             mAmPmSpinner.setSelection(1);
         }
 
-        mHourEditText.setText(String.format(hourFormat, localizedHour));
-        mMinuteEditText.setText(String.format(minuteFormat, minute));
+        mHourEditText.setText(String.format(format, localizedHour));
+        mMinuteEditText.setText(String.format(format, minute));
 
         if (mErrorShowing) {
             validateInput();

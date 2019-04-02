@@ -16,8 +16,6 @@
 
 package com.android.internal.telephony.uicc;
 
-import android.telephony.SubscriptionInfo;
-
 /**
  * See also RIL_CardStatus in include/telephony/ril.h
  *
@@ -64,9 +62,6 @@ public class IccCardStatus {
     public int        mGsmUmtsSubscriptionAppIndex;
     public int        mCdmaSubscriptionAppIndex;
     public int        mImsSubscriptionAppIndex;
-    public int        physicalSlotIndex = UiccController.INVALID_SLOT_ID;
-    public String     atr;
-    public String     iccid;
 
     public IccCardApplicationStatus[] mApplications;
 
@@ -146,9 +141,6 @@ public class IccCardStatus {
             app = mApplications[mImsSubscriptionAppIndex];
             sb.append(app == null ? "null" : app);
         }
-
-        sb.append(",physical_slot_id=").append(physicalSlotIndex).append(",atr=").append(atr);
-        sb.append(",iccid=").append(SubscriptionInfo.givePrintableIccid(iccid));
 
         sb.append("}");
         return sb.toString();

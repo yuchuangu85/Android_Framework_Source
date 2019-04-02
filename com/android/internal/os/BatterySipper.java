@@ -73,16 +73,14 @@ public class BatterySipper implements Comparable<BatterySipper> {
     public double usagePowerMah;
 
     // Subsystem usage times.
-    public long audioTimeMs;
-    public long bluetoothRunningTimeMs;
-    public long cameraTimeMs;
-    public long cpuFgTimeMs;
     public long cpuTimeMs;
-    public long flashlightTimeMs;
     public long gpsTimeMs;
-    public long videoTimeMs;
-    public long wakeLockTimeMs;
     public long wifiRunningTimeMs;
+    public long cpuFgTimeMs;
+    public long wakeLockTimeMs;
+    public long cameraTimeMs;
+    public long flashlightTimeMs;
+    public long bluetoothRunningTimeMs;
 
     public long mobileRxPackets;
     public long mobileTxPackets;
@@ -104,33 +102,30 @@ public class BatterySipper implements Comparable<BatterySipper> {
 
     // Measured in mAh (milli-ampere per hour).
     // These are included when summed.
-    public double audioPowerMah;
-    public double bluetoothPowerMah;
-    public double cameraPowerMah;
-    public double cpuPowerMah;
-    public double flashlightPowerMah;
-    public double gpsPowerMah;
-    public double mobileRadioPowerMah;
-    public double sensorPowerMah;
-    public double videoPowerMah;
-    public double wakeLockPowerMah;
     public double wifiPowerMah;
+    public double cpuPowerMah;
+    public double wakeLockPowerMah;
+    public double mobileRadioPowerMah;
+    public double gpsPowerMah;
+    public double sensorPowerMah;
+    public double cameraPowerMah;
+    public double flashlightPowerMah;
+    public double bluetoothPowerMah;
 
     public enum DrainType {
-        AMBIENT_DISPLAY,
-        APP,
-        BLUETOOTH,
-        CAMERA,
-        CELL,
-        FLASHLIGHT,
         IDLE,
-        MEMORY,
-        OVERCOUNTED,
+        CELL,
         PHONE,
-        SCREEN,
-        UNACCOUNTED,
-        USER,
         WIFI,
+        BLUETOOTH,
+        FLASHLIGHT,
+        SCREEN,
+        APP,
+        USER,
+        UNACCOUNTED,
+        OVERCOUNTED,
+        CAMERA,
+        MEMORY
     }
 
     public BatterySipper(DrainType drainType, Uid uid, double value) {
@@ -181,12 +176,10 @@ public class BatterySipper implements Comparable<BatterySipper> {
         totalPowerMah += other.totalPowerMah;
         usageTimeMs += other.usageTimeMs;
         usagePowerMah += other.usagePowerMah;
-        audioTimeMs += other.audioTimeMs;
         cpuTimeMs += other.cpuTimeMs;
         gpsTimeMs += other.gpsTimeMs;
         wifiRunningTimeMs += other.wifiRunningTimeMs;
         cpuFgTimeMs += other.cpuFgTimeMs;
-        videoTimeMs += other.videoTimeMs;
         wakeLockTimeMs += other.wakeLockTimeMs;
         cameraTimeMs += other.cameraTimeMs;
         flashlightTimeMs += other.flashlightTimeMs;
@@ -203,7 +196,6 @@ public class BatterySipper implements Comparable<BatterySipper> {
         wifiTxBytes += other.wifiTxBytes;
         btRxBytes += other.btRxBytes;
         btTxBytes += other.btTxBytes;
-        audioPowerMah += other.audioPowerMah;
         wifiPowerMah += other.wifiPowerMah;
         gpsPowerMah += other.gpsPowerMah;
         cpuPowerMah += other.cpuPowerMah;
@@ -214,7 +206,6 @@ public class BatterySipper implements Comparable<BatterySipper> {
         flashlightPowerMah += other.flashlightPowerMah;
         bluetoothPowerMah += other.bluetoothPowerMah;
         screenPowerMah += other.screenPowerMah;
-        videoPowerMah += other.videoPowerMah;
         proportionalSmearMah += other.proportionalSmearMah;
         totalSmearedPowerMah += other.totalSmearedPowerMah;
     }
@@ -228,7 +219,7 @@ public class BatterySipper implements Comparable<BatterySipper> {
     public double sumPower() {
         totalPowerMah = usagePowerMah + wifiPowerMah + gpsPowerMah + cpuPowerMah +
                 sensorPowerMah + mobileRadioPowerMah + wakeLockPowerMah + cameraPowerMah +
-                flashlightPowerMah + bluetoothPowerMah + audioPowerMah + videoPowerMah;
+                flashlightPowerMah + bluetoothPowerMah;
         totalSmearedPowerMah = totalPowerMah + screenPowerMah + proportionalSmearMah;
 
         return totalPowerMah;

@@ -20,7 +20,7 @@ import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.app.Service;
 import android.content.Intent;
-import android.content.PermissionChecker;
+import android.content.pm.PackageManager;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
@@ -174,8 +174,8 @@ public abstract class RecognitionService extends Service {
      */
     private boolean checkPermissions(IRecognitionListener listener) {
         if (DBG) Log.d(TAG, "checkPermissions");
-        if (PermissionChecker.checkCallingOrSelfPermission(this,
-                android.Manifest.permission.RECORD_AUDIO) == PermissionChecker.PERMISSION_GRANTED) {
+        if (RecognitionService.this.checkCallingOrSelfPermission(android.Manifest.permission.
+                RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             return true;
         }
         try {

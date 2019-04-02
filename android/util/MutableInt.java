@@ -17,13 +17,11 @@
 package android.util;
 
 /**
- * @deprecated This class will be removed from a future version of the Android API.
  */
-@Deprecated
 public final class MutableInt {
-    public int value;
+  public int value;
 
-    public MutableInt(int value) {
-        this.value = value;
-    }
+  public MutableInt(int value) {
+    this.value = value;
+  }
 }

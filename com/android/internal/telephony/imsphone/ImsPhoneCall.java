@@ -28,7 +28,7 @@ import com.android.internal.telephony.Connection;
 import com.android.internal.telephony.Phone;
 import com.android.ims.ImsCall;
 import com.android.ims.ImsException;
-import android.telephony.ims.ImsStreamMediaProfile;
+import com.android.ims.ImsStreamMediaProfile;
 
 import java.util.List;
 
@@ -237,8 +237,8 @@ public class ImsPhoneCall extends Call {
         }
     }
 
-    @VisibleForTesting
-    public ImsPhoneConnection getFirstConnection() {
+    /*package*/ ImsPhoneConnection
+    getFirstConnection() {
         if (mConnections.size() == 0) return null;
 
         return (ImsPhoneConnection) mConnections.get(0);

@@ -18,6 +18,7 @@ package android.os;
 
 import java.util.Map;
 
+import android.util.Log;
 
 /**
  * Java API for libvintf.
@@ -39,24 +40,13 @@ public class VintfObject {
      * Verify that the given metadata for an OTA package is compatible with
      * this device.
      *
-     * @param packageInfo a list of serialized form of HalManifest's /
+     * @param packageInfo a list of serialized form of HalMaanifest's /
      * CompatibilityMatri'ces (XML).
      * @return = 0 if success (compatible)
      *         > 0 if incompatible
      *         < 0 if any error (mount partition fails, illformed XML, etc.)
      */
     public static native int verify(String[] packageInfo);
-
-    /**
-     * Verify Vintf compatibility on the device without checking AVB
-     * (Android Verified Boot). It is useful to verify a running system
-     * image where AVB check is irrelevant.
-     *
-     * @return = 0 if success (compatible)
-     *         > 0 if incompatible
-     *         < 0 if any error (mount partition fails, illformed XML, etc.)
-     */
-    public static native int verifyWithoutAvb();
 
     /// ---------- CTS Device Info
 
@@ -76,15 +66,8 @@ public class VintfObject {
     /**
      * @return a list of VNDK snapshots supported by the framework, as
      * specified in framework manifest. For example,
-     * [("27", ["libjpeg.so", "libbase.so"]),
-     *  ("28", ["libjpeg.so", "libbase.so"])]
+     * [("25.0.5", ["libjpeg.so", "libbase.so"]),
+     *  ("25.1.3", ["libjpeg.so", "libbase.so"])]
      */
     public static native Map<String, String[]> getVndkSnapshots();
-
-    /**
-     * @return target FCM version, a number specified in the device manifest
-     * indicating the FCM version that the device manifest implements. Null if
-     * device manifest doesn't specify this number (for legacy devices).
-     */
-    public static native Long getTargetFrameworkCompatibilityMatrixVersion();
 }

@@ -16,7 +16,6 @@
 
 package android.inputmethodservice;
 
-import android.annotation.MainThread;
 import android.annotation.NonNull;
 import android.app.Service;
 import android.content.Intent;
@@ -63,7 +62,6 @@ public abstract class AbstractInputMethodService extends Service
          * back to {@link AbstractInputMethodService#onCreateInputMethodSessionInterface()
          * AbstractInputMethodService.onCreateInputMethodSessionInterface()}.
          */
-        @MainThread
         public void createSession(SessionCallback callback) {
             callback.sessionCreated(onCreateInputMethodSessionInterface());
         }
@@ -73,7 +71,6 @@ public abstract class AbstractInputMethodService extends Service
          * {@link AbstractInputMethodSessionImpl#revokeSelf()
          * AbstractInputMethodSessionImpl.setEnabled()} method.
          */
-        @MainThread
         public void setSessionEnabled(InputMethodSession session, boolean enabled) {
             ((AbstractInputMethodSessionImpl)session).setEnabled(enabled);
         }
@@ -83,7 +80,6 @@ public abstract class AbstractInputMethodService extends Service
          * {@link AbstractInputMethodSessionImpl#revokeSelf()
          * AbstractInputMethodSessionImpl.revokeSelf()} method.
          */
-        @MainThread
         public void revokeSession(InputMethodSession session) {
             ((AbstractInputMethodSessionImpl)session).revokeSelf();
         }

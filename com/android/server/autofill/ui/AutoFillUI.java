@@ -20,7 +20,6 @@ import static com.android.server.autofill.Helper.sVerbose;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.IntentSender;
 import android.graphics.drawable.Drawable;
@@ -35,7 +34,6 @@ import android.service.autofill.SaveInfo;
 import android.service.autofill.ValueFinder;
 import android.text.TextUtils;
 import android.util.Slog;
-import android.view.KeyEvent;
 import android.view.autofill.AutofillId;
 import android.view.autofill.AutofillManager;
 import android.view.autofill.IAutofillWindowPresenter;
@@ -80,7 +78,6 @@ public final class AutoFillUI {
                 IAutofillWindowPresenter presenter);
         void requestHideFillUi(AutofillId id);
         void startIntentSender(IntentSender intentSender);
-        void dispatchUnhandledKey(AutofillId id, KeyEvent keyEvent);
     }
 
     public AutoFillUI(@NonNull Context context) {
@@ -137,7 +134,7 @@ public final class AutoFillUI {
      * Hides the fill UI.
      */
     public void hideFillUi(@NonNull AutoFillUiCallback callback) {
-        mHandler.post(() -> hideFillUiUiThread(callback, true));
+        mHandler.post(() -> hideFillUiUiThread(callback));
     }
 
     /**
@@ -163,25 +160,18 @@ public final class AutoFillUI {
      * @param response the current fill response
      * @param filterText text of the view to be filled
      * @param servicePackageName package name of the autofill service filling the activity
-     * @param componentName component name of the activity that is filled
-     * @param serviceLabel label of autofill service
-     * @param serviceIcon icon of autofill service
-     * @param callback identifier for the caller
-     * @param sessionId id of the autofill session
-     * @param compatMode whether the app is being autofilled in compatibility mode.
+     * @param packageName package name of the activity that is filled
+     * @param callback Identifier for the caller
      */
     public void showFillUi(@NonNull AutofillId focusedId, @NonNull FillResponse response,
             @Nullable String filterText, @Nullable String servicePackageName,
-            @NonNull ComponentName componentName, @NonNull CharSequence serviceLabel,
-            @NonNull Drawable serviceIcon, @NonNull AutoFillUiCallback callback, int sessionId,
-            boolean compatMode) {
+            @NonNull String packageName, @NonNull AutoFillUiCallback callback) {
         if (sDebug) {
             final int size = filterText == null ? 0 : filterText.length();
             Slog.d(TAG, "showFillUi(): id=" + focusedId + ", filter=" + size + " chars");
         }
-        final LogMaker log = Helper
-                .newLogMaker(MetricsEvent.AUTOFILL_FILL_UI, componentName, servicePackageName,
-                        sessionId, compatMode)
+        final LogMaker log =
+                Helper.newLogMaker(MetricsEvent.AUTOFILL_FILL_UI, packageName, servicePackageName)
                 .addTaggedData(MetricsEvent.FIELD_AUTOFILL_FILTERTEXT_LEN,
                         filterText == null ? 0 : filterText.length())
                 .addTaggedData(MetricsEvent.FIELD_AUTOFILL_NUM_DATASETS,
@@ -193,11 +183,11 @@ public final class AutoFillUI {
             }
             hideAllUiThread(callback);
             mFillUi = new FillUi(mContext, response, focusedId,
-                    filterText, mOverlayControl, serviceLabel, serviceIcon, new FillUi.Callback() {
+                    filterText, mOverlayControl, new FillUi.Callback() {
                 @Override
                 public void onResponsePicked(FillResponse response) {
                     log.setType(MetricsEvent.TYPE_DETAIL);
-                    hideFillUiUiThread(callback, true);
+                    hideFillUiUiThread(callback);
                     if (mCallback != null) {
                         mCallback.authenticate(response.getRequestId(),
                                 AutofillManager.AUTHENTICATION_ID_DATASET_ID_UNDEFINED,
@@ -208,7 +198,7 @@ public final class AutoFillUI {
                 @Override
                 public void onDatasetPicked(Dataset dataset) {
                     log.setType(MetricsEvent.TYPE_ACTION);
-                    hideFillUiUiThread(callback, true);
+                    hideFillUiUiThread(callback);
                     if (mCallback != null) {
                         final int datasetIndex = response.getDatasets().indexOf(dataset);
                         mCallback.fill(response.getRequestId(), datasetIndex, dataset);
@@ -218,7 +208,7 @@ public final class AutoFillUI {
                 @Override
                 public void onCanceled() {
                     log.setType(MetricsEvent.TYPE_DISMISS);
-                    hideFillUiUiThread(callback, true);
+                    hideFillUiUiThread(callback);
                 }
 
                 @Override
@@ -250,13 +240,6 @@ public final class AutoFillUI {
                         mCallback.startIntentSender(intentSender);
                     }
                 }
-
-                @Override
-                public void dispatchUnhandledKey(KeyEvent keyEvent) {
-                    if (mCallback != null) {
-                        mCallback.dispatchUnhandledKey(focusedId, keyEvent);
-                    }
-                }
             });
         });
     }
@@ -266,19 +249,15 @@ public final class AutoFillUI {
      */
     public void showSaveUi(@NonNull CharSequence serviceLabel, @NonNull Drawable serviceIcon,
             @Nullable String servicePackageName, @NonNull SaveInfo info,
-            @NonNull ValueFinder valueFinder, @NonNull ComponentName componentName,
-            @NonNull AutoFillUiCallback callback, @NonNull PendingUi pendingSaveUi,
-            boolean compatMode) {
-        if (sVerbose) {
-            Slog.v(TAG, "showSaveUi() for " + componentName.toShortString() + ": " + info);
-        }
+            @NonNull ValueFinder valueFinder, @NonNull String packageName,
+            @NonNull AutoFillUiCallback callback, @NonNull PendingUi pendingSaveUi) {
+        if (sVerbose) Slog.v(TAG, "showSaveUi() for " + packageName + ": " + info);
         int numIds = 0;
         numIds += info.getRequiredIds() == null ? 0 : info.getRequiredIds().length;
         numIds += info.getOptionalIds() == null ? 0 : info.getOptionalIds().length;
 
-        final LogMaker log = Helper
-                .newLogMaker(MetricsEvent.AUTOFILL_SAVE_UI, componentName, servicePackageName,
-                        pendingSaveUi.sessionId, compatMode)
+        final LogMaker log =
+                Helper.newLogMaker(MetricsEvent.AUTOFILL_SAVE_UI, packageName, servicePackageName)
                 .addTaggedData(MetricsEvent.FIELD_AUTOFILL_NUM_IDS, numIds);
 
         mHandler.post(() -> {
@@ -287,7 +266,7 @@ public final class AutoFillUI {
             }
             hideAllUiThread(callback);
             mSaveUi = new SaveUi(mContext, pendingSaveUi, serviceLabel, serviceIcon,
-                    servicePackageName, componentName, info, valueFinder, mOverlayControl,
+                    servicePackageName, packageName, info, valueFinder, mOverlayControl,
                     new SaveUi.OnSaveListener() {
                 @Override
                 public void onSave() {
@@ -328,7 +307,7 @@ public final class AutoFillUI {
                     }
                     mMetricsLogger.write(log);
                 }
-            }, compatMode);
+            });
         });
     }
 
@@ -346,14 +325,14 @@ public final class AutoFillUI {
     }
 
     /**
-     * Hides all autofill UIs.
+     * Hides all UI affordances.
      */
     public void hideAll(@Nullable AutoFillUiCallback callback) {
         mHandler.post(() -> hideAllUiThread(callback));
     }
 
     /**
-     * Destroy all autofill UIs.
+     * Destroy all UI affordances.
      */
     public void destroyAll(@Nullable PendingUi pendingSaveUi,
             @Nullable AutoFillUiCallback callback, boolean notifyClient) {
@@ -379,9 +358,9 @@ public final class AutoFillUI {
     }
 
     @android.annotation.UiThread
-    private void hideFillUiUiThread(@Nullable AutoFillUiCallback callback, boolean notifyClient) {
+    private void hideFillUiUiThread(@Nullable AutoFillUiCallback callback) {
         if (mFillUi != null && (callback == null || callback == mCallback)) {
-            mFillUi.destroy(notifyClient);
+            mFillUi.destroy();
             mFillUi = null;
         }
     }
@@ -415,7 +394,7 @@ public final class AutoFillUI {
         if (pendingSaveUi != null && notifyClient) {
             try {
                 if (sDebug) Slog.d(TAG, "destroySaveUiUiThread(): notifying client");
-                pendingSaveUi.client.setSaveUiState(pendingSaveUi.sessionId, false);
+                pendingSaveUi.client.setSaveUiState(pendingSaveUi.id, false);
             } catch (RemoteException e) {
                 Slog.e(TAG, "Error notifying client to set save UI state to hidden: " + e);
             }
@@ -425,13 +404,13 @@ public final class AutoFillUI {
     @android.annotation.UiThread
     private void destroyAllUiThread(@Nullable PendingUi pendingSaveUi,
             @Nullable AutoFillUiCallback callback, boolean notifyClient) {
-        hideFillUiUiThread(callback, notifyClient);
+        hideFillUiUiThread(callback);
         destroySaveUiUiThread(pendingSaveUi, notifyClient);
     }
 
     @android.annotation.UiThread
     private void hideAllUiThread(@Nullable AutoFillUiCallback callback) {
-        hideFillUiUiThread(callback, true);
+        hideFillUiUiThread(callback);
         final PendingUi pendingSaveUi = hideSaveUiUiThread(callback);
         if (pendingSaveUi != null && pendingSaveUi.getState() == PendingUi.STATE_FINISHED) {
             if (sDebug) {

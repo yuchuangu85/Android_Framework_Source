@@ -18,7 +18,6 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.service.quicksettings.Tile;
 import android.text.SpannableStringBuilder;
-import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -32,15 +31,13 @@ import com.android.systemui.R;
 import com.android.systemui.plugins.qs.QSIconView;
 import com.android.systemui.plugins.qs.QSTile;
 
-import java.util.Objects;
+import libcore.util.Objects;
 
 /** View that represents a standard quick settings tile. **/
 public class QSTileView extends QSTileBaseView {
-    private static final int MAX_LABEL_LINES = 2;
-    private static final boolean DUAL_TARGET_ALLOWED = false;
+
     private View mDivider;
     protected TextView mLabel;
-    protected TextView mSecondLine;
     private ImageView mPadLock;
     private int mState;
     private ViewGroup mLabelContainer;
@@ -61,7 +58,7 @@ public class QSTileView extends QSTileBaseView {
         setId(View.generateViewId());
         createLabel();
         setOrientation(VERTICAL);
-        setGravity(Gravity.CENTER_HORIZONTAL | Gravity.TOP);
+        setGravity(Gravity.CENTER);
     }
 
     TextView getLabel() {
@@ -72,7 +69,6 @@ public class QSTileView extends QSTileBaseView {
     protected void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         FontSizeUtils.updateFontSize(mLabel, R.dimen.qs_tile_text_size);
-        FontSizeUtils.updateFontSize(mSecondLine, R.dimen.qs_tile_text_size);
     }
 
     @Override
@@ -90,27 +86,14 @@ public class QSTileView extends QSTileBaseView {
         mDivider = mLabelContainer.findViewById(R.id.underline);
         mExpandIndicator = mLabelContainer.findViewById(R.id.expand_indicator);
         mExpandSpace = mLabelContainer.findViewById(R.id.expand_space);
-        mSecondLine = mLabelContainer.findViewById(R.id.app_label);
+
         addView(mLabelContainer);
-    }
-
-    @Override
-    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-
-        // Remeasure view if the primary label requires more then 2 lines or the secondary label
-        // text will be cut off.
-        if (mLabel.getLineCount() > MAX_LABEL_LINES || !TextUtils.isEmpty(mSecondLine.getText())
-                        && mSecondLine.getLineHeight() > mSecondLine.getHeight()) {
-            mLabel.setSingleLine();
-            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-        }
     }
 
     @Override
     protected void handleStateChanged(QSTile.State state) {
         super.handleStateChanged(state);
-        if (!Objects.equals(mLabel.getText(), state.label) || mState != state.state) {
+        if (!Objects.equal(mLabel.getText(), state.label) || mState != state.state) {
             if (state.state == Tile.STATE_UNAVAILABLE) {
                 int color = QSTileImpl.getColorForState(getContext(), state.state);
                 state.label = new SpannableStringBuilder().append(state.label,
@@ -120,20 +103,14 @@ public class QSTileView extends QSTileBaseView {
             mState = state.state;
             mLabel.setText(state.label);
         }
-        if (!Objects.equals(mSecondLine.getText(), state.secondaryLabel)) {
-            mSecondLine.setText(state.secondaryLabel);
-            mSecondLine.setVisibility(TextUtils.isEmpty(state.secondaryLabel) ? View.GONE
-                    : View.VISIBLE);
-        }
-        boolean dualTarget = DUAL_TARGET_ALLOWED && state.dualTarget;
-        mExpandIndicator.setVisibility(dualTarget ? View.VISIBLE : View.GONE);
-        mExpandSpace.setVisibility(dualTarget ? View.VISIBLE : View.GONE);
-        mLabelContainer.setContentDescription(dualTarget ? state.dualLabelContentDescription
+        mExpandIndicator.setVisibility(state.dualTarget ? View.VISIBLE : View.GONE);
+        mExpandSpace.setVisibility(state.dualTarget ? View.VISIBLE : View.GONE);
+        mLabelContainer.setContentDescription(state.dualTarget ? state.dualLabelContentDescription
                 : null);
-        if (dualTarget != mLabelContainer.isClickable()) {
-            mLabelContainer.setClickable(dualTarget);
-            mLabelContainer.setLongClickable(dualTarget);
-            mLabelContainer.setBackground(dualTarget ? newTileBackground() : null);
+        if (state.dualTarget != mLabelContainer.isClickable()) {
+            mLabelContainer.setClickable(state.dualTarget);
+            mLabelContainer.setLongClickable(state.dualTarget);
+            mLabelContainer.setBackground(state.dualTarget ? newTileBackground() : null);
         }
         mLabel.setEnabled(!state.disabledByPolicy);
         mPadLock.setVisibility(state.disabledByPolicy ? View.VISIBLE : View.GONE);

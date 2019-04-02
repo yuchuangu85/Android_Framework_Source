@@ -15,16 +15,12 @@
  */
 package com.android.internal.telephony.euicc;
 
-import static android.telephony.euicc.EuiccManager.EUICC_OTA_STATUS_UNAVAILABLE;
-
 import android.Manifest;
-import android.Manifest.permission;
 import android.annotation.Nullable;
 import android.app.AppOpsManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.ComponentInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Binder;
@@ -42,13 +38,10 @@ import android.telephony.UiccAccessRule;
 import android.telephony.euicc.DownloadableSubscription;
 import android.telephony.euicc.EuiccInfo;
 import android.telephony.euicc.EuiccManager;
-import android.telephony.euicc.EuiccManager.OtaStatus;
-import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.SubscriptionController;
-import com.android.internal.telephony.euicc.EuiccConnector.OtaStatusChangedCallback;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -70,8 +63,6 @@ public class EuiccController extends IEuiccController.Stub {
             EuiccManager.EMBEDDED_SUBSCRIPTION_RESULT_RESOLVABLE_ERROR;
     private static final int ERROR =
             EuiccManager.EMBEDDED_SUBSCRIPTION_RESULT_ERROR;
-    private static final String EXTRA_EMBEDDED_SUBSCRIPTION_DOWNLOADABLE_SUBSCRIPTION =
-            EuiccManager.EXTRA_EMBEDDED_SUBSCRIPTION_DOWNLOADABLE_SUBSCRIPTION;
 
     private static EuiccController sInstance;
 
@@ -177,45 +168,6 @@ public class EuiccController extends IEuiccController.Stub {
         }
     }
 
-    /**
-     * Return the current status of OTA update.
-     *
-     * <p>For API simplicity, this call blocks until completion; while it requires an IPC to load,
-     * that IPC should generally be fast.
-     */
-    @Override
-    public @OtaStatus int getOtaStatus() {
-        if (!callerCanWriteEmbeddedSubscriptions()) {
-            throw new SecurityException("Must have WRITE_EMBEDDED_SUBSCRIPTIONS to get OTA status");
-        }
-        long token = Binder.clearCallingIdentity();
-        try {
-            return blockingGetOtaStatusFromEuiccService();
-        } finally {
-            Binder.restoreCallingIdentity(token);
-        }
-    }
-
-
-    /**
-     * Start eUICC OTA update if current eUICC OS is not the latest one. When OTA is started or
-     * finished, the broadcast {@link EuiccManager#ACTION_OTA_STATUS_CHANGED} will be sent.
-     *
-     * This function will only be called from phone process and isn't exposed to the other apps.
-     */
-    public void startOtaUpdatingIfNecessary() {
-        mConnector.startOtaIfNecessary(
-                new OtaStatusChangedCallback() {
-                    @Override
-                    public void onOtaStatusChanged(int status) {
-                        sendOtaStatusChangedBroadcast();
-                    }
-
-                    @Override
-                    public void onEuiccServiceUnavailable() {}
-                });
-    }
-
     @Override
     public void getDownloadableSubscriptionMetadata(DownloadableSubscription subscription,
             String callingPackage, PendingIntent callbackIntent) {
@@ -262,26 +214,25 @@ public class EuiccController extends IEuiccController.Stub {
                 GetDownloadableSubscriptionMetadataResult result) {
             Intent extrasIntent = new Intent();
             final int resultCode;
-            switch (result.getResult()) {
+            switch (result.result) {
                 case EuiccService.RESULT_OK:
                     resultCode = OK;
                     extrasIntent.putExtra(
-                            EXTRA_EMBEDDED_SUBSCRIPTION_DOWNLOADABLE_SUBSCRIPTION,
-                            result.getDownloadableSubscription());
+                            EuiccManager.EXTRA_EMBEDDED_SUBSCRIPTION_DOWNLOADABLE_SUBSCRIPTION,
+                            result.subscription);
                     break;
                 case EuiccService.RESULT_MUST_DEACTIVATE_SIM:
                     resultCode = RESOLVABLE_ERROR;
                     addResolutionIntent(extrasIntent,
                             EuiccService.ACTION_RESOLVE_DEACTIVATE_SIM,
                             mCallingPackage,
-                            false /* confirmationCodeRetried */,
                             getOperationForDeactivateSim());
                     break;
                 default:
                     resultCode = ERROR;
                     extrasIntent.putExtra(
                             EuiccManager.EXTRA_EMBEDDED_SUBSCRIPTION_DETAILED_CODE,
-                            result.getResult());
+                            result.result);
                     break;
             }
 
@@ -349,13 +300,12 @@ public class EuiccController extends IEuiccController.Stub {
         @Override
         public void onGetMetadataComplete(
                 GetDownloadableSubscriptionMetadataResult result) {
-            if (result.getResult() == EuiccService.RESULT_MUST_DEACTIVATE_SIM) {
+            if (result.result == EuiccService.RESULT_MUST_DEACTIVATE_SIM) {
                 // If we need to deactivate the current SIM to even check permissions, go ahead and
                 // require that the user resolve the stronger permission dialog.
                 Intent extrasIntent = new Intent();
                 addResolutionIntent(extrasIntent, EuiccService.ACTION_RESOLVE_NO_PRIVILEGES,
                         mCallingPackage,
-                        false /* confirmationCodeRetried */,
                         EuiccOperation.forDownloadNoPrivileges(
                                 mCallingToken, mSubscription, mSwitchAfterDownload,
                                 mCallingPackage));
@@ -363,18 +313,14 @@ public class EuiccController extends IEuiccController.Stub {
                 return;
             }
 
-            if (result.getResult() != EuiccService.RESULT_OK) {
+            if (result.result != EuiccService.RESULT_OK) {
                 // Just propagate the error as normal.
                 super.onGetMetadataComplete(result);
                 return;
             }
 
-            DownloadableSubscription subscription = result.getDownloadableSubscription();
-            UiccAccessRule[] rules = null;
-            List<UiccAccessRule> rulesList = subscription.getAccessRules();
-            if (rulesList != null) {
-                rules = rulesList.toArray(new UiccAccessRule[rulesList.size()]);
-            }
+            DownloadableSubscription subscription = result.subscription;
+            UiccAccessRule[] rules = subscription.getAccessRules();
             if (rules == null) {
                 Log.e(TAG, "No access rules but caller is unprivileged");
                 sendResult(mCallbackIntent, ERROR, null /* extrasIntent */);
@@ -408,7 +354,6 @@ public class EuiccController extends IEuiccController.Stub {
                     Intent extrasIntent = new Intent();
                     addResolutionIntent(extrasIntent, EuiccService.ACTION_RESOLVE_NO_PRIVILEGES,
                             mCallingPackage,
-                            false /* confirmationCodeRetried */,
                             EuiccOperation.forDownloadNoPrivileges(
                                     mCallingToken, subscription, mSwitchAfterDownload,
                                     mCallingPackage));
@@ -449,9 +394,6 @@ public class EuiccController extends IEuiccController.Stub {
                                         mContext.getContentResolver(),
                                         Settings.Global.EUICC_PROVISIONED,
                                         1);
-                                extrasIntent.putExtra(
-                                        EXTRA_EMBEDDED_SUBSCRIPTION_DOWNLOADABLE_SUBSCRIPTION,
-                                        subscription);
                                 if (!switchAfterDownload) {
                                     // Since we're not switching, nothing will trigger a
                                     // subscription list refresh on its own, so request one here.
@@ -465,22 +407,7 @@ public class EuiccController extends IEuiccController.Stub {
                                 addResolutionIntent(extrasIntent,
                                         EuiccService.ACTION_RESOLVE_DEACTIVATE_SIM,
                                         callingPackage,
-                                        false /* confirmationCodeRetried */,
                                         EuiccOperation.forDownloadDeactivateSim(
-                                                callingToken, subscription, switchAfterDownload,
-                                                callingPackage));
-                                break;
-                            case EuiccService.RESULT_NEED_CONFIRMATION_CODE:
-                                resultCode = RESOLVABLE_ERROR;
-                                boolean retried = false;
-                                if (!TextUtils.isEmpty(subscription.getConfirmationCode())) {
-                                    retried = true;
-                                }
-                                addResolutionIntent(extrasIntent,
-                                        EuiccService.ACTION_RESOLVE_CONFIRMATION_CODE,
-                                        callingPackage,
-                                        retried /* confirmationCodeRetried */,
-                                        EuiccOperation.forDownloadConfirmationCode(
                                                 callingToken, subscription, switchAfterDownload,
                                                 callingPackage));
                                 break;
@@ -572,22 +499,18 @@ public class EuiccController extends IEuiccController.Stub {
         public void onGetDefaultListComplete(GetDefaultDownloadableSubscriptionListResult result) {
             Intent extrasIntent = new Intent();
             final int resultCode;
-            switch (result.getResult()) {
+            switch (result.result) {
                 case EuiccService.RESULT_OK:
                     resultCode = OK;
-                    List<DownloadableSubscription> list = result.getDownloadableSubscriptions();
-                    if (list != null && list.size() > 0) {
-                        extrasIntent.putExtra(
-                                EuiccManager.EXTRA_EMBEDDED_SUBSCRIPTION_DOWNLOADABLE_SUBSCRIPTIONS,
-                                list.toArray(new DownloadableSubscription[list.size()]));
-                    }
+                    extrasIntent.putExtra(
+                            EuiccManager.EXTRA_EMBEDDED_SUBSCRIPTION_DOWNLOADABLE_SUBSCRIPTIONS,
+                            result.subscriptions);
                     break;
                 case EuiccService.RESULT_MUST_DEACTIVATE_SIM:
                     resultCode = RESOLVABLE_ERROR;
                     addResolutionIntent(extrasIntent,
                             EuiccService.ACTION_RESOLVE_DEACTIVATE_SIM,
                             mCallingPackage,
-                            false /* confirmationCodeRetried */,
                             EuiccOperation.forGetDefaultListDeactivateSim(
                                     mCallingToken, mCallingPackage));
                     break;
@@ -595,7 +518,7 @@ public class EuiccController extends IEuiccController.Stub {
                     resultCode = ERROR;
                     extrasIntent.putExtra(
                             EuiccManager.EXTRA_EMBEDDED_SUBSCRIPTION_DETAILED_CODE,
-                            result.getResult());
+                            result.result);
                     break;
             }
 
@@ -724,7 +647,7 @@ public class EuiccController extends IEuiccController.Stub {
                     return;
                 }
                 if (!callerCanWriteEmbeddedSubscriptions
-                        && !mSubscriptionManager.canManageSubscription(sub, callingPackage)) {
+                        && !sub.canManageSubscription(mContext, callingPackage)) {
                     Log.e(TAG, "Not permitted to switch to subscription: " + subscriptionId);
                     sendResult(callbackIntent, ERROR, null /* extrasIntent */);
                     return;
@@ -739,7 +662,6 @@ public class EuiccController extends IEuiccController.Stub {
                 addResolutionIntent(extrasIntent,
                         EuiccService.ACTION_RESOLVE_NO_PRIVILEGES,
                         callingPackage,
-                        false /* confirmationCodeRetried */,
                         EuiccOperation.forSwitchNoPrivileges(
                                 token, subscriptionId, callingPackage));
                 sendResult(callbackIntent, RESOLVABLE_ERROR, extrasIntent);
@@ -785,7 +707,6 @@ public class EuiccController extends IEuiccController.Stub {
                                 addResolutionIntent(extrasIntent,
                                         EuiccService.ACTION_RESOLVE_DEACTIVATE_SIM,
                                         callingPackage,
-                                        false /* confirmationCodeRetried */,
                                         EuiccOperation.forSwitchDeactivateSim(
                                                 callingToken, subscriptionId, callingPackage));
                                 break;
@@ -953,13 +874,11 @@ public class EuiccController extends IEuiccController.Stub {
     /** Add a resolution intent to the given extras intent. */
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     public void addResolutionIntent(Intent extrasIntent, String resolutionAction,
-            String callingPackage, boolean confirmationCodeRetried, EuiccOperation op) {
+            String callingPackage, EuiccOperation op) {
         Intent intent = new Intent(EuiccManager.ACTION_RESOLVE_ERROR);
         intent.putExtra(EuiccManager.EXTRA_EMBEDDED_SUBSCRIPTION_RESOLUTION_ACTION,
                 resolutionAction);
         intent.putExtra(EuiccService.EXTRA_RESOLUTION_CALLING_PACKAGE, callingPackage);
-        intent.putExtra(EuiccService.EXTRA_RESOLUTION_CONFIRMATION_CODE_RETRIED,
-                confirmationCodeRetried);
         intent.putExtra(EXTRA_OPERATION, op);
         PendingIntent resolutionIntent = PendingIntent.getActivity(
                 mContext, 0 /* requestCode */, intent, PendingIntent.FLAG_ONE_SHOT);
@@ -976,20 +895,6 @@ public class EuiccController extends IEuiccController.Stub {
         } finally {
             Binder.restoreCallingIdentity(token);
         }
-    }
-
-    /**
-     * Send broadcast {@link EuiccManager#ACTION_OTA_STATUS_CHANGED} for OTA status
-     * changed.
-     */
-    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
-    public void sendOtaStatusChangedBroadcast() {
-        Intent intent = new Intent(EuiccManager.ACTION_OTA_STATUS_CHANGED);
-        ComponentInfo bestComponent = mConnector.findBestComponent(mContext.getPackageManager());
-        if (bestComponent != null) {
-            intent.setPackage(bestComponent.packageName);
-        }
-        mContext.sendBroadcast(intent, permission.WRITE_EMBEDDED_SUBSCRIPTIONS);
     }
 
     @Nullable
@@ -1022,25 +927,6 @@ public class EuiccController extends IEuiccController.Stub {
             }
         });
         return awaitResult(latch, eidRef);
-    }
-
-    private @OtaStatus int blockingGetOtaStatusFromEuiccService() {
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<Integer> statusRef =
-                new AtomicReference<>(EUICC_OTA_STATUS_UNAVAILABLE);
-        mConnector.getOtaStatus(new EuiccConnector.GetOtaStatusCommandCallback() {
-            @Override
-            public void onGetOtaStatusComplete(@OtaStatus int status) {
-                statusRef.set(status);
-                latch.countDown();
-            }
-
-            @Override
-            public void onEuiccServiceUnavailable() {
-                latch.countDown();
-            }
-        });
-        return awaitResult(latch, statusRef);
     }
 
     @Nullable
@@ -1080,9 +966,7 @@ public class EuiccController extends IEuiccController.Stub {
         int size = subInfoList.size();
         for (int subIndex = 0; subIndex < size; subIndex++) {
             SubscriptionInfo subInfo = subInfoList.get(subIndex);
-
-            if (subInfo.isEmbedded()
-                    && mSubscriptionManager.canManageSubscription(subInfo, callingPackage)) {
+            if (subInfo.isEmbedded() && subInfo.canManageSubscription(mContext, callingPackage)) {
                 return true;
             }
         }

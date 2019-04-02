@@ -25,8 +25,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
-import com.android.internal.annotations.VisibleForTesting;
-
 import dalvik.system.CloseGuard;
 
 import java.lang.ref.WeakReference;
@@ -96,20 +94,6 @@ public class WifiAwareSession implements AutoCloseable {
         } finally {
             super.finalize();
         }
-    }
-
-    /**
-     * Access the client ID of the Aware session.
-     *
-     * Note: internal visibility for testing.
-     *
-     * @return The internal client ID.
-     *
-     * @hide
-     */
-    @VisibleForTesting
-    public int getClientId() {
-        return mClientId;
     }
 
     /**
@@ -223,7 +207,8 @@ public class WifiAwareSession implements AutoCloseable {
      *              {@link WifiAwareManager#WIFI_AWARE_DATA_PATH_ROLE_RESPONDER}
      * @param peer  The MAC address of the peer's Aware discovery interface. On a RESPONDER this
      *              value is used to gate the acceptance of a connection request from only that
-     *              peer.
+     *              peer. A RESPONDER may specify a {@code null} - indicating that it will accept
+     *              connection requests from any device.
      *
      * @return A {@link NetworkSpecifier} to be used to construct
      * {@link android.net.NetworkRequest.Builder#setNetworkSpecifier(NetworkSpecifier)} to pass to
@@ -232,7 +217,7 @@ public class WifiAwareSession implements AutoCloseable {
      * [or other varieties of that API].
      */
     public NetworkSpecifier createNetworkSpecifierOpen(
-            @WifiAwareManager.DataPathRole int role, @NonNull byte[] peer) {
+            @WifiAwareManager.DataPathRole int role, @Nullable byte[] peer) {
         WifiAwareManager mgr = mMgr.get();
         if (mgr == null) {
             Log.e(TAG, "createNetworkSpecifierOpen: called post GC on WifiAwareManager");
@@ -261,7 +246,8 @@ public class WifiAwareSession implements AutoCloseable {
      *              {@link WifiAwareManager#WIFI_AWARE_DATA_PATH_ROLE_RESPONDER}
      * @param peer  The MAC address of the peer's Aware discovery interface. On a RESPONDER this
      *              value is used to gate the acceptance of a connection request from only that
-     *              peer.
+     *              peer. A RESPONDER may specify a {@code null} - indicating that it will accept
+     *              connection requests from any device.
      * @param passphrase The passphrase to be used to encrypt the link. The PMK is generated from
      *                   the passphrase. Use {@link #createNetworkSpecifierOpen(int, byte[])} to
      *                   specify an open (unencrypted) link.
@@ -273,7 +259,7 @@ public class WifiAwareSession implements AutoCloseable {
      * [or other varieties of that API].
      */
     public NetworkSpecifier createNetworkSpecifierPassphrase(
-            @WifiAwareManager.DataPathRole int role, @NonNull byte[] peer,
+            @WifiAwareManager.DataPathRole int role, @Nullable byte[] peer,
             @NonNull String passphrase) {
         WifiAwareManager mgr = mMgr.get();
         if (mgr == null) {
@@ -307,7 +293,8 @@ public class WifiAwareSession implements AutoCloseable {
      *              {@link WifiAwareManager#WIFI_AWARE_DATA_PATH_ROLE_RESPONDER}
      * @param peer  The MAC address of the peer's Aware discovery interface. On a RESPONDER this
      *              value is used to gate the acceptance of a connection request from only that
-     *              peer.
+     *              peer. A RESPONDER may specify a null - indicating that it will accept
+     *              connection requests from any device.
      * @param pmk A PMK (pairwise master key, see IEEE 802.11i) specifying the key to use for
      *            encrypting the data-path. Use the
      *            {@link #createNetworkSpecifierPassphrase(int, byte[], String)} to specify a
@@ -324,7 +311,7 @@ public class WifiAwareSession implements AutoCloseable {
      */
     @SystemApi
     public NetworkSpecifier createNetworkSpecifierPmk(
-            @WifiAwareManager.DataPathRole int role, @NonNull byte[] peer, @NonNull byte[] pmk) {
+            @WifiAwareManager.DataPathRole int role, @Nullable byte[] peer, @NonNull byte[] pmk) {
         WifiAwareManager mgr = mMgr.get();
         if (mgr == null) {
             Log.e(TAG, "createNetworkSpecifierPmk: called post GC on WifiAwareManager");

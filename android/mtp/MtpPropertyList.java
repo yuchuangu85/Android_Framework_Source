@@ -16,9 +16,6 @@
 
 package android.mtp;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
  * Encapsulates the ObjectPropList dataset used by the GetObjectPropList command.
  * The fields of this class are read by JNI code in android_media_MtpDatabase.cpp
@@ -26,70 +23,56 @@ import java.util.List;
 
 class MtpPropertyList {
 
+    // number of results returned
+    private int             mCount;
+    // maximum number of results
+    private final int       mMaxCount;
+    // result code for GetObjectPropList
+    public int              mResult;
     // list of object handles (first field in quadruplet)
-    private List<Integer> mObjectHandles;
-    // list of object property codes (second field in quadruplet)
-    private List<Integer> mPropertyCodes;
+    public final int[]      mObjectHandles;
+    // list of object propery codes (second field in quadruplet)
+    public final int[]      mPropertyCodes;
     // list of data type codes (third field in quadruplet)
-    private List<Integer> mDataTypes;
+    public final int[]     mDataTypes;
     // list of long int property values (fourth field in quadruplet, when value is integer type)
-    private List<Long> mLongValues;
+    public long[]     mLongValues;
     // list of long int property values (fourth field in quadruplet, when value is string type)
-    private List<String> mStringValues;
+    public String[]   mStringValues;
 
-    // Return value of this operation
-    private int mCode;
-
-    public MtpPropertyList(int code) {
-        mCode = code;
-        mObjectHandles = new ArrayList<>();
-        mPropertyCodes = new ArrayList<>();
-        mDataTypes = new ArrayList<>();
-        mLongValues = new ArrayList<>();
-        mStringValues = new ArrayList<>();
+    // constructor only called from MtpDatabase
+    public MtpPropertyList(int maxCount, int result) {
+        mMaxCount = maxCount;
+        mResult = result;
+        mObjectHandles = new int[maxCount];
+        mPropertyCodes = new int[maxCount];
+        mDataTypes = new int[maxCount];
+        // mLongValues and mStringValues are created lazily since both might not be necessary
     }
 
     public void append(int handle, int property, int type, long value) {
-        mObjectHandles.add(handle);
-        mPropertyCodes.add(property);
-        mDataTypes.add(type);
-        mLongValues.add(value);
-        mStringValues.add(null);
+        int index = mCount++;
+        if (mLongValues == null) {
+            mLongValues = new long[mMaxCount];
+        }
+        mObjectHandles[index] = handle;
+        mPropertyCodes[index] = property;
+        mDataTypes[index] = type;
+        mLongValues[index] = value;
     }
 
     public void append(int handle, int property, String value) {
-        mObjectHandles.add(handle);
-        mPropertyCodes.add(property);
-        mDataTypes.add(MtpConstants.TYPE_STR);
-        mStringValues.add(value);
-        mLongValues.add(0L);
+        int index = mCount++;
+        if (mStringValues == null) {
+            mStringValues = new String[mMaxCount];
+        }
+        mObjectHandles[index] = handle;
+        mPropertyCodes[index] = property;
+        mDataTypes[index] = MtpConstants.TYPE_STR;
+        mStringValues[index] = value;
     }
 
-    public int getCode() {
-        return mCode;
-    }
-
-    public int getCount() {
-        return mObjectHandles.size();
-    }
-
-    public int[] getObjectHandles() {
-        return mObjectHandles.stream().mapToInt(Integer::intValue).toArray();
-    }
-
-    public int[] getPropertyCodes() {
-        return mPropertyCodes.stream().mapToInt(Integer::intValue).toArray();
-    }
-
-    public int[] getDataTypes() {
-        return mDataTypes.stream().mapToInt(Integer::intValue).toArray();
-    }
-
-    public long[] getLongValues() {
-        return mLongValues.stream().mapToLong(Long::longValue).toArray();
-    }
-
-    public String[] getStringValues() {
-        return mStringValues.toArray(new String[0]);
+    public void setResult(int result) {
+        mResult = result;
     }
 }

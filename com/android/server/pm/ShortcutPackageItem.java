@@ -17,7 +17,6 @@ package com.android.server.pm;
 
 import android.annotation.NonNull;
 import android.content.pm.PackageInfo;
-import android.content.pm.ShortcutInfo;
 import android.util.Slog;
 
 import com.android.internal.util.Preconditions;
@@ -102,32 +101,34 @@ abstract class ShortcutPackageItem {
         final ShortcutService s = mShortcutUser.mService;
         if (!s.isPackageInstalled(mPackageName, mPackageUserId)) {
             if (ShortcutService.DEBUG) {
-                Slog.d(TAG, String.format("Package still not installed: %s/u%d",
+                Slog.d(TAG, String.format("Package still not installed: %s user=%d",
                         mPackageName, mPackageUserId));
             }
             return; // Not installed, no need to restore yet.
         }
-        int restoreBlockReason;
-        long currentVersionCode = ShortcutInfo.VERSION_CODE_UNKNOWN;
-
+        boolean blockRestore = false;
         if (!mPackageInfo.hasSignatures()) {
-            s.wtf("Attempted to restore package " + mPackageName + "/u" + mPackageUserId
+            s.wtf("Attempted to restore package " + mPackageName + ", user=" + mPackageUserId
                     + " but signatures not found in the restore data.");
-            restoreBlockReason = ShortcutInfo.DISABLED_REASON_SIGNATURE_MISMATCH;
-        } else {
+            blockRestore = true;
+        }
+        if (!blockRestore) {
             final PackageInfo pi = s.getPackageInfoWithSignatures(mPackageName, mPackageUserId);
-            currentVersionCode = pi.getLongVersionCode();
-            restoreBlockReason = mPackageInfo.canRestoreTo(s, pi, canRestoreAnyVersion());
+            if (!mPackageInfo.canRestoreTo(s, pi)) {
+                // Package is now installed, but can't restore.  Let the subclass do the cleanup.
+                blockRestore = true;
+            }
         }
+        if (blockRestore) {
+            onRestoreBlocked();
+        } else {
+            if (ShortcutService.DEBUG) {
+                Slog.d(TAG, String.format("Restored package: %s/%d on user %d", mPackageName,
+                        mPackageUserId, getOwnerUserId()));
+            }
 
-        if (ShortcutService.DEBUG) {
-            Slog.d(TAG, String.format("Restoring package: %s/u%d (version=%d) %s for u%d",
-                    mPackageName, mPackageUserId, currentVersionCode,
-                    ShortcutInfo.getDisabledReasonDebugString(restoreBlockReason),
-                    getOwnerUserId()));
+            onRestored();
         }
-
-        onRestored(restoreBlockReason);
 
         // Either way, it's no longer a shadow.
         mPackageInfo.setShadow(false);
@@ -135,9 +136,16 @@ abstract class ShortcutPackageItem {
         s.scheduleSaveUser(mPackageUserId);
     }
 
-    protected abstract boolean canRestoreAnyVersion();
+    /**
+     * Called when the new package can't be restored because it has a lower version number
+     * or different signatures.
+     */
+    protected abstract void onRestoreBlocked();
 
-    protected abstract void onRestored(int restoreBlockReason);
+    /**
+     * Called when the new package is successfully restored.
+     */
+    protected abstract void onRestored();
 
     public abstract void saveToXml(@NonNull XmlSerializer out, boolean forBackup)
             throws IOException, XmlPullParserException;

@@ -19,18 +19,15 @@ package com.android.server.fingerprint;
 import static android.Manifest.permission.INTERACT_ACROSS_USERS;
 import static android.Manifest.permission.MANAGE_FINGERPRINT;
 import static android.Manifest.permission.RESET_FINGERPRINT_LOCKOUT;
-import static android.Manifest.permission.USE_BIOMETRIC;
 import static android.Manifest.permission.USE_FINGERPRINT;
-import static android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND_SERVICE;
+import static android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND;
 
 import android.app.ActivityManager;
 import android.app.ActivityManager.RunningAppProcessInfo;
 import android.app.AlarmManager;
 import android.app.AppOpsManager;
-import android.app.IActivityManager;
 import android.app.PendingIntent;
 import android.app.SynchronousUserSwitchObserver;
-import android.app.TaskStackListener;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -38,7 +35,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.UserInfo;
-import android.hardware.biometrics.IBiometricPromptReceiver;
 import android.hardware.biometrics.fingerprint.V2_1.IBiometricsFingerprint;
 import android.hardware.biometrics.fingerprint.V2_1.IBiometricsFingerprintClientCallback;
 import android.hardware.fingerprint.Fingerprint;
@@ -48,7 +44,6 @@ import android.hardware.fingerprint.IFingerprintService;
 import android.hardware.fingerprint.IFingerprintServiceLockoutResetCallback;
 import android.hardware.fingerprint.IFingerprintServiceReceiver;
 import android.os.Binder;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.DeadObjectException;
 import android.os.Environment;
@@ -60,19 +55,18 @@ import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
 import android.os.RemoteException;
 import android.os.SELinux;
-import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.security.KeyStore;
+import android.service.fingerprint.FingerprintActionStatsProto;
+import android.service.fingerprint.FingerprintServiceDumpProto;
+import android.service.fingerprint.FingerprintUserStatsProto;
 import android.util.Slog;
-import android.util.SparseBooleanArray;
-import android.util.SparseIntArray;
 import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.statusbar.IStatusBarService;
 import com.android.internal.util.DumpUtils;
 import com.android.server.SystemServerInitThreadPool;
 import com.android.server.SystemService;
@@ -87,6 +81,7 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -94,19 +89,18 @@ import java.util.concurrent.CopyOnWriteArrayList;
 /**
  * A service to manage multiple clients that want to access the fingerprint HAL API.
  * The service is responsible for maintaining a list of clients and dispatching all
- * fingerprint-related events.
+ * fingerprint -related events.
  *
  * @hide
  */
 public class FingerprintService extends SystemService implements IHwBinder.DeathRecipient {
     static final String TAG = "FingerprintService";
     static final boolean DEBUG = true;
-    private static final boolean CLEANUP_UNUSED_FP = true;
+    private static final boolean CLEANUP_UNUSED_FP = false;
     private static final String FP_DATA_DIR = "fpdata";
     private static final int MSG_USER_SWITCHING = 10;
     private static final String ACTION_LOCKOUT_RESET =
             "com.android.server.fingerprint.ACTION_LOCKOUT_RESET";
-    private static final String KEY_LOCKOUT_RESET_USER = "lockout_reset_user";
 
     private class PerformanceStats {
         int accept; // number of accepted fingerprints
@@ -134,12 +128,10 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
     private final FingerprintUtils mFingerprintUtils = FingerprintUtils.getInstance();
     private Context mContext;
     private long mHalDeviceId;
-    private SparseBooleanArray mTimedLockoutCleared;
-    private SparseIntArray mFailedAttempts;
+    private boolean mTimedLockoutCleared;
+    private int mFailedAttempts;
     @GuardedBy("this")
     private IBiometricsFingerprint mDaemon;
-    private IStatusBarService mStatusBarService;
-    private final IActivityManager mActivityManager;
     private final PowerManager mPowerManager;
     private final AlarmManager mAlarmManager;
     private final UserManager mUserManager;
@@ -147,8 +139,10 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
     private ClientMonitor mPendingClient;
     private PerformanceStats mPerformanceStats;
 
+
     private IBinder mToken = new Binder(); // used for internal FingerprintService enumeration
-    private ArrayList<UserFingerprint> mUnknownFingerprints = new ArrayList<>(); // hw fingerprints
+    private LinkedList<Integer> mEnumeratingUserIds = new LinkedList<>();
+    private ArrayList<UserFingerprint> mUnknownFingerprints = new ArrayList<>(); // hw finterprints
 
     private class UserFingerprint {
         Fingerprint f;
@@ -183,17 +177,15 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
         @Override
         public void onReceive(Context context, Intent intent) {
             if (ACTION_LOCKOUT_RESET.equals(intent.getAction())) {
-                final int user = intent.getIntExtra(KEY_LOCKOUT_RESET_USER, 0);
-                resetFailedAttemptsForUser(false /* clearAttemptCounter */, user);
+                resetFailedAttempts(false /* clearAttemptCounter */);
             }
         }
     };
 
-    private final Runnable mResetFailedAttemptsForCurrentUserRunnable = new Runnable() {
+    private final Runnable mResetFailedAttemptsRunnable = new Runnable() {
         @Override
         public void run() {
-            resetFailedAttemptsForUser(true /* clearAttemptCounter */,
-                    ActivityManager.getCurrentUser());
+            resetFailedAttempts(true /* clearAttemptCounter */);
         }
     };
 
@@ -218,32 +210,6 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
         }
     };
 
-    private final TaskStackListener mTaskStackListener = new TaskStackListener() {
-        @Override
-        public void onTaskStackChanged() {
-            try {
-                if (!(mCurrentClient instanceof AuthenticationClient)) {
-                    return;
-                }
-                final String currentClient = mCurrentClient.getOwnerString();
-                if (isKeyguard(currentClient)) {
-                    return; // Keyguard is always allowed
-                }
-                List<ActivityManager.RunningTaskInfo> runningTasks = mActivityManager.getTasks(1);
-                if (!runningTasks.isEmpty()) {
-                    final String topPackage = runningTasks.get(0).topActivity.getPackageName();
-                    if (!topPackage.contentEquals(currentClient)) {
-                        Slog.e(TAG, "Stopping background authentication, top: " + topPackage
-                                + " currentClient: " + currentClient);
-                        mCurrentClient.stop(false /* initiatedByClient */);
-                    }
-                }
-            } catch (RemoteException e) {
-                Slog.e(TAG, "Unable to get running tasks", e);
-            }
-        }
-    };
-
     public FingerprintService(Context context) {
         super(context);
         mContext = context;
@@ -255,12 +221,6 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
         mContext.registerReceiver(mLockoutReceiver, new IntentFilter(ACTION_LOCKOUT_RESET),
                 RESET_FINGERPRINT_LOCKOUT, null /* handler */);
         mUserManager = UserManager.get(mContext);
-        mTimedLockoutCleared = new SparseBooleanArray();
-        mFailedAttempts = new SparseIntArray();
-        mStatusBarService = IStatusBarService.Stub.asInterface(
-                ServiceManager.getService(Context.STATUS_BAR_SERVICE));
-        mActivityManager = ((ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE))
-                .getService();
     }
 
     @Override
@@ -273,7 +233,7 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
 
     public synchronized IBiometricsFingerprint getFingerprintDaemon() {
         if (mDaemon == null) {
-            Slog.v(TAG, "mDaemon was null, reconnect to fingerprint");
+            Slog.v(TAG, "mDeamon was null, reconnect to fingerprint");
             try {
                 mDaemon = IBiometricsFingerprint.getService();
             } catch (java.util.NoSuchElementException e) {
@@ -299,7 +259,7 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
             if (mHalDeviceId != 0) {
                 loadAuthenticatorIds();
                 updateActiveGroup(ActivityManager.getCurrentUser(), null);
-                doFingerprintCleanupForUser(ActivityManager.getCurrentUser());
+                doFingerprintCleanup(ActivityManager.getCurrentUser());
             } else {
                 Slog.w(TAG, "Failed to open Fingerprint HAL!");
                 MetricsLogger.count(mContext, "fingerprintd_openhal_error", 1);
@@ -328,41 +288,52 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
         }
     }
 
-    /**
-     * This method should be called upon connection to the daemon, and when user switches.
-     * @param userId
-     */
-    private void doFingerprintCleanupForUser(int userId) {
+    private void doFingerprintCleanup(int userId) {
         if (CLEANUP_UNUSED_FP) {
-            enumerateUser(userId);
+            resetEnumerateState();
+            mEnumeratingUserIds.push(userId);
+            enumerateNextUser();
         }
     }
 
-    private void clearEnumerateState() {
-        if (DEBUG) Slog.v(TAG, "clearEnumerateState()");
+    private void resetEnumerateState() {
+        if (DEBUG) Slog.v(TAG, "Enumerate cleaning up");
+        mEnumeratingUserIds.clear();
         mUnknownFingerprints.clear();
     }
 
-    private void enumerateUser(int userId) {
-        if (DEBUG) Slog.v(TAG, "Enumerating user(" + userId + ")");
+    private void enumerateNextUser() {
+        int nextUser = mEnumeratingUserIds.getFirst();
+        updateActiveGroup(nextUser, null);
         boolean restricted = !hasPermission(MANAGE_FINGERPRINT);
-        startEnumerate(mToken, userId, null, restricted, true /* internal */);
+
+        if (DEBUG) Slog.v(TAG, "Enumerating user id " + nextUser + " of "
+                + mEnumeratingUserIds.size() + " remaining users");
+
+        startEnumerate(mToken, nextUser, null, restricted, true /* internal */);
     }
 
     // Remove unknown fingerprints from hardware
     private void cleanupUnknownFingerprints() {
         if (!mUnknownFingerprints.isEmpty()) {
+            Slog.w(TAG, "unknown fingerprint size: " + mUnknownFingerprints.size());
             UserFingerprint uf = mUnknownFingerprints.get(0);
             mUnknownFingerprints.remove(uf);
             boolean restricted = !hasPermission(MANAGE_FINGERPRINT);
+            updateActiveGroup(uf.userId, null);
             startRemove(mToken, uf.f.getFingerId(), uf.f.getGroupId(), uf.userId, null,
                     restricted, true /* internal */);
         } else {
-            clearEnumerateState();
+            resetEnumerateState();
         }
     }
 
     protected void handleEnumerate(long deviceId, int fingerId, int groupId, int remaining) {
+        if (DEBUG) Slog.w(TAG, "Enumerate: fid=" + fingerId
+                + ", gid=" + groupId
+                + ", dev=" + deviceId
+                + ", rem=" + remaining);
+
         ClientMonitor client = mCurrentClient;
 
         if ( !(client instanceof InternalRemovalClient) && !(client instanceof EnumerateClient) ) {
@@ -372,21 +343,24 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
 
         // All fingerprints in hardware for this user were enumerated
         if (remaining == 0) {
-            if (client instanceof InternalEnumerateClient) {
-                List<Fingerprint> unknownFingerprints =
-                        ((InternalEnumerateClient) client).getUnknownFingerprints();
+            mEnumeratingUserIds.poll();
 
-                if (!unknownFingerprints.isEmpty()) {
-                    Slog.w(TAG, "Adding " + unknownFingerprints.size() +
-                            " fingerprints for deletion");
-                }
-                for (Fingerprint f : unknownFingerprints) {
+            if (client instanceof InternalEnumerateClient) {
+                List<Fingerprint> enrolled = ((InternalEnumerateClient) client).getEnumeratedList();
+                Slog.w(TAG, "Added " + enrolled.size() + " enumerated fingerprints for deletion");
+                for (Fingerprint f : enrolled) {
                     mUnknownFingerprints.add(new UserFingerprint(f, client.getTargetUserId()));
                 }
-                removeClient(client);
+            }
+
+            removeClient(client);
+
+            if (!mEnumeratingUserIds.isEmpty()) {
+                enumerateNextUser();
+            } else if (client instanceof InternalEnumerateClient) {
+                if (DEBUG) Slog.v(TAG, "Finished enumerating all users");
+                // This will start a chain of InternalRemovalClients
                 cleanupUnknownFingerprints();
-            } else {
-                removeClient(client);
             }
         }
     }
@@ -394,7 +368,7 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
     protected void handleError(long deviceId, int error, int vendorCode) {
         ClientMonitor client = mCurrentClient;
         if (client instanceof InternalRemovalClient || client instanceof InternalEnumerateClient) {
-            clearEnumerateState();
+            resetEnumerateState();
         }
         if (client != null && client.onError(error, vendorCode)) {
             removeClient(client);
@@ -438,7 +412,7 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
         if (client instanceof InternalRemovalClient && !mUnknownFingerprints.isEmpty()) {
             cleanupUnknownFingerprints();
         } else if (client instanceof InternalRemovalClient){
-            clearEnumerateState();
+            resetEnumerateState();
         }
     }
 
@@ -492,14 +466,8 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
     }
 
     void handleUserSwitching(int userId) {
-        if (mCurrentClient instanceof InternalRemovalClient
-                || mCurrentClient instanceof InternalEnumerateClient) {
-            Slog.w(TAG, "User switched while performing cleanup");
-            removeClient(mCurrentClient);
-            clearEnumerateState();
-        }
         updateActiveGroup(userId, null);
-        doFingerprintCleanupForUser(userId);
+        doFingerprintCleanup(userId);
     }
 
     private void removeClient(ClientMonitor client) {
@@ -520,32 +488,27 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
     }
 
     private int getLockoutMode() {
-        final int currentUser = ActivityManager.getCurrentUser();
-        final int failedAttempts = mFailedAttempts.get(currentUser, 0);
-        if (failedAttempts >= MAX_FAILED_ATTEMPTS_LOCKOUT_PERMANENT) {
+        if (mFailedAttempts >= MAX_FAILED_ATTEMPTS_LOCKOUT_PERMANENT) {
             return AuthenticationClient.LOCKOUT_PERMANENT;
-        } else if (failedAttempts > 0 &&
-                mTimedLockoutCleared.get(currentUser, false) == false
-                && (failedAttempts % MAX_FAILED_ATTEMPTS_LOCKOUT_TIMED == 0)) {
+        } else if (mFailedAttempts > 0 && mTimedLockoutCleared == false &&
+                (mFailedAttempts % MAX_FAILED_ATTEMPTS_LOCKOUT_TIMED == 0)) {
             return AuthenticationClient.LOCKOUT_TIMED;
         }
         return AuthenticationClient.LOCKOUT_NONE;
     }
 
-    private void scheduleLockoutResetForUser(int userId) {
-        mAlarmManager.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + FAIL_LOCKOUT_TIMEOUT_MS,
-                getLockoutResetIntentForUser(userId));
+    private void scheduleLockoutReset() {
+        mAlarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + FAIL_LOCKOUT_TIMEOUT_MS, getLockoutResetIntent());
     }
 
-    private void cancelLockoutResetForUser(int userId) {
-        mAlarmManager.cancel(getLockoutResetIntentForUser(userId));
+    private void cancelLockoutReset() {
+        mAlarmManager.cancel(getLockoutResetIntent());
     }
 
-    private PendingIntent getLockoutResetIntentForUser(int userId) {
-        return PendingIntent.getBroadcast(mContext, userId,
-                new Intent(ACTION_LOCKOUT_RESET).putExtra(KEY_LOCKOUT_RESET_USER, userId),
-                PendingIntent.FLAG_UPDATE_CURRENT);
+    private PendingIntent getLockoutResetIntent() {
+        return PendingIntent.getBroadcast(mContext, 0,
+                new Intent(ACTION_LOCKOUT_RESET), PendingIntent.FLAG_UPDATE_CURRENT);
     }
 
     public long startPreEnroll(IBinder token) {
@@ -592,12 +555,6 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
                 // This condition means we're currently running internal diagnostics to
                 // remove extra fingerprints in the hardware and/or the software
                 // TODO: design an escape hatch in case client never finishes
-                if (newClient != null) {
-                    Slog.w(TAG, "Internal cleanup in progress but trying to start client "
-                            + newClient.getClass().getSuperclass().getSimpleName()
-                            + "(" + newClient.getOwnerString() + ")"
-                            + ", initiatedByClient = " + initiatedByClient);
-                }
             }
             else {
                 currentClient.stop(initiatedByClient);
@@ -610,7 +567,7 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
             if (DEBUG) Slog.v(TAG, "starting client "
                     + newClient.getClass().getSuperclass().getSimpleName()
                     + "(" + newClient.getOwnerString() + ")"
-                    + ", initiatedByClient = " + initiatedByClient);
+                    + ", initiatedByClient = " + initiatedByClient + ")");
             notifyClientActiveCallbacks(true);
 
             newClient.start();
@@ -619,15 +576,6 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
 
     void startRemove(IBinder token, int fingerId, int groupId, int userId,
             IFingerprintServiceReceiver receiver, boolean restricted, boolean internal) {
-        if (token == null) {
-            Slog.w(TAG, "startRemove: token is null");
-            return;
-        }
-        if (receiver == null) {
-            Slog.w(TAG, "startRemove: receiver is null");
-            return;
-        }
-
         IBiometricsFingerprint daemon = getFingerprintDaemon();
         if (daemon == null) {
             Slog.w(TAG, "startRemove: no fingerprint HAL!");
@@ -772,7 +720,7 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
             for (int i = 0; i < N; i++) {
                 RunningAppProcessInfo proc = procs.get(i);
                 if (proc.pid == pid && proc.uid == uid
-                        && proc.importance <= IMPORTANCE_FOREGROUND_SERVICE) {
+                        && proc.importance == IMPORTANCE_FOREGROUND) {
                     return true;
                 }
             }
@@ -789,11 +737,7 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
      */
     private boolean canUseFingerprint(String opPackageName, boolean requireForeground, int uid,
             int pid, int userId) {
-        if (getContext().checkCallingPermission(USE_FINGERPRINT)
-                != PackageManager.PERMISSION_GRANTED) {
-            checkPermission(USE_BIOMETRIC);
-        }
-
+        checkPermission(USE_FINGERPRINT);
         if (isKeyguard(opPackageName)) {
             return true; // Keyguard is always allowed
         }
@@ -860,37 +804,17 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
 
     private void startAuthentication(IBinder token, long opId, int callingUserId, int groupId,
                 IFingerprintServiceReceiver receiver, int flags, boolean restricted,
-                String opPackageName, Bundle bundle, IBiometricPromptReceiver dialogReceiver) {
+                String opPackageName) {
         updateActiveGroup(groupId, opPackageName);
 
         if (DEBUG) Slog.v(TAG, "startAuthentication(" + opPackageName + ")");
 
         AuthenticationClient client = new AuthenticationClient(getContext(), mHalDeviceId, token,
-                receiver, mCurrentUserId, groupId, opId, restricted, opPackageName, bundle,
-                dialogReceiver, mStatusBarService) {
-            @Override
-            public void onStart() {
-                try {
-                    mActivityManager.registerTaskStackListener(mTaskStackListener);
-                } catch (RemoteException e) {
-                    Slog.e(TAG, "Could not register task stack listener", e);
-                }
-            }
-
-            @Override
-            public void onStop() {
-                try {
-                    mActivityManager.unregisterTaskStackListener(mTaskStackListener);
-                } catch (RemoteException e) {
-                    Slog.e(TAG, "Could not unregister task stack listener", e);
-                }
-            }
-
+                receiver, mCurrentUserId, groupId, opId, restricted, opPackageName) {
             @Override
             public int handleFailedAttempt() {
-                final int currentUser = ActivityManager.getCurrentUser();
-                mFailedAttempts.put(currentUser, mFailedAttempts.get(currentUser, 0) + 1);
-                mTimedLockoutCleared.put(ActivityManager.getCurrentUser(), false);
+                mFailedAttempts++;
+                mTimedLockoutCleared = false;
                 final int lockoutMode = getLockoutMode();
                 if (lockoutMode == AuthenticationClient.LOCKOUT_PERMANENT) {
                     mPerformanceStats.permanentLockout++;
@@ -900,7 +824,7 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
 
                 // Failing multiple times will continue to push out the lockout time
                 if (lockoutMode != AuthenticationClient.LOCKOUT_NONE) {
-                    scheduleLockoutResetForUser(currentUser);
+                    scheduleLockoutReset();
                     return lockoutMode;
                 }
                 return AuthenticationClient.LOCKOUT_NONE;
@@ -908,8 +832,7 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
 
             @Override
             public void resetFailedAttempts() {
-                FingerprintService.this.resetFailedAttemptsForUser(true /* clearAttemptCounter */,
-                        ActivityManager.getCurrentUser());
+                FingerprintService.this.resetFailedAttempts(true /* clearAttemptCounter */);
             }
 
             @Override
@@ -963,21 +886,21 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
 
     // attempt counter should only be cleared when Keyguard goes away or when
     // a fingerprint is successfully authenticated
-    protected void resetFailedAttemptsForUser(boolean clearAttemptCounter, int userId) {
+    protected void resetFailedAttempts(boolean clearAttemptCounter) {
         if (DEBUG && getLockoutMode() != AuthenticationClient.LOCKOUT_NONE) {
             Slog.v(TAG, "Reset fingerprint lockout, clearAttemptCounter=" + clearAttemptCounter);
         }
         if (clearAttemptCounter) {
-            mFailedAttempts.put(userId, 0);
+            mFailedAttempts = 0;
         }
-        mTimedLockoutCleared.put(userId, true);
+        mTimedLockoutCleared = true;
         // If we're asked to reset failed attempts externally (i.e. from Keyguard),
         // the alarm might still be pending; remove it.
-        cancelLockoutResetForUser(userId);
+        cancelLockoutReset();
         notifyLockoutResetMonitors();
     }
 
-    private class FingerprintServiceLockoutResetMonitor implements IBinder.DeathRecipient {
+    private class FingerprintServiceLockoutResetMonitor {
 
         private static final long WAKELOCK_TIMEOUT_MS = 2000;
         private final IFingerprintServiceLockoutResetCallback mCallback;
@@ -988,11 +911,6 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
             mCallback = callback;
             mWakeLock = mPowerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
                     "lockout reset callback");
-            try {
-                mCallback.asBinder().linkToDeath(FingerprintServiceLockoutResetMonitor.this, 0);
-            } catch (RemoteException e) {
-                Slog.w(TAG, "caught remote exception in linkToDeath", e);
-            }
         }
 
         public void sendLockoutReset() {
@@ -1003,7 +921,9 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
 
                         @Override
                         public void sendResult(Bundle data) throws RemoteException {
-                            releaseWakelock();
+                            if (mWakeLock.isHeld()) {
+                                mWakeLock.release();
+                            }
                         }
                     });
                 } catch (DeadObjectException e) {
@@ -1011,7 +931,6 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
                     mHandler.post(mRemoveCallbackRunnable);
                 } catch (RemoteException e) {
                     Slog.w(TAG, "Failed to invoke onLockoutReset: ", e);
-                    releaseWakelock();
                 }
             }
         }
@@ -1019,22 +938,12 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
         private final Runnable mRemoveCallbackRunnable = new Runnable() {
             @Override
             public void run() {
-                releaseWakelock();
+                if (mWakeLock.isHeld()) {
+                    mWakeLock.release();
+                }
                 removeLockoutResetCallback(FingerprintServiceLockoutResetMonitor.this);
             }
         };
-
-        @Override
-        public void binderDied() {
-            Slog.e(TAG, "Lockout reset callback binder died");
-            mHandler.post(mRemoveCallbackRunnable);
-        }
-
-        private void releaseWakelock() {
-            if (mWakeLock.isHeld()) {
-                mWakeLock.release();
-            }
-        }
     }
 
     private IBiometricsFingerprintClientCallback mDaemonCallback =
@@ -1122,7 +1031,7 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
                 final IFingerprintServiceReceiver receiver, final int flags,
                 final String opPackageName) {
             checkPermission(MANAGE_FINGERPRINT);
-            final int limit = mContext.getResources().getInteger(
+            final int limit =  mContext.getResources().getInteger(
                     com.android.internal.R.integer.config_fingerprintMaxTemplatesPerUser);
 
             final int enrolled = FingerprintService.this.getEnrolledFingerprints(userId).size();
@@ -1170,8 +1079,7 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
         @Override // Binder call
         public void authenticate(final IBinder token, final long opId, final int groupId,
                 final IFingerprintServiceReceiver receiver, final int flags,
-                final String opPackageName, final Bundle bundle,
-                final IBiometricPromptReceiver dialogReceiver) {
+                final String opPackageName) {
             final int callingUid = Binder.getCallingUid();
             final int callingPid = Binder.getCallingPid();
             final int callingUserId = UserHandle.getCallingUserId();
@@ -1199,7 +1107,7 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
                     mPerformanceStats = stats;
 
                     startAuthentication(token, opId, callingUserId, groupId, receiver,
-                            flags, restricted, opPackageName, bundle, dialogReceiver);
+                            flags, restricted, opPackageName);
                 }
             });
         }
@@ -1369,7 +1277,7 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
         public void resetTimeout(byte [] token) {
             checkPermission(RESET_FINGERPRINT_LOCKOUT);
             // TODO: confirm security token when we move timeout management into the HAL layer.
-            mHandler.post(mResetFailedAttemptsForCurrentUserRunnable);
+            mHandler.post(mResetFailedAttemptsRunnable);
         }
 
         @Override
@@ -1430,8 +1338,6 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
                 set.put("rejectCrypto", (cryptoStats != null) ? cryptoStats.reject : 0);
                 set.put("acquireCrypto", (cryptoStats != null) ? cryptoStats.acquire : 0);
                 set.put("lockoutCrypto", (cryptoStats != null) ? cryptoStats.lockout : 0);
-                set.put("permanentLockoutCrypto",
-                    (cryptoStats != null) ? cryptoStats.permanentLockout : 0);
                 sets.put(set);
             }
 
@@ -1457,11 +1363,11 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
             final PerformanceStats normal = mPerformanceMap.get(userId);
             if (normal != null) {
                 final long countsToken = proto.start(FingerprintUserStatsProto.NORMAL);
-                proto.write(PerformanceStatsProto.ACCEPT, normal.accept);
-                proto.write(PerformanceStatsProto.REJECT, normal.reject);
-                proto.write(PerformanceStatsProto.ACQUIRE, normal.acquire);
-                proto.write(PerformanceStatsProto.LOCKOUT, normal.lockout);
-                proto.write(PerformanceStatsProto.PERMANENT_LOCKOUT, normal.permanentLockout);
+                proto.write(FingerprintActionStatsProto.ACCEPT, normal.accept);
+                proto.write(FingerprintActionStatsProto.REJECT, normal.reject);
+                proto.write(FingerprintActionStatsProto.ACQUIRE, normal.acquire);
+                proto.write(FingerprintActionStatsProto.LOCKOUT, normal.lockout);
+                proto.write(FingerprintActionStatsProto.LOCKOUT_PERMANENT, normal.lockout);
                 proto.end(countsToken);
             }
 
@@ -1470,19 +1376,17 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
             final PerformanceStats crypto = mCryptoPerformanceMap.get(userId);
             if (crypto != null) {
                 final long countsToken = proto.start(FingerprintUserStatsProto.CRYPTO);
-                proto.write(PerformanceStatsProto.ACCEPT, crypto.accept);
-                proto.write(PerformanceStatsProto.REJECT, crypto.reject);
-                proto.write(PerformanceStatsProto.ACQUIRE, crypto.acquire);
-                proto.write(PerformanceStatsProto.LOCKOUT, crypto.lockout);
-                proto.write(PerformanceStatsProto.PERMANENT_LOCKOUT, crypto.permanentLockout);
+                proto.write(FingerprintActionStatsProto.ACCEPT, crypto.accept);
+                proto.write(FingerprintActionStatsProto.REJECT, crypto.reject);
+                proto.write(FingerprintActionStatsProto.ACQUIRE, crypto.acquire);
+                proto.write(FingerprintActionStatsProto.LOCKOUT, crypto.lockout);
+                proto.write(FingerprintActionStatsProto.LOCKOUT_PERMANENT, crypto.lockout);
                 proto.end(countsToken);
             }
 
             proto.end(userToken);
         }
         proto.flush();
-        mPerformanceMap.clear();
-        mCryptoPerformanceMap.clear();
     }
 
     @Override
@@ -1499,19 +1403,8 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
             try {
                 userId = getUserOrWorkProfileId(clientPackage, userId);
                 if (userId != mCurrentUserId) {
-                    int firstSdkInt = Build.VERSION.FIRST_SDK_INT;
-                    if (firstSdkInt < Build.VERSION_CODES.BASE) {
-                        Slog.e(TAG, "First SDK version " + firstSdkInt + " is invalid; must be " +
-                                "at least VERSION_CODES.BASE");
-                    }
-                    File baseDir;
-                    if (firstSdkInt <= Build.VERSION_CODES.O_MR1) {
-                        baseDir = Environment.getUserSystemDirectory(userId);
-                    } else {
-                        baseDir = Environment.getDataVendorDeDirectory(userId);
-                    }
-
-                    File fpDir = new File(baseDir, FP_DATA_DIR);
+                    final File systemDir = Environment.getUserSystemDirectory(userId);
+                    final File fpDir = new File(systemDir, FP_DATA_DIR);
                     if (!fpDir.exists()) {
                         if (!fpDir.mkdir()) {
                             Slog.v(TAG, "Cannot make directory: " + fpDir.getAbsolutePath());
@@ -1525,7 +1418,6 @@ public class FingerprintService extends SystemService implements IHwBinder.Death
                             return;
                         }
                     }
-
                     daemon.setActiveGroup(userId, fpDir.getAbsolutePath());
                     mCurrentUserId = userId;
                 }

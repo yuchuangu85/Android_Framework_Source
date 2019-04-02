@@ -520,14 +520,11 @@ final class ConnectionServiceAdapter implements DeathRecipient {
      * @param callId The unique ID of the call.
      * @param audioRoute The new audio route (see {@code CallAudioState#ROUTE_*}).
      */
-    void setAudioRoute(String callId, int audioRoute, String bluetoothAddress) {
-        Log.v(this, "setAudioRoute: %s %s %s", callId,
-                CallAudioState.audioRouteToString(audioRoute),
-                bluetoothAddress);
+    void setAudioRoute(String callId, int audioRoute) {
+        Log.v(this, "setAudioRoute: %s %s", callId, CallAudioState.audioRouteToString(audioRoute));
         for (IConnectionServiceAdapter adapter : mAdapters) {
             try {
-                adapter.setAudioRoute(callId, audioRoute,
-                        bluetoothAddress, Log.getExternalSession());
+                adapter.setAudioRoute(callId, audioRoute, Log.getExternalSession());
             } catch (RemoteException ignored) {
             }
         }
@@ -608,35 +605,6 @@ final class ConnectionServiceAdapter implements DeathRecipient {
         for (IConnectionServiceAdapter adapter : mAdapters) {
             try {
                 adapter.onRemoteRttRequest(callId, Log.getExternalSession());
-            } catch (RemoteException ignored) {
-            }
-        }
-    }
-
-    /**
-     * Notifies Telecom that a call's PhoneAccountHandle has changed.
-     *
-     * @param callId The unique ID of the call.
-     * @param pHandle The new PhoneAccountHandle associated with the call.
-     */
-    void onPhoneAccountChanged(String callId, PhoneAccountHandle pHandle) {
-        for (IConnectionServiceAdapter adapter : mAdapters) {
-            try {
-                Log.d(this, "onPhoneAccountChanged %s", callId);
-                adapter.onPhoneAccountChanged(callId, pHandle, Log.getExternalSession());
-            } catch (RemoteException ignored) {
-            }
-        }
-    }
-
-    /**
-     * Notifies Telecom that the {@link ConnectionService} has released the call resource.
-     */
-    void onConnectionServiceFocusReleased() {
-        for (IConnectionServiceAdapter adapter : mAdapters) {
-            try {
-                Log.d(this, "onConnectionServiceFocusReleased");
-                adapter.onConnectionServiceFocusReleased(Log.getExternalSession());
             } catch (RemoteException ignored) {
             }
         }

@@ -21,7 +21,6 @@ import static com.android.internal.util.CollectionUtils.size;
 import static com.android.internal.util.Preconditions.checkArgument;
 import static com.android.internal.util.Preconditions.checkNotNull;
 import static com.android.internal.util.Preconditions.checkState;
-import static com.android.internal.util.function.pooled.PooledLambda.obtainRunnable;
 
 import android.Manifest;
 import android.annotation.CheckResult;
@@ -70,7 +69,6 @@ import com.android.internal.content.PackageMonitor;
 import com.android.internal.notification.NotificationAccessConfirmationActivityContract;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.CollectionUtils;
-import com.android.internal.util.function.pooled.PooledLambda;
 import com.android.server.FgThread;
 import com.android.server.SystemService;
 
@@ -442,35 +440,32 @@ public class CompanionDeviceManagerService extends SystemService implements Bind
             return;
         }
 
-        Binder.withCleanCallingIdentity(obtainRunnable(CompanionDeviceManagerService::
-                updateSpecialAccessPermissionAsSystem, this, packageInfo).recycleOnUse());
-    }
-
-    private void updateSpecialAccessPermissionAsSystem(PackageInfo packageInfo) {
-        try {
-            if (containsEither(packageInfo.requestedPermissions,
-                    android.Manifest.permission.RUN_IN_BACKGROUND,
-                    android.Manifest.permission.REQUEST_COMPANION_RUN_IN_BACKGROUND)) {
-                mIdleController.addPowerSaveWhitelistApp(packageInfo.packageName);
-            } else {
-                mIdleController.removePowerSaveWhitelistApp(packageInfo.packageName);
+        Binder.withCleanCallingIdentity(() -> {
+            try {
+                if (containsEither(packageInfo.requestedPermissions,
+                        Manifest.permission.RUN_IN_BACKGROUND,
+                        Manifest.permission.REQUEST_COMPANION_RUN_IN_BACKGROUND)) {
+                    mIdleController.addPowerSaveWhitelistApp(packageInfo.packageName);
+                } else {
+                    mIdleController.removePowerSaveWhitelistApp(packageInfo.packageName);
+                }
+            } catch (RemoteException e) {
+                /* ignore - local call */
             }
-        } catch (RemoteException e) {
-            /* ignore - local call */
-        }
 
-        NetworkPolicyManager networkPolicyManager = NetworkPolicyManager.from(getContext());
-        if (containsEither(packageInfo.requestedPermissions,
-                android.Manifest.permission.USE_DATA_IN_BACKGROUND,
-                android.Manifest.permission.REQUEST_COMPANION_USE_DATA_IN_BACKGROUND)) {
-            networkPolicyManager.addUidPolicy(
-                    packageInfo.applicationInfo.uid,
-                    NetworkPolicyManager.POLICY_ALLOW_METERED_BACKGROUND);
-        } else {
-            networkPolicyManager.removeUidPolicy(
-                    packageInfo.applicationInfo.uid,
-                    NetworkPolicyManager.POLICY_ALLOW_METERED_BACKGROUND);
-        }
+            NetworkPolicyManager networkPolicyManager = NetworkPolicyManager.from(getContext());
+            if (containsEither(packageInfo.requestedPermissions,
+                    Manifest.permission.USE_DATA_IN_BACKGROUND,
+                    Manifest.permission.REQUEST_COMPANION_USE_DATA_IN_BACKGROUND)) {
+                networkPolicyManager.addUidPolicy(
+                        packageInfo.applicationInfo.uid,
+                        NetworkPolicyManager.POLICY_ALLOW_METERED_BACKGROUND);
+            } else {
+                networkPolicyManager.removeUidPolicy(
+                        packageInfo.applicationInfo.uid,
+                        NetworkPolicyManager.POLICY_ALLOW_METERED_BACKGROUND);
+            }
+        });
     }
 
     private static <T> boolean containsEither(T[] array, T a, T b) {
@@ -479,17 +474,17 @@ public class CompanionDeviceManagerService extends SystemService implements Bind
 
     @Nullable
     private PackageInfo getPackageInfo(String packageName, int userId) {
-        return Binder.withCleanCallingIdentity(PooledLambda.obtainSupplier((context, pkg, id) -> {
+        return Binder.withCleanCallingIdentity(() -> {
             try {
-                return context.getPackageManager().getPackageInfoAsUser(
-                        pkg,
+                return getContext().getPackageManager().getPackageInfoAsUser(
+                        packageName,
                         PackageManager.GET_PERMISSIONS | PackageManager.GET_CONFIGURATIONS,
-                        id);
+                        userId);
             } catch (PackageManager.NameNotFoundException e) {
-                Slog.e(LOG_TAG, "Failed to get PackageInfo for package " + pkg, e);
+                Slog.e(LOG_TAG, "Failed to get PackageInfo for package " + packageName, e);
                 return null;
             }
-        }, getContext(), packageName, userId).recycleOnUse());
+        });
     }
 
     private void recordAssociation(String priviledgedPackage, String deviceAddress) {

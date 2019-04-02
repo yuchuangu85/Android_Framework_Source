@@ -25,7 +25,6 @@ import android.os.Parcelable;
 import android.service.euicc.EuiccService;
 import android.telephony.euicc.DownloadableSubscription;
 import android.telephony.euicc.EuiccManager;
-import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -61,7 +60,6 @@ public class EuiccOperation implements Parcelable {
             ACTION_GET_METADATA_DEACTIVATE_SIM,
             ACTION_DOWNLOAD_DEACTIVATE_SIM,
             ACTION_DOWNLOAD_NO_PRIVILEGES,
-            ACTION_DOWNLOAD_CONFIRMATION_CODE,
     })
     @interface Action {}
 
@@ -77,8 +75,6 @@ public class EuiccOperation implements Parcelable {
     static final int ACTION_SWITCH_DEACTIVATE_SIM = 5;
     @VisibleForTesting
     static final int ACTION_SWITCH_NO_PRIVILEGES = 6;
-    @VisibleForTesting
-    static final int ACTION_DOWNLOAD_CONFIRMATION_CODE = 7;
 
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
     public final @Action int mAction;
@@ -125,17 +121,6 @@ public class EuiccOperation implements Parcelable {
             String callingPackage) {
         return new EuiccOperation(ACTION_DOWNLOAD_NO_PRIVILEGES, callingToken,
                 subscription,  0 /* subscriptionId */, switchAfterDownload, callingPackage);
-    }
-
-    /**
-     * {@link EuiccManager#downloadSubscription} failed with
-     * {@link EuiccService#RESULT_NEED_CONFIRMATION_CODE} error.
-     */
-    public static EuiccOperation forDownloadConfirmationCode(long callingToken,
-            DownloadableSubscription subscription, boolean switchAfterDownload,
-            String callingPackage) {
-        return new EuiccOperation(ACTION_DOWNLOAD_CONFIRMATION_CODE, callingToken,
-                subscription, 0 /* subscriptionId */, switchAfterDownload, callingPackage);
     }
 
     static EuiccOperation forGetDefaultListDeactivateSim(long callingToken, String callingPackage) {
@@ -207,37 +192,32 @@ public class EuiccOperation implements Parcelable {
         switch (mAction) {
             case ACTION_GET_METADATA_DEACTIVATE_SIM:
                 resolvedGetMetadataDeactivateSim(
-                        resolutionExtras.getBoolean(EuiccService.EXTRA_RESOLUTION_CONSENT),
+                        resolutionExtras.getBoolean(EuiccService.RESOLUTION_EXTRA_CONSENT),
                         callbackIntent);
                 break;
             case ACTION_DOWNLOAD_DEACTIVATE_SIM:
                 resolvedDownloadDeactivateSim(
-                        resolutionExtras.getBoolean(EuiccService.EXTRA_RESOLUTION_CONSENT),
+                        resolutionExtras.getBoolean(EuiccService.RESOLUTION_EXTRA_CONSENT),
                         callbackIntent);
                 break;
             case ACTION_DOWNLOAD_NO_PRIVILEGES:
                 resolvedDownloadNoPrivileges(
-                        resolutionExtras.getBoolean(EuiccService.EXTRA_RESOLUTION_CONSENT),
-                        callbackIntent);
-                break;
-            case ACTION_DOWNLOAD_CONFIRMATION_CODE:
-                resolvedDownloadConfirmationCode(
-                        resolutionExtras.getString(EuiccService.EXTRA_RESOLUTION_CONFIRMATION_CODE),
+                        resolutionExtras.getBoolean(EuiccService.RESOLUTION_EXTRA_CONSENT),
                         callbackIntent);
                 break;
             case ACTION_GET_DEFAULT_LIST_DEACTIVATE_SIM:
                 resolvedGetDefaultListDeactivateSim(
-                        resolutionExtras.getBoolean(EuiccService.EXTRA_RESOLUTION_CONSENT),
+                        resolutionExtras.getBoolean(EuiccService.RESOLUTION_EXTRA_CONSENT),
                         callbackIntent);
                 break;
             case ACTION_SWITCH_DEACTIVATE_SIM:
                 resolvedSwitchDeactivateSim(
-                        resolutionExtras.getBoolean(EuiccService.EXTRA_RESOLUTION_CONSENT),
+                        resolutionExtras.getBoolean(EuiccService.RESOLUTION_EXTRA_CONSENT),
                         callbackIntent);
                 break;
             case ACTION_SWITCH_NO_PRIVILEGES:
                 resolvedSwitchNoPrivileges(
-                        resolutionExtras.getBoolean(EuiccService.EXTRA_RESOLUTION_CONSENT),
+                        resolutionExtras.getBoolean(EuiccService.RESOLUTION_EXTRA_CONSENT),
                         callbackIntent);
                 break;
             default:
@@ -301,22 +281,6 @@ public class EuiccOperation implements Parcelable {
         } else {
             // User has not consented; fail the operation.
             fail(callbackIntent);
-        }
-    }
-
-    private void resolvedDownloadConfirmationCode(String confirmationCode,
-            PendingIntent callbackIntent) {
-        if (TextUtils.isEmpty(confirmationCode)) {
-            fail(callbackIntent);
-        } else {
-            mDownloadableSubscription.setConfirmationCode(confirmationCode);
-            EuiccController.get()
-                    .downloadSubscription(
-                            mDownloadableSubscription,
-                            mSwitchAfterDownload,
-                            mCallingPackage,
-                            true /* forceDeactivateSim */,
-                            callbackIntent);
         }
     }
 

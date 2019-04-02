@@ -226,8 +226,6 @@ public class NetworkScoreManager {
      * the {@link #ACTION_CHANGE_ACTIVE} intent.
      * @return the full package name of the current active scorer, or null if there is no active
      *         scorer.
-     * @throws SecurityException if the caller doesn't hold either {@link permission#SCORE_NETWORKS}
-     *                           or {@link permission#REQUEST_NETWORK_SCORES} permissions.
      */
     @RequiresPermission(anyOf = {android.Manifest.permission.SCORE_NETWORKS,
                                  android.Manifest.permission.REQUEST_NETWORK_SCORES})
@@ -242,8 +240,6 @@ public class NetworkScoreManager {
     /**
      * Returns metadata about the active scorer or <code>null</code> if there is no active scorer.
      *
-     * @throws SecurityException if the caller does not hold the
-     *         {@link permission#REQUEST_NETWORK_SCORES} permission.
      * @hide
      */
     @Nullable
@@ -260,11 +256,8 @@ public class NetworkScoreManager {
      * Returns the list of available scorer apps. The list will be empty if there are
      * no valid scorers.
      *
-     * @throws SecurityException if the caller does not hold the
-     *         {@link permission#REQUEST_NETWORK_SCORES} permission.
      * @hide
      */
-    @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
     public List<NetworkScorerAppData> getAllValidScorers() {
         try {
             return mService.getAllValidScorers();
@@ -303,11 +296,9 @@ public class NetworkScoreManager {
      * from one scorer cannot be compared to those from another scorer.
      *
      * @return whether the clear was successful.
-     * @throws SecurityException if the caller is not the active scorer or if the caller doesn't
-     *                           hold the {@link permission#REQUEST_NETWORK_SCORES} permission.
+     * @throws SecurityException if the caller is not the active scorer or privileged.
      */
-    @RequiresPermission(anyOf = {android.Manifest.permission.SCORE_NETWORKS,
-                                 android.Manifest.permission.REQUEST_NETWORK_SCORES})
+    @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
     public boolean clearScores() throws SecurityException {
         try {
             return mService.clearScores();
@@ -323,13 +314,12 @@ public class NetworkScoreManager {
      * the {@link #ACTION_CHANGE_ACTIVE} broadcast, or using a custom configuration activity.
      *
      * @return true if the operation succeeded, or false if the new package is not a valid scorer.
-     * @throws SecurityException if the caller doesn't hold either {@link permission#SCORE_NETWORKS}
-     *                           or {@link permission#REQUEST_NETWORK_SCORES} permissions.
+     * @throws SecurityException if the caller is not a system process or does not hold the
+     *         {@link permission#SCORE_NETWORKS} permission
      * @hide
      */
     @SystemApi
-    @RequiresPermission(anyOf = {android.Manifest.permission.SCORE_NETWORKS,
-                                 android.Manifest.permission.REQUEST_NETWORK_SCORES})
+    @RequiresPermission(android.Manifest.permission.SCORE_NETWORKS)
     public boolean setActiveScorer(String packageName) throws SecurityException {
         try {
             return mService.setActiveScorer(packageName);
@@ -343,11 +333,9 @@ public class NetworkScoreManager {
      *
      * <p>May only be called by the current scorer app, or the system.
      *
-     * @throws SecurityException if the caller is not the active scorer or if the caller doesn't
-     *                           hold the {@link permission#REQUEST_NETWORK_SCORES} permission.
+     * @throws SecurityException if the caller is neither the active scorer nor the system.
      */
-    @RequiresPermission(anyOf = {android.Manifest.permission.SCORE_NETWORKS,
-                                 android.Manifest.permission.REQUEST_NETWORK_SCORES})
+    @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
     public void disableScoring() throws SecurityException {
         try {
             mService.disableScoring();
@@ -364,7 +352,6 @@ public class NetworkScoreManager {
      *         {@link permission#REQUEST_NETWORK_SCORES} permission.
      * @hide
      */
-    @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
     public boolean requestScores(NetworkKey[] networks) throws SecurityException {
         try {
             return mService.requestScores(networks);
@@ -384,7 +371,6 @@ public class NetworkScoreManager {
      * @deprecated equivalent to registering for cache updates with CACHE_FILTER_NONE.
      * @hide
      */
-    @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
     @Deprecated // migrate to registerNetworkScoreCache(int, INetworkScoreCache, int)
     public void registerNetworkScoreCache(int networkType, INetworkScoreCache scoreCache) {
         registerNetworkScoreCache(networkType, scoreCache, CACHE_FILTER_NONE);
@@ -401,7 +387,6 @@ public class NetworkScoreManager {
      * @throws IllegalArgumentException if a score cache is already registered for this type.
      * @hide
      */
-    @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
     public void registerNetworkScoreCache(int networkType, INetworkScoreCache scoreCache,
             @CacheUpdateFilter int filterType) {
         try {
@@ -421,7 +406,6 @@ public class NetworkScoreManager {
      * @throws IllegalArgumentException if a score cache is already registered for this type.
      * @hide
      */
-    @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
     public void unregisterNetworkScoreCache(int networkType, INetworkScoreCache scoreCache) {
         try {
             mService.unregisterNetworkScoreCache(networkType, scoreCache);
@@ -435,11 +419,8 @@ public class NetworkScoreManager {
      *
      * @param callingUid the UID to check
      * @return true if the provided UID is the active scorer, false otherwise.
-     * @throws SecurityException if the caller does not hold the
-     *         {@link permission#REQUEST_NETWORK_SCORES} permission.
      * @hide
      */
-    @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
     public boolean isCallerActiveScorer(int callingUid) {
         try {
             return mService.isCallerActiveScorer(callingUid);

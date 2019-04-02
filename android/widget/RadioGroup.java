@@ -183,17 +183,13 @@ public class RadioGroup extends LinearLayout {
     }
 
     private void setCheckedId(@IdRes int id) {
-        boolean changed = id != mCheckedId;
         mCheckedId = id;
-
         if (mOnCheckedChangeListener != null) {
             mOnCheckedChangeListener.onCheckedChanged(this, mCheckedId);
         }
-        if (changed) {
-            final AutofillManager afm = mContext.getSystemService(AutofillManager.class);
-            if (afm != null) {
-                afm.notifyValueChanged(this);
-            }
+        final AutofillManager afm = mContext.getSystemService(AutofillManager.class);
+        if (afm != null) {
+            afm.notifyValueChanged(this);
         }
     }
 

@@ -16,20 +16,18 @@
 
 package com.android.internal.telephony;
 
-import android.annotation.NonNull;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.os.ResultReceiver;
 import android.os.WorkSource;
-import android.telecom.VideoProfile;
+import android.telephony.CarrierConfigManager;
 import android.telephony.CellLocation;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.NetworkScanRequest;
 import android.telephony.ServiceState;
-import android.telephony.TelephonyManager;
 
-import com.android.internal.telephony.PhoneConstants.DataState;
+import com.android.internal.telephony.PhoneConstants.*; // ????
 
 import java.util.List;
 
@@ -62,51 +60,6 @@ public interface PhoneInternalInterface {
 
     enum SuppService {
       UNKNOWN, SWITCH, SEPARATE, TRANSFER, CONFERENCE, REJECT, HANGUP, RESUME, HOLD;
-    }
-
-    /**
-     * Arguments that control behavior of dialing a call.
-     */
-    public static class DialArgs {
-        public static class Builder<T extends Builder<T>> {
-            protected UUSInfo mUusInfo;
-            protected int mVideoState = VideoProfile.STATE_AUDIO_ONLY;
-            protected Bundle mIntentExtras;
-
-            public T setUusInfo(UUSInfo uusInfo) {
-                mUusInfo = uusInfo;
-                return (T) this;
-            }
-
-            public T setVideoState(int videoState) {
-                mVideoState = videoState;
-                return (T) this;
-            }
-
-            public T setIntentExtras(Bundle intentExtras) {
-                this.mIntentExtras = intentExtras;
-                return (T) this;
-            }
-
-            public PhoneInternalInterface.DialArgs build() {
-                return new DialArgs(this);
-            }
-        }
-
-        /** The UUSInfo */
-        public final UUSInfo uusInfo;
-
-        /** The desired video state for the connection. */
-        public final int videoState;
-
-        /** The extras from the original CALL intent. */
-        public final Bundle intentExtras;
-
-        protected DialArgs(Builder b) {
-            this.uusInfo = b.mUusInfo;
-            this.videoState = b.mVideoState;
-            this.intentExtras = b.mIntentExtras;
-        }
     }
 
     // "Features" accessible through the connectivity manager
@@ -154,7 +107,6 @@ public interface PhoneInternalInterface {
     static final String REASON_CARRIER_CHANGE = "carrierChange";
     static final String REASON_CARRIER_ACTION_DISABLE_METERED_APN =
             "carrierActionDisableMeteredApn";
-    static final String REASON_CSS_INDICATOR_CHANGED = "cssIndicatorChanged";
 
     // Used for band mode selection methods
     static final int BM_UNSPECIFIED = RILConstants.BAND_MODE_UNSPECIFIED; // automatic
@@ -212,11 +164,11 @@ public interface PhoneInternalInterface {
 
     // Used for CDMA roaming mode
     // Home Networks only, as defined in PRL
-    int CDMA_RM_HOME        = TelephonyManager.CDMA_ROAMING_MODE_HOME;
+    static final int CDMA_RM_HOME        = CarrierConfigManager.CDMA_ROAMING_MODE_HOME;
     // Roaming an Affiliated networks, as defined in PRL
-    int CDMA_RM_AFFILIATED  = TelephonyManager.CDMA_ROAMING_MODE_AFFILIATED;
+    static final int CDMA_RM_AFFILIATED  = CarrierConfigManager.CDMA_ROAMING_MODE_AFFILIATED;
     // Roaming on Any Network, as defined in PRL
-    int CDMA_RM_ANY         = TelephonyManager.CDMA_ROAMING_MODE_ANY;
+    static final int CDMA_RM_ANY         = CarrierConfigManager.CDMA_ROAMING_MODE_ANY;
 
     // Used for CDMA subscription mode
     static final int CDMA_SUBSCRIPTION_UNKNOWN  =-1; // Unknown
@@ -448,13 +400,34 @@ public interface PhoneInternalInterface {
      * assigned) until PhoneStateChanged notification has occurred.
      *
      * @param dialString The dial string.
-     * @param dialArgs Parameters to perform the dial with.
+     * @param videoState The desired video state for the connection.
+     * @exception CallStateException if a new outgoing call is not currently
+     * possible because no more call slots exist or a call exists that is
+     * dialing, alerting, ringing, or waiting.  Other errors are
+     * handled asynchronously.
+     */
+    Connection dial(String dialString, int videoState) throws CallStateException;
+
+    /**
+     * Initiate a new voice connection with supplementary User to User
+     * Information. This happens asynchronously, so you cannot assume the audio
+     * path is connected (or a call index has been assigned) until
+     * PhoneStateChanged notification has occurred.
+     *
+     * NOTE: If adding another parameter, consider creating a DialArgs parameter instead to
+     * encapsulate all dial arguments and decrease scaffolding headache.
+     *
+     * @param dialString The dial string.
+     * @param uusInfo The UUSInfo.
+     * @param videoState The desired video state for the connection.
+     * @param intentExtras The extras from the original CALL intent.
      * @exception CallStateException if a new outgoing call is not currently
      *                possible because no more call slots exist or a call exists
      *                that is dialing, alerting, ringing, or waiting. Other
      *                errors are handled asynchronously.
      */
-    Connection dial(String dialString, @NonNull DialArgs dialArgs) throws CallStateException;
+    Connection dial(String dialString, UUSInfo uusInfo, int videoState, Bundle intentExtras)
+            throws CallStateException;
 
     /**
      * Handles PIN MMI commands (PIN/PIN2/PUK/PUK2), which are initiated
@@ -618,35 +591,6 @@ public interface PhoneInternalInterface {
                                  Message onComplete);
 
     /**
-     * Gets a call barring option. The return value of ((AsyncResult) onComplete.obj) will be an
-     * Integer representing the sum of enabled serivice classes (sum of SERVICE_CLASS_*)
-     *
-     * @param facility is one of CB_FACILTY_*
-     * @param password is password or "" if not required
-     * @param serviceClass is a sum of SERVICE_CLASS_*
-     * @param onComplete is callback message when the action is completed.
-     */
-    public void getCallBarring(String facility,
-            String password,
-            Message onComplete,
-            int serviceClass);
-
-    /**
-     * Sets a call barring option.
-     *
-     * @param facility is one of CB_FACILTY_*
-     * @param lockState is true means lock, false means unlock
-     * @param password is password or "" if not required
-     * @param serviceClass is a sum of SERVICE_CLASS_*
-     * @param onComplete is callback message when the action is completed.
-     */
-    public void setCallBarring(String facility,
-            boolean lockState,
-            String password,
-            Message onComplete,
-            int serviceClass);
-
-    /**
      * getOutgoingCallerIdDisplay
      * gets outgoing caller id display. The return value of
      * ((AsyncResult)onComplete.obj) is an array of int, with a length of 2.
@@ -762,6 +706,19 @@ public interface PhoneInternalInterface {
     boolean getMute();
 
     /**
+     * Get the current active Data Call list
+     *
+     * @param response <strong>On success</strong>, "response" bytes is
+     * made available as:
+     * (String[])(((AsyncResult)response.obj).result).
+     * <strong>On failure</strong>,
+     * (((AsyncResult)response.obj).result) == null and
+     * (((AsyncResult)response.obj).exception) being an instance of
+     * com.android.internal.telephony.gsm.CommandException
+     */
+    void getDataCallList(Message response);
+
+    /**
      * Update the ServiceState CellLocation for current network registration.
      */
     void updateServiceLocation();
@@ -789,17 +746,12 @@ public interface PhoneInternalInterface {
     /**
      * @return true if user has enabled data
      */
-    boolean isUserDataEnabled();
-
-    /**
-     * @return true if data is enabled considering all factors
-     */
-    boolean isDataEnabled();
+    boolean getDataEnabled();
 
     /**
      * @param @enable set {@code true} if enable data connection
      */
-    void setUserDataEnabled(boolean enable);
+    void setDataEnabled(boolean enable);
 
     /**
      * Retrieves the unique device ID, e.g., IMEI for GSM phones and MEID for CDMA phones.
@@ -894,9 +846,4 @@ public interface PhoneInternalInterface {
      *        decrypt the permanent identity.
      */
     public ImsiEncryptionInfo getCarrierInfoForImsiEncryption(int keyType);
-
-    /**
-     * Resets the Carrier Keys, by deleting them from the database and sending a download intent.
-     */
-    public void resetCarrierKeysForImsiEncryption();
 }

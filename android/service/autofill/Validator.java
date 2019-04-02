@@ -16,9 +16,9 @@
 package android.service.autofill;
 
 /**
- * Class used to define whether a condition is satisfied.
+ * Helper class used to define whether the contents of a screen are valid.
  *
- * <p>Typically used to avoid displaying the save UI when the user input is invalid.
+ * <p>Typically used to avoid displaying the Save UI affordance when the user input is invalid.
  */
 public interface Validator {
 }

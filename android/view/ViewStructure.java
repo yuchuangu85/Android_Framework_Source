@@ -23,12 +23,8 @@ import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.LocaleList;
 import android.util.Pair;
-import android.view.View.AutofillImportance;
-import android.view.ViewStructure.HtmlInfo;
 import android.view.autofill.AutofillId;
 import android.view.autofill.AutofillValue;
-
-import com.android.internal.util.Preconditions;
 
 import java.util.List;
 
@@ -208,16 +204,6 @@ public abstract class ViewStructure {
     public abstract void setTextLines(int[] charOffsets, int[] baselines);
 
     /**
-     * Sets the identifier used to set the text associated with this view.
-     *
-     * <p>Should only be set when the node is used for autofill purposes - it will be ignored
-     * when used for Assist.
-     */
-    public void setTextIdEntry(@NonNull String entryName) {
-        Preconditions.checkNotNull(entryName);
-    }
-
-    /**
      * Set optional hint text associated with this view; this is for example the text that is
      * shown by an EditText when it is empty to indicate to the user the kind of text to input.
      */
@@ -349,12 +335,6 @@ public abstract class ViewStructure {
     public abstract void setAutofillOptions(CharSequence[] options);
 
     /**
-     * Sets the {@link View#setImportantForAutofill(int) importantForAutofill mode} of the
-     * view associated with this node.
-     */
-    public void setImportantForAutofill(@AutofillImportance int mode) {}
-
-    /**
      * Sets the {@link android.text.InputType} bits of this node.
      *
      * @param inputType inputType bits as defined by {@link android.text.InputType}.
@@ -385,30 +365,6 @@ public abstract class ViewStructure {
     public abstract void setDataIsSensitive(boolean sensitive);
 
     /**
-     * Sets the minimum width in ems of the text associated with this view, when supported.
-     *
-     * <p>Should only be set when the node is used for autofill purposes - it will be ignored
-     * when used for Assist.
-     */
-    public void setMinTextEms(@SuppressWarnings("unused") int minEms) {}
-
-    /**
-     * Sets the maximum width in ems of the text associated with this view, when supported.
-     *
-     * <p>Should only be set when the node is used for autofill purposes - it will be ignored
-     * when used for Assist.
-     */
-    public void setMaxTextEms(@SuppressWarnings("unused") int maxEms) {}
-
-    /**
-     * Sets the maximum length of the text associated with this view, when supported.
-     *
-     * <p>Should only be set when the node is used for autofill purposes - it will be ignored
-     * when used for Assist.
-     */
-    public void setMaxTextLength(@SuppressWarnings("unused") int maxLength) {}
-
-    /**
      * Call when done populating a {@link ViewStructure} returned by
      * {@link #asyncNewChild}.
      */
@@ -422,7 +378,7 @@ public abstract class ViewStructure {
      *
      * <p>Typically used when the view is a container for an HTML document.
      *
-     * @param domain RFC 2396-compliant URI representing the domain.
+     * @param domain URL representing the domain; only the host part will be used.
      */
     public abstract void setWebDomain(@Nullable String domain);
 

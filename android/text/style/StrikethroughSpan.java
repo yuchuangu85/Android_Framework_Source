@@ -16,65 +16,42 @@
 
 package android.text.style;
 
-import android.annotation.NonNull;
 import android.os.Parcel;
 import android.text.ParcelableSpan;
 import android.text.TextPaint;
 import android.text.TextUtils;
 
-/**
- * A span that strikes through the text it's attached to.
- * <p>
- * The span can be used like this:
- * <pre>{@code
- * SpannableString string = new SpannableString("Text with strikethrough span");
- *string.setSpan(new StrikethroughSpan(), 10, 23, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);}</pre>
- * <img src="{@docRoot}reference/android/images/text/style/strikethroughspan.png" />
- * <figcaption>Strikethrough text.</figcaption>
- */
 public class StrikethroughSpan extends CharacterStyle
         implements UpdateAppearance, ParcelableSpan {
-
-    /**
-     * Creates a {@link StrikethroughSpan}.
-     */
     public StrikethroughSpan() {
     }
-
-    /**
-     * Creates a {@link StrikethroughSpan} from a parcel.
-     */
-    public StrikethroughSpan(@NonNull Parcel src) {
+    
+    public StrikethroughSpan(Parcel src) {
     }
-
-    @Override
+    
     public int getSpanTypeId() {
         return getSpanTypeIdInternal();
     }
 
     /** @hide */
-    @Override
     public int getSpanTypeIdInternal() {
         return TextUtils.STRIKETHROUGH_SPAN;
     }
-
-    @Override
+    
     public int describeContents() {
         return 0;
     }
 
-    @Override
-    public void writeToParcel(@NonNull Parcel dest, int flags) {
+    public void writeToParcel(Parcel dest, int flags) {
         writeToParcelInternal(dest, flags);
     }
 
     /** @hide */
-    @Override
-    public void writeToParcelInternal(@NonNull Parcel dest, int flags) {
+    public void writeToParcelInternal(Parcel dest, int flags) {
     }
 
     @Override
-    public void updateDrawState(@NonNull TextPaint ds) {
+    public void updateDrawState(TextPaint ds) {
         ds.setStrikeThruText(true);
     }
 }

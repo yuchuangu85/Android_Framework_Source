@@ -1329,6 +1329,7 @@ public final class TvInputManager {
      * Returns the list of blocked content ratings.
      *
      * @return the list of content ratings blocked by the user.
+     * @hide
      */
     @SystemApi
     public List<TvContentRating> getBlockedRatings() {
@@ -1386,7 +1387,6 @@ public final class TvInputManager {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.READ_CONTENT_RATING_SYSTEMS)
     public List<TvContentRatingSystemInfo> getTvContentRatingSystemList() {
         try {
             return mService.getTvContentRatingSystemList(mUserId);
@@ -1551,7 +1551,6 @@ public final class TvInputManager {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.CAPTURE_TV_INPUT)
     public boolean isSingleSessionActive() {
         try {
             return mService.isSingleSessionActive(mUserId);
@@ -1586,10 +1585,8 @@ public final class TvInputManager {
      * @param info The TV input which will use the acquired Hardware.
      * @return Hardware on success, {@code null} otherwise.
      *
-     * @hide
      * @removed
      */
-    @SystemApi
     @RequiresPermission(android.Manifest.permission.TV_INPUT_HARDWARE)
     public Hardware acquireTvInputHardware(int deviceId, final HardwareCallback callback,
             TvInputInfo info) {
@@ -2593,10 +2590,12 @@ public final class TvInputManager {
             }
         }
 
-        /** @removed */
-        @SystemApi
         public boolean dispatchKeyEventToHdmi(KeyEvent event) {
-            return false;
+            try {
+                return mInterface.dispatchKeyEventToHdmi(event);
+            } catch (RemoteException e) {
+                throw new RuntimeException(e);
+            }
         }
 
         public void overrideAudioSink(int audioType, String audioAddress, int samplingRate,

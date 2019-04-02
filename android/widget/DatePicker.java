@@ -107,10 +107,7 @@ public class DatePicker extends FrameLayout {
     public static final int MODE_CALENDAR = 2;
 
     /** @hide */
-    @IntDef(prefix = { "MODE_" }, value = {
-            MODE_SPINNER,
-            MODE_CALENDAR
-    })
+    @IntDef({MODE_SPINNER, MODE_CALENDAR})
     @Retention(RetentionPolicy.SOURCE)
     public @interface DatePickerMode {}
 

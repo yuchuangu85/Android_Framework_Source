@@ -160,7 +160,7 @@ public class FileRotator {
                     final File file = new File(mBasePath, name);
                     final FileInputStream is = new FileInputStream(file);
                     try {
-                        FileUtils.copy(is, zos);
+                        Streams.copy(is, zos);
                     } finally {
                         IoUtils.closeQuietly(is);
                     }

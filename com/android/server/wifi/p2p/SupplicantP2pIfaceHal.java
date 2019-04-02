@@ -16,7 +16,6 @@
 
 package com.android.server.wifi.p2p;
 
-import android.annotation.NonNull;
 import android.hardware.wifi.supplicant.V1_0.ISupplicant;
 import android.hardware.wifi.supplicant.V1_0.ISupplicantIface;
 import android.hardware.wifi.supplicant.V1_0.ISupplicantNetwork;
@@ -49,7 +48,6 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -87,8 +85,8 @@ public class SupplicantP2pIfaceHal {
                     Log.i(TAG, "IServiceNotification.onRegistration for: " + fqName
                             + ", " + name + " preexisting=" + preexisting);
                 }
-                if (!initSupplicantService()) {
-                    Log.e(TAG, "initalizing ISupplicant failed.");
+                if (!initSupplicantService() || !initSupplicantP2pIface()) {
+                    Log.e(TAG, "initalizing ISupplicantIfaces failed.");
                     supplicantServiceDiedHandler();
                 } else {
                     Log.i(TAG, "Completed initialization of ISupplicant interfaces.");
@@ -231,165 +229,70 @@ public class SupplicantP2pIfaceHal {
         return true;
     }
 
-    /**
-     * Setup the P2p iface.
-     *
-     * @param ifaceName Name of the interface.
-     * @return true on success, false otherwise.
-     */
-    public boolean setupIface(@NonNull String ifaceName) {
+    private boolean initSupplicantP2pIface() {
         synchronized (mLock) {
-            if (mISupplicantP2pIface != null) return false;
-            ISupplicantIface ifaceHwBinder;
-            if (isV1_1()) {
-                ifaceHwBinder = addIfaceV1_1(ifaceName);
-            } else {
-                ifaceHwBinder = getIfaceV1_0(ifaceName);
-            }
-            if (ifaceHwBinder == null) {
-                Log.e(TAG, "initSupplicantP2pIface got null iface");
+            /** List all supplicant Ifaces */
+            final ArrayList<ISupplicant.IfaceInfo> supplicantIfaces = new ArrayList();
+            try {
+                mISupplicant.listInterfaces((SupplicantStatus status,
+                        ArrayList<ISupplicant.IfaceInfo> ifaces) -> {
+                    if (status.code != SupplicantStatusCode.SUCCESS) {
+                        Log.e(TAG, "Getting Supplicant Interfaces failed: " + status.code);
+                        return;
+                    }
+                    supplicantIfaces.addAll(ifaces);
+                });
+            } catch (RemoteException e) {
+                Log.e(TAG, "ISupplicant.listInterfaces exception: " + e);
                 return false;
             }
-            mISupplicantP2pIface = getP2pIfaceMockable(ifaceHwBinder);
-            if (!linkToSupplicantP2pIfaceDeath()) {
+            if (supplicantIfaces.size() == 0) {
+                Log.e(TAG, "Got zero HIDL supplicant ifaces. Stopping supplicant HIDL startup.");
                 return false;
             }
-            if (mISupplicantP2pIface != null && mMonitor != null) {
-                mCallback = new SupplicantP2pIfaceCallback(ifaceName, mMonitor);
-                if (!registerCallback(mCallback)) {
-                    Log.e(TAG, "Callback registration failed. Initialization incomplete.");
-                    return false;
-                }
-            }
-            return true;
-        }
-    }
-
-    private ISupplicantIface getIfaceV1_0(@NonNull String ifaceName) {
-        /** List all supplicant Ifaces */
-        final ArrayList<ISupplicant.IfaceInfo> supplicantIfaces = new ArrayList();
-        try {
-            mISupplicant.listInterfaces((SupplicantStatus status,
-                                         ArrayList<ISupplicant.IfaceInfo> ifaces) -> {
-                if (status.code != SupplicantStatusCode.SUCCESS) {
-                    Log.e(TAG, "Getting Supplicant Interfaces failed: " + status.code);
-                    return;
-                }
-                supplicantIfaces.addAll(ifaces);
-            });
-        } catch (RemoteException e) {
-            Log.e(TAG, "ISupplicant.listInterfaces exception: " + e);
-            return null;
-        }
-        if (supplicantIfaces.size() == 0) {
-            Log.e(TAG, "Got zero HIDL supplicant ifaces. Stopping supplicant HIDL startup.");
-            supplicantServiceDiedHandler();
-            return null;
-        }
-        SupplicantResult<ISupplicantIface> supplicantIface =
-                new SupplicantResult("getInterface()");
-        for (ISupplicant.IfaceInfo ifaceInfo : supplicantIfaces) {
-            if (ifaceInfo.type == IfaceType.P2P && ifaceName.equals(ifaceInfo.name)) {
-                try {
-                    mISupplicant.getInterface(ifaceInfo,
-                            (SupplicantStatus status, ISupplicantIface iface) -> {
+            SupplicantResult<ISupplicantIface> supplicantIface =
+                    new SupplicantResult("getInterface()");
+            for (ISupplicant.IfaceInfo ifaceInfo : supplicantIfaces) {
+                if (ifaceInfo.type == IfaceType.P2P) {
+                    try {
+                        mISupplicant.getInterface(ifaceInfo,
+                                (SupplicantStatus status, ISupplicantIface iface) -> {
                                 if (status.code != SupplicantStatusCode.SUCCESS) {
                                     Log.e(TAG, "Failed to get ISupplicantIface " + status.code);
                                     return;
                                 }
                                 supplicantIface.setResult(status, iface);
                             });
-                } catch (RemoteException e) {
-                    Log.e(TAG, "ISupplicant.getInterface exception: " + e);
-                    supplicantServiceDiedHandler();
-                    return null;
+                    } catch (RemoteException e) {
+                        Log.e(TAG, "ISupplicant.getInterface exception: " + e);
+                        return false;
+                    }
+                    break;
                 }
-                break;
             }
-        }
-        return supplicantIface.getResult();
-    }
 
-    private ISupplicantIface addIfaceV1_1(@NonNull String ifaceName) {
-        synchronized (mLock) {
-            ISupplicant.IfaceInfo ifaceInfo = new ISupplicant.IfaceInfo();
-            ifaceInfo.name = ifaceName;
-            ifaceInfo.type = IfaceType.P2P;
-            SupplicantResult<ISupplicantIface> supplicantIface =
-                    new SupplicantResult("addInterface(" + ifaceInfo + ")");
-            try {
-                android.hardware.wifi.supplicant.V1_1.ISupplicant supplicant_v1_1 =
-                        getSupplicantMockableV1_1();
-                if (supplicant_v1_1 == null) {
-                    Log.e(TAG, "Can't call addIface: ISupplicantP2pIface is null");
-                    return null;
-                }
-                supplicant_v1_1.addInterface(ifaceInfo,
-                        (SupplicantStatus status, ISupplicantIface iface) -> {
-                            if (status.code != SupplicantStatusCode.SUCCESS
-                                    && status.code != SupplicantStatusCode.FAILURE_IFACE_EXISTS) {
-                                Log.e(TAG, "Failed to get ISupplicantIface " + status.code);
-                                return;
-                            }
-                            supplicantIface.setResult(status, iface);
-                        });
-            } catch (RemoteException e) {
-                Log.e(TAG, "ISupplicant.addInterface exception: " + e);
-                supplicantServiceDiedHandler();
-                return null;
-            }
-            return supplicantIface.getResult();
-        }
-    }
-
-    /**
-     * Teardown the P2P interface.
-     *
-     * @param ifaceName Name of the interface.
-     * @return true on success, false otherwise.
-     */
-    public boolean teardownIface(@NonNull String ifaceName) {
-        synchronized (mLock) {
-            if (mISupplicantP2pIface == null) return false;
-            // Only supported for V1.1
-            if (isV1_1()) {
-                return removeIfaceV1_1(ifaceName);
-            }
-            return true;
-        }
-    }
-
-    /**
-     * Remove the P2p iface.
-     *
-     * @return true on success, false otherwise.
-     */
-    private boolean removeIfaceV1_1(@NonNull String ifaceName) {
-        synchronized (mLock) {
-            try {
-                android.hardware.wifi.supplicant.V1_1.ISupplicant supplicant_v1_1 =
-                        getSupplicantMockableV1_1();
-                if (supplicant_v1_1 == null) {
-                    Log.e(TAG, "Can't call removeIface: ISupplicantP2pIface is null");
-                    return false;
-                }
-                ISupplicant.IfaceInfo ifaceInfo = new ISupplicant.IfaceInfo();
-                ifaceInfo.name = ifaceName;
-                ifaceInfo.type = IfaceType.P2P;
-                SupplicantStatus status = supplicant_v1_1.removeInterface(ifaceInfo);
-                if (status.code != SupplicantStatusCode.SUCCESS) {
-                    Log.e(TAG, "Failed to remove iface " + status.code);
-                    return false;
-                }
-                mCallback = null;
-            } catch (RemoteException e) {
-                Log.e(TAG, "ISupplicant.removeInterface exception: " + e);
-                supplicantServiceDiedHandler();
+            if (supplicantIface.getResult() == null) {
+                Log.e(TAG, "initSupplicantP2pIface got null iface");
                 return false;
             }
-            mISupplicantP2pIface = null;
-            return true;
+            mISupplicantP2pIface = getP2pIfaceMockable(supplicantIface.getResult());
+            if (!linkToSupplicantP2pIfaceDeath()) {
+                return false;
+            }
         }
+
+        if (mISupplicantP2pIface != null && mMonitor != null) {
+            // TODO(ender): Get rid of hard-coded interface name, which is
+            // assumed to be the group interface name in several other classes
+            // ("p2p0" should probably become getName()).
+            mCallback = new SupplicantP2pIfaceCallback("p2p0", mMonitor);
+            if (!registerCallback(mCallback)) {
+                Log.e(TAG, "Callback registration failed. Initialization incomplete.");
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void supplicantServiceDiedHandler() {
@@ -404,9 +307,7 @@ public class SupplicantP2pIfaceHal {
      * Signals whether Initialization completed successfully.
      */
     public boolean isInitializationStarted() {
-        synchronized (mLock) {
-            return mIServiceManager != null;
-        }
+        return mIServiceManager != null;
     }
 
     /**
@@ -414,7 +315,7 @@ public class SupplicantP2pIfaceHal {
      * needed to guard calls etc.
      */
     public boolean isInitializationComplete() {
-        return mISupplicant != null;
+        return mISupplicantP2pIface != null;
     }
 
     /**
@@ -425,25 +326,7 @@ public class SupplicantP2pIfaceHal {
     }
 
     protected ISupplicant getSupplicantMockable() throws RemoteException {
-        try {
-            return ISupplicant.getService();
-        } catch (NoSuchElementException e) {
-            Log.e(TAG, "Failed to get ISupplicant", e);
-            return null;
-        }
-    }
-
-    protected android.hardware.wifi.supplicant.V1_1.ISupplicant getSupplicantMockableV1_1()
-            throws RemoteException {
-        synchronized (mLock) {
-            try {
-                return android.hardware.wifi.supplicant.V1_1.ISupplicant.castFrom(
-                        ISupplicant.getService());
-            } catch (NoSuchElementException e) {
-                Log.e(TAG, "Failed to get ISupplicant", e);
-                return null;
-            }
-        }
+        return ISupplicant.getService();
     }
 
     protected ISupplicantP2pIface getP2pIfaceMockable(ISupplicantIface iface) {
@@ -452,22 +335,6 @@ public class SupplicantP2pIfaceHal {
 
     protected ISupplicantP2pNetwork getP2pNetworkMockable(ISupplicantNetwork network) {
         return ISupplicantP2pNetwork.asInterface(network.asBinder());
-    }
-
-    /**
-     * Check if the device is running V1_1 supplicant service.
-     * @return
-     */
-    private boolean isV1_1() {
-        synchronized (mLock) {
-            try {
-                return (getSupplicantMockableV1_1() != null);
-            } catch (RemoteException e) {
-                Log.e(TAG, "ISupplicant.getService exception: " + e);
-                supplicantServiceDiedHandler();
-                return false;
-            }
-        }
     }
 
     protected static void logd(String s) {
@@ -2360,9 +2227,7 @@ public class SupplicantP2pIfaceHal {
         }
 
         public boolean isSuccess() {
-            return (mStatus != null
-                    && (mStatus.code == SupplicantStatusCode.SUCCESS
-                    || mStatus.code == SupplicantStatusCode.FAILURE_IFACE_EXISTS));
+            return (mStatus != null && mStatus.code == SupplicantStatusCode.SUCCESS);
         }
 
         public E getResult() {

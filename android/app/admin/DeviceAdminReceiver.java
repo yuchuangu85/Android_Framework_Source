@@ -19,8 +19,6 @@ package android.app.admin;
 import android.accounts.AccountManager;
 import android.annotation.BroadcastBehavior;
 import android.annotation.IntDef;
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
@@ -31,7 +29,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.PersistableBundle;
 import android.os.Process;
 import android.os.UserHandle;
 import android.security.KeyChain;
@@ -338,42 +335,12 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
     /**
      * Broadcast action: notify the device owner that a user or profile has been removed.
      * Carries an extra {@link Intent#EXTRA_USER} that has the {@link UserHandle} of
-     * the user.
+     * the new user.
      * @hide
      */
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     @BroadcastBehavior(explicitOnly = true)
     public static final String ACTION_USER_REMOVED = "android.app.action.USER_REMOVED";
-
-    /**
-     * Broadcast action: notify the device owner that a user or profile has been started.
-     * Carries an extra {@link Intent#EXTRA_USER} that has the {@link UserHandle} of
-     * the user.
-     * @hide
-     */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @BroadcastBehavior(explicitOnly = true)
-    public static final String ACTION_USER_STARTED = "android.app.action.USER_STARTED";
-
-    /**
-     * Broadcast action: notify the device owner that a user or profile has been stopped.
-     * Carries an extra {@link Intent#EXTRA_USER} that has the {@link UserHandle} of
-     * the user.
-     * @hide
-     */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @BroadcastBehavior(explicitOnly = true)
-    public static final String ACTION_USER_STOPPED = "android.app.action.USER_STOPPED";
-
-    /**
-     * Broadcast action: notify the device owner that a user or profile has been switched to.
-     * Carries an extra {@link Intent#EXTRA_USER} that has the {@link UserHandle} of
-     * the user.
-     * @hide
-     */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @BroadcastBehavior(explicitOnly = true)
-    public static final String ACTION_USER_SWITCHED = "android.app.action.USER_SWITCHED";
 
     /**
      * A string containing the SHA-256 hash of the bugreport file.
@@ -401,9 +368,9 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
      * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "BUGREPORT_FAILURE_" }, value = {
-            BUGREPORT_FAILURE_FAILED_COMPLETING,
-            BUGREPORT_FAILURE_FILE_NO_LONGER_AVAILABLE
+    @IntDef({
+        BUGREPORT_FAILURE_FAILED_COMPLETING,
+        BUGREPORT_FAILURE_FILE_NO_LONGER_AVAILABLE
     })
     public @interface BugreportFailureCode {}
 
@@ -470,40 +437,6 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
      */
     //  TO DO: describe syntax.
     public static final String DEVICE_ADMIN_META_DATA = "android.app.device_admin";
-
-    /**
-     * Broadcast action: notify the newly transferred administrator that the transfer
-     * from the original administrator was successful.
-     *
-     * @hide
-     */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    public static final String ACTION_TRANSFER_OWNERSHIP_COMPLETE =
-            "android.app.action.TRANSFER_OWNERSHIP_COMPLETE";
-
-    /**
-     * Broadcast action: notify the device owner that the ownership of one of its affiliated
-     * profiles is transferred.
-     *
-     * @hide
-     */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    public static final String ACTION_AFFILIATED_PROFILE_TRANSFER_OWNERSHIP_COMPLETE =
-            "android.app.action.AFFILIATED_PROFILE_TRANSFER_OWNERSHIP_COMPLETE";
-
-    /**
-     * A {@link android.os.Parcelable} extra of type {@link android.os.PersistableBundle} that
-     * allows a mobile device management application to pass data to the management application
-     * instance after owner transfer.
-     *
-     * <p>If the transfer is successful, the new owner receives the data in
-     * {@link DeviceAdminReceiver#onTransferOwnershipComplete(Context, PersistableBundle)}.
-     * The bundle is not changed during the ownership transfer.
-     *
-     * @see DevicePolicyManager#transferOwnership(ComponentName, ComponentName, PersistableBundle)
-     */
-    public static final String EXTRA_TRANSFER_OWNERSHIP_ADMIN_EXTRAS_BUNDLE =
-            "android.app.extra.TRANSFER_OWNERSHIP_ADMIN_EXTRAS_BUNDLE";
 
     private DevicePolicyManager mManager;
     private ComponentName mWho;
@@ -902,99 +835,29 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
             int networkLogsCount) {
     }
 
-    /**
-     * Called when a user or profile is created.
-     *
-     * <p>This callback is only applicable to device owners.
-     *
-     * @param context The running context as per {@link #onReceive}.
-     * @param intent The received intent as per {@link #onReceive}.
-     * @param newUser The {@link UserHandle} of the user that has just been added.
-     */
-    public void onUserAdded(Context context, Intent intent, @NonNull UserHandle newUser) {
-    }
+     /**
+      * Called when a user or profile is created.
+      *
+      * <p>This callback is only applicable to device owners.
+      *
+      * @param context The running context as per {@link #onReceive}.
+      * @param intent The received intent as per {@link #onReceive}.
+      * @param newUser The {@link UserHandle} of the user that has just been added.
+      */
+     public void onUserAdded(Context context, Intent intent, UserHandle newUser) {
+     }
 
-    /**
-     * Called when a user or profile is removed.
-     *
-     * <p>This callback is only applicable to device owners.
-     *
-     * @param context The running context as per {@link #onReceive}.
-     * @param intent The received intent as per {@link #onReceive}.
-     * @param removedUser The {@link UserHandle} of the user that has just been removed.
-     */
-    public void onUserRemoved(Context context, Intent intent, @NonNull UserHandle removedUser) {
-    }
-
-    /**
-     * Called when a user or profile is started.
-     *
-     * <p>This callback is only applicable to device owners.
-     *
-     * @param context The running context as per {@link #onReceive}.
-     * @param intent The received intent as per {@link #onReceive}.
-     * @param startedUser The {@link UserHandle} of the user that has just been started.
-     */
-    public void onUserStarted(Context context, Intent intent, @NonNull UserHandle startedUser) {
-    }
-
-    /**
-     * Called when a user or profile is stopped.
-     *
-     * <p>This callback is only applicable to device owners.
-     *
-     * @param context The running context as per {@link #onReceive}.
-     * @param intent The received intent as per {@link #onReceive}.
-     * @param stoppedUser The {@link UserHandle} of the user that has just been stopped.
-     */
-    public void onUserStopped(Context context, Intent intent, @NonNull UserHandle stoppedUser) {
-    }
-
-    /**
-     * Called when a user or profile is switched to.
-     *
-     * <p>This callback is only applicable to device owners.
-     *
-     * @param context The running context as per {@link #onReceive}.
-     * @param intent The received intent as per {@link #onReceive}.
-     * @param switchedUser The {@link UserHandle} of the user that has just been switched to.
-     */
-    public void onUserSwitched(Context context, Intent intent, @NonNull UserHandle switchedUser) {
-    }
-
-    /**
-     * Called on the newly assigned owner (either device owner or profile owner) when the ownership
-     * transfer has completed successfully.
-     *
-     * <p> The {@code bundle} parameter allows the original owner to pass data
-     * to the new one.
-     *
-     * @param context the running context as per {@link #onReceive}
-     * @param bundle the data to be passed to the new owner
-     */
-    public void onTransferOwnershipComplete(@NonNull Context context,
-            @Nullable PersistableBundle bundle) {
-    }
-
-    /**
-     * Called on the device owner when the ownership of one of its affiliated profiles is
-     * transferred.
-     *
-     * <p>This can be used when transferring both device and profile ownership when using
-     * work profile on a fully managed device. The process would look like this:
-     * <ol>
-     * <li>Transfer profile ownership</li>
-     * <li>The device owner gets notified with this callback</li>
-     * <li>Transfer device ownership</li>
-     * <li>Both profile and device ownerships have been transferred</li>
-     * </ol>
-     *
-     * @param context the running context as per {@link #onReceive}
-     * @param user the {@link UserHandle} of the affiliated user
-     * @see DevicePolicyManager#transferOwnership(ComponentName, ComponentName, PersistableBundle)
-     */
-    public void onTransferAffiliatedProfileOwnershipComplete(Context context, UserHandle user) {
-    }
+     /**
+      * Called when a user or profile is removed.
+      *
+      * <p>This callback is only applicable to device owners.
+      *
+      * @param context The running context as per {@link #onReceive}.
+      * @param intent The received intent as per {@link #onReceive}.
+      * @param removedUser The {@link UserHandle} of the user that has just been removed.
+      */
+     public void onUserRemoved(Context context, Intent intent, UserHandle removedUser) {
+     }
 
     /**
      * Intercept standard device administrator broadcasts.  Implementations
@@ -1058,19 +921,6 @@ public class DeviceAdminReceiver extends BroadcastReceiver {
             onUserAdded(context, intent, intent.getParcelableExtra(Intent.EXTRA_USER));
         } else if (ACTION_USER_REMOVED.equals(action)) {
             onUserRemoved(context, intent, intent.getParcelableExtra(Intent.EXTRA_USER));
-        } else if (ACTION_USER_STARTED.equals(action)) {
-            onUserStarted(context, intent, intent.getParcelableExtra(Intent.EXTRA_USER));
-        } else if (ACTION_USER_STOPPED.equals(action)) {
-            onUserStopped(context, intent, intent.getParcelableExtra(Intent.EXTRA_USER));
-        } else if (ACTION_USER_SWITCHED.equals(action)) {
-            onUserSwitched(context, intent, intent.getParcelableExtra(Intent.EXTRA_USER));
-        } else if (ACTION_TRANSFER_OWNERSHIP_COMPLETE.equals(action)) {
-            PersistableBundle bundle =
-                    intent.getParcelableExtra(EXTRA_TRANSFER_OWNERSHIP_ADMIN_EXTRAS_BUNDLE);
-            onTransferOwnershipComplete(context, bundle);
-        } else if (ACTION_AFFILIATED_PROFILE_TRANSFER_OWNERSHIP_COMPLETE.equals(action)) {
-            onTransferAffiliatedProfileOwnershipComplete(context,
-                    intent.getParcelableExtra(Intent.EXTRA_USER));
         }
     }
 }

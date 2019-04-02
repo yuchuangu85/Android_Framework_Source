@@ -24,7 +24,6 @@ import android.util.Property;
 import android.view.View;
 import android.view.animation.Interpolator;
 
-import com.android.keyguard.KeyguardStatusView;
 import com.android.systemui.Interpolators;
 import com.android.systemui.statusbar.stack.AnimationFilter;
 import com.android.systemui.statusbar.stack.AnimationProperties;
@@ -34,19 +33,6 @@ import com.android.systemui.statusbar.stack.ViewState;
  * An animator to animate properties
  */
 public class PropertyAnimator {
-
-    public static <T extends View> void setProperty(final T view,
-            AnimatableProperty animatableProperty, float newEndValue,
-            AnimationProperties properties, boolean animated) {
-        int animatorTag = animatableProperty.getAnimatorTag();
-        ValueAnimator previousAnimator = ViewState.getChildTag(view, animatorTag);
-        if (previousAnimator != null || animated) {
-            startAnimation(view, animatableProperty, newEndValue, properties);
-        } else {
-            // no new animation needed, let's just apply the value
-            animatableProperty.getProperty().set(view, newEndValue);
-        }
-    }
 
     public static <T extends View> void startAnimation(final T view,
             AnimatableProperty animatableProperty, float newEndValue,
@@ -116,7 +102,10 @@ public class PropertyAnimator {
         view.setTag(animationEndTag, newEndValue);
     }
 
-    public static <T extends View> boolean isAnimating(T view, AnimatableProperty property) {
-        return  view.getTag(property.getAnimatorTag()) != null;
+    public interface AnimatableProperty {
+        int getAnimationStartTag();
+        int getAnimationEndTag();
+        int getAnimatorTag();
+        Property getProperty();
     }
 }

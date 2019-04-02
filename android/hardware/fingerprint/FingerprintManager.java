@@ -16,26 +16,13 @@
 
 package android.hardware.fingerprint;
 
-import static android.Manifest.permission.INTERACT_ACROSS_USERS;
-import static android.Manifest.permission.MANAGE_FINGERPRINT;
-import static android.Manifest.permission.USE_BIOMETRIC;
-import static android.Manifest.permission.USE_FINGERPRINT;
-
-import android.annotation.CallbackExecutor;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.RequiresFeature;
 import android.annotation.RequiresPermission;
 import android.annotation.SystemService;
 import android.app.ActivityManager;
 import android.content.Context;
-import android.content.pm.PackageManager;
-import android.hardware.biometrics.BiometricAuthenticator;
-import android.hardware.biometrics.BiometricFingerprintConstants;
-import android.hardware.biometrics.BiometricPrompt;
-import android.hardware.biometrics.IBiometricPromptReceiver;
 import android.os.Binder;
-import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.CancellationSignal.OnCancelListener;
 import android.os.Handler;
@@ -45,26 +32,25 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.UserHandle;
+import android.security.keystore.AndroidKeyStoreProvider;
+import android.util.Log;
 import android.util.Slog;
 
 import java.security.Signature;
 import java.util.List;
-import java.util.concurrent.Executor;
 
 import javax.crypto.Cipher;
 import javax.crypto.Mac;
 
+import static android.Manifest.permission.INTERACT_ACROSS_USERS;
+import static android.Manifest.permission.MANAGE_FINGERPRINT;
+import static android.Manifest.permission.USE_FINGERPRINT;
+
 /**
  * A class that coordinates access to the fingerprint hardware.
- * @deprecated See {@link BiometricPrompt} which shows a system-provided dialog upon starting
- * authentication. In a world where devices may have different types of biometric authentication,
- * it's much more realistic to have a system-provided authentication dialog since the method may
- * vary by vendor/device.
  */
-@Deprecated
 @SystemService(Context.FINGERPRINT_SERVICE)
-@RequiresFeature(PackageManager.FEATURE_FINGERPRINT)
-public class FingerprintManager implements BiometricFingerprintConstants {
+public class FingerprintManager {
     private static final String TAG = "FingerprintManager";
     private static final boolean DEBUG = true;
     private static final int MSG_ENROLL_RESULT = 100;
@@ -75,17 +61,149 @@ public class FingerprintManager implements BiometricFingerprintConstants {
     private static final int MSG_REMOVED = 105;
     private static final int MSG_ENUMERATED = 106;
 
+    //
+    // Error messages from fingerprint hardware during initilization, enrollment, authentication or
+    // removal. Must agree with the list in fingerprint.h
+    //
+
+    /**
+     * The hardware is unavailable. Try again later.
+     */
+    public static final int FINGERPRINT_ERROR_HW_UNAVAILABLE = 1;
+
+    /**
+     * Error state returned when the sensor was unable to process the current image.
+     */
+    public static final int FINGERPRINT_ERROR_UNABLE_TO_PROCESS = 2;
+
+    /**
+     * Error state returned when the current request has been running too long. This is intended to
+     * prevent programs from waiting for the fingerprint sensor indefinitely. The timeout is
+     * platform and sensor-specific, but is generally on the order of 30 seconds.
+     */
+    public static final int FINGERPRINT_ERROR_TIMEOUT = 3;
+
+    /**
+     * Error state returned for operations like enrollment; the operation cannot be completed
+     * because there's not enough storage remaining to complete the operation.
+     */
+    public static final int FINGERPRINT_ERROR_NO_SPACE = 4;
+
+    /**
+     * The operation was canceled because the fingerprint sensor is unavailable. For example,
+     * this may happen when the user is switched, the device is locked or another pending operation
+     * prevents or disables it.
+     */
+    public static final int FINGERPRINT_ERROR_CANCELED = 5;
+
+    /**
+     * The {@link FingerprintManager#remove} call failed. Typically this will happen when the
+     * provided fingerprint id was incorrect.
+     *
+     * @hide
+     */
+    public static final int FINGERPRINT_ERROR_UNABLE_TO_REMOVE = 6;
+
+   /**
+     * The operation was canceled because the API is locked out due to too many attempts.
+     * This occurs after 5 failed attempts, and lasts for 30 seconds.
+     */
+    public static final int FINGERPRINT_ERROR_LOCKOUT = 7;
+
+    /**
+     * Hardware vendors may extend this list if there are conditions that do not fall under one of
+     * the above categories. Vendors are responsible for providing error strings for these errors.
+     * These messages are typically reserved for internal operations such as enrollment, but may be
+     * used to express vendor errors not covered by the ones in fingerprint.h. Applications are
+     * expected to show the error message string if they happen, but are advised not to rely on the
+     * message id since they will be device and vendor-specific
+     */
+    public static final int FINGERPRINT_ERROR_VENDOR = 8;
+
+    /**
+     * The operation was canceled because FINGERPRINT_ERROR_LOCKOUT occurred too many times.
+     * Fingerprint authentication is disabled until the user unlocks with strong authentication
+     * (PIN/Pattern/Password)
+     */
+    public static final int FINGERPRINT_ERROR_LOCKOUT_PERMANENT = 9;
+
+    /**
+     * The user canceled the operation. Upon receiving this, applications should use alternate
+     * authentication (e.g. a password). The application should also provide the means to return
+     * to fingerprint authentication, such as a "use fingerprint" button.
+     */
+    public static final int FINGERPRINT_ERROR_USER_CANCELED = 10;
+
+    /**
+     * @hide
+     */
+    public static final int FINGERPRINT_ERROR_VENDOR_BASE = 1000;
+
+    //
+    // Image acquisition messages. Must agree with those in fingerprint.h
+    //
+
+    /**
+     * The image acquired was good.
+     */
+    public static final int FINGERPRINT_ACQUIRED_GOOD = 0;
+
+    /**
+     * Only a partial fingerprint image was detected. During enrollment, the user should be
+     * informed on what needs to happen to resolve this problem, e.g. "press firmly on sensor."
+     */
+    public static final int FINGERPRINT_ACQUIRED_PARTIAL = 1;
+
+    /**
+     * The fingerprint image was too noisy to process due to a detected condition (i.e. dry skin) or
+     * a possibly dirty sensor (See {@link #FINGERPRINT_ACQUIRED_IMAGER_DIRTY}).
+     */
+    public static final int FINGERPRINT_ACQUIRED_INSUFFICIENT = 2;
+
+    /**
+     * The fingerprint image was too noisy due to suspected or detected dirt on the sensor.
+     * For example, it's reasonable return this after multiple
+     * {@link #FINGERPRINT_ACQUIRED_INSUFFICIENT} or actual detection of dirt on the sensor
+     * (stuck pixels, swaths, etc.). The user is expected to take action to clean the sensor
+     * when this is returned.
+     */
+    public static final int FINGERPRINT_ACQUIRED_IMAGER_DIRTY = 3;
+
+    /**
+     * The fingerprint image was unreadable due to lack of motion. This is most appropriate for
+     * linear array sensors that require a swipe motion.
+     */
+    public static final int FINGERPRINT_ACQUIRED_TOO_SLOW = 4;
+
+    /**
+     * The fingerprint image was incomplete due to quick motion. While mostly appropriate for
+     * linear array sensors,  this could also happen if the finger was moved during acquisition.
+     * The user should be asked to move the finger slower (linear) or leave the finger on the sensor
+     * longer.
+     */
+    public static final int FINGERPRINT_ACQUIRED_TOO_FAST = 5;
+
+    /**
+     * Hardware vendors may extend this list if there are conditions that do not fall under one of
+     * the above categories. Vendors are responsible for providing error strings for these errors.
+     * @hide
+     */
+    public static final int FINGERPRINT_ACQUIRED_VENDOR = 6;
+    /**
+     * @hide
+     */
+    public static final int FINGERPRINT_ACQUIRED_VENDOR_BASE = 1000;
+
     private IFingerprintService mService;
     private Context mContext;
     private IBinder mToken = new Binder();
-    private BiometricAuthenticator.AuthenticationCallback mAuthenticationCallback;
+    private AuthenticationCallback mAuthenticationCallback;
     private EnrollmentCallback mEnrollmentCallback;
     private RemovalCallback mRemovalCallback;
     private EnumerateCallback mEnumerateCallback;
-    private android.hardware.biometrics.CryptoObject mCryptoObject;
+    private CryptoObject mCryptoObject;
     private Fingerprint mRemovalFingerprint;
     private Handler mHandler;
-    private Executor mExecutor;
 
     private class OnEnrollCancelListener implements OnCancelListener {
         @Override
@@ -95,9 +213,9 @@ public class FingerprintManager implements BiometricFingerprintConstants {
     }
 
     private class OnAuthenticationCancelListener implements OnCancelListener {
-        private android.hardware.biometrics.CryptoObject mCrypto;
+        private CryptoObject mCrypto;
 
-        public OnAuthenticationCancelListener(android.hardware.biometrics.CryptoObject crypto) {
+        public OnAuthenticationCancelListener(CryptoObject crypto) {
             mCrypto = crypto;
         }
 
@@ -110,20 +228,19 @@ public class FingerprintManager implements BiometricFingerprintConstants {
     /**
      * A wrapper class for the crypto objects supported by FingerprintManager. Currently the
      * framework supports {@link Signature}, {@link Cipher} and {@link Mac} objects.
-     * @deprecated See {@link android.hardware.biometrics.BiometricPrompt.CryptoObject}
      */
-    @Deprecated
-    public static final class CryptoObject extends android.hardware.biometrics.CryptoObject {
+    public static final class CryptoObject {
+
         public CryptoObject(@NonNull Signature signature) {
-            super(signature);
+            mCrypto = signature;
         }
 
         public CryptoObject(@NonNull Cipher cipher) {
-            super(cipher);
+            mCrypto = cipher;
         }
 
         public CryptoObject(@NonNull Mac mac) {
-            super(mac);
+            mCrypto = mac;
         }
 
         /**
@@ -131,7 +248,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
          * @return {@link Signature} object or null if this doesn't contain one.
          */
         public Signature getSignature() {
-            return super.getSignature();
+            return mCrypto instanceof Signature ? (Signature) mCrypto : null;
         }
 
         /**
@@ -139,7 +256,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
          * @return {@link Cipher} object or null if this doesn't contain one.
          */
         public Cipher getCipher() {
-            return super.getCipher();
+            return mCrypto instanceof Cipher ? (Cipher) mCrypto : null;
         }
 
         /**
@@ -147,16 +264,25 @@ public class FingerprintManager implements BiometricFingerprintConstants {
          * @return {@link Mac} object or null if this doesn't contain one.
          */
         public Mac getMac() {
-            return super.getMac();
+            return mCrypto instanceof Mac ? (Mac) mCrypto : null;
         }
-    }
+
+        /**
+         * @hide
+         * @return the opId associated with this object or 0 if none
+         */
+        public long getOpId() {
+            return mCrypto != null ?
+                    AndroidKeyStoreProvider.getKeyStoreOperationHandle(mCrypto) : 0;
+        }
+
+        private final Object mCrypto;
+    };
 
     /**
      * Container for callback data from {@link FingerprintManager#authenticate(CryptoObject,
      *     CancellationSignal, int, AuthenticationCallback, Handler)}.
-     * @deprecated See {@link android.hardware.biometrics.BiometricPrompt.AuthenticationResult}
      */
-    @Deprecated
     public static class AuthenticationResult {
         private Fingerprint mFingerprint;
         private CryptoObject mCryptoObject;
@@ -203,18 +329,14 @@ public class FingerprintManager implements BiometricFingerprintConstants {
      * FingerprintManager#authenticate(CryptoObject, CancellationSignal,
      * int, AuthenticationCallback, Handler) } must provide an implementation of this for listening to
      * fingerprint events.
-     * @deprecated See {@link android.hardware.biometrics.BiometricPrompt.AuthenticationCallback}
      */
-    @Deprecated
-    public static abstract class AuthenticationCallback
-            extends BiometricAuthenticator.AuthenticationCallback {
+    public static abstract class AuthenticationCallback {
         /**
          * Called when an unrecoverable error has been encountered and the operation is complete.
          * No further callbacks will be made on this object.
          * @param errorCode An integer identifying the error message
          * @param errString A human-readable error string that can be shown in UI
          */
-        @Override
         public void onAuthenticationError(int errorCode, CharSequence errString) { }
 
         /**
@@ -224,7 +346,6 @@ public class FingerprintManager implements BiometricFingerprintConstants {
          * @param helpCode An integer identifying the error message
          * @param helpString A human-readable string that can be shown in UI
          */
-        @Override
         public void onAuthenticationHelp(int helpCode, CharSequence helpString) { }
 
         /**
@@ -236,7 +357,6 @@ public class FingerprintManager implements BiometricFingerprintConstants {
         /**
          * Called when a fingerprint is valid but not recognized.
          */
-        @Override
         public void onAuthenticationFailed() { }
 
         /**
@@ -245,19 +365,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
          * @param acquireInfo one of FINGERPRINT_ACQUIRED_* constants
          * @hide
          */
-        @Override
         public void onAuthenticationAcquired(int acquireInfo) {}
-
-        /**
-         * @hide
-         * @param result
-         */
-        @Override
-        public void onAuthenticationSucceeded(BiometricAuthenticator.AuthenticationResult result) {
-            onAuthenticationSucceeded(new AuthenticationResult(
-                    (CryptoObject) result.getCryptoObject(),
-                    (Fingerprint) result.getId(), result.getUserId()));
-        }
     };
 
     /**
@@ -377,16 +485,11 @@ public class FingerprintManager implements BiometricFingerprintConstants {
      *         by <a href="{@docRoot}training/articles/keystore.html">Android Keystore
      *         facility</a>.
      * @throws IllegalStateException if the crypto primitive is not initialized.
-     * @deprecated See {@link BiometricPrompt#authenticate(CancellationSignal, Executor,
-     * BiometricPrompt.AuthenticationCallback)} and {@link BiometricPrompt#authenticate(
-     * BiometricPrompt.CryptoObject, CancellationSignal, Executor,
-     * BiometricPrompt.AuthenticationCallback)}
      */
-    @Deprecated
-    @RequiresPermission(anyOf = {USE_BIOMETRIC, USE_FINGERPRINT})
+    @RequiresPermission(USE_FINGERPRINT)
     public void authenticate(@Nullable CryptoObject crypto, @Nullable CancellationSignal cancel,
             int flags, @NonNull AuthenticationCallback callback, @Nullable Handler handler) {
-        authenticate(crypto, cancel, flags, callback, handler, mContext.getUserId());
+        authenticate(crypto, cancel, flags, callback, handler, UserHandle.myUserId());
     }
 
     /**
@@ -402,12 +505,10 @@ public class FingerprintManager implements BiometricFingerprintConstants {
     }
 
     /**
-     * Per-user version, see {@link FingerprintManager#authenticate(CryptoObject,
-     * CancellationSignal, int, AuthenticationCallback, Handler)}
-     * @param userId the user ID that the fingerprint hardware will authenticate for.
+     * Per-user version
      * @hide
      */
-    @RequiresPermission(anyOf = {USE_BIOMETRIC, USE_FINGERPRINT})
+    @RequiresPermission(USE_FINGERPRINT)
     public void authenticate(@Nullable CryptoObject crypto, @Nullable CancellationSignal cancel,
             int flags, @NonNull AuthenticationCallback callback, Handler handler, int userId) {
         if (callback == null) {
@@ -416,7 +517,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
 
         if (cancel != null) {
             if (cancel.isCanceled()) {
-                Slog.w(TAG, "authentication already canceled");
+                Log.w(TAG, "authentication already canceled");
                 return;
             } else {
                 cancel.setOnCancelListener(new OnAuthenticationCancelListener(crypto));
@@ -429,9 +530,9 @@ public class FingerprintManager implements BiometricFingerprintConstants {
             mCryptoObject = crypto;
             long sessionId = crypto != null ? crypto.getOpId() : 0;
             mService.authenticate(mToken, sessionId, userId, mServiceReceiver, flags,
-                    mContext.getOpPackageName(), null /* bundle */, null /* receiver */);
+                    mContext.getOpPackageName());
         } catch (RemoteException e) {
-            Slog.w(TAG, "Remote exception while authenticating: ", e);
+            Log.w(TAG, "Remote exception while authenticating: ", e);
             if (callback != null) {
                 // Though this may not be a hardware issue, it will cause apps to give up or try
                 // again later.
@@ -439,112 +540,6 @@ public class FingerprintManager implements BiometricFingerprintConstants {
                         getErrorString(FINGERPRINT_ERROR_HW_UNAVAILABLE, 0 /* vendorCode */));
             }
         }
-    }
-
-    /**
-     * Per-user version, see {@link FingerprintManager#authenticate(CryptoObject,
-     * CancellationSignal, Bundle, Executor, IBiometricPromptReceiver, AuthenticationCallback)}
-     * @param userId the user ID that the fingerprint hardware will authenticate for.
-     */
-    private void authenticate(int userId,
-            @Nullable android.hardware.biometrics.CryptoObject crypto,
-            @NonNull CancellationSignal cancel,
-            @NonNull Bundle bundle,
-            @NonNull @CallbackExecutor Executor executor,
-            @NonNull IBiometricPromptReceiver receiver,
-            @NonNull BiometricAuthenticator.AuthenticationCallback callback) {
-        mCryptoObject = crypto;
-        if (cancel.isCanceled()) {
-            Slog.w(TAG, "authentication already canceled");
-            return;
-        } else {
-            cancel.setOnCancelListener(new OnAuthenticationCancelListener(crypto));
-        }
-
-        if (mService != null) {
-            try {
-                mExecutor = executor;
-                mAuthenticationCallback = callback;
-                final long sessionId = crypto != null ? crypto.getOpId() : 0;
-                mService.authenticate(mToken, sessionId, userId, mServiceReceiver,
-                        0 /* flags */, mContext.getOpPackageName(), bundle, receiver);
-            } catch (RemoteException e) {
-                Slog.w(TAG, "Remote exception while authenticating", e);
-                mExecutor.execute(() -> {
-                    callback.onAuthenticationError(FINGERPRINT_ERROR_HW_UNAVAILABLE,
-                            getErrorString(FINGERPRINT_ERROR_HW_UNAVAILABLE, 0 /* vendorCode */));
-                });
-            }
-        }
-    }
-
-    /**
-     * Private method, see {@link BiometricPrompt#authenticate(CancellationSignal, Executor,
-     * BiometricPrompt.AuthenticationCallback)}
-     * @param cancel
-     * @param executor
-     * @param callback
-     * @hide
-     */
-    public void authenticate(
-            @NonNull CancellationSignal cancel,
-            @NonNull Bundle bundle,
-            @NonNull @CallbackExecutor Executor executor,
-            @NonNull IBiometricPromptReceiver receiver,
-            @NonNull BiometricAuthenticator.AuthenticationCallback callback) {
-        if (cancel == null) {
-            throw new IllegalArgumentException("Must supply a cancellation signal");
-        }
-        if (bundle == null) {
-            throw new IllegalArgumentException("Must supply a bundle");
-        }
-        if (executor == null) {
-            throw new IllegalArgumentException("Must supply an executor");
-        }
-        if (receiver == null) {
-            throw new IllegalArgumentException("Must supply a receiver");
-        }
-        if (callback == null) {
-            throw new IllegalArgumentException("Must supply a calback");
-        }
-        authenticate(mContext.getUserId(), null, cancel, bundle, executor, receiver, callback);
-    }
-
-    /**
-     * Private method, see {@link BiometricPrompt#authenticate(BiometricPrompt.CryptoObject,
-     * CancellationSignal, Executor, BiometricPrompt.AuthenticationCallback)}
-     * @param crypto
-     * @param cancel
-     * @param executor
-     * @param callback
-     * @hide
-     */
-    public void authenticate(@NonNull android.hardware.biometrics.CryptoObject crypto,
-            @NonNull CancellationSignal cancel,
-            @NonNull Bundle bundle,
-            @NonNull @CallbackExecutor Executor executor,
-            @NonNull IBiometricPromptReceiver receiver,
-            @NonNull BiometricAuthenticator.AuthenticationCallback callback) {
-        if (crypto == null) {
-            throw new IllegalArgumentException("Must supply a crypto object");
-        }
-        if (cancel == null) {
-            throw new IllegalArgumentException("Must supply a cancellation signal");
-        }
-        if (bundle == null) {
-            throw new IllegalArgumentException("Must supply a bundle");
-        }
-        if (executor == null) {
-            throw new IllegalArgumentException("Must supply an executor");
-        }
-        if (receiver == null) {
-            throw new IllegalArgumentException("Must supply a receiver");
-        }
-        if (callback == null) {
-            throw new IllegalArgumentException("Must supply a callback");
-        }
-        authenticate(mContext.getUserId(), crypto, cancel,
-                bundle, executor, receiver, callback);
     }
 
     /**
@@ -575,7 +570,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
 
         if (cancel != null) {
             if (cancel.isCanceled()) {
-                Slog.w(TAG, "enrollment already canceled");
+                Log.w(TAG, "enrollment already canceled");
                 return;
             } else {
                 cancel.setOnCancelListener(new OnEnrollCancelListener());
@@ -587,7 +582,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
             mService.enroll(mToken, token, userId, mServiceReceiver, flags,
                     mContext.getOpPackageName());
         } catch (RemoteException e) {
-            Slog.w(TAG, "Remote exception in enroll: ", e);
+            Log.w(TAG, "Remote exception in enroll: ", e);
             if (callback != null) {
                 // Though this may not be a hardware issue, it will cause apps to give up or try
                 // again later.
@@ -659,7 +654,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
             mRemovalFingerprint = fp;
             mService.remove(mToken, fp.getFingerId(), fp.getGroupId(), userId, mServiceReceiver);
         } catch (RemoteException e) {
-            Slog.w(TAG, "Remote exception in remove: ", e);
+            Log.w(TAG, "Remote exception in remove: ", e);
             if (callback != null) {
                 callback.onRemovalError(fp, FINGERPRINT_ERROR_HW_UNAVAILABLE,
                         getErrorString(FINGERPRINT_ERROR_HW_UNAVAILABLE, 0 /* vendorCode */));
@@ -681,7 +676,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
             mEnumerateCallback = callback;
             mService.enumerate(mToken, userId, mServiceReceiver);
         } catch (RemoteException e) {
-            Slog.w(TAG, "Remote exception in enumerate: ", e);
+            Log.w(TAG, "Remote exception in enumerate: ", e);
             if (callback != null) {
                 callback.onEnumerateError(FINGERPRINT_ERROR_HW_UNAVAILABLE,
                         getErrorString(FINGERPRINT_ERROR_HW_UNAVAILABLE, 0 /* vendorCode */));
@@ -707,7 +702,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
                 throw e.rethrowFromSystemServer();
             }
         } else {
-            Slog.w(TAG, "rename(): Service not connected!");
+            Log.w(TAG, "rename(): Service not connected!");
         }
     }
 
@@ -735,22 +730,19 @@ public class FingerprintManager implements BiometricFingerprintConstants {
      */
     @RequiresPermission(USE_FINGERPRINT)
     public List<Fingerprint> getEnrolledFingerprints() {
-        return getEnrolledFingerprints(mContext.getUserId());
+        return getEnrolledFingerprints(UserHandle.myUserId());
     }
 
     /**
      * Determine if there is at least one fingerprint enrolled.
      *
      * @return true if at least one fingerprint is enrolled, false otherwise
-     * @deprecated See {@link BiometricPrompt} and
-     * {@link FingerprintManager#FINGERPRINT_ERROR_NO_FINGERPRINTS}
      */
-    @Deprecated
     @RequiresPermission(USE_FINGERPRINT)
     public boolean hasEnrolledFingerprints() {
         if (mService != null) try {
             return mService.hasEnrolledFingerprints(
-                    mContext.getUserId(), mContext.getOpPackageName());
+                    UserHandle.myUserId(), mContext.getOpPackageName());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -776,10 +768,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
      * Determine if fingerprint hardware is present and functional.
      *
      * @return true if hardware is present and functional, false otherwise.
-     * @deprecated See {@link BiometricPrompt} and
-     * {@link FingerprintManager#FINGERPRINT_ERROR_HW_UNAVAILABLE}
      */
-    @Deprecated
     @RequiresPermission(USE_FINGERPRINT)
     public boolean isHardwareDetected() {
         if (mService != null) {
@@ -790,7 +779,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
                 throw e.rethrowFromSystemServer();
             }
         } else {
-            Slog.w(TAG, "isFingerprintHardwareDetected(): Service not connected!");
+            Log.w(TAG, "isFingerprintHardwareDetected(): Service not connected!");
         }
         return false;
     }
@@ -809,7 +798,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
                 throw e.rethrowFromSystemServer();
             }
         } else {
-            Slog.w(TAG, "getAuthenticatorId(): Service not connected!");
+            Log.w(TAG, "getAuthenticatorId(): Service not connected!");
         }
         return 0;
     }
@@ -829,7 +818,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
                 throw e.rethrowFromSystemServer();
             }
         } else {
-            Slog.w(TAG, "resetTimeout(): Service not connected!");
+            Log.w(TAG, "resetTimeout(): Service not connected!");
         }
     }
 
@@ -866,7 +855,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
                 throw e.rethrowFromSystemServer();
             }
         } else {
-            Slog.w(TAG, "addLockoutResetCallback(): Service not connected!");
+            Log.w(TAG, "addLockoutResetCallback(): Service not connected!");
         }
     }
 
@@ -914,20 +903,20 @@ public class FingerprintManager implements BiometricFingerprintConstants {
                 return;
             }
             if (fingerprint == null) {
-                Slog.e(TAG, "Received MSG_REMOVED, but fingerprint is null");
+                Log.e(TAG, "Received MSG_REMOVED, but fingerprint is null");
                 return;
             }
 
             int fingerId = fingerprint.getFingerId();
             int reqFingerId = mRemovalFingerprint.getFingerId();
             if (reqFingerId != 0 && fingerId != 0 && fingerId != reqFingerId) {
-                Slog.w(TAG, "Finger id didn't match: " + fingerId + " != " + reqFingerId);
+                Log.w(TAG, "Finger id didn't match: " + fingerId + " != " + reqFingerId);
                 return;
             }
             int groupId = fingerprint.getGroupId();
             int reqGroupId = mRemovalFingerprint.getGroupId();
             if (groupId != reqGroupId) {
-                Slog.w(TAG, "Group id didn't match: " + groupId + " != " + reqGroupId);
+                Log.w(TAG, "Group id didn't match: " + groupId + " != " + reqGroupId);
                 return;
             }
 
@@ -940,63 +929,63 @@ public class FingerprintManager implements BiometricFingerprintConstants {
             }
         }
 
+        private void sendErrorResult(long deviceId, int errMsgId, int vendorCode) {
+            // emulate HAL 2.1 behavior and send real errMsgId
+            final int clientErrMsgId = errMsgId == FINGERPRINT_ERROR_VENDOR
+                    ? (vendorCode + FINGERPRINT_ERROR_VENDOR_BASE) : errMsgId;
+            if (mEnrollmentCallback != null) {
+                mEnrollmentCallback.onEnrollmentError(clientErrMsgId,
+                        getErrorString(errMsgId, vendorCode));
+            } else if (mAuthenticationCallback != null) {
+                mAuthenticationCallback.onAuthenticationError(clientErrMsgId,
+                        getErrorString(errMsgId, vendorCode));
+            } else if (mRemovalCallback != null) {
+                mRemovalCallback.onRemovalError(mRemovalFingerprint, clientErrMsgId,
+                        getErrorString(errMsgId, vendorCode));
+            } else if (mEnumerateCallback != null) {
+                mEnumerateCallback.onEnumerateError(clientErrMsgId,
+                        getErrorString(errMsgId, vendorCode));
+            }
+        }
+
         private void sendEnrollResult(Fingerprint fp, int remaining) {
             if (mEnrollmentCallback != null) {
                 mEnrollmentCallback.onEnrollmentProgress(remaining);
             }
         }
+
+        private void sendAuthenticatedSucceeded(Fingerprint fp, int userId) {
+            if (mAuthenticationCallback != null) {
+                final AuthenticationResult result =
+                        new AuthenticationResult(mCryptoObject, fp, userId);
+                mAuthenticationCallback.onAuthenticationSucceeded(result);
+            }
+        }
+
+        private void sendAuthenticatedFailed() {
+            if (mAuthenticationCallback != null) {
+                mAuthenticationCallback.onAuthenticationFailed();
+            }
+        }
+
+        private void sendAcquiredResult(long deviceId, int acquireInfo, int vendorCode) {
+            if (mAuthenticationCallback != null) {
+                mAuthenticationCallback.onAuthenticationAcquired(acquireInfo);
+            }
+            final String msg = getAcquiredString(acquireInfo, vendorCode);
+            if (msg == null) {
+                return;
+            }
+            // emulate HAL 2.1 behavior and send real acquiredInfo
+            final int clientInfo = acquireInfo == FINGERPRINT_ACQUIRED_VENDOR
+                    ? (vendorCode + FINGERPRINT_ACQUIRED_VENDOR_BASE) : acquireInfo;
+            if (mEnrollmentCallback != null) {
+                mEnrollmentCallback.onEnrollmentHelp(clientInfo, msg);
+            } else if (mAuthenticationCallback != null) {
+                mAuthenticationCallback.onAuthenticationHelp(clientInfo, msg);
+            }
+        }
     };
-
-    private void sendAuthenticatedSucceeded(Fingerprint fp, int userId) {
-        if (mAuthenticationCallback != null) {
-            final BiometricAuthenticator.AuthenticationResult result =
-                    new BiometricAuthenticator.AuthenticationResult(mCryptoObject, fp, userId);
-            mAuthenticationCallback.onAuthenticationSucceeded(result);
-        }
-    }
-
-    private void sendAuthenticatedFailed() {
-        if (mAuthenticationCallback != null) {
-            mAuthenticationCallback.onAuthenticationFailed();
-        }
-    }
-
-    private void sendAcquiredResult(long deviceId, int acquireInfo, int vendorCode) {
-        if (mAuthenticationCallback != null) {
-            mAuthenticationCallback.onAuthenticationAcquired(acquireInfo);
-        }
-        final String msg = getAcquiredString(acquireInfo, vendorCode);
-        if (msg == null) {
-            return;
-        }
-        // emulate HAL 2.1 behavior and send real acquiredInfo
-        final int clientInfo = acquireInfo == FINGERPRINT_ACQUIRED_VENDOR
-                ? (vendorCode + FINGERPRINT_ACQUIRED_VENDOR_BASE) : acquireInfo;
-        if (mEnrollmentCallback != null) {
-            mEnrollmentCallback.onEnrollmentHelp(clientInfo, msg);
-        } else if (mAuthenticationCallback != null) {
-            mAuthenticationCallback.onAuthenticationHelp(clientInfo, msg);
-        }
-    }
-
-    private void sendErrorResult(long deviceId, int errMsgId, int vendorCode) {
-        // emulate HAL 2.1 behavior and send real errMsgId
-        final int clientErrMsgId = errMsgId == FINGERPRINT_ERROR_VENDOR
-                ? (vendorCode + FINGERPRINT_ERROR_VENDOR_BASE) : errMsgId;
-        if (mEnrollmentCallback != null) {
-            mEnrollmentCallback.onEnrollmentError(clientErrMsgId,
-                    getErrorString(errMsgId, vendorCode));
-        } else if (mAuthenticationCallback != null) {
-            mAuthenticationCallback.onAuthenticationError(clientErrMsgId,
-                    getErrorString(errMsgId, vendorCode));
-        } else if (mRemovalCallback != null) {
-            mRemovalCallback.onRemovalError(mRemovalFingerprint, clientErrMsgId,
-                    getErrorString(errMsgId, vendorCode));
-        } else if (mEnumerateCallback != null) {
-            mEnumerateCallback.onEnumerateError(clientErrMsgId,
-                    getErrorString(errMsgId, vendorCode));
-        }
-    }
 
     /**
      * @hide
@@ -1026,7 +1015,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
         }
     }
 
-    private void cancelAuthentication(android.hardware.biometrics.CryptoObject cryptoObject) {
+    private void cancelAuthentication(CryptoObject cryptoObject) {
         if (mService != null) try {
             mService.cancelAuthentication(mToken, mContext.getOpPackageName());
         } catch (RemoteException e) {
@@ -1034,10 +1023,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
         }
     }
 
-    /**
-     * @hide
-     */
-    public String getErrorString(int errMsg, int vendorCode) {
+    private String getErrorString(int errMsg, int vendorCode) {
         switch (errMsg) {
             case FINGERPRINT_ERROR_UNABLE_TO_PROCESS:
                 return mContext.getString(
@@ -1057,15 +1043,6 @@ public class FingerprintManager implements BiometricFingerprintConstants {
             case FINGERPRINT_ERROR_LOCKOUT_PERMANENT:
                 return mContext.getString(
                         com.android.internal.R.string.fingerprint_error_lockout_permanent);
-            case FINGERPRINT_ERROR_USER_CANCELED:
-                return mContext.getString(
-                        com.android.internal.R.string.fingerprint_error_user_canceled);
-            case FINGERPRINT_ERROR_NO_FINGERPRINTS:
-                return mContext.getString(
-                        com.android.internal.R.string.fingerprint_error_no_fingerprints);
-            case FINGERPRINT_ERROR_HW_NOT_PRESENT:
-                return mContext.getString(
-                        com.android.internal.R.string.fingerprint_error_hw_not_present);
             case FINGERPRINT_ERROR_VENDOR: {
                     String[] msgArray = mContext.getResources().getStringArray(
                             com.android.internal.R.array.fingerprint_error_vendor);
@@ -1078,10 +1055,7 @@ public class FingerprintManager implements BiometricFingerprintConstants {
         return null;
     }
 
-    /**
-     * @hide
-     */
-    public String getAcquiredString(int acquireInfo, int vendorCode) {
+    private String getAcquiredString(int acquireInfo, int vendorCode) {
         switch (acquireInfo) {
             case FINGERPRINT_ACQUIRED_GOOD:
                 return null;
@@ -1122,62 +1096,22 @@ public class FingerprintManager implements BiometricFingerprintConstants {
 
         @Override // binder call
         public void onAcquired(long deviceId, int acquireInfo, int vendorCode) {
-            if (mExecutor != null) {
-                mExecutor.execute(() -> {
-                    sendAcquiredResult(deviceId, acquireInfo, vendorCode);
-                });
-            } else {
-                mHandler.obtainMessage(MSG_ACQUIRED, acquireInfo, vendorCode,
-                        deviceId).sendToTarget();
-            }
+            mHandler.obtainMessage(MSG_ACQUIRED, acquireInfo, vendorCode, deviceId).sendToTarget();
         }
 
         @Override // binder call
         public void onAuthenticationSucceeded(long deviceId, Fingerprint fp, int userId) {
-            if (mExecutor != null) {
-                mExecutor.execute(() -> {
-                    sendAuthenticatedSucceeded(fp, userId);
-                });
-            } else {
-                mHandler.obtainMessage(MSG_AUTHENTICATION_SUCCEEDED, userId, 0, fp).sendToTarget();
-            }
+            mHandler.obtainMessage(MSG_AUTHENTICATION_SUCCEEDED, userId, 0, fp).sendToTarget();
         }
 
         @Override // binder call
         public void onAuthenticationFailed(long deviceId) {
-            if (mExecutor != null) {
-                mExecutor.execute(() -> {
-                    sendAuthenticatedFailed();
-                });
-            } else {
-                mHandler.obtainMessage(MSG_AUTHENTICATION_FAILED).sendToTarget();
-            }
+            mHandler.obtainMessage(MSG_AUTHENTICATION_FAILED).sendToTarget();
         }
 
         @Override // binder call
         public void onError(long deviceId, int error, int vendorCode) {
-            if (mExecutor != null) {
-                // BiometricPrompt case
-                if (error == FingerprintManager.FINGERPRINT_ERROR_USER_CANCELED
-                        || error == FingerprintManager.FINGERPRINT_ERROR_CANCELED) {
-                    // User tapped somewhere to cancel, or authentication was cancelled by the app
-                    // or got kicked out. The prompt is already gone, so send the error immediately.
-                    mExecutor.execute(() -> {
-                        sendErrorResult(deviceId, error, vendorCode);
-                    });
-                } else {
-                    // User got an error that needs to be displayed on the dialog, post a delayed
-                    // runnable on the FingerprintManager handler that sends the error message after
-                    // FingerprintDialog.HIDE_DIALOG_DELAY to send the error to the application.
-                    mHandler.postDelayed(() -> {
-                        mExecutor.execute(() -> {
-                            sendErrorResult(deviceId, error, vendorCode);
-                        });
-                    }, BiometricPrompt.HIDE_DIALOG_DELAY);
-                }
-            } else {
-                mHandler.obtainMessage(MSG_ERROR, error, vendorCode, deviceId).sendToTarget();
-            }
+            mHandler.obtainMessage(MSG_ERROR, error, vendorCode, deviceId).sendToTarget();
         }
 
         @Override // binder call

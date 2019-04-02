@@ -510,11 +510,7 @@ public class NumberPicker extends LinearLayout {
      */
     public interface OnScrollListener {
         /** @hide */
-        @IntDef(prefix = { "SCROLL_STATE_" }, value = {
-                SCROLL_STATE_IDLE,
-                SCROLL_STATE_TOUCH_SCROLL,
-                SCROLL_STATE_FLING
-        })
+        @IntDef({SCROLL_STATE_IDLE, SCROLL_STATE_TOUCH_SCROLL, SCROLL_STATE_FLING})
         @Retention(RetentionPolicy.SOURCE)
         public @interface ScrollState {}
 

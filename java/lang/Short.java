@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2014 The Android Open Source Project
  * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -59,7 +60,7 @@ public final class Short extends Number implements Comparable<Short> {
      * {@code short}.
      */
     @SuppressWarnings("unchecked")
-    public static final Class<Short>    TYPE = (Class<Short>) Class.getPrimitiveClass("short");
+    public static final Class<Short>    TYPE = (Class<Short>) short[].class.getComponentType();
 
     /**
      * Returns a new {@code String} object representing the

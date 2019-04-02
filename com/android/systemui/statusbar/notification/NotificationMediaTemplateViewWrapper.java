@@ -58,11 +58,6 @@ public class NotificationMediaTemplateViewWrapper extends NotificationTemplateVi
 
     @Override
     public boolean isDimmable() {
-        return getCustomBackgroundColor() == 0;
-    }
-
-    @Override
-    public boolean shouldClipToRounding(boolean topRounded, boolean bottomRounded) {
-        return true;
+        return false;
     }
 }

@@ -83,7 +83,6 @@ public class ButtonBarItem extends AbstractItem implements ItemInflater.ItemPare
         return mVisible;
     }
 
-    @Override
     public int getViewId() {
         return getId();
     }

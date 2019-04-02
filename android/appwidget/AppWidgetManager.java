@@ -19,22 +19,19 @@ package android.appwidget;
 import android.annotation.BroadcastBehavior;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.RequiresFeature;
 import android.annotation.SdkConstant;
-import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemService;
-import android.app.IServiceConnection;
+import android.annotation.SdkConstant.SdkConstantType;
 import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
-import android.content.ServiceConnection;
-import android.content.pm.PackageManager;
 import android.content.pm.ParceledListSlice;
 import android.content.pm.ShortcutInfo;
 import android.os.Bundle;
-import android.os.Handler;
+import android.os.IBinder;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.util.DisplayMetrics;
@@ -56,7 +53,6 @@ import java.util.List;
  * </div>
  */
 @SystemService(Context.APPWIDGET_SERVICE)
-@RequiresFeature(PackageManager.FEATURE_APP_WIDGETS)
 public class AppWidgetManager {
 
     /**
@@ -461,9 +457,10 @@ public class AppWidgetManager {
      */
     public static final String META_DATA_APPWIDGET_PROVIDER = "android.appwidget.provider";
 
-    private final Context mContext;
     private final String mPackageName;
+
     private final IAppWidgetService mService;
+
     private final DisplayMetrics mDisplayMetrics;
 
     /**
@@ -482,7 +479,6 @@ public class AppWidgetManager {
      * @hide
      */
     public AppWidgetManager(Context context, IAppWidgetService service) {
-        mContext = context;
         mPackageName = context.getOpPackageName();
         mService = service;
         mDisplayMetrics = context.getResources().getDisplayMetrics();
@@ -679,36 +675,6 @@ public class AppWidgetManager {
     }
 
     /**
-     * Updates the info for the supplied AppWidget provider. Apps can use this to change the default
-     * behavior of the widget based on the state of the app (for e.g., if the user is logged in
-     * or not). Calling this API completely replaces the previous definition.
-     *
-     * <p>
-     * The manifest entry of the provider should contain an additional meta-data tag similar to
-     * {@link #META_DATA_APPWIDGET_PROVIDER} which should point to any alternative definitions for
-     * the provider.
-     *
-     * <p>
-     * This is persisted across device reboots and app updates. If this meta-data key is not
-     * present in the manifest entry, the info reverts to default.
-     *
-     * @param provider {@link ComponentName} for the {@link
-     *    android.content.BroadcastReceiver BroadcastReceiver} provider for your AppWidget.
-     * @param metaDataKey key for the meta-data tag pointing to the new provider info. Use null
-     *    to reset any previously set info.
-     */
-    public void updateAppWidgetProviderInfo(ComponentName provider, @Nullable String metaDataKey) {
-        if (mService == null) {
-            return;
-        }
-        try {
-            mService.updateAppWidgetProviderInfo(provider, metaDataKey);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
      * Notifies the specified collection view in all the specified AppWidget instances
      * to invalidate their data.
      *
@@ -849,7 +815,7 @@ public class AppWidgetManager {
         }
 
         if (profile == null) {
-            profile = mContext.getUser();
+            profile = Process.myUserHandle();
         }
 
         try {
@@ -928,7 +894,7 @@ public class AppWidgetManager {
         if (mService == null) {
             return;
         }
-        bindAppWidgetIdIfAllowed(appWidgetId, mContext.getUser(), provider, options);
+        bindAppWidgetIdIfAllowed(appWidgetId, Process.myUserHandle(), provider, options);
     }
 
     /**
@@ -948,7 +914,7 @@ public class AppWidgetManager {
         if (mService == null) {
             return false;
         }
-        return bindAppWidgetIdIfAllowed(appWidgetId, mContext.getUserId(), provider, null);
+        return bindAppWidgetIdIfAllowed(appWidgetId, UserHandle.myUserId(), provider, null);
     }
 
     /**
@@ -972,7 +938,7 @@ public class AppWidgetManager {
         if (mService == null) {
             return false;
         }
-        return bindAppWidgetIdIfAllowed(appWidgetId, mContext.getUserId(), provider, options);
+        return bindAppWidgetIdIfAllowed(appWidgetId, UserHandle.myUserId(), provider, options);
     }
 
     /**
@@ -1034,7 +1000,7 @@ public class AppWidgetManager {
             return false;
         }
         try {
-            return mService.hasBindAppWidgetPermission(packageName, mContext.getUserId());
+            return mService.hasBindAppWidgetPermission(packageName, UserHandle.myUserId());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -1054,7 +1020,7 @@ public class AppWidgetManager {
         if (mService == null) {
             return;
         }
-        setBindAppWidgetPermission(packageName, mContext.getUserId(), permission);
+        setBindAppWidgetPermission(packageName, UserHandle.myUserId(), permission);
     }
 
     /**
@@ -1085,23 +1051,43 @@ public class AppWidgetManager {
      * The appWidgetId specified must already be bound to the calling AppWidgetHost via
      * {@link android.appwidget.AppWidgetManager#bindAppWidgetId AppWidgetManager.bindAppWidgetId()}.
      *
+     * @param packageName   The package from which the binding is requested.
      * @param appWidgetId   The AppWidget instance for which to bind the RemoteViewsService.
      * @param intent        The intent of the service which will be providing the data to the
      *                      RemoteViewsAdapter.
      * @param connection    The callback interface to be notified when a connection is made or lost.
-     * @param flags         Flags used for binding to the service
-     *
-     * @see Context#getServiceDispatcher(ServiceConnection, Handler, int)
      * @hide
      */
-    public boolean bindRemoteViewsService(Context context, int appWidgetId, Intent intent,
-            IServiceConnection connection, @Context.BindServiceFlags int flags) {
+    public void bindRemoteViewsService(String packageName, int appWidgetId, Intent intent,
+            IBinder connection) {
         if (mService == null) {
-            return false;
+            return;
         }
         try {
-            return mService.bindRemoteViewsService(context.getOpPackageName(), appWidgetId, intent,
-                    context.getIApplicationThread(), context.getActivityToken(), connection, flags);
+            mService.bindRemoteViewsService(packageName, appWidgetId, intent, connection);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Unbinds the RemoteViewsService for a given appWidgetId and intent.
+     *
+     * The appWidgetId specified muse already be bound to the calling AppWidgetHost via
+     * {@link android.appwidget.AppWidgetManager#bindAppWidgetId AppWidgetManager.bindAppWidgetId()}.
+     *
+     * @param packageName   The package from which the binding is requested.
+     * @param appWidgetId   The AppWidget instance for which to bind the RemoteViewsService.
+     * @param intent        The intent of the service which will be providing the data to the
+     *                      RemoteViewsAdapter.
+     * @hide
+     */
+    public void unbindRemoteViewsService(String packageName, int appWidgetId, Intent intent) {
+        if (mService == null) {
+            return;
+        }
+        try {
+            mService.unbindRemoteViewsService(packageName, appWidgetId, intent);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -1186,11 +1172,6 @@ public class AppWidgetManager {
      * <p>It's up to the launcher how to handle previous pending requests when the same package
      * calls this API multiple times in a row.  It may ignore the previous requests,
      * for example.
-     *
-     * <p>Launcher will not show the configuration activity associated with the provider in this
-     * case. The app could either show the configuration activity as a response to the callback,
-     * or show if before calling the API (various configurations can be encapsulated in
-     * {@code successCallback} to avoid persisting them before the widgetId is known).
      *
      * @param provider The {@link ComponentName} for the {@link
      *    android.content.BroadcastReceiver BroadcastReceiver} provider for your AppWidget.

@@ -32,7 +32,6 @@ public class NotificationVisibility implements Parcelable {
 
     public String key;
     public int rank;
-    public int count;
     public boolean visible = true;
     /*package*/ int id;
 
@@ -40,27 +39,25 @@ public class NotificationVisibility implements Parcelable {
         id = sNexrId++;
     }
 
-    private NotificationVisibility(String key, int rank, int count, boolean visibile) {
+    private NotificationVisibility(String key, int rank, boolean visibile) {
         this();
         this.key = key;
         this.rank = rank;
-        this.count = count;
         this.visible = visibile;
     }
 
     @Override
     public String toString() {
         return "NotificationVisibility(id=" + id
-                + " key=" + key
+                + "key=" + key
                 + " rank=" + rank
-                + " count=" + count
                 + (visible?" visible":"")
                 + " )";
     }
 
     @Override
     public NotificationVisibility clone() {
-        return obtain(this.key, this.rank, this.count, this.visible);
+        return obtain(this.key, this.rank, this.visible);
     }
 
     @Override
@@ -88,14 +85,12 @@ public class NotificationVisibility implements Parcelable {
     public void writeToParcel(Parcel out, int flags) {
         out.writeString(this.key);
         out.writeInt(this.rank);
-        out.writeInt(this.count);
         out.writeInt(this.visible ? 1 : 0);
     }
 
     private void readFromParcel(Parcel in) {
         this.key = in.readString();
         this.rank = in.readInt();
-        this.count = in.readInt();
         this.visible = in.readInt() != 0;
     }
 
@@ -103,11 +98,10 @@ public class NotificationVisibility implements Parcelable {
      * Return a new NotificationVisibility instance from the global pool. Allows us to
      * avoid allocating new objects in many cases.
      */
-    public static NotificationVisibility obtain(String key, int rank, int count, boolean visible) {
+    public static NotificationVisibility obtain(String key, int rank, boolean visible) {
         NotificationVisibility vo = obtain();
         vo.key = key;
         vo.rank = rank;
-        vo.count = count;
         vo.visible = visible;
         return vo;
     }

@@ -34,14 +34,12 @@ public class FullBackupJob extends JobService {
 
     JobParameters mParams;
 
-    public static void schedule(Context ctx, long minDelay, BackupManagerConstants constants) {
+    public static void schedule(Context ctx, long minDelay) {
         JobScheduler js = (JobScheduler) ctx.getSystemService(Context.JOB_SCHEDULER_SERVICE);
-        JobInfo.Builder builder = new JobInfo.Builder(JOB_ID, sIdleService);
-        synchronized (constants) {
-            builder.setRequiresDeviceIdle(true)
-                    .setRequiredNetworkType(constants.getFullBackupRequiredNetworkType())
-                    .setRequiresCharging(constants.getFullBackupRequireCharging());
-        }
+        JobInfo.Builder builder = new JobInfo.Builder(JOB_ID, sIdleService)
+                .setRequiresDeviceIdle(true)
+                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_UNMETERED)
+                .setRequiresCharging(true);
         if (minDelay > 0) {
             builder.setMinimumLatency(minDelay);
         }

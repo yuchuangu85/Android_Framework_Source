@@ -39,8 +39,6 @@ import java.io.PrintWriter;
  */
 public interface BackupManagerServiceInterface {
 
-  void unlockSystemUser();
-
   // Utility: build a new random integer token
   int generateRandomIntegerToken();
 
@@ -120,15 +118,6 @@ public interface BackupManagerServiceInterface {
   // Report whether the backup mechanism is currently enabled
   boolean isBackupEnabled();
 
-  // Update the transport attributes
-  void updateTransportAttributes(
-          ComponentName transportComponent,
-          String name,
-          Intent configurationIntent,
-          String currentDestinationString,
-          Intent dataManagementIntent,
-          String dataManagementLabel);
-
   // Report the name of the currently active transport
   String getCurrentTransport();
 
@@ -186,12 +175,7 @@ public interface BackupManagerServiceInterface {
 
   boolean isAppEligibleForBackup(String packageName);
 
-  String[] filterAppsEligibleForBackup(String[] packages);
-
   void dump(FileDescriptor fd, PrintWriter pw, String[] args);
 
   IBackupManager getBackupManagerBinder();
-
-  // Gets access to the backup/restore agent timeout parameters.
-  BackupAgentTimeoutParameters getAgentTimeoutParameters();
 }

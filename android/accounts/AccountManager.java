@@ -290,13 +290,8 @@ public class AccountManager {
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "VISIBILITY_" }, value = {
-            VISIBILITY_UNDEFINED,
-            VISIBILITY_VISIBLE,
-            VISIBILITY_USER_MANAGED_VISIBLE,
-            VISIBILITY_NOT_VISIBLE,
-            VISIBILITY_USER_MANAGED_NOT_VISIBLE
-    })
+    @IntDef({VISIBILITY_UNDEFINED, VISIBILITY_VISIBLE, VISIBILITY_USER_MANAGED_VISIBLE,
+            VISIBILITY_NOT_VISIBLE, VISIBILITY_USER_MANAGED_NOT_VISIBLE})
     public @interface AccountVisibility {
     }
 
@@ -680,7 +675,7 @@ public class AccountManager {
      */
     @NonNull
     public Account[] getAccountsByType(String type) {
-        return getAccountsByTypeAsUser(type, mContext.getUser());
+        return getAccountsByTypeAsUser(type, Process.myUserHandle());
     }
 
     /** @hide Same as {@link #getAccountsByType(String)} but for a specific user. */
@@ -2006,7 +2001,7 @@ public class AccountManager {
             final AccountManagerCallback<Bundle> callback,
             final Handler handler) {
         return confirmCredentialsAsUser(account, options, activity, callback, handler,
-                mContext.getUser());
+                Process.myUserHandle());
     }
 
     /**
@@ -2326,10 +2321,6 @@ public class AccountManager {
         private class Response extends IAccountManagerResponse.Stub {
             @Override
             public void onResult(Bundle bundle) {
-                if (bundle == null) {
-                    onError(ERROR_CODE_INVALID_RESPONSE, "null bundle returned");
-                    return;
-                }
                 Intent intent = bundle.getParcelable(KEY_INTENT);
                 if (intent != null && mActivity != null) {
                     // since the user provided an Activity we will silently start intents
@@ -3208,7 +3199,7 @@ public class AccountManager {
         return finishSessionAsUser(
                 sessionBundle,
                 activity,
-                mContext.getUser(),
+                Process.myUserHandle(),
                 callback,
                 handler);
     }

@@ -18,7 +18,6 @@ package com.android.location.provider;
 
 /**
  * A class that represents an Activity Recognition Event.
- * @hide
  */
 public class ActivityRecognitionEvent {
     private final String mActivity;

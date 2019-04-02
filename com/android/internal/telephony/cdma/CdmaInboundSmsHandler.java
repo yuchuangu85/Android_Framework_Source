@@ -20,6 +20,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.res.Resources;
 import android.os.Message;
+import android.os.SystemProperties;
 import android.provider.Telephony.Sms.Intents;
 import android.telephony.SmsCbMessage;
 
@@ -32,6 +33,7 @@ import com.android.internal.telephony.SmsConstants;
 import com.android.internal.telephony.SmsMessageBase;
 import com.android.internal.telephony.SmsStorageMonitor;
 import com.android.internal.telephony.TelephonyComponentFactory;
+import com.android.internal.telephony.TelephonyProperties;
 import com.android.internal.telephony.WspTypeDecoder;
 import com.android.internal.telephony.cdma.sms.SmsEnvelope;
 import com.android.internal.util.HexDump;

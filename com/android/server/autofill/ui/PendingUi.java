@@ -21,7 +21,7 @@ import android.util.DebugUtils;
 import android.view.autofill.IAutoFillManagerClient;
 
 /**
- * Helper class used to handle a pending Autofill UI such as the save UI.
+ * Helper class used to handle a pending Autofill affordance such as the Save UI.
  *
  * <p>This class is not thread safe.
  */
@@ -35,7 +35,7 @@ public final class PendingUi {
 
     private final IBinder mToken;
     private int mState;
-    public final int sessionId;
+    public final int id;
     public final IAutoFillManagerClient client;
 
     /**
@@ -43,11 +43,10 @@ public final class PendingUi {
      *
      * @param token token used to identify this pending UI.
      */
-    public PendingUi(@NonNull IBinder token, int sessionId,
-            @NonNull IAutoFillManagerClient client) {
+    public PendingUi(@NonNull IBinder token, int id, @NonNull IAutoFillManagerClient client) {
         mToken = token;
         mState = STATE_CREATED;
-        this.sessionId = sessionId;
+        this.id = id;
         this.client = client;
     }
 
@@ -82,7 +81,7 @@ public final class PendingUi {
 
     @Override
     public String toString() {
-        return "PendingUi: [token=" + mToken + ", sessionId=" + sessionId + ", state="
+        return "PendingUi: [token=" + mToken + ", id=" + id + ", state="
                 + DebugUtils.flagsToString(PendingUi.class, "STATE_", mState) + "]";
     }
 }

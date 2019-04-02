@@ -16,22 +16,22 @@
 
 package com.android.server.timezone;
 
-import com.android.internal.util.DumpUtils;
-
-import android.app.timezone.RulesManager;
 import android.content.Context;
-import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.AsyncTask;
-import android.os.UserHandle;
+import android.os.Binder;
+import android.os.ParcelFileDescriptor;
 
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.concurrent.Executor;
+import libcore.io.Streams;
 
 /**
  * A single class that implements multiple helper interfaces for use by {@link RulesManagerService}.
  */
-final class RulesManagerServiceHelperImpl
-        implements PermissionHelper, Executor, RulesManagerIntentHelper {
+final class RulesManagerServiceHelperImpl implements PermissionHelper, Executor {
 
     private final Context mContext;
 
@@ -46,29 +46,19 @@ final class RulesManagerServiceHelperImpl
 
     @Override
     public boolean checkDumpPermission(String tag, PrintWriter pw) {
-        return DumpUtils.checkDumpPermission(mContext, tag, pw);
+        // TODO(nfuller): Switch to DumpUtils.checkDumpPermission() when it is available in AOSP.
+        if (mContext.checkCallingOrSelfPermission(android.Manifest.permission.DUMP)
+                != PackageManager.PERMISSION_GRANTED) {
+            pw.println("Permission Denial: can't dump LocationManagerService from from pid="
+                    + Binder.getCallingPid()
+                    + ", uid=" + Binder.getCallingUid());
+            return false;
+        }
+        return true;
     }
 
     @Override
     public void execute(Runnable runnable) {
         AsyncTask.execute(runnable);
     }
-
-    @Override
-    public void sendTimeZoneOperationStaged() {
-        sendOperationIntent(true /* staged */);
-    }
-
-    @Override
-    public void sendTimeZoneOperationUnstaged() {
-        sendOperationIntent(false /* staged */);
-    }
-
-    private void sendOperationIntent(boolean staged) {
-        Intent intent = new Intent(RulesManager.ACTION_RULES_UPDATE_OPERATION);
-        intent.addFlags(Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND);
-        intent.putExtra(RulesManager.EXTRA_OPERATION_STAGED, staged);
-        mContext.sendBroadcastAsUser(intent, UserHandle.SYSTEM);
-    }
-
 }

@@ -16,7 +16,7 @@
 
 package android.os;
 
-import android.util.proto.ProtoOutputStream;
+import android.util.Log;
 
 import java.util.Arrays;
 
@@ -131,17 +131,7 @@ public class PatternMatcher implements Parcelable {
         }
         return "PatternMatcher{" + type + mPattern + "}";
     }
-
-    /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
-        long token = proto.start(fieldId);
-        proto.write(PatternMatcherProto.PATTERN, mPattern);
-        proto.write(PatternMatcherProto.TYPE, mType);
-        // PatternMatcherProto.PARSED_PATTERN is too much to dump, but the field is reserved to
-        // match the current data structure.
-        proto.end(token);
-    }
-
+    
     public int describeContents() {
         return 0;
     }
@@ -151,7 +141,7 @@ public class PatternMatcher implements Parcelable {
         dest.writeInt(mType);
         dest.writeIntArray(mParsedPattern);
     }
-
+    
     public PatternMatcher(Parcel src) {
         mPattern = src.readString();
         mType = src.readInt();

@@ -24,7 +24,7 @@ import java.util.Calendar;
 /**
  * Controller class to communicate among the various components of the date picker dialog.
  */
-interface DatePickerController {
+public interface DatePickerController {
 
     void onYearSelected(int year);
 

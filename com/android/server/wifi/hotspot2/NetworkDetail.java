@@ -253,7 +253,7 @@ public class NetworkDetail {
         mHSRelease = vsa.hsRelease;
         mAnqpDomainID = vsa.anqpDomainID;
         mAnqpOICount = roamingConsortium.anqpOICount;
-        mRoamingConsortiums = roamingConsortium.getRoamingConsortiums();
+        mRoamingConsortiums = roamingConsortium.roamingConsortiums;
         mExtendedCapabilities = extendedCapabilities;
         mANQPElements = null;
         //set up channel info

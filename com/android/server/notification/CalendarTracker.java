@@ -30,7 +30,6 @@ import android.provider.CalendarContract.Instances;
 import android.service.notification.ZenModeConfig.EventInfo;
 import android.util.ArraySet;
 import android.util.Log;
-import android.util.Slog;
 
 import java.io.PrintWriter;
 import java.util.Date;
@@ -162,8 +161,6 @@ public class CalendarTracker {
                     }
                 }
             }
-        } catch (Exception e) {
-            Slog.w(TAG, "error reading calendar", e);
         } finally {
             if (cursor != null) {
                 cursor.close();

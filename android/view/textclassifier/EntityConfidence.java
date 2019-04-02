@@ -18,53 +18,60 @@ package android.view.textclassifier;
 
 import android.annotation.FloatRange;
 import android.annotation.NonNull;
-import android.os.Parcel;
-import android.os.Parcelable;
-import android.util.ArrayMap;
 
 import com.android.internal.util.Preconditions;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Helper object for setting and getting entity scores for classified text.
  *
+ * @param <T> the entity type.
  * @hide
  */
-final class EntityConfidence implements Parcelable {
+final class EntityConfidence<T> {
 
-    private final ArrayMap<String, Float> mEntityConfidence = new ArrayMap<>();
-    private final ArrayList<String> mSortedEntities = new ArrayList<>();
+    private final Map<T, Float> mEntityConfidence = new HashMap<>();
+
+    private final Comparator<T> mEntityComparator = (e1, e2) -> {
+        float score1 = mEntityConfidence.get(e1);
+        float score2 = mEntityConfidence.get(e2);
+        if (score1 > score2) {
+            return -1;
+        }
+        if (score1 < score2) {
+            return 1;
+        }
+        return 0;
+    };
 
     EntityConfidence() {}
 
-    EntityConfidence(@NonNull EntityConfidence source) {
+    EntityConfidence(@NonNull EntityConfidence<T> source) {
         Preconditions.checkNotNull(source);
         mEntityConfidence.putAll(source.mEntityConfidence);
-        mSortedEntities.addAll(source.mSortedEntities);
     }
 
     /**
-     * Constructs an EntityConfidence from a map of entity to confidence.
+     * Sets an entity type for the classified text and assigns a confidence score.
      *
-     * Map entries that have 0 confidence are removed, and values greater than 1 are clamped to 1.
-     *
-     * @param source a map from entity to a confidence value in the range 0 (low confidence) to
-     *               1 (high confidence).
+     * @param confidenceScore a value from 0 (low confidence) to 1 (high confidence).
+     *      0 implies the entity does not exist for the classified text.
+     *      Values greater than 1 are clamped to 1.
      */
-    EntityConfidence(@NonNull Map<String, Float> source) {
-        Preconditions.checkNotNull(source);
-
-        // Prune non-existent entities and clamp to 1.
-        mEntityConfidence.ensureCapacity(source.size());
-        for (Map.Entry<String, Float> it : source.entrySet()) {
-            if (it.getValue() <= 0) continue;
-            mEntityConfidence.put(it.getKey(), Math.min(1, it.getValue()));
+    public void setEntityType(
+            @NonNull T type, @FloatRange(from = 0.0, to = 1.0) float confidenceScore) {
+        Preconditions.checkNotNull(type);
+        if (confidenceScore > 0) {
+            mEntityConfidence.put(type, Math.min(1, confidenceScore));
+        } else {
+            mEntityConfidence.remove(type);
         }
-        resetSortedEntitiesFromMap();
     }
 
     /**
@@ -72,8 +79,11 @@ final class EntityConfidence implements Parcelable {
      * high confidence to low confidence.
      */
     @NonNull
-    public List<String> getEntities() {
-        return Collections.unmodifiableList(mSortedEntities);
+    public List<T> getEntities() {
+        List<T> entities = new ArrayList<>(mEntityConfidence.size());
+        entities.addAll(mEntityConfidence.keySet());
+        entities.sort(mEntityComparator);
+        return Collections.unmodifiableList(entities);
     }
 
     /**
@@ -82,7 +92,7 @@ final class EntityConfidence implements Parcelable {
      * classified text.
      */
     @FloatRange(from = 0.0, to = 1.0)
-    public float getConfidenceScore(String entity) {
+    public float getConfidenceScore(T entity) {
         if (mEntityConfidence.containsKey(entity)) {
             return mEntityConfidence.get(entity);
         }
@@ -92,52 +102,5 @@ final class EntityConfidence implements Parcelable {
     @Override
     public String toString() {
         return mEntityConfidence.toString();
-    }
-
-    @Override
-    public int describeContents() {
-        return 0;
-    }
-
-    @Override
-    public void writeToParcel(Parcel dest, int flags) {
-        dest.writeInt(mEntityConfidence.size());
-        for (Map.Entry<String, Float> entry : mEntityConfidence.entrySet()) {
-            dest.writeString(entry.getKey());
-            dest.writeFloat(entry.getValue());
-        }
-    }
-
-    public static final Parcelable.Creator<EntityConfidence> CREATOR =
-            new Parcelable.Creator<EntityConfidence>() {
-                @Override
-                public EntityConfidence createFromParcel(Parcel in) {
-                    return new EntityConfidence(in);
-                }
-
-                @Override
-                public EntityConfidence[] newArray(int size) {
-                    return new EntityConfidence[size];
-                }
-            };
-
-    private EntityConfidence(Parcel in) {
-        final int numEntities = in.readInt();
-        mEntityConfidence.ensureCapacity(numEntities);
-        for (int i = 0; i < numEntities; ++i) {
-            mEntityConfidence.put(in.readString(), in.readFloat());
-        }
-        resetSortedEntitiesFromMap();
-    }
-
-    private void resetSortedEntitiesFromMap() {
-        mSortedEntities.clear();
-        mSortedEntities.ensureCapacity(mEntityConfidence.size());
-        mSortedEntities.addAll(mEntityConfidence.keySet());
-        mSortedEntities.sort((e1, e2) -> {
-            float score1 = mEntityConfidence.get(e1);
-            float score2 = mEntityConfidence.get(e2);
-            return Float.compare(score2, score1);
-        });
     }
 }

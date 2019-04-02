@@ -41,14 +41,12 @@ class StrictModeFlash {
     private boolean mDrawNeeded;
     private final int mThickness = 20;
 
-    public StrictModeFlash(DisplayContent dc) {
+    public StrictModeFlash(Display display, SurfaceSession session) {
         SurfaceControl ctrl = null;
         try {
-            ctrl = dc.makeOverlay()
-                    .setName("StrictModeFlash")
-                    .setSize(1, 1)
-                    .setFormat(PixelFormat.TRANSLUCENT)
-                    .build();
+            ctrl = new SurfaceControl(session, "StrictModeFlash",
+                1, 1, PixelFormat.TRANSLUCENT, SurfaceControl.HIDDEN);
+            ctrl.setLayerStack(display.getLayerStack());
             ctrl.setLayer(WindowManagerService.TYPE_LAYER_MULTIPLIER * 101);  // one more than Watermark? arbitrary.
             ctrl.setPosition(0, 0);
             ctrl.show();
@@ -79,25 +77,17 @@ class StrictModeFlash {
         }
 
         // Top
-        c.save();
-        c.clipRect(new Rect(0, 0, dw, mThickness));
+        c.clipRect(new Rect(0, 0, dw, mThickness), Region.Op.REPLACE);
         c.drawColor(Color.RED);
-        c.restore();
         // Left
-        c.save();
-        c.clipRect(new Rect(0, 0, mThickness, dh));
+        c.clipRect(new Rect(0, 0, mThickness, dh), Region.Op.REPLACE);
         c.drawColor(Color.RED);
-        c.restore();
         // Right
-        c.save();
-        c.clipRect(new Rect(dw - mThickness, 0, dw, dh));
+        c.clipRect(new Rect(dw - mThickness, 0, dw, dh), Region.Op.REPLACE);
         c.drawColor(Color.RED);
-        c.restore();
         // Bottom
-        c.save();
-        c.clipRect(new Rect(0, dh - mThickness, dw, dh));
+        c.clipRect(new Rect(0, dh - mThickness, dw, dh), Region.Op.REPLACE);
         c.drawColor(Color.RED);
-        c.restore();
 
         mSurface.unlockCanvasAndPost(c);
     }

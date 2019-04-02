@@ -16,14 +16,8 @@
 package com.android.settingslib.core.lifecycle.events;
 
 
-import android.arch.lifecycle.Lifecycle;
-import android.arch.lifecycle.OnLifecycleEvent;
 import android.os.Bundle;
 
-/**
- * @deprecated use {@link OnLifecycleEvent(Lifecycle.Event) }
- */
-@Deprecated
 public interface OnCreate {
     void onCreate(Bundle savedInstanceState);
 }

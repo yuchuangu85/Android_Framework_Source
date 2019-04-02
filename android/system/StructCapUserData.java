@@ -24,25 +24,25 @@ import libcore.util.Objects;
  * @hide
  */
 public final class StructCapUserData {
-    /** Effective capability mask. */
-    public final int effective; /* __u32 */
+  /** Effective capability mask. */
+  public final int effective; /* __u32 */
 
-    /** Permitted capability mask. */
-    public final int permitted; /* __u32 */
+  /** Permitted capability mask. */
+  public final int permitted; /* __u32 */
 
-    /** Inheritable capability mask. */
-    public final int inheritable; /* __u32 */
+  /** Inheritable capability mask. */
+  public final int inheritable; /* __u32 */
 
-    /**
-     * Constructs an instance with the given field values.
-     */
-    public StructCapUserData(int effective, int permitted, int inheritable) {
-        this.effective = effective;
-        this.permitted = permitted;
-        this.inheritable = inheritable;
-    }
+  /**
+   * Constructs an instance with the given field values.
+   */
+  public StructCapUserData(int effective, int permitted, int inheritable) {
+    this.effective = effective;
+    this.permitted = permitted;
+    this.inheritable = inheritable;
+  }
 
-    @Override public String toString() {
-        return Objects.toString(this);
-    }
+  @Override public String toString() {
+    return Objects.toString(this);
+  }
 }

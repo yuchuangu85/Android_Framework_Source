@@ -103,15 +103,13 @@ public class CameraServiceProxy extends SystemService
     private static class CameraUsageEvent {
         public final int mCameraFacing;
         public final String mClientName;
-        public final int mAPILevel;
 
         private boolean mCompleted;
         private long mDurationOrStartTimeMs;  // Either start time, or duration once completed
 
-        public CameraUsageEvent(int facing, String clientName, int apiLevel) {
+        public CameraUsageEvent(int facing, String clientName) {
             mCameraFacing = facing;
             mClientName = clientName;
-            mAPILevel = apiLevel;
             mDurationOrStartTimeMs = SystemClock.elapsedRealtime();
             mCompleted = false;
         }
@@ -165,28 +163,18 @@ public class CameraServiceProxy extends SystemService
     private final ICameraServiceProxy.Stub mCameraServiceProxy = new ICameraServiceProxy.Stub() {
         @Override
         public void pingForUserUpdate() {
-            if (Binder.getCallingUid() != Process.CAMERASERVER_UID) {
-                Slog.e(TAG, "Calling UID: " + Binder.getCallingUid() + " doesn't match expected " +
-                        " camera service UID!");
-                return;
-            }
             notifySwitchWithRetries(30);
         }
 
         @Override
         public void notifyCameraState(String cameraId, int newCameraState, int facing,
-                String clientName, int apiLevel) {
-            if (Binder.getCallingUid() != Process.CAMERASERVER_UID) {
-                Slog.e(TAG, "Calling UID: " + Binder.getCallingUid() + " doesn't match expected " +
-                        " camera service UID!");
-                return;
-            }
+                String clientName) {
             String state = cameraStateToString(newCameraState);
             String facingStr = cameraFacingToString(facing);
             if (DEBUG) Slog.v(TAG, "Camera " + cameraId + " facing " + facingStr + " state now " +
-                    state + " for client " + clientName + " API Level " + apiLevel);
+                    state + " for client " + clientName);
 
-            updateActivityCount(cameraId, newCameraState, facing, clientName, apiLevel);
+            updateActivityCount(cameraId, newCameraState, facing, clientName);
         }
     };
 
@@ -305,18 +293,12 @@ public class CameraServiceProxy extends SystemService
                         .setType(MetricsEvent.TYPE_ACTION)
                         .setSubtype(subtype)
                         .setLatency(e.getDuration())
-                        .addTaggedData(MetricsEvent.FIELD_CAMERA_API_LEVEL, e.mAPILevel)
                         .setPackageName(e.mClientName);
                 mLogger.write(l);
             }
             mCameraUsageHistory.clear();
         }
-        final long ident = Binder.clearCallingIdentity();
-        try {
-            CameraStatsJobService.schedule(mContext);
-        } finally {
-            Binder.restoreCallingIdentity(ident);
-        }
+        CameraStatsJobService.schedule(mContext);
     }
 
     private void switchUserLocked(int userHandle) {
@@ -386,8 +368,7 @@ public class CameraServiceProxy extends SystemService
         return true;
     }
 
-    private void updateActivityCount(String cameraId, int newCameraState, int facing,
-            String clientName, int apiLevel) {
+    private void updateActivityCount(String cameraId, int newCameraState, int facing, String clientName) {
         synchronized(mLock) {
             // Update active camera list and notify NFC if necessary
             boolean wasEmpty = mActiveCameraUsage.isEmpty();
@@ -395,7 +376,7 @@ public class CameraServiceProxy extends SystemService
                 case ICameraServiceProxy.CAMERA_STATE_OPEN:
                     break;
                 case ICameraServiceProxy.CAMERA_STATE_ACTIVE:
-                    CameraUsageEvent newEvent = new CameraUsageEvent(facing, clientName, apiLevel);
+                    CameraUsageEvent newEvent = new CameraUsageEvent(facing, clientName);
                     CameraUsageEvent oldEvent = mActiveCameraUsage.put(cameraId, newEvent);
                     if (oldEvent != null) {
                         Slog.w(TAG, "Camera " + cameraId + " was already marked as active");

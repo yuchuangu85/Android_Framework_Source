@@ -30,7 +30,7 @@ import android.view.RemotableViewMethod;
 import android.widget.ImageView;
 import android.widget.RemoteViews;
 
-import java.util.Objects;
+import libcore.util.Objects;
 
 /**
  * An ImageView for displaying an Icon. Avoids reloading the Icon when possible.
@@ -126,7 +126,7 @@ public class CachingIconView extends ImageView {
 
             boolean isCached = mLastResId != 0
                     && icon.getResId() == mLastResId
-                    && Objects.equals(iconPackage, mLastPackage);
+                    && Objects.equal(iconPackage, mLastPackage);
 
             mLastPackage = iconPackage;
             mLastResId = icon.getResId();

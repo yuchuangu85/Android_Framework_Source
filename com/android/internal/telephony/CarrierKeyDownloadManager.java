@@ -57,7 +57,6 @@ import java.security.PublicKey;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Date;
-import java.util.Random;
 import java.util.zip.GZIPInputStream;
 
 /**
@@ -71,15 +70,8 @@ public class CarrierKeyDownloadManager {
 
     private static final int DAY_IN_MILLIS = 24 * 3600 * 1000;
 
-    // Create a window prior to the key expiration, during which the cert will be
-    // downloaded. Defines the start date of that window. So if the key expires on
-    // Dec  21st, the start of the renewal window will be Dec 1st.
-    private static final int START_RENEWAL_WINDOW_DAYS = 21;
-
-    // This will define the end date of the window.
-    private static final int END_RENEWAL_WINDOW_DAYS = 7;
-
-
+    // Start trying to renew the cert X days before it expires.
+    private static final int DEFAULT_RENEWAL_WINDOW_DAYS = 7;
 
     /* Intent for downloading the public key */
     private static final String INTENT_KEY_RENEWAL_ALARM_PREFIX =
@@ -119,7 +111,6 @@ public class CarrierKeyDownloadManager {
         filter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         filter.addAction(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
         filter.addAction(INTENT_KEY_RENEWAL_ALARM_PREFIX + mPhone.getPhoneId());
-        filter.addAction(TelephonyIntents.ACTION_CARRIER_CERTIFICATE_DOWNLOAD);
         mContext.registerReceiver(mBroadcastReceiver, filter, null, phone);
         mDownloadManager = (DownloadManager) mContext.getSystemService(Context.DOWNLOAD_SERVICE);
     }
@@ -132,12 +123,6 @@ public class CarrierKeyDownloadManager {
             if (action.equals(INTENT_KEY_RENEWAL_ALARM_PREFIX + slotId)) {
                 Log.d(LOG_TAG, "Handling key renewal alarm: " + action);
                 handleAlarmOrConfigChange();
-            } else if (action.equals(TelephonyIntents.ACTION_CARRIER_CERTIFICATE_DOWNLOAD)) {
-                if (slotId == intent.getIntExtra(PhoneConstants.PHONE_KEY,
-                        SubscriptionManager.INVALID_SIM_SLOT_INDEX)) {
-                    Log.d(LOG_TAG, "Handling reset intent: " + action);
-                    handleAlarmOrConfigChange();
-                }
             } else if (action.equals(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED)) {
                 if (slotId == intent.getIntExtra(PhoneConstants.PHONE_KEY,
                         SubscriptionManager.INVALID_SIM_SLOT_INDEX)) {
@@ -223,16 +208,10 @@ public class CarrierKeyDownloadManager {
         // set the alarm to run in a day. Else, we'll set the alarm to run 7 days prior to
         // expiration.
         if (minExpirationDate == Long.MAX_VALUE || (minExpirationDate
-                < System.currentTimeMillis() + END_RENEWAL_WINDOW_DAYS * DAY_IN_MILLIS)) {
+                < System.currentTimeMillis() + DEFAULT_RENEWAL_WINDOW_DAYS * DAY_IN_MILLIS)) {
             minExpirationDate = System.currentTimeMillis() + DAY_IN_MILLIS;
         } else {
-            // We don't want all the phones to download the certs simultaneously, so
-            // we pick a random time during the download window to avoid this situation.
-            Random random = new Random();
-            int max = START_RENEWAL_WINDOW_DAYS * DAY_IN_MILLIS;
-            int min = END_RENEWAL_WINDOW_DAYS * DAY_IN_MILLIS;
-            int randomTime = random.nextInt(max - min) + min;
-            minExpirationDate = minExpirationDate - randomTime;
+            minExpirationDate = minExpirationDate - DEFAULT_RENEWAL_WINDOW_DAYS * DAY_IN_MILLIS;
         }
         return minExpirationDate;
     }
@@ -499,7 +478,7 @@ public class CarrierKeyDownloadManager {
             }
             Date imsiDate = imsiEncryptionInfo.getExpirationTime();
             long timeToExpire = imsiDate.getTime() - System.currentTimeMillis();
-            return (timeToExpire < START_RENEWAL_WINDOW_DAYS * DAY_IN_MILLIS) ? true : false;
+            return (timeToExpire < DEFAULT_RENEWAL_WINDOW_DAYS * DAY_IN_MILLIS) ? true : false;
         }
         return false;
     }
@@ -522,7 +501,6 @@ public class CarrierKeyDownloadManager {
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(mURL));
             request.setAllowedOverMetered(false);
             request.setVisibleInDownloadsUi(false);
-            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN);
             Long carrierKeyDownloadRequestId = mDownloadManager.enqueue(request);
             SharedPreferences.Editor editor = getDefaultSharedPreferences(mContext).edit();
 

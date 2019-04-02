@@ -24,6 +24,7 @@ import android.graphics.Path;
 import android.graphics.Rect;
 import android.util.ArraySet;
 import android.util.Log;
+import android.util.MutableFloat;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
 import android.view.ViewDebug;
@@ -35,9 +36,9 @@ import com.android.systemui.recents.RecentsConfiguration;
 import com.android.systemui.recents.RecentsDebugFlags;
 import com.android.systemui.recents.misc.FreePathInterpolator;
 import com.android.systemui.recents.misc.SystemServicesProxy;
-import com.android.systemui.shared.recents.utilities.Utilities;
-import com.android.systemui.shared.recents.model.Task;
-import com.android.systemui.shared.recents.model.TaskStack;
+import com.android.systemui.recents.misc.Utilities;
+import com.android.systemui.recents.model.Task;
+import com.android.systemui.recents.model.TaskStack;
 import com.android.systemui.recents.views.lowram.TaskStackLowRamLayoutAlgorithm;
 import com.android.systemui.recents.views.grid.TaskGridLayoutAlgorithm;
 
@@ -146,6 +147,75 @@ public class TaskStackLayoutAlgorithm {
     }
 
     /**
+     * The various stack/freeform states.
+     */
+    public static class StackState {
+
+        public static final StackState FREEFORM_ONLY = new StackState(1f, 255);
+        public static final StackState STACK_ONLY = new StackState(0f, 0);
+        public static final StackState SPLIT = new StackState(0.5f, 255);
+
+        public final float freeformHeightPct;
+        public final int freeformBackgroundAlpha;
+
+        /**
+         * @param freeformHeightPct the percentage of the stack height (not including paddings) to
+         *                          allocate to the freeform workspace
+         * @param freeformBackgroundAlpha the background alpha for the freeform workspace
+         */
+        private StackState(float freeformHeightPct, int freeformBackgroundAlpha) {
+            this.freeformHeightPct = freeformHeightPct;
+            this.freeformBackgroundAlpha = freeformBackgroundAlpha;
+        }
+
+        /**
+         * Resolves the stack state for the layout given a task stack.
+         */
+        public static StackState getStackStateForStack(TaskStack stack) {
+            SystemServicesProxy ssp = Recents.getSystemServices();
+            boolean hasFreeformWorkspaces = ssp.hasFreeformWorkspaceSupport();
+            int freeformCount = stack.getFreeformTaskCount();
+            int stackCount = stack.getStackTaskCount();
+            if (hasFreeformWorkspaces && stackCount > 0 && freeformCount > 0) {
+                return SPLIT;
+            } else if (hasFreeformWorkspaces && freeformCount > 0) {
+                return FREEFORM_ONLY;
+            } else {
+                return STACK_ONLY;
+            }
+        }
+
+        /**
+         * Computes the freeform and stack rect for this state.
+         *
+         * @param freeformRectOut the freeform rect to be written out
+         * @param stackRectOut the stack rect, we only write out the top of the stack
+         * @param taskStackBounds the full rect that the freeform rect can take up
+         */
+        public void computeRects(Rect freeformRectOut, Rect stackRectOut,
+                Rect taskStackBounds, int topMargin, int freeformGap, int stackBottomOffset) {
+            // The freeform height is the visible height (not including system insets) - padding
+            // above freeform and below stack - gap between the freeform and stack
+            int availableHeight = taskStackBounds.height() - topMargin - stackBottomOffset;
+            int ffPaddedHeight = (int) (availableHeight * freeformHeightPct);
+            int ffHeight = Math.max(0, ffPaddedHeight - freeformGap);
+            freeformRectOut.set(taskStackBounds.left,
+                    taskStackBounds.top + topMargin,
+                    taskStackBounds.right,
+                    taskStackBounds.top + topMargin + ffHeight);
+            stackRectOut.set(taskStackBounds.left,
+                    taskStackBounds.top,
+                    taskStackBounds.right,
+                    taskStackBounds.bottom);
+            if (ffPaddedHeight > 0) {
+                stackRectOut.top += ffPaddedHeight;
+            } else {
+                stackRectOut.top += topMargin;
+            }
+        }
+    }
+
+    /**
      * @return True if we should use the grid layout.
      */
     boolean useGridLayout() {
@@ -164,11 +234,15 @@ public class TaskStackLayoutAlgorithm {
     }
 
     Context mContext;
+    private StackState mState = StackState.SPLIT;
     private TaskStackLayoutAlgorithmCallbacks mCb;
 
     // The task bounds (untransformed) for layout.  This rect is anchored at mTaskRoot.
     @ViewDebug.ExportedProperty(category="recents")
     public Rect mTaskRect = new Rect();
+    // The freeform workspace bounds, inset by the top system insets and is a fixed height
+    @ViewDebug.ExportedProperty(category="recents")
+    public Rect mFreeformRect = new Rect();
     // The stack bounds, inset from the top system insets, and runs to the bottom of the screen
     @ViewDebug.ExportedProperty(category="recents")
     public Rect mStackRect = new Rect();
@@ -193,6 +267,10 @@ public class TaskStackLayoutAlgorithm {
     @ViewDebug.ExportedProperty(category="recents")
     private int mBaseBottomMargin;
     private int mMinMargin;
+
+    // The gap between the freeform and stack layouts
+    @ViewDebug.ExportedProperty(category="recents")
+    private int mFreeformStackGap;
 
     // The initial offset that the focused task is from the top
     @ViewDebug.ExportedProperty(category="recents")
@@ -253,6 +331,8 @@ public class TaskStackLayoutAlgorithm {
     // The last computed task counts
     @ViewDebug.ExportedProperty(category="recents")
     int mNumStackTasks;
+    @ViewDebug.ExportedProperty(category="recents")
+    int mNumFreeformTasks;
 
     // The min/max z translations
     @ViewDebug.ExportedProperty(category="recents")
@@ -264,6 +344,8 @@ public class TaskStackLayoutAlgorithm {
     private SparseIntArray mTaskIndexMap = new SparseIntArray();
     private SparseArray<Float> mTaskIndexOverrideMap = new SparseArray<>();
 
+    // The freeform workspace layout
+    FreeformWorkspaceLayoutAlgorithm mFreeformLayoutAlgorithm;
     TaskGridLayoutAlgorithm mTaskGridLayoutAlgorithm;
     TaskStackLowRamLayoutAlgorithm mTaskStackLowRamLayoutAlgorithm;
 
@@ -274,6 +356,7 @@ public class TaskStackLayoutAlgorithm {
     public TaskStackLayoutAlgorithm(Context context, TaskStackLayoutAlgorithmCallbacks cb) {
         mContext = context;
         mCb = cb;
+        mFreeformLayoutAlgorithm = new FreeformWorkspaceLayoutAlgorithm(context);
         mTaskGridLayoutAlgorithm = new TaskGridLayoutAlgorithm(context);
         mTaskStackLowRamLayoutAlgorithm = new TaskStackLowRamLayoutAlgorithm(context);
         reloadOnConfigurationChange(context);
@@ -310,6 +393,7 @@ public class TaskStackLayoutAlgorithm {
                 R.dimen.recents_layout_initial_bottom_offset_tablet,
                 R.dimen.recents_layout_initial_bottom_offset_tablet,
                 R.dimen.recents_layout_initial_bottom_offset_tablet);
+        mFreeformLayoutAlgorithm.reloadOnConfigurationChange(context);
         mTaskGridLayoutAlgorithm.reloadOnConfigurationChange(context);
         mTaskStackLowRamLayoutAlgorithm.reloadOnConfigurationChange(context);
         mMinMargin = res.getDimensionPixelSize(R.dimen.recents_layout_min_margin);
@@ -324,6 +408,8 @@ public class TaskStackLayoutAlgorithm {
                 R.dimen.recents_layout_side_margin_tablet_xlarge,
                 R.dimen.recents_layout_side_margin_tablet);
         mBaseBottomMargin = res.getDimensionPixelSize(R.dimen.recents_layout_bottom_margin);
+        mFreeformStackGap =
+                res.getDimensionPixelSize(R.dimen.recents_freeform_layout_bottom_margin);
         mTitleBarHeight = getDimensionForDevice(mContext,
                 R.dimen.recents_task_view_header_height,
                 R.dimen.recents_task_view_header_height,
@@ -376,7 +462,8 @@ public class TaskStackLayoutAlgorithm {
      * Computes the stack and task rects.  The given task stack bounds already has the top/right
      * insets and left/right padding already applied.
      */
-    public void initialize(Rect displayRect, Rect windowRect, Rect taskStackBounds) {
+    public void initialize(Rect displayRect, Rect windowRect, Rect taskStackBounds,
+            StackState state) {
         Rect lastStackRect = new Rect(mStackRect);
 
         int topMargin = getScaleForExtent(windowRect, displayRect, mBaseTopMargin, mMinMargin, HEIGHT);
@@ -387,9 +474,10 @@ public class TaskStackLayoutAlgorithm {
         mInitialBottomOffset = mBaseInitialBottomOffset;
 
         // Compute the stack bounds
+        mState = state;
         mStackBottomOffset = mSystemInsets.bottom + bottomMargin;
-        mStackRect.set(taskStackBounds);
-        mStackRect.top += topMargin;
+        state.computeRects(mFreeformRect, mStackRect, taskStackBounds, topMargin,
+                mFreeformStackGap, mStackBottomOffset);
 
         // The stack action button will take the full un-padded header space above the stack
         mStackActionButtonRect.set(mStackRect.left, mStackRect.top - topMargin,
@@ -431,31 +519,37 @@ public class TaskStackLayoutAlgorithm {
      * in the stack.
      */
     public void update(TaskStack stack, ArraySet<Task.TaskKey> ignoreTasksSet,
-            RecentsActivityLaunchState launchState, float lastScrollPPercent) {
+            RecentsActivityLaunchState launchState) {
         SystemServicesProxy ssp = Recents.getSystemServices();
 
         // Clear the progress map
         mTaskIndexMap.clear();
 
         // Return early if we have no tasks
-        ArrayList<Task> tasks = stack.getTasks();
+        ArrayList<Task> tasks = stack.getStackTasks();
         if (tasks.isEmpty()) {
             mFrontMostTaskP = 0;
             mMinScrollP = mMaxScrollP = mInitialScrollP = 0;
-            mNumStackTasks = 0;
+            mNumStackTasks = mNumFreeformTasks = 0;
             return;
         }
 
-        // Filter the set of stack tasks
+        // Filter the set of freeform and stack tasks
+        ArrayList<Task> freeformTasks = new ArrayList<>();
         ArrayList<Task> stackTasks = new ArrayList<>();
         for (int i = 0; i < tasks.size(); i++) {
             Task task = tasks.get(i);
             if (ignoreTasksSet.contains(task.key)) {
                 continue;
             }
-            stackTasks.add(task);
+            if (task.isFreeformTask()) {
+                freeformTasks.add(task);
+            } else {
+                stackTasks.add(task);
+            }
         }
         mNumStackTasks = stackTasks.size();
+        mNumFreeformTasks = freeformTasks.size();
 
         // Put each of the tasks in the progress map at a fixed index (does not need to actually
         // map to a scroll position, just by index)
@@ -465,10 +559,15 @@ public class TaskStackLayoutAlgorithm {
             mTaskIndexMap.put(task.key.id, i);
         }
 
+        // Update the freeform tasks
+        if (!freeformTasks.isEmpty()) {
+            mFreeformLayoutAlgorithm.update(freeformTasks, this);
+        }
+
         // Calculate the min/max/initial scroll
         Task launchTask = stack.getLaunchTarget();
         int launchTaskIndex = launchTask != null
-                ? stack.indexOfTask(launchTask)
+                ? stack.indexOfStackTask(launchTask)
                 : mNumStackTasks - 1;
         if (getInitialFocusState() == STATE_FOCUSED) {
             int maxBottomOffset = mStackBottomOffset + mTaskRect.height();
@@ -483,7 +582,7 @@ public class TaskStackLayoutAlgorithm {
             } else {
                 mInitialScrollP = Utilities.clamp(launchTaskIndex - 1, mMinScrollP, mMaxScrollP);
             }
-        } else if (mNumStackTasks == 1) {
+        } else if (!ssp.hasFreeformWorkspaceSupport() && mNumStackTasks == 1) {
             // If there is one stack task, ignore the min/max/initial scroll positions
             mMinScrollP = 0;
             mMaxScrollP = 0;
@@ -504,10 +603,10 @@ public class TaskStackLayoutAlgorithm {
             boolean scrollToFront = launchState.launchedFromHome || launchState.launchedFromPipApp
                     || launchState.launchedWithNextPipApp || launchState.launchedViaDockGesture;
 
-            if (launchState.launchedWithAltTab) {
+            if (launchState.launchedFromBlacklistedApp) {
+                mInitialScrollP = mMaxScrollP;
+            } else if (launchState.launchedWithAltTab) {
                 mInitialScrollP = Utilities.clamp(launchTaskIndex, mMinScrollP, mMaxScrollP);
-            } else if (0 <= lastScrollPPercent && lastScrollPPercent <= 1) {
-                mInitialScrollP = Utilities.mapRange(lastScrollPPercent, mMinScrollP, mMaxScrollP);
             } else if (Recents.getConfiguration().isLowRamDevice) {
                 mInitialScrollP = mTaskStackLowRamLayoutAlgorithm.getInitialScrollP(mNumStackTasks,
                         scrollToFront);
@@ -534,6 +633,7 @@ public class TaskStackLayoutAlgorithm {
         boolean scrollToFront = launchState.launchedFromHome ||
                 launchState.launchedFromPipApp ||
                 launchState.launchedWithNextPipApp ||
+                launchState.launchedFromBlacklistedApp ||
                 launchState.launchedViaDockGesture;
         if (getInitialFocusState() == STATE_UNFOCUSED && mNumStackTasks > 1) {
             if (ignoreScrollToFront || (!launchState.launchedWithAltTab && !scrollToFront)) {
@@ -559,7 +659,7 @@ public class TaskStackLayoutAlgorithm {
                 }
 
                 mUnfocusedRange.offset(0f);
-                List<Task> tasks = stack.getTasks();
+                List<Task> tasks = stack.getStackTasks();
                 int taskCount = tasks.size();
                 for (int i = taskCount - 1; i >= 0; i--) {
                     int indexFromFront = taskCount - i - 1;
@@ -667,7 +767,7 @@ public class TaskStackLayoutAlgorithm {
     public int getInitialFocusState() {
         RecentsActivityLaunchState launchState = Recents.getConfiguration().getLaunchState();
         RecentsDebugFlags debugFlags = Recents.getDebugFlags();
-        if (launchState.launchedWithAltTab) {
+        if (debugFlags.isPagingEnabled() || launchState.launchedWithAltTab) {
             return STATE_FOCUSED;
         } else {
             return STATE_UNFOCUSED;
@@ -691,6 +791,13 @@ public class TaskStackLayoutAlgorithm {
      */
     public TaskViewTransform getFrontOfStackTransform() {
         return mFrontOfStackTransform;
+    }
+
+    /**
+     * Returns the current stack state.
+     */
+    public StackState getStackState() {
+        return mState;
     }
 
     /**
@@ -718,18 +825,29 @@ public class TaskStackLayoutAlgorithm {
             return new VisibilityReport(1, 1);
         }
 
+        // Quick return when there are no stack tasks
+        if (mNumStackTasks == 0) {
+            return new VisibilityReport(mNumFreeformTasks > 0 ? Math.max(mNumFreeformTasks, 1) : 0,
+                    mNumFreeformTasks > 0 ? Math.max(mNumFreeformTasks, 1) : 0);
+        }
+
         // Otherwise, walk backwards in the stack and count the number of tasks and visible
-        // thumbnails and add that to the total task count
+        // thumbnails and add that to the total freeform task count
         TaskViewTransform tmpTransform = new TaskViewTransform();
         Range currentRange = getInitialFocusState() > 0f ? mFocusedRange : mUnfocusedRange;
         currentRange.offset(mInitialScrollP);
         int taskBarHeight = mContext.getResources().getDimensionPixelSize(
                 R.dimen.recents_task_view_header_height);
-        int numVisibleTasks = 0;
-        int numVisibleThumbnails = 0;
+        int numVisibleTasks = mNumFreeformTasks > 0 ? Math.max(mNumFreeformTasks, 1) : 0;
+        int numVisibleThumbnails = mNumFreeformTasks > 0 ? Math.max(mNumFreeformTasks, 0) : 0;
         float prevScreenY = Integer.MAX_VALUE;
         for (int i = tasks.size() - 1; i >= 0; i--) {
             Task task = tasks.get(i);
+
+            // Skip freeform
+            if (task.isFreeformTask()) {
+                continue;
+            }
 
             // Skip invisible
             float taskProgress = getStackScrollForTask(task);
@@ -737,25 +855,32 @@ public class TaskStackLayoutAlgorithm {
                 continue;
             }
 
-            getStackTransform(taskProgress, taskProgress, mInitialScrollP, mFocusState,
-                    tmpTransform, null, false /* ignoreSingleTaskCase */, false /* forceUpdate */);
-            float screenY = tmpTransform.rect.top;
-            boolean hasVisibleThumbnail = (prevScreenY - screenY) > taskBarHeight;
-            if (hasVisibleThumbnail) {
-                numVisibleThumbnails++;
-                numVisibleTasks++;
-                prevScreenY = screenY;
-            } else {
-                // Once we hit the next front most task that does not have a visible thumbnail,
-                // walk through remaining visible set
-                for (int j = i; j >= 0; j--) {
-                    taskProgress = getStackScrollForTask(tasks.get(j));
-                    if (!currentRange.isInRange(taskProgress)) {
-                        break;
-                    }
+            boolean isFrontMostTaskInGroup = task.group == null || task.group.isFrontMostTask(task);
+            if (isFrontMostTaskInGroup) {
+                getStackTransform(taskProgress, taskProgress, mInitialScrollP, mFocusState,
+                        tmpTransform, null, false /* ignoreSingleTaskCase */,
+                        false /* forceUpdate */);
+                float screenY = tmpTransform.rect.top;
+                boolean hasVisibleThumbnail = (prevScreenY - screenY) > taskBarHeight;
+                if (hasVisibleThumbnail) {
+                    numVisibleThumbnails++;
                     numVisibleTasks++;
+                    prevScreenY = screenY;
+                } else {
+                    // Once we hit the next front most task that does not have a visible thumbnail,
+                    // walk through remaining visible set
+                    for (int j = i; j >= 0; j--) {
+                        taskProgress = getStackScrollForTask(tasks.get(j));
+                        if (!currentRange.isInRange(taskProgress)) {
+                            break;
+                        }
+                        numVisibleTasks++;
+                    }
+                    break;
                 }
-                break;
+            } else {
+                // Affiliated task, no thumbnail
+                numVisibleTasks++;
             }
         }
         return new VisibilityReport(numVisibleTasks, numVisibleThumbnails);
@@ -781,7 +906,10 @@ public class TaskStackLayoutAlgorithm {
     public TaskViewTransform getStackTransform(Task task, float stackScroll, int focusState,
             TaskViewTransform transformOut, TaskViewTransform frontTransform, boolean forceUpdate,
             boolean ignoreTaskOverrides) {
-        if (useGridLayout()) {
+        if (mFreeformLayoutAlgorithm.isTransformAvailable(task, this)) {
+            mFreeformLayoutAlgorithm.getTransform(task, transformOut, this);
+            return transformOut;
+        } else if (useGridLayout()) {
             int taskIndex = mTaskIndexMap.get(task.key.id);
             int taskCount = mTaskIndexMap.size();
             mTaskGridLayoutAlgorithm.getTransform(taskIndex, taskCount, transformOut, this);
@@ -896,7 +1024,7 @@ public class TaskStackLayoutAlgorithm {
         float z;
         float dimAlpha;
         float viewOutlineAlpha;
-        if (mNumStackTasks == 1 && !ignoreSingleTaskCase) {
+        if (!ssp.hasFreeformWorkspaceSupport() && mNumStackTasks == 1 && !ignoreSingleTaskCase) {
             // When there is exactly one task, then decouple the task from the stack and just move
             // in screen space
             float tmpP = (mMinScrollP - stackScroll) / mNumStackTasks;
@@ -1250,6 +1378,7 @@ public class TaskStackLayoutAlgorithm {
         writer.print("insets="); writer.print(Utilities.dumpRect(mSystemInsets));
         writer.print(" stack="); writer.print(Utilities.dumpRect(mStackRect));
         writer.print(" task="); writer.print(Utilities.dumpRect(mTaskRect));
+        writer.print(" freeform="); writer.print(Utilities.dumpRect(mFreeformRect));
         writer.print(" actionButton="); writer.print(Utilities.dumpRect(mStackActionButtonRect));
         writer.println();
 

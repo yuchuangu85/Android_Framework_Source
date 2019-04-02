@@ -34,11 +34,10 @@ import java.awt.Shape;
 import java.awt.Stroke;
 import java.awt.Toolkit;
 import java.awt.geom.AffineTransform;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 import libcore.util.NativeAllocationRegistry_Delegate;
 
@@ -56,32 +55,23 @@ import libcore.util.NativeAllocationRegistry_Delegate;
  *
  */
 public class Paint_Delegate {
-    private static final float DEFAULT_TEXT_SIZE = 20.f;
-    private static final float DEFAULT_TEXT_SCALE_X = 1.f;
-    private static final float DEFAULT_TEXT_SKEW_X = 0.f;
 
     /**
      * Class associating a {@link Font} and its {@link java.awt.FontMetrics}.
      */
     /*package*/ static final class FontInfo {
-        final Font mFont;
-        final java.awt.FontMetrics mMetrics;
-
-        FontInfo(@NonNull Font font, @NonNull java.awt.FontMetrics fontMetrics) {
-            this.mFont = font;
-            this.mMetrics = fontMetrics;
-        }
+        Font mFont;
+        java.awt.FontMetrics mMetrics;
     }
 
     // ---- delegate manager ----
     private static final DelegateManager<Paint_Delegate> sManager =
-            new DelegateManager<>(Paint_Delegate.class);
+            new DelegateManager<Paint_Delegate>(Paint_Delegate.class);
     private static long sFinalizer = -1;
 
     // ---- delegate helper data ----
 
     // This list can contain null elements.
-    @Nullable
     private List<FontInfo> mFonts;
 
     // ---- delegate data ----
@@ -110,8 +100,10 @@ public class Paint_Delegate {
     private PathEffect_Delegate mPathEffect;
     private MaskFilter_Delegate mMaskFilter;
 
-    @SuppressWarnings("FieldCanBeLocal") // Used to store the locale for future use
     private Locale mLocale = Locale.getDefault();
+
+    // Used only to assert invariants.
+    public long mNativeTypeface;
 
     // ---- Public Helper methods ----
 
@@ -123,32 +115,7 @@ public class Paint_Delegate {
     /**
      * Returns the list of {@link Font} objects.
      */
-    @NonNull
     public List<FontInfo> getFonts() {
-        Typeface_Delegate typeface = mTypeface;
-        if (typeface == null) {
-            if (Typeface.sDefaultTypeface == null) {
-                return Collections.emptyList();
-            }
-
-            typeface = Typeface_Delegate.getDelegate(Typeface.sDefaultTypeface.native_instance);
-        }
-
-        if (mFonts != null) {
-            return mFonts;
-        }
-
-        // Apply an optional transformation for skew and scale
-        AffineTransform affineTransform = mTextScaleX != 1.0 || mTextSkewX != 0 ?
-                new AffineTransform(mTextScaleX, mTextSkewX, 0, 1, 0, 0) :
-                null;
-
-        List<FontInfo> infoList = StreamSupport.stream(typeface.getFonts(mFontVariant).spliterator
-                (), false)
-                .map(font -> getFontInfo(font, mTextSize, affineTransform))
-                .collect(Collectors.toList());
-        mFonts = Collections.unmodifiableList(infoList);
-
         return mFonts;
     }
 
@@ -220,7 +187,6 @@ public class Paint_Delegate {
             if (mPathEffect.isSupported()) {
                 Stroke stroke = mPathEffect.getStroke(this);
                 assert stroke != null;
-                //noinspection ConstantConditions
                 if (stroke != null) {
                     return stroke;
                 }
@@ -517,7 +483,7 @@ public class Paint_Delegate {
 
         if (delegate.mTextSize != textSize) {
             delegate.mTextSize = textSize;
-            delegate.invalidateFonts();
+            delegate.updateFontObject();
         }
     }
 
@@ -542,7 +508,7 @@ public class Paint_Delegate {
 
         if (delegate.mTextScaleX != scaleX) {
             delegate.mTextScaleX = scaleX;
-            delegate.invalidateFonts();
+            delegate.updateFontObject();
         }
     }
 
@@ -567,21 +533,20 @@ public class Paint_Delegate {
 
         if (delegate.mTextSkewX != skewX) {
             delegate.mTextSkewX = skewX;
-            delegate.invalidateFonts();
+            delegate.updateFontObject();
         }
     }
 
     @LayoutlibDelegate
-    /*package*/ static float nAscent(long nativePaint) {
+    /*package*/ static float nAscent(long nativePaint, long nativeTypeface) {
         // get the delegate
         Paint_Delegate delegate = sManager.getDelegate(nativePaint);
         if (delegate == null) {
             return 0;
         }
 
-        List<FontInfo> fonts = delegate.getFonts();
-        if (fonts.size() > 0) {
-            java.awt.FontMetrics javaMetrics = fonts.get(0).mMetrics;
+        if (delegate.mFonts.size() > 0) {
+            java.awt.FontMetrics javaMetrics = delegate.mFonts.get(0).mMetrics;
             // Android expects negative ascent so we invert the value from Java.
             return - javaMetrics.getAscent();
         }
@@ -590,16 +555,15 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static float nDescent(long nativePaint) {
+    /*package*/ static float nDescent(long nativePaint, long nativeTypeface) {
         // get the delegate
         Paint_Delegate delegate = sManager.getDelegate(nativePaint);
         if (delegate == null) {
             return 0;
         }
 
-        List<FontInfo> fonts = delegate.getFonts();
-        if (fonts.size() > 0) {
-            java.awt.FontMetrics javaMetrics = fonts.get(0).mMetrics;
+        if (delegate.mFonts.size() > 0) {
+            java.awt.FontMetrics javaMetrics = delegate.mFonts.get(0).mMetrics;
             return javaMetrics.getDescent();
         }
 
@@ -608,7 +572,7 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static float nGetFontMetrics(long nativePaint,
+    /*package*/ static float nGetFontMetrics(long nativePaint, long nativeTypeface,
             FontMetrics metrics) {
         // get the delegate
         Paint_Delegate delegate = sManager.getDelegate(nativePaint);
@@ -620,16 +584,16 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static int nGetFontMetricsInt(long nativePaint, FontMetricsInt fmi) {
+    /*package*/ static int nGetFontMetricsInt(long nativePaint,
+            long nativeTypeface, FontMetricsInt fmi) {
         // get the delegate
         Paint_Delegate delegate = sManager.getDelegate(nativePaint);
         if (delegate == null) {
             return 0;
         }
 
-        List<FontInfo> fonts = delegate.getFonts();
-        if (fonts.size() > 0) {
-            java.awt.FontMetrics javaMetrics = fonts.get(0).mMetrics;
+        if (delegate.mFonts.size() > 0) {
+            java.awt.FontMetrics javaMetrics = delegate.mFonts.get(0).mMetrics;
             if (fmi != null) {
                 // Android expects negative ascent so we invert the value from Java.
                 fmi.top = (int)(- javaMetrics.getMaxAscent() * 1.15);
@@ -646,7 +610,7 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static int nBreakText(long nativePaint, char[] text,
+    /*package*/ static int nBreakText(long nativePaint, long nativeTypeface, char[] text,
             int index, int count, float maxWidth, int bidiFlags, float[] measuredWidth) {
 
         // get the delegate
@@ -688,9 +652,10 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static int nBreakText(long nativePaint, String text, boolean measureForwards,
+    /*package*/ static int nBreakText(long nativePaint, long nativeTypeface, String text,
+            boolean measureForwards,
             float maxWidth, int bidiFlags, float[] measuredWidth) {
-        return nBreakText(nativePaint, text.toCharArray(), 0, text.length(),
+        return nBreakText(nativePaint, nativeTypeface, text.toCharArray(), 0, text.length(),
                 maxWidth, bidiFlags, measuredWidth);
     }
 
@@ -906,18 +871,20 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nSetTypeface(long native_object, long typeface) {
+    /*package*/ static long nSetTypeface(long native_object, long typeface) {
         // get the delegate from the native int.
         Paint_Delegate delegate = sManager.getDelegate(native_object);
         if (delegate == null) {
-            return;
+            return 0;
         }
 
         Typeface_Delegate typefaceDelegate = Typeface_Delegate.getDelegate(typeface);
-        if (delegate.mTypeface != typefaceDelegate) {
-            delegate.mTypeface = typefaceDelegate;
-            delegate.invalidateFonts();
+        if (delegate.mTypeface != typefaceDelegate || delegate.mNativeTypeface != typeface) {
+            delegate.mTypeface = Typeface_Delegate.getDelegate(typeface);
+            delegate.mNativeTypeface = typeface;
+            delegate.updateFontObject();
         }
+        return typeface;
     }
 
     @LayoutlibDelegate
@@ -955,14 +922,14 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nSetTextLocalesByMinikinLocaleListId(long paintPtr,
+    /*package*/ static void nSetTextLocalesByMinikinLangListId(long paintPtr,
             int mMinikinLangListId) {
         // FIXME
     }
 
     @LayoutlibDelegate
-    /*package*/ static float nGetTextAdvances(long native_object, char[] text, int index,
-            int count, int contextIndex, int contextCount,
+    /*package*/ static float nGetTextAdvances(long native_object, long native_typeface,
+            char[] text, int index, int count, int contextIndex, int contextCount,
             int bidiFlags, float[] advances, int advancesIndex) {
 
         if (advances != null)
@@ -974,25 +941,32 @@ public class Paint_Delegate {
             return 0.f;
         }
 
+        // native_typeface is passed here since Framework's old implementation did not have the
+        // typeface object associated with the Paint. Since, we follow the new framework way,
+        // we store the typeface with the paint and use it directly.
+        assert (native_typeface == delegate.mNativeTypeface);
+
         RectF bounds = delegate.measureText(text, index, count, advances, advancesIndex, bidiFlags);
         return bounds.right - bounds.left;
     }
 
     @LayoutlibDelegate
-    /*package*/ static float nGetTextAdvances(long native_object, String text, int start, int end,
-            int contextStart, int contextEnd, int bidiFlags, float[] advances, int advancesIndex) {
+    /*package*/ static float nGetTextAdvances(long native_object, long native_typeface,
+            String text, int start, int end, int contextStart, int contextEnd,
+            int bidiFlags, float[] advances, int advancesIndex) {
         // FIXME: support contextStart and contextEnd
         int count = end - start;
         char[] buffer = TemporaryBuffer.obtain(count);
         TextUtils.getChars(text, start, end, buffer, 0);
 
-        return nGetTextAdvances(native_object, buffer, 0, count,
+        return nGetTextAdvances(native_object, native_typeface, buffer, 0, count,
                 contextStart, contextEnd - contextStart, bidiFlags, advances, advancesIndex);
     }
 
     @LayoutlibDelegate
-    /*package*/ static int nGetTextRunCursor(Paint paint, long native_object, char[] text,
-            int contextStart, int contextLength, int flags, int offset, int cursorOpt) {
+    /*package*/ static int nGetTextRunCursor(Paint paint, long native_object, long typefacePtr,
+            char[] text, int contextStart, int contextLength, int flags, int offset,
+            int cursorOpt) {
         // FIXME
         Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
                 "Paint.getTextRunCursor is not supported.", null, null /*data*/);
@@ -1000,8 +974,8 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static int nGetTextRunCursor(Paint paint, long native_object, String text,
-            int contextStart, int contextEnd, int flags, int offset, int cursorOpt) {
+    /*package*/ static int nGetTextRunCursor(Paint paint, long native_object, long typefacePtr,
+            String text, int contextStart, int contextEnd, int flags, int offset, int cursorOpt) {
         // FIXME
         Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
                 "Paint.getTextRunCursor is not supported.", null, null /*data*/);
@@ -1009,37 +983,40 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nGetTextPath(long native_object, int bidiFlags, char[] text,
-            int index, int count, float x, float y, long path) {
+    /*package*/ static void nGetTextPath(long native_object, long native_typeface,
+            int bidiFlags, char[] text, int index, int count, float x, float y, long path) {
         // FIXME
         Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
                 "Paint.getTextPath is not supported.", null, null /*data*/);
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nGetTextPath(long native_object, int bidiFlags, String text, int start,
-            int end, float x, float y, long path) {
+    /*package*/ static void nGetTextPath(long native_object, long native_typeface,
+            int bidiFlags, String text, int start, int end, float x, float y, long path) {
         // FIXME
         Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
                 "Paint.getTextPath is not supported.", null, null /*data*/);
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nGetStringBounds(long nativePaint, String text, int start, int end,
-            int bidiFlags, Rect bounds) {
-        nGetCharArrayBounds(nativePaint, text.toCharArray(), start,
+    /*package*/ static void nGetStringBounds(long nativePaint, long native_typeface,
+            String text, int start, int end, int bidiFlags, Rect bounds) {
+        nGetCharArrayBounds(nativePaint, native_typeface, text.toCharArray(), start,
                 end - start, bidiFlags, bounds);
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nGetCharArrayBounds(long nativePaint, char[] text, int index,
-            int count, int bidiFlags, Rect bounds) {
+    /*package*/ static void nGetCharArrayBounds(long nativePaint, long native_typeface,
+            char[] text, int index, int count, int bidiFlags, Rect bounds) {
 
         // get the delegate from the native int.
         Paint_Delegate delegate = sManager.getDelegate(nativePaint);
         if (delegate == null) {
             return;
         }
+
+        // assert that the typeface passed is actually the one that we had stored.
+        assert (native_typeface == delegate.mNativeTypeface);
 
         delegate.measureText(text, index, count, null, 0, bidiFlags).roundOut(bounds);
     }
@@ -1118,7 +1095,8 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static boolean nHasGlyph(long nativePaint, int bidiFlags, String string) {
+    /*package*/ static boolean nHasGlyph(long nativePaint, long nativeTypeface, int bidiFlags,
+            String string) {
         Paint_Delegate delegate = sManager.getDelegate(nativePaint);
         if (delegate == null) {
             return false;
@@ -1131,9 +1109,11 @@ public class Paint_Delegate {
                     "Paint.hasGlyph() is not supported for ligatures.", null, null);
             return false;
         }
+        assert nativeTypeface == delegate.mNativeTypeface;
+        Typeface_Delegate typeface_delegate = Typeface_Delegate.getDelegate(nativeTypeface);
 
         char c = string.charAt(0);
-        for (Font font : delegate.mTypeface.getFonts(delegate.mFontVariant)) {
+        for (Font font : typeface_delegate.getFonts(delegate.mFontVariant)) {
             if (font.canDisplay(c)) {
                 return true;
             }
@@ -1143,14 +1123,14 @@ public class Paint_Delegate {
 
 
     @LayoutlibDelegate
-    /*package*/ static float nGetRunAdvance(long nativePaint, @NonNull char[] text, int start,
-            int end, int contextStart, int contextEnd,
+    /*package*/ static float nGetRunAdvance(long nativePaint, long nativeTypeface,
+            @NonNull char[] text, int start, int end, int contextStart, int contextEnd,
             boolean isRtl, int offset) {
         int count = end - start;
         float[] advances = new float[count];
         int bidiFlags = isRtl ? Paint.BIDI_FORCE_RTL : Paint.BIDI_FORCE_LTR;
-        nGetTextAdvances(nativePaint, text, start, count, contextStart,
-                contextEnd - contextStart, bidiFlags, advances, 0);
+        nGetTextAdvances(nativePaint, nativeTypeface, text, start, count,
+                contextStart, contextEnd - contextStart, bidiFlags, advances, 0);
         int startOffset = offset - start;  // offset from start.
         float sum = 0;
         for (int i = 0; i < startOffset; i++) {
@@ -1160,13 +1140,14 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static int nGetOffsetForAdvance(long nativePaint, char[] text, int start,
-            int end, int contextStart, int contextEnd, boolean isRtl, float advance) {
+    /*package*/ static int nGetOffsetForAdvance(long nativePaint, long nativeTypeface,
+            char[] text, int start, int end, int contextStart, int contextEnd, boolean isRtl,
+            float advance) {
         int count = end - start;
         float[] advances = new float[count];
         int bidiFlags = isRtl ? Paint.BIDI_FORCE_RTL : Paint.BIDI_FORCE_LTR;
-        nGetTextAdvances(nativePaint, text, start, count, contextStart,
-                contextEnd - contextStart, bidiFlags, advances, 0);
+        nGetTextAdvances(nativePaint, nativeTypeface, text, start, count,
+                contextStart, contextEnd - contextStart, bidiFlags, advances, 0);
         float sum = 0;
         int i;
         for (i = 0; i < count && sum < advance; i++) {
@@ -1178,28 +1159,23 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static float nGetUnderlinePosition(long paintPtr) {
+    /*package*/ static float nGetUnderlinePosition(long paintPtr, long typefacePtr) {
         return (1.0f / 9.0f) * nGetTextSize(paintPtr);
     }
 
     @LayoutlibDelegate
-    /*package*/ static float nGetUnderlineThickness(long paintPtr) {
+    /*package*/ static float nGetUnderlineThickness(long paintPtr, long typefacePtr) {
         return (1.0f / 18.0f) * nGetTextSize(paintPtr);
     }
 
     @LayoutlibDelegate
-    /*package*/ static float nGetStrikeThruPosition(long paintPtr) {
+    /*package*/ static float nGetStrikeThruPosition(long paintPtr, long typefacePtr) {
         return (-79.0f / 252.0f) * nGetTextSize(paintPtr);
     }
 
     @LayoutlibDelegate
-    /*package*/ static float nGetStrikeThruThickness(long paintPtr) {
+    /*package*/ static float nGetStrikeThruThickness(long paintPtr, long typefacePtr) {
         return (1.0f / 18.0f) * nGetTextSize(paintPtr);
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static boolean nEqualsForTextMeasurement(long leftPaintPtr, long rightPaintPtr) {
-        return leftPaintPtr == rightPaintPtr;
     }
 
     // ---- Private delegate/helper methods ----
@@ -1220,24 +1196,26 @@ public class Paint_Delegate {
         mJoin = paint.mJoin;
         mTextAlign = paint.mTextAlign;
 
-        if (mTypeface != paint.mTypeface) {
+        boolean needsFontUpdate = false;
+        if (mTypeface != paint.mTypeface || mNativeTypeface != paint.mNativeTypeface) {
             mTypeface = paint.mTypeface;
-            invalidateFonts();
+            mNativeTypeface = paint.mNativeTypeface;
+            needsFontUpdate = true;
         }
 
         if (mTextSize != paint.mTextSize) {
             mTextSize = paint.mTextSize;
-            invalidateFonts();
+            needsFontUpdate = true;
         }
 
         if (mTextScaleX != paint.mTextScaleX) {
             mTextScaleX = paint.mTextScaleX;
-            invalidateFonts();
+            needsFontUpdate = true;
         }
 
         if (mTextSkewX != paint.mTextSkewX) {
             mTextSkewX = paint.mTextSkewX;
-            invalidateFonts();
+            needsFontUpdate = true;
         }
 
         mStrokeWidth = paint.mStrokeWidth;
@@ -1248,70 +1226,77 @@ public class Paint_Delegate {
         mPathEffect = paint.mPathEffect;
         mMaskFilter = paint.mMaskFilter;
         mHintingMode = paint.mHintingMode;
+
+        if (needsFontUpdate) {
+            updateFontObject();
+        }
     }
 
     private void reset() {
-        Typeface_Delegate defaultTypeface =
-                Typeface_Delegate.getDelegate(Typeface.sDefaults[0].native_instance);
-
         mFlags = Paint.HIDDEN_DEFAULT_PAINT_FLAGS;
         mColor = 0xFF000000;
         mStyle = Paint.Style.FILL.nativeInt;
         mCap = Paint.Cap.BUTT.nativeInt;
         mJoin = Paint.Join.MITER.nativeInt;
         mTextAlign = 0;
-
-        if (mTypeface != defaultTypeface) {
-            mTypeface = defaultTypeface;
-            invalidateFonts();
-        }
-
+        mTypeface = Typeface_Delegate.getDelegate(Typeface.sDefaults[0].native_instance);
+        mNativeTypeface = 0;
         mStrokeWidth = 1.f;
         mStrokeMiter = 4.f;
-
-        if (mTextSize != DEFAULT_TEXT_SIZE) {
-            mTextSize = DEFAULT_TEXT_SIZE;
-            invalidateFonts();
-        }
-
-        if (mTextScaleX != DEFAULT_TEXT_SCALE_X) {
-            mTextScaleX = DEFAULT_TEXT_SCALE_X;
-            invalidateFonts();
-        }
-
-        if (mTextSkewX != DEFAULT_TEXT_SKEW_X) {
-            mTextSkewX = DEFAULT_TEXT_SKEW_X;
-            invalidateFonts();
-        }
-
+        mTextSize = 20.f;
+        mTextScaleX = 1.f;
+        mTextSkewX = 0.f;
         mPorterDuffMode = Xfermode.DEFAULT;
         mColorFilter = null;
         mShader = null;
         mPathEffect = null;
         mMaskFilter = null;
+        updateFontObject();
         mHintingMode = Paint.HINTING_ON;
     }
 
-    private void invalidateFonts() {
-        mFonts = null;
-    }
+    /**
+     * Update the {@link Font} object from the typeface, text size and scaling
+     */
+    @SuppressWarnings("deprecation")
+    private void updateFontObject() {
+        if (mTypeface != null) {
+            // Get the fonts from the TypeFace object.
+            List<Font> fonts = mTypeface.getFonts(mFontVariant);
 
-    @Nullable
-    private static FontInfo getFontInfo(@Nullable Font font, float textSize,
-            @Nullable AffineTransform transform) {
-        if (font == null) {
-            return null;
+            if (fonts.isEmpty()) {
+                mFonts = Collections.emptyList();
+                return;
+            }
+
+            // create new font objects as well as FontMetrics, based on the current text size
+            // and skew info.
+            int nFonts = fonts.size();
+            ArrayList<FontInfo> infoList = new ArrayList<FontInfo>(nFonts);
+            //noinspection ForLoopReplaceableByForEach (avoid iterator instantiation)
+            for (int i = 0; i < nFonts; i++) {
+                Font font = fonts.get(i);
+                if (font == null) {
+                    // If the font is null, add null to infoList. When rendering the text, if this
+                    // null is reached, a warning will be logged.
+                    infoList.add(null);
+                    continue;
+                }
+                FontInfo info = new FontInfo();
+                info.mFont = font.deriveFont(mTextSize);
+                if (mTextScaleX != 1.0 || mTextSkewX != 0) {
+                    // TODO: support skew
+                    info.mFont = info.mFont.deriveFont(new AffineTransform(
+                            mTextScaleX, mTextSkewX, 0, 1, 0, 0));
+                }
+                // The metrics here don't have anti-aliasing set.
+                info.mMetrics = Toolkit.getDefaultToolkit().getFontMetrics(info.mFont);
+
+                infoList.add(info);
+            }
+
+            mFonts = Collections.unmodifiableList(infoList);
         }
-
-        Font transformedFont = font.deriveFont(textSize);
-        if (transform != null) {
-            // TODO: support skew
-            transformedFont = transformedFont.deriveFont(transform);
-        }
-
-        // The metrics here don't have anti-aliasing set.
-        return new FontInfo(transformedFont,
-                Toolkit.getDefaultToolkit().getFontMetrics(transformedFont));
     }
 
     /*package*/ RectF measureText(char[] text, int index, int count, float[] advances,
@@ -1327,9 +1312,8 @@ public class Paint_Delegate {
     }
 
     private float getFontMetrics(FontMetrics metrics) {
-        List<FontInfo> fonts = getFonts();
-        if (fonts.size() > 0) {
-            java.awt.FontMetrics javaMetrics = fonts.get(0).mMetrics;
+        if (mFonts.size() > 0) {
+            java.awt.FontMetrics javaMetrics = mFonts.get(0).mMetrics;
             if (metrics != null) {
                 // Android expects negative ascent so we invert the value from Java.
                 metrics.top = - javaMetrics.getMaxAscent();

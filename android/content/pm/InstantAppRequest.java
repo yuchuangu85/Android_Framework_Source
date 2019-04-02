@@ -18,14 +18,12 @@ package android.content.pm;
 
 import android.content.Intent;
 import android.os.Bundle;
-import android.text.TextUtils;
 
 /**
  * Information needed to make an instant application resolution request.
  * @hide
  */
 public final class InstantAppRequest {
-
     /** Response from the first phase of instant application resolution */
     public final AuxiliaryResolveInfo responseObj;
     /** The original intent that triggered instant application resolution */
@@ -42,8 +40,6 @@ public final class InstantAppRequest {
     public final Bundle verificationBundle;
     /** Whether resolution occurs because an application is starting */
     public final boolean resolveForStart;
-    /** The instant app digest for this request */
-    public final InstantAppResolveInfo.InstantAppDigest digest;
 
     public InstantAppRequest(AuxiliaryResolveInfo responseObj, Intent origIntent,
             String resolvedType, String callingPackage, int userId, Bundle verificationBundle,
@@ -55,11 +51,5 @@ public final class InstantAppRequest {
         this.userId = userId;
         this.verificationBundle = verificationBundle;
         this.resolveForStart = resolveForStart;
-        if (origIntent.getData() != null && !TextUtils.isEmpty(origIntent.getData().getHost())) {
-            digest = new InstantAppResolveInfo.InstantAppDigest(
-                    origIntent.getData().getHost(), 5 /*maxDigests*/);
-        } else {
-            digest = InstantAppResolveInfo.InstantAppDigest.UNDEFINED;
-        }
     }
 }

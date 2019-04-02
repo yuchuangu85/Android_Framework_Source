@@ -34,8 +34,6 @@ public class UserPackage {
     private final UserInfo mUserInfo;
     private final PackageInfo mPackageInfo;
 
-    public static final int MINIMUM_SUPPORTED_SDK = Build.VERSION_CODES.P;
-
     public UserPackage(UserInfo user, PackageInfo packageInfo) {
         this.mUserInfo = user;
         this.mPackageInfo = packageInfo;
@@ -71,7 +69,7 @@ public class UserPackage {
     }
 
     /**
-     * Return {@code true} if the package is installed and not hidden
+     * Return true if the package is installed and not hidden
      */
     public boolean isInstalledPackage() {
         if (mPackageInfo == null) return false;
@@ -85,7 +83,7 @@ public class UserPackage {
      * supported by the current framework version.
      */
     public static boolean hasCorrectTargetSdkVersion(PackageInfo packageInfo) {
-        return packageInfo.applicationInfo.targetSdkVersion >= MINIMUM_SUPPORTED_SDK;
+        return packageInfo.applicationInfo.targetSdkVersion >= Build.VERSION_CODES.O_MR1;
     }
 
     public UserInfo getUserInfo() {

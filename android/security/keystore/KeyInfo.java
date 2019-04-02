@@ -80,9 +80,7 @@ public class KeyInfo implements KeySpec {
     private final int mUserAuthenticationValidityDurationSeconds;
     private final boolean mUserAuthenticationRequirementEnforcedBySecureHardware;
     private final boolean mUserAuthenticationValidWhileOnBody;
-    private final boolean mTrustedUserPresenceRequired;
     private final boolean mInvalidatedByBiometricEnrollment;
-    private final boolean mUserConfirmationRequired;
 
     /**
      * @hide
@@ -103,9 +101,7 @@ public class KeyInfo implements KeySpec {
             int userAuthenticationValidityDurationSeconds,
             boolean userAuthenticationRequirementEnforcedBySecureHardware,
             boolean userAuthenticationValidWhileOnBody,
-            boolean trustedUserPresenceRequired,
-            boolean invalidatedByBiometricEnrollment,
-            boolean userConfirmationRequired) {
+            boolean invalidatedByBiometricEnrollment) {
         mKeystoreAlias = keystoreKeyAlias;
         mInsideSecureHardware = insideSecureHardware;
         mOrigin = origin;
@@ -125,9 +121,7 @@ public class KeyInfo implements KeySpec {
         mUserAuthenticationRequirementEnforcedBySecureHardware =
                 userAuthenticationRequirementEnforcedBySecureHardware;
         mUserAuthenticationValidWhileOnBody = userAuthenticationValidWhileOnBody;
-        mTrustedUserPresenceRequired = trustedUserPresenceRequired;
         mInvalidatedByBiometricEnrollment = invalidatedByBiometricEnrollment;
-        mUserConfirmationRequired = userConfirmationRequired;
     }
 
     /**
@@ -263,27 +257,6 @@ public class KeyInfo implements KeySpec {
     }
 
     /**
-     * Returns {@code true} if the key is authorized to be used only for messages confirmed by the
-     * user.
-     *
-     * Confirmation is separate from user authentication (see
-     * {@link #isUserAuthenticationRequired()}). Keys can be created that require confirmation but
-     * not user authentication, or user authentication but not confirmation, or both. Confirmation
-     * verifies that some user with physical possession of the device has approved a displayed
-     * message. User authentication verifies that the correct user is present and has
-     * authenticated.
-     *
-     * <p>This authorization applies only to secret key and private key operations. Public key
-     * operations are not restricted.
-     *
-     * @see KeyGenParameterSpec.Builder#setUserConfirmationRequired(boolean)
-     * @see KeyProtection.Builder#setUserConfirmationRequired(boolean)
-     */
-    public boolean isUserConfirmationRequired() {
-        return mUserConfirmationRequired;
-    }
-
-    /**
      * Gets the duration of time (seconds) for which this key is authorized to be used after the
      * user is successfully authenticated. This has effect only if user authentication is required
      * (see {@link #isUserAuthenticationRequired()}).
@@ -327,13 +300,5 @@ public class KeyInfo implements KeySpec {
      */
     public boolean isInvalidatedByBiometricEnrollment() {
         return mInvalidatedByBiometricEnrollment;
-    }
-
-    /**
-     * Returns {@code true} if the key can only be only be used if a test for user presence has
-     * succeeded since Signature.initSign() has been called.
-     */
-    public boolean isTrustedUserPresenceRequired() {
-        return mTrustedUserPresenceRequired;
     }
 }

@@ -15,11 +15,12 @@
  */
 package com.android.internal.os;
 
-import android.system.Os;
 import android.text.TextUtils;
 import android.os.StrictMode;
 import android.system.OsConstants;
 import android.util.Slog;
+
+import libcore.io.Libcore;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -38,7 +39,6 @@ public class KernelCpuSpeedReader {
     private static final String TAG = "KernelCpuSpeedReader";
 
     private final String mProcFile;
-    private final int mNumSpeedSteps;
     private final long[] mLastSpeedTimesMs;
     private final long[] mDeltaSpeedTimesMs;
 
@@ -51,10 +51,9 @@ public class KernelCpuSpeedReader {
     public KernelCpuSpeedReader(int cpuNumber, int numSpeedSteps) {
         mProcFile = String.format("/sys/devices/system/cpu/cpu%d/cpufreq/stats/time_in_state",
                 cpuNumber);
-        mNumSpeedSteps = numSpeedSteps;
         mLastSpeedTimesMs = new long[numSpeedSteps];
         mDeltaSpeedTimesMs = new long[numSpeedSteps];
-        long jiffyHz = Os.sysconf(OsConstants._SC_CLK_TCK);
+        long jiffyHz = Libcore.os.sysconf(OsConstants._SC_CLK_TCK);
         mJiffyMillis = 1000/jiffyHz;
     }
 
@@ -91,32 +90,5 @@ public class KernelCpuSpeedReader {
             StrictMode.setThreadPolicy(policy);
         }
         return mDeltaSpeedTimesMs;
-    }
-
-    /**
-     * @return The time (in milliseconds) spent at different cpu speeds. The values should be
-     * monotonically increasing, unless the cpu was hotplugged.
-     */
-    public long[] readAbsolute() {
-        StrictMode.ThreadPolicy policy = StrictMode.allowThreadDiskReads();
-        long[] speedTimeMs = new long[mNumSpeedSteps];
-        try (BufferedReader reader = new BufferedReader(new FileReader(mProcFile))) {
-            TextUtils.SimpleStringSplitter splitter = new TextUtils.SimpleStringSplitter(' ');
-            String line;
-            int speedIndex = 0;
-            while (speedIndex < mNumSpeedSteps && (line = reader.readLine()) != null) {
-                splitter.setString(line);
-                splitter.next();
-                long time = Long.parseLong(splitter.next()) * mJiffyMillis;
-                speedTimeMs[speedIndex] = time;
-                speedIndex++;
-            }
-        } catch (IOException e) {
-            Slog.e(TAG, "Failed to read cpu-freq: " + e.getMessage());
-            Arrays.fill(speedTimeMs, 0);
-        } finally {
-            StrictMode.setThreadPolicy(policy);
-        }
-        return speedTimeMs;
     }
 }

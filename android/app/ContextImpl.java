@@ -16,10 +16,8 @@
 
 package android.app;
 
-import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.TestApi;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.ContentProvider;
@@ -61,10 +59,11 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.Process;
 import android.os.RemoteException;
+import android.os.ServiceManager;
 import android.os.Trace;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.os.storage.StorageManager;
+import android.os.storage.IStorageManager;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -89,12 +88,9 @@ import java.io.FileOutputStream;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Objects;
-import java.util.concurrent.Executor;
 
 class ReceiverRestrictedContext extends ContextWrapper {
     ReceiverRestrictedContext(Context base) {
@@ -168,7 +164,7 @@ class ContextImpl extends Context {
 
     private final @Nullable IBinder mActivityToken;
 
-    private final @NonNull UserHandle mUser;
+    private final @Nullable UserHandle mUser;
 
     private final ApplicationContentResolver mContentResolver;
 
@@ -191,7 +187,6 @@ class ContextImpl extends Context {
     private @Nullable String mSplitName = null;
 
     private AutofillClient mAutofillClient = null;
-    private boolean mIsAutofillCompatEnabled;
 
     private final Object mSync = new Object();
 
@@ -210,28 +205,6 @@ class ContextImpl extends Context {
 
     // The system service cache for the system services that are cached per-ContextImpl.
     final Object[] mServiceCache = SystemServiceRegistry.createServiceCache();
-
-    static final int STATE_UNINITIALIZED = 0;
-    static final int STATE_INITIALIZING = 1;
-    static final int STATE_READY = 2;
-    static final int STATE_NOT_FOUND = 3;
-
-    /** @hide */
-    @IntDef(prefix = { "STATE_" }, value = {
-            STATE_UNINITIALIZED,
-            STATE_INITIALIZING,
-            STATE_READY,
-            STATE_NOT_FOUND,
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    @interface ServiceInitializationState {}
-
-    /**
-     * Initialization state for each service. Any of {@link #STATE_UNINITIALIZED},
-     * {@link #STATE_INITIALIZING} or {@link #STATE_READY},
-     */
-    @ServiceInitializationState
-    final int[] mServiceInitializationStateArray = new int[mServiceCache.length];
 
     static ContextImpl getImpl(Context context) {
         Context nextContext;
@@ -275,11 +248,6 @@ class ContextImpl extends Context {
     @Override
     public Looper getMainLooper() {
         return mMainThread.getLooper();
-    }
-
-    @Override
-    public Executor getMainExecutor() {
-        return mMainThread.getExecutor();
     }
 
     @Override
@@ -435,7 +403,6 @@ class ContextImpl extends Context {
         return sp;
     }
 
-    @GuardedBy("ContextImpl.class")
     private ArrayMap<File, SharedPreferencesImpl> getSharedPreferencesCacheLocked() {
         if (sSharedPrefsCache == null) {
             sSharedPrefsCache = new ArrayMap<>();
@@ -900,19 +867,13 @@ class ContextImpl extends Context {
 
         // Calling start activity from outside an activity without FLAG_ACTIVITY_NEW_TASK is
         // generally not allowed, except if the caller specifies the task id the activity should
-        // be launched in. A bug was existed between N and O-MR1 which allowed this to work. We
-        // maintain this for backwards compatibility.
-        final int targetSdkVersion = getApplicationInfo().targetSdkVersion;
-
-        if ((intent.getFlags() & Intent.FLAG_ACTIVITY_NEW_TASK) == 0
-                && (targetSdkVersion < Build.VERSION_CODES.N
-                        || targetSdkVersion >= Build.VERSION_CODES.P)
-                && (options == null
-                        || ActivityOptions.fromBundle(options).getLaunchTaskId() == -1)) {
+        // be launched in.
+        if ((intent.getFlags()&Intent.FLAG_ACTIVITY_NEW_TASK) == 0
+                && options != null && ActivityOptions.fromBundle(options).getLaunchTaskId() == -1) {
             throw new AndroidRuntimeException(
                     "Calling startActivity() from outside of an Activity "
-                            + " context requires the FLAG_ACTIVITY_NEW_TASK flag."
-                            + " Is this really what you want?");
+                    + " context requires the FLAG_ACTIVITY_NEW_TASK flag."
+                    + " Is this really what you want?");
         }
         mMainThread.getInstrumentation().execStartActivity(
                 getOuterContext(), mMainThread.getApplicationThread(), null,
@@ -941,14 +902,14 @@ class ContextImpl extends Context {
 
     /** @hide */
     @Override
-    public int startActivitiesAsUser(Intent[] intents, Bundle options, UserHandle userHandle) {
+    public void startActivitiesAsUser(Intent[] intents, Bundle options, UserHandle userHandle) {
         if ((intents[0].getFlags()&Intent.FLAG_ACTIVITY_NEW_TASK) == 0) {
             throw new AndroidRuntimeException(
                     "Calling startActivities() from outside of an Activity "
                     + " context requires the FLAG_ACTIVITY_NEW_TASK flag on first Intent."
                     + " Is this really what you want?");
         }
-        return mMainThread.getInstrumentation().execStartActivitiesAsUser(
+        mMainThread.getInstrumentation().execStartActivitiesAsUser(
                 getOuterContext(), mMainThread.getApplicationThread(), null,
                 (Activity) null, intents, options, userHandle.getIdentifier());
     }
@@ -1042,22 +1003,6 @@ class ContextImpl extends Context {
                     mMainThread.getApplicationThread(), intent, resolvedType, null,
                     Activity.RESULT_OK, null, null, receiverPermissions, AppOpsManager.OP_NONE,
                     null, false, false, getUserId());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    @Override
-    public void sendBroadcastAsUserMultiplePermissions(Intent intent, UserHandle user,
-            String[] receiverPermissions) {
-        warnIfCallingFromSystemProcess();
-        String resolvedType = intent.resolveTypeIfNeeded(getContentResolver());
-        try {
-            intent.prepareToLeaveProcess(this);
-            ActivityManager.getService().broadcastIntent(
-                    mMainThread.getApplicationThread(), intent, resolvedType, null,
-                    Activity.RESULT_OK, null, null, receiverPermissions, AppOpsManager.OP_NONE,
-                    null, false, false, user.getIdentifier());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -1609,7 +1554,8 @@ class ContextImpl extends Context {
     public boolean bindService(Intent service, ServiceConnection conn,
             int flags) {
         warnIfCallingFromSystemProcess();
-        return bindServiceCommon(service, conn, flags, mMainThread.getHandler(), getUser());
+        return bindServiceCommon(service, conn, flags, mMainThread.getHandler(),
+                Process.myUserHandle());
     }
 
     /** @hide */
@@ -1742,9 +1688,6 @@ class ContextImpl extends Context {
                 Slog.w(TAG, "Missing ActivityManager; assuming " + uid + " holds " + permission);
                 return PackageManager.PERMISSION_GRANTED;
             }
-            Slog.w(TAG, "Missing ActivityManager; assuming " + uid + " does not hold "
-                    + permission);
-            return PackageManager.PERMISSION_DENIED;
         }
 
         try {
@@ -2084,7 +2027,8 @@ class ContextImpl extends Context {
     @Override
     public Context createPackageContext(String packageName, int flags)
             throws NameNotFoundException {
-        return createPackageContextAsUser(packageName, flags, mUser);
+        return createPackageContextAsUser(packageName, flags,
+                mUser != null ? mUser : Process.myUserHandle());
     }
 
     @Override
@@ -2280,12 +2224,6 @@ class ContextImpl extends Context {
 
     /** {@hide} */
     @Override
-    public UserHandle getUser() {
-        return mUser;
-    }
-
-    /** {@hide} */
-    @Override
     public int getUserId() {
         return mUser.getIdentifier();
     }
@@ -2300,19 +2238,6 @@ class ContextImpl extends Context {
     @Override
     public void setAutofillClient(AutofillClient client) {
         mAutofillClient = client;
-    }
-
-    /** @hide */
-    @Override
-    public boolean isAutofillCompatibilityEnabled() {
-        return mIsAutofillCompatEnabled;
-    }
-
-    /** @hide */
-    @TestApi
-    @Override
-    public void setAutofillCompatibilityEnabled(boolean autofillCompatEnabled) {
-        mIsAutofillCompatEnabled = autofillCompatEnabled;
     }
 
     static ContextImpl createSystemContext(ActivityThread mainThread) {
@@ -2446,7 +2371,7 @@ class ContextImpl extends Context {
             }
         }
 
-        mContentResolver = new ApplicationContentResolver(this, mainThread);
+        mContentResolver = new ApplicationContentResolver(this, mainThread, user);
     }
 
     void setResources(Resources r) {
@@ -2532,8 +2457,7 @@ class ContextImpl extends Context {
      * unable to create, they are filtered by replacing with {@code null}.
      */
     private File[] ensureExternalDirsExistOrFilter(File[] dirs) {
-        final StorageManager sm = getSystemService(StorageManager.class);
-        final File[] result = new File[dirs.length];
+        File[] result = new File[dirs.length];
         for (int i = 0; i < dirs.length; i++) {
             File dir = dirs[i];
             if (!dir.exists()) {
@@ -2542,8 +2466,15 @@ class ContextImpl extends Context {
                     if (!dir.exists()) {
                         // Failing to mkdir() may be okay, since we might not have
                         // enough permissions; ask vold to create on our behalf.
+                        final IStorageManager storageManager = IStorageManager.Stub.asInterface(
+                                ServiceManager.getService("mount"));
                         try {
-                            sm.mkdirs(dir);
+                            final int res = storageManager.mkdirs(
+                                    getPackageName(), dir.getAbsolutePath());
+                            if (res != 0) {
+                                Log.w(TAG, "Failed to ensure " + dir + ": " + res);
+                                dir = null;
+                            }
                         } catch (Exception e) {
                             Log.w(TAG, "Failed to ensure " + dir + ": " + e);
                             dir = null;
@@ -2562,10 +2493,13 @@ class ContextImpl extends Context {
 
     private static final class ApplicationContentResolver extends ContentResolver {
         private final ActivityThread mMainThread;
+        private final UserHandle mUser;
 
-        public ApplicationContentResolver(Context context, ActivityThread mainThread) {
+        public ApplicationContentResolver(
+                Context context, ActivityThread mainThread, UserHandle user) {
             super(context);
             mMainThread = Preconditions.checkNotNull(mainThread);
+            mUser = Preconditions.checkNotNull(user);
         }
 
         @Override
@@ -2611,7 +2545,7 @@ class ContextImpl extends Context {
 
         /** @hide */
         protected int resolveUserIdFromAuthority(String auth) {
-            return ContentProvider.getUserIdFromAuthority(auth, getUserId());
+            return ContentProvider.getUserIdFromAuthority(auth, mUser.getIdentifier());
         }
     }
 }

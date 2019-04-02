@@ -130,29 +130,22 @@ public final class Pools {
     }
 
     /**
-     * Synchronized pool of objects.
+     * Synchronized) pool of objects.
      *
      * @param <T> The pooled type.
      */
     public static class SynchronizedPool<T> extends SimplePool<T> {
-        private final Object mLock;
+        private final Object mLock = new Object();
 
         /**
          * Creates a new instance.
          *
          * @param maxPoolSize The max pool size.
-         * @param lock an optional custom object to synchronize on
          *
          * @throws IllegalArgumentException If the max pool size is less than zero.
          */
-        public SynchronizedPool(int maxPoolSize, Object lock) {
-            super(maxPoolSize);
-            mLock = lock;
-        }
-
-        /** @see #SynchronizedPool(int, Object)  */
         public SynchronizedPool(int maxPoolSize) {
-            this(maxPoolSize, new Object());
+            super(maxPoolSize);
         }
 
         @Override

@@ -51,10 +51,10 @@ public class Tonal implements ExtractionType {
 
     private static final boolean DEBUG = true;
 
-    public static final int THRESHOLD_COLOR_LIGHT = 0xffe0e0e0;
     public static final int MAIN_COLOR_LIGHT = 0xffe0e0e0;
-    public static final int THRESHOLD_COLOR_DARK = 0xff212121;
-    public static final int MAIN_COLOR_DARK = 0xff000000;
+    public static final int SECONDARY_COLOR_LIGHT = 0xff9e9e9e;
+    public static final int MAIN_COLOR_DARK = 0xff212121;
+    public static final int SECONDARY_COLOR_DARK = 0xff000000;
 
     private final TonalPalette mGreyPalette;
     private final ArrayList<TonalPalette> mTonalPalettes;
@@ -197,20 +197,22 @@ public class Tonal implements ExtractionType {
         // light fallback or darker than our dark fallback.
         ColorUtils.colorToHSL(mainColor, mTmpHSL);
         final float mainLuminosity = mTmpHSL[2];
-        ColorUtils.colorToHSL(THRESHOLD_COLOR_LIGHT, mTmpHSL);
+        ColorUtils.colorToHSL(MAIN_COLOR_LIGHT, mTmpHSL);
         final float lightLuminosity = mTmpHSL[2];
         if (mainLuminosity > lightLuminosity) {
             return false;
         }
-        ColorUtils.colorToHSL(THRESHOLD_COLOR_DARK, mTmpHSL);
+        ColorUtils.colorToHSL(MAIN_COLOR_DARK, mTmpHSL);
         final float darkLuminosity = mTmpHSL[2];
         if (mainLuminosity < darkLuminosity) {
             return false;
         }
 
         // Normal colors:
+        // best fit + a 2 colors offset
         outColorsNormal.setMainColor(mainColor);
-        outColorsNormal.setSecondaryColor(mainColor);
+        int secondaryIndex = primaryIndex + (primaryIndex >= 2 ? -2 : 2);
+        outColorsNormal.setSecondaryColor(getColorInt(secondaryIndex, h, s, l));
 
         // Dark colors:
         // Stops at 4th color, only lighter if dark text is supported
@@ -221,9 +223,9 @@ public class Tonal implements ExtractionType {
         } else {
             primaryIndex = Math.min(fitIndex, 3);
         }
-        mainColor = getColorInt(primaryIndex, h, s, l);
-        outColorsDark.setMainColor(mainColor);
-        outColorsDark.setSecondaryColor(mainColor);
+        secondaryIndex = primaryIndex + (primaryIndex >= 2 ? -2 : 2);
+        outColorsDark.setMainColor(getColorInt(primaryIndex, h, s, l));
+        outColorsDark.setSecondaryColor(getColorInt(secondaryIndex, h, s, l));
 
         // Extra Dark:
         // Stay close to dark colors until dark text is supported
@@ -234,9 +236,9 @@ public class Tonal implements ExtractionType {
         } else {
             primaryIndex = 2;
         }
-        mainColor = getColorInt(primaryIndex, h, s, l);
-        outColorsExtraDark.setMainColor(mainColor);
-        outColorsExtraDark.setSecondaryColor(mainColor);
+        secondaryIndex = primaryIndex + (primaryIndex >= 2 ? -2 : 2);
+        outColorsExtraDark.setMainColor(getColorInt(primaryIndex, h, s, l));
+        outColorsExtraDark.setSecondaryColor(getColorInt(secondaryIndex, h, s, l));
 
         outColorsNormal.setSupportsDarkText(supportsDarkText);
         outColorsDark.setSupportsDarkText(supportsDarkText);
@@ -269,10 +271,11 @@ public class Tonal implements ExtractionType {
         boolean light = inWallpaperColors != null
                 && (inWallpaperColors.getColorHints() & WallpaperColors.HINT_SUPPORTS_DARK_TEXT)
                 != 0;
-        final int color = light ? MAIN_COLOR_LIGHT : MAIN_COLOR_DARK;
+        int innerColor = light ? MAIN_COLOR_LIGHT : MAIN_COLOR_DARK;
+        int outerColor = light ? SECONDARY_COLOR_LIGHT : SECONDARY_COLOR_DARK;
 
-        outGradientColors.setMainColor(color);
-        outGradientColors.setSecondaryColor(color);
+        outGradientColors.setMainColor(innerColor);
+        outGradientColors.setSecondaryColor(outerColor);
         outGradientColors.setSupportsDarkText(light);
     }
 
@@ -405,13 +408,12 @@ public class Tonal implements ExtractionType {
         return v - (float) Math.floor(v);
     }
 
-    @VisibleForTesting
-    public static class TonalPalette {
-        public final float[] h;
-        public final float[] s;
-        public final float[] l;
-        public final float minHue;
-        public final float maxHue;
+    static class TonalPalette {
+        final float[] h;
+        final float[] s;
+        final float[] l;
+        final float minHue;
+        final float maxHue;
 
         TonalPalette(float[] h, float[] s, float[] l) {
             if (h.length != s.length || s.length != l.length) {

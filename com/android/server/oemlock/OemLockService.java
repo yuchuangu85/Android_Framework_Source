@@ -31,10 +31,10 @@ import android.os.UserManager;
 import android.os.UserManagerInternal;
 import android.os.UserManagerInternal.UserRestrictionsListener;
 import android.service.oemlock.IOemLockService;
+import android.service.persistentdata.PersistentDataBlockManager;
 import android.util.Slog;
 
 import com.android.server.LocalServices;
-import com.android.server.PersistentDataBlockManagerInternal;
 import com.android.server.SystemService;
 import com.android.server.pm.UserRestrictionsUtils;
 
@@ -178,21 +178,14 @@ public class OemLockService extends SystemService {
             }
         }
 
-        /** Currently MasterClearConfirm will call isOemUnlockAllowed()
-         * to sync PersistentDataBlockOemUnlockAllowedBit which
-         * is needed before factory reset
-         * TODO: Figure out better place to run sync e.g. adding new API
-         */
         @Override
         public boolean isOemUnlockAllowed() {
             enforceOemUnlockReadPermission();
 
             final long token = Binder.clearCallingIdentity();
             try {
-                boolean allowed = mOemLock.isOemUnlockAllowedByCarrier()
-                        && mOemLock.isOemUnlockAllowedByDevice();
-                setPersistentDataBlockOemUnlockAllowedBit(allowed);
-                return allowed;
+                return mOemLock.isOemUnlockAllowedByCarrier() &&
+                        mOemLock.isOemUnlockAllowedByDevice();
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -217,12 +210,12 @@ public class OemLockService extends SystemService {
      * is used to erase FRP information on a unlockable device.
      */
     private void setPersistentDataBlockOemUnlockAllowedBit(boolean allowed) {
-        final PersistentDataBlockManagerInternal pdbmi
-                = LocalServices.getService(PersistentDataBlockManagerInternal.class);
+        final PersistentDataBlockManager pdbm = (PersistentDataBlockManager)
+                mContext.getSystemService(Context.PERSISTENT_DATA_BLOCK_SERVICE);
         // if mOemLock is PersistentDataBlockLock, then the bit should have already been set
-        if (pdbmi != null && !(mOemLock instanceof PersistentDataBlockLock)) {
+        if (pdbm != null && !(mOemLock instanceof PersistentDataBlockLock)) {
             Slog.i(TAG, "Update OEM Unlock bit in pst partition to " + allowed);
-            pdbmi.forceOemUnlockEnabled(allowed);
+            pdbm.setOemUnlockEnabled(allowed);
         }
     }
 

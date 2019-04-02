@@ -18,8 +18,8 @@ package com.android.server.autofill;
 
 import static android.service.autofill.FillRequest.FLAG_MANUAL_REQUEST;
 import static com.android.server.autofill.Helper.sDebug;
+import static com.android.server.autofill.Helper.sVerbose;
 
-import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.graphics.Rect;
 import android.service.autofill.FillResponse;
@@ -41,7 +41,7 @@ final class ViewState {
         /**
          * Called when the fill UI is ready to be shown for this view.
          */
-        void onFillReady(@NonNull FillResponse fillResponse, @NonNull AutofillId focusedId,
+        void onFillReady(FillResponse fillResponse, AutofillId focusedId,
                 @Nullable AutofillValue value);
     }
 
@@ -67,10 +67,6 @@ final class ViewState {
     public static final int STATE_IGNORED = 0x080;
     /** User manually request autofill in this view, after it was already autofilled. */
     public static final int STATE_RESTARTED_SESSION = 0x100;
-    /** View is the URL bar of a package on compat mode. */
-    public  static final int STATE_URL_BAR = 0x200;
-    /** View was asked to autofil but failed to do so. */
-    public static final int STATE_AUTOFILL_FAILED = 0x400;
 
     public final AutofillId id;
 
@@ -80,10 +76,8 @@ final class ViewState {
     private FillResponse mResponse;
     private AutofillValue mCurrentValue;
     private AutofillValue mAutofilledValue;
-    private AutofillValue mSanitizedValue;
     private Rect mVirtualBounds;
     private int mState;
-    private String mDatasetId;
 
     ViewState(Session session, AutofillId id, Listener listener, int state) {
         mSession = session;
@@ -122,15 +116,6 @@ final class ViewState {
     }
 
     @Nullable
-    AutofillValue getSanitizedValue() {
-        return mSanitizedValue;
-    }
-
-    void setSanitizedValue(@Nullable AutofillValue value) {
-        mSanitizedValue = value;
-    }
-
-    @Nullable
     FillResponse getResponse() {
         return mResponse;
     }
@@ -148,11 +133,7 @@ final class ViewState {
     }
 
     String getStateAsString() {
-        return getStateAsString(mState);
-    }
-
-    static String getStateAsString(int state) {
-        return DebugUtils.flagsToString(ViewState.class, "STATE_", state);
+        return DebugUtils.flagsToString(ViewState.class, "STATE_", mState);
     }
 
     void setState(int state) {
@@ -165,15 +146,6 @@ final class ViewState {
 
     void resetState(int state) {
         mState &= ~state;
-    }
-
-    @Nullable
-    String getDatasetId() {
-        return mDatasetId;
-    }
-
-    void setDatasetId(String datasetId) {
-        mDatasetId = datasetId;
     }
 
     // TODO: refactor / rename / document this method (and maybeCallOnFillReady) to make it clear
@@ -210,46 +182,26 @@ final class ViewState {
 
     @Override
     public String toString() {
-        final StringBuilder builder = new StringBuilder("ViewState: [id=").append(id);
-        if (mDatasetId != null) {
-            builder.append("datasetId:" ).append(mDatasetId);
-        }
-        builder.append("state:" ).append(getStateAsString());
-        if (mCurrentValue != null) {
-            builder.append("currentValue:" ).append(mCurrentValue);
-        }
-        if (mAutofilledValue != null) {
-            builder.append("autofilledValue:" ).append(mAutofilledValue);
-        }
-        if (mSanitizedValue != null) {
-            builder.append("sanitizedValue:" ).append(mSanitizedValue);
-        }
-        if (mVirtualBounds != null) {
-            builder.append("virtualBounds:" ).append(mVirtualBounds);
-        }
-        return builder.toString();
+        return "ViewState: [id=" + id + ", currentValue=" + mCurrentValue
+                + ", autofilledValue=" + mAutofilledValue
+                + ", bounds=" + mVirtualBounds + ", state=" + getStateAsString() + "]";
     }
 
     void dump(String prefix, PrintWriter pw) {
-        pw.print(prefix); pw.print("id:" ); pw.println(id);
-        if (mDatasetId != null) {
-            pw.print(prefix); pw.print("datasetId:" ); pw.println(mDatasetId);
-        }
+        pw.print(prefix); pw.print("id:" ); pw.println(this.id);
         pw.print(prefix); pw.print("state:" ); pw.println(getStateAsString());
-        if (mResponse != null) {
-            pw.print(prefix); pw.print("response id:");pw.println(mResponse.getRequestId());
+        pw.print(prefix); pw.print("response:");
+        if (mResponse == null) {
+            pw.println("N/A");
+        } else {
+            if (sVerbose) {
+                pw.println(mResponse);
+            } else {
+                pw.println(mResponse.getRequestId());
+            }
         }
-        if (mCurrentValue != null) {
-            pw.print(prefix); pw.print("currentValue:" ); pw.println(mCurrentValue);
-        }
-        if (mAutofilledValue != null) {
-            pw.print(prefix); pw.print("autofilledValue:" ); pw.println(mAutofilledValue);
-        }
-        if (mSanitizedValue != null) {
-            pw.print(prefix); pw.print("sanitizedValue:" ); pw.println(mSanitizedValue);
-        }
-        if (mVirtualBounds != null) {
-            pw.print(prefix); pw.print("virtualBounds:" ); pw.println(mVirtualBounds);
-        }
+        pw.print(prefix); pw.print("currentValue:" ); pw.println(mCurrentValue);
+        pw.print(prefix); pw.print("autofilledValue:" ); pw.println(mAutofilledValue);
+        pw.print(prefix); pw.print("virtualBounds:" ); pw.println(mVirtualBounds);
     }
 }

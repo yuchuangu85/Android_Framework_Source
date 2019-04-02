@@ -25,40 +25,34 @@ import java.util.Arrays;
  * Describes a particular radio access network to be scanned.
  *
  * The scan can be performed on either bands or channels for a specific radio access network type.
+ * @hide
  */
 public final class RadioAccessSpecifier implements Parcelable {
 
     /**
      * The radio access network that needs to be scanned
      *
-     * This parameter must be provided or else the scan will be rejected.
-     *
-     * See {@link AccessNetworkConstants.AccessNetworkType} for details.
+     * See {@link RadioNetworkConstants.RadioAccessNetworks} for details.
      */
-    private int mRadioAccessNetwork;
+    public int radioAccessNetwork;
 
     /**
      * The frequency bands that need to be scanned
      *
-     * When no specific bands are specified (empty array or null), all the frequency bands
-     * supported by the modem will be scanned.
+     * bands must be used together with radioAccessNetwork
      *
-     * See {@link AccessNetworkConstants} for details.
+     * See {@link RadioNetworkConstants} for details.
      */
-    private int[] mBands;
+    public int[] bands;
 
     /**
      * The frequency channels that need to be scanned
      *
-     * When any specific channels are provided for scan, the corresponding frequency bands that
-     * contains those channels must also be provided, or else the channels will be ignored.
+     * channels must be used together with radioAccessNetwork
      *
-     * When no specific channels are specified (empty array or null), all the frequency channels
-     * supported by the modem will be scanned.
-     *
-     * See {@link AccessNetworkConstants} for details.
+     * See {@link RadioNetworkConstants.RadioAccessNetworks} for details.
      */
-    private int[] mChannels;
+    public int[] channels;
 
     /**
     * Creates a new RadioAccessSpecifier with radio network, bands and channels
@@ -71,42 +65,9 @@ public final class RadioAccessSpecifier implements Parcelable {
     * @param channels the frequency bands to be scanned
     */
     public RadioAccessSpecifier(int ran, int[] bands, int[] channels) {
-        this.mRadioAccessNetwork = ran;
-        if (bands != null) {
-            this.mBands = bands.clone();
-        } else {
-            this.mBands = null;
-        }
-        if (channels != null) {
-            this.mChannels = channels.clone();
-        } else {
-            this.mChannels = null;
-        }
-    }
-
-    /**
-     * Returns the radio access network that needs to be scanned.
-     *
-     * The returned value is define in {@link AccessNetworkConstants.AccessNetworkType};
-     */
-    public int getRadioAccessNetwork() {
-        return mRadioAccessNetwork;
-    }
-
-    /**
-     * Returns the frequency bands that need to be scanned.
-     *
-     * The returned value is defined in either of {@link AccessNetworkConstants.GeranBand},
-     * {@link AccessNetworkConstants.UtranBand} and {@link AccessNetworkConstants.EutranBand}, and
-     * it depends on the returned value of {@link #getRadioAccessNetwork()}.
-     */
-    public int[] getBands() {
-        return mBands == null ? null : mBands.clone();
-    }
-
-    /** Returns the frequency channels that need to be scanned. */
-    public int[] getChannels() {
-        return mChannels == null ? null : mChannels.clone();
+        this.radioAccessNetwork = ran;
+        this.bands = bands;
+        this.channels = channels;
     }
 
     public static final Parcelable.Creator<RadioAccessSpecifier> CREATOR =
@@ -129,15 +90,15 @@ public final class RadioAccessSpecifier implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeInt(mRadioAccessNetwork);
-        dest.writeIntArray(mBands);
-        dest.writeIntArray(mChannels);
+        dest.writeInt(radioAccessNetwork);
+        dest.writeIntArray(bands);
+        dest.writeIntArray(channels);
     }
 
     private RadioAccessSpecifier(Parcel in) {
-        mRadioAccessNetwork = in.readInt();
-        mBands = in.createIntArray();
-        mChannels = in.createIntArray();
+        radioAccessNetwork = in.readInt();
+        bands = in.createIntArray();
+        channels = in.createIntArray();
     }
 
     @Override
@@ -154,15 +115,15 @@ public final class RadioAccessSpecifier implements Parcelable {
             return false;
         }
 
-        return (mRadioAccessNetwork == ras.mRadioAccessNetwork
-                && Arrays.equals(mBands, ras.mBands)
-                && Arrays.equals(mChannels, ras.mChannels));
+        return (radioAccessNetwork == ras.radioAccessNetwork
+                && Arrays.equals(bands, ras.bands)
+                && Arrays.equals(channels, ras.channels));
     }
 
     @Override
     public int hashCode () {
-        return ((mRadioAccessNetwork * 31)
-                + (Arrays.hashCode(mBands) * 37)
-                + (Arrays.hashCode(mChannels)) * 39);
+        return ((radioAccessNetwork * 31)
+                + (Arrays.hashCode(bands) * 37)
+                + (Arrays.hashCode(channels)) * 39);
     }
 }

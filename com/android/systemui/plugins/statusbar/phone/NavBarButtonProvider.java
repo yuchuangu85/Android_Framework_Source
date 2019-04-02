@@ -50,7 +50,5 @@ public interface NavBarButtonProvider extends Plugin {
         }
 
         void setDarkIntensity(float intensity);
-
-        void setDelayTouchFeedback(boolean shouldDelay);
     }
 }

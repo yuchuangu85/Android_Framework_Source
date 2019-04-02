@@ -16,6 +16,7 @@ package com.android.systemui.statusbar;
  */
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -233,7 +234,7 @@ public class NotificationSnooze extends LinearLayout
 
         final int defaultSnooze = mParser.getInt(KEY_DEFAULT_SNOOZE,
                 resources.getInteger(R.integer.config_notification_snooze_time_default));
-        final int[] snoozeTimes = mParser.getIntArray(KEY_OPTIONS,
+        final int[] snoozeTimes = parseIntArray(KEY_OPTIONS,
                 resources.getIntArray(R.array.config_notification_snooze_times));
 
         for (int i = 0; i < snoozeTimes.length && i < sAccessibilityActions.length; i++) {
@@ -245,6 +246,21 @@ public class NotificationSnooze extends LinearLayout
             options.add(option);
         }
         return options;
+    }
+
+    @VisibleForTesting
+    int[] parseIntArray(final String key, final int[] defaultArray) {
+        final String value = mParser.getString(key, null);
+        if (value != null) {
+            try {
+                return Arrays.stream(value.split(":")).map(String::trim).mapToInt(
+                        Integer::parseInt).toArray();
+            } catch (NumberFormatException e) {
+                return defaultArray;
+            }
+        } else {
+            return defaultArray;
+        }
     }
 
     private SnoozeOption createOption(int minutes, int accessibilityActionId) {
@@ -428,11 +444,6 @@ public class NotificationSnooze extends LinearLayout
 
     @Override
     public boolean isLeavebehind() {
-        return true;
-    }
-
-    @Override
-    public boolean shouldBeSaved() {
         return true;
     }
 

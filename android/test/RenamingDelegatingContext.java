@@ -21,7 +21,6 @@ import android.content.ContextWrapper;
 import android.content.ContentProvider;
 import android.database.DatabaseErrorHandler;
 import android.database.sqlite.SQLiteDatabase;
-import android.test.mock.MockContentProvider;
 import android.util.Log;
 
 import java.io.File;
@@ -72,7 +71,7 @@ public class RenamingDelegatingContext extends ContextWrapper {
         if (allowAccessToExistingFilesAndDbs) {
             mContext.makeExistingFilesAndDbsAccessible();
         }
-        MockContentProvider.attachInfoForTesting(mProvider, mContext, null);
+        mProvider.attachInfoForTesting(mContext, null);
         return mProvider;
     }
 

@@ -57,8 +57,6 @@ import android.view.View;
 import com.android.internal.R;
 import com.android.internal.util.VirtualRefBasePtr;
 
-import dalvik.annotation.optimization.FastNative;
-
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
@@ -66,6 +64,7 @@ import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 
+import dalvik.annotation.optimization.FastNative;
 
 /**
  * This class animates properties of a {@link android.graphics.drawable.VectorDrawable} with
@@ -133,7 +132,7 @@ import java.util.ArrayList;
  *         <td>translateY</td>
  *     </tr>
  *     <tr>
- *         <td rowspan="9">&lt;path&gt;</td>
+ *         <td rowspan="8">&lt;path&gt;</td>
  *         <td>pathData</td>
  *     </tr>
  *     <tr>
@@ -155,9 +154,6 @@ import java.util.ArrayList;
  *         <td>trimPathStart</td>
  *     </tr>
  *     <tr>
- *         <td>trimPathEnd</td>
- *     </tr>
- *     <tr>
  *         <td>trimPathOffset</td>
  *     </tr>
  *     <tr>
@@ -168,7 +164,7 @@ import java.util.ArrayList;
  * </p>
  * Below is an example of a VectorDrawable defined in vectordrawable.xml. This VectorDrawable is
  * referred to by its file name (not including file suffix) in the
- * <a href="#AVDExample">AnimatedVectorDrawable XML example</a>.
+ * <a href="AVDExample">AnimatedVectorDrawable XML example</a>.
  * <pre>
  * &lt;vector xmlns:android=&quot;http://schemas.android.com/apk/res/android&quot;
  *     android:height=&quot;64dp&quot;
@@ -202,10 +198,10 @@ import java.util.ArrayList;
  *     android:drawable=&quot;@drawable/vectordrawable&quot; &gt;
  *     &lt;target
  *         android:name=&quot;rotationGroup&quot;
- *         android:animation=&quot;@animator/rotation&quot; /&gt;
+ *         android:animation=&quot;@anim/rotation&quot; /&gt;
  *     &lt;target
  *         android:name=&quot;v&quot;
- *         android:animation=&quot;@animator/path_morph&quot; /&gt;
+ *         android:animation=&quot;@anim/path_morph&quot; /&gt;
  * &lt;/animated-vector&gt;
  * </pre>
  * </li>

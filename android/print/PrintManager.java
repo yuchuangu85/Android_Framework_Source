@@ -18,7 +18,6 @@ package android.print;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.RequiresFeature;
 import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
@@ -28,7 +27,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.IntentSender;
 import android.content.IntentSender.SendIntentException;
-import android.content.pm.PackageManager;
 import android.graphics.drawable.Icon;
 import android.os.Bundle;
 import android.os.CancellationSignal;
@@ -106,7 +104,6 @@ import java.util.Map;
  * @see PrintJobInfo
  */
 @SystemService(Context.PRINT_SERVICE)
-@RequiresFeature(PackageManager.FEATURE_PRINTING)
 public final class PrintManager {
 
     private static final String LOG_TAG = "PrintManager";

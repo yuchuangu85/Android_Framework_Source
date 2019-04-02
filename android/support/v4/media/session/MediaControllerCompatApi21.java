@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 The Android Open Source Project
+ * Copyright (C) 2014 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,9 +29,8 @@ import android.media.session.PlaybackState;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.ResultReceiver;
+import android.support.annotation.RequiresApi;
 import android.view.KeyEvent;
-
-import androidx.annotation.RequiresApi;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -186,9 +185,6 @@ class MediaControllerCompatApi21 {
         public static void sendCustomAction(Object controlsObj, String action, Bundle args) {
             ((MediaController.TransportControls) controlsObj).sendCustomAction(action, args);
         }
-
-        private TransportControls() {
-        }
     }
 
     public static class PlaybackInfo {
@@ -261,9 +257,6 @@ class MediaControllerCompatApi21 {
                     return AudioManager.STREAM_MUSIC;
             }
         }
-
-        private PlaybackInfo() {
-        }
     }
 
     public static interface Callback {
@@ -325,8 +318,5 @@ class MediaControllerCompatApi21 {
                     PlaybackInfo.getLegacyAudioStream(info), info.getVolumeControl(),
                     info.getMaxVolume(), info.getCurrentVolume());
         }
-    }
-
-    private MediaControllerCompatApi21() {
     }
 }

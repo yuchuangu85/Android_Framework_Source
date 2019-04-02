@@ -16,7 +16,9 @@
 
 package android.hardware.location;
 
+
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -24,43 +26,29 @@ import android.os.Parcelable;
 import libcore.util.EmptyArray;
 
 /**
- * Describes an instance of a nanoapp, used by the internal state manged by ContextHubService.
- *
- * TODO(b/69270990) Remove this class once the old API is deprecated.
- *
- * @deprecated Use {@link android.hardware.location.NanoAppState} instead.
- *
  * @hide
  */
 @SystemApi
-@Deprecated
-public class NanoAppInstanceInfo implements Parcelable {
-    private String mPublisher = "Unknown";
-    private String mName = "Unknown";
+public class NanoAppInstanceInfo {
+    private String mPublisher;
+    private String mName;
 
-    private int mHandle;
     private long mAppId;
     private int mAppVersion;
+
+    private int mNeededReadMemBytes;
+    private int mNeededWriteMemBytes;
+    private int mNeededExecMemBytes;
+
+    private int[] mNeededSensors;
+    private int[] mOutputEvents;
+
     private int mContexthubId;
-
-    private int mNeededReadMemBytes = 0;
-    private int mNeededWriteMemBytes = 0;
-    private int mNeededExecMemBytes = 0;
-
-    private int[] mNeededSensors = EmptyArray.INT;
-    private int[] mOutputEvents = EmptyArray.INT;
+    private int mHandle;
 
     public NanoAppInstanceInfo() {
-    }
-
-    /**
-     * @hide
-     */
-    public NanoAppInstanceInfo(int handle, long appId, int appVersion, int contextHubId) {
-        mHandle = handle;
-        mAppId = appId;
-        mAppVersion = appVersion;
-        mContexthubId = contextHubId;
+        mNeededSensors = EmptyArray.INT;
+        mOutputEvents = EmptyArray.INT;
     }
 
     /**
@@ -70,6 +58,18 @@ public class NanoAppInstanceInfo implements Parcelable {
      */
     public String getPublisher() {
         return mPublisher;
+    }
+
+
+    /**
+     * set the publisher name for the app
+     *
+     * @param publisher - name of the publisher
+     *
+     * @hide
+     */
+    public void setPublisher(String publisher) {
+        mPublisher = publisher;
     }
 
     /**
@@ -82,6 +82,17 @@ public class NanoAppInstanceInfo implements Parcelable {
     }
 
     /**
+     * set the name of the app
+     *
+     * @param name - name of the app
+     *
+     * @hide
+     */
+    public void setName(String name) {
+        mName = name;
+    }
+
+    /**
      * Get the application identifier
      *
      * @return int - application identifier
@@ -91,12 +102,39 @@ public class NanoAppInstanceInfo implements Parcelable {
     }
 
     /**
+     * Set the application identifier
+     *
+     * @param appId - application identifier
+     *
+     * @hide
+     */
+    public void setAppId(long appId) {
+        mAppId = appId;
+    }
+
+    /**
      * Get the application version
+     *
+     * NOTE: There is a race condition where shortly after loading, this
+     * may return -1 instead of the correct version.
+     *
+     * TODO(b/30970527): Fix this race condition.
      *
      * @return int - version of the app
      */
     public int getAppVersion() {
         return mAppVersion;
+    }
+
+    /**
+     * Set the application version
+     *
+     * @param appVersion - version of the app
+     *
+     * @hide
+     */
+    public void setAppVersion(int appVersion) {
+        mAppVersion = appVersion;
     }
 
     /**
@@ -109,6 +147,17 @@ public class NanoAppInstanceInfo implements Parcelable {
     }
 
     /**
+     * Set the read memory needed by the app
+     *
+     * @param neededReadMemBytes - readable Memory needed in bytes
+     *
+     * @hide
+     */
+    public void setNeededReadMemBytes(int neededReadMemBytes) {
+        mNeededReadMemBytes = neededReadMemBytes;
+    }
+
+    /**
      *  get writable memory needed by the app
      *
      * @return int - writable memory needed by the app
@@ -118,12 +167,36 @@ public class NanoAppInstanceInfo implements Parcelable {
     }
 
     /**
+     * set writable memory needed by the app
+     *
+     * @param neededWriteMemBytes - writable memory needed by the
+     *                            app
+     *
+     * @hide
+     */
+    public void setNeededWriteMemBytes(int neededWriteMemBytes) {
+        mNeededWriteMemBytes = neededWriteMemBytes;
+    }
+
+    /**
      * get executable memory needed by the app
      *
      * @return int - executable memory needed by the app
      */
     public int getNeededExecMemBytes() {
         return mNeededExecMemBytes;
+    }
+
+    /**
+     * set executable memory needed by the app
+     *
+     * @param neededExecMemBytes - executable memory needed by the
+     *                           app
+     *
+     * @hide
+     */
+    public void setNeededExecMemBytes(int neededExecMemBytes) {
+        mNeededExecMemBytes = neededExecMemBytes;
     }
 
     /**
@@ -137,6 +210,17 @@ public class NanoAppInstanceInfo implements Parcelable {
     }
 
     /**
+     * set the sensors needed by this app
+     *
+     * @param neededSensors - all the sensors needed by this app
+     *
+     * @hide
+     */
+    public void setNeededSensors(@Nullable int[] neededSensors) {
+        mNeededSensors = neededSensors != null ? neededSensors : EmptyArray.INT;
+    }
+
+    /**
      * get the events generated by this app
      *
      * @return all the events that can be generated by this app
@@ -144,6 +228,18 @@ public class NanoAppInstanceInfo implements Parcelable {
     @NonNull
     public int[] getOutputEvents() {
         return mOutputEvents;
+    }
+
+    /**
+     * set the output events that can be generated by this app
+     *
+     * @param outputEvents - the events that may be generated by
+     *                     this app
+     *
+     * @hide
+     */
+    public void setOutputEvents(@Nullable int[] outputEvents) {
+        mOutputEvents = outputEvents != null ? outputEvents : EmptyArray.INT;
     }
 
     /**
@@ -156,6 +252,17 @@ public class NanoAppInstanceInfo implements Parcelable {
     }
 
     /**
+     * set the context hub identifier
+     *
+     * @param contexthubId - system wide unique identifier
+     *
+     * @hide
+     */
+    public void setContexthubId(int contexthubId) {
+        mContexthubId = contexthubId;
+    }
+
+    /**
      * get a handle to the nano app instance
      *
      * @return int - handle to this instance
@@ -163,6 +270,18 @@ public class NanoAppInstanceInfo implements Parcelable {
     public int getHandle() {
         return mHandle;
     }
+
+    /**
+     * set the handle for an app instance
+     *
+     * @param handle - handle to this instance
+     *
+     * @hide
+     */
+    public void setHandle(int handle) {
+        mHandle = handle;
+    }
+
 
     private NanoAppInstanceInfo(Parcel in) {
         mPublisher = in.readString();
@@ -223,7 +342,9 @@ public class NanoAppInstanceInfo implements Parcelable {
     public String toString() {
         String retVal = "handle : " + mHandle;
         retVal += ", Id : 0x" + Long.toHexString(mAppId);
-        retVal += ", Version : 0x" + Integer.toHexString(mAppVersion);
+        retVal += ", Version : " + mAppVersion;
+        retVal += ", Name : " + mName;
+        retVal += ", Publisher : " + mPublisher;
 
         return retVal;
     }

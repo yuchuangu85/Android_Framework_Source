@@ -36,7 +36,6 @@ public interface NetworkController extends CallbackController<SignalCallback>, D
     AccessPointController getAccessPointController();
     DataUsageController getMobileDataController();
     DataSaverController getDataSaverController();
-    String getMobileDataNetworkName();
 
     boolean hasVoiceCallingFeature();
 
@@ -47,8 +46,7 @@ public interface NetworkController extends CallbackController<SignalCallback>, D
 
     public interface SignalCallback {
         default void setWifiIndicators(boolean enabled, IconState statusIcon, IconState qsIcon,
-                boolean activityIn, boolean activityOut, String description, boolean isTransient,
-                String statusLabel) {}
+                boolean activityIn, boolean activityOut, String description, boolean isTransient) {}
 
         default void setMobileDataIndicators(IconState statusIcon, IconState qsIcon, int statusType,
                 int qsType, boolean activityIn, boolean activityOut, String typeContentDescription,

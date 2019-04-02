@@ -34,7 +34,6 @@ import android.preference.VolumePreference.VolumeStore;
 import android.provider.Settings;
 import android.provider.Settings.Global;
 import android.provider.Settings.System;
-import android.service.notification.ZenModeConfig;
 import android.util.Log;
 import android.widget.SeekBar;
 import android.widget.SeekBar.OnSeekBarChangeListener;
@@ -88,22 +87,10 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
     private static final int MSG_INIT_SAMPLE = 3;
     private static final int CHECK_RINGTONE_PLAYBACK_DELAY_MS = 1000;
 
-    private NotificationManager.Policy mNotificationPolicy;
-    private boolean mAllowAlarms;
-    private boolean mAllowMedia;
-    private boolean mAllowRinger;
-
     public SeekBarVolumizer(Context context, int streamType, Uri defaultUri, Callback callback) {
         mContext = context;
         mAudioManager = context.getSystemService(AudioManager.class);
         mNotificationManager = context.getSystemService(NotificationManager.class);
-        mNotificationPolicy = mNotificationManager.getNotificationPolicy();
-        mAllowAlarms = (mNotificationPolicy.priorityCategories & NotificationManager.Policy
-                .PRIORITY_CATEGORY_ALARMS) != 0;
-        mAllowMedia = (mNotificationPolicy.priorityCategories & NotificationManager.Policy
-                .PRIORITY_CATEGORY_MEDIA) != 0;
-        mAllowRinger = !ZenModeConfig.areAllPriorityOnlyNotificationZenSoundsMuted(
-                mNotificationPolicy);
         mStreamType = streamType;
         mAffectedByRingerMode = mAudioManager.isStreamAffectedByRingerMode(mStreamType);
         mNotificationOrRing = isNotificationOrRing(mStreamType);
@@ -135,14 +122,6 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
         return stream == AudioManager.STREAM_RING || stream == AudioManager.STREAM_NOTIFICATION;
     }
 
-    private static boolean isAlarmsStream(int stream) {
-        return stream == AudioManager.STREAM_ALARM;
-    }
-
-    private static boolean isMediaStream(int stream) {
-        return stream == AudioManager.STREAM_MUSIC;
-    }
-
     public void setSeekBar(SeekBar seekBar) {
         if (mSeekBar != null) {
             mSeekBar.setOnSeekBarChangeListener(null);
@@ -156,11 +135,7 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
 
     private boolean isZenMuted() {
         return mNotificationOrRing && mZenMode == Global.ZEN_MODE_ALARMS
-                || mZenMode == Global.ZEN_MODE_NO_INTERRUPTIONS
-                || (mZenMode == Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS
-                    && ((!mAllowAlarms && isAlarmsStream(mStreamType))
-                        || (!mAllowMedia && isMediaStream(mStreamType))
-                        || (!mAllowRinger && isNotificationOrRing(mStreamType))));
+                || mZenMode == Global.ZEN_MODE_NO_INTERRUPTIONS;
     }
 
     protected void updateSeekBar() {
@@ -421,7 +396,6 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
                 final IntentFilter filter = new IntentFilter(AudioManager.VOLUME_CHANGED_ACTION);
                 filter.addAction(AudioManager.INTERNAL_RINGER_MODE_CHANGED_ACTION);
                 filter.addAction(NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED);
-                filter.addAction(NotificationManager.ACTION_NOTIFICATION_POLICY_CHANGED);
                 filter.addAction(AudioManager.STREAM_DEVICES_CHANGED_ACTION);
                 mContext.registerReceiver(this, filter);
             } else {
@@ -449,15 +423,6 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
                 updateVolumeSlider(streamType, streamVolume);
             } else if (NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED.equals(action)) {
                 mZenMode = mNotificationManager.getZenMode();
-                updateSlider();
-            } else if (NotificationManager.ACTION_NOTIFICATION_POLICY_CHANGED.equals(action)) {
-                mNotificationPolicy = mNotificationManager.getNotificationPolicy();
-                mAllowAlarms = (mNotificationPolicy.priorityCategories & NotificationManager.Policy
-                        .PRIORITY_CATEGORY_ALARMS) != 0;
-                mAllowMedia = (mNotificationPolicy.priorityCategories
-                        & NotificationManager.Policy.PRIORITY_CATEGORY_MEDIA) != 0;
-                mAllowRinger = !ZenModeConfig.areAllPriorityOnlyNotificationZenSoundsMuted(
-                        mNotificationPolicy);
                 updateSlider();
             }
         }

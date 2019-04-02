@@ -101,26 +101,20 @@ import java.util.Set;
     @LayoutlibDelegate
     /*package*/ static Bitmap nativeDecodeFileDescriptor(FileDescriptor fd,
             Rect padding, Options opts) {
-        if (opts != null) {
-            opts.inBitmap = null;
-        }
+        opts.inBitmap = null;
         return null;
     }
 
     @LayoutlibDelegate
     /*package*/ static Bitmap nativeDecodeAsset(long asset, Rect padding, Options opts) {
-        if (opts != null) {
-            opts.inBitmap = null;
-        }
+        opts.inBitmap = null;
         return null;
     }
 
     @LayoutlibDelegate
     /*package*/ static Bitmap nativeDecodeByteArray(byte[] data, int offset,
             int length, Options opts) {
-        if (opts != null) {
-            opts.inBitmap = null;
-        }
+        opts.inBitmap = null;
         return null;
     }
 

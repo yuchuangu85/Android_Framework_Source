@@ -17,7 +17,6 @@
 package android.text;
 
 import android.annotation.FloatRange;
-import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.PluralsRes;
@@ -42,6 +41,7 @@ import android.text.style.EasyEditSpan;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.LeadingMarginSpan;
 import android.text.style.LocaleSpan;
+import android.text.style.MetricAffectingSpan;
 import android.text.style.ParagraphStyle;
 import android.text.style.QuoteSpan;
 import android.text.style.RelativeSizeSpan;
@@ -77,21 +77,12 @@ import java.util.regex.Pattern;
 public class TextUtils {
     private static final String TAG = "TextUtils";
 
-    // Zero-width character used to fill ellipsized strings when codepoint lenght must be preserved.
-    /* package */ static final char ELLIPSIS_FILLER = '\uFEFF'; // ZERO WIDTH NO-BREAK SPACE
-
-    // TODO: Based on CLDR data, these need to be localized for Dzongkha (dz) and perhaps
-    // Hong Kong Traditional Chinese (zh-Hant-HK), but that may need to depend on the actual word
-    // being ellipsized and not the locale.
-    private static final String ELLIPSIS_NORMAL = "\u2026"; // HORIZONTAL ELLIPSIS (…)
-    private static final String ELLIPSIS_TWO_DOTS = "\u2025"; // TWO DOT LEADER (‥)
-
+    /* package */ static final char[] ELLIPSIS_NORMAL = { '\u2026' }; // this is "..."
     /** {@hide} */
-    @NonNull
-    public static String getEllipsisString(@NonNull TextUtils.TruncateAt method) {
-        return (method == TextUtils.TruncateAt.END_SMALL) ? ELLIPSIS_TWO_DOTS : ELLIPSIS_NORMAL;
-    }
+    public static final String ELLIPSIS_STRING = new String(ELLIPSIS_NORMAL);
 
+    /* package */ static final char[] ELLIPSIS_TWO_DOTS = { '\u2025' }; // this is ".."
+    private static final String ELLIPSIS_TWO_DOTS_STRING = new String(ELLIPSIS_TWO_DOTS);
 
     private TextUtils() { /* cannot be instantiated */ }
 
@@ -306,46 +297,37 @@ public class TextUtils {
 
     /**
      * Returns a string containing the tokens joined by delimiters.
-     *
-     * @param delimiter a CharSequence that will be inserted between the tokens. If null, the string
-     *     "null" will be used as the delimiter.
-     * @param tokens an array objects to be joined. Strings will be formed from the objects by
-     *     calling object.toString(). If tokens is null, a NullPointerException will be thrown. If
-     *     tokens is an empty array, an empty string will be returned.
+     * @param tokens an array objects to be joined. Strings will be formed from
+     *     the objects by calling object.toString().
      */
-    public static String join(@NonNull CharSequence delimiter, @NonNull Object[] tokens) {
-        final int length = tokens.length;
-        if (length == 0) {
-            return "";
-        }
-        final StringBuilder sb = new StringBuilder();
-        sb.append(tokens[0]);
-        for (int i = 1; i < length; i++) {
-            sb.append(delimiter);
-            sb.append(tokens[i]);
+    public static String join(CharSequence delimiter, Object[] tokens) {
+        StringBuilder sb = new StringBuilder();
+        boolean firstTime = true;
+        for (Object token: tokens) {
+            if (firstTime) {
+                firstTime = false;
+            } else {
+                sb.append(delimiter);
+            }
+            sb.append(token);
         }
         return sb.toString();
     }
 
     /**
      * Returns a string containing the tokens joined by delimiters.
-     *
-     * @param delimiter a CharSequence that will be inserted between the tokens. If null, the string
-     *     "null" will be used as the delimiter.
-     * @param tokens an array objects to be joined. Strings will be formed from the objects by
-     *     calling object.toString(). If tokens is null, a NullPointerException will be thrown. If
-     *     tokens is empty, an empty string will be returned.
+     * @param tokens an array objects to be joined. Strings will be formed from
+     *     the objects by calling object.toString().
      */
-    public static String join(@NonNull CharSequence delimiter, @NonNull Iterable tokens) {
-        final Iterator<?> it = tokens.iterator();
-        if (!it.hasNext()) {
-            return "";
-        }
-        final StringBuilder sb = new StringBuilder();
-        sb.append(it.next());
-        while (it.hasNext()) {
-            sb.append(delimiter);
+    public static String join(CharSequence delimiter, Iterable tokens) {
+        StringBuilder sb = new StringBuilder();
+        Iterator<?> it = tokens.iterator();
+        if (it.hasNext()) {
             sb.append(it.next());
+            while (it.hasNext()) {
+                sb.append(delimiter);
+                sb.append(it.next());
+            }
         }
         return sb.toString();
     }
@@ -1216,10 +1198,10 @@ public class TextUtils {
                                          TextPaint paint,
                                          float avail, TruncateAt where,
                                          boolean preserveLength,
-                                         @Nullable EllipsizeCallback callback) {
+                                         EllipsizeCallback callback) {
         return ellipsize(text, paint, avail, where, preserveLength, callback,
                 TextDirectionHeuristics.FIRSTSTRONG_LTR,
-                getEllipsisString(where));
+                (where == TruncateAt.END_SMALL) ? ELLIPSIS_TWO_DOTS_STRING : ELLIPSIS_STRING);
     }
 
     /**
@@ -1239,15 +1221,14 @@ public class TextUtils {
             TextPaint paint,
             float avail, TruncateAt where,
             boolean preserveLength,
-            @Nullable EllipsizeCallback callback,
+            EllipsizeCallback callback,
             TextDirectionHeuristic textDir, String ellipsis) {
 
         int len = text.length();
 
-        MeasuredParagraph mt = null;
+        MeasuredText mt = MeasuredText.obtain();
         try {
-            mt = MeasuredParagraph.buildForMeasurement(paint, text, 0, text.length(), textDir, mt);
-            float width = mt.getWholeWidth();
+            float width = setPara(mt, paint, text, 0, text.length(), textDir);
 
             if (width <= avail) {
                 if (callback != null) {
@@ -1280,18 +1261,16 @@ public class TextUtils {
                 callback.ellipsized(left, right);
             }
 
-            final char[] buf = mt.getChars();
+            char[] buf = mt.mChars;
             Spanned sp = text instanceof Spanned ? (Spanned) text : null;
 
-            final int removed = right - left;
-            final int remaining = len - removed;
+            int remaining = len - (right - left);
             if (preserveLength) {
-                if (remaining > 0 && removed >= ellipsis.length()) {
-                    ellipsis.getChars(0, ellipsis.length(), buf, left);
-                    left += ellipsis.length();
-                } // else skip the ellipsis
+                if (remaining > 0) { // else eliminate the ellipsis too
+                    buf[left++] = ellipsis.charAt(0);
+                }
                 for (int i = left; i < right; i++) {
-                    buf[i] = ELLIPSIS_FILLER;
+                    buf[i] = ZWNBS_CHAR;
                 }
                 String s = new String(buf, 0, len);
                 if (sp == null) {
@@ -1320,9 +1299,7 @@ public class TextUtils {
             ssb.append(text, right, len);
             return ssb;
         } finally {
-            if (mt != null) {
-                mt.recycle();
-            }
+            MeasuredText.recycle(mt);
         }
     }
 
@@ -1393,7 +1370,7 @@ public class TextUtils {
             final int remainingElements = totalLen - i - 1;
             if (remainingElements > 0) {
                 CharSequence morePiece = (res == null) ?
-                        ELLIPSIS_NORMAL :
+                        ELLIPSIS_STRING :
                         res.getQuantityString(moreId, remainingElements, remainingElements);
                 morePiece = bidiFormatter.unicodeWrap(morePiece);
                 output.append(morePiece);
@@ -1439,17 +1416,15 @@ public class TextUtils {
     public static CharSequence commaEllipsize(CharSequence text, TextPaint p,
          float avail, String oneMore, String more, TextDirectionHeuristic textDir) {
 
-        MeasuredParagraph mt = null;
-        MeasuredParagraph tempMt = null;
+        MeasuredText mt = MeasuredText.obtain();
         try {
             int len = text.length();
-            mt = MeasuredParagraph.buildForMeasurement(p, text, 0, len, textDir, mt);
-            final float width = mt.getWholeWidth();
+            float width = setPara(mt, p, text, 0, len, textDir);
             if (width <= avail) {
                 return text;
             }
 
-            char[] buf = mt.getChars();
+            char[] buf = mt.mChars;
 
             int commaCount = 0;
             for (int i = 0; i < len; i++) {
@@ -1465,8 +1440,9 @@ public class TextUtils {
 
             int w = 0;
             int count = 0;
-            float[] widths = mt.getWidths().getRawArray();
+            float[] widths = mt.mWidths;
 
+            MeasuredText tempMt = MeasuredText.obtain();
             for (int i = 0; i < len; i++) {
                 w += widths[i];
 
@@ -1483,9 +1459,8 @@ public class TextUtils {
                     }
 
                     // XXX this is probably ok, but need to look at it more
-                    tempMt = MeasuredParagraph.buildForMeasurement(
-                            p, format, 0, format.length(), textDir, tempMt);
-                    float moreWid = tempMt.getWholeWidth();
+                    tempMt.setPara(format, 0, format.length(), textDir, null);
+                    float moreWid = tempMt.addStyleRun(p, tempMt.mLen, null);
 
                     if (w + moreWid <= avail) {
                         ok = i + 1;
@@ -1493,18 +1468,40 @@ public class TextUtils {
                     }
                 }
             }
+            MeasuredText.recycle(tempMt);
 
             SpannableStringBuilder out = new SpannableStringBuilder(okFormat);
             out.insert(0, text, 0, ok);
             return out;
         } finally {
-            if (mt != null) {
-                mt.recycle();
-            }
-            if (tempMt != null) {
-                tempMt.recycle();
+            MeasuredText.recycle(mt);
+        }
+    }
+
+    private static float setPara(MeasuredText mt, TextPaint paint,
+            CharSequence text, int start, int end, TextDirectionHeuristic textDir) {
+
+        mt.setPara(text, start, end, textDir, null);
+
+        float width;
+        Spanned sp = text instanceof Spanned ? (Spanned) text : null;
+        int len = end - start;
+        if (sp == null) {
+            width = mt.addStyleRun(paint, len, null);
+        } else {
+            width = 0;
+            int spanEnd;
+            for (int spanStart = 0; spanStart < len; spanStart = spanEnd) {
+                spanEnd = sp.nextSpanTransition(spanStart, len,
+                        MetricAffectingSpan.class);
+                MetricAffectingSpan[] spans = sp.getSpans(
+                        spanStart, spanEnd, MetricAffectingSpan.class);
+                spans = TextUtils.removeEmptySpans(spans, sp, MetricAffectingSpan.class);
+                width += mt.addStyleRun(paint, spans, spanEnd - spanStart, null);
             }
         }
+
+        return width;
     }
 
     // Returns true if the character's presence could affect RTL layout.
@@ -2035,48 +2032,11 @@ public class TextUtils {
         builder.append(end);
     }
 
-    /**
-     * Intent size limitations prevent sending over a megabyte of data. Limit
-     * text length to 100K characters - 200KB.
-     */
-    private static final int PARCEL_SAFE_TEXT_LENGTH = 100000;
-
-    /**
-     * Trims the text to {@link #PARCEL_SAFE_TEXT_LENGTH} length. Returns the string as it is if
-     * the length() is smaller than {@link #PARCEL_SAFE_TEXT_LENGTH}. Used for text that is parceled
-     * into a {@link Parcelable}.
-     *
-     * @hide
-     */
-    @Nullable
-    public static <T extends CharSequence> T trimToParcelableSize(@Nullable T text) {
-        return trimToSize(text, PARCEL_SAFE_TEXT_LENGTH);
-    }
-
-    /**
-     * Trims the text to {@code size} length. Returns the string as it is if the length() is
-     * smaller than {@code size}. If chars at {@code size-1} and {@code size} is a surrogate
-     * pair, returns a CharSequence of length {@code size-1}.
-     *
-     * @param size length of the result, should be greater than 0
-     *
-     * @hide
-     */
-    @Nullable
-    public static <T extends CharSequence> T trimToSize(@Nullable T text,
-            @IntRange(from = 1) int size) {
-        Preconditions.checkArgument(size > 0);
-        if (TextUtils.isEmpty(text) || text.length() <= size) return text;
-        if (Character.isHighSurrogate(text.charAt(size - 1))
-                && Character.isLowSurrogate(text.charAt(size))) {
-            size = size - 1;
-        }
-        return (T) text.subSequence(0, size);
-    }
-
     private static Object sLock = new Object();
 
     private static char[] sTemp = null;
 
     private static String[] EMPTY_STRING_ARRAY = new String[]{};
+
+    private static final char ZWNBS_CHAR = '\uFEFF';
 }

@@ -26,12 +26,11 @@ import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.service.usb.UsbSettingsManagerProto;
 import android.util.Slog;
 import android.util.SparseArray;
 
 import com.android.internal.annotations.GuardedBy;
-import com.android.internal.util.dump.DualDumpOutputStream;
+import com.android.internal.util.IndentingPrintWriter;
 
 /**
  * Maintains all {@link UsbUserSettingsManager} for all users.
@@ -135,27 +134,39 @@ class UsbSettingsManager {
 
     /**
      * Dump all settings of all users.
+     *
+     * @param pw The writer to dump to
      */
-    void dump(@NonNull DualDumpOutputStream dump, String idName, long id) {
-        long token = dump.start(idName, id);
-
+    void dump(@NonNull IndentingPrintWriter pw) {
         synchronized (mSettingsByUser) {
             int numUsers = mSettingsByUser.size();
             for (int i = 0; i < numUsers; i++) {
-                mSettingsByUser.valueAt(i).dump(dump, "user_settings",
-                        UsbSettingsManagerProto.USER_SETTINGS);
+                final int userId = mSettingsByUser.keyAt(i);
+                final UsbUserSettingsManager settings = mSettingsByUser.valueAt(i);
+                pw.println("Settings for user " + userId + ":");
+                pw.increaseIndent();
+                try {
+                    settings.dump(pw);
+                } finally {
+                    pw.decreaseIndent();
+                }
             }
         }
 
         synchronized (mSettingsByProfileGroup) {
             int numProfileGroups = mSettingsByProfileGroup.size();
             for (int i = 0; i < numProfileGroups; i++) {
-                mSettingsByProfileGroup.valueAt(i).dump(dump, "profile_group_settings",
-                        UsbSettingsManagerProto.PROFILE_GROUP_SETTINGS);
+                final int parentUserId = mSettingsByProfileGroup.keyAt(i);
+                final UsbProfileGroupSettingsManager settings = mSettingsByProfileGroup.valueAt(i);
+                pw.println("Settings for profile group " + parentUserId + ":");
+                pw.increaseIndent();
+                try {
+                    settings.dump(pw);
+                } finally {
+                    pw.decreaseIndent();
+                }
             }
         }
-
-        dump.end(token);
     }
 
     /**

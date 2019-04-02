@@ -16,8 +16,6 @@
 
 package android.webkit;
 
-import android.annotation.Nullable;
-
 import java.security.Principal;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
@@ -44,16 +42,14 @@ public abstract class ClientCertRequest {
     public ClientCertRequest() { }
 
     /**
-     * Returns the acceptable types of asymmetric keys.
+     * Returns the acceptable types of asymmetric keys (can be null).
      */
-    @Nullable
     public abstract String[] getKeyTypes();
 
     /**
      * Returns the acceptable certificate issuers for the certificate
-     *            matching the private key.
+     *            matching the private key (can be null).
      */
-    @Nullable
     public abstract Principal[] getPrincipals();
 
     /**

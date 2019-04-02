@@ -28,15 +28,10 @@ import android.util.Log;
  * Nano apps are expected to be used only by bundled apps only
  * at this time.
  *
- * @deprecated Use {@link android.hardware.location.NanoAppBinary} instead to load a nanoapp with
- *             {@link android.hardware.location.ContextHubManager#loadNanoApp(
- *             ContextHubInfo, NanoAppBinary)}.
- *
  * @hide
  */
 @SystemApi
-@Deprecated
-public class NanoApp implements Parcelable {
+public class NanoApp {
     private final String TAG = "NanoApp";
 
     private final String UNKNOWN = "Unknown";

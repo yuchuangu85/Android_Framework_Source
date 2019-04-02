@@ -26,7 +26,6 @@ import android.hardware.camera2.ICameraDeviceCallbacks;
 import android.hardware.camera2.ICameraDeviceUser;
 import android.hardware.camera2.impl.CameraMetadataNative;
 import android.hardware.camera2.impl.CaptureResultExtras;
-import android.hardware.camera2.impl.PhysicalCaptureResultInfo;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.utils.SubmitInfo;
 import android.os.ConditionVariable;
@@ -250,8 +249,7 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
 
         @Override
         public void onResultReceived(final CameraMetadataNative result,
-                final CaptureResultExtras resultExtras,
-                PhysicalCaptureResultInfo physicalResults[]) {
+                final CaptureResultExtras resultExtras) {
             Object[] resultArray = new Object[] { result, resultExtras };
             Message msg = getHandler().obtainMessage(RESULT_RECEIVED,
                     /*obj*/ resultArray);
@@ -322,8 +320,7 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
                             Object[] resultArray = (Object[]) msg.obj;
                             CameraMetadataNative result = (CameraMetadataNative) resultArray[0];
                             CaptureResultExtras resultExtras = (CaptureResultExtras) resultArray[1];
-                            mCallbacks.onResultReceived(result, resultExtras,
-                                    new PhysicalCaptureResultInfo[0]);
+                            mCallbacks.onResultReceived(result, resultExtras);
                             break;
                         }
                         case PREPARED: {
@@ -501,7 +498,7 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
     }
 
     @Override
-    public void endConfigure(int operatingMode, CameraMetadataNative sessionParams) {
+    public void endConfigure(int operatingMode) {
         if (DEBUG) {
             Log.d(TAG, "endConfigure called.");
         }
@@ -646,11 +643,6 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         // TODO: implement getCameraInfo.
         Log.e(TAG, "getCameraInfo unimplemented.");
         return null;
-    }
-
-    @Override
-    public void updateOutputConfiguration(int streamId, OutputConfiguration config) {
-        // TODO: b/63912484 implement updateOutputConfiguration.
     }
 
     @Override

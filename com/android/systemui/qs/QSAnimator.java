@@ -20,12 +20,11 @@ import android.view.View.OnAttachStateChangeListener;
 import android.view.View.OnLayoutChangeListener;
 
 import com.android.systemui.Dependency;
-import com.android.systemui.plugins.qs.QS;
-import com.android.systemui.plugins.qs.QSTile;
+import com.android.systemui.plugins.qs.*;
 import com.android.systemui.plugins.qs.QSTileView;
 import com.android.systemui.qs.PagedTileLayout.PageListener;
-import com.android.systemui.qs.QSHost.Callback;
 import com.android.systemui.qs.QSPanel.QSTileLayout;
+import com.android.systemui.qs.QSHost.Callback;
 import com.android.systemui.qs.TouchAnimator.Builder;
 import com.android.systemui.qs.TouchAnimator.Listener;
 import com.android.systemui.tuner.TunerService;
@@ -44,13 +43,8 @@ public class QSAnimator implements Callback, PageListener, Listener, OnLayoutCha
 
     public static final float EXPANDED_TILE_DELAY = .86f;
 
-
     private final ArrayList<View> mAllViews = new ArrayList<>();
-    /**
-     * List of {@link View}s representing Quick Settings that are being animated from the quick QS
-     * position to the normal QS panel.
-     */
-    private final ArrayList<View> mQuickQsViews = new ArrayList<>();
+    private final ArrayList<View> mTopFiveQs = new ArrayList<>();
     private final QuickQSPanel mQuickQsPanel;
     private final QSPanel mQsPanel;
     private final QS mQs;
@@ -63,7 +57,6 @@ public class QSAnimator implements Callback, PageListener, Listener, OnLayoutCha
     private TouchAnimator mTranslationXAnimator;
     private TouchAnimator mTranslationYAnimator;
     private TouchAnimator mNonfirstPageAnimator;
-    private TouchAnimator mNonfirstPageDelayedAnimator;
     private TouchAnimator mBrightnessAnimator;
 
     private boolean mOnKeyguard;
@@ -86,10 +79,10 @@ public class QSAnimator implements Callback, PageListener, Listener, OnLayoutCha
         QSTileLayout tileLayout = mQsPanel.getTileLayout();
         if (tileLayout instanceof PagedTileLayout) {
             mPagedLayout = ((PagedTileLayout) tileLayout);
+            mPagedLayout.setPageListener(this);
         } else {
             Log.w(TAG, "QS Not using page layout");
         }
-        panel.setPageListener(this);
     }
 
     public void onRtlChanged() {
@@ -164,7 +157,7 @@ public class QSAnimator implements Callback, PageListener, Listener, OnLayoutCha
 
         clearAnimationState();
         mAllViews.clear();
-        mQuickQsViews.clear();
+        mTopFiveQs.clear();
 
         QSTileLayout tileLayout = mQsPanel.getTileLayout();
         mAllViews.add((View) tileLayout);
@@ -205,7 +198,7 @@ public class QSAnimator implements Callback, PageListener, Listener, OnLayoutCha
                 translationXBuilder.addFloat(tileView, "translationX", -xDiff, 0);
                 translationYBuilder.addFloat(tileView, "translationY", -yDiff, 0);
 
-                mQuickQsViews.add(tileView.getIconWithBackground());
+                mTopFiveQs.add(tileView.getIcon());
                 mAllViews.add(tileView.getIcon());
                 mAllViews.add(quickTileView);
             } else if (mFullRows && isIconInAnimatedRow(count)) {
@@ -250,8 +243,8 @@ public class QSAnimator implements Callback, PageListener, Listener, OnLayoutCha
             // Fade in the tiles/labels as we reach the final position.
             mFirstPageDelayedAnimator = new TouchAnimator.Builder()
                     .setStartDelay(EXPANDED_TILE_DELAY)
-                    .addFloat(mQsPanel.getPageIndicator(), "alpha", 0, 1)
                     .addFloat(tileLayout, "alpha", 0, 1)
+                    .addFloat(mQsPanel.getPageIndicator(), "alpha", 0, 1)
                     .addFloat(mQsPanel.getDivider(), "alpha", 0, 1)
                     .addFloat(mQsPanel.getFooter().getView(), "alpha", 0, 1).build();
             mAllViews.add(mQsPanel.getPageIndicator());
@@ -277,9 +270,6 @@ public class QSAnimator implements Callback, PageListener, Listener, OnLayoutCha
                 .setListener(mNonFirstPageListener)
                 .setEndDelay(.5f)
                 .build();
-        mNonfirstPageDelayedAnimator = new TouchAnimator.Builder()
-                .setStartDelay(.14f)
-                .addFloat(tileLayout, "alpha", 0, 1).build();
     }
 
     private boolean isIconInAnimatedRow(int count) {
@@ -324,7 +314,6 @@ public class QSAnimator implements Callback, PageListener, Listener, OnLayoutCha
             }
         } else {
             mNonfirstPageAnimator.setPosition(position);
-            mNonfirstPageDelayedAnimator.setPosition(position);
         }
     }
 
@@ -336,9 +325,9 @@ public class QSAnimator implements Callback, PageListener, Listener, OnLayoutCha
     @Override
     public void onAnimationAtEnd() {
         mQuickQsPanel.setVisibility(View.INVISIBLE);
-        final int N = mQuickQsViews.size();
+        final int N = mTopFiveQs.size();
         for (int i = 0; i < N; i++) {
-            mQuickQsViews.get(i).setVisibility(View.VISIBLE);
+            mTopFiveQs.get(i).setVisibility(View.VISIBLE);
         }
     }
 
@@ -346,9 +335,9 @@ public class QSAnimator implements Callback, PageListener, Listener, OnLayoutCha
     public void onAnimationStarted() {
         mQuickQsPanel.setVisibility(mOnKeyguard ? View.INVISIBLE : View.VISIBLE);
         if (mOnFirstPage) {
-            final int N = mQuickQsViews.size();
+            final int N = mTopFiveQs.size();
             for (int i = 0; i < N; i++) {
-                mQuickQsViews.get(i).setVisibility(View.INVISIBLE);
+                mTopFiveQs.get(i).setVisibility(View.INVISIBLE);
             }
         }
     }
@@ -362,9 +351,9 @@ public class QSAnimator implements Callback, PageListener, Listener, OnLayoutCha
             v.setTranslationX(0);
             v.setTranslationY(0);
         }
-        final int N2 = mQuickQsViews.size();
+        final int N2 = mTopFiveQs.size();
         for (int i = 0; i < N2; i++) {
-            mQuickQsViews.get(i).setVisibility(View.VISIBLE);
+            mTopFiveQs.get(i).setVisibility(View.VISIBLE);
         }
     }
 

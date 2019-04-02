@@ -16,9 +16,9 @@
 
 package com.android.printservice.recommendation;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.annotation.StringRes;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.StringRes;
 
 import java.net.InetAddress;
 import java.util.List;

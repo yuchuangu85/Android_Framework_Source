@@ -151,7 +151,6 @@ public class InetSocketAddress
         return hostname;
     }
 
-    // BEGIN Android-added: InetSocketAddress() ctor used by IoBridge.
     /**
      * @hide internal use only
      */
@@ -159,7 +158,6 @@ public class InetSocketAddress
         // These will be filled in the native implementation of recvfrom.
         holder = new InetSocketAddressHolder(null, null, 0);
     }
-    // END Android-added: InetSocketAddress() ctor used by IoBridge.
 
     /**
      * Creates a socket address where the IP address is the wildcard address
@@ -174,9 +172,7 @@ public class InetSocketAddress
      * range of valid port values.
      */
     public InetSocketAddress(int port) {
-        // Android-changed: Defaults to IPv6.
-        // this(InetAddress.anyLocalAddress(), port);
-        this((InetAddress)null, port);
+      this((InetAddress)null, port);
     }
 
     /**
@@ -197,7 +193,7 @@ public class InetSocketAddress
     public InetSocketAddress(InetAddress addr, int port) {
         holder = new InetSocketAddressHolder(
                         null,
-                        // Android-changed: Defaults to IPv6 if addr is null.
+                        // Android-changed: Return IPv4 address
                         // addr == null ? InetAddress.anyLocalAddress() : addr,
                         addr == null ? Inet6Address.ANY : addr,
                         checkPort(port));
@@ -211,7 +207,7 @@ public class InetSocketAddress
      * If that attempt fails, the address will be flagged as <I>unresolved</I>.
      * <p>
      * If there is a security manager, its {@code checkConnect} method
-     * is called with the host name as its argument to check the permission
+     * is called with the host name as its argument to check the permissiom
      * to resolve it. This could result in a SecurityException.
      * <P>
      * A valid port value is between 0 and 65535.
@@ -404,7 +400,7 @@ public class InetSocketAddress
      * Two instances of {@code InetSocketAddress} represent the same
      * address if both the InetAddresses (or hostnames if it is unresolved) and port
      * numbers are equal.
-     * If both addresses are unresolved, then the hostname and the port number
+     * If both addresses are unresolved, then the hostname & the port number
      * are compared.
      *
      * Note: Hostnames are case insensitive. e.g. "FooBar" and "foobar" are

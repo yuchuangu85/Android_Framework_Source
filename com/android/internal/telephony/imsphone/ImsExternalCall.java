@@ -16,8 +16,6 @@
 
 package com.android.internal.telephony.imsphone;
 
-import android.telephony.ims.ImsExternalCallState;
-
 import com.android.internal.telephony.Call;
 import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.Connection;
@@ -27,7 +25,7 @@ import java.util.List;
 
 /**
  * Companion class for {@link ImsExternalConnection}; represents an external call which was
- * received via {@link ImsExternalCallState} info.
+ * received via {@link com.android.ims.ImsExternalCallState} info.
  */
 public class ImsExternalCall extends Call {
 

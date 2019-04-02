@@ -27,7 +27,7 @@ public class PowerSaveState implements Parcelable {
     /**
      * Whether we should enable battery saver for this service.
      *
-     * @see com.android.server.power.BatterySaverPolicy
+     * @see com.android.server.power.BatterySaverPolicy.ServiceType
      */
     public final boolean batterySaverEnabled;
     /**

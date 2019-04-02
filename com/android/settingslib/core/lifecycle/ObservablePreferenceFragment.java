@@ -16,15 +16,7 @@
 package com.android.settingslib.core.lifecycle;
 
 
-import static android.arch.lifecycle.Lifecycle.Event.ON_CREATE;
-import static android.arch.lifecycle.Lifecycle.Event.ON_DESTROY;
-import static android.arch.lifecycle.Lifecycle.Event.ON_PAUSE;
-import static android.arch.lifecycle.Lifecycle.Event.ON_RESUME;
-import static android.arch.lifecycle.Lifecycle.Event.ON_START;
-import static android.arch.lifecycle.Lifecycle.Event.ON_STOP;
-
 import android.annotation.CallSuper;
-import android.arch.lifecycle.LifecycleOwner;
 import android.content.Context;
 import android.os.Bundle;
 import android.support.v14.preference.PreferenceFragment;
@@ -36,12 +28,11 @@ import android.view.MenuItem;
 /**
  * {@link PreferenceFragment} that has hooks to observe fragment lifecycle events.
  */
-public abstract class ObservablePreferenceFragment extends PreferenceFragment
-        implements LifecycleOwner {
+public abstract class ObservablePreferenceFragment extends PreferenceFragment {
 
-    private final Lifecycle mLifecycle = new Lifecycle(this);
+    private final Lifecycle mLifecycle = new Lifecycle();
 
-    public Lifecycle getLifecycle() {
+    protected Lifecycle getLifecycle() {
         return mLifecycle;
     }
 
@@ -56,7 +47,6 @@ public abstract class ObservablePreferenceFragment extends PreferenceFragment
     @Override
     public void onCreate(Bundle savedInstanceState) {
         mLifecycle.onCreate(savedInstanceState);
-        mLifecycle.handleLifecycleEvent(ON_CREATE);
         super.onCreate(savedInstanceState);
     }
 
@@ -76,35 +66,35 @@ public abstract class ObservablePreferenceFragment extends PreferenceFragment
     @CallSuper
     @Override
     public void onStart() {
-        mLifecycle.handleLifecycleEvent(ON_START);
+        mLifecycle.onStart();
         super.onStart();
     }
 
     @CallSuper
     @Override
+    public void onStop() {
+        mLifecycle.onStop();
+        super.onStop();
+    }
+
+    @CallSuper
+    @Override
     public void onResume() {
-        mLifecycle.handleLifecycleEvent(ON_RESUME);
+        mLifecycle.onResume();
         super.onResume();
     }
 
     @CallSuper
     @Override
     public void onPause() {
-        mLifecycle.handleLifecycleEvent(ON_PAUSE);
+        mLifecycle.onPause();
         super.onPause();
     }
 
     @CallSuper
     @Override
-    public void onStop() {
-        mLifecycle.handleLifecycleEvent(ON_STOP);
-        super.onStop();
-    }
-
-    @CallSuper
-    @Override
     public void onDestroy() {
-        mLifecycle.handleLifecycleEvent(ON_DESTROY);
+        mLifecycle.onDestroy();
         super.onDestroy();
     }
 

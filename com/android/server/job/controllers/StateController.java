@@ -17,14 +17,11 @@
 package com.android.server.job.controllers;
 
 import android.content.Context;
-import android.util.proto.ProtoOutputStream;
 
-import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.job.JobSchedulerService;
-import com.android.server.job.JobSchedulerService.Constants;
 import com.android.server.job.StateChangedListener;
 
-import java.util.function.Predicate;
+import java.io.PrintWriter;
 
 /**
  * Incorporates shared controller logic between the various controllers of the JobManager.
@@ -32,18 +29,16 @@ import java.util.function.Predicate;
  * are ready to run, or whether they must be stopped.
  */
 public abstract class StateController {
-    protected final JobSchedulerService mService;
-    protected final StateChangedListener mStateChangedListener;
+    protected static final boolean DEBUG = JobSchedulerService.DEBUG;
     protected final Context mContext;
     protected final Object mLock;
-    protected final Constants mConstants;
+    protected final StateChangedListener mStateChangedListener;
 
-    StateController(JobSchedulerService service) {
-        mService = service;
-        mStateChangedListener = service;
-        mContext = service.getTestableContext();
-        mLock = service.getLock();
-        mConstants = service.getConstants();
+    public StateController(StateChangedListener stateChangedListener, Context context,
+            Object lock) {
+        mStateChangedListener = stateChangedListener;
+        mContext = context;
+        mLock = lock;
     }
 
     /**
@@ -69,8 +64,5 @@ public abstract class StateController {
     public void rescheduleForFailureLocked(JobStatus newJob, JobStatus failureToReschedule) {
     }
 
-    public abstract void dumpControllerStateLocked(IndentingPrintWriter pw,
-            Predicate<JobStatus> predicate);
-    public abstract void dumpControllerStateLocked(ProtoOutputStream proto, long fieldId,
-            Predicate<JobStatus> predicate);
+    public abstract void dumpControllerStateLocked(PrintWriter pw, int filterUid);
 }

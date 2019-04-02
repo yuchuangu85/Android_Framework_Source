@@ -110,8 +110,7 @@ public class BatterySaverTile extends QSTileImpl<BooleanState> implements
 
         @Override
         public Drawable getDrawable(Context context) {
-            BatterySaverDrawable b =
-                    new BatterySaverDrawable(context, QSTileImpl.getColorForState(context, mState));
+            BatterySaverDrawable b = new BatterySaverDrawable(context, 0);
             b.mState = mState;
             final int pad = context.getResources()
                     .getDimensionPixelSize(R.dimen.qs_tile_divider_height);
@@ -130,17 +129,11 @@ public class BatterySaverTile extends QSTileImpl<BooleanState> implements
             super.setBatteryLevel(MAX_BATTERY);
             setPowerSave(true);
             setCharging(false);
-            setPowerSaveAsColorError(false);
-            mPowerSaveAsColorError = true;
-            mFramePaint.setColor(0);
-            mPowersavePaint.setColor(frameColor);
-            mFramePaint.setStrokeWidth(mPowersavePaint.getStrokeWidth());
-            mPlusPaint.setColor(frameColor);
         }
 
         @Override
         protected int batteryColorForLevel(int level) {
-            return 0;
+            return QSTileImpl.getColorForState(mContext, mState);
         }
 
         @Override

@@ -68,7 +68,7 @@ public class ContactsInternal {
             }
         }
         // Launch on the current profile.
-        startQuickContactWithErrorToastForUser(context, intent, context.getUser());
+        startQuickContactWithErrorToastForUser(context, intent, Process.myUserHandle());
     }
 
     public static void startQuickContactWithErrorToastForUser(Context context, Intent intent,

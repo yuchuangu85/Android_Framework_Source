@@ -41,9 +41,6 @@ public class ShutdownActivity extends Activity {
         mReboot = Intent.ACTION_REBOOT.equals(intent.getAction());
         mConfirm = intent.getBooleanExtra(Intent.EXTRA_KEY_CONFIRM, false);
         mUserRequested = intent.getBooleanExtra(Intent.EXTRA_USER_REQUESTED_SHUTDOWN, false);
-        final String reason = mUserRequested
-                ? PowerManager.SHUTDOWN_USER_REQUESTED
-                : intent.getStringExtra(Intent.EXTRA_REASON);
         Slog.i(TAG, "onCreate(): confirm=" + mConfirm);
 
         Thread thr = new Thread("ShutdownActivity") {
@@ -55,7 +52,9 @@ public class ShutdownActivity extends Activity {
                     if (mReboot) {
                         pm.reboot(mConfirm, null, false);
                     } else {
-                        pm.shutdown(mConfirm, reason, false);
+                        pm.shutdown(mConfirm,
+                                    mUserRequested ? PowerManager.SHUTDOWN_USER_REQUESTED : null,
+                                    false);
                     }
                 } catch (RemoteException e) {
                 }

@@ -475,12 +475,12 @@ public class ExemptionMechanism {
         return n;
     }
 
-    // Android-removed: Unnecessary finalize() method.
-    // OpenJDK 9 also removed the method.
-    /*
+    /**
+     * Ensures that the key stored away by this ExemptionMechanism
+     * object will be wiped out when there are no more references to it.
+     */
     protected void finalize() {
         keyStored = null;
         // Are there anything else we could do?
     }
-    */
 }

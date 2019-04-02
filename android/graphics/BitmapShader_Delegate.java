@@ -31,9 +31,7 @@ import java.awt.geom.NoninvertibleTransformException;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.ColorModel;
-import java.awt.image.DataBufferInt;
 import java.awt.image.Raster;
-import java.awt.image.SampleModel;
 
 /**
  * Delegate implementing the native methods of android.graphics.BitmapShader
@@ -191,9 +189,9 @@ public class BitmapShader_Delegate extends Shader_Delegate {
                     }
                 }
 
-                DataBufferInt dataBuffer = new DataBufferInt(data, data.length);
-                SampleModel colorModel = mColorModel.createCompatibleSampleModel(w, h);
-                return Raster.createWritableRaster(colorModel, dataBuffer, null);
+                image.setRGB(0 /*startX*/, 0 /*startY*/, w, h, data, 0 /*offset*/, w /*scansize*/);
+
+                return image.getRaster();
             }
         }
 

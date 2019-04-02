@@ -32,7 +32,7 @@ public abstract class UsbACTerminal extends UsbACInterface {
     protected int mTerminalType;      // 4:2 USB Streaming. (0x0101)
     protected byte mAssocTerminal;    // 6:1 Unused (0x00)
 
-    public UsbACTerminal(int length, byte type, byte subtype, int subclass) {
+    public UsbACTerminal(int length, byte type, byte subtype, byte subclass) {
         super(length, type, subtype, subclass);
     }
 

@@ -16,22 +16,21 @@
 
 package android.telephony.mbms;
 
-import android.os.Binder;
+import android.os.Handler;
 import android.os.RemoteException;
 
 import java.util.List;
-import java.util.concurrent.Executor;
 
 /** @hide */
 public class InternalStreamingSessionCallback extends IMbmsStreamingSessionCallback.Stub {
-    private final Executor mExecutor;
+    private final Handler mHandler;
     private final MbmsStreamingSessionCallback mAppCallback;
     private volatile boolean mIsStopped = false;
 
     public InternalStreamingSessionCallback(MbmsStreamingSessionCallback appCallback,
-            Executor executor) {
+            Handler handler) {
         mAppCallback = appCallback;
-        mExecutor = executor;
+        mHandler = handler;
     }
 
     @Override
@@ -40,15 +39,10 @@ public class InternalStreamingSessionCallback extends IMbmsStreamingSessionCallb
             return;
         }
 
-        mExecutor.execute(new Runnable() {
+        mHandler.post(new Runnable() {
             @Override
             public void run() {
-                long token = Binder.clearCallingIdentity();
-                try {
-                    mAppCallback.onError(errorCode, message);
-                } finally {
-                    Binder.restoreCallingIdentity(token);
-                }
+                mAppCallback.onError(errorCode, message);
             }
         });
     }
@@ -60,15 +54,10 @@ public class InternalStreamingSessionCallback extends IMbmsStreamingSessionCallb
             return;
         }
 
-        mExecutor.execute(new Runnable() {
+        mHandler.post(new Runnable() {
             @Override
             public void run() {
-                long token = Binder.clearCallingIdentity();
-                try {
-                    mAppCallback.onStreamingServicesUpdated(services);
-                } finally {
-                    Binder.restoreCallingIdentity(token);
-                }
+                mAppCallback.onStreamingServicesUpdated(services);
             }
         });
     }
@@ -79,17 +68,16 @@ public class InternalStreamingSessionCallback extends IMbmsStreamingSessionCallb
             return;
         }
 
-        mExecutor.execute(new Runnable() {
+        mHandler.post(new Runnable() {
             @Override
             public void run() {
-                long token = Binder.clearCallingIdentity();
-                try {
-                    mAppCallback.onMiddlewareReady();
-                } finally {
-                    Binder.restoreCallingIdentity(token);
-                }
+                mAppCallback.onMiddlewareReady();
             }
         });
+    }
+
+    public Handler getHandler() {
+        return mHandler;
     }
 
     public void stop() {

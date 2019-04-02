@@ -54,9 +54,6 @@ public class SyncLogger {
 
     private static SyncLogger sInstance;
 
-    // Special UID used for logging to denote the self process.
-    public static final int CALLING_UID_SELF = -1;
-
     SyncLogger() {
     }
 
@@ -65,10 +62,8 @@ public class SyncLogger {
      */
     public static synchronized SyncLogger getInstance() {
         if (sInstance == null) {
-            final boolean enable =
-                    Build.IS_DEBUGGABLE
-                    || "1".equals(SystemProperties.get("debug.synclog"))
-                    || Log.isLoggable(TAG, Log.VERBOSE);
+            final boolean enable = "1".equals(SystemProperties.get("debug.synclog",
+                    Build.IS_DEBUGGABLE ? "1" : "0"));
             if (enable) {
                 sInstance = new RotatingFileLogger();
             } else {
@@ -199,7 +194,6 @@ public class SyncLogger {
             }
         }
 
-        @GuardedBy("mLock")
         private void openLogLocked(long now) {
             // If we already have a log file opened and the date has't changed, just use it.
             final long day = now % DateUtils.DAY_IN_MILLIS;
@@ -225,7 +219,6 @@ public class SyncLogger {
             }
         }
 
-        @GuardedBy("mLock")
         private void closeCurrentLogLocked() {
             IoUtils.closeQuietly(mLogWriter);
             mLogWriter = null;
@@ -240,7 +233,12 @@ public class SyncLogger {
 
         @Override
         public String jobParametersToString(JobParameters params) {
-            return SyncJobService.jobParametersToString(params);
+            if (params == null) {
+                return "job:null";
+            } else {
+                return "job:#" + params.getJobId() + ":"
+                        + SyncOperation.maybeCreateFromJobExtras(params.getExtras());
+            }
         }
 
         @Override

@@ -17,8 +17,7 @@
 package android.support.v4.media;
 
 import android.media.browse.MediaBrowser;
-
-import androidx.annotation.RequiresApi;
+import android.support.annotation.RequiresApi;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
@@ -47,8 +46,5 @@ class ParceledListSliceAdapterApi21 {
             e.printStackTrace();
         }
         return result;
-    }
-
-    private ParceledListSliceAdapterApi21() {
     }
 }

@@ -22,7 +22,6 @@ import android.os.FileUtils;
 import android.os.Process;
 import android.os.StrictMode;
 import android.os.SystemClock;
-import android.system.Os;
 import android.system.OsConstants;
 import android.util.Slog;
 
@@ -295,7 +294,7 @@ public class ProcessCpuTracker {
 
     public ProcessCpuTracker(boolean includeThreads) {
         mIncludeThreads = includeThreads;
-        long jiffyHz = Os.sysconf(OsConstants._SC_CLK_TCK);
+        long jiffyHz = Libcore.os.sysconf(OsConstants._SC_CLK_TCK);
         mJiffyMillis = 1000/jiffyHz;
     }
 

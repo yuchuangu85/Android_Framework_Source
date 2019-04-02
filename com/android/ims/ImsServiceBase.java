@@ -18,7 +18,7 @@ package com.android.ims;
 
 import android.app.PendingIntent;
 
-import android.telephony.ims.ImsCallProfile;
+import com.android.ims.ImsCallProfile;
 import com.android.ims.internal.IImsCallSession;
 import com.android.ims.internal.IImsCallSessionListener;
 import com.android.ims.internal.IImsConfig;

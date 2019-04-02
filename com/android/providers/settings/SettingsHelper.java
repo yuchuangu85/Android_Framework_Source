@@ -16,7 +16,6 @@
 
 package com.android.providers.settings;
 
-import android.os.Process;
 import com.android.internal.R;
 import com.android.internal.app.LocalePicker;
 import com.android.internal.annotations.VisibleForTesting;
@@ -30,7 +29,6 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
-import android.hardware.display.DisplayManager;
 import android.icu.util.ULocale;
 import android.location.LocationManager;
 import android.media.AudioManager;
@@ -76,10 +74,11 @@ public class SettingsHelper {
      */
     private static final ArraySet<String> sBroadcastOnRestore;
     static {
-        sBroadcastOnRestore = new ArraySet<String>(4);
+        sBroadcastOnRestore = new ArraySet<String>(5);
         sBroadcastOnRestore.add(Settings.Secure.ENABLED_NOTIFICATION_LISTENERS);
         sBroadcastOnRestore.add(Settings.Secure.ENABLED_VR_LISTENERS);
         sBroadcastOnRestore.add(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        sBroadcastOnRestore.add(Settings.Secure.ENABLED_INPUT_METHODS);
         sBroadcastOnRestore.add(Settings.Global.BLUETOOTH_ON);
     }
 
@@ -144,7 +143,10 @@ public class SettingsHelper {
         }
 
         try {
-            if (Settings.System.SOUND_EFFECTS_ENABLED.equals(name)) {
+            if (Settings.System.SCREEN_BRIGHTNESS.equals(name)) {
+                setBrightness(Integer.parseInt(value));
+                // fall through to the ordinary write to settings
+            } else if (Settings.System.SOUND_EFFECTS_ENABLED.equals(name)) {
                 setSoundEffects(Integer.parseInt(value) == 1);
                 // fall through to the ordinary write to settings
             } else if (Settings.Secure.LOCATION_PROVIDERS_ALLOWED.equals(name)) {
@@ -254,7 +256,6 @@ public class SettingsHelper {
             case Settings.Secure.TOUCH_EXPLORATION_ENABLED:
             case Settings.Secure.ACCESSIBILITY_DISPLAY_DALTONIZER_ENABLED:
             case Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_ENABLED:
-            case Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_NAVBAR_ENABLED:
             case Settings.Secure.UI_NIGHT_MODE:
                 return Settings.Secure.getInt(mContext.getContentResolver(), name, 0) != 0;
             case Settings.Secure.TOUCH_EXPLORATION_GRANTED_ACCESSIBILITY_SERVICES:
@@ -287,12 +288,12 @@ public class SettingsHelper {
         }
         final String GPS = LocationManager.GPS_PROVIDER;
         boolean enabled =
-            GPS.equals(value) ||
+                GPS.equals(value) ||
                 value.startsWith(GPS + ",") ||
                 value.endsWith("," + GPS) ||
                 value.contains("," + GPS + ",");
-        LocationManager lm = (LocationManager) mContext.getSystemService(Context.LOCATION_SERVICE);
-        lm.setProviderEnabledForUser(GPS, enabled, Process.myUserHandle());
+        Settings.Secure.setLocationProviderEnabled(
+                mContext.getContentResolver(), GPS, enabled);
     }
 
     private void setSoundEffects(boolean enable) {
@@ -300,6 +301,18 @@ public class SettingsHelper {
             mAudioManager.loadSoundEffects();
         } else {
             mAudioManager.unloadSoundEffects();
+        }
+    }
+
+    private void setBrightness(int brightness) {
+        try {
+            IPowerManager power = IPowerManager.Stub.asInterface(
+                    ServiceManager.getService("power"));
+            if (power != null) {
+                power.setTemporaryScreenBrightnessSettingOverride(brightness);
+            }
+        } catch (RemoteException doe) {
+
         }
     }
 

@@ -16,6 +16,7 @@
 
 package com.android.server.wifi.aware;
 
+import android.hardware.wifi.V1_0.IWifiNanIfaceEventCallback;
 import android.hardware.wifi.V1_0.NanCapabilities;
 import android.hardware.wifi.V1_0.NanClusterEventInd;
 import android.hardware.wifi.V1_0.NanClusterEventType;
@@ -25,8 +26,6 @@ import android.hardware.wifi.V1_0.NanFollowupReceivedInd;
 import android.hardware.wifi.V1_0.NanMatchInd;
 import android.hardware.wifi.V1_0.NanStatusType;
 import android.hardware.wifi.V1_0.WifiNanStatus;
-import android.hardware.wifi.V1_2.IWifiNanIfaceEventCallback;
-import android.hardware.wifi.V1_2.NanDataPathScheduleUpdateInd;
 import android.os.ShellCommand;
 import android.util.Log;
 import android.util.SparseIntArray;
@@ -47,10 +46,8 @@ import java.util.Arrays;
 public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub implements
         WifiAwareShellCommand.DelegatedShellCommand {
     private static final String TAG = "WifiAwareNativeCallback";
+    private static final boolean DBG = false;
     private static final boolean VDBG = false;
-    /* package */ boolean mDbg = false;
-
-    /* package */ boolean mIsHal12OrLater = false;
 
     private final WifiAwareStateManager mWifiAwareStateManager;
 
@@ -72,7 +69,6 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
     private static final int CB_EV_DATA_PATH_REQUEST = 8;
     private static final int CB_EV_DATA_PATH_CONFIRM = 9;
     private static final int CB_EV_DATA_PATH_TERMINATED = 10;
-    private static final int CB_EV_DATA_PATH_SCHED_UPDATE = 11;
 
     private SparseIntArray mCallbackCounter = new SparseIntArray();
 
@@ -95,7 +91,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
         switch (subCmd) {
             case "get_cb_count": {
                 String option = parentShell.getNextOption();
-                if (VDBG) Log.v(TAG, "option='" + option + "'");
+                Log.v(TAG, "option='" + option + "'");
                 boolean reset = false;
                 if (option != null) {
                     if ("--reset".equals(option)) {
@@ -145,7 +141,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
     @Override
     public void notifyCapabilitiesResponse(short id, WifiNanStatus status,
             NanCapabilities capabilities) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "notifyCapabilitiesResponse: id=" + id + ", status=" + statusString(status)
                     + ", capabilities=" + capabilities);
         }
@@ -180,7 +176,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void notifyEnableResponse(short id, WifiNanStatus status) {
-        if (mDbg) Log.v(TAG, "notifyEnableResponse: id=" + id + ", status=" + statusString(status));
+        if (VDBG) Log.v(TAG, "notifyEnableResponse: id=" + id + ", status=" + statusString(status));
 
         if (status.status == NanStatusType.ALREADY_ENABLED) {
             Log.wtf(TAG, "notifyEnableResponse: id=" + id + ", already enabled!?");
@@ -196,7 +192,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void notifyConfigResponse(short id, WifiNanStatus status) {
-        if (mDbg) Log.v(TAG, "notifyConfigResponse: id=" + id + ", status=" + statusString(status));
+        if (VDBG) Log.v(TAG, "notifyConfigResponse: id=" + id + ", status=" + statusString(status));
 
         if (status.status == NanStatusType.SUCCESS) {
             mWifiAwareStateManager.onConfigSuccessResponse(id);
@@ -207,7 +203,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void notifyDisableResponse(short id, WifiNanStatus status) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "notifyDisableResponse: id=" + id + ", status=" + statusString(status));
         }
 
@@ -220,7 +216,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void notifyStartPublishResponse(short id, WifiNanStatus status, byte publishId) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "notifyStartPublishResponse: id=" + id + ", status=" + statusString(status)
                     + ", publishId=" + publishId);
         }
@@ -234,7 +230,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void notifyStopPublishResponse(short id, WifiNanStatus status) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "notifyStopPublishResponse: id=" + id + ", status=" + statusString(status));
         }
 
@@ -248,7 +244,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void notifyStartSubscribeResponse(short id, WifiNanStatus status, byte subscribeId) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "notifyStartSubscribeResponse: id=" + id + ", status=" + statusString(status)
                     + ", subscribeId=" + subscribeId);
         }
@@ -262,7 +258,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void notifyStopSubscribeResponse(short id, WifiNanStatus status) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "notifyStopSubscribeResponse: id=" + id + ", status="
                     + statusString(status));
         }
@@ -277,7 +273,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void notifyTransmitFollowupResponse(short id, WifiNanStatus status) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "notifyTransmitFollowupResponse: id=" + id + ", status="
                     + statusString(status));
         }
@@ -291,7 +287,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void notifyCreateDataInterfaceResponse(short id, WifiNanStatus status) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "notifyCreateDataInterfaceResponse: id=" + id + ", status="
                     + statusString(status));
         }
@@ -302,7 +298,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void notifyDeleteDataInterfaceResponse(short id, WifiNanStatus status) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "notifyDeleteDataInterfaceResponse: id=" + id + ", status="
                     + statusString(status));
         }
@@ -314,7 +310,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
     @Override
     public void notifyInitiateDataPathResponse(short id, WifiNanStatus status,
             int ndpInstanceId) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "notifyInitiateDataPathResponse: id=" + id + ", status="
                     + statusString(status) + ", ndpInstanceId=" + ndpInstanceId);
         }
@@ -328,7 +324,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void notifyRespondToDataPathIndicationResponse(short id, WifiNanStatus status) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "notifyRespondToDataPathIndicationResponse: id=" + id
                     + ", status=" + statusString(status));
         }
@@ -339,7 +335,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void notifyTerminateDataPathResponse(short id, WifiNanStatus status) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "notifyTerminateDataPathResponse: id=" + id + ", status="
                     + statusString(status));
         }
@@ -350,7 +346,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void eventClusterEvent(NanClusterEventInd event) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "eventClusterEvent: eventType=" + event.eventType + ", addr="
                     + String.valueOf(HexEncoding.encode(event.addr)));
         }
@@ -371,7 +367,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void eventDisabled(WifiNanStatus status) {
-        if (mDbg) Log.v(TAG, "eventDisabled: status=" + statusString(status));
+        if (VDBG) Log.v(TAG, "eventDisabled: status=" + statusString(status));
         incrementCbCount(CB_EV_DISABLED);
 
         mWifiAwareStateManager.onAwareDownNotification(status.status);
@@ -379,7 +375,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void eventPublishTerminated(byte sessionId, WifiNanStatus status) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "eventPublishTerminated: sessionId=" + sessionId + ", status="
                     + statusString(status));
         }
@@ -390,7 +386,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void eventSubscribeTerminated(byte sessionId, WifiNanStatus status) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "eventSubscribeTerminated: sessionId=" + sessionId + ", status="
                     + statusString(status));
         }
@@ -401,7 +397,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void eventMatch(NanMatchInd event) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "eventMatch: discoverySessionId=" + event.discoverySessionId + ", peerId="
                     + event.peerId + ", addr=" + String.valueOf(HexEncoding.encode(event.addr))
                     + ", serviceSpecificInfo=" + Arrays.toString(
@@ -409,22 +405,18 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
                     + (event.serviceSpecificInfo == null ? 0 : event.serviceSpecificInfo.size())
                     + ", matchFilter=" + Arrays.toString(
                     convertArrayListToNativeByteArray(event.matchFilter)) + ", mf.size()=" + (
-                    event.matchFilter == null ? 0 : event.matchFilter.size())
-                    + ", rangingIndicationType=" + event.rangingIndicationType
-                    + ", rangingMeasurementInCm=" + event.rangingMeasurementInCm);
+                    event.matchFilter == null ? 0 : event.matchFilter.size()));
         }
         incrementCbCount(CB_EV_MATCH);
 
-        // TODO: b/69428593 get rid of conversion once HAL moves from CM to MM
         mWifiAwareStateManager.onMatchNotification(event.discoverySessionId, event.peerId,
                 event.addr, convertArrayListToNativeByteArray(event.serviceSpecificInfo),
-                convertArrayListToNativeByteArray(event.matchFilter), event.rangingIndicationType,
-                event.rangingMeasurementInCm * 10);
+                convertArrayListToNativeByteArray(event.matchFilter));
     }
 
     @Override
     public void eventMatchExpired(byte discoverySessionId, int peerId) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "eventMatchExpired: discoverySessionId=" + discoverySessionId
                     + ", peerId=" + peerId);
         }
@@ -435,7 +427,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void eventFollowupReceived(NanFollowupReceivedInd event) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "eventFollowupReceived: discoverySessionId=" + event.discoverySessionId
                     + ", peerId=" + event.peerId + ", addr=" + String.valueOf(
                     HexEncoding.encode(event.addr)) + ", serviceSpecificInfo=" + Arrays.toString(
@@ -450,7 +442,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void eventTransmitFollowup(short id, WifiNanStatus status) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "eventTransmitFollowup: id=" + id + ", status=" + statusString(status));
         }
         incrementCbCount(CB_EV_TRANSMIT_FOLLOWUP);
@@ -464,7 +456,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void eventDataPathRequest(NanDataPathRequestInd event) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "eventDataPathRequest: discoverySessionId=" + event.discoverySessionId
                     + ", peerDiscMacAddr=" + String.valueOf(
                     HexEncoding.encode(event.peerDiscMacAddr)) + ", ndpInstanceId="
@@ -478,60 +470,22 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
 
     @Override
     public void eventDataPathConfirm(NanDataPathConfirmInd event) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "onDataPathConfirm: ndpInstanceId=" + event.ndpInstanceId
                     + ", peerNdiMacAddr=" + String.valueOf(HexEncoding.encode(event.peerNdiMacAddr))
                     + ", dataPathSetupSuccess=" + event.dataPathSetupSuccess + ", reason="
                     + event.status.status);
         }
-        if (mIsHal12OrLater) {
-            Log.wtf(TAG, "eventDataPathConfirm should not be called by a >=1.2 HAL!");
-        }
         incrementCbCount(CB_EV_DATA_PATH_CONFIRM);
 
         mWifiAwareStateManager.onDataPathConfirmNotification(event.ndpInstanceId,
                 event.peerNdiMacAddr, event.dataPathSetupSuccess, event.status.status,
-                convertArrayListToNativeByteArray(event.appInfo), null);
-    }
-
-    @Override
-    public void eventDataPathConfirm_1_2(android.hardware.wifi.V1_2.NanDataPathConfirmInd event) {
-        if (mDbg) {
-            Log.v(TAG, "eventDataPathConfirm_1_2: ndpInstanceId=" + event.V1_0.ndpInstanceId
-                    + ", peerNdiMacAddr=" + String.valueOf(
-                    HexEncoding.encode(event.V1_0.peerNdiMacAddr)) + ", dataPathSetupSuccess="
-                    + event.V1_0.dataPathSetupSuccess + ", reason=" + event.V1_0.status.status);
-        }
-        if (!mIsHal12OrLater) {
-            Log.wtf(TAG, "eventDataPathConfirm_1_2 should not be called by a <1.2 HAL!");
-            return;
-        }
-        incrementCbCount(CB_EV_DATA_PATH_CONFIRM);
-
-        mWifiAwareStateManager.onDataPathConfirmNotification(event.V1_0.ndpInstanceId,
-                event.V1_0.peerNdiMacAddr, event.V1_0.dataPathSetupSuccess,
-                event.V1_0.status.status, convertArrayListToNativeByteArray(event.V1_0.appInfo),
-                event.channelInfo);
-    }
-
-    @Override
-    public void eventDataPathScheduleUpdate(NanDataPathScheduleUpdateInd event) {
-        if (mDbg) {
-            Log.v(TAG, "eventDataPathScheduleUpdate");
-        }
-        if (!mIsHal12OrLater) {
-            Log.wtf(TAG, "eventDataPathScheduleUpdate should not be called by a <1.2 HAL!");
-            return;
-        }
-        incrementCbCount(CB_EV_DATA_PATH_SCHED_UPDATE);
-
-        mWifiAwareStateManager.onDataPathScheduleUpdateNotification(event.peerDiscoveryAddress,
-                event.ndpInstanceIds, event.channelInfo);
+                convertArrayListToNativeByteArray(event.appInfo));
     }
 
     @Override
     public void eventDataPathTerminated(int ndpInstanceId) {
-        if (mDbg) Log.v(TAG, "eventDataPathTerminated: ndpInstanceId=" + ndpInstanceId);
+        if (VDBG) Log.v(TAG, "eventDataPathTerminated: ndpInstanceId=" + ndpInstanceId);
         incrementCbCount(CB_EV_DATA_PATH_TERMINATED);
 
         mWifiAwareStateManager.onDataPathEndNotification(ndpInstanceId);

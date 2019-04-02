@@ -16,9 +16,8 @@
 
 package android.net;
 
-import android.annotation.SuppressLint;
+import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
-import android.annotation.TestApi;
 import android.app.DownloadManager;
 import android.app.backup.BackupManager;
 import android.app.usage.NetworkStatsManager;
@@ -26,14 +25,11 @@ import android.content.Context;
 import android.media.MediaPlayer;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.util.DataUnit;
 
 import com.android.server.NetworkManagementSocketTagger;
 
 import dalvik.system.SocketTagger;
 
-import java.io.FileDescriptor;
-import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.Socket;
 import java.net.SocketException;
@@ -56,20 +52,15 @@ public class TrafficStats {
      */
     public final static int UNSUPPORTED = -1;
 
-    /** @hide @deprecated use {@link DataUnit} instead to clarify SI-vs-IEC */
-    @Deprecated
+    /** @hide */
     public static final long KB_IN_BYTES = 1024;
-    /** @hide @deprecated use {@link DataUnit} instead to clarify SI-vs-IEC */
-    @Deprecated
+    /** @hide */
     public static final long MB_IN_BYTES = KB_IN_BYTES * 1024;
-    /** @hide @deprecated use {@link DataUnit} instead to clarify SI-vs-IEC */
-    @Deprecated
+    /** @hide */
     public static final long GB_IN_BYTES = MB_IN_BYTES * 1024;
-    /** @hide @deprecated use {@link DataUnit} instead to clarify SI-vs-IEC */
-    @Deprecated
+    /** @hide */
     public static final long TB_IN_BYTES = GB_IN_BYTES * 1024;
-    /** @hide @deprecated use {@link DataUnit} instead to clarify SI-vs-IEC */
-    @Deprecated
+    /** @hide */
     public static final long PB_IN_BYTES = TB_IN_BYTES * 1024;
 
     /**
@@ -159,8 +150,6 @@ public class TrafficStats {
     private static NetworkStats sActiveProfilingStart;
 
     private static Object sProfilingLock = new Object();
-
-    private static final String LOOPBACK_IFACE = "lo";
 
     /**
      * Set active tag to use when accounting {@link Socket} traffic originating
@@ -258,49 +247,20 @@ public class TrafficStats {
     /**
      * Set specific UID to use when accounting {@link Socket} traffic
      * originating from the current thread. Designed for use when performing an
-     * operation on behalf of another application, or when another application
-     * is performing operations on your behalf.
-     * <p>
-     * Any app can <em>accept</em> blame for traffic performed on a socket
-     * originally created by another app by calling this method with the
-     * {@link android.system.Os#getuid()} value. However, only apps holding the
-     * {@code android.Manifest.permission#UPDATE_DEVICE_STATS} permission may
-     * <em>assign</em> blame to another UIDs.
+     * operation on behalf of another application.
      * <p>
      * Changes only take effect during subsequent calls to
      * {@link #tagSocket(Socket)}.
+     * <p>
+     * To take effect, caller must hold
+     * {@link android.Manifest.permission#UPDATE_DEVICE_STATS} permission.
+     *
+     * @hide
      */
     @SystemApi
-    @SuppressLint("Doclava125")
+    @RequiresPermission(android.Manifest.permission.UPDATE_DEVICE_STATS)
     public static void setThreadStatsUid(int uid) {
         NetworkManagementSocketTagger.setThreadSocketStatsUid(uid);
-    }
-
-    /**
-     * Get the active UID used when accounting {@link Socket} traffic originating
-     * from the current thread. Only one active tag per thread is supported.
-     * {@link #tagSocket(Socket)}.
-     *
-     * @see #setThreadStatsUid(int)
-     */
-    public static int getThreadStatsUid() {
-        return NetworkManagementSocketTagger.getThreadSocketStatsUid();
-    }
-
-    /**
-     * Set specific UID to use when accounting {@link Socket} traffic
-     * originating from the current thread as the calling UID. Designed for use
-     * when another application is performing operations on your behalf.
-     * <p>
-     * Changes only take effect during subsequent calls to
-     * {@link #tagSocket(Socket)}.
-     *
-     * @removed
-     * @deprecated use {@link #setThreadStatsUid(int)} instead.
-     */
-    @Deprecated
-    public static void setThreadStatsUidSelf() {
-        setThreadStatsUid(android.os.Process.myUid());
     }
 
     /**
@@ -308,9 +268,10 @@ public class TrafficStats {
      * from the current thread.
      *
      * @see #setThreadStatsUid(int)
+     * @hide
      */
     @SystemApi
-    @SuppressLint("Doclava125")
+    @RequiresPermission(android.Manifest.permission.UPDATE_DEVICE_STATS)
     public static void clearThreadStatsUid() {
         NetworkManagementSocketTagger.setThreadSocketStatsUid(-1);
     }
@@ -352,27 +313,6 @@ public class TrafficStats {
      */
     public static void untagDatagramSocket(DatagramSocket socket) throws SocketException {
         SocketTagger.get().untag(socket);
-    }
-
-    /**
-     * Tag the given {@link FileDescriptor} socket with any statistics
-     * parameters active for the current thread. Subsequent calls always replace
-     * any existing parameters. When finished, call
-     * {@link #untagFileDescriptor(FileDescriptor)} to remove statistics
-     * parameters.
-     *
-     * @see #setThreadStatsTag(int)
-     */
-    public static void tagFileDescriptor(FileDescriptor fd) throws IOException {
-        SocketTagger.get().tag(fd);
-    }
-
-    /**
-     * Remove any statistics parameters from the given {@link FileDescriptor}
-     * socket.
-     */
-    public static void untagFileDescriptor(FileDescriptor fd) throws IOException {
-        SocketTagger.get().untag(fd);
     }
 
     /**
@@ -455,10 +395,6 @@ public class TrafficStats {
         }
     }
 
-    private static long addIfSupported(long stat) {
-        return (stat == UNSUPPORTED) ? 0 : stat;
-    }
-
     /**
      * Return number of packets transmitted across mobile networks since device
      * boot. Counts packets across all mobile network interfaces, and always
@@ -471,7 +407,7 @@ public class TrafficStats {
     public static long getMobileTxPackets() {
         long total = 0;
         for (String iface : getMobileIfaces()) {
-            total += addIfSupported(getTxPackets(iface));
+            total += getTxPackets(iface);
         }
         return total;
     }
@@ -488,7 +424,7 @@ public class TrafficStats {
     public static long getMobileRxPackets() {
         long total = 0;
         for (String iface : getMobileIfaces()) {
-            total += addIfSupported(getRxPackets(iface));
+            total += getRxPackets(iface);
         }
         return total;
     }
@@ -505,7 +441,7 @@ public class TrafficStats {
     public static long getMobileTxBytes() {
         long total = 0;
         for (String iface : getMobileIfaces()) {
-            total += addIfSupported(getTxBytes(iface));
+            total += getTxBytes(iface);
         }
         return total;
     }
@@ -522,7 +458,7 @@ public class TrafficStats {
     public static long getMobileRxBytes() {
         long total = 0;
         for (String iface : getMobileIfaces()) {
-            total += addIfSupported(getRxBytes(iface));
+            total += getRxBytes(iface);
         }
         return total;
     }
@@ -531,13 +467,10 @@ public class TrafficStats {
     public static long getMobileTcpRxPackets() {
         long total = 0;
         for (String iface : getMobileIfaces()) {
-            long stat = UNSUPPORTED;
-            try {
-                stat = getStatsService().getIfaceStats(iface, TYPE_TCP_RX_PACKETS);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+            final long stat = nativeGetIfaceStat(iface, TYPE_TCP_RX_PACKETS);
+            if (stat != UNSUPPORTED) {
+                total += stat;
             }
-            total += addIfSupported(stat);
         }
         return total;
     }
@@ -546,91 +479,32 @@ public class TrafficStats {
     public static long getMobileTcpTxPackets() {
         long total = 0;
         for (String iface : getMobileIfaces()) {
-            long stat = UNSUPPORTED;
-            try {
-                stat = getStatsService().getIfaceStats(iface, TYPE_TCP_TX_PACKETS);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+            final long stat = nativeGetIfaceStat(iface, TYPE_TCP_TX_PACKETS);
+            if (stat != UNSUPPORTED) {
+                total += stat;
             }
-            total += addIfSupported(stat);
         }
         return total;
     }
 
     /** {@hide} */
     public static long getTxPackets(String iface) {
-        try {
-            return getStatsService().getIfaceStats(iface, TYPE_TX_PACKETS);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return nativeGetIfaceStat(iface, TYPE_TX_PACKETS);
     }
 
     /** {@hide} */
     public static long getRxPackets(String iface) {
-        try {
-            return getStatsService().getIfaceStats(iface, TYPE_RX_PACKETS);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return nativeGetIfaceStat(iface, TYPE_RX_PACKETS);
     }
 
     /** {@hide} */
     public static long getTxBytes(String iface) {
-        try {
-            return getStatsService().getIfaceStats(iface, TYPE_TX_BYTES);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return nativeGetIfaceStat(iface, TYPE_TX_BYTES);
     }
 
     /** {@hide} */
     public static long getRxBytes(String iface) {
-        try {
-            return getStatsService().getIfaceStats(iface, TYPE_RX_BYTES);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /** {@hide} */
-    @TestApi
-    public static long getLoopbackTxPackets() {
-        try {
-            return getStatsService().getIfaceStats(LOOPBACK_IFACE, TYPE_TX_PACKETS);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /** {@hide} */
-    @TestApi
-    public static long getLoopbackRxPackets() {
-        try {
-            return getStatsService().getIfaceStats(LOOPBACK_IFACE, TYPE_RX_PACKETS);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /** {@hide} */
-    @TestApi
-    public static long getLoopbackTxBytes() {
-        try {
-            return getStatsService().getIfaceStats(LOOPBACK_IFACE, TYPE_TX_BYTES);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /** {@hide} */
-    @TestApi
-    public static long getLoopbackRxBytes() {
-        try {
-            return getStatsService().getIfaceStats(LOOPBACK_IFACE, TYPE_RX_BYTES);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return nativeGetIfaceStat(iface, TYPE_RX_BYTES);
     }
 
     /**
@@ -643,11 +517,7 @@ public class TrafficStats {
      * return {@link #UNSUPPORTED} on devices where statistics aren't available.
      */
     public static long getTotalTxPackets() {
-        try {
-            return getStatsService().getTotalStats(TYPE_TX_PACKETS);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return nativeGetTotalStat(TYPE_TX_PACKETS);
     }
 
     /**
@@ -660,11 +530,7 @@ public class TrafficStats {
      * return {@link #UNSUPPORTED} on devices where statistics aren't available.
      */
     public static long getTotalRxPackets() {
-        try {
-            return getStatsService().getTotalStats(TYPE_RX_PACKETS);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return nativeGetTotalStat(TYPE_RX_PACKETS);
     }
 
     /**
@@ -677,11 +543,7 @@ public class TrafficStats {
      * return {@link #UNSUPPORTED} on devices where statistics aren't available.
      */
     public static long getTotalTxBytes() {
-        try {
-            return getStatsService().getTotalStats(TYPE_TX_BYTES);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return nativeGetTotalStat(TYPE_TX_BYTES);
     }
 
     /**
@@ -694,11 +556,7 @@ public class TrafficStats {
      * return {@link #UNSUPPORTED} on devices where statistics aren't available.
      */
     public static long getTotalRxBytes() {
-        try {
-            return getStatsService().getTotalStats(TYPE_RX_BYTES);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return nativeGetTotalStat(TYPE_RX_BYTES);
     }
 
     /**
@@ -724,11 +582,7 @@ public class TrafficStats {
         // unsupported value. The real filtering is done at the kernel level.
         final int callingUid = android.os.Process.myUid();
         if (callingUid == android.os.Process.SYSTEM_UID || callingUid == uid) {
-            try {
-                return getStatsService().getUidStats(uid, TYPE_TX_BYTES);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
+            return nativeGetUidStat(uid, TYPE_TX_BYTES);
         } else {
             return UNSUPPORTED;
         }
@@ -757,11 +611,7 @@ public class TrafficStats {
         // unsupported value. The real filtering is done at the kernel level.
         final int callingUid = android.os.Process.myUid();
         if (callingUid == android.os.Process.SYSTEM_UID || callingUid == uid) {
-            try {
-                return getStatsService().getUidStats(uid, TYPE_RX_BYTES);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
+            return nativeGetUidStat(uid, TYPE_RX_BYTES);
         } else {
             return UNSUPPORTED;
         }
@@ -790,11 +640,7 @@ public class TrafficStats {
         // unsupported value. The real filtering is done at the kernel level.
         final int callingUid = android.os.Process.myUid();
         if (callingUid == android.os.Process.SYSTEM_UID || callingUid == uid) {
-            try {
-                return getStatsService().getUidStats(uid, TYPE_TX_PACKETS);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
+            return nativeGetUidStat(uid, TYPE_TX_PACKETS);
         } else {
             return UNSUPPORTED;
         }
@@ -823,11 +669,7 @@ public class TrafficStats {
         // unsupported value. The real filtering is done at the kernel level.
         final int callingUid = android.os.Process.myUid();
         if (callingUid == android.os.Process.SYSTEM_UID || callingUid == uid) {
-            try {
-                return getStatsService().getUidStats(uid, TYPE_RX_PACKETS);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
+            return nativeGetUidStat(uid, TYPE_RX_PACKETS);
         } else {
             return UNSUPPORTED;
         }
@@ -955,4 +797,8 @@ public class TrafficStats {
     private static final int TYPE_TX_PACKETS = 3;
     private static final int TYPE_TCP_RX_PACKETS = 4;
     private static final int TYPE_TCP_TX_PACKETS = 5;
+
+    private static native long nativeGetTotalStat(int type);
+    private static native long nativeGetIfaceStat(String iface, int type);
+    private static native long nativeGetUidStat(int uid, int type);
 }

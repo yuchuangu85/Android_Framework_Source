@@ -242,12 +242,10 @@ import libcore.icu.CollationKeyICU;
  * @see        CollationElementIterator
  * @author     Helena Shih, Laura Werner, Richard Gillam
  */
-public class RuleBasedCollator extends Collator{
-    // Android-added: protected constructor taking an ICU RuleBasedCollator.
+public class RuleBasedCollator extends Collator {
     RuleBasedCollator(android.icu.text.RuleBasedCollator wrapper) {
         super(wrapper);
     }
-
     // IMPLEMENTATION NOTES:  The implementation of the collation algorithm is
     // divided across three classes: RuleBasedCollator, RBCollationTables, and
     // CollationElementIterator.  RuleBasedCollator contains the collator's
@@ -282,7 +280,6 @@ public class RuleBasedCollator extends Collator{
      * throw the ParseException because the '?' is not quoted.
      */
     public RuleBasedCollator(String rules) throws ParseException {
-        // BEGIN Android-changed: Switched to ICU.
         if (rules == null) {
             throw new NullPointerException("rules == null");
         }
@@ -298,12 +295,8 @@ public class RuleBasedCollator extends Collator{
              */
             throw new ParseException(e.getMessage(), -1);
         }
-        // BEGIN Android-changed: Switched to ICU.
     }
 
-    // Android-removed: (String rules, int decomp) constructor and copy constructor.
-
-    // Android-changed: document that getRules() won't return rules in common case.
     /**
      * Gets the table-based rules for the collation object.
      *
@@ -315,7 +308,6 @@ public class RuleBasedCollator extends Collator{
      */
     public String getRules()
     {
-        // Android-changed: Switched to ICU.
         return collAsICU().getRules();
     }
 
@@ -327,7 +319,6 @@ public class RuleBasedCollator extends Collator{
      * @see java.text.CollationElementIterator
      */
     public CollationElementIterator getCollationElementIterator(String source) {
-        // Android-changed: Switch to ICU and check for null value.
         if (source == null) {
             throw new NullPointerException("source == null");
         }
@@ -344,7 +335,6 @@ public class RuleBasedCollator extends Collator{
      */
     public CollationElementIterator getCollationElementIterator(
                                                 CharacterIterator source) {
-        // Android-changed: Switch to ICU and check for null value.
        if (source == null) {
             throw new NullPointerException("source == null");
         }
@@ -364,7 +354,6 @@ public class RuleBasedCollator extends Collator{
         if (source == null || target == null) {
             throw new NullPointerException();
         }
-        // Android-changed: Switched to ICU.
         return icuColl.compare(source, target);
     }
 
@@ -375,7 +364,6 @@ public class RuleBasedCollator extends Collator{
      */
     public synchronized CollationKey getCollationKey(String source)
     {
-        // Android-changed: Switched to ICU.
         if (source == null) {
             return null;
         }
@@ -386,7 +374,6 @@ public class RuleBasedCollator extends Collator{
      * Standard override; no change in semantics.
      */
     public Object clone() {
-        // Android-changed: remove special case for cloning.
         return super.clone();
     }
 
@@ -398,7 +385,6 @@ public class RuleBasedCollator extends Collator{
      */
     public boolean equals(Object obj) {
         if (obj == null) return false;
-        // Android-changed: delegate to super class, as that already compares icuColl.
         return super.equals(obj);
     }
 
@@ -406,14 +392,10 @@ public class RuleBasedCollator extends Collator{
      * Generates the hash code for the table-based collation object
      */
     public int hashCode() {
-        // Android-changed: Switched to ICU.
         return icuColl.hashCode();
     }
 
-    // Android-added: collAsIcu helper method.
     private android.icu.text.RuleBasedCollator collAsICU() {
         return (android.icu.text.RuleBasedCollator) icuColl;
     }
-
-    // Android-removed: private constants and fields.
 }

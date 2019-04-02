@@ -16,9 +16,7 @@
 
 package android.telephony.ims.stub;
 
-import android.annotation.SystemApi;
 import android.os.RemoteException;
-import android.util.Log;
 
 import com.android.ims.internal.IImsEcbm;
 import com.android.ims.internal.IImsEcbmListener;
@@ -32,65 +30,22 @@ import com.android.ims.internal.IImsEcbmListener;
  *
  * @hide
  */
-@SystemApi
-public class ImsEcbmImplBase {
-    private static final String TAG = "ImsEcbmImplBase";
 
-    private IImsEcbmListener mListener;
-    private IImsEcbm mImsEcbm = new IImsEcbm.Stub() {
-        @Override
-        public void setListener(IImsEcbmListener listener) {
-            mListener = listener;
-        }
+public class ImsEcbmImplBase extends IImsEcbm.Stub {
 
-        @Override
-        public void exitEmergencyCallbackMode() {
-            ImsEcbmImplBase.this.exitEmergencyCallbackMode();
-        }
-    };
+    /**
+     * Sets the listener.
+     */
+    @Override
+    public void setListener(IImsEcbmListener listener) throws RemoteException {
 
-    /** @hide */
-    public IImsEcbm getImsEcbm() {
-        return mImsEcbm;
     }
 
     /**
-     * This method should be implemented by the IMS provider. Framework will trigger this method to
-     * request to come out of ECBM mode
+     * Requests Modem to come out of ECBM mode
      */
-    public void exitEmergencyCallbackMode() {
-        Log.d(TAG, "exitEmergencyCallbackMode() not implemented");
-    }
+    @Override
+    public void exitEmergencyCallbackMode() throws RemoteException {
 
-    /**
-     * Notifies the framework when the device enters Emergency Callback Mode.
-     *
-     * @throws RuntimeException if the connection to the framework is not available.
-     */
-    public final void enteredEcbm() {
-        Log.d(TAG, "Entered ECBM.");
-        if (mListener != null) {
-            try {
-                mListener.enteredECBM();
-            } catch (RemoteException e) {
-                throw new RuntimeException(e);
-            }
-        }
-    }
-
-    /**
-     * Notifies the framework when the device exits Emergency Callback Mode.
-     *
-     * @throws RuntimeException if the connection to the framework is not available.
-     */
-    public final void exitedEcbm() {
-        Log.d(TAG, "Exited ECBM.");
-        if (mListener != null) {
-            try {
-                mListener.exitedECBM();
-            } catch (RemoteException e) {
-                throw new RuntimeException(e);
-            }
-        }
     }
 }

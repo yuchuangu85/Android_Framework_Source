@@ -15,12 +15,8 @@
  */
 package android.telephony.euicc;
 
-import android.Manifest;
-import android.annotation.IntDef;
 import android.annotation.Nullable;
-import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
-import android.annotation.SystemApi;
 import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.Context;
@@ -33,9 +29,6 @@ import android.os.ServiceManager;
 
 import com.android.internal.telephony.euicc.IEuiccController;
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-
 /**
  * EuiccManager is the application interface to eUICCs, or eSIMs/embedded SIMs.
  *
@@ -43,6 +36,9 @@ import java.lang.annotation.RetentionPolicy;
  * {@link Context#getSystemService(String)} and {@link Context#EUICC_SERVICE}.
  *
  * <p>See {@link #isEnabled} before attempting to use these APIs.
+ *
+ * TODO(b/35851809): Make this public.
+ * @hide
  */
 public class EuiccManager {
 
@@ -54,37 +50,10 @@ public class EuiccManager {
      *
      * <p>The activity will immediately finish with {@link android.app.Activity#RESULT_CANCELED} if
      * {@link #isEnabled} is false.
-     *
-     * This is ued by non-LPA app to bring up LUI.
      */
     @SdkConstant(SdkConstant.SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_MANAGE_EMBEDDED_SUBSCRIPTIONS =
             "android.telephony.euicc.action.MANAGE_EMBEDDED_SUBSCRIPTIONS";
-
-
-    /**
-     * Broadcast Action: The eUICC OTA status is changed.
-     * <p class="note">
-     * Requires the {@link android.Manifest.permission#WRITE_EMBEDDED_SUBSCRIPTIONS} permission.
-     *
-     * <p class="note">This is a protected intent that can only be sent
-     * by the system.
-     *
-     * @hide
-     */
-    @SystemApi
-    @SdkConstant(SdkConstant.SdkConstantType.BROADCAST_INTENT_ACTION)
-    @RequiresPermission(Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS)
-    public static final String ACTION_OTA_STATUS_CHANGED =
-            "android.telephony.euicc.action.OTA_STATUS_CHANGED";
-
-    /**
-     * Broadcast Action: The action sent to carrier app so it knows the carrier setup is not
-     * completed.
-     */
-    @SdkConstant(SdkConstant.SdkConstantType.BROADCAST_INTENT_ACTION)
-    public static final String ACTION_NOTIFY_CARRIER_SETUP_INCOMPLETE =
-            "android.telephony.euicc.action.NOTIFY_CARRIER_SETUP_INCOMPLETE";
 
     /**
      * Intent action to provision an embedded subscription.
@@ -94,11 +63,10 @@ public class EuiccManager {
      * embedded SIM.
      *
      * <p>The activity will immediately finish with {@link android.app.Activity#RESULT_CANCELED} if
-     * {@link #isEnabled} is false.
+     * {@link #isEnabled} is false or if the device is already provisioned.
      *
-     * @hide
+     * TODO(b/35851809): Make this a SystemApi.
      */
-    @SystemApi
     @SdkConstant(SdkConstant.SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_PROVISION_EMBEDDED_SUBSCRIPTION =
             "android.telephony.euicc.action.PROVISION_EMBEDDED_SUBSCRIPTION";
@@ -142,8 +110,11 @@ public class EuiccManager {
             "android.telephony.euicc.extra.EMBEDDED_SUBSCRIPTION_DETAILED_CODE";
 
     /**
-     * Key for an extra set on {@code #getDownloadableSubscriptionMetadata} PendingIntent result
+     * Key for an extra set on {@link #getDownloadableSubscriptionMetadata} PendingIntent result
      * callbacks providing the downloadable subscription metadata.
+     * @hide
+     *
+     * TODO(b/35851809): Make this a SystemApi.
      */
     public static final String EXTRA_EMBEDDED_SUBSCRIPTION_DOWNLOADABLE_SUBSCRIPTION =
             "android.telephony.euicc.extra.EMBEDDED_SUBSCRIPTION_DOWNLOADABLE_SUBSCRIPTION";
@@ -152,8 +123,9 @@ public class EuiccManager {
      * Key for an extra set on {@link #getDefaultDownloadableSubscriptionList} PendingIntent result
      * callbacks providing the list of available downloadable subscriptions.
      * @hide
+     *
+     * TODO(b/35851809): Make this a SystemApi.
      */
-    @SystemApi
     public static final String EXTRA_EMBEDDED_SUBSCRIPTION_DOWNLOADABLE_SUBSCRIPTIONS =
             "android.telephony.euicc.extra.EMBEDDED_SUBSCRIPTION_DOWNLOADABLE_SUBSCRIPTIONS";
 
@@ -195,63 +167,13 @@ public class EuiccManager {
      */
     public static final String META_DATA_CARRIER_ICON = "android.telephony.euicc.carriericon";
 
-    /**
-     * Euicc OTA update status which can be got by {@link #getOtaStatus}
-     * @hide
-     */
-    @SystemApi
-    @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = {"EUICC_OTA_"}, value = {
-            EUICC_OTA_IN_PROGRESS,
-            EUICC_OTA_FAILED,
-            EUICC_OTA_SUCCEEDED,
-            EUICC_OTA_NOT_NEEDED,
-            EUICC_OTA_STATUS_UNAVAILABLE
-
-    })
-    public @interface OtaStatus{}
-
-    /**
-     * An OTA is in progress. During this time, the eUICC is not available and the user may lose
-     * network access.
-     * @hide
-     */
-    @SystemApi
-    public static final int EUICC_OTA_IN_PROGRESS = 1;
-
-    /**
-     * The OTA update failed.
-     * @hide
-     */
-    @SystemApi
-    public static final int EUICC_OTA_FAILED = 2;
-
-    /**
-     * The OTA update finished successfully.
-     * @hide
-     */
-    @SystemApi
-    public static final int EUICC_OTA_SUCCEEDED = 3;
-
-    /**
-     * The OTA update not needed since current eUICC OS is latest.
-     * @hide
-     */
-    @SystemApi
-    public static final int EUICC_OTA_NOT_NEEDED = 4;
-
-    /**
-     * The OTA status is unavailable since eUICC service is unavailable.
-     * @hide
-     */
-    @SystemApi
-    public static final int EUICC_OTA_STATUS_UNAVAILABLE = 5;
-
     private final Context mContext;
+    private final IEuiccController mController;
 
     /** @hide */
     public EuiccManager(Context context) {
         mContext = context;
+        mController = IEuiccController.Stub.asInterface(ServiceManager.getService("econtroller"));
     }
 
     /**
@@ -267,7 +189,7 @@ public class EuiccManager {
     public boolean isEnabled() {
         // In the future, this may reach out to IEuiccController (if non-null) to check any dynamic
         // restrictions.
-        return getIEuiccController() != null;
+        return mController != null;
     }
 
     /**
@@ -284,30 +206,7 @@ public class EuiccManager {
             return null;
         }
         try {
-            return getIEuiccController().getEid();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Returns the current status of eUICC OTA.
-     *
-     * <p>Requires the {@link android.Manifest.permission#WRITE_EMBEDDED_SUBSCRIPTIONS} permission.
-     *
-     * @return the status of eUICC OTA. If {@link #isEnabled()} is false or the eUICC is not ready,
-     *     {@link OtaStatus#EUICC_OTA_STATUS_UNAVAILABLE} will be returned.
-     *
-     * @hide
-     */
-    @SystemApi
-    @RequiresPermission(Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS)
-    public int getOtaStatus() {
-        if (!isEnabled()) {
-            return EUICC_OTA_STATUS_UNAVAILABLE;
-        }
-        try {
-            return getIEuiccController().getOtaStatus();
+            return mController.getEid();
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -316,7 +215,7 @@ public class EuiccManager {
     /**
      * Attempt to download the given {@link DownloadableSubscription}.
      *
-     * <p>Requires the {@code android.Manifest.permission#WRITE_EMBEDDED_SUBSCRIPTIONS} permission,
+     * <p>Requires the {@link android.Manifest.permission#WRITE_EMBEDDED_SUBSCRIPTIONS} permission,
      * or the calling app must be authorized to manage both the currently-active subscription and
      * the subscription to be downloaded according to the subscription metadata. Without the former,
      * an {@link #EMBEDDED_SUBSCRIPTION_RESULT_RESOLVABLE_ERROR} will be returned in the callback
@@ -326,7 +225,6 @@ public class EuiccManager {
      * @param switchAfterDownload if true, the profile will be activated upon successful download.
      * @param callbackIntent a PendingIntent to launch when the operation completes.
      */
-    @RequiresPermission(Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS)
     public void downloadSubscription(DownloadableSubscription subscription,
             boolean switchAfterDownload, PendingIntent callbackIntent) {
         if (!isEnabled()) {
@@ -334,7 +232,7 @@ public class EuiccManager {
             return;
         }
         try {
-            getIEuiccController().downloadSubscription(subscription, switchAfterDownload,
+            mController.downloadSubscription(subscription, switchAfterDownload,
                     mContext.getOpPackageName(), callbackIntent);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -379,17 +277,14 @@ public class EuiccManager {
      *
      * <p>To be called by the LUI upon completion of a resolvable error flow.
      *
-     * <p>Requires that the calling app has the
-     * {@link android.Manifest.permission#WRITE_EMBEDDED_SUBSCRIPTIONS} permission.
-     *
      * @param resolutionIntent The original intent used to start the LUI.
      * @param resolutionExtras Resolution-specific extras depending on the result of the resolution.
      *     For example, this may indicate whether the user has consented or may include the input
      *     they provided.
      * @hide
+     *
+     * TODO(b/35851809): Make this a SystemApi.
      */
-    @SystemApi
-    @RequiresPermission(Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS)
     public void continueOperation(Intent resolutionIntent, Bundle resolutionExtras) {
         if (!isEnabled()) {
             PendingIntent callbackIntent =
@@ -401,7 +296,7 @@ public class EuiccManager {
             return;
         }
         try {
-            getIEuiccController().continueOperation(resolutionIntent, resolutionExtras);
+            mController.continueOperation(resolutionIntent, resolutionExtras);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -423,9 +318,9 @@ public class EuiccManager {
      * @param subscription the subscription which needs metadata filled in
      * @param callbackIntent a PendingIntent to launch when the operation completes.
      * @hide
+     *
+     * TODO(b/35851809): Make this a SystemApi.
      */
-    @SystemApi
-    @RequiresPermission(Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS)
     public void getDownloadableSubscriptionMetadata(
             DownloadableSubscription subscription, PendingIntent callbackIntent) {
         if (!isEnabled()) {
@@ -433,7 +328,7 @@ public class EuiccManager {
             return;
         }
         try {
-            getIEuiccController().getDownloadableSubscriptionMetadata(
+            mController.getDownloadableSubscriptionMetadata(
                     subscription, mContext.getOpPackageName(), callbackIntent);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -454,16 +349,16 @@ public class EuiccManager {
      *
      * @param callbackIntent a PendingIntent to launch when the operation completes.
      * @hide
+     *
+     * TODO(b/35851809): Make this a SystemApi.
      */
-    @SystemApi
-    @RequiresPermission(Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS)
     public void getDefaultDownloadableSubscriptionList(PendingIntent callbackIntent) {
         if (!isEnabled()) {
             sendUnavailableError(callbackIntent);
             return;
         }
         try {
-            getIEuiccController().getDefaultDownloadableSubscriptionList(
+            mController.getDefaultDownloadableSubscriptionList(
                     mContext.getOpPackageName(), callbackIntent);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -482,7 +377,7 @@ public class EuiccManager {
             return null;
         }
         try {
-            return getIEuiccController().getEuiccInfo();
+            return mController.getEuiccInfo();
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -496,19 +391,18 @@ public class EuiccManager {
      *
      * <p>Requires that the calling app has carrier privileges according to the metadata of the
      * profile to be deleted, or the
-     * {@code android.Manifest.permission#WRITE_EMBEDDED_SUBSCRIPTIONS} permission.
+     * {@link android.Manifest.permission#WRITE_EMBEDDED_SUBSCRIPTIONS} permission.
      *
      * @param subscriptionId the ID of the subscription to delete.
      * @param callbackIntent a PendingIntent to launch when the operation completes.
      */
-    @RequiresPermission(Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS)
     public void deleteSubscription(int subscriptionId, PendingIntent callbackIntent) {
         if (!isEnabled()) {
             sendUnavailableError(callbackIntent);
             return;
         }
         try {
-            getIEuiccController().deleteSubscription(
+            mController.deleteSubscription(
                     subscriptionId, mContext.getOpPackageName(), callbackIntent);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -518,7 +412,7 @@ public class EuiccManager {
     /**
      * Switch to (enable) the given subscription.
      *
-     * <p>Requires the {@code android.Manifest.permission#WRITE_EMBEDDED_SUBSCRIPTIONS} permission,
+     * <p>Requires the {@link android.Manifest.permission#WRITE_EMBEDDED_SUBSCRIPTIONS} permission,
      * or the calling app must be authorized to manage both the currently-active subscription and
      * the subscription to be enabled according to the subscription metadata. Without the former,
      * an {@link #EMBEDDED_SUBSCRIPTION_RESULT_RESOLVABLE_ERROR} will be returned in the callback
@@ -529,14 +423,13 @@ public class EuiccManager {
      *     current profile without activating another profile to replace it.
      * @param callbackIntent a PendingIntent to launch when the operation completes.
      */
-    @RequiresPermission(Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS)
     public void switchToSubscription(int subscriptionId, PendingIntent callbackIntent) {
         if (!isEnabled()) {
             sendUnavailableError(callbackIntent);
             return;
         }
         try {
-            getIEuiccController().switchToSubscription(
+            mController.switchToSubscription(
                     subscriptionId, mContext.getOpPackageName(), callbackIntent);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -555,7 +448,6 @@ public class EuiccManager {
      * @param callbackIntent a PendingIntent to launch when the operation completes.
      * @hide
      */
-    @RequiresPermission(Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS)
     public void updateSubscriptionNickname(
             int subscriptionId, String nickname, PendingIntent callbackIntent) {
         if (!isEnabled()) {
@@ -563,8 +455,7 @@ public class EuiccManager {
             return;
         }
         try {
-            getIEuiccController().updateSubscriptionNickname(
-                    subscriptionId, nickname, callbackIntent);
+            mController.updateSubscriptionNickname(subscriptionId, nickname, callbackIntent);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -574,20 +465,19 @@ public class EuiccManager {
      * Erase all subscriptions and reset the eUICC.
      *
      * <p>Requires that the calling app has the
-     * {@code android.Manifest.permission#WRITE_EMBEDDED_SUBSCRIPTIONS} permission.
+     * {@link android.Manifest.permission#WRITE_EMBEDDED_SUBSCRIPTIONS} permission. This is for
+     * internal system use only.
      *
      * @param callbackIntent a PendingIntent to launch when the operation completes.
      * @hide
      */
-    @SystemApi
-    @RequiresPermission(Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS)
     public void eraseSubscriptions(PendingIntent callbackIntent) {
         if (!isEnabled()) {
             sendUnavailableError(callbackIntent);
             return;
         }
         try {
-            getIEuiccController().eraseSubscriptions(callbackIntent);
+            mController.eraseSubscriptions(callbackIntent);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -617,7 +507,7 @@ public class EuiccManager {
             return;
         }
         try {
-            getIEuiccController().retainSubscriptionsForFactoryReset(callbackIntent);
+            mController.retainSubscriptionsForFactoryReset(callbackIntent);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -629,9 +519,5 @@ public class EuiccManager {
         } catch (PendingIntent.CanceledException e) {
             // Caller canceled the callback; do nothing.
         }
-    }
-
-    private static IEuiccController getIEuiccController() {
-        return IEuiccController.Stub.asInterface(ServiceManager.getService("econtroller"));
     }
 }

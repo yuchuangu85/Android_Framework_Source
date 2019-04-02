@@ -16,10 +16,6 @@
 
 package com.android.systemui.statusbar.phone;
 
-import static android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
-
-import static com.android.systemui.statusbar.NotificationRemoteInputManager.ENABLE_REMOTE_INPUT;
-
 import android.app.ActivityManager;
 import android.app.IActivityManager;
 import android.content.Context;
@@ -56,7 +52,6 @@ public class StatusBarWindowManager implements RemoteInputController.Callback, D
     private final Context mContext;
     private final WindowManager mWindowManager;
     private final IActivityManager mActivityManager;
-    private final DozeParameters mDozeParameters;
     private View mStatusBarView;
     private WindowManager.LayoutParams mLp;
     private WindowManager.LayoutParams mLpChanged;
@@ -73,8 +68,8 @@ public class StatusBarWindowManager implements RemoteInputController.Callback, D
         mWindowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
         mActivityManager = ActivityManager.getService();
         mKeyguardScreenRotation = shouldEnableKeyguardScreenRotation();
-        mDozeParameters = DozeParameters.getInstance(mContext);
-        mScreenBrightnessDoze = mDozeParameters.getScreenBrightnessDoze();
+        mScreenBrightnessDoze = mContext.getResources().getInteger(
+                com.android.internal.R.integer.config_screenBrightnessDoze) / 255f;
     }
 
     private boolean shouldEnableKeyguardScreenRotation() {
@@ -109,7 +104,6 @@ public class StatusBarWindowManager implements RemoteInputController.Callback, D
         mLp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
         mLp.setTitle("StatusBar");
         mLp.packageName = mContext.getPackageName();
-        mLp.layoutInDisplayCutoutMode = LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         mStatusBarView = statusBarView;
         mBarHeight = barHeight;
         mWindowManager.addView(mStatusBarView, mLp);
@@ -140,11 +134,7 @@ public class StatusBarWindowManager implements RemoteInputController.Callback, D
             mLpChanged.privateFlags &= ~WindowManager.LayoutParams.PRIVATE_FLAG_KEYGUARD;
         }
 
-        final boolean scrimsOccludingWallpaper =
-                state.scrimsVisibility == ScrimController.VISIBILITY_FULLY_OPAQUE;
-        final boolean keyguardOrAod = state.keyguardShowing
-                || (state.dozing && mDozeParameters.getAlwaysOn());
-        if (keyguardOrAod && !state.backdropShowing && !scrimsOccludingWallpaper) {
+        if (state.keyguardShowing && !state.backdropShowing && !state.dozing) {
             mLpChanged.flags |= WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER;
         } else {
             mLpChanged.flags &= ~WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER;
@@ -166,7 +156,7 @@ public class StatusBarWindowManager implements RemoteInputController.Callback, D
     private void applyFocusableFlag(State state) {
         boolean panelFocusable = state.statusBarFocusable && state.panelExpanded;
         if (state.bouncerShowing && (state.keyguardOccluded || state.keyguardNeedsInput)
-                || ENABLE_REMOTE_INPUT && state.remoteInputActive) {
+                || StatusBar.ENABLE_REMOTE_INPUT && state.remoteInputActive) {
             mLpChanged.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
             mLpChanged.flags &= ~WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
         } else if (state.isKeyguardShowingAndNotOccluded() || panelFocusable) {
@@ -196,8 +186,7 @@ public class StatusBarWindowManager implements RemoteInputController.Callback, D
     private boolean isExpanded(State state) {
         return !state.forceCollapsed && (state.isKeyguardShowingAndNotOccluded()
                 || state.panelVisible || state.keyguardFadingAway || state.bouncerShowing
-                || state.headsUpShowing
-                || state.scrimsVisibility != ScrimController.VISIBILITY_FULLY_TRANSPARENT);
+                || state.headsUpShowing || state.scrimsVisible);
     }
 
     private void applyFitsSystemWindows(State state) {
@@ -345,18 +334,13 @@ public class StatusBarWindowManager implements RemoteInputController.Callback, D
         apply(mCurrentState);
     }
 
-    public void setScrimsVisibility(int scrimsVisibility) {
-        mCurrentState.scrimsVisibility = scrimsVisibility;
+    public void setScrimsVisible(boolean scrimsVisible) {
+        mCurrentState.scrimsVisible = scrimsVisible;
         apply(mCurrentState);
     }
 
     public void setHeadsUpShowing(boolean showing) {
         mCurrentState.headsUpShowing = showing;
-        apply(mCurrentState);
-    }
-
-    public void setWallpaperSupportsAmbientMode(boolean supportsAmbientMode) {
-        mCurrentState.wallpaperSupportsAmbientMode = supportsAmbientMode;
         apply(mCurrentState);
     }
 
@@ -447,7 +431,6 @@ public class StatusBarWindowManager implements RemoteInputController.Callback, D
         boolean forceDozeBrightness;
         boolean forceUserActivity;
         boolean backdropShowing;
-        boolean wallpaperSupportsAmbientMode;
 
         /**
          * The {@link StatusBar} state from the status bar.
@@ -457,7 +440,7 @@ public class StatusBarWindowManager implements RemoteInputController.Callback, D
         boolean remoteInputActive;
         boolean forcePluginOpen;
         boolean dozing;
-        int scrimsVisibility;
+        boolean scrimsVisible;
 
         private boolean isKeyguardShowingAndNotOccluded() {
             return keyguardShowing && !keyguardOccluded;

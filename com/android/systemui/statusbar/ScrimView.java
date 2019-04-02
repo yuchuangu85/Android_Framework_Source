@@ -41,7 +41,6 @@ import android.view.animation.Interpolator;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.colorextraction.ColorExtractor;
 import com.android.internal.colorextraction.drawable.GradientDrawable;
-import com.android.settingslib.Utils;
 import com.android.systemui.Dependency;
 import com.android.systemui.statusbar.policy.ConfigurationController;
 
@@ -51,7 +50,6 @@ import com.android.systemui.statusbar.policy.ConfigurationController;
 public class ScrimView extends View implements ConfigurationController.ConfigurationListener {
     private static final String TAG = "ScrimView";
     private final ColorExtractor.GradientColors mColors;
-    private int mDensity;
     private boolean mDrawAsSrc;
     private float mViewAlpha = 1.0f;
     private ValueAnimator mAlphaAnimator;
@@ -74,7 +72,6 @@ public class ScrimView extends View implements ConfigurationController.Configura
         }
     };
     private Runnable mChangeRunnable;
-    private int mCornerRadius;
 
     public ScrimView(Context context) {
         this(context, null);
@@ -96,24 +93,6 @@ public class ScrimView extends View implements ConfigurationController.Configura
         mColors = new ColorExtractor.GradientColors();
         updateScreenSize();
         updateColorWithTint(false);
-        initView();
-        final Configuration currentConfig = mContext.getResources().getConfiguration();
-        mDensity = currentConfig.densityDpi;
-    }
-
-    private void initView() {
-        mCornerRadius = getResources().getDimensionPixelSize(
-                Utils.getThemeAttr(mContext, android.R.attr.dialogCornerRadius));
-    }
-
-    @Override
-    protected void onConfigurationChanged(Configuration newConfig) {
-        super.onConfigurationChanged(newConfig);
-        int densityDpi = newConfig.densityDpi;
-        if (mDensity != densityDpi) {
-            mDensity = densityDpi;
-            initView();
-        }
     }
 
     @Override
@@ -166,28 +145,6 @@ public class ScrimView extends View implements ConfigurationController.Configura
                     mDrawable.draw(canvas);
                     canvas.restore();
                 }
-                // We also need to draw the rounded corners of the background
-                canvas.save();
-                canvas.clipRect(mExcludedRect.left, mExcludedRect.top,
-                        mExcludedRect.left + mCornerRadius, mExcludedRect.top + mCornerRadius);
-                mDrawable.draw(canvas);
-                canvas.restore();
-                canvas.save();
-                canvas.clipRect(mExcludedRect.right - mCornerRadius, mExcludedRect.top,
-                        mExcludedRect.right, mExcludedRect.top + mCornerRadius);
-                mDrawable.draw(canvas);
-                canvas.restore();
-                canvas.save();
-                canvas.clipRect(mExcludedRect.left, mExcludedRect.bottom - mCornerRadius,
-                        mExcludedRect.left + mCornerRadius, mExcludedRect.bottom);
-                mDrawable.draw(canvas);
-                canvas.restore();
-                canvas.save();
-                canvas.clipRect(mExcludedRect.right - mCornerRadius,
-                        mExcludedRect.bottom - mCornerRadius,
-                        mExcludedRect.right, mExcludedRect.bottom);
-                mDrawable.draw(canvas);
-                canvas.restore();
             }
         }
     }
@@ -295,13 +252,6 @@ public class ScrimView extends View implements ConfigurationController.Configura
         return false;
     }
 
-    /**
-     * It might look counterintuitive to have another method to set the alpha instead of
-     * only using {@link #setAlpha(float)}. In this case we're in a hardware layer
-     * optimizing blend modes, so it makes sense.
-     *
-     * @param alpha Gradient alpha from 0 to 1.
-     */
     public void setViewAlpha(float alpha) {
         if (alpha != mViewAlpha) {
             mViewAlpha = alpha;
@@ -319,6 +269,18 @@ public class ScrimView extends View implements ConfigurationController.Configura
 
     public float getViewAlpha() {
         return mViewAlpha;
+    }
+
+    public void animateViewAlpha(float alpha, long durationOut, Interpolator interpolator) {
+        if (mAlphaAnimator != null) {
+            mAlphaAnimator.cancel();
+        }
+        mAlphaAnimator = ValueAnimator.ofFloat(getViewAlpha(), alpha);
+        mAlphaAnimator.addUpdateListener(mAlphaUpdateListener);
+        mAlphaAnimator.addListener(mClearAnimatorListener);
+        mAlphaAnimator.setInterpolator(interpolator);
+        mAlphaAnimator.setDuration(durationOut);
+        mAlphaAnimator.start();
     }
 
     public void setExcludedArea(Rect area) {

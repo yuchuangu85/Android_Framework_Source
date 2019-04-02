@@ -18,7 +18,6 @@ package com.android.setupwizardlib.view;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.fail;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
@@ -32,10 +31,9 @@ import android.os.Build.VERSION_CODES;
 import android.support.annotation.RawRes;
 import android.view.Surface;
 
+import com.android.setupwizardlib.BuildConfig;
 import com.android.setupwizardlib.R;
 import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
-import com.android.setupwizardlib.shadow.ShadowLog;
-import com.android.setupwizardlib.shadow.ShadowLog.TerribleFailure;
 import com.android.setupwizardlib.view.IllustrationVideoViewTest.ShadowMockMediaPlayer;
 import com.android.setupwizardlib.view.IllustrationVideoViewTest.ShadowSurface;
 
@@ -50,15 +48,15 @@ import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
 import org.robolectric.annotation.RealObject;
-import org.robolectric.shadow.api.Shadow;
+import org.robolectric.internal.Shadow;
 import org.robolectric.shadows.ShadowMediaPlayer;
 import org.robolectric.util.ReflectionHelpers;
 
 @RunWith(SuwLibRobolectricTestRunner.class)
 @Config(
+        constants = BuildConfig.class,
         sdk = Config.NEWEST_SDK,
         shadows = {
-                ShadowLog.class,
                 ShadowMockMediaPlayer.class,
                 ShadowSurface.class
         })
@@ -77,17 +75,6 @@ public class IllustrationVideoViewTest {
     @After
     public void tearDown() {
         ShadowMockMediaPlayer.reset();
-    }
-
-    @Test
-    public void nullMediaPlayer_shouldThrowWtf() {
-        ShadowMockMediaPlayer.sMediaPlayer = null;
-        try {
-            createDefaultView();
-            fail("WTF should be thrown for null media player");
-        } catch (TerribleFailure e) {
-            // pass
-        }
     }
 
     @Test

@@ -29,7 +29,7 @@ import java.util.List;
  *
  * {@hide}
  */
-public class ComprehensionTlv {
+class ComprehensionTlv {
     private static final String LOG_TAG = "ComprehensionTlv";
     private int mTag;
     private boolean mCr;

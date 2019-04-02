@@ -17,7 +17,6 @@
 package android.net.wifi;
 
 import android.os.Parcelable;
-import android.annotation.SystemApi;
 import android.os.Parcel;
 
 import java.util.ArrayList;
@@ -30,7 +29,6 @@ import java.util.List;
  * @removed
  */
 @Deprecated
-@SystemApi
 public class BatchedScanResult implements Parcelable {
     private static final String TAG = "BatchedScanResult";
 

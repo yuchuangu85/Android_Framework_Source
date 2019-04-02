@@ -27,7 +27,7 @@ import java.lang.annotation.RetentionPolicy;
  * visibility should have been if it had not been made public or package-private for testing.
  * The default is to consider the element private.
  */
-@Retention(RetentionPolicy.CLASS)
+@Retention(RetentionPolicy.SOURCE)
 public @interface VisibleForTesting {
     /**
      * Intended visibility if the element had not been made public or package-private for

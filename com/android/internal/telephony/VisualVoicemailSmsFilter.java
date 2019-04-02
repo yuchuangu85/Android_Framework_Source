@@ -95,7 +95,6 @@ public class VisualVoicemailSmsFilter {
      * Wrapper to combine multiple PDU into an SMS message
      */
     private static class FullMessage {
-
         public SmsMessage firstMessage;
         public String fullMessageBody;
     }
@@ -144,7 +143,7 @@ public class VisualVoicemailSmsFilter {
             WrappedMessageData messageData = VisualVoicemailSmsParser
                     .parseAlternativeFormat(asciiMessage);
             if (messageData != null) {
-                sendVvmSmsBroadcast(context, settings, phoneAccountHandle, messageData, null);
+                sendVvmSmsBroadcast(context, phoneAccountHandle, messageData, null);
             }
             // Confidence for what the message actually is is low. Don't remove the message and let
             // system decide. Usually because it is not parsable it will be dropped.
@@ -178,7 +177,7 @@ public class VisualVoicemailSmsFilter {
                 return false;
             }
 
-            sendVvmSmsBroadcast(context, settings, phoneAccountHandle, messageData, null);
+            sendVvmSmsBroadcast(context, phoneAccountHandle, messageData, null);
             return true;
         }
 
@@ -194,7 +193,7 @@ public class VisualVoicemailSmsFilter {
             if (pattern.matcher(messageBody).matches()) {
                 Log.w(TAG, "Incoming SMS matches pattern " + pattern + " but has illegal format, "
                         + "still dropping as VVM SMS");
-                sendVvmSmsBroadcast(context, settings, phoneAccountHandle, null, messageBody);
+                sendVvmSmsBroadcast(context, phoneAccountHandle, null, messageBody);
                 return true;
             }
         }
@@ -234,8 +233,7 @@ public class VisualVoicemailSmsFilter {
         }
     }
 
-    private static void sendVvmSmsBroadcast(Context context,
-            VisualVoicemailSmsFilterSettings filterSettings, PhoneAccountHandle phoneAccountHandle,
+    private static void sendVvmSmsBroadcast(Context context, PhoneAccountHandle phoneAccountHandle,
             @Nullable WrappedMessageData messageData, @Nullable String messageBody) {
         Log.i(TAG, "VVM SMS received");
         Intent intent = new Intent(VoicemailContract.ACTION_VOICEMAIL_SMS_RECEIVED);
@@ -249,7 +247,6 @@ public class VisualVoicemailSmsFilter {
         }
         builder.setPhoneAccountHandle(phoneAccountHandle);
         intent.putExtra(VoicemailContract.EXTRA_VOICEMAIL_SMS, builder.build());
-        intent.putExtra(VoicemailContract.EXTRA_TARGET_PACKAGE, filterSettings.packageName);
         intent.setPackage(TELEPHONY_SERVICE_PACKAGE);
         context.sendBroadcast(intent);
     }

@@ -20,8 +20,6 @@ import android.annotation.NonNull;
 import android.os.Handler;
 import android.os.Looper;
 
-import com.android.internal.annotations.VisibleForTesting;
-
 /** The implementation of exponential backoff with jitter applied. */
 public class ExponentialBackoff {
     private int mRetryCounter;
@@ -29,31 +27,8 @@ public class ExponentialBackoff {
     private long mMaximumDelayMs;
     private long mCurrentDelayMs;
     private int mMultiplier;
-    private final Runnable mRunnable;
-    private final Handler mHandler;
-
-    /**
-     * Implementation of Handler methods, Adapter for testing (can't spy on final methods).
-     */
-    private HandlerAdapter mHandlerAdapter = new HandlerAdapter() {
-        @Override
-        public boolean postDelayed(Runnable runnable, long delayMillis) {
-            return mHandler.postDelayed(runnable, delayMillis);
-        }
-
-        @Override
-        public void removeCallbacks(Runnable runnable) {
-            mHandler.removeCallbacks(runnable);
-        }
-    };
-
-    /**
-     * Need to spy final methods for testing.
-     */
-    public interface HandlerAdapter {
-        boolean postDelayed(Runnable runnable, long delayMillis);
-        void removeCallbacks(Runnable runnable);
-    }
+    private Runnable mRunnable;
+    private Handler mHandler;
 
     public ExponentialBackoff(
             long initialDelayMs,
@@ -82,14 +57,14 @@ public class ExponentialBackoff {
     public void start() {
         mRetryCounter = 0;
         mCurrentDelayMs = mStartDelayMs;
-        mHandlerAdapter.removeCallbacks(mRunnable);
-        mHandlerAdapter.postDelayed(mRunnable, mCurrentDelayMs);
+        mHandler.removeCallbacks(mRunnable);
+        mHandler.postDelayed(mRunnable, mCurrentDelayMs);
     }
 
     /** Stops the backoff, all pending messages will be removed from the message queue. */
     public void stop() {
         mRetryCounter = 0;
-        mHandlerAdapter.removeCallbacks(mRunnable);
+        mHandler.removeCallbacks(mRunnable);
     }
 
     /** Should call when the retry action has failed and we want to retry after a longer delay. */
@@ -98,17 +73,12 @@ public class ExponentialBackoff {
         long temp = Math.min(
                 mMaximumDelayMs, (long) (mStartDelayMs * Math.pow(mMultiplier, mRetryCounter)));
         mCurrentDelayMs = (long) (((1 + Math.random()) / 2) * temp);
-        mHandlerAdapter.removeCallbacks(mRunnable);
-        mHandlerAdapter.postDelayed(mRunnable, mCurrentDelayMs);
+        mHandler.removeCallbacks(mRunnable);
+        mHandler.postDelayed(mRunnable, mCurrentDelayMs);
     }
 
     /** Returns the delay for the most recently posted message. */
     public long getCurrentDelay() {
         return mCurrentDelayMs;
-    }
-
-    @VisibleForTesting
-    public void setHandlerAdapter(HandlerAdapter a) {
-        mHandlerAdapter  = a;
     }
 }

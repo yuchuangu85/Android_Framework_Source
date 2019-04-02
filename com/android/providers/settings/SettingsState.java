@@ -33,7 +33,6 @@ import android.os.Message;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.provider.Settings;
-import android.provider.Settings.Global;
 import android.providers.settings.GlobalSettingsProto;
 import android.providers.settings.SettingsOperationProto;
 import android.text.TextUtils;
@@ -42,16 +41,15 @@ import android.util.AtomicFile;
 import android.util.Base64;
 import android.util.Slog;
 import android.util.SparseIntArray;
-import android.util.StatsLog;
 import android.util.TimeUtils;
 import android.util.Xml;
 import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.annotations.GuardedBy;
-import com.android.internal.util.ArrayUtils;
 import com.android.server.LocalServices;
 
 import libcore.io.IoUtils;
+import libcore.util.Objects;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -66,7 +64,6 @@ import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -167,9 +164,6 @@ final class SettingsState {
     @GuardedBy("mLock")
     private final File mStatePersistFile;
 
-    @GuardedBy("mLock")
-    private final String mStatePersistTag;
-
     private final Setting mNullSetting = new Setting(null, null, false, null, null) {
         @Override
         public boolean isNull() {
@@ -201,51 +195,6 @@ final class SettingsState {
     @GuardedBy("mLock")
     private int mNextHistoricalOpIdx;
 
-    public static final int SETTINGS_TYPE_GLOBAL = 0;
-    public static final int SETTINGS_TYPE_SYSTEM = 1;
-    public static final int SETTINGS_TYPE_SECURE = 2;
-    public static final int SETTINGS_TYPE_SSAID = 3;
-
-    public static final int SETTINGS_TYPE_MASK = 0xF0000000;
-    public static final int SETTINGS_TYPE_SHIFT = 28;
-
-    public static int makeKey(int type, int userId) {
-        return (type << SETTINGS_TYPE_SHIFT) | userId;
-    }
-
-    public static int getTypeFromKey(int key) {
-        return key >>> SETTINGS_TYPE_SHIFT;
-    }
-
-    public static int getUserIdFromKey(int key) {
-        return key & ~SETTINGS_TYPE_MASK;
-    }
-
-    public static String settingTypeToString(int type) {
-        switch (type) {
-            case SETTINGS_TYPE_GLOBAL: {
-                return "SETTINGS_GLOBAL";
-            }
-            case SETTINGS_TYPE_SECURE: {
-                return "SETTINGS_SECURE";
-            }
-            case SETTINGS_TYPE_SYSTEM: {
-                return "SETTINGS_SYSTEM";
-            }
-            case SETTINGS_TYPE_SSAID: {
-                return "SETTINGS_SSAID";
-            }
-            default: {
-                return "UNKNOWN";
-            }
-        }
-    }
-
-    public static String keyToString(int key) {
-        return "Key[user=" + getUserIdFromKey(key) + ";type="
-                + settingTypeToString(getTypeFromKey(key)) + "]";
-    }
-
     public SettingsState(Context context, Object lock, File file, int key,
             int maxBytesPerAppPackage, Looper looper) {
         // It is important that we use the same lock as the settings provider
@@ -254,7 +203,6 @@ final class SettingsState {
         mContext = context;
         mLock = lock;
         mStatePersistFile = file;
-        mStatePersistTag = "settings-" + getTypeFromKey(key) + "-" + getUserIdFromKey(key);
         mKey = key;
         mHandler = new MyHandler(looper);
         if (maxBytesPerAppPackage == MAX_BYTES_PER_APP_PACKAGE_LIMITED) {
@@ -387,9 +335,6 @@ final class SettingsState {
             mSettings.put(name, newState);
         }
 
-        StatsLog.write(StatsLog.SETTING_CHANGED, name, value, newState.value, oldValue, tag,
-            makeDefault, getUserIdFromKey(mKey), StatsLog.SETTING_CHANGED__REASON__UPDATED);
-
         addHistoricalOperationLocked(HISTORICAL_OPERATION_UPDATE, newState);
 
         updateMemoryUsagePerPackageLocked(packageName, oldValue, value,
@@ -413,10 +358,6 @@ final class SettingsState {
         }
 
         Setting oldState = mSettings.remove(name);
-
-        StatsLog.write(StatsLog.SETTING_CHANGED, name, /* value= */ "", /* newValue= */ "",
-            oldState.value, /* tag */ "", false, getUserIdFromKey(mKey),
-            StatsLog.SETTING_CHANGED__REASON__DELETED);
 
         updateMemoryUsagePerPackageLocked(oldState.packageName, oldState.value,
                 null, oldState.defaultValue, null);
@@ -493,9 +434,8 @@ final class SettingsState {
      * Dump historical operations as a proto buf.
      *
      * @param proto The proto buf stream to dump to
-     * @param fieldId The repeated field ID to use to save an operation to.
      */
-    void dumpHistoricalOperations(@NonNull ProtoOutputStream proto, long fieldId) {
+    void dumpProtoHistoricalOperations(@NonNull ProtoOutputStream proto) {
         synchronized (mLock) {
             if (mHistoricalOperations == null) {
                 return;
@@ -508,8 +448,7 @@ final class SettingsState {
                     index = operationCount + index;
                 }
                 HistoricalOperation operation = mHistoricalOperations.get(index);
-
-                final long token = proto.start(fieldId);
+                long settingsOperationToken = proto.start(GlobalSettingsProto.HISTORICAL_OP);
                 proto.write(SettingsOperationProto.TIMESTAMP, operation.mTimestamp);
                 proto.write(SettingsOperationProto.OPERATION, operation.mOperation);
                 if (operation.mSetting != null) {
@@ -518,7 +457,7 @@ final class SettingsState {
                     // add is what the current data is).
                     proto.write(SettingsOperationProto.SETTING, operation.mSetting.getName());
                 }
-                proto.end(token);
+                proto.end(settingsOperationToken);
             }
         }
     }
@@ -646,7 +585,7 @@ final class SettingsState {
                 Slog.i(LOG_TAG, "[PERSIST START]");
             }
 
-            AtomicFile destination = new AtomicFile(mStatePersistFile, mStatePersistTag);
+            AtomicFile destination = new AtomicFile(mStatePersistFile);
             FileOutputStream out = null;
             try {
                 out = destination.startWrite();
@@ -662,13 +601,6 @@ final class SettingsState {
                 final int settingCount = settings.size();
                 for (int i = 0; i < settingCount; i++) {
                     Setting setting = settings.valueAt(i);
-
-                    if (setting.isTransient()) {
-                        if (DEBUG_PERSISTENCE) {
-                            Slog.i(LOG_TAG, "[SKIPPED PERSISTING]" + setting.getName());
-                        }
-                        continue;
-                    }
 
                     writeSingleSetting(mVersion, serializer, setting.getId(), setting.getName(),
                             setting.getValue(), setting.getDefaultValue(), setting.getPackageName(),
@@ -980,14 +912,6 @@ final class SettingsState {
             return update(this.defaultValue, false, packageName, null, true);
         }
 
-        public boolean isTransient() {
-            switch (getTypeFromKey(getKey())) {
-                case SETTINGS_TYPE_GLOBAL:
-                    return ArrayUtils.contains(Global.TRANSIENT_SETTINGS, getName());
-            }
-            return false;
-        }
-
         public boolean update(String value, boolean setDefault, String packageName, String tag,
                 boolean forceNonSystemPackage) {
             if (NULL_VALUE.equals(value)) {
@@ -1004,7 +928,7 @@ final class SettingsState {
             String defaultValue = this.defaultValue;
             boolean defaultFromSystem = this.defaultFromSystem;
             if (setDefault) {
-                if (!Objects.equals(value, this.defaultValue)
+                if (!Objects.equal(value, this.defaultValue)
                         && (!defaultFromSystem || callerSystem)) {
                     defaultValue = value;
                     // Default null means no default, so the tag is irrelevant
@@ -1023,10 +947,10 @@ final class SettingsState {
             }
 
             // Is something gonna change?
-            if (Objects.equals(value, this.value)
-                    && Objects.equals(defaultValue, this.defaultValue)
-                    && Objects.equals(packageName, this.packageName)
-                    && Objects.equals(tag, this.tag)
+            if (Objects.equal(value, this.value)
+                    && Objects.equal(defaultValue, this.defaultValue)
+                    && Objects.equal(packageName, this.packageName)
+                    && Objects.equal(tag, this.tag)
                     && defaultFromSystem == this.defaultFromSystem) {
                 return false;
             }

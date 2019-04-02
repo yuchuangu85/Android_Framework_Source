@@ -16,7 +16,9 @@
 
 package com.android.server.wm;
 
-import android.content.res.Configuration;
+import android.os.IBinder;
+
+import java.util.HashMap;
 
 /**
  * Class that allows the owner/creator of a {@link WindowContainer} to communicate directly with the
@@ -27,8 +29,7 @@ import android.content.res.Configuration;
  *
  * Test class: {@link WindowContainerControllerTests}
  */
-class WindowContainerController<E extends WindowContainer, I extends WindowContainerListener>
-        implements ConfigurationContainerListener {
+class WindowContainerController<E extends WindowContainer, I extends WindowContainerListener> {
 
     final WindowManagerService mService;
     final RootWindowContainer mRoot;
@@ -52,32 +53,18 @@ class WindowContainerController<E extends WindowContainer, I extends WindowConta
                     + " for controller=" + this + " Already set to=" + mContainer);
         }
         mContainer = container;
-        if (mContainer != null && mListener != null) {
-            mListener.registerConfigurationChangeListener(this);
-        }
     }
 
     void removeContainer() {
         // TODO: See if most uses cases should support removeIfPossible here.
         //mContainer.removeIfPossible();
-        if (mContainer == null) {
-            return;
-        }
-
-        mContainer.setController(null);
-        mContainer = null;
-        if (mListener != null) {
-            mListener.unregisterConfigurationChangeListener(this);
+        if (mContainer != null) {
+            mContainer.setController(null);
+            mContainer = null;
         }
     }
 
-    @Override
-    public void onOverrideConfigurationChanged(Configuration overrideConfiguration) {
-        synchronized (mWindowMap) {
-            if (mContainer == null) {
-                return;
-            }
-            mContainer.onOverrideConfigurationChanged(overrideConfiguration);
-        }
+    boolean checkCallingPermission(String permission, String func) {
+        return mService.checkCallingPermission(permission, func);
     }
 }

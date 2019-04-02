@@ -1392,14 +1392,11 @@ public class GsmCdmaCallTracker extends CallTracker {
 
             case EVENT_CONFERENCE_RESULT:
                 if (isPhoneTypeGsm()) {
-                    ar = (AsyncResult) msg.obj;
-                    if (ar.exception != null) {
-                        // The conference merge failed, so notify listeners.  Ultimately this
-                        // bubbles up to Telecom, which will inform the InCall UI of the failure.
-                        Connection connection = mForegroundCall.getLatestConnection();
-                        if (connection != null) {
-                            connection.onConferenceMergeFailed();
-                        }
+                    // The conference merge failed, so notify listeners.  Ultimately this bubbles up
+                    // to Telecom, which will inform the InCall UI of the failure.
+                    Connection connection = mForegroundCall.getLatestConnection();
+                    if (connection != null) {
+                        connection.onConferenceMergeFailed();
                     }
                 }
                 // fall through
@@ -1634,7 +1631,7 @@ public class GsmCdmaCallTracker extends CallTracker {
 
     @Override
     protected void log(String msg) {
-        Rlog.d(LOG_TAG, "[" + mPhone.getPhoneId() + "] " + msg);
+        Rlog.d(LOG_TAG, "[GsmCdmaCallTracker] " + msg);
     }
 
     @Override

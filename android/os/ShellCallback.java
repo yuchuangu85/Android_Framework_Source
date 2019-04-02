@@ -35,9 +35,8 @@ public class ShellCallback implements Parcelable {
     IShellCallback mShellCallback;
 
     class MyShellCallback extends IShellCallback.Stub {
-        public ParcelFileDescriptor openFile(String path, String seLinuxContext,
-                String mode) {
-            return onOpenFile(path, seLinuxContext, mode);
+        public ParcelFileDescriptor openOutputFile(String path, String seLinuxContext) {
+            return onOpenOutputFile(path, seLinuxContext);
         }
     }
 
@@ -49,27 +48,23 @@ public class ShellCallback implements Parcelable {
     }
 
     /**
-     * Ask the shell to open a file.  If opening for writing, will truncate the file if it
-     * already exists and will create the file if it doesn't exist.
+     * Ask the shell to open a file for writing.  This will truncate the file if it
+     * already exists.  It will create the file if it doesn't exist.
      * @param path Path of the file to be opened/created.
      * @param seLinuxContext Optional SELinux context that must be allowed to have
      * access to the file; if null, nothing is required.
-     * @param mode Mode to open file in: "r" for input/reading an existing file,
-     * "r+" for reading/writing an existing file, "w" for output/writing a new file (either
-     * creating or truncating an existing one), "w+" for reading/writing a new file (either
-     * creating or truncating an existing one).
      */
-    public ParcelFileDescriptor openFile(String path, String seLinuxContext, String mode) {
-        if (DEBUG) Log.d(TAG, "openFile " + this + " mode=" + mode + ": mLocal=" + mLocal
+    public ParcelFileDescriptor openOutputFile(String path, String seLinuxContext) {
+        if (DEBUG) Log.d(TAG, "openOutputFile " + this + ": mLocal=" + mLocal
                 + " mShellCallback=" + mShellCallback);
 
         if (mLocal) {
-            return onOpenFile(path, seLinuxContext, mode);
+            return onOpenOutputFile(path, seLinuxContext);
         }
 
         if (mShellCallback != null) {
             try {
-                return mShellCallback.openFile(path, seLinuxContext, mode);
+                return mShellCallback.openOutputFile(path, seLinuxContext);
             } catch (RemoteException e) {
                 Log.w(TAG, "Failure opening " + path, e);
             }
@@ -77,7 +72,7 @@ public class ShellCallback implements Parcelable {
         return null;
     }
 
-    public ParcelFileDescriptor onOpenFile(String path, String seLinuxContext, String mode) {
+    public ParcelFileDescriptor onOpenOutputFile(String path, String seLinuxContext) {
         return null;
     }
 
@@ -105,9 +100,6 @@ public class ShellCallback implements Parcelable {
     ShellCallback(Parcel in) {
         mLocal = false;
         mShellCallback = IShellCallback.Stub.asInterface(in.readStrongBinder());
-        if (mShellCallback != null) {
-            Binder.allowBlocking(mShellCallback.asBinder());
-        }
     }
 
     public static final Parcelable.Creator<ShellCallback> CREATOR

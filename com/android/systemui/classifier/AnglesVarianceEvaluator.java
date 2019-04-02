@@ -17,8 +17,10 @@
 package com.android.systemui.classifier;
 
 public class AnglesVarianceEvaluator {
-    public static float evaluate(float value, int type) {
+    public static float evaluate(float value) {
         float evaluation = 0.0f;
+        if (value > 0.05) evaluation++;
+        if (value > 0.10) evaluation++;
         if (value > 0.20) evaluation++;
         if (value > 0.40) evaluation++;
         if (value > 0.80) evaluation++;

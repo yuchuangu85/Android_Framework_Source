@@ -23,6 +23,8 @@ import android.util.LongArray;
 import android.util.LongSparseArray;
 import android.util.SparseArray;
 
+import com.android.internal.annotations.VisibleForTesting;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -31,7 +33,8 @@ import java.util.List;
  * It is updated when windows change or nodes change.
  * @hide
  */
-public class AccessibilityCache {
+@VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+public final class AccessibilityCache {
 
     private static final String LOG_TAG = "AccessibilityCache";
 
@@ -326,8 +329,6 @@ public class AccessibilityCache {
                 final long oldParentId = oldInfo.getParentNodeId();
                 if (info.getParentNodeId() != oldParentId) {
                     clearSubTreeLocked(windowId, oldParentId);
-                } else {
-                    oldInfo.recycle();
                 }
            }
 

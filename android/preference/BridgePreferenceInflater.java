@@ -49,8 +49,7 @@ public class BridgePreferenceInflater extends PreferenceInflater {
             preference = super.createItem(name, prefix, attrs);
         } catch (ClassNotFoundException | InflateException exception) {
             // name is probably not a valid preference type
-            if (("android.support.v7.preference".equals(prefix) ||
-                    "androidx.preference".equals(prefix)) &&
+            if ("android.support.v7.preference".equals(prefix) &&
                     "SwitchPreferenceCompat".equals(name)) {
                 preference = super.createItem("SwitchPreference", prefix, attrs);
             }

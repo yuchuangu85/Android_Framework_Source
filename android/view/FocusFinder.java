@@ -530,7 +530,7 @@ public class FocusFinder {
      * axis distances.  Warning: this fudge factor is finely tuned, be sure to
      * run all focus tests if you dare tweak it.
      */
-    long getWeightedDistanceFor(long majorAxisDistance, long minorAxisDistance) {
+    int getWeightedDistanceFor(int majorAxisDistance, int minorAxisDistance) {
         return 13 * majorAxisDistance * majorAxisDistance
                 + minorAxisDistance * minorAxisDistance;
     }

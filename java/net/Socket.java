@@ -122,7 +122,7 @@ class Socket implements java.io.Closeable {
         Proxy p = proxy == Proxy.NO_PROXY ? Proxy.NO_PROXY
                                           : sun.net.ApplicationProxy.create(proxy);
         Proxy.Type type = p.type();
-        // Android-changed: Removed HTTP proxy support.
+        // Android-changed: Removed HTTP proxy suppport.
         // if (type == Proxy.Type.SOCKS || type == Proxy.Type.HTTP) {
         if (type == Proxy.Type.SOCKS) {
             SecurityManager security = System.getSecurityManager();
@@ -214,7 +214,6 @@ class Socket implements java.io.Closeable {
     public Socket(String host, int port)
         throws UnknownHostException, IOException
     {
-        // Android-changed: App compat. Socket ctor should try all addresses. http://b/30007735
         this(InetAddress.getAllByName(host), port, (SocketAddress) null, true);
     }
 
@@ -246,7 +245,6 @@ class Socket implements java.io.Closeable {
      * @see        SecurityManager#checkConnect
      */
     public Socket(InetAddress address, int port) throws IOException {
-        // Android-changed: App compat. Socket ctor should try all addresses. http://b/30007735
         this(nonNullAddress(address), port, (SocketAddress) null, true);
     }
 
@@ -288,7 +286,6 @@ class Socket implements java.io.Closeable {
      */
     public Socket(String host, int port, InetAddress localAddr,
                   int localPort) throws IOException {
-        // Android-changed: App compat. Socket ctor should try all addresses. http://b/30007735
         this(InetAddress.getAllByName(host), port,
              new InetSocketAddress(localAddr, localPort), true);
     }
@@ -330,7 +327,6 @@ class Socket implements java.io.Closeable {
      */
     public Socket(InetAddress address, int port, InetAddress localAddr,
                   int localPort) throws IOException {
-        // Android-changed: App compat. Socket ctor should try all addresses. http://b/30007735
         this(nonNullAddress(address), port,
              new InetSocketAddress(localAddr, localPort), true);
     }
@@ -378,7 +374,6 @@ class Socket implements java.io.Closeable {
      */
     @Deprecated
     public Socket(String host, int port, boolean stream) throws IOException {
-        // Android-changed: App compat. Socket ctor should try all addresses. http://b/30007735
         this(InetAddress.getAllByName(host), port, (SocketAddress) null, stream);
     }
 
@@ -420,11 +415,9 @@ class Socket implements java.io.Closeable {
      */
     @Deprecated
     public Socket(InetAddress host, int port, boolean stream) throws IOException {
-        // Android-changed: App compat. Socket ctor should try all addresses. http://b/30007735
         this(nonNullAddress(host), port, new InetSocketAddress(0), stream);
     }
 
-    // BEGIN Android-changed: App compat. Socket ctor should try all addresses. http://b/30007735
     private static InetAddress[] nonNullAddress(InetAddress address) {
         // backward compatibility
         if (address == null)
@@ -433,6 +426,8 @@ class Socket implements java.io.Closeable {
         return new InetAddress[] { address };
     }
 
+    // Android-changed: Socket ctor should try all addresses
+    // b/30007735
     private Socket(InetAddress[] addresses, int port, SocketAddress localAddr,
             boolean stream) throws IOException {
         if (addresses == null || addresses.length == 0) {
@@ -451,8 +446,9 @@ class Socket implements java.io.Closeable {
                 break;
             } catch (IOException | IllegalArgumentException | SecurityException e) {
                 try {
-                    // Android-changed: Let ctor call impl.close() instead of overridable close().
-                    // Subclasses may not expect a call to close() coming from this constructor.
+                    // Android-changed:
+                    // Do not call #close, classes that extend this class may do not expect a call
+                    // to #close coming from the superclass constructor.
                     impl.close();
                     closed = true;
                 } catch (IOException ce) {
@@ -472,7 +468,6 @@ class Socket implements java.io.Closeable {
             closed = false;
         }
     }
-    // END Android-changed: App compat. Socket ctor should try all addresses. http://b/30007735
 
     /**
      * Creates the socket implementation.
@@ -1065,7 +1060,7 @@ class Socket implements java.io.Closeable {
      *
      * The setting only affects socket close.
      *
-     * @return the setting for {@link SocketOptions#SO_LINGER SO_LINGER}.
+     * @return the setting for SO_LINGER.
      * @exception SocketException if there is an error
      * in the underlying protocol, such as a TCP error.
      * @since   JDK1.1
@@ -1773,7 +1768,7 @@ class Socket implements java.io.Closeable {
         /* Not implemented yet */
     }
 
-    // Android-added: getFileDescriptor$() method for testing and internal use.
+    // Android-added: for testing and internal use.
     /**
      * @hide internal use only
      */

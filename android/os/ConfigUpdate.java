@@ -68,6 +68,13 @@ public final class ConfigUpdate {
             = "android.intent.action.UPDATE_CT_LOGS";
 
     /**
+     * Update system wide timezone data.
+     * @hide
+     */
+    @SystemApi
+    public static final String ACTION_UPDATE_TZDATA = "android.intent.action.UPDATE_TZDATA";
+
+    /**
      * Update language detection model file.
      * @hide
      */
@@ -81,29 +88,6 @@ public final class ConfigUpdate {
     @SystemApi
     public static final String ACTION_UPDATE_SMART_SELECTION
             = "android.intent.action.UPDATE_SMART_SELECTION";
-
-    /**
-     * Update network watchlist config file.
-     * @hide
-     */
-    @SystemApi
-    public static final String ACTION_UPDATE_NETWORK_WATCHLIST
-            = "android.intent.action.UPDATE_NETWORK_WATCHLIST";
-
-    /**
-     * Broadcast intent action indicating that the updated carrier id config is available.
-     * <p>Extra: "VERSION" the numeric version of the new data. Devices should only install if the
-     * update version is newer than the current one.
-     * <p>Extra: "REQUIRED_HASH" the hash of the current update data.
-     * <p>Input: {@link android.content.Intent#getData} is URI of downloaded carrier id file.
-     * Devices should pick up the downloaded file and persist to the database
-     * {@link com.android.providers.telephony.CarrierIdProvider}.
-     *
-     * @hide
-     */
-    @SystemApi
-    public static final String ACTION_UPDATE_CARRIER_ID_DB
-            = "android.os.action.UPDATE_CARRIER_ID_DB";
 
     private ConfigUpdate() {
     }

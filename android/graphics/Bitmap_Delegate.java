@@ -608,8 +608,7 @@ public final class Bitmap_Delegate {
         if (delegate == null) {
             return 0;
         }
-        int size = nativeRowBytes(nativeBitmap) * delegate.mImage.getHeight();
-        return size < 0 ? Integer.MAX_VALUE : size;
+        return nativeRowBytes(nativeBitmap) * delegate.mImage.getHeight();
 
     }
 

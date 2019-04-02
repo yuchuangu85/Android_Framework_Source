@@ -26,7 +26,6 @@ import android.os.RemoteException;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
 import android.util.ArrayMap;
-import android.util.ArraySet;
 import android.util.Slog;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -50,11 +49,10 @@ public final class CarrierAppUtils {
     /**
      * Handle preinstalled carrier apps which should be disabled until a matching SIM is inserted.
      *
-     * Evaluates the list of applications in
-     * {@link SystemConfig#getDisabledUntilUsedPreinstalledCarrierApps()}. We want to disable each
-     * such application which is present on the system image until the user inserts a SIM which
-     * causes that application to gain carrier privilege (indicating a "match"), without interfering
-     * with the user if they opt to enable/disable the app explicitly.
+     * Evaluates the list of applications in config_disabledUntilUsedPreinstalledCarrierApps. We
+     * want to disable each such application which is present on the system image until the user
+     * inserts a SIM which causes that application to gain carrier privilege (indicating a "match"),
+     * without interfering with the user if they opt to enable/disable the app explicitly.
      *
      * So, for each such app, we either disable until used IFF the app is not carrier privileged AND
      * in the default state (e.g. not explicitly DISABLED/DISABLED_BY_USER/ENABLED), or we enable if
@@ -78,8 +76,8 @@ public final class CarrierAppUtils {
             Slog.d(TAG, "disableCarrierAppsUntilPrivileged");
         }
         SystemConfig config = SystemConfig.getInstance();
-        ArraySet<String> systemCarrierAppsDisabledUntilUsed =
-                config.getDisabledUntilUsedPreinstalledCarrierApps();
+        String[] systemCarrierAppsDisabledUntilUsed = Resources.getSystem().getStringArray(
+                com.android.internal.R.array.config_disabledUntilUsedPreinstalledCarrierApps);
         ArrayMap<String, List<String>> systemCarrierAssociatedAppsDisabledUntilUsed =
                 config.getDisabledUntilUsedPreinstalledCarrierAssociatedApps();
         disableCarrierAppsUntilPrivileged(callingPackage, packageManager, telephonyManager,
@@ -104,10 +102,8 @@ public final class CarrierAppUtils {
             Slog.d(TAG, "disableCarrierAppsUntilPrivileged");
         }
         SystemConfig config = SystemConfig.getInstance();
-        ArraySet<String> systemCarrierAppsDisabledUntilUsed =
-                config.getDisabledUntilUsedPreinstalledCarrierApps();
-
-
+        String[] systemCarrierAppsDisabledUntilUsed = Resources.getSystem().getStringArray(
+                com.android.internal.R.array.config_disabledUntilUsedPreinstalledCarrierApps);
         ArrayMap<String, List<String>> systemCarrierAssociatedAppsDisabledUntilUsed =
                 config.getDisabledUntilUsedPreinstalledCarrierAssociatedApps();
         disableCarrierAppsUntilPrivileged(callingPackage, packageManager,
@@ -120,7 +116,7 @@ public final class CarrierAppUtils {
     public static void disableCarrierAppsUntilPrivileged(String callingPackage,
             IPackageManager packageManager, @Nullable TelephonyManager telephonyManager,
             ContentResolver contentResolver, int userId,
-            ArraySet<String> systemCarrierAppsDisabledUntilUsed,
+            String[] systemCarrierAppsDisabledUntilUsed,
             ArrayMap<String, List<String>> systemCarrierAssociatedAppsDisabledUntilUsed) {
         List<ApplicationInfo> candidates = getDefaultCarrierAppCandidatesHelper(packageManager,
                 userId, systemCarrierAppsDisabledUntilUsed);
@@ -290,8 +286,8 @@ public final class CarrierAppUtils {
      */
     public static List<ApplicationInfo> getDefaultCarrierAppCandidates(
             IPackageManager packageManager, int userId) {
-        ArraySet<String> systemCarrierAppsDisabledUntilUsed =
-                SystemConfig.getInstance().getDisabledUntilUsedPreinstalledCarrierApps();
+        String[] systemCarrierAppsDisabledUntilUsed = Resources.getSystem().getStringArray(
+                com.android.internal.R.array.config_disabledUntilUsedPreinstalledCarrierApps);
         return getDefaultCarrierAppCandidatesHelper(packageManager, userId,
                 systemCarrierAppsDisabledUntilUsed);
     }
@@ -299,19 +295,14 @@ public final class CarrierAppUtils {
     private static List<ApplicationInfo> getDefaultCarrierAppCandidatesHelper(
             IPackageManager packageManager,
             int userId,
-            ArraySet<String> systemCarrierAppsDisabledUntilUsed) {
-        if (systemCarrierAppsDisabledUntilUsed == null) {
+            String[] systemCarrierAppsDisabledUntilUsed) {
+        if (systemCarrierAppsDisabledUntilUsed == null
+                || systemCarrierAppsDisabledUntilUsed.length == 0) {
             return null;
         }
-
-        int size = systemCarrierAppsDisabledUntilUsed.size();
-        if (size == 0) {
-            return null;
-        }
-
-        List<ApplicationInfo> apps = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) {
-            String packageName = systemCarrierAppsDisabledUntilUsed.valueAt(i);
+        List<ApplicationInfo> apps = new ArrayList<>(systemCarrierAppsDisabledUntilUsed.length);
+        for (int i = 0; i < systemCarrierAppsDisabledUntilUsed.length; i++) {
+            String packageName = systemCarrierAppsDisabledUntilUsed[i];
             ApplicationInfo ai =
                     getApplicationInfoIfSystemApp(packageManager, userId, packageName);
             if (ai != null) {

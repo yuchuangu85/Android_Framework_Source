@@ -20,8 +20,7 @@ import android.graphics.Bitmap;
 import android.media.MediaMetadata;
 import android.media.Rating;
 import android.os.Parcel;
-
-import androidx.annotation.RequiresApi;
+import android.support.annotation.RequiresApi;
 
 import java.util.Set;
 
@@ -83,11 +82,5 @@ class MediaMetadataCompatApi21 {
         public static Object build(Object builderObj) {
             return ((MediaMetadata.Builder)builderObj).build();
         }
-
-        private Builder() {
-        }
-    }
-
-    private MediaMetadataCompatApi21() {
     }
 }

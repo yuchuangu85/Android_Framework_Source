@@ -84,7 +84,6 @@ public interface AppInterface {
         SET_UP_MENU(0x25),
         SET_UP_CALL(0x10),
         PROVIDE_LOCAL_INFORMATION(0x26),
-        LANGUAGE_NOTIFICATION(0x35),
         OPEN_CHANNEL(0x40),
         CLOSE_CHANNEL(0x41),
         RECEIVE_DATA(0x42),

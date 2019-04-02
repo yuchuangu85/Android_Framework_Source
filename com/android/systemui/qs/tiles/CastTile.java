@@ -19,17 +19,26 @@ package com.android.systemui.qs.tiles;
 import static android.media.MediaRouter.ROUTE_TYPE_REMOTE_DISPLAY;
 
 import android.app.Dialog;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.media.MediaRouter;
+import android.os.UserHandle;
 import android.provider.Settings;
 import android.service.quicksettings.Tile;
 import android.util.Log;
+import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.view.View.OnAttachStateChangeListener;
+import android.view.View.OnClickListener;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.view.WindowManager.LayoutParams;
 import android.widget.Button;
 
+import com.android.internal.app.MediaRouteChooserDialog;
+import com.android.internal.app.MediaRouteControllerDialog;
 import com.android.internal.app.MediaRouteDialogPresenter;
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
@@ -83,6 +92,7 @@ public class CastTile extends QSTileImpl<BooleanState> {
 
     @Override
     public void handleSetListening(boolean listening) {
+        if (mController == null) return;
         if (DEBUG) Log.d(TAG, "handleSetListening " + listening);
         if (listening) {
             mController.addCallback(mCallback);
@@ -97,6 +107,7 @@ public class CastTile extends QSTileImpl<BooleanState> {
     @Override
     protected void handleUserSwitch(int newUserId) {
         super.handleUserSwitch(newUserId);
+        if (mController == null) return;
         mController.setCurrentUserId(newUserId);
     }
 
@@ -269,7 +280,7 @@ public class CastTile extends QSTileImpl<BooleanState> {
                 for (CastDevice device : devices) {
                     if (device.state == CastDevice.STATE_CONNECTED) {
                         final Item item = new Item();
-                        item.iconResId = R.drawable.ic_qs_cast_on;
+                        item.icon = R.drawable.ic_qs_cast_on;
                         item.line1 = getDeviceName(device);
                         item.line2 = mContext.getString(R.string.quick_settings_connected);
                         item.tag = device;
@@ -289,7 +300,7 @@ public class CastTile extends QSTileImpl<BooleanState> {
                         final CastDevice device = mVisibleOrder.get(id);
                         if (!devices.contains(device)) continue;
                         final Item item = new Item();
-                        item.iconResId = R.drawable.ic_qs_cast_off;
+                        item.icon = R.drawable.ic_qs_cast_off;
                         item.line1 = getDeviceName(device);
                         if (device.state == CastDevice.STATE_CONNECTING) {
                             item.line2 = mContext.getString(R.string.quick_settings_connecting);

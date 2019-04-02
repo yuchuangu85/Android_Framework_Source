@@ -100,11 +100,6 @@ public final class PbapClientProfile implements LocalBluetoothProfile {
         return mIsProfileReady;
     }
 
-    @Override
-    public int getProfileId() {
-        return BluetoothProfile.PBAP_CLIENT;
-    }
-
     PbapClientProfile(Context context, LocalBluetoothAdapter adapter,
             CachedBluetoothDeviceManager deviceManager,
             LocalBluetoothProfileManager profileManager) {

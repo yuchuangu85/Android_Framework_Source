@@ -19,7 +19,6 @@ package com.android.server.wifi;
 import android.util.Log;
 
 import com.android.internal.annotations.Immutable;
-import com.android.internal.annotations.VisibleForTesting;
 
 import javax.annotation.concurrent.ThreadSafe;
 
@@ -35,7 +34,6 @@ import javax.annotation.concurrent.ThreadSafe;
 class LogcatLog implements WifiLog {
     private final String mTag;
     private static volatile boolean sVerboseLogging = false;
-    private static final DummyLogMessage sDummyLogMessage = new DummyLogMessage();
 
     LogcatLog(String tag) {
         mTag = tag;
@@ -52,46 +50,27 @@ class LogcatLog implements WifiLog {
     /* New-style methods */
     @Override
     public LogMessage err(String format) {
-        return new RealLogMessage(Log.ERROR, mTag, format);
+        return makeLogMessage(Log.ERROR, format);
     }
 
     @Override
     public LogMessage warn(String format) {
-        return new RealLogMessage(Log.WARN, mTag, format);
+        return makeLogMessage(Log.WARN, format);
     }
 
     @Override
     public LogMessage info(String format) {
-        return new RealLogMessage(Log.INFO, mTag, format);
+        return makeLogMessage(Log.INFO, format);
     }
 
     @Override
     public LogMessage trace(String format) {
-        if (sVerboseLogging) {
-            return new RealLogMessage(Log.DEBUG, mTag, format,
-                    getNameOfCallingMethod(0));
-        } else {
-            return sDummyLogMessage;
-        }
-    }
-
-    @Override
-    public LogMessage trace(String format, int numFramesToIgnore) {
-        if (sVerboseLogging) {
-            return new RealLogMessage(Log.DEBUG, mTag, format,
-                    getNameOfCallingMethod(numFramesToIgnore));
-        } else {
-            return sDummyLogMessage;
-        }
+        return makeLogMessage(Log.DEBUG, format);
     }
 
     @Override
     public LogMessage dump(String format) {
-        if (sVerboseLogging) {
-            return new RealLogMessage(Log.VERBOSE, mTag, format);
-        } else {
-            return sDummyLogMessage;
-        }
+        return makeLogMessage(Log.VERBOSE, format);
     }
 
     @Override
@@ -149,18 +128,11 @@ class LogcatLog implements WifiLog {
         private int mNextFormatCharPos;
 
         RealLogMessage(int logLevel, String tag, String format) {
-            this(logLevel, tag, format, null);
-        }
-
-        RealLogMessage(int logLevel, String tag, String format, String prefix) {
             mLogLevel = logLevel;
             mTag = tag;
             mFormat = format;
             mStringBuilder = new StringBuilder();
             mNextFormatCharPos = 0;
-            if (prefix != null) {
-                mStringBuilder.append(prefix).append(" ");
-            }
         }
 
         @Override
@@ -215,10 +187,12 @@ class LogcatLog implements WifiLog {
             if (mNextFormatCharPos < mFormat.length()) {
                 mStringBuilder.append(mFormat, mNextFormatCharPos, mFormat.length());
             }
-            Log.println(mLogLevel, mTag, mStringBuilder.toString());
+            if (sVerboseLogging || mLogLevel > Log.DEBUG) {
+                Log.println(mLogLevel, mTag, mStringBuilder.toString());
+            }
         }
 
-        @VisibleForTesting
+        /* Should generally not be used; implemented primarily to aid in testing. */
         public String toString() {
             return mStringBuilder.toString();
         }
@@ -238,25 +212,8 @@ class LogcatLog implements WifiLog {
         }
     }
 
-    private static final String[] TRACE_FRAMES_TO_IGNORE = {
-            "getNameOfCallingMethod()", "trace()"
-    };
-    private String getNameOfCallingMethod(int callerFramesToIgnore) {
-        final int frameNumOfInterest = callerFramesToIgnore + TRACE_FRAMES_TO_IGNORE.length;
-        // In some environments, it's much faster to get a stack trace from a Throwable
-        // https://bugs.java.com/bugdatabase/view_bug.do?bug_id=6375302.
-        //
-        // While Dalvik optimizes the same-thread-stack-trace case,
-        // Throwable_nativeGetStackTrace() is still simpler than
-        // VMStack_getThreadStackTrace().
-        //
-        // Some crude benchmarking suggests that the cost of this approach is about
-        // 50 usec. go/logcatlog-trace-benchmark
-        StackTraceElement[] stackTrace = (new Throwable()).getStackTrace();
-        try {
-            return stackTrace[frameNumOfInterest].getMethodName();
-        } catch (ArrayIndexOutOfBoundsException e) {
-            return ("<unknown>");
-        }
+    private LogMessage makeLogMessage(int logLevel, String format) {
+        // TODO(b/30737821): Consider adding an isLoggable() check.
+        return new RealLogMessage(logLevel, mTag, format);
     }
 }

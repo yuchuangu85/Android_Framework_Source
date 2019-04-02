@@ -19,6 +19,8 @@ package android.bluetooth;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import android.util.Log;
+
 /**
  * Out Of Band Data for Bluetooth device pairing.
  *
@@ -28,13 +30,13 @@ import android.os.Parcelable;
  * @hide
  */
 public class OobData implements Parcelable {
-    private byte[] mLeBluetoothDeviceAddress;
-    private byte[] mSecurityManagerTk;
-    private byte[] mLeSecureConnectionsConfirmation;
-    private byte[] mLeSecureConnectionsRandom;
+    private byte[] leBluetoothDeviceAddress;
+    private byte[] securityManagerTk;
+    private byte[] leSecureConnectionsConfirmation;
+    private byte[] leSecureConnectionsRandom;
 
     public byte[] getLeBluetoothDeviceAddress() {
-        return mLeBluetoothDeviceAddress;
+        return leBluetoothDeviceAddress;
     }
 
     /**
@@ -43,11 +45,11 @@ public class OobData implements Parcelable {
      * a detailed description.
      */
     public void setLeBluetoothDeviceAddress(byte[] leBluetoothDeviceAddress) {
-        mLeBluetoothDeviceAddress = leBluetoothDeviceAddress;
+        this.leBluetoothDeviceAddress = leBluetoothDeviceAddress;
     }
 
     public byte[] getSecurityManagerTk() {
-        return mSecurityManagerTk;
+        return securityManagerTk;
     }
 
     /**
@@ -56,50 +58,48 @@ public class OobData implements Parcelable {
      * Part A 1.8 for a detailed description.
      */
     public void setSecurityManagerTk(byte[] securityManagerTk) {
-        mSecurityManagerTk = securityManagerTk;
+        this.securityManagerTk = securityManagerTk;
     }
 
     public byte[] getLeSecureConnectionsConfirmation() {
-        return mLeSecureConnectionsConfirmation;
+        return leSecureConnectionsConfirmation;
     }
 
     public void setLeSecureConnectionsConfirmation(byte[] leSecureConnectionsConfirmation) {
-        mLeSecureConnectionsConfirmation = leSecureConnectionsConfirmation;
+        this.leSecureConnectionsConfirmation = leSecureConnectionsConfirmation;
     }
 
     public byte[] getLeSecureConnectionsRandom() {
-        return mLeSecureConnectionsRandom;
+        return leSecureConnectionsRandom;
     }
 
     public void setLeSecureConnectionsRandom(byte[] leSecureConnectionsRandom) {
-        mLeSecureConnectionsRandom = leSecureConnectionsRandom;
+        this.leSecureConnectionsRandom = leSecureConnectionsRandom;
     }
 
-    public OobData() {
-    }
+    public OobData() { }
 
     private OobData(Parcel in) {
-        mLeBluetoothDeviceAddress = in.createByteArray();
-        mSecurityManagerTk = in.createByteArray();
-        mLeSecureConnectionsConfirmation = in.createByteArray();
-        mLeSecureConnectionsRandom = in.createByteArray();
+        leBluetoothDeviceAddress = in.createByteArray();
+        securityManagerTk = in.createByteArray();
+        leSecureConnectionsConfirmation = in.createByteArray();
+        leSecureConnectionsRandom = in.createByteArray();
     }
 
-    @Override
     public int describeContents() {
         return 0;
     }
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        out.writeByteArray(mLeBluetoothDeviceAddress);
-        out.writeByteArray(mSecurityManagerTk);
-        out.writeByteArray(mLeSecureConnectionsConfirmation);
-        out.writeByteArray(mLeSecureConnectionsRandom);
+        out.writeByteArray(leBluetoothDeviceAddress);
+        out.writeByteArray(securityManagerTk);
+        out.writeByteArray(leSecureConnectionsConfirmation);
+        out.writeByteArray(leSecureConnectionsRandom);
     }
 
-    public static final Parcelable.Creator<OobData> CREATOR =
-            new Parcelable.Creator<OobData>() {
+    public static final Parcelable.Creator<OobData> CREATOR
+            = new Parcelable.Creator<OobData>() {
         public OobData createFromParcel(Parcel in) {
             return new OobData(in);
         }

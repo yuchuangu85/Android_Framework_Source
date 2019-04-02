@@ -41,9 +41,10 @@ public final class BluetoothAudioConfig implements Parcelable {
     @Override
     public boolean equals(Object o) {
         if (o instanceof BluetoothAudioConfig) {
-            BluetoothAudioConfig bac = (BluetoothAudioConfig) o;
-            return (bac.mSampleRate == mSampleRate && bac.mChannelConfig == mChannelConfig
-                    && bac.mAudioFormat == mAudioFormat);
+            BluetoothAudioConfig bac = (BluetoothAudioConfig)o;
+            return (bac.mSampleRate == mSampleRate &&
+                    bac.mChannelConfig == mChannelConfig &&
+                    bac.mAudioFormat == mAudioFormat);
         }
         return false;
     }
@@ -59,26 +60,23 @@ public final class BluetoothAudioConfig implements Parcelable {
                 + ",mAudioFormat:" + mAudioFormat + "}";
     }
 
-    @Override
     public int describeContents() {
         return 0;
     }
 
     public static final Parcelable.Creator<BluetoothAudioConfig> CREATOR =
             new Parcelable.Creator<BluetoothAudioConfig>() {
-                public BluetoothAudioConfig createFromParcel(Parcel in) {
-                    int sampleRate = in.readInt();
-                    int channelConfig = in.readInt();
-                    int audioFormat = in.readInt();
-                    return new BluetoothAudioConfig(sampleRate, channelConfig, audioFormat);
-                }
+        public BluetoothAudioConfig createFromParcel(Parcel in) {
+            int sampleRate = in.readInt();
+            int channelConfig = in.readInt();
+            int audioFormat = in.readInt();
+            return new BluetoothAudioConfig(sampleRate, channelConfig, audioFormat);
+        }
+        public BluetoothAudioConfig[] newArray(int size) {
+            return new BluetoothAudioConfig[size];
+        }
+    };
 
-                public BluetoothAudioConfig[] newArray(int size) {
-                    return new BluetoothAudioConfig[size];
-                }
-            };
-
-    @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeInt(mSampleRate);
         out.writeInt(mChannelConfig);
@@ -87,7 +85,6 @@ public final class BluetoothAudioConfig implements Parcelable {
 
     /**
      * Returns the sample rate in samples per second
-     *
      * @return sample rate
      */
     public int getSampleRate() {
@@ -97,7 +94,6 @@ public final class BluetoothAudioConfig implements Parcelable {
     /**
      * Returns the channel configuration (either {@link android.media.AudioFormat#CHANNEL_IN_MONO}
      * or {@link android.media.AudioFormat#CHANNEL_IN_STEREO})
-     *
      * @return channel configuration
      */
     public int getChannelConfig() {
@@ -107,7 +103,6 @@ public final class BluetoothAudioConfig implements Parcelable {
     /**
      * Returns the channel audio format (either {@link android.media.AudioFormat#ENCODING_PCM_16BIT}
      * or {@link android.media.AudioFormat#ENCODING_PCM_8BIT}
-     *
      * @return audio format
      */
     public int getAudioFormat() {

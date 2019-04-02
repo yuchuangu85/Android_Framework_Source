@@ -16,79 +16,68 @@
 
 package android.telephony.mbms;
 
-import android.os.Binder;
+import android.os.Handler;
+import android.os.RemoteException;
 
 import java.util.List;
-import java.util.concurrent.Executor;
 
 /** @hide */
 public class InternalDownloadSessionCallback extends IMbmsDownloadSessionCallback.Stub {
 
-    private final Executor mExecutor;
+    private final Handler mHandler;
     private final MbmsDownloadSessionCallback mAppCallback;
     private volatile boolean mIsStopped = false;
 
     public InternalDownloadSessionCallback(MbmsDownloadSessionCallback appCallback,
-            Executor executor) {
+            Handler handler) {
         mAppCallback = appCallback;
-        mExecutor = executor;
+        mHandler = handler;
     }
 
     @Override
-    public void onError(final int errorCode, final String message) {
+    public void onError(final int errorCode, final String message) throws RemoteException {
         if (mIsStopped) {
             return;
         }
 
-        mExecutor.execute(new Runnable() {
+        mHandler.post(new Runnable() {
             @Override
             public void run() {
-                long token = Binder.clearCallingIdentity();
-                try {
-                    mAppCallback.onError(errorCode, message);
-                } finally {
-                    Binder.restoreCallingIdentity(token);
-                }
+                mAppCallback.onError(errorCode, message);
             }
         });
     }
 
     @Override
-    public void onFileServicesUpdated(final List<FileServiceInfo> services) {
+    public void onFileServicesUpdated(final List<FileServiceInfo> services) throws RemoteException {
         if (mIsStopped) {
             return;
         }
 
-        mExecutor.execute(new Runnable() {
+        mHandler.post(new Runnable() {
             @Override
             public void run() {
-                long token = Binder.clearCallingIdentity();
-                try {
-                    mAppCallback.onFileServicesUpdated(services);
-                } finally {
-                    Binder.restoreCallingIdentity(token);
-                }
+                mAppCallback.onFileServicesUpdated(services);
             }
         });
     }
 
     @Override
-    public void onMiddlewareReady() {
+    public void onMiddlewareReady() throws RemoteException {
         if (mIsStopped) {
             return;
         }
 
-        mExecutor.execute(new Runnable() {
+        mHandler.post(new Runnable() {
             @Override
             public void run() {
-                long token = Binder.clearCallingIdentity();
-                try {
-                    mAppCallback.onMiddlewareReady();
-                } finally {
-                    Binder.restoreCallingIdentity(token);
-                }
+                mAppCallback.onMiddlewareReady();
             }
         });
+    }
+
+    public Handler getHandler() {
+        return mHandler;
     }
 
     public void stop() {

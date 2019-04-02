@@ -16,7 +16,6 @@
 package com.android.internal.os;
 
 import android.annotation.Nullable;
-import android.os.StrictMode;
 import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Slog;
@@ -38,19 +37,18 @@ import java.io.IOException;
  * maintains the previous results of a call to {@link #readDelta} in order to provide a proper
  * delta.
  */
-public class KernelUidCpuTimeReader extends
-        KernelUidCpuTimeReaderBase<KernelUidCpuTimeReader.Callback> {
-    private static final String TAG = KernelUidCpuTimeReader.class.getSimpleName();
+public class KernelUidCpuTimeReader {
+    private static final String TAG = "KernelUidCpuTimeReader";
     private static final String sProcFile = "/proc/uid_cputime/show_uid_stat";
     private static final String sRemoveUidProcFile = "/proc/uid_cputime/remove_uid_range";
 
     /**
      * Callback interface for processing each line of the proc file.
      */
-    public interface Callback extends KernelUidCpuTimeReaderBase.Callback {
+    public interface Callback {
         /**
-         * @param uid          UID of the app
-         * @param userTimeUs   time spent executing in user space in microseconds
+         * @param uid UID of the app
+         * @param userTimeUs time spent executing in user space in microseconds
          * @param systemTimeUs time spent executing in kernel space in microseconds
          */
         void onUidCpuTime(int uid, long userTimeUs, long systemTimeUs);
@@ -62,14 +60,11 @@ public class KernelUidCpuTimeReader extends
 
     /**
      * Reads the proc file, calling into the callback with a delta of time for each UID.
-     *
      * @param callback The callback to invoke for each line of the proc file. If null,
      *                 the data is consumed and subsequent calls to readDelta will provide
      *                 a fresh delta.
      */
-    @Override
-    protected void readDeltaImpl(@Nullable Callback callback) {
-        final int oldMask = StrictMode.allowThreadDiskReadsMask();
+    public void readDelta(@Nullable Callback callback) {
         long nowUs = SystemClock.elapsedRealtime() * 1000;
         try (BufferedReader reader = new BufferedReader(new FileReader(sProcFile))) {
             TextUtils.SimpleStringSplitter splitter = new TextUtils.SimpleStringSplitter(' ');
@@ -81,11 +76,10 @@ public class KernelUidCpuTimeReader extends
                 final long userTimeUs = Long.parseLong(splitter.next(), 10);
                 final long systemTimeUs = Long.parseLong(splitter.next(), 10);
 
-                boolean notifyCallback = false;
-                long userTimeDeltaUs = userTimeUs;
-                long systemTimeDeltaUs = systemTimeUs;
                 // Only report if there is a callback and if this is not the first read.
                 if (callback != null && mLastTimeReadUs != 0) {
+                    long userTimeDeltaUs = userTimeUs;
+                    long systemTimeDeltaUs = systemTimeUs;
                     int index = mLastUserTimeUs.indexOfKey(uid);
                     if (index >= 0) {
                         userTimeDeltaUs -= mLastUserTimeUs.valueAt(index);
@@ -118,51 +112,21 @@ public class KernelUidCpuTimeReader extends
                         }
                     }
 
-                    notifyCallback = (userTimeDeltaUs != 0 || systemTimeDeltaUs != 0);
+                    if (userTimeDeltaUs != 0 || systemTimeDeltaUs != 0) {
+                        callback.onUidCpuTime(uid, userTimeDeltaUs, systemTimeDeltaUs);
+                    }
                 }
                 mLastUserTimeUs.put(uid, userTimeUs);
                 mLastSystemTimeUs.put(uid, systemTimeUs);
-                if (notifyCallback) {
-                    callback.onUidCpuTime(uid, userTimeDeltaUs, systemTimeDeltaUs);
-                }
             }
         } catch (IOException e) {
             Slog.e(TAG, "Failed to read uid_cputime: " + e.getMessage());
-        } finally {
-            StrictMode.setThreadPolicyMask(oldMask);
         }
         mLastTimeReadUs = nowUs;
     }
 
     /**
-     * Reads the proc file, calling into the callback with raw absolute value of time for each UID.
-     * @param callback The callback to invoke for each line of the proc file.
-     */
-    public void readAbsolute(Callback callback) {
-        final int oldMask = StrictMode.allowThreadDiskReadsMask();
-        try (BufferedReader reader = new BufferedReader(new FileReader(sProcFile))) {
-            TextUtils.SimpleStringSplitter splitter = new TextUtils.SimpleStringSplitter(' ');
-            String line;
-            while ((line = reader.readLine()) != null) {
-                splitter.setString(line);
-                final String uidStr = splitter.next();
-                final int uid = Integer.parseInt(uidStr.substring(0, uidStr.length() - 1), 10);
-                final long userTimeUs = Long.parseLong(splitter.next(), 10);
-                final long systemTimeUs = Long.parseLong(splitter.next(), 10);
-                callback.onUidCpuTime(uid, userTimeUs, systemTimeUs);
-            }
-        } catch (IOException e) {
-            Slog.e(TAG, "Failed to read uid_cputime: " + e.getMessage());
-        } finally {
-            StrictMode.setThreadPolicyMask(oldMask);
-        }
-    }
-
-    /**
-     * Removes the UID from the kernel module and from internal accounting data. Only
-     * {@link BatteryStatsImpl} and its child processes should call this, as the change on Kernel is
-     * visible system wide.
-     *
+     * Removes the UID from the kernel module and from internal accounting data.
      * @param uid The UID to remove.
      */
     public void removeUid(int uid) {
@@ -175,12 +139,9 @@ public class KernelUidCpuTimeReader extends
     }
 
     /**
-     * Removes UIDs in a given range from the kernel module and internal accounting data. Only
-     * {@link BatteryStatsImpl} and its child processes should call this, as the change on Kernel is
-     * visible system wide.
-     *
+     * Removes UIDs in a given range from the kernel module and internal accounting data.
      * @param startUid the first uid to remove
-     * @param endUid   the last uid to remove
+     * @param endUid the last uid to remove
      */
     public void removeUidsInRange(int startUid, int endUid) {
         if (endUid < startUid) {
@@ -199,15 +160,12 @@ public class KernelUidCpuTimeReader extends
 
     private void removeUidsFromKernelModule(int startUid, int endUid) {
         Slog.d(TAG, "Removing uids " + startUid + "-" + endUid);
-        final int oldMask = StrictMode.allowThreadDiskWritesMask();
         try (FileWriter writer = new FileWriter(sRemoveUidProcFile)) {
             writer.write(startUid + "-" + endUid);
             writer.flush();
         } catch (IOException e) {
             Slog.e(TAG, "failed to remove uids " + startUid + " - " + endUid
                     + " from uid_cputime module", e);
-        } finally {
-            StrictMode.setThreadPolicyMask(oldMask);
         }
     }
 }

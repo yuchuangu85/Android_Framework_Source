@@ -96,8 +96,7 @@ public class ComponentInfo extends PackageItemInfo {
         encryptionAware = directBootAware = orig.directBootAware;
     }
 
-    /** @hide */
-    @Override public CharSequence loadUnsafeLabel(PackageManager pm) {
+    @Override public CharSequence loadLabel(PackageManager pm) {
         if (nonLocalizedLabel != null) {
             return nonLocalizedLabel;
         }

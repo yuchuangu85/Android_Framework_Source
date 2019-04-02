@@ -65,12 +65,7 @@ import java.lang.annotation.RetentionPolicy;
 @RemoteView
 public class GridView extends AbsListView {
     /** @hide */
-    @IntDef(prefix = { "NO_STRETCH", "STRETCH_" }, value = {
-            NO_STRETCH,
-            STRETCH_SPACING,
-            STRETCH_COLUMN_WIDTH,
-            STRETCH_SPACING_UNIFORM
-    })
+    @IntDef({NO_STRETCH, STRETCH_SPACING, STRETCH_COLUMN_WIDTH, STRETCH_SPACING_UNIFORM})
     @Retention(RetentionPolicy.SOURCE)
     public @interface StretchMode {}
 

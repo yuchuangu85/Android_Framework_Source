@@ -31,6 +31,7 @@ import android.provider.Settings.Global;
 import android.provider.Settings.Secure;
 import android.support.annotation.StyleRes;
 
+import com.android.setupwizardlib.BuildConfig;
 import com.android.setupwizardlib.R;
 import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
 
@@ -38,12 +39,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.annotation.Config;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-
 @RunWith(SuwLibRobolectricTestRunner.class)
-@Config(sdk = Config.NEWEST_SDK)
+@Config(constants = BuildConfig.class, sdk = Config.NEWEST_SDK)
 public class WizardManagerHelperTest {
 
     @Test
@@ -91,14 +88,6 @@ public class WizardManagerHelperTest {
     }
 
     @Test
-    public void testIsPreDeferredSetupTrue() {
-        final Intent intent = new Intent();
-        intent.putExtra("preDeferredSetup", true);
-        assertTrue("Is pre-deferred setup wizard should be true",
-                WizardManagerHelper.isPreDeferredSetupWizard(intent));
-    }
-
-    @Test
     public void testIsSetupWizardFalse() {
         final Intent intent = new Intent();
         intent.putExtra("firstRun", false);
@@ -107,57 +96,75 @@ public class WizardManagerHelperTest {
     }
 
     @Test
-    public void isLightTheme_shouldReturnTrue_whenThemeIsLight() {
-        List<String> lightThemes = Arrays.asList(
-                "holo_light",
-                "material_light",
-                "glif_light",
-                "glif_v2_light",
-                "glif_v3_light"
-        );
-        ArrayList<String> unexpectedIntentThemes = new ArrayList<>();
-        ArrayList<String> unexpectedStringThemes = new ArrayList<>();
-        for (final String theme : lightThemes) {
-            Intent intent = new Intent();
-            intent.putExtra(WizardManagerHelper.EXTRA_THEME, theme);
-            if (!WizardManagerHelper.isLightTheme(intent, false)) {
-                unexpectedIntentThemes.add(theme);
-            }
-            if (!WizardManagerHelper.isLightTheme(theme, false)) {
-                unexpectedStringThemes.add(theme);
-            }
-        }
-        assertTrue("Intent themes " + unexpectedIntentThemes + " should be light",
-                unexpectedIntentThemes.isEmpty());
-        assertTrue("String themes " + unexpectedStringThemes + " should be light",
-                unexpectedStringThemes.isEmpty());
+    public void testHoloIsNotLightTheme() {
+        final Intent intent = new Intent();
+        intent.putExtra("theme", "holo");
+        assertFalse("Theme holo should not be light theme",
+                WizardManagerHelper.isLightTheme(intent, true));
     }
 
     @Test
-    public void isLightTheme_shouldReturnFalse_whenThemeIsNotLight() {
-        List<String> lightThemes = Arrays.asList(
-                "holo",
-                "material",
-                "glif",
-                "glif_v2",
-                "glif_v3"
-        );
-        ArrayList<String> unexpectedIntentThemes = new ArrayList<>();
-        ArrayList<String> unexpectedStringThemes = new ArrayList<>();
-        for (final String theme : lightThemes) {
-            Intent intent = new Intent();
-            intent.putExtra(WizardManagerHelper.EXTRA_THEME, theme);
-            if (WizardManagerHelper.isLightTheme(intent, true)) {
-                unexpectedIntentThemes.add(theme);
-            }
-            if (WizardManagerHelper.isLightTheme(theme, true)) {
-                unexpectedStringThemes.add(theme);
-            }
-        }
-        assertTrue("Intent themes " + unexpectedIntentThemes + " should not be light",
-                unexpectedIntentThemes.isEmpty());
-        assertTrue("String themes " + unexpectedStringThemes + " should not be light",
-                unexpectedStringThemes.isEmpty());
+    public void testHoloLightIsLightTheme() {
+        final Intent intent = new Intent();
+        intent.putExtra("theme", "holo_light");
+        assertTrue("Theme holo_light should be light theme",
+                WizardManagerHelper.isLightTheme(intent, false));
+    }
+
+    @Test
+    public void testMaterialIsNotLightTheme() {
+        final Intent intent = new Intent();
+        intent.putExtra("theme", "material");
+        assertFalse("Theme material should not be light theme",
+                WizardManagerHelper.isLightTheme(intent, true));
+    }
+
+    @Test
+    public void testMaterialLightIsLightTheme() {
+        final Intent intent = new Intent();
+        intent.putExtra("theme", "material_light");
+        assertTrue("Theme material_light should be light theme",
+                WizardManagerHelper.isLightTheme(intent, false));
+    }
+
+    @Test
+    public void testGlifIsDarkTheme() {
+        final Intent intent = new Intent();
+        intent.putExtra("theme", "glif");
+        assertFalse("Theme glif should be dark theme",
+                WizardManagerHelper.isLightTheme(intent, false));
+        assertFalse("Theme glif should be dark theme",
+                WizardManagerHelper.isLightTheme(intent, true));
+    }
+
+    @Test
+    public void testGlifLightIsLightTheme() {
+        final Intent intent = new Intent();
+        intent.putExtra("theme", "glif_light");
+        assertTrue("Theme glif_light should be light theme",
+                WizardManagerHelper.isLightTheme(intent, false));
+        assertTrue("Theme glif_light should be light theme",
+                WizardManagerHelper.isLightTheme(intent, true));
+    }
+
+    @Test
+    public void testGlifV2IsDarkTheme() {
+        final Intent intent = new Intent();
+        intent.putExtra("theme", "glif_v2");
+        assertFalse("Theme glif_v2 should be dark theme",
+                WizardManagerHelper.isLightTheme(intent, false));
+        assertFalse("Theme glif_v2 should be dark theme",
+                WizardManagerHelper.isLightTheme(intent, true));
+    }
+
+    @Test
+    public void testGlifV2LightIsLightTheme() {
+        final Intent intent = new Intent();
+        intent.putExtra("theme", "glif_v2_light");
+        assertTrue("Theme glif_v2_light should be light theme",
+                WizardManagerHelper.isLightTheme(intent, false));
+        assertTrue("Theme glif_v2_light should be light theme",
+                WizardManagerHelper.isLightTheme(intent, true));
     }
 
     @Test
@@ -180,15 +187,19 @@ public class WizardManagerHelperTest {
     }
 
     @Test
-    public void testGetThemeResGlifV3Light() {
-        assertEquals(R.style.SuwThemeGlifV3_Light,
-                WizardManagerHelper.getThemeRes("glif_v3_light", 0));
-    }
-
-    @Test
-    public void testGetThemeResGlifV3() {
-        assertEquals(R.style.SuwThemeGlifV3,
-                WizardManagerHelper.getThemeRes("glif_v3", 0));
+    public void testIsLightThemeString() {
+        assertTrue("isLightTheme should return true for material_light",
+                WizardManagerHelper.isLightTheme("material_light", false));
+        assertFalse("isLightTheme should return false for material",
+                WizardManagerHelper.isLightTheme("material", false));
+        assertTrue("isLightTheme should return true for holo_light",
+                WizardManagerHelper.isLightTheme("holo_light", false));
+        assertFalse("isLightTheme should return false for holo",
+                WizardManagerHelper.isLightTheme("holo", false));
+        assertTrue("isLightTheme should return default value true",
+                WizardManagerHelper.isLightTheme("abracadabra", true));
+        assertFalse("isLightTheme should return default value false",
+                WizardManagerHelper.isLightTheme("abracadabra", false));
     }
 
     @Test
@@ -255,7 +266,6 @@ public class WizardManagerHelperTest {
                 .putExtra(WizardManagerHelper.EXTRA_WIZARD_BUNDLE, wizardBundle)
                 .putExtra(WizardManagerHelper.EXTRA_IS_FIRST_RUN, true)
                 .putExtra(WizardManagerHelper.EXTRA_IS_DEFERRED_SETUP, true)
-                .putExtra(WizardManagerHelper.EXTRA_IS_PRE_DEFERRED_SETUP, true)
                 // Script URI and Action ID are kept for backwards compatibility
                 .putExtra(WizardManagerHelper.EXTRA_SCRIPT_URI, "test_script_uri")
                 .putExtra(WizardManagerHelper.EXTRA_ACTION_ID, "test_action_id");
@@ -274,8 +284,6 @@ public class WizardManagerHelperTest {
                 intent.getBooleanExtra(WizardManagerHelper.EXTRA_IS_FIRST_RUN, false));
         assertTrue("EXTRA_IS_DEFERRED_SETUP should be copied",
                 intent.getBooleanExtra(WizardManagerHelper.EXTRA_IS_DEFERRED_SETUP, false));
-        assertTrue("EXTRA_IS_PRE_DEFERRED_SETUP should be copied",
-                intent.getBooleanExtra(WizardManagerHelper.EXTRA_IS_PRE_DEFERRED_SETUP, false));
 
         // Script URI and Action ID are replaced by Wizard Bundle in M, but are kept for backwards
         // compatibility

@@ -17,20 +17,22 @@
 package com.android.systemui.recents.events.activity;
 
 import com.android.systemui.recents.events.EventBus;
+import com.android.systemui.recents.model.RecentsPackageMonitor;
 import com.android.systemui.recents.views.TaskStackView;
-import com.android.systemui.recents.RecentsActivity;
 
 /**
- * This event is sent by {@link RecentsActivity} when a package on the the system changes.
+ * This event is sent by {@link RecentsPackageMonitor} when a package on the the system changes.
  * {@link TaskStackView}s listen for this event, and remove the tasks associated with the removed
  * packages.
  */
 public class PackagesChangedEvent extends EventBus.Event {
 
+    public final RecentsPackageMonitor monitor;
     public final String packageName;
     public final int userId;
 
-    public PackagesChangedEvent(String packageName, int userId) {
+    public PackagesChangedEvent(RecentsPackageMonitor monitor, String packageName, int userId) {
+        this.monitor = monitor;
         this.packageName = packageName;
         this.userId = userId;
     }

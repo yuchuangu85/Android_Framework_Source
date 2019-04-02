@@ -30,7 +30,6 @@ import android.util.Log;
 import android.util.Slog;
 
 import com.android.server.ServiceThread;
-import com.android.server.net.BaseNetdEventCallback;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -51,7 +50,7 @@ final class NetworkLogger {
     private ServiceThread mHandlerThread;
     private NetworkLoggingHandler mNetworkLoggingHandler;
 
-    private final INetdEventCallback mNetdEventCallback = new BaseNetdEventCallback() {
+    private final INetdEventCallback mNetdEventCallback = new INetdEventCallback.Stub() {
         @Override
         public void onDnsEvent(String hostname, String[] ipAddresses, int ipAddressesCount,
                 long timestamp, int uid) {
@@ -108,8 +107,7 @@ final class NetworkLogger {
             return false;
         }
         try {
-           if (mIpConnectivityMetrics.addNetdEventCallback(
-                   INetdEventCallback.CALLBACK_CALLER_DEVICE_POLICY, mNetdEventCallback)) {
+           if (mIpConnectivityMetrics.registerNetdEventCallback(mNetdEventCallback)) {
                 mHandlerThread = new ServiceThread(TAG, Process.THREAD_PRIORITY_BACKGROUND,
                         /* allowIo */ false);
                 mHandlerThread.start();
@@ -140,8 +138,7 @@ final class NetworkLogger {
                 // logging is forcefully disabled even if unregistering fails
                 return true;
             }
-            return mIpConnectivityMetrics.removeNetdEventCallback(
-                    INetdEventCallback.CALLBACK_CALLER_DEVICE_POLICY);
+            return mIpConnectivityMetrics.unregisterNetdEventCallback();
         } catch (RemoteException re) {
             Slog.wtf(TAG, "Failed to make remote calls to unregister the callback", re);
             return true;

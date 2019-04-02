@@ -24,7 +24,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.RemoteException;
 import android.os.ServiceManager;
@@ -237,15 +236,6 @@ public class TelecomManager {
             "android.telecom.extra.INCOMING_CALL_EXTRAS";
 
     /**
-     * Optional extra for {@link #ACTION_INCOMING_CALL} containing a boolean to indicate that the
-     * call has an externally generated ringer. Used by the HfpClientConnectionService when In Band
-     * Ringtone is enabled to prevent two ringers from being generated.
-     * @hide
-     */
-    public static final String EXTRA_CALL_EXTERNAL_RINGER =
-            "android.telecom.extra.CALL_EXTERNAL_RINGER";
-
-    /**
      * Optional extra for {@link android.content.Intent#ACTION_CALL} and
      * {@link android.content.Intent#ACTION_DIAL} {@code Intent} containing a {@link Bundle}
      * which contains metadata about the call. This {@link Bundle} will be saved into
@@ -377,17 +367,6 @@ public class TelecomManager {
      * @hide
      */
     public static final String EXTRA_IS_HANDOVER = "android.telecom.extra.IS_HANDOVER";
-
-    /**
-     * When {@code true} indicates that a request to create a new connection is for the purpose of
-     * a handover.  Note: This is used with the
-     * {@link android.telecom.Call#handoverTo(PhoneAccountHandle, int, Bundle)} API as part of the
-     * internal communication mechanism with the {@link android.telecom.ConnectionService}.  It is
-     * not the same as the legacy {@link #EXTRA_IS_HANDOVER} extra.
-     * @hide
-     */
-    public static final String EXTRA_IS_HANDOVER_CONNECTION =
-            "android.telecom.extra.IS_HANDOVER_CONNECTION";
 
     /**
      * Parcelable extra used with {@link #EXTRA_IS_HANDOVER} to indicate the source
@@ -603,29 +582,13 @@ public class TelecomManager {
             "android.telecom.extra.CALL_BACK_INTENT";
 
     /**
-     * The dialer activity responsible for placing emergency calls from, for example, a locked
-     * keyguard.
-     * @hide
-     */
-    public static final ComponentName EMERGENCY_DIALER_COMPONENT =
-            ComponentName.createRelative("com.android.phone", ".EmergencyDialer");
-
-    /**
-     * The boolean indicated by this extra controls whether or not a call is eligible to undergo
-     * assisted dialing. This extra is stored under {@link #EXTRA_OUTGOING_CALL_EXTRAS}.
-     * @hide
-     */
-    public static final String EXTRA_USE_ASSISTED_DIALING =
-            "android.telecom.extra.USE_ASSISTED_DIALING";
-
-    /**
      * The following 4 constants define how properties such as phone numbers and names are
      * displayed to the user.
      */
 
     /**
      * Indicates that the address or number of a call is allowed to be displayed for caller ID.
-     */
+    */
     public static final int PRESENTATION_ALLOWED = 1;
 
     /**
@@ -674,6 +637,7 @@ public class TelecomManager {
             mContext = context;
         }
         mTelecomServiceOverride = telecomServiceImpl;
+        android.telecom.Log.initMd5Sum();
     }
 
     /**
@@ -1299,22 +1263,17 @@ public class TelecomManager {
     }
 
     /**
-     * Ends the foreground call on the device.
-     * <p>
-     * If there is a ringing call, calling this method rejects the ringing call.  Otherwise the
-     * foreground call is ended.
-     * <p>
-     * Requires permission {@link android.Manifest.permission#ANSWER_PHONE_CALLS}.
-     *
-     * @return {@code true} if there is a call which will be rejected or terminated, {@code false}
-     * otherwise.
+     * Ends an ongoing call.
+     * TODO: L-release - need to convert all invocations of ITelecomService#endCall to use this
+     * method (clockwork & gearhead).
+     * @hide
      */
-    @RequiresPermission(Manifest.permission.ANSWER_PHONE_CALLS)
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.MODIFY_PHONE_STATE)
     public boolean endCall() {
         try {
             if (isServiceConnected()) {
-                return getTelecomService().endCall(mContext.getPackageName());
+                return getTelecomService().endCall();
             }
         } catch (RemoteException e) {
             Log.e(TAG, "Error calling ITelecomService#endCall", e);
@@ -1386,6 +1345,8 @@ public class TelecomManager {
 
     /**
      * Returns whether TTY is supported on this device.
+     *
+     * @hide
      */
     @SystemApi
     @RequiresPermission(anyOf = {
@@ -1457,13 +1418,6 @@ public class TelecomManager {
     public void addNewIncomingCall(PhoneAccountHandle phoneAccount, Bundle extras) {
         try {
             if (isServiceConnected()) {
-                if (extras != null && extras.getBoolean(EXTRA_IS_HANDOVER) &&
-                        mContext.getApplicationContext().getApplicationInfo().targetSdkVersion >
-                                Build.VERSION_CODES.O_MR1) {
-                    Log.e("TAG", "addNewIncomingCall failed. Use public api " +
-                            "acceptHandover for API > O-MR1");
-                    // TODO add "return" after DUO team adds support for new handover API
-                }
                 getTelecomService().addNewIncomingCall(
                         phoneAccount, extras == null ? new Bundle() : extras);
             }
@@ -1798,59 +1752,6 @@ public class TelecomManager {
         return false;
     }
 
-    /**
-     * Called by an app to indicate that it wishes to accept the handover of an ongoing call to a
-     * {@link PhoneAccountHandle} it defines.
-     * <p>
-     * A call handover is the process where an ongoing call is transferred from one app (i.e.
-     * {@link ConnectionService} to another app.  The user could, for example, choose to continue a
-     * mobile network call in a video calling app.  The mobile network call via the Telephony stack
-     * is referred to as the source of the handover, and the video calling app is referred to as the
-     * destination.
-     * <p>
-     * When considering a handover scenario the <em>initiating</em> device is where a user initiated
-     * the handover process (e.g. by calling {@link android.telecom.Call#handoverTo(
-     * PhoneAccountHandle, int, Bundle)}, and the other device is considered the <em>receiving</em>
-     * device.
-     * <p>
-     * For a full discussion of the handover process and the APIs involved, see
-     * {@link android.telecom.Call#handoverTo(PhoneAccountHandle, int, Bundle)}.
-     * <p>
-     * This method is called from the <em>receiving</em> side of a handover to indicate a desire to
-     * accept the handover of an ongoing call to another {@link ConnectionService} identified by
-     * {@link PhoneAccountHandle} destAcct. For managed {@link ConnectionService}s, the specified
-     * {@link PhoneAccountHandle} must have been registered with {@link #registerPhoneAccount} and
-     * the user must have enabled the corresponding {@link PhoneAccount}.  This can be checked using
-     * {@link #getPhoneAccount}. Self-managed {@link ConnectionService}s must have
-     * {@link android.Manifest.permission#MANAGE_OWN_CALLS} to handover a call to it.
-     * <p>
-     * Once invoked, this method will cause the system to bind to the {@link ConnectionService}
-     * associated with the {@link PhoneAccountHandle} destAcct and call
-     * (See {@link ConnectionService#onCreateIncomingHandoverConnection}).
-     * <p>
-     * For a managed {@link ConnectionService}, a {@link SecurityException} will be thrown if either
-     * the {@link PhoneAccountHandle} destAcct does not correspond to a registered
-     * {@link PhoneAccount} or the associated {@link PhoneAccount} is not currently enabled by the
-     * user.
-     * <p>
-     * For a self-managed {@link ConnectionService}, a {@link SecurityException} will be thrown if
-     * the calling app does not have {@link android.Manifest.permission#MANAGE_OWN_CALLS}.
-     *
-     * @param srcAddr The {@link android.net.Uri} of the ongoing call to handover to the caller’s
-     *                {@link ConnectionService}.
-     * @param videoState Video state after the handover.
-     * @param destAcct The {@link PhoneAccountHandle} registered to the calling package.
-     */
-    public void acceptHandover(Uri srcAddr, @VideoProfile.VideoState int videoState,
-            PhoneAccountHandle destAcct) {
-        try {
-            if (isServiceConnected()) {
-                getTelecomService().acceptHandover(srcAddr, videoState, destAcct);
-            }
-        } catch (RemoteException e) {
-            Log.e(TAG, "RemoteException acceptHandover: " + e);
-        }
-    }
 
     private ITelecomService getTelecomService() {
         if (mTelecomServiceOverride != null) {

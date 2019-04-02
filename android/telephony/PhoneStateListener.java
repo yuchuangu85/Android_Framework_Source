@@ -16,7 +16,6 @@
 
 package android.telephony;
 
-import android.annotation.NonNull;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -62,6 +61,9 @@ public class PhoneStateListener {
     /**
      * Listen for changes to the network signal strength (cellular).
      * {@more}
+     * Requires Permission: {@link android.Manifest.permission#READ_PHONE_STATE
+     * READ_PHONE_STATE}
+     * <p>
      *
      * @see #onSignalStrengthChanged
      *
@@ -74,8 +76,7 @@ public class PhoneStateListener {
      * Listen for changes to the message-waiting indicator.
      * {@more}
      * Requires Permission: {@link android.Manifest.permission#READ_PHONE_STATE
-     * READ_PHONE_STATE} or that the calling app has carrier privileges (see
-     * {@link TelephonyManager#hasCarrierPrivileges}).
+     * READ_PHONE_STATE}
      * <p>
      * Example: The status bar uses this to determine when to display the
      * voicemail icon.
@@ -88,9 +89,7 @@ public class PhoneStateListener {
      * Listen for changes to the call-forwarding indicator.
      * {@more}
      * Requires Permission: {@link android.Manifest.permission#READ_PHONE_STATE
-     * READ_PHONE_STATE} or that the calling app has carrier privileges (see
-     * {@link TelephonyManager#hasCarrierPrivileges}).
-     *
+     * READ_PHONE_STATE}
      * @see #onCallForwardingIndicatorChanged
      */
     public static final int LISTEN_CALL_FORWARDING_INDICATOR                = 0x00000008;
@@ -255,22 +254,7 @@ public class PhoneStateListener {
      */
     public static final int LISTEN_DATA_ACTIVATION_STATE                   = 0x00040000;
 
-    /**
-     *  Listen for changes to the user mobile data state
-     *
-     *  @see #onUserMobileDataStateChanged
-     */
-    public static final int LISTEN_USER_MOBILE_DATA_STATE                  = 0x00080000;
-
-    /**
-     *  Listen for changes to the physical channel configuration.
-     *
-     *  @see #onPhysicalChannelConfigurationChanged
-     *  @hide
-     */
-    public static final int LISTEN_PHYSICAL_CHANNEL_CONFIGURATION          = 0x00100000;
-
-    /*
+     /*
      * Subscription used to listen to the phone state changes
      * @hide
      */
@@ -375,19 +359,13 @@ public class PhoneStateListener {
                     case LISTEN_DATA_ACTIVATION_STATE:
                         PhoneStateListener.this.onDataActivationStateChanged((int)msg.obj);
                         break;
-                    case LISTEN_USER_MOBILE_DATA_STATE:
-                        PhoneStateListener.this.onUserMobileDataStateChanged((boolean)msg.obj);
-                        break;
                     case LISTEN_OEM_HOOK_RAW_EVENT:
                         PhoneStateListener.this.onOemHookRawEvent((byte[])msg.obj);
                         break;
                     case LISTEN_CARRIER_NETWORK_CHANGE:
                         PhoneStateListener.this.onCarrierNetworkChange((boolean)msg.obj);
                         break;
-                    case LISTEN_PHYSICAL_CHANNEL_CONFIGURATION:
-                        PhoneStateListener.this.onPhysicalChannelConfigurationChanged(
-                                (List<PhysicalChannelConfig>)msg.obj);
-                        break;
+
                 }
             }
         };
@@ -443,16 +421,15 @@ public class PhoneStateListener {
     /**
      * Callback invoked when device call state changes.
      * @param state call state
-     * @param phoneNumber call phone number. If application does not have
-     * {@link android.Manifest.permission#READ_CALL_LOG READ_CALL_LOG} permission or carrier
-     * privileges (see {@link TelephonyManager#hasCarrierPrivileges}), an empty string will be
-     * passed as an argument.
+     * @param incomingNumber incoming call phone number. If application does not have
+     * {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE} permission, an empty
+     * string will be passed as an argument.
      *
      * @see TelephonyManager#CALL_STATE_IDLE
      * @see TelephonyManager#CALL_STATE_RINGING
      * @see TelephonyManager#CALL_STATE_OFFHOOK
      */
-    public void onCallStateChanged(int state, String phoneNumber) {
+    public void onCallStateChanged(int state, String incomingNumber) {
         // default implementation empty
     }
 
@@ -579,25 +556,6 @@ public class PhoneStateListener {
     }
 
     /**
-     * Callback invoked when the user mobile data state has changed
-     * @param enabled indicates whether the current user mobile data state is enabled or disabled.
-     */
-    public void onUserMobileDataStateChanged(boolean enabled) {
-        // default implementation empty
-    }
-
-    /**
-     * Callback invoked when the current physical channel configuration has changed
-     *
-     * @param configs List of the current {@link PhysicalChannelConfig}s
-     * @hide
-     */
-    public void onPhysicalChannelConfigurationChanged(
-            @NonNull List<PhysicalChannelConfig> configs) {
-        // default implementation empty
-    }
-
-    /**
      * Callback invoked when OEM hook raw event is received. Requires
      * the READ_PRIVILEGED_PHONE_STATE permission.
      * @param rawData is the byte array of the OEM hook raw data.
@@ -719,20 +677,12 @@ public class PhoneStateListener {
             send(LISTEN_DATA_ACTIVATION_STATE, 0, 0, activationState);
         }
 
-        public void onUserMobileDataStateChanged(boolean enabled) {
-            send(LISTEN_USER_MOBILE_DATA_STATE, 0, 0, enabled);
-        }
-
         public void onOemHookRawEvent(byte[] rawData) {
             send(LISTEN_OEM_HOOK_RAW_EVENT, 0, 0, rawData);
         }
 
         public void onCarrierNetworkChange(boolean active) {
             send(LISTEN_CARRIER_NETWORK_CHANGE, 0, 0, active);
-        }
-
-        public void onPhysicalChannelConfigurationChanged(List<PhysicalChannelConfig> configs) {
-            send(LISTEN_PHYSICAL_CHANNEL_CONFIGURATION, 0, 0, configs);
         }
     }
 

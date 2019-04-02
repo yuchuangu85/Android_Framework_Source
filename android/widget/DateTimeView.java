@@ -104,16 +104,8 @@ public class DateTimeView extends TextView {
             sReceiverInfo.set(ri);
         }
         ri.addView(this);
-        // The view may not be added to the view hierarchy immediately right after setTime()
-        // is called which means it won't get any update from intents before being added.
-        // In such case, the view might show the incorrect relative time after being added to the
-        // view hierarchy until the next update intent comes.
-        // So we update the time here if mShowRelativeTime is enabled to prevent this case.
-        if (mShowRelativeTime) {
-            update();
-        }
     }
-
+        
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
@@ -450,10 +442,8 @@ public class DateTimeView extends TextView {
 
         public void removeView(DateTimeView v) {
             synchronized (mAttachedViews) {
-                final boolean removed = mAttachedViews.remove(v);
-                // Only unregister once when we remove the last view in the list otherwise we risk
-                // trying to unregister a receiver that is no longer registered.
-                if (removed && mAttachedViews.isEmpty()) {
+                mAttachedViews.remove(v);
+                if (mAttachedViews.isEmpty()) {
                     unregister(getApplicationContextIfAvailable(v.getContext()));
                 }
             }

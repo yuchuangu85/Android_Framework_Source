@@ -683,7 +683,7 @@ public class ParcelFileDescriptor implements Parcelable, Closeable {
                 throw new IllegalStateException("Already closed");
             }
             final int fd = getFd();
-            mFd.setInt$(-1);
+            Parcel.clearFileDescriptor(mFd);
             writeCommStatusAndClose(Status.DETACHED, null);
             mClosed = true;
             mGuard.close();
@@ -737,9 +737,7 @@ public class ParcelFileDescriptor implements Parcelable, Closeable {
     private void closeWithStatus(int status, String msg) {
         if (mClosed) return;
         mClosed = true;
-        if (mGuard != null) {
-            mGuard.close();
-        }
+        mGuard.close();
         // Status MUST be sent before closing actual descriptor
         writeCommStatusAndClose(status, msg);
         IoUtils.closeQuietly(mFd);

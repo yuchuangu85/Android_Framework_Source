@@ -21,6 +21,5 @@ package com.android.server.wm;
  * @see WindowContainerController
  */
 public interface WindowContainerListener {
-    void registerConfigurationChangeListener(ConfigurationContainerListener listener);
-    void unregisterConfigurationChangeListener(ConfigurationContainerListener listener);
+
 }

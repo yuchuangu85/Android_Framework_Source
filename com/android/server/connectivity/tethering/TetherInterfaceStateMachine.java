@@ -16,8 +16,6 @@
 
 package com.android.server.connectivity.tethering;
 
-import static android.net.util.NetworkConstants.asByte;
-import static android.net.util.NetworkConstants.FF;
 import static android.net.util.NetworkConstants.RFC7421_PREFIX_LENGTH;
 
 import android.net.ConnectivityManager;
@@ -29,11 +27,9 @@ import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.NetworkUtils;
 import android.net.RouteInfo;
-import android.net.ip.InterfaceController;
 import android.net.ip.RouterAdvertisementDaemon;
 import android.net.ip.RouterAdvertisementDaemon.RaParams;
-import android.net.util.InterfaceParams;
-import android.net.util.InterfaceSet;
+import android.net.util.NetdService;
 import android.net.util.SharedLog;
 import android.os.INetworkManagementService;
 import android.os.Looper;
@@ -51,12 +47,13 @@ import com.android.internal.util.StateMachine;
 
 import java.net.Inet6Address;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Random;
-import java.util.Set;
 
 /**
  * Provides the interface to IP-layer serving functionality for a given network
@@ -66,7 +63,6 @@ import java.util.Set;
  */
 public class TetherInterfaceStateMachine extends StateMachine {
     private static final IpPrefix LINK_LOCAL_PREFIX = new IpPrefix("fe80::/64");
-    private static final byte DOUG_ADAMS = (byte) 42;
 
     private static final String USB_NEAR_IFACE_ADDR = "192.168.42.129";
     private static final int USB_PREFIX_LENGTH = 24;
@@ -111,21 +107,18 @@ public class TetherInterfaceStateMachine extends StateMachine {
 
     private final SharedLog mLog;
     private final INetworkManagementService mNMService;
-    private final INetd mNetd;
     private final INetworkStatsService mStatsService;
     private final IControlsTethering mTetherController;
-    private final InterfaceController mInterfaceCtrl;
 
     private final String mIfaceName;
     private final int mInterfaceType;
     private final LinkProperties mLinkProperties;
 
-    private final TetheringDependencies mDeps;
-
     private int mLastError;
     private int mServingMode;
-    private InterfaceSet mUpstreamIfaceSet;  // may change over time
-    private InterfaceParams mInterfaceParams;
+    private String mMyUpstreamIfaceName;  // may change over time
+    private NetworkInterface mNetworkInterface;
+    private byte[] mHwAddr;
     // TODO: De-duplicate this with mLinkProperties above. Currently, these link
     // properties are those selected by the IPv6TetheringCoordinator and relayed
     // to us. By comparison, mLinkProperties contains the addresses and directly
@@ -139,19 +132,15 @@ public class TetherInterfaceStateMachine extends StateMachine {
     public TetherInterfaceStateMachine(
             String ifaceName, Looper looper, int interfaceType, SharedLog log,
             INetworkManagementService nMService, INetworkStatsService statsService,
-            IControlsTethering tetherController,
-            TetheringDependencies deps) {
+            IControlsTethering tetherController) {
         super(ifaceName, looper);
         mLog = log.forSubComponent(ifaceName);
         mNMService = nMService;
-        mNetd = deps.getNetdService();
         mStatsService = statsService;
         mTetherController = tetherController;
-        mInterfaceCtrl = new InterfaceController(ifaceName, nMService, mNetd, mLog);
         mIfaceName = ifaceName;
         mInterfaceType = interfaceType;
         mLinkProperties = new LinkProperties();
-        mDeps = deps;
         resetLinkProperties();
         mLastError = ConnectivityManager.TETHER_ERROR_NO_ERROR;
         mServingMode = IControlsTethering.STATE_AVAILABLE;
@@ -188,14 +177,8 @@ public class TetherInterfaceStateMachine extends StateMachine {
 
     private boolean startIPv4() { return configureIPv4(true); }
 
-    private void stopIPv4() {
-        configureIPv4(false);
-        // NOTE: All of configureIPv4() will be refactored out of existence
-        // into calls to InterfaceController, shared with startIPv4().
-        mInterfaceCtrl.clearIPv4Address();
-    }
+    private void stopIPv4() { configureIPv4(false); }
 
-    // TODO: Refactor this in terms of calls to InterfaceController.
     private boolean configureIPv4(boolean enabled) {
         if (VDBG) Log.d(TAG, "configureIPv4(" + enabled + ")");
 
@@ -207,7 +190,7 @@ public class TetherInterfaceStateMachine extends StateMachine {
             ipAsString = USB_NEAR_IFACE_ADDR;
             prefixLen = USB_PREFIX_LENGTH;
         } else if (mInterfaceType == ConnectivityManager.TETHERING_WIFI) {
-            ipAsString = getRandomWifiIPv4Address();
+            ipAsString = WIFI_HOST_IFACE_ADDR;
             prefixLen = WIFI_HOST_IFACE_PREFIX_LENGTH;
         } else {
             // Nothing to do, BT does this elsewhere.
@@ -256,25 +239,32 @@ public class TetherInterfaceStateMachine extends StateMachine {
         return true;
     }
 
-    private String getRandomWifiIPv4Address() {
-        try {
-            byte[] bytes = NetworkUtils.numericToInetAddress(WIFI_HOST_IFACE_ADDR).getAddress();
-            bytes[3] = getRandomSanitizedByte(DOUG_ADAMS, asByte(0), asByte(1), FF);
-            return InetAddress.getByAddress(bytes).getHostAddress();
-        } catch (Exception e) {
-            return WIFI_HOST_IFACE_ADDR;
-        }
-    }
-
     private boolean startIPv6() {
-        mInterfaceParams = mDeps.getInterfaceParams(mIfaceName);
-        if (mInterfaceParams == null) {
-            mLog.e("Failed to find InterfaceParams");
+        // TODO: Refactor for testability (perhaps passing an android.system.Os
+        // instance and calling getifaddrs() directly).
+        try {
+            mNetworkInterface = NetworkInterface.getByName(mIfaceName);
+        } catch (SocketException e) {
+            mLog.e("Error looking up NetworkInterfaces: " + e);
+            stopIPv6();
+            return false;
+        }
+        if (mNetworkInterface == null) {
+            mLog.e("Failed to find NetworkInterface");
             stopIPv6();
             return false;
         }
 
-        mRaDaemon = mDeps.getRouterAdvertisementDaemon(mInterfaceParams);
+        try {
+            mHwAddr = mNetworkInterface.getHardwareAddress();
+        } catch (SocketException e) {
+            mLog.e("Failed to find hardware address: " + e);
+            stopIPv6();
+            return false;
+        }
+
+        final int ifindex = mNetworkInterface.getIndex();
+        mRaDaemon = new RouterAdvertisementDaemon(mIfaceName, ifindex, mHwAddr);
         if (!mRaDaemon.start()) {
             stopIPv6();
             return false;
@@ -284,7 +274,8 @@ public class TetherInterfaceStateMachine extends StateMachine {
     }
 
     private void stopIPv6() {
-        mInterfaceParams = null;
+        mNetworkInterface = null;
+        mHwAddr = null;
         setRaParams(null);
 
         if (mRaDaemon != null) {
@@ -390,8 +381,8 @@ public class TetherInterfaceStateMachine extends StateMachine {
 
     private void configureLocalIPv6Dns(
             HashSet<Inet6Address> deprecatedDnses, HashSet<Inet6Address> newDnses) {
-        // TODO: Is this really necessary? Can we not fail earlier if INetd cannot be located?
-        if (mNetd == null) {
+        final INetd netd = NetdService.getInstance();
+        if (netd == null) {
             if (newDnses != null) newDnses.clear();
             mLog.e("No netd service instance available; not setting local IPv6 addresses");
             return;
@@ -400,8 +391,11 @@ public class TetherInterfaceStateMachine extends StateMachine {
         // [1] Remove deprecated local DNS IP addresses.
         if (!deprecatedDnses.isEmpty()) {
             for (Inet6Address dns : deprecatedDnses) {
-                if (!mInterfaceCtrl.removeAddress(dns, RFC7421_PREFIX_LENGTH)) {
-                    mLog.e("Failed to remove local dns IP " + dns);
+                final String dnsString = dns.getHostAddress();
+                try {
+                    netd.interfaceDelAddress(mIfaceName, dnsString, RFC7421_PREFIX_LENGTH);
+                } catch (ServiceSpecificException | RemoteException e) {
+                    mLog.e("Failed to remove local dns IP " + dnsString + ": " + e);
                 }
 
                 mLinkProperties.removeLinkAddress(new LinkAddress(dns, RFC7421_PREFIX_LENGTH));
@@ -416,8 +410,11 @@ public class TetherInterfaceStateMachine extends StateMachine {
             }
 
             for (Inet6Address dns : addedDnses) {
-                if (!mInterfaceCtrl.addAddress(dns, RFC7421_PREFIX_LENGTH)) {
-                    mLog.e("Failed to add local dns IP " + dns);
+                final String dnsString = dns.getHostAddress();
+                try {
+                    netd.interfaceAddAddress(mIfaceName, dnsString, RFC7421_PREFIX_LENGTH);
+                } catch (ServiceSpecificException | RemoteException e) {
+                    mLog.e("Failed to add local dns IP " + dnsString + ": " + e);
                     newDnses.remove(dns);
                 }
 
@@ -426,7 +423,7 @@ public class TetherInterfaceStateMachine extends StateMachine {
         }
 
         try {
-            mNetd.tetherApplyDnsInterfaces();
+            netd.tetherApplyDnsInterfaces();
         } catch (ServiceSpecificException | RemoteException e) {
             mLog.e("Failed to update local DNS caching server");
             if (newDnses != null) newDnses.clear();
@@ -640,10 +637,10 @@ public class TetherInterfaceStateMachine extends StateMachine {
         }
 
         private void cleanupUpstream() {
-            if (mUpstreamIfaceSet == null) return;
+            if (mMyUpstreamIfaceName == null) return;
 
-            for (String ifname : mUpstreamIfaceSet.ifnames) cleanupUpstreamInterface(ifname);
-            mUpstreamIfaceSet = null;
+            cleanupUpstreamInterface(mMyUpstreamIfaceName);
+            mMyUpstreamIfaceName = null;
         }
 
         private void cleanupUpstreamInterface(String upstreamIface) {
@@ -679,65 +676,33 @@ public class TetherInterfaceStateMachine extends StateMachine {
                     mLog.e("CMD_TETHER_REQUESTED while already tethering.");
                     break;
                 case CMD_TETHER_CONNECTION_CHANGED:
-                    final InterfaceSet newUpstreamIfaceSet = (InterfaceSet) message.obj;
-                    if (noChangeInUpstreamIfaceSet(newUpstreamIfaceSet)) {
+                    String newUpstreamIfaceName = (String)(message.obj);
+                    if ((mMyUpstreamIfaceName == null && newUpstreamIfaceName == null) ||
+                            (mMyUpstreamIfaceName != null &&
+                            mMyUpstreamIfaceName.equals(newUpstreamIfaceName))) {
                         if (VDBG) Log.d(TAG, "Connection changed noop - dropping");
                         break;
                     }
-
-                    if (newUpstreamIfaceSet == null) {
-                        cleanupUpstream();
-                        break;
-                    }
-
-                    for (String removed : upstreamInterfacesRemoved(newUpstreamIfaceSet)) {
-                        cleanupUpstreamInterface(removed);
-                    }
-
-                    final Set<String> added = upstreamInterfacesAdd(newUpstreamIfaceSet);
-                    // This makes the call to cleanupUpstream() in the error
-                    // path for any interface neatly cleanup all the interfaces.
-                    mUpstreamIfaceSet = newUpstreamIfaceSet;
-
-                    for (String ifname : added) {
+                    cleanupUpstream();
+                    if (newUpstreamIfaceName != null) {
                         try {
-                            mNMService.enableNat(mIfaceName, ifname);
-                            mNMService.startInterfaceForwarding(mIfaceName, ifname);
+                            mNMService.enableNat(mIfaceName, newUpstreamIfaceName);
+                            mNMService.startInterfaceForwarding(mIfaceName,
+                                    newUpstreamIfaceName);
                         } catch (Exception e) {
                             mLog.e("Exception enabling NAT: " + e);
-                            cleanupUpstream();
+                            cleanupUpstreamInterface(newUpstreamIfaceName);
                             mLastError = ConnectivityManager.TETHER_ERROR_ENABLE_NAT_ERROR;
                             transitionTo(mInitialState);
                             return true;
                         }
                     }
+                    mMyUpstreamIfaceName = newUpstreamIfaceName;
                     break;
                 default:
                     return false;
             }
             return true;
-        }
-
-        private boolean noChangeInUpstreamIfaceSet(InterfaceSet newIfaces) {
-            if (mUpstreamIfaceSet == null && newIfaces == null) return true;
-            if (mUpstreamIfaceSet != null && newIfaces != null) {
-                return mUpstreamIfaceSet.equals(newIfaces);
-            }
-            return false;
-        }
-
-        private Set<String> upstreamInterfacesRemoved(InterfaceSet newIfaces) {
-            if (mUpstreamIfaceSet == null) return new HashSet<>();
-
-            final HashSet<String> removed = new HashSet<>(mUpstreamIfaceSet.ifnames);
-            removed.removeAll(newIfaces.ifnames);
-            return removed;
-        }
-
-        private Set<String> upstreamInterfacesAdd(InterfaceSet newIfaces) {
-            final HashSet<String> added = new HashSet<>(newIfaces.ifnames);
-            if (mUpstreamIfaceSet != null) added.removeAll(mUpstreamIfaceSet.ifnames);
-            return added;
         }
     }
 
@@ -770,7 +735,7 @@ public class TetherInterfaceStateMachine extends StateMachine {
     // Given a prefix like 2001:db8::/64 return an address like 2001:db8::1.
     private static Inet6Address getLocalDnsIpFor(IpPrefix localPrefix) {
         final byte[] dnsBytes = localPrefix.getRawAddress();
-        dnsBytes[dnsBytes.length - 1] = getRandomSanitizedByte(DOUG_ADAMS, asByte(0), asByte(1));
+        dnsBytes[dnsBytes.length - 1] = getRandomNonZeroByte();
         try {
             return Inet6Address.getByAddress(null, dnsBytes, 0);
         } catch (UnknownHostException e) {
@@ -779,11 +744,10 @@ public class TetherInterfaceStateMachine extends StateMachine {
         }
     }
 
-    private static byte getRandomSanitizedByte(byte dflt, byte... excluded) {
+    private static byte getRandomNonZeroByte() {
         final byte random = (byte) (new Random()).nextInt();
-        for (int value : excluded) {
-            if (random == value) return dflt;
-        }
-        return random;
+        // Don't pick the subnet-router anycast address, since that might be
+        // in use on the upstream already.
+        return (random != 0) ? random : 0x1;
     }
 }

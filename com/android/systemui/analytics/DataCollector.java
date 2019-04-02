@@ -463,8 +463,4 @@ public class DataCollector implements SensorEventListener {
     public boolean isReportingEnabled() {
         return mAllowReportRejectedTouch;
     }
-
-    public void onFalsingSessionStarted() {
-        sessionEntrypoint();
-    }
 }

@@ -21,8 +21,9 @@
 
 package java.time.zone;
 
+import android.icu.impl.OlsonTimeZone;
+import android.icu.impl.ZoneMeta;
 import android.icu.util.AnnualTimeZoneRule;
-import android.icu.util.BasicTimeZone;
 import android.icu.util.DateTimeRule;
 import android.icu.util.InitialTimeZoneRule;
 import android.icu.util.TimeZone;
@@ -58,7 +59,7 @@ public class IcuZoneRulesProvider extends ZoneRulesProvider {
 
     @Override
     protected Set<String> provideZoneIds() {
-        Set<String> zoneIds = TimeZone.getAvailableIDs(TimeZone.SystemTimeZoneType.ANY, null, null);
+        Set<String> zoneIds = ZoneMeta.getAvailableIDs(TimeZone.SystemTimeZoneType.ANY, null, null);
         zoneIds = new HashSet<>(zoneIds);
         // java.time assumes ZoneId that start with "GMT" fit the pattern "GMT+HH:mm:ss" which these
         // do not. Since they are equivalent to GMT, just remove these aliases.
@@ -81,10 +82,10 @@ public class IcuZoneRulesProvider extends ZoneRulesProvider {
     }
 
     /*
-     * This implementation is only tested with BasicTimeZone objects and depends on
+     * This implementation is only tested with OlsonTimeZone objects and depends on
      * implementation details of that class:
      *
-     * 0. TimeZone.getFrozenTimeZone() always returns a BasicTimeZone object.
+     * 0. TimeZone.getFrozenTimeZone() always returns an OlsonTimeZone object.
      * 1. The first rule is always an InitialTimeZoneRule (guaranteed by spec).
      * 2. AnnualTimeZoneRules are only used as "final rules".
      * 3. The final rules are either 0 or 2 AnnualTimeZoneRules
@@ -104,9 +105,9 @@ public class IcuZoneRulesProvider extends ZoneRulesProvider {
     static ZoneRules generateZoneRules(String zoneId) {
         TimeZone timeZone = TimeZone.getFrozenTimeZone(zoneId);
         // Assumption #0
-        verify(timeZone instanceof BasicTimeZone, zoneId,
+        verify(timeZone instanceof OlsonTimeZone, zoneId,
                 "Unexpected time zone class " + timeZone.getClass());
-        BasicTimeZone tz = (BasicTimeZone) timeZone;
+        OlsonTimeZone tz = (OlsonTimeZone) timeZone;
         TimeZoneRule[] rules = tz.getTimeZoneRules();
         // Assumption #1
         InitialTimeZoneRule initial = (InitialTimeZoneRule) rules[0];
