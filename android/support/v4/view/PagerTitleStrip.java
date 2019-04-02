@@ -24,14 +24,17 @@ import android.support.annotation.ColorInt;
 import android.support.annotation.FloatRange;
 import android.support.v4.widget.TextViewCompat;
 import android.text.TextUtils.TruncateAt;
+import android.text.method.SingleLineTransformationMethod;
 import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.TextView;
 
 import java.lang.ref.WeakReference;
+import java.util.Locale;
 
 /**
  * PagerTitleStrip is a non-interactive indicator of the current, next,
@@ -47,8 +50,6 @@ import java.lang.ref.WeakReference;
  */
 @ViewPager.DecorView
 public class PagerTitleStrip extends ViewGroup {
-    private static final String TAG = "PagerTitleStrip";
-
     ViewPager mPager;
     TextView mPrevText;
     TextView mCurrText;
@@ -83,35 +84,22 @@ public class PagerTitleStrip extends ViewGroup {
     private int mNonPrimaryAlpha;
     int mTextColor;
 
-    interface PagerTitleStripImpl {
-        void setSingleLineAllCaps(TextView text);
-    }
+    private static class SingleLineAllCapsTransform extends SingleLineTransformationMethod {
+        private Locale mLocale;
 
-    static class PagerTitleStripImplBase implements PagerTitleStripImpl {
-        @Override
-        public void setSingleLineAllCaps(TextView text) {
-            text.setSingleLine();
+        SingleLineAllCapsTransform(Context context) {
+            mLocale = context.getResources().getConfiguration().locale;
         }
-    }
 
-    static class PagerTitleStripImplIcs implements PagerTitleStripImpl {
         @Override
-        public void setSingleLineAllCaps(TextView text) {
-            PagerTitleStripIcs.setSingleLineAllCaps(text);
-        }
-    }
-
-    private static final PagerTitleStripImpl IMPL;
-    static {
-        if (android.os.Build.VERSION.SDK_INT >= 14) {
-            IMPL = new PagerTitleStripImplIcs();
-        } else {
-            IMPL = new PagerTitleStripImplBase();
+        public CharSequence getTransformation(CharSequence source, View view) {
+            source = super.getTransformation(source, view);
+            return source != null ? source.toString().toUpperCase(mLocale) : null;
         }
     }
 
     private static void setSingleLineAllCaps(TextView text) {
-        IMPL.setSingleLineAllCaps(text);
+        text.setTransformationMethod(new SingleLineAllCapsTransform(text.getContext()));
     }
 
     public PagerTitleStrip(Context context) {
@@ -454,9 +442,9 @@ public class PagerTitleStrip extends ViewGroup {
             height = Math.max(minHeight, textHeight + heightPadding);
         }
 
-        final int childState = ViewCompat.getMeasuredState(mCurrText);
-        final int measuredHeight = ViewCompat.resolveSizeAndState(height, heightMeasureSpec,
-                childState << ViewCompat.MEASURED_HEIGHT_STATE_SHIFT);
+        final int childState = mCurrText.getMeasuredState();
+        final int measuredHeight = View.resolveSizeAndState(height, heightMeasureSpec,
+                childState << View.MEASURED_HEIGHT_STATE_SHIFT);
         setMeasuredDimension(widthSize, measuredHeight);
     }
 

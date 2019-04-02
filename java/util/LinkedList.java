@@ -869,7 +869,7 @@ public class LinkedList<E>
     }
 
     private class ListItr implements ListIterator<E> {
-        private Node<E> lastReturned = null;
+        private Node<E> lastReturned;
         private Node<E> next;
         private int nextIndex;
         private int expectedModCount = modCount;
@@ -950,7 +950,6 @@ public class LinkedList<E>
             expectedModCount++;
         }
 
-        @Override
         public void forEachRemaining(Consumer<? super E> action) {
             Objects.requireNonNull(action);
             while (modCount == expectedModCount && nextIndex < size) {

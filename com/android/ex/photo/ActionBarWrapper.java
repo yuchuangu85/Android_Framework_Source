@@ -1,7 +1,8 @@
 package com.android.ex.photo;
 
-import android.app.ActionBar;
+
 import android.graphics.drawable.Drawable;
+import android.support.v7.app.ActionBar;
 
 /**
  * Wrapper around {@link ActionBar}.

@@ -18,8 +18,11 @@ package android.os;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.os.LooperProto;
 import android.util.Log;
 import android.util.Printer;
+import android.util.Slog;
+import android.util.proto.ProtoOutputStream;
 
 /**
   * Class used to run a message loop for a thread.  Threads by default do
@@ -74,6 +77,9 @@ public final class Looper {
     private Printer mLogging;
     private long mTraceTag;
 
+    /* If set, the looper will show a warning log if a message dispatch takes longer than time. */
+    private long mSlowDispatchThresholdMs;
+
      /** Initialize the current thread as a looper.
       * This gives you a chance to create handlers that then reference
       * this looper, before actually starting the loop. Be sure to call
@@ -85,7 +91,7 @@ public final class Looper {
     }
 
     private static void prepare(boolean quitAllowed) {
-        if (sThreadLocal.get() != null) {// 确保ThreadLocal中只有一个Looper
+        if (sThreadLocal.get() != null) {
             throw new RuntimeException("Only one Looper may be created per thread");
         }
         sThreadLocal.set(new Looper(quitAllowed));
@@ -96,9 +102,6 @@ public final class Looper {
      * application's main looper. The main looper for your application
      * is created by the Android environment, so you should never need
      * to call this function yourself.  See also: {@link #prepare()}
-     *
-     * 主线程Looper，不需要自己调用，系统创建主线程时会自动调用该方法初始化一个Looper
-     * 调用该方法有两个地方，一个是系统启动创建Looper（系统主线程），另一个是App启动创建Looper（App主线程）
      */
     public static void prepareMainLooper() {
         prepare(false);
@@ -135,8 +138,7 @@ public final class Looper {
         Binder.clearCallingIdentity();
         final long ident = Binder.clearCallingIdentity();
 
-        for (;;) {// 死循环
-            // 获取消息
+        for (;;) {
             Message msg = queue.next(); // might block
             if (msg == null) {
                 // No message indicates that the message queue is quitting.
@@ -150,16 +152,28 @@ public final class Looper {
                         msg.callback + ": " + msg.what);
             }
 
+            final long slowDispatchThresholdMs = me.mSlowDispatchThresholdMs;
+
             final long traceTag = me.mTraceTag;
             if (traceTag != 0 && Trace.isTagEnabled(traceTag)) {
                 Trace.traceBegin(traceTag, msg.target.getTraceName(msg));
             }
+            final long start = (slowDispatchThresholdMs == 0) ? 0 : SystemClock.uptimeMillis();
+            final long end;
             try {
-                // 处理消息
                 msg.target.dispatchMessage(msg);
+                end = (slowDispatchThresholdMs == 0) ? 0 : SystemClock.uptimeMillis();
             } finally {
                 if (traceTag != 0) {
                     Trace.traceEnd(traceTag);
+                }
+            }
+            if (slowDispatchThresholdMs > 0) {
+                final long time = end - start;
+                if (time > slowDispatchThresholdMs) {
+                    Slog.w(TAG, "Dispatch took " + time + "ms on "
+                            + Thread.currentThread().getName() + ", h=" +
+                            msg.target + " cb=" + msg.callback + " msg=" + msg.what);
                 }
             }
 
@@ -178,7 +192,6 @@ public final class Looper {
                         + msg.callback + " what=" + msg.what);
             }
 
-            // 回收消息
             msg.recycleUnchecked();
         }
     }
@@ -228,6 +241,11 @@ public final class Looper {
     /** {@hide} */
     public void setTraceTag(long traceTag) {
         mTraceTag = traceTag;
+    }
+
+    /** {@hide} */
+    public void setSlowDispatchThresholdMs(long slowDispatchThresholdMs) {
+        mSlowDispatchThresholdMs = slowDispatchThresholdMs;
     }
 
     /**
@@ -292,7 +310,30 @@ public final class Looper {
      */
     public void dump(@NonNull Printer pw, @NonNull String prefix) {
         pw.println(prefix + toString());
-        mQueue.dump(pw, prefix + "  ");
+        mQueue.dump(pw, prefix + "  ", null);
+    }
+
+    /**
+     * Dumps the state of the looper for debugging purposes.
+     *
+     * @param pw A printer to receive the contents of the dump.
+     * @param prefix A prefix to prepend to each line which is printed.
+     * @param handler Only dump messages for this Handler.
+     * @hide
+     */
+    public void dump(@NonNull Printer pw, @NonNull String prefix, Handler handler) {
+        pw.println(prefix + toString());
+        mQueue.dump(pw, prefix + "  ", handler);
+    }
+
+    /** @hide */
+    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+        final long looperToken = proto.start(fieldId);
+        proto.write(LooperProto.THREAD_NAME, mThread.getName());
+        proto.write(LooperProto.THREAD_ID, mThread.getId());
+        proto.write(LooperProto.IDENTITY_HASH_CODE, System.identityHashCode(this));
+        mQueue.writeToProto(proto, LooperProto.QUEUE);
+        proto.end(looperToken);
     }
 
     @Override

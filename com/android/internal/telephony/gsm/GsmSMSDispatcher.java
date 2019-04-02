@@ -117,8 +117,8 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
      *           be a String representing the status report PDU, as ASCII hex.
      */
     private void handleStatusReport(AsyncResult ar) {
-        String pduString = (String) ar.result;
-        SmsMessage sms = SmsMessage.newFromCDS(pduString);
+        byte[] pdu = (byte[]) ar.result;
+        SmsMessage sms = SmsMessage.newFromCDS(pdu);
 
         if (sms != null) {
             int tpStatus = sms.getStatus();
@@ -134,7 +134,7 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
                     }
                     PendingIntent intent = tracker.mDeliveryIntent;
                     Intent fillIn = new Intent();
-                    fillIn.putExtra("pdu", IccUtils.hexStringToBytes(pduString));
+                    fillIn.putExtra("pdu", pdu);
                     fillIn.putExtra("format", getFormat());
                     try {
                         intent.send(mContext, Activity.RESULT_OK, fillIn);

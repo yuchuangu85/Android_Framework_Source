@@ -16,6 +16,7 @@
 
 package android.databinding.tool.util;
 
+import android.databinding.parser.BindingExpressionBaseVisitor;
 import android.databinding.parser.BindingExpressionLexer;
 import android.databinding.parser.BindingExpressionParser;
 import android.databinding.parser.XMLLexer;
@@ -29,6 +30,7 @@ import com.google.common.xml.XmlEscapers;
 import org.antlr.v4.runtime.ANTLRInputStream;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.Token;
+import org.antlr.v4.runtime.misc.NotNull;
 import org.antlr.v4.runtime.tree.TerminalNode;
 import org.apache.commons.io.FileUtils;
 
@@ -69,7 +71,7 @@ public class XmlEditor {
         }
 
         ArrayList<String> lines = new ArrayList<String>();
-        lines.addAll(FileUtils.readLines(f, "utf-8"));
+        lines.addAll(FileUtils.readLines(f, encoding));
 
         for (ElementContext it : dataNodes) {
             replace(lines, toPosition(it.getStart()), toEndPosition(it.getStop()), "");
@@ -343,7 +345,14 @@ public class XmlEditor {
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         BindingExpressionParser parser = new BindingExpressionParser(tokenStream);
         BindingExpressionParser.BindingSyntaxContext root = parser.bindingSyntax();
-        BindingExpressionParser.DefaultsContext defaults = root.defaults();
+        BindingExpressionParser.DefaultsContext defaults = root
+                .accept(new BindingExpressionBaseVisitor<BindingExpressionParser.DefaultsContext>() {
+                    @Override
+                    public BindingExpressionParser.DefaultsContext visitDefaults(
+                            @NotNull BindingExpressionParser.DefaultsContext ctx) {
+                        return ctx;
+                    }
+                });
         if (defaults != null) {
             BindingExpressionParser.ConstantValueContext constantValue = defaults
                     .constantValue();

@@ -144,7 +144,10 @@ public class SmsMessage {
 
     }
 
-    private SmsMessage(SmsMessageBase smb) {
+    /**
+     * @hide
+     */
+    public SmsMessage(SmsMessageBase smb) {
         mWrappedSmsMessage = smb;
     }
 
@@ -221,10 +224,10 @@ public class SmsMessage {
      *
      * {@hide}
      */
-    public static SmsMessage newFromCMT(String[] lines) {
+    public static SmsMessage newFromCMT(byte[] pdu) {
         // received SMS in 3GPP format
         SmsMessageBase wrappedMessage =
-                com.android.internal.telephony.gsm.SmsMessage.newFromCMT(lines);
+                com.android.internal.telephony.gsm.SmsMessage.newFromCMT(pdu);
 
         if (wrappedMessage != null) {
             return new SmsMessage(wrappedMessage);
@@ -232,15 +235,6 @@ public class SmsMessage {
             Rlog.e(LOG_TAG, "newFromCMT(): wrappedMessage is null");
             return null;
         }
-    }
-
-    /** @hide */
-    public static SmsMessage newFromParcel(Parcel p) {
-        // received SMS in 3GPP2 format
-        SmsMessageBase wrappedMessage =
-                com.android.internal.telephony.cdma.SmsMessage.newFromParcel(p);
-
-        return new SmsMessage(wrappedMessage);
     }
 
     /**

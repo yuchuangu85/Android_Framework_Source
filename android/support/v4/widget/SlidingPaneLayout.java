@@ -16,6 +16,7 @@
 
 package android.support.v4.widget;
 
+import android.support.annotation.RequiresApi;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
@@ -32,11 +33,8 @@ import android.os.Parcelable;
 import android.support.annotation.ColorInt;
 import android.support.annotation.DrawableRes;
 import android.support.v4.content.ContextCompat;
-import android.support.v4.os.ParcelableCompat;
-import android.support.v4.os.ParcelableCompatCreatorCallbacks;
 import android.support.v4.view.AbsSavedState;
 import android.support.v4.view.AccessibilityDelegateCompat;
-import android.support.v4.view.MotionEventCompat;
 import android.support.v4.view.ViewCompat;
 import android.support.v4.view.accessibility.AccessibilityNodeInfoCompat;
 import android.util.AttributeSet;
@@ -200,10 +198,9 @@ public class SlidingPaneLayout extends ViewGroup {
     static final SlidingPanelLayoutImpl IMPL;
 
     static {
-        final int deviceVersion = Build.VERSION.SDK_INT;
-        if (deviceVersion >= 17) {
+        if (Build.VERSION.SDK_INT >= 17) {
             IMPL = new SlidingPanelLayoutImplJBMR1();
-        } else if (deviceVersion >= 16) {
+        } else if (Build.VERSION.SDK_INT >= 16) {
             IMPL = new SlidingPanelLayoutImplJB();
         } else {
             IMPL = new SlidingPanelLayoutImplBase();
@@ -766,7 +763,7 @@ public class SlidingPaneLayout extends ViewGroup {
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-        final int action = MotionEventCompat.getActionMasked(ev);
+        final int action = ev.getActionMasked();
 
         // Preserve the open state based on the last view that was touched.
         if (!mCanSlide && action == MotionEvent.ACTION_DOWN && getChildCount() > 1) {
@@ -832,10 +829,9 @@ public class SlidingPaneLayout extends ViewGroup {
 
         mDragHelper.processTouchEvent(ev);
 
-        final int action = ev.getAction();
         boolean wantTouchEvents = true;
 
-        switch (action & MotionEventCompat.ACTION_MASK) {
+        switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN: {
                 final float x = ev.getX();
                 final float y = ev.getY();
@@ -985,11 +981,11 @@ public class SlidingPaneLayout extends ViewGroup {
                 lp.dimPaint = new Paint();
             }
             lp.dimPaint.setColorFilter(new PorterDuffColorFilter(color, PorterDuff.Mode.SRC_OVER));
-            if (ViewCompat.getLayerType(v) != ViewCompat.LAYER_TYPE_HARDWARE) {
-                ViewCompat.setLayerType(v, ViewCompat.LAYER_TYPE_HARDWARE, lp.dimPaint);
+            if (v.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+                v.setLayerType(View.LAYER_TYPE_HARDWARE, lp.dimPaint);
             }
             invalidateChildRegion(v);
-        } else if (ViewCompat.getLayerType(v) != ViewCompat.LAYER_TYPE_NONE) {
+        } else if (v.getLayerType() != View.LAYER_TYPE_NONE) {
             if (lp.dimPaint != null) {
                 lp.dimPaint.setColorFilter(null);
             }
@@ -1249,7 +1245,7 @@ public class SlidingPaneLayout extends ViewGroup {
             }
         }
 
-        return checkV && ViewCompat.canScrollHorizontally(v, (isLayoutRtlSupport() ? dx : -dx));
+        return checkV && v.canScrollHorizontally((isLayoutRtlSupport() ? dx : -dx));
     }
 
     boolean isDimmed(View child) {
@@ -1481,18 +1477,22 @@ public class SlidingPaneLayout extends ViewGroup {
             out.writeInt(isOpen ? 1 : 0);
         }
 
-        public static final Creator<SavedState> CREATOR = ParcelableCompat.newCreator(
-                new ParcelableCompatCreatorCallbacks<SavedState>() {
-                    @Override
-                    public SavedState createFromParcel(Parcel in, ClassLoader loader) {
-                        return new SavedState(in, loader);
-                    }
+        public static final Creator<SavedState> CREATOR = new ClassLoaderCreator<SavedState>() {
+            @Override
+            public SavedState createFromParcel(Parcel in, ClassLoader loader) {
+                return new SavedState(in, null);
+            }
 
-                    @Override
-                    public SavedState[] newArray(int size) {
-                        return new SavedState[size];
-                    }
-                });
+            @Override
+            public SavedState createFromParcel(Parcel in) {
+                return new SavedState(in, null);
+            }
+
+            @Override
+            public SavedState[] newArray(int size) {
+                return new SavedState[size];
+            }
+        };
     }
 
     interface SlidingPanelLayoutImpl {
@@ -1507,6 +1507,7 @@ public class SlidingPaneLayout extends ViewGroup {
         }
     }
 
+    @RequiresApi(16)
     static class SlidingPanelLayoutImplJB extends SlidingPanelLayoutImplBase {
         /*
          * Private API hacks! Nasty! Bad!
@@ -1551,6 +1552,7 @@ public class SlidingPaneLayout extends ViewGroup {
         }
     }
 
+    @RequiresApi(17)
     static class SlidingPanelLayoutImplJBMR1 extends SlidingPanelLayoutImplBase {
         @Override
         public void invalidateChildRegion(SlidingPaneLayout parent, View child) {
@@ -1654,7 +1656,7 @@ public class SlidingPaneLayout extends ViewGroup {
         @Override
         public void run() {
             if (mChildView.getParent() == SlidingPaneLayout.this) {
-                ViewCompat.setLayerType(mChildView, ViewCompat.LAYER_TYPE_NONE, null);
+                mChildView.setLayerType(View.LAYER_TYPE_NONE, null);
                 invalidateChildRegion(mChildView);
             }
             mPostedRunnables.remove(this);

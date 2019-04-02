@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -70,8 +70,8 @@ import sun.security.action.GetPropertyAction;
  * concurrent threads.
  *
  *
- * <a name="names"><a name="charenc">
- * <h4>Charset names</h4>
+ * <a name="names"></a><a name="charenc"></a>
+ * <h2>Charset names</h2>
  *
  * <p> Charsets are named by strings composed of the following characters:
  *
@@ -116,21 +116,17 @@ import sun.security.action.GetPropertyAction;
  * The aliases of a charset are returned by the {@link #aliases() aliases}
  * method.
  *
- * <a name="hn">
- *
- * <p> Some charsets have an <i>historical name</i> that is defined for
- * compatibility with previous versions of the Java platform.  A charset's
+ * <p><a name="hn">Some charsets have an <i>historical name</i> that is defined for
+ * compatibility with previous versions of the Java platform.</a>  A charset's
  * historical name is either its canonical name or one of its aliases.  The
  * historical name is returned by the <tt>getEncoding()</tt> methods of the
  * {@link java.io.InputStreamReader#getEncoding InputStreamReader} and {@link
  * java.io.OutputStreamWriter#getEncoding OutputStreamWriter} classes.
  *
- * <a name="iana">
- *
- * <p> If a charset listed in the <a
+ * <p><a name="iana"> </a>If a charset listed in the <a
  * href="http://www.iana.org/assignments/character-sets"><i>IANA Charset
  * Registry</i></a> is supported by an implementation of the Java platform then
- * its canonical name must be the name listed in the registry.  Many charsets
+ * its canonical name must be the name listed in the registry. Many charsets
  * are given more than one name in the registry, in which case the registry
  * identifies one of the names as <i>MIME-preferred</i>.  If a charset has more
  * than one registry name then its canonical name must be the MIME-preferred
@@ -145,17 +141,17 @@ import sun.security.action.GetPropertyAction;
  * previous canonical name be made into an alias.
  *
  *
- * <h4>Standard charsets</h4>
+ * <h2>Standard charsets</h2>
  *
- * <a name="standard">
  *
- * <p> Every implementation of the Java platform is required to support the
- * following standard charsets.  Consult the release documentation for your
+ *
+ * <p><a name="standard">Every implementation of the Java platform is required to support the
+ * following standard charsets.</a>  Consult the release documentation for your
  * implementation to see if any other charsets are supported.  The behavior
  * of such optional charsets may differ between implementations.
  *
  * <blockquote><table width="80%" summary="Description of standard charsets">
- * <tr><th><p align="left">Charset</p></th><th><p align="left">Description</p></th></tr>
+ * <tr><th align="left">Charset</th><th align="left">Description</th></tr>
  * <tr><td valign=top><tt>US-ASCII</tt></td>
  *     <td>Seven-bit ASCII, a.k.a. <tt>ISO646-US</tt>,
  *         a.k.a. the Basic Latin block of the Unicode character set</td></tr>
@@ -210,7 +206,7 @@ import sun.security.action.GetPropertyAction;
  *
  * </ul>
  *
- * In any case, byte order marks occuring after the first element of an
+ * In any case, byte order marks occurring after the first element of an
  * input sequence are not omitted since the same code is used to represent
  * <small>ZERO-WIDTH NON-BREAKING SPACE</small>.
  *
@@ -219,7 +215,7 @@ import sun.security.action.GetPropertyAction;
  * <p>The {@link StandardCharsets} class defines constants for each of the
  * standard charsets.
  *
- * <h4>Terminology</h4>
+ * <h2>Terminology</h2>
  *
  * <p> The name of this class is taken from the terms used in
  * <a href="http://www.ietf.org/rfc/rfc2278.txt"><i>RFC&nbsp;2278</i></a>.
@@ -323,7 +319,7 @@ public abstract class Charset
     }
 
     /* The standard set of charsets */
-    // Android-Removed: We use ICU's list of standard charsets.
+    // Android-removed: We use ICU's list of standard charsets.
     // private static CharsetProvider standardProvider = new StandardCharsets();
 
     // Cache of the most-recently-returned charsets,
@@ -359,14 +355,14 @@ public abstract class Charset
     // those whose lookup or instantiation causes a security exception to be
     // thrown.  Should be invoked with full privileges.
     //
-    private static Iterator providers() {
-        return new Iterator() {
+    private static Iterator<CharsetProvider> providers() {
+        return new Iterator<CharsetProvider>() {
 
                 ServiceLoader<CharsetProvider> sl =
                     ServiceLoader.load(CharsetProvider.class);
                 Iterator<CharsetProvider> i = sl.iterator();
 
-                Object next = null;
+                CharsetProvider next = null;
 
                 private boolean getNext() {
                     while (next == null) {
@@ -389,10 +385,10 @@ public abstract class Charset
                     return getNext();
                 }
 
-                public Object next() {
+                public CharsetProvider next() {
                     if (!getNext())
                         throw new NoSuchElementException();
-                    Object n = next;
+                    CharsetProvider n = next;
                     next = null;
                     return n;
                 }
@@ -405,7 +401,8 @@ public abstract class Charset
     }
 
     // Thread-local gate to prevent recursive provider lookups
-    private static ThreadLocal<ThreadLocal> gate = new ThreadLocal<ThreadLocal>();
+    private static ThreadLocal<ThreadLocal<?>> gate =
+            new ThreadLocal<ThreadLocal<?>>();
 
     private static Charset lookupViaProviders(final String charsetName) {
 
@@ -429,8 +426,9 @@ public abstract class Charset
             return AccessController.doPrivileged(
                 new PrivilegedAction<Charset>() {
                     public Charset run() {
-                        for (Iterator i = providers(); i.hasNext();) {
-                            CharsetProvider cp = (CharsetProvider)i.next();
+                        for (Iterator<CharsetProvider> i = providers();
+                             i.hasNext();) {
+                            CharsetProvider cp = i.next();
                             Charset cs = cp.charsetForName(charsetName);
                             if (cs != null)
                                 return cs;
@@ -444,7 +442,7 @@ public abstract class Charset
         }
     }
 
-    // Android removed : Remove support for the extended charset provider.
+    // Android-removed: Remove support for the extended charset provider.
     //
     /* The extended set of charsets */
     // private static Object extendedProviderLock = new Object();
@@ -523,7 +521,7 @@ public abstract class Charset
     }
 
     /**
-     * Tells whether the named charset is supported. </p>
+     * Tells whether the named charset is supported.
      *
      * @param  charsetName
      *         The name of the requested charset; may be either
@@ -543,7 +541,7 @@ public abstract class Charset
     }
 
     /**
-     * Returns a charset object for the named charset. </p>
+     * Returns a charset object for the named charset.
      *
      * @param  charsetName
      *         The name of the requested charset; may be either
@@ -657,7 +655,7 @@ public abstract class Charset
      * @since 1.5
      */
     public static Charset defaultCharset() {
-        // Android changed : Use UTF_8 unconditionally.
+        // Android-changed: Use UTF_8 unconditionally.
         synchronized (Charset.class) {
             if (defaultCharset == null) {
                 defaultCharset = java.nio.charset.StandardCharsets.UTF_8;
@@ -676,7 +674,7 @@ public abstract class Charset
 
     /**
      * Initializes a new charset with the given canonical name and alias
-     * set. </p>
+     * set.
      *
      * @param  canonicalName
      *         The canonical name of this charset
@@ -697,7 +695,7 @@ public abstract class Charset
     }
 
     /**
-     * Returns this charset's canonical name. </p>
+     * Returns this charset's canonical name.
      *
      * @return  The canonical name of this charset
      */
@@ -706,7 +704,7 @@ public abstract class Charset
     }
 
     /**
-     * Returns a set containing this charset's aliases. </p>
+     * Returns a set containing this charset's aliases.
      *
      * @return  An immutable set of this charset's aliases
      */
@@ -737,7 +735,7 @@ public abstract class Charset
     /**
      * Tells whether or not this charset is registered in the <a
      * href="http://www.iana.org/assignments/character-sets">IANA Charset
-     * Registry</a>.  </p>
+     * Registry</a>.
      *
      * @return  <tt>true</tt> if, and only if, this charset is known by its
      *          implementor to be registered with the IANA
@@ -784,19 +782,22 @@ public abstract class Charset
      * it is not necessarily the case that the given charset is not contained
      * in this charset.
      *
+     * @param   cs
+     *          The given charset
+     *
      * @return  <tt>true</tt> if the given charset is contained in this charset
      */
     public abstract boolean contains(Charset cs);
 
     /**
-     * Constructs a new decoder for this charset. </p>
+     * Constructs a new decoder for this charset.
      *
      * @return  A new decoder for this charset
      */
     public abstract CharsetDecoder newDecoder();
 
     /**
-     * Constructs a new encoder for this charset. </p>
+     * Constructs a new encoder for this charset.
      *
      * @return  A new encoder for this charset
      *
@@ -928,7 +929,7 @@ public abstract class Charset
     }
 
     /**
-     * Computes a hashcode for this charset. </p>
+     * Computes a hashcode for this charset.
      *
      * @return  An integer hashcode
      */
@@ -954,11 +955,12 @@ public abstract class Charset
     }
 
     /**
-     * Returns a string describing this charset. </p>
+     * Returns a string describing this charset.
      *
      * @return  A string describing this charset
      */
     public final String toString() {
         return name();
     }
+
 }

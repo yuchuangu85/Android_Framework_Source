@@ -16,31 +16,39 @@
 
 package com.android.setupwizardlib.test;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.os.Debug;
-import android.test.AndroidTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import android.util.Log;
 
 import com.android.setupwizardlib.GlifPatternDrawable;
 
 import junit.framework.AssertionFailedError;
 
-public class GlifPatternDrawableTest extends AndroidTestCase {
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+@RunWith(AndroidJUnit4.class)
+@SmallTest
+public class GlifPatternDrawableTest {
 
     private static final String TAG = "GlifPatternDrawableTest";
 
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
+    @Before
+    public void setUp() throws Exception {
         GlifPatternDrawable.invalidatePattern();
     }
 
-    @SmallTest
+    @Test
     public void testDraw() {
         final Bitmap bitmap = Bitmap.createBitmap(1366, 768, Bitmap.Config.ARGB_8888);
         final Canvas canvas = new Canvas(bitmap);
@@ -55,7 +63,7 @@ public class GlifPatternDrawableTest extends AndroidTestCase {
                 bitmap.getPixel(1365, 767));
     }
 
-    @SmallTest
+    @Test
     public void testDrawTwice() {
         // Test that the second time the drawable is drawn is also correct, to make sure caching is
         // done correctly.
@@ -79,7 +87,7 @@ public class GlifPatternDrawableTest extends AndroidTestCase {
                 bitmap.getPixel(1365, 767));
     }
 
-    @SmallTest
+    @Test
     public void testScaleToCanvasSquare() {
         final Canvas canvas = new Canvas();
         Matrix expected = new Matrix(canvas.getMatrix());
@@ -95,7 +103,7 @@ public class GlifPatternDrawableTest extends AndroidTestCase {
         assertEquals("Matrices should match", expected, canvas.getMatrix());
     }
 
-    @SmallTest
+    @Test
     public void testScaleToCanvasTall() {
         final Canvas canvas = new Canvas();
         final Matrix expected = new Matrix(canvas.getMatrix());
@@ -112,7 +120,7 @@ public class GlifPatternDrawableTest extends AndroidTestCase {
         assertEquals("Matrices should match", expected, canvas.getMatrix());
     }
 
-    @SmallTest
+    @Test
     public void testScaleToCanvasWide() {
         final Canvas canvas = new Canvas();
         final Matrix expected = new Matrix(canvas.getMatrix());
@@ -146,7 +154,7 @@ public class GlifPatternDrawableTest extends AndroidTestCase {
         assertEquals("Matrices should match", expected, canvas.getMatrix());
     }
 
-    @SmallTest
+    @Test
     public void testMemoryAllocation() {
         Debug.MemoryInfo memoryInfo = new Debug.MemoryInfo();
         Debug.getMemoryInfo(memoryInfo);

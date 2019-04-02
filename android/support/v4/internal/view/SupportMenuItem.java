@@ -16,13 +16,15 @@
 
 package android.support.v4.internal.view;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
+import android.content.res.ColorStateList;
+import android.graphics.PorterDuff;
+import android.graphics.drawable.Drawable;
 import android.support.annotation.RestrictTo;
 import android.support.v4.view.ActionProvider;
-import android.support.v4.view.MenuItemCompat;
 import android.view.MenuItem;
 import android.view.View;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Interface for direct access to a previously created menu item.
@@ -33,7 +35,7 @@ import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
  * @see android.view.MenuItem
  * @hide
  */
-@RestrictTo(GROUP_ID)
+@RestrictTo(LIBRARY_GROUP)
 public interface SupportMenuItem extends android.view.MenuItem {
     /*
     * These should be kept in sync with attrs.xml enum constants for showAsAction
@@ -79,6 +81,7 @@ public interface SupportMenuItem extends android.view.MenuItem {
      * @see android.app.ActionBar
      * @see #setActionView(View)
      */
+    @Override
     void setShowAsAction(int actionEnum);
 
     /**
@@ -99,6 +102,7 @@ public interface SupportMenuItem extends android.view.MenuItem {
      * @see android.app.ActionBar
      * @see #setActionView(View)
      */
+    @Override
     MenuItem setShowAsActionFlags(int actionEnum);
 
     /**
@@ -113,6 +117,7 @@ public interface SupportMenuItem extends android.view.MenuItem {
      * @return This Item so additional setters can be called.
      * @see #setShowAsAction(int)
      */
+    @Override
     MenuItem setActionView(View view);
 
     /**
@@ -127,6 +132,7 @@ public interface SupportMenuItem extends android.view.MenuItem {
      * @return This Item so additional setters can be called.
      * @see #setShowAsAction(int)
      */
+    @Override
     MenuItem setActionView(int resId);
 
     /**
@@ -136,6 +142,7 @@ public interface SupportMenuItem extends android.view.MenuItem {
      * @see #setActionView(View)
      * @see #setShowAsAction(int)
      */
+    @Override
     View getActionView();
 
     /**
@@ -165,24 +172,29 @@ public interface SupportMenuItem extends android.view.MenuItem {
     /**
      * Expand the action view associated with this menu item. The menu item must have an action view
      * set, as well as the showAsAction flag {@link #SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW}. If a
-     * listener has been set using {@link #setSupportOnActionExpandListener(android.support.v4.view.MenuItemCompat.OnActionExpandListener)}
-     * it will have its {@link android.support.v4.view.MenuItemCompat.OnActionExpandListener#onMenuItemActionExpand(MenuItem)} method
-     * invoked. The listener may return false from this method to prevent expanding the action view.
+     * listener has been set using
+     * {@link #setSupportOnActionExpandListener(MenuItem.OnActionExpandListener)}
+     * it will have its {@link MenuItem.OnActionExpandListener#onMenuItemActionExpand(MenuItem)}
+     * method invoked. The listener may return false from this method to prevent expanding the
+     * action view.
      *
      * @return true if the action view was expanded, false otherwise.
      */
+    @Override
     boolean expandActionView();
 
     /**
      * Collapse the action view associated with this menu item. The menu item must have an action
      * view set, as well as the showAsAction flag {@link #SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW}. If a
-     * listener has been set using {@link #setSupportOnActionExpandListener(android.support.v4.view.MenuItemCompat.OnActionExpandListener)}
-     * it will have its {@link android.support.v4.view.MenuItemCompat.OnActionExpandListener#onMenuItemActionCollapse(MenuItem)} method
-     * invoked. The listener may return false from this method to prevent collapsing the action
-     * view.
+     * listener has been set using
+     * {@link #setSupportOnActionExpandListener(MenuItem.OnActionExpandListener)}
+     * it will have its {@link MenuItem.OnActionExpandListener#onMenuItemActionCollapse(MenuItem)}
+     * method invoked. The listener may return false from this method to prevent collapsing the
+     * action view.
      *
      * @return true if the action view was collapsed, false otherwise.
      */
+    @Override
     boolean collapseActionView();
 
     /**
@@ -192,17 +204,175 @@ public interface SupportMenuItem extends android.view.MenuItem {
      * @see #expandActionView()
      * @see #collapseActionView()
      * @see #SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW
-     * @see android.support.v4.view.MenuItemCompat.OnActionExpandListener
+     * @see MenuItem.OnActionExpandListener
      */
+    @Override
     boolean isActionViewExpanded();
 
     /**
-     * Set an {@link android.support.v4.view.MenuItemCompat.OnActionExpandListener} on this menu item to be notified when the associated
-     * action view is expanded or collapsed. The menu item must be configured to expand or collapse
-     * its action view using the flag {@link #SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW}.
+     * Change the content description associated with this menu item.
      *
-     * @param listener Listener that will respond to expand/collapse events
-     * @return This menu item instance for call chaining
+     * @param contentDescription The new content description.
+     * @return This menu item instance for call chaining.
      */
-    SupportMenuItem setSupportOnActionExpandListener(MenuItemCompat.OnActionExpandListener listener);
+    @Override
+    SupportMenuItem setContentDescription(CharSequence contentDescription);
+
+    /**
+     * Retrieve the content description associated with this menu item.
+     *
+     * @return The content description.
+     */
+    @Override
+    CharSequence getContentDescription();
+
+    /**
+     * Change the tooltip text associated with this menu item.
+     *
+     * @param tooltipText The new tooltip text.
+     * @return This menu item instance for call chaining.
+     */
+    @Override
+    SupportMenuItem setTooltipText(CharSequence tooltipText);
+
+    /**
+     * Retrieve the tooltip text associated with this menu item.
+     *
+     * @return The tooltip text.
+     */
+    @Override
+    CharSequence getTooltipText();
+
+    /**
+     * Change both the numeric and alphabetic shortcut associated with this
+     * item. Note that the shortcut will be triggered when the key that
+     * generates the given character is pressed along with the corresponding
+     * modifier key. Also note that case is not significant and that alphabetic
+     * shortcut characters will be handled in lower case.
+     * <p>
+     * See {@link Menu} for the menu types that support shortcuts.
+     *
+     * @param numericChar The numeric shortcut key. This is the shortcut when
+     *        using a numeric (e.g., 12-key) keyboard.
+     * @param numericModifiers The numeric modifier associated with the shortcut. It should
+     *        be a combination of {@link KeyEvent#META_META_ON}, {@link KeyEvent#META_CTRL_ON},
+     *        {@link KeyEvent#META_ALT_ON}, {@link KeyEvent#META_SHIFT_ON},
+     *        {@link KeyEvent#META_SYM_ON}, {@link KeyEvent#META_FUNCTION_ON}.
+     * @param alphaChar The alphabetic shortcut key. This is the shortcut when
+     *        using a keyboard with alphabetic keys.
+     * @param alphaModifiers The alphabetic modifier associated with the shortcut. It should
+     *        be a combination of {@link KeyEvent#META_META_ON}, {@link KeyEvent#META_CTRL_ON},
+     *        {@link KeyEvent#META_ALT_ON}, {@link KeyEvent#META_SHIFT_ON},
+     *        {@link KeyEvent#META_SYM_ON}, {@link KeyEvent#META_FUNCTION_ON}.
+     * @return This Item so additional setters can be called.
+     */
+    @Override
+    MenuItem setShortcut(char numericChar, char alphaChar, int numericModifiers,
+            int alphaModifiers);
+
+    /**
+     * Change the numeric shortcut and modifiers associated with this item.
+     * <p>
+     * See {@link Menu} for the menu types that support shortcuts.
+     *
+     * @param numericChar The numeric shortcut key.  This is the shortcut when
+     *                 using a 12-key (numeric) keyboard.
+     * @param numericModifiers The modifier associated with the shortcut. It should
+     *        be a combination of {@link KeyEvent#META_META_ON}, {@link KeyEvent#META_CTRL_ON},
+     *        {@link KeyEvent#META_ALT_ON}, {@link KeyEvent#META_SHIFT_ON},
+     *        {@link KeyEvent#META_SYM_ON}, {@link KeyEvent#META_FUNCTION_ON}.
+     * @return This Item so additional setters can be called.
+     */
+    @Override
+    MenuItem setNumericShortcut(char numericChar, int numericModifiers);
+
+    /**
+     * Return the modifiers for this menu item's numeric (12-key) shortcut.
+     * The modifier is a combination of {@link KeyEvent#META_META_ON},
+     * {@link KeyEvent#META_CTRL_ON}, {@link KeyEvent#META_ALT_ON},
+     * {@link KeyEvent#META_SHIFT_ON}, {@link KeyEvent#META_SYM_ON},
+     * {@link KeyEvent#META_FUNCTION_ON}.
+     * For example, {@link KeyEvent#META_FUNCTION_ON}|{@link KeyEvent#META_CTRL_ON}
+     *
+     * @return Modifier associated with the numeric shortcut.
+     */
+    @Override
+    int getNumericModifiers();
+
+    /**
+     * Change the alphabetic shortcut associated with this item. The shortcut
+     * will be triggered when the key that generates the given character is
+     * pressed along with the modifier keys. Case is not significant and shortcut
+     * characters will be displayed in lower case. Note that menu items with
+     * the characters '\b' or '\n' as shortcuts will get triggered by the
+     * Delete key or Carriage Return key, respectively.
+     * <p>
+     * See {@link Menu} for the menu types that support shortcuts.
+     *
+     * @param alphaChar The alphabetic shortcut key. This is the shortcut when
+     *        using a keyboard with alphabetic keys.
+     * @param alphaModifiers The modifier associated with the shortcut. It should
+     *        be a combination of {@link KeyEvent#META_META_ON}, {@link KeyEvent#META_CTRL_ON},
+     *        {@link KeyEvent#META_ALT_ON}, {@link KeyEvent#META_SHIFT_ON},
+     *        {@link KeyEvent#META_SYM_ON}, {@link KeyEvent#META_FUNCTION_ON}.
+     * @return This Item so additional setters can be called.
+     */
+    @Override
+    MenuItem setAlphabeticShortcut(char alphaChar, int alphaModifiers);
+
+    /**
+     * Return the modifier for this menu item's alphabetic shortcut.
+     * The modifier is a combination of {@link KeyEvent#META_META_ON},
+     * {@link KeyEvent#META_CTRL_ON}, {@link KeyEvent#META_ALT_ON},
+     * {@link KeyEvent#META_SHIFT_ON}, {@link KeyEvent#META_SYM_ON},
+     * {@link KeyEvent#META_FUNCTION_ON}.
+     * For example, {@link KeyEvent#META_FUNCTION_ON}|{@link KeyEvent#META_CTRL_ON}
+     *
+     * @return Modifier associated with the keyboard shortcut.
+     */
+    @Override
+    int getAlphabeticModifiers();
+
+    /**
+     * Applies a tint to this item's icon. Does not modify the
+     * current tint mode, which is {@link PorterDuff.Mode#SRC_IN} by default.
+     * <p>
+     * Subsequent calls to {@link MenuItem#setIcon(Drawable)} or {@link MenuItem#setIcon(int)} will
+     * automatically mutate the icon and apply the specified tint and
+     * tint mode.
+     *
+     * @param tint the tint to apply, may be {@code null} to clear tint
+     *
+     * @see #getIconTintList()
+     */
+    @Override
+    MenuItem setIconTintList(ColorStateList tint);
+
+    /**
+     * @return the tint applied to this item's icon
+     * @see #setIconTintList(ColorStateList)
+     */
+    @Override
+    ColorStateList getIconTintList();
+
+    /**
+     * Specifies the blending mode used to apply the tint specified by
+     * {@link #setIconTintList(ColorStateList)} to this item's icon. The default mode is
+     * {@link PorterDuff.Mode#SRC_IN}.
+     *
+     * @param tintMode the blending mode used to apply the tint, may be
+     *                 {@code null} to clear tint
+     * @see #setIconTintList(ColorStateList)
+     */
+    @Override
+    MenuItem setIconTintMode(PorterDuff.Mode tintMode);
+
+    /**
+     * Returns the blending mode used to apply the tint to this item's icon, if specified.
+     *
+     * @return the blending mode used to apply the tint to this item's icon
+     * @see #setIconTintMode(PorterDuff.Mode)
+     */
+    @Override
+    PorterDuff.Mode getIconTintMode();
 }

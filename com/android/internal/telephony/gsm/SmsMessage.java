@@ -126,10 +126,10 @@ public class SmsMessage extends SmsMessageBase {
      *
      * {@hide}
      */
-    public static SmsMessage newFromCMT(String[] lines) {
+    public static SmsMessage newFromCMT(byte[] pdu) {
         try {
             SmsMessage msg = new SmsMessage();
-            msg.parsePdu(IccUtils.hexStringToBytes(lines[1]));
+            msg.parsePdu(pdu);
             return msg;
         } catch (RuntimeException ex) {
             Rlog.e(LOG_TAG, "SMS PDU parsing failed: ", ex);
@@ -138,10 +138,10 @@ public class SmsMessage extends SmsMessageBase {
     }
 
     /** @hide */
-    public static SmsMessage newFromCDS(String line) {
+    public static SmsMessage newFromCDS(byte[] pdu) {
         try {
             SmsMessage msg = new SmsMessage();
-            msg.parsePdu(IccUtils.hexStringToBytes(line));
+            msg.parsePdu(pdu);
             return msg;
         } catch (RuntimeException ex) {
             Rlog.e(LOG_TAG, "CDS SMS PDU parsing failed: ", ex);

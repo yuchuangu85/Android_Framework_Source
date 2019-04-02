@@ -21,6 +21,7 @@ import android.graphics.Canvas;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.support.annotation.Nullable;
+import android.support.annotation.RequiresApi;
 import android.support.v4.graphics.drawable.DrawableCompat;
 import android.support.v4.view.ViewCompat;
 import android.support.v7.appcompat.R;
@@ -140,6 +141,7 @@ class AppCompatSeekBarHelper extends AppCompatProgressBarHelper {
         }
     }
 
+    @RequiresApi(11)
     void jumpDrawablesToCurrentState() {
         if (mTickMark != null) {
             mTickMark.jumpToCurrentState();

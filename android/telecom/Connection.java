@@ -20,20 +20,30 @@ import com.android.internal.os.SomeArgs;
 import com.android.internal.telecom.IVideoCallback;
 import com.android.internal.telecom.IVideoProvider;
 
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.app.Notification;
+import android.content.Intent;
 import android.hardware.camera2.CameraManager;
 import android.net.Uri;
+import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.util.ArraySet;
 import android.view.Surface;
 
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -376,8 +386,22 @@ public abstract class Connection extends Conferenceable {
      */
     public static final int PROPERTY_IS_DOWNGRADED_CONFERENCE = 1<<6;
 
+    /**
+     * Set by the framework to indicate that the {@link Connection} originated from a self-managed
+     * {@link ConnectionService}.
+     * <p>
+     * See {@link PhoneAccount#CAPABILITY_SELF_MANAGED}.
+     */
+    public static final int PROPERTY_SELF_MANAGED = 1<<7;
+
+    /**
+     * When set, indicates that a connection has an active RTT session associated with it.
+     * @hide
+     */
+    public static final int PROPERTY_IS_RTT = 1 << 8;
+
     //**********************************************************************************************
-    // Next PROPERTY value: 1<<7
+    // Next PROPERTY value: 1<<9
     //**********************************************************************************************
 
     /**
@@ -410,6 +434,18 @@ public abstract class Connection extends Conferenceable {
      */
     public static final String EXTRA_ANSWERING_DROPS_FG_CALL =
             "android.telecom.extra.ANSWERING_DROPS_FG_CALL";
+
+    /**
+     * String connection extra key set on a {@link Connection} in {@link Connection#STATE_RINGING}
+     * state to indicate the name of the third-party app which is responsible for the current
+     * foreground call.
+     * <p>
+     * Used when {@link #EXTRA_ANSWERING_DROPS_FG_CALL} is true to ensure that the default Phone app
+     * is able to inform the user that answering the new incoming call will cause a call owned by
+     * another app to be dropped when the incoming call is answered.
+     */
+    public static final String EXTRA_ANSWERING_DROPS_FG_CALL_APP_NAME =
+            "android.telecom.extra.ANSWERING_DROPS_FG_CALL_APP_NAME";
 
     /**
      * Boolean connection extra key on a {@link Connection} which indicates that adding an
@@ -485,6 +521,26 @@ public abstract class Connection extends Conferenceable {
      * expected to be null when this connection event is used.
      */
     public static final String EVENT_CALL_MERGE_FAILED = "android.telecom.event.CALL_MERGE_FAILED";
+
+    /**
+     * Connection event used to inform {@link InCallService}s when the process of merging a
+     * Connection into a conference has begun.
+     * <p>
+     * Sent via {@link #sendConnectionEvent(String, Bundle)}.  The {@link Bundle} parameter is
+     * expected to be null when this connection event is used.
+     * @hide
+     */
+    public static final String EVENT_MERGE_START = "android.telecom.event.MERGE_START";
+
+    /**
+     * Connection event used to inform {@link InCallService}s when the process of merging a
+     * Connection into a conference has completed.
+     * <p>
+     * Sent via {@link #sendConnectionEvent(String, Bundle)}.  The {@link Bundle} parameter is
+     * expected to be null when this connection event is used.
+     * @hide
+     */
+    public static final String EVENT_MERGE_COMPLETE = "android.telecom.event.MERGE_COMPLETE";
 
     /**
      * Connection event used to inform {@link InCallService}s when a call has been put on hold by
@@ -680,6 +736,10 @@ public abstract class Connection extends Conferenceable {
             builder.append("Properties:");
         }
 
+        if (can(properties, PROPERTY_SELF_MANAGED)) {
+            builder.append(isLong ? " PROPERTY_SELF_MANAGED" : " self_mng");
+        }
+
         if (can(properties, PROPERTY_EMERGENCY_CALLBACK_MODE)) {
             builder.append(isLong ? " PROPERTY_EMERGENCY_CALLBACK_MODE" : " ecbm");
         }
@@ -722,6 +782,7 @@ public abstract class Connection extends Conferenceable {
         public void onDestroyed(Connection c) {}
         public void onConnectionCapabilitiesChanged(Connection c, int capabilities) {}
         public void onConnectionPropertiesChanged(Connection c, int properties) {}
+        public void onSupportedAudioRoutesChanged(Connection c, int supportedAudioRoutes) {}
         public void onVideoProviderChanged(
                 Connection c, VideoProvider videoProvider) {}
         public void onAudioModeIsVoipChanged(Connection c, boolean isVoip) {}
@@ -739,6 +800,116 @@ public abstract class Connection extends Conferenceable {
         public void onConnectionEvent(Connection c, String event, Bundle extras) {}
         /** @hide */
         public void onConferenceSupportedChanged(Connection c, boolean isConferenceSupported) {}
+        public void onAudioRouteChanged(Connection c, int audioRoute) {}
+        public void onRttInitiationSuccess(Connection c) {}
+        public void onRttInitiationFailure(Connection c, int reason) {}
+        public void onRttSessionRemotelyTerminated(Connection c) {}
+        public void onRemoteRttRequest(Connection c) {}
+    }
+
+    /**
+     * Provides methods to read and write RTT data to/from the in-call app.
+     * @hide
+     */
+    public static final class RttTextStream {
+        private static final int READ_BUFFER_SIZE = 1000;
+        private final InputStreamReader mPipeFromInCall;
+        private final OutputStreamWriter mPipeToInCall;
+        private final ParcelFileDescriptor mFdFromInCall;
+        private final ParcelFileDescriptor mFdToInCall;
+        private char[] mReadBuffer = new char[READ_BUFFER_SIZE];
+
+        /**
+         * @hide
+         */
+        public RttTextStream(ParcelFileDescriptor toInCall, ParcelFileDescriptor fromInCall) {
+            mFdFromInCall = fromInCall;
+            mFdToInCall = toInCall;
+            mPipeFromInCall = new InputStreamReader(
+                    new ParcelFileDescriptor.AutoCloseInputStream(fromInCall));
+            mPipeToInCall = new OutputStreamWriter(
+                    new ParcelFileDescriptor.AutoCloseOutputStream(toInCall));
+        }
+
+        /**
+         * Writes the string {@param input} into the text stream to the UI for this RTT call. Since
+         * RTT transmits text in real-time, this method should be called as often as text snippets
+         * are received from the remote user, even if it is only one character.
+         *
+         * This method is not thread-safe -- calling it from multiple threads simultaneously may
+         * lead to interleaved text.
+         * @param input The message to send to the in-call app.
+         */
+        public void write(String input) throws IOException {
+            mPipeToInCall.write(input);
+            mPipeToInCall.flush();
+        }
+
+
+        /**
+         * Reads a string from the in-call app, blocking if there is no data available. Returns
+         * {@code null} if the RTT conversation has been terminated and there is no further data
+         * to read.
+         *
+         * This method is not thread-safe -- calling it from multiple threads simultaneously may
+         * lead to interleaved text.
+         * @return A string containing text entered by the user, or {@code null} if the
+         * conversation has been terminated or if there was an error while reading.
+         */
+        public String read() {
+            try {
+                int numRead = mPipeFromInCall.read(mReadBuffer, 0, READ_BUFFER_SIZE);
+                if (numRead < 0) {
+                    return null;
+                }
+                return new String(mReadBuffer, 0, numRead);
+            } catch (IOException e) {
+                Log.w(this, "Exception encountered when reading from InputStreamReader: %s", e);
+                return null;
+            }
+        }
+
+        /** @hide */
+        public ParcelFileDescriptor getFdFromInCall() {
+            return mFdFromInCall;
+        }
+
+        /** @hide */
+        public ParcelFileDescriptor getFdToInCall() {
+            return mFdToInCall;
+        }
+    }
+
+    /**
+     * Provides constants to represent the results of responses to session modify requests sent via
+     * {@link Call#sendRttRequest()}
+     */
+    public static final class RttModifyStatus {
+        private RttModifyStatus() {}
+        /**
+         * Session modify request was successful.
+         */
+        public static final int SESSION_MODIFY_REQUEST_SUCCESS = 1;
+
+        /**
+         * Session modify request failed.
+         */
+        public static final int SESSION_MODIFY_REQUEST_FAIL = 2;
+
+        /**
+         * Session modify request ignored due to invalid parameters.
+         */
+        public static final int SESSION_MODIFY_REQUEST_INVALID = 3;
+
+        /**
+         * Session modify request timed out.
+         */
+        public static final int SESSION_MODIFY_REQUEST_TIMED_OUT = 4;
+
+        /**
+         * Session modify request rejected by remote user.
+         */
+        public static final int SESSION_MODIFY_REQUEST_REJECTED_BY_REMOTE = 5;
     }
 
     /**
@@ -785,7 +956,7 @@ public abstract class Connection extends Conferenceable {
         public static final int SESSION_EVENT_TX_STOP = 4;
 
         /**
-         * A camera failure has occurred for the selected camera.  The {@link InCallService} can use
+         * A camera failure has occurred for the selected camera.  The {@link VideoProvider} can use
          * this as a cue to inform the user the camera is not available.
          * @see #handleCallSessionEvent(int)
          */
@@ -793,11 +964,19 @@ public abstract class Connection extends Conferenceable {
 
         /**
          * Issued after {@link #SESSION_EVENT_CAMERA_FAILURE} when the camera is once again ready
-         * for operation.  The {@link InCallService} can use this as a cue to inform the user that
+         * for operation.  The {@link VideoProvider} can use this as a cue to inform the user that
          * the camera has become available again.
          * @see #handleCallSessionEvent(int)
          */
         public static final int SESSION_EVENT_CAMERA_READY = 6;
+
+        /**
+         * Session event raised by Telecom when
+         * {@link android.telecom.InCallService.VideoCall#setCamera(String)} is called and the
+         * caller does not have the necessary {@link android.Manifest.permission#CAMERA} permission.
+         * @see #handleCallSessionEvent(int)
+         */
+        public static final int SESSION_EVENT_CAMERA_PERMISSION_ERROR = 7;
 
         /**
          * Session modify request was successful.
@@ -848,6 +1027,8 @@ public abstract class Connection extends Conferenceable {
         private static final String SESSION_EVENT_TX_STOP_STR = "TX_STOP";
         private static final String SESSION_EVENT_CAMERA_FAILURE_STR = "CAMERA_FAIL";
         private static final String SESSION_EVENT_CAMERA_READY_STR = "CAMERA_READY";
+        private static final String SESSION_EVENT_CAMERA_PERMISSION_ERROR_STR =
+                "CAMERA_PERMISSION_ERROR";
         private static final String SESSION_EVENT_UNKNOWN_STR = "UNKNOWN";
 
         private VideoProvider.VideoProviderHandler mMessageHandler;
@@ -906,8 +1087,17 @@ public abstract class Connection extends Conferenceable {
                         break;
                     }
                     case MSG_SET_CAMERA:
-                        onSetCamera((String) msg.obj);
-                        break;
+                    {
+                        SomeArgs args = (SomeArgs) msg.obj;
+                        try {
+                            onSetCamera((String) args.arg1);
+                            onSetCamera((String) args.arg1, (String) args.arg2, args.argi1,
+                                    args.argi2, args.argi3);
+                        } finally {
+                            args.recycle();
+                        }
+                    }
+                    break;
                     case MSG_SET_PREVIEW_SURFACE:
                         onSetPreviewSurface((Surface) msg.obj);
                         break;
@@ -962,8 +1152,24 @@ public abstract class Connection extends Conferenceable {
                         MSG_REMOVE_VIDEO_CALLBACK, videoCallbackBinder).sendToTarget();
             }
 
-            public void setCamera(String cameraId) {
-                mMessageHandler.obtainMessage(MSG_SET_CAMERA, cameraId).sendToTarget();
+            public void setCamera(String cameraId, String callingPackageName,
+                                  int targetSdkVersion) {
+
+                SomeArgs args = SomeArgs.obtain();
+                args.arg1 = cameraId;
+                // Propagate the calling package; originally determined in
+                // android.telecom.InCallService.VideoCall#setCamera(String) from the calling
+                // process.
+                args.arg2 = callingPackageName;
+                // Pass along the uid and pid of the calling app; this gets lost when we put the
+                // message onto the handler.  These are required for Telecom to perform a permission
+                // check to see if the calling app is able to use the camera.
+                args.argi1 = Binder.getCallingUid();
+                args.argi2 = Binder.getCallingPid();
+                // Pass along the target SDK version of the calling InCallService.  This is used to
+                // maintain backwards compatibility of the API for older callers.
+                args.argi3 = targetSdkVersion;
+                mMessageHandler.obtainMessage(MSG_SET_CAMERA, args).sendToTarget();
             }
 
             public void setPreviewSurface(Surface surface) {
@@ -1046,6 +1252,30 @@ public abstract class Connection extends Conferenceable {
          * {@link CameraManager#getCameraIdList()}).
          */
         public abstract void onSetCamera(String cameraId);
+
+        /**
+         * Sets the camera to be used for the outgoing video.
+         * <p>
+         * The {@link VideoProvider} should respond by communicating the capabilities of the chosen
+         * camera via
+         * {@link VideoProvider#changeCameraCapabilities(VideoProfile.CameraCapabilities)}.
+         * <p>
+         * This prototype is used internally to ensure that the calling package name, UID and PID
+         * are sent to Telecom so that can perform a camera permission check on the caller.
+         * <p>
+         * Sent from the {@link InCallService} via
+         * {@link InCallService.VideoCall#setCamera(String)}.
+         *
+         * @param cameraId The id of the camera (use ids as reported by
+         * {@link CameraManager#getCameraIdList()}).
+         * @param callingPackageName The AppOpps package name of the caller.
+         * @param callingUid The UID of the caller.
+         * @param callingPid The PID of the caller.
+         * @param targetSdkVersion The target SDK version of the caller.
+         * @hide
+         */
+        public void onSetCamera(String cameraId, String callingPackageName, int callingUid,
+                int callingPid, int targetSdkVersion) {}
 
         /**
          * Sets the surface to be used for displaying a preview of what the user's camera is
@@ -1233,7 +1463,8 @@ public abstract class Connection extends Conferenceable {
          *      {@link VideoProvider#SESSION_EVENT_TX_START},
          *      {@link VideoProvider#SESSION_EVENT_TX_STOP},
          *      {@link VideoProvider#SESSION_EVENT_CAMERA_FAILURE},
-         *      {@link VideoProvider#SESSION_EVENT_CAMERA_READY}.
+         *      {@link VideoProvider#SESSION_EVENT_CAMERA_READY},
+         *      {@link VideoProvider#SESSION_EVENT_CAMERA_FAILURE}.
          */
         public void handleCallSessionEvent(int event) {
             if (mVideoCallbacks != null) {
@@ -1382,6 +1613,8 @@ public abstract class Connection extends Conferenceable {
                     return SESSION_EVENT_TX_START_STR;
                 case SESSION_EVENT_TX_STOP:
                     return SESSION_EVENT_TX_STOP_STR;
+                case SESSION_EVENT_CAMERA_PERMISSION_ERROR:
+                    return SESSION_EVENT_CAMERA_PERMISSION_ERROR_STR;
                 default:
                     return SESSION_EVENT_UNKNOWN_STR + " " + event;
             }
@@ -1428,6 +1661,7 @@ public abstract class Connection extends Conferenceable {
     private boolean mRingbackRequested = false;
     private int mConnectionCapabilities;
     private int mConnectionProperties;
+    private int mSupportedAudioRoutes = CallAudioState.ROUTE_ALL;
     private VideoProvider mVideoProvider;
     private boolean mAudioModeIsVoip;
     private long mConnectTimeMillis = Conference.CONNECT_TIME_NOT_SPECIFIED;
@@ -1708,6 +1942,15 @@ public abstract class Connection extends Conferenceable {
     }
 
     /**
+     * Returns the connection's supported audio routes.
+     *
+     * @hide
+     */
+    public final int getSupportedAudioRoutes() {
+        return mSupportedAudioRoutes;
+    }
+
+    /**
      * Sets the value of the {@link #getAddress()} property.
      *
      * @param address The new address.
@@ -1924,6 +2167,28 @@ public abstract class Connection extends Conferenceable {
             mConnectionProperties = connectionProperties;
             for (Listener l : mListeners) {
                 l.onConnectionPropertiesChanged(this, mConnectionProperties);
+            }
+        }
+    }
+
+    /**
+     * Sets the supported audio routes.
+     *
+     * @param supportedAudioRoutes the supported audio routes as a bitmask.
+     *                             See {@link CallAudioState}
+     * @hide
+     */
+    public final void setSupportedAudioRoutes(int supportedAudioRoutes) {
+        if ((supportedAudioRoutes
+                & (CallAudioState.ROUTE_EARPIECE | CallAudioState.ROUTE_SPEAKER)) == 0) {
+            throw new IllegalArgumentException(
+                    "supported audio routes must include either speaker or earpiece");
+        }
+
+        if (mSupportedAudioRoutes != supportedAudioRoutes) {
+            mSupportedAudioRoutes = supportedAudioRoutes;
+            for (Listener l : mListeners) {
+                l.onSupportedAudioRoutesChanged(this, mSupportedAudioRoutes);
             }
         }
     }
@@ -2235,6 +2500,66 @@ public abstract class Connection extends Conferenceable {
     }
 
     /**
+     * Sets the audio route (speaker, bluetooth, etc...).  When this request is honored, there will
+     * be change to the {@link #getCallAudioState()}.
+     * <p>
+     * Used by self-managed {@link ConnectionService}s which wish to change the audio route for a
+     * self-managed {@link Connection} (see {@link PhoneAccount#CAPABILITY_SELF_MANAGED}.)
+     * <p>
+     * See also {@link InCallService#setAudioRoute(int)}.
+     *
+     * @param route The audio route to use (one of {@link CallAudioState#ROUTE_BLUETOOTH},
+     *              {@link CallAudioState#ROUTE_EARPIECE}, {@link CallAudioState#ROUTE_SPEAKER}, or
+     *              {@link CallAudioState#ROUTE_WIRED_HEADSET}).
+     */
+    public final void setAudioRoute(int route) {
+        for (Listener l : mListeners) {
+            l.onAudioRouteChanged(this, route);
+        }
+    }
+
+    /**
+     * Informs listeners that a previously requested RTT session via
+     * {@link ConnectionRequest#isRequestingRtt()} or
+     * {@link #onStartRtt(ParcelFileDescriptor, ParcelFileDescriptor)} has succeeded.
+     * @hide
+     */
+    public final void sendRttInitiationSuccess() {
+        mListeners.forEach((l) -> l.onRttInitiationSuccess(Connection.this));
+    }
+
+    /**
+     * Informs listeners that a previously requested RTT session via
+     * {@link ConnectionRequest#isRequestingRtt()} or
+     * {@link #onStartRtt(ParcelFileDescriptor, ParcelFileDescriptor)}
+     * has failed.
+     * @param reason One of the reason codes defined in {@link RttModifyStatus}, with the
+     *               exception of {@link RttModifyStatus#SESSION_MODIFY_REQUEST_SUCCESS}.
+     * @hide
+     */
+    public final void sendRttInitiationFailure(int reason) {
+        mListeners.forEach((l) -> l.onRttInitiationFailure(Connection.this, reason));
+    }
+
+    /**
+     * Informs listeners that a currently active RTT session has been terminated by the remote
+     * side of the coll.
+     * @hide
+     */
+    public final void sendRttSessionRemotelyTerminated() {
+        mListeners.forEach((l) -> l.onRttSessionRemotelyTerminated(Connection.this));
+    }
+
+    /**
+     * Informs listeners that the remote side of the call has requested an upgrade to include an
+     * RTT session in the call.
+     * @hide
+     */
+    public final void sendRemoteRttRequest() {
+        mListeners.forEach((l) -> l.onRemoteRttRequest(Connection.this));
+    }
+
+    /**
      * Notifies this Connection that the {@link #getAudioState()} property has a new value.
      *
      * @param state The new connection audio state.
@@ -2388,6 +2713,85 @@ public abstract class Connection extends Conferenceable {
      * @param extras The new extras bundle.
      */
     public void onExtrasChanged(Bundle extras) {}
+
+    /**
+     * Notifies this {@link Connection} that its {@link ConnectionService} is responsible for
+     * displaying its incoming call user interface for the {@link Connection}.
+     * <p>
+     * Will only be called for incoming calls added via a self-managed {@link ConnectionService}
+     * (see {@link PhoneAccount#CAPABILITY_SELF_MANAGED}), where the {@link ConnectionService}
+     * should show its own incoming call user interface.
+     * <p>
+     * Where there are ongoing calls in other self-managed {@link ConnectionService}s, or in a
+     * regular {@link ConnectionService}, the Telecom framework will display its own incoming call
+     * user interface to allow the user to choose whether to answer the new incoming call and
+     * disconnect other ongoing calls, or to reject the new incoming call.
+     * <p>
+     * You should trigger the display of the incoming call user interface for your application by
+     * showing a {@link Notification} with a full-screen {@link Intent} specified.
+     * For example:
+     * <pre><code>
+     *     // Create an intent which triggers your fullscreen incoming call user interface.
+     *     Intent intent = new Intent(Intent.ACTION_MAIN, null);
+     *     intent.setFlags(Intent.FLAG_ACTIVITY_NO_USER_ACTION | Intent.FLAG_ACTIVITY_NEW_TASK);
+     *     intent.setClass(context, YourIncomingCallActivity.class);
+     *     PendingIntent pendingIntent = PendingIntent.getActivity(context, 1, intent, 0);
+     *
+     *     // Build the notification as an ongoing high priority item; this ensures it will show as
+     *     // a heads up notification which slides down over top of the current content.
+     *     final Notification.Builder builder = new Notification.Builder(context);
+     *     builder.setOngoing(true);
+     *     builder.setPriority(Notification.PRIORITY_HIGH);
+     *
+     *     // Set notification content intent to take user to fullscreen UI if user taps on the
+     *     // notification body.
+     *     builder.setContentIntent(pendingIntent);
+     *     // Set full screen intent to trigger display of the fullscreen UI when the notification
+     *     // manager deems it appropriate.
+     *     builder.setFullScreenIntent(pendingIntent, true);
+     *
+     *     // Setup notification content.
+     *     builder.setSmallIcon( yourIconResourceId );
+     *     builder.setContentTitle("Your notification title");
+     *     builder.setContentText("Your notification content.");
+     *
+     *     // Use builder.addAction(..) to add buttons to answer or reject the call.
+     *
+     *     NotificationManager notificationManager = mContext.getSystemService(
+     *         NotificationManager.class);
+     *     notificationManager.notify(YOUR_TAG, YOUR_ID, builder.build());
+     * </code></pre>
+     */
+    public void onShowIncomingCallUi() {}
+
+    /**
+     * Notifies this {@link Connection} that the user has requested an RTT session.
+     * The connection service should call {@link #sendRttInitiationSuccess} or
+     * {@link #sendRttInitiationFailure} to inform Telecom of the success or failure of the
+     * request, respectively.
+     * @param rttTextStream The object that should be used to send text to or receive text from
+     *                      the in-call app.
+     * @hide
+     */
+    public void onStartRtt(@NonNull RttTextStream rttTextStream) {}
+
+    /**
+     * Notifies this {@link Connection} that it should terminate any existing RTT communication
+     * channel. No response to Telecom is needed for this method.
+     * @hide
+     */
+    public void onStopRtt() {}
+
+    /**
+     * Notifies this connection of a response to a previous remotely-initiated RTT upgrade
+     * request sent via {@link #sendRemoteRttRequest}. Acceptance of the request is
+     * indicated by the supplied {@link RttTextStream} being non-null, and rejection is
+     * indicated by {@code rttTextStream} being {@code null}
+     * @hide
+     * @param rttTextStream The object that should be used to send text to or receive text from
+     *                      the in-call app.
+     */
+    public void handleRttUpgradeResponse(@Nullable RttTextStream rttTextStream) {}
 
     static String toLogSafePhoneNumber(String number) {
         // For unknown number, log empty string.

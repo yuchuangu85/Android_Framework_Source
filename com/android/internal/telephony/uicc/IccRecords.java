@@ -25,7 +25,6 @@ import android.os.RegistrantList;
 import android.telephony.Rlog;
 import android.telephony.SubscriptionInfo;
 import android.telephony.TelephonyManager;
-import android.text.TextUtils;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
@@ -34,7 +33,9 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * {@hide}
@@ -88,7 +89,21 @@ public abstract class IccRecords extends Handler implements IccConstants {
     protected String mGid2;
     protected String mPrefLang;
 
+    protected PlmnActRecord[] mHplmnActRecords;
+    protected PlmnActRecord[] mOplmnActRecords;
+    protected PlmnActRecord[] mPlmnActRecords;
+
+    protected String[] mEhplmns;
+    protected String[] mFplmns;
+
     private final Object mLock = new Object();
+
+    //Arbitrary offset for the Handler
+    protected static final int HANDLER_ACTION_BASE = 0x12E500;
+    protected static final int HANDLER_ACTION_NONE = HANDLER_ACTION_BASE + 0;
+    protected static final int HANDLER_ACTION_SEND_RESPONSE = HANDLER_ACTION_BASE + 1;
+    protected static AtomicInteger sNextRequestId = new AtomicInteger(1);
+    protected final HashMap<Integer, Message> mPendingResponses = new HashMap<>();
 
     // ***** Constants
 
@@ -101,7 +116,6 @@ public abstract class IccRecords extends Handler implements IccConstants {
     public static final int SPN_RULE_SHOW_PLMN = 0x02;
 
     // ***** Event Constants
-    protected static final int EVENT_SET_MSISDN_DONE = 30;
     public static final int EVENT_MWI = 0; // Message Waiting indication
     public static final int EVENT_CFI = 1; // Call Forwarding indication
     public static final int EVENT_SPN = 2; // Service Provider Name
@@ -113,6 +127,9 @@ public abstract class IccRecords extends Handler implements IccConstants {
     public static final int CALL_FORWARDING_STATUS_DISABLED = 0;
     public static final int CALL_FORWARDING_STATUS_ENABLED = 1;
     public static final int CALL_FORWARDING_STATUS_UNKNOWN = -1;
+
+    public static final int DEFAULT_VOICE_MESSAGE_COUNT = -2;
+    public static final int UNKNOWN_VOICE_MESSAGE_COUNT = -1;
 
     @Override
     public String toString() {
@@ -177,6 +194,14 @@ public abstract class IccRecords extends Handler implements IccConstants {
      */
     public void dispose() {
         mDestroyed.set(true);
+
+        // It is possible that there is another thread waiting for the response
+        // to requestIccSimAuthentication() in getIccSimChallengeResponse().
+        auth_rsp = null;
+        synchronized (mLock) {
+            mLock.notifyAll();
+        }
+
         mParentApp = null;
         mFh = null;
         mCi = null;
@@ -188,6 +213,28 @@ public abstract class IccRecords extends Handler implements IccConstants {
     //***** Public Methods
     public AdnRecordCache getAdnCache() {
         return mAdnCache;
+    }
+
+    /**
+     * Adds a message to the pending requests list by generating a unique
+     * (integer) hash key and returning it. The message should never be null.
+     */
+    public int storePendingResponseMessage(Message msg) {
+        int key = sNextRequestId.getAndIncrement();
+        synchronized (mPendingResponses) {
+            mPendingResponses.put(key, msg);
+        }
+        return key;
+    }
+
+    /**
+     * Returns the pending request, if any or null
+     */
+    public Message retrievePendingResponseMessage(Integer key) {
+        Message m;
+        synchronized (mPendingResponses) {
+            return mPendingResponses.remove(key);
+        }
     }
 
     /**
@@ -320,34 +367,13 @@ public abstract class IccRecords extends Handler implements IccConstants {
         return null;
     }
 
-    /**
-     * Set subscriber number to SIM record
-     *
-     * The subscriber number is stored in EF_MSISDN (TS 51.011)
-     *
-     * When the operation is complete, onComplete will be sent to its handler
-     *
-     * @param alphaTag alpha-tagging of the dailing nubmer (up to 10 characters)
-     * @param number dailing nubmer (up to 20 digits)
-     *        if the number starts with '+', then set to international TOA
-     * @param onComplete
-     *        onComplete.obj will be an AsyncResult
-     *        ((AsyncResult)onComplete.obj).exception == null on success
-     *        ((AsyncResult)onComplete.obj).exception != null on fail
-     */
     public void setMsisdnNumber(String alphaTag, String number,
             Message onComplete) {
-
-        mMsisdn = number;
-        mMsisdnTag = alphaTag;
-
-        if (DBG) log("Set MSISDN: " + mMsisdnTag +" " + mMsisdn);
-
-
-        AdnRecord adn = new AdnRecord(mMsisdnTag, mMsisdn);
-
-        new AdnRecordLoader(mFh).updateEF(adn, EF_MSISDN, EF_EXT1, 1, null,
-                obtainMessage(EVENT_SET_MSISDN_DONE, onComplete));
+        loge("setMsisdn() should not be invoked on base IccRecords");
+        // synthesize a "File Not Found" exception and return it
+        AsyncResult.forMessage(onComplete).exception =
+            (new IccIoResult(0x6A, 0x82, (byte[]) null)).getException();
+        onComplete.sendToTarget();
     }
 
     public String getMsisdnAlphaTag() {
@@ -691,6 +717,11 @@ public abstract class IccRecords extends Handler implements IccConstants {
         } catch(Exception e) {
             loge( "getIccSimChallengeResponse: "
                     + "Fail while trying to request Icc Sim Auth");
+            return null;
+        }
+
+        if (auth_rsp == null) {
+            loge("getIccSimChallengeResponse: No authentication response");
             return null;
         }
 

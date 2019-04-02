@@ -36,14 +36,11 @@ import java.io.File;
 class DeleteOnExitHook {
     private static LinkedHashSet<String> files = new LinkedHashSet<>();
     static {
-        // Android-changed: Access java.lang.Shutdown directly.
-        java.lang.Shutdown.add(2, true,
-                new Runnable() {
-                    public void run() {
-                       runHooks();
-                    }
-                }
-        );
+        Runtime.getRuntime().addShutdownHook(new Thread() {
+            public void run() {
+                runHooks();
+            }
+        });
     }
 
     private DeleteOnExitHook() {}

@@ -17,8 +17,11 @@
 package android.hardware;
 
 import android.annotation.SystemApi;
+import android.annotation.SystemService;
+import android.content.Context;
 import android.os.Build;
 import android.os.Handler;
+import android.os.MemoryFile;
 import android.util.Log;
 import android.util.SparseArray;
 
@@ -29,10 +32,7 @@ import java.util.List;
 /**
  * <p>
  * SensorManager lets you access the device's {@link android.hardware.Sensor
- * sensors}. Get an instance of this class by calling
- * {@link android.content.Context#getSystemService(java.lang.String)
- * Context.getSystemService()} with the argument
- * {@link android.content.Context#SENSOR_SERVICE}.
+ * sensors}.
  * </p>
  * <p>
  * Always make sure to disable sensors you don't need, especially when your
@@ -78,6 +78,7 @@ import java.util.List;
  * @see Sensor
  *
  */
+@SystemService(Context.SENSOR_SERVICE)
 public abstract class SensorManager {
     /** @hide */
     protected static final String TAG = "SensorManager";
@@ -492,7 +493,7 @@ public abstract class SensorManager {
         if (type == Sensor.TYPE_PROXIMITY || type == Sensor.TYPE_SIGNIFICANT_MOTION ||
                 type == Sensor.TYPE_TILT_DETECTOR || type == Sensor.TYPE_WAKE_GESTURE ||
                 type == Sensor.TYPE_GLANCE_GESTURE || type == Sensor.TYPE_PICK_UP_GESTURE ||
-                type == Sensor.TYPE_WRIST_TILT_GESTURE) {
+                type == Sensor.TYPE_WRIST_TILT_GESTURE || type == Sensor.TYPE_DYNAMIC_SENSOR_META) {
             wakeUpSensor = true;
         }
 
@@ -879,6 +880,73 @@ public abstract class SensorManager {
     /** @hide */
     protected abstract boolean flushImpl(SensorEventListener listener);
 
+
+    /**
+     * Create a sensor direct channel backed by shared memory wrapped in MemoryFile object.
+     *
+     * The resulting channel can be used for delivering sensor events to native code, other
+     * processes, GPU/DSP or other co-processors without CPU intervention. This is the recommanded
+     * for high performance sensor applications that use high sensor rates (e.g. greater than 200Hz)
+     * and cares about sensor event latency.
+     *
+     * Use the returned {@link android.hardware.SensorDirectChannel} object to configure direct
+     * report of sensor events. After use, call {@link android.hardware.SensorDirectChannel#close()}
+     * to free up resource in sensor system associated with the direct channel.
+     *
+     * @param mem A {@link android.os.MemoryFile} shared memory object.
+     * @return A {@link android.hardware.SensorDirectChannel} object if successful, null otherwise.
+     * @throws NullPointerException when mem is null.
+     * @see SensorDirectChannel#close()
+     * @see #configureDirectChannel(SensorDirectChannel, Sensor, int)
+     */
+    public SensorDirectChannel createDirectChannel(MemoryFile mem) {
+        return createDirectChannelImpl(mem, null);
+    }
+
+    /**
+     * Create a sensor direct channel backed by shared memory wrapped in HardwareBuffer object.
+     *
+     * The resulting channel can be used for delivering sensor events to native code, other
+     * processes, GPU/DSP or other co-processors without CPU intervention. This is the recommanded
+     * for high performance sensor applications that use high sensor rates (e.g. greater than 200Hz)
+     * and cares about sensor event latency.
+     *
+     * Use the returned {@link android.hardware.SensorDirectChannel} object to configure direct
+     * report of sensor events. After use, call {@link android.hardware.SensorDirectChannel#close()}
+     * to free up resource in sensor system associated with the direct channel.
+     *
+     * @param mem A {@link android.hardware.HardwareBuffer} shared memory object.
+     * @return A {@link android.hardware.SensorDirectChannel} object if successful,
+     *         null otherwise.
+     * @throws NullPointerException when mem is null.
+     * @see SensorDirectChannel#close()
+     * @see #configureDirectChannel(SensorDirectChannel, Sensor, int)
+     */
+    public SensorDirectChannel createDirectChannel(HardwareBuffer mem) {
+        return createDirectChannelImpl(null, mem);
+    }
+
+    /** @hide */
+    protected abstract SensorDirectChannel createDirectChannelImpl(
+            MemoryFile memoryFile, HardwareBuffer hardwareBuffer);
+
+    /** @hide */
+    void destroyDirectChannel(SensorDirectChannel channel) {
+        destroyDirectChannelImpl(channel);
+    }
+
+    /** @hide */
+    protected abstract void destroyDirectChannelImpl(SensorDirectChannel channel);
+
+    /** @removed */
+    @Deprecated
+    public int configureDirectChannel(SensorDirectChannel channel, Sensor sensor, int rateLevel) {
+        return configureDirectChannelImpl(channel, sensor, rateLevel);
+    }
+
+    /** @hide */
+    protected abstract int configureDirectChannelImpl(
+            SensorDirectChannel channel, Sensor s, int rate);
 
     /**
      * Used for receiving notifications from the SensorManager when dynamic sensors are connected or
@@ -1828,4 +1896,12 @@ public abstract class SensorManager {
         }
         return delay;
     }
+
+    /** @hide */
+    public boolean setOperationParameter(SensorAdditionalInfo parameter) {
+        return setOperationParameterImpl(parameter);
+    }
+
+    /** @hide */
+    protected abstract boolean setOperationParameterImpl(SensorAdditionalInfo parameter);
 }

@@ -56,8 +56,6 @@ public final class SIMFileHandler extends IccFileHandler implements IccConstants
         case EF_CFIS:
         case EF_GID1:
         case EF_GID2:
-            return MF_SIM + DF_GSM;
-
         case EF_MAILBOX_CPHS:
         case EF_VOICE_MAIL_INDICATOR_CPHS:
         case EF_CFF_CPHS:

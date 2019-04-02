@@ -16,16 +16,15 @@
 
 package android.support.v7.view.menu;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.content.Context;
 import android.support.annotation.RestrictTo;
-import android.support.v4.view.ViewCompat;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
 import java.util.ArrayList;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Base class for MenuPresenters that have a consistent container view and item views. Behaves
@@ -34,7 +33,7 @@ import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
  *
  * @hide
  */
-@RestrictTo(GROUP_ID)
+@RestrictTo(LIBRARY_GROUP)
 public abstract class BaseMenuPresenter implements MenuPresenter {
 
     protected Context mSystemContext;
@@ -86,6 +85,7 @@ public abstract class BaseMenuPresenter implements MenuPresenter {
     /**
      * Reuses item views when it can
      */
+    @Override
     public void updateMenuView(boolean cleared) {
         final ViewGroup parent = (ViewGroup) mMenuView;
         if (parent == null) return;
@@ -105,7 +105,7 @@ public abstract class BaseMenuPresenter implements MenuPresenter {
                     if (item != oldItem) {
                         // Don't let old states linger with new data.
                         itemView.setPressed(false);
-                        ViewCompat.jumpDrawablesToCurrentState(itemView);
+                        itemView.jumpDrawablesToCurrentState();
                     }
                     if (itemView != convertView) {
                         addItemView(itemView, childIndex);
@@ -148,6 +148,7 @@ public abstract class BaseMenuPresenter implements MenuPresenter {
         return true;
     }
 
+    @Override
     public void setCallback(Callback cb) {
         mCallback = cb;
     }
@@ -206,12 +207,14 @@ public abstract class BaseMenuPresenter implements MenuPresenter {
         return true;
     }
 
+    @Override
     public void onCloseMenu(MenuBuilder menu, boolean allMenusAreClosing) {
         if (mCallback != null) {
             mCallback.onCloseMenu(menu, allMenusAreClosing);
         }
     }
 
+    @Override
     public boolean onSubMenuSelected(SubMenuBuilder menu) {
         if (mCallback != null) {
             return mCallback.onOpenSubMenu(menu);
@@ -219,18 +222,22 @@ public abstract class BaseMenuPresenter implements MenuPresenter {
         return false;
     }
 
+    @Override
     public boolean flagActionItems() {
         return false;
     }
 
+    @Override
     public boolean expandItemActionView(MenuBuilder menu, MenuItemImpl item) {
         return false;
     }
 
+    @Override
     public boolean collapseItemActionView(MenuBuilder menu, MenuItemImpl item) {
         return false;
     }
 
+    @Override
     public int getId() {
         return mId;
     }

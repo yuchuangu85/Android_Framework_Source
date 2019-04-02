@@ -392,6 +392,27 @@ public class UiccSmsController extends ISms.Stub {
         }
     }
 
+    @Override
+    public String createAppSpecificSmsToken(int subId, String callingPkg, PendingIntent intent) {
+        if (!isActiveSubId(subId)) {
+            Rlog.e(LOG_TAG, "Subscription " + subId + " is inactive.");
+            return null;
+        }
+
+        int phoneId = SubscriptionController.getInstance().getPhoneId(subId);
+        //Fixme: for multi-subscription case
+        if (!SubscriptionManager.isValidPhoneId(phoneId)
+                || phoneId == SubscriptionManager.DEFAULT_PHONE_INDEX) {
+            phoneId = 0;
+        }
+        if (phoneId < 0 || phoneId >= mPhone.length || mPhone[phoneId] == null) {
+            Rlog.e(LOG_TAG, "phoneId " + phoneId + " points to an invalid phone");
+            return null;
+        }
+        AppSmsManager appSmsManager = mPhone[phoneId].getAppSmsManager();
+        return appSmsManager.createAppSpecificSmsToken(callingPkg, intent);
+    }
+
     /*
      * @return true if the subId is active.
      */

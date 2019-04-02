@@ -21,12 +21,14 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.os.Bundle;
+import android.support.annotation.RequiresApi;
 import android.util.SparseArray;
 import android.widget.RemoteViews;
 
 import java.util.ArrayList;
 import java.util.List;
 
+@RequiresApi(19)
 class NotificationCompatKitKat {
     public static class Builder implements NotificationBuilderWithBuilderAccessor,
             NotificationBuilderWithActions {
@@ -127,14 +129,6 @@ class NotificationCompatKitKat {
         }
     }
 
-    public static Bundle getExtras(Notification notif) {
-        return notif.extras;
-    }
-
-    public static int getActionCount(Notification notif) {
-        return notif.actions != null ? notif.actions.length : 0;
-    }
-
     public static NotificationCompatBase.Action getAction(Notification notif,
             int actionIndex, NotificationCompatBase.Action.Factory factory,
             RemoteInputCompatBase.RemoteInput.Factory remoteInputFactory) {
@@ -147,21 +141,5 @@ class NotificationCompatKitKat {
         }
         return NotificationCompatJellybean.readAction(factory, remoteInputFactory,
                 action.icon, action.title, action.actionIntent, actionExtras);
-    }
-
-    public static boolean getLocalOnly(Notification notif) {
-        return notif.extras.getBoolean(NotificationCompatJellybean.EXTRA_LOCAL_ONLY);
-    }
-
-    public static String getGroup(Notification notif) {
-        return notif.extras.getString(NotificationCompatJellybean.EXTRA_GROUP_KEY);
-    }
-
-    public static boolean isGroupSummary(Notification notif) {
-        return notif.extras.getBoolean(NotificationCompatJellybean.EXTRA_GROUP_SUMMARY);
-    }
-
-    public static String getSortKey(Notification notif) {
-        return notif.extras.getString(NotificationCompatJellybean.EXTRA_SORT_KEY);
     }
 }

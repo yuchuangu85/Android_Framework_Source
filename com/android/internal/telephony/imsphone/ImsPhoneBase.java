@@ -23,6 +23,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.RegistrantList;
 import android.os.SystemProperties;
+import android.os.WorkSource;
 import android.telephony.CellInfo;
 import android.telephony.CellLocation;
 import android.telephony.ServiceState;
@@ -145,12 +146,12 @@ abstract class ImsPhoneBase extends Phone {
      * @return all available cell information or null if none.
      */
     @Override
-    public List<CellInfo> getAllCellInfo() {
-        return getServiceStateTracker().getAllCellInfo();
+    public List<CellInfo> getAllCellInfo(WorkSource workSource) {
+        return getServiceStateTracker().getAllCellInfo(workSource);
     }
 
     @Override
-    public CellLocation getCellLocation() {
+    public CellLocation getCellLocation(WorkSource workSource) {
         return null;
     }
 
@@ -219,6 +220,8 @@ abstract class ImsPhoneBase extends Phone {
 
     public void notifyDisconnect(Connection cn) {
         mDisconnectRegistrants.notifyResult(cn);
+
+        mNotifier.notifyDisconnectCause(cn.getDisconnectCause(), cn.getPreciseDisconnectCause());
     }
 
     void notifyUnknownConnection() {
@@ -430,10 +433,6 @@ abstract class ImsPhoneBase extends Phone {
     @Override
     public void selectNetworkManually(OperatorInfo network, boolean persistSelection,
             Message response) {
-    }
-
-    @Override
-    public void getNeighboringCids(Message response) {
     }
 
     @Override

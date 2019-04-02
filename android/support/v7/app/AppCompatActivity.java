@@ -26,13 +26,12 @@ import android.support.annotation.IdRes;
 import android.support.annotation.LayoutRes;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.annotation.RestrictTo;
 import android.support.annotation.StyleRes;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.FragmentActivity;
 import android.support.v4.app.NavUtils;
 import android.support.v4.app.TaskStackBuilder;
-import android.support.v4.view.KeyEventCompat;
+import android.support.v4.os.BuildCompat;
 import android.support.v7.view.ActionMode;
 import android.support.v7.widget.Toolbar;
 import android.support.v7.widget.VectorEnabledTintResources;
@@ -42,8 +41,7 @@ import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.View;
 import android.view.ViewGroup;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+import android.view.Window;
 
 /**
  * Base class for activities that use the
@@ -66,7 +64,6 @@ public class AppCompatActivity extends FragmentActivity implements AppCompatCall
 
     private AppCompatDelegate mDelegate;
     private int mThemeId = 0;
-    private boolean mEatKeyUpEvent;
     private Resources mResources;
 
     @Override
@@ -188,8 +185,9 @@ public class AppCompatActivity extends FragmentActivity implements AppCompatCall
         getDelegate().onStop();
     }
 
+    @SuppressWarnings("TypeParameterUnusedInFormals")
     @Override
-    public View findViewById(@IdRes int id) {
+    public <T extends View> T findViewById(@IdRes int id) {
         return getDelegate().findViewById(id);
     }
 
@@ -242,10 +240,7 @@ public class AppCompatActivity extends FragmentActivity implements AppCompatCall
         getDelegate().invalidateOptionsMenu();
     }
 
-    /**
-     * @hide
-     */
-    @RestrictTo(GROUP_ID)
+    @Override
     public void invalidateOptionsMenu() {
         getDelegate().invalidateOptionsMenu();
     }
@@ -491,7 +486,7 @@ public class AppCompatActivity extends FragmentActivity implements AppCompatCall
     /**
      * {@inheritDoc}
      *
-     * <p>Please note: AppCompat uses it's own feature id for the action bar:
+     * <p>Please note: AppCompat uses its own feature id for the action bar:
      * {@link AppCompatDelegate#FEATURE_SUPPORT_ACTION_BAR FEATURE_SUPPORT_ACTION_BAR}.</p>
      */
     @Override
@@ -502,7 +497,7 @@ public class AppCompatActivity extends FragmentActivity implements AppCompatCall
     /**
      * {@inheritDoc}
      *
-     * <p>Please note: AppCompat uses it's own feature id for the action bar:
+     * <p>Please note: AppCompat uses its own feature id for the action bar:
      * {@link AppCompatDelegate#FEATURE_SUPPORT_ACTION_BAR FEATURE_SUPPORT_ACTION_BAR}.</p>
      */
     @Override
@@ -529,20 +524,13 @@ public class AppCompatActivity extends FragmentActivity implements AppCompatCall
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (KeyEventCompat.isCtrlPressed(event) &&
-                event.getUnicodeChar(event.getMetaState() & ~KeyEvent.META_CTRL_MASK) == '<') {
-            // Capture the Control-< and send focus to the ActionBar
-            final int action = event.getAction();
-            if (action == KeyEvent.ACTION_DOWN) {
-                final ActionBar actionBar = getSupportActionBar();
-                if (actionBar != null && actionBar.isShowing() && actionBar.requestFocus()) {
-                    mEatKeyUpEvent = true;
-                    return true;
-                }
-            } else if (action == KeyEvent.ACTION_UP && mEatKeyUpEvent) {
-                mEatKeyUpEvent = false;
-                return true;
-            }
+        // Let support action bars open menus in response to the menu key prioritized over
+        // the window handling it
+        final int keyCode = event.getKeyCode();
+        final ActionBar actionBar = getSupportActionBar();
+        if (keyCode == KeyEvent.KEYCODE_MENU
+                && actionBar != null && actionBar.onMenuKeyEvent(event)) {
+            return true;
         }
         return super.dispatchKeyEvent(event);
     }
@@ -553,5 +541,52 @@ public class AppCompatActivity extends FragmentActivity implements AppCompatCall
             mResources = new VectorEnabledTintResources(this, super.getResources());
         }
         return mResources == null ? super.getResources() : mResources;
+    }
+
+    /**
+     * KeyEvents with non-default modifiers are not dispatched to menu's performShortcut in API 25
+     * or lower. Here, we check if the keypress corresponds to a menuitem's shortcut combination
+     * and perform the corresponding action.
+     */
+    private boolean performMenuItemShortcut(int keycode, KeyEvent event) {
+        if (!BuildCompat.isAtLeastO() && !event.isCtrlPressed()
+                && !KeyEvent.metaStateHasNoModifiers(event.getMetaState())
+                && event.getRepeatCount() == 0
+                && !KeyEvent.isModifierKey(event.getKeyCode())) {
+            final Window currentWindow = getWindow();
+            if (currentWindow != null && currentWindow.getDecorView() != null) {
+                final View decorView = currentWindow.getDecorView();
+                if (decorView.dispatchKeyShortcutEvent(event)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (performMenuItemShortcut(keyCode, event)) {
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public void openOptionsMenu() {
+        ActionBar actionBar = getSupportActionBar();
+        if (getWindow().hasFeature(Window.FEATURE_OPTIONS_PANEL)
+                && (actionBar == null || !actionBar.openOptionsMenu())) {
+            super.openOptionsMenu();
+        }
+    }
+
+    @Override
+    public void closeOptionsMenu() {
+        ActionBar actionBar = getSupportActionBar();
+        if (getWindow().hasFeature(Window.FEATURE_OPTIONS_PANEL)
+                && (actionBar == null || !actionBar.closeOptionsMenu())) {
+            super.closeOptionsMenu();
+        }
     }
 }

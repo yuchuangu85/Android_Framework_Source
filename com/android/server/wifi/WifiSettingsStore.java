@@ -224,4 +224,14 @@ public class WifiSettingsStore {
                 Settings.Global.WIFI_SCAN_ALWAYS_AVAILABLE,
                 0) == 1;
     }
+
+    /**
+     * Get Location Mode settings for the context
+     * @param context
+     * @return Location Mode setting
+     */
+    public int getLocationModeSetting(Context context) {
+        return Settings.Secure.getInt(context.getContentResolver(),
+              Settings.Secure.LOCATION_MODE, Settings.Secure.LOCATION_MODE_OFF);
+    }
 }

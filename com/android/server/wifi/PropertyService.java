@@ -36,4 +36,11 @@ public interface PropertyService {
      * @throws IllegalArgumentException if the value exceeds 92 characters
      */
     void set(String key, String val);
+
+    /**
+     * Get the current value of |key|.
+     * @return value of |key|, if key exists; |defaultValue| otherwise
+     */
+    boolean getBoolean(String key, boolean defaultValue);
+
 }

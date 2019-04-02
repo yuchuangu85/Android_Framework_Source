@@ -18,8 +18,10 @@ package android.support.v7.app;
 
 import android.app.Notification;
 import android.media.session.MediaSession;
+import android.support.annotation.RequiresApi;
 import android.support.v4.app.NotificationBuilderWithBuilderAccessor;
 
+@RequiresApi(21)
 class NotificationCompatImpl21 {
 
     public static void addMediaStyle(NotificationBuilderWithBuilderAccessor b,

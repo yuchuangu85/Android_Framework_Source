@@ -35,7 +35,7 @@ import java.util.Set;
  * are handled by {@link CachedBluetoothDeviceManager},
  * {@link BluetoothEventManager}, and {@link LocalBluetoothProfileManager}.
  */
-public final class LocalBluetoothAdapter {
+public class LocalBluetoothAdapter {
     private static final String TAG = "LocalBluetoothAdapter";
 
     /** This class does not allow direct access to the BluetoothAdapter. */
@@ -133,6 +133,10 @@ public final class LocalBluetoothAdapter {
 
     public void setDiscoverableTimeout(int timeout) {
         mAdapter.setDiscoverableTimeout(timeout);
+    }
+
+    public long getDiscoveryEndMillis() {
+        return mAdapter.getDiscoveryEndMillis();
     }
 
     public void setName(String name) {

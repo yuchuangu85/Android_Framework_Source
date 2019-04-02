@@ -17,44 +17,31 @@
 package com.android.setupwizardlib;
 
 import android.content.Context;
-import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
-import android.os.Build;
-import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.support.v7.widget.RecyclerView.Adapter;
+import android.support.v7.widget.RecyclerView.ViewHolder;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
-import com.android.setupwizardlib.items.ItemGroup;
-import com.android.setupwizardlib.items.ItemInflater;
-import com.android.setupwizardlib.items.RecyclerItemAdapter;
-import com.android.setupwizardlib.util.DrawableLayoutDirectionHelper;
-import com.android.setupwizardlib.util.RecyclerViewRequireScrollHelper;
-import com.android.setupwizardlib.view.HeaderRecyclerView;
-import com.android.setupwizardlib.view.NavigationBar;
+import com.android.setupwizardlib.template.RecyclerMixin;
+import com.android.setupwizardlib.template.RecyclerViewScrollHandlingDelegate;
+import com.android.setupwizardlib.template.RequireScrollMixin;
 
 /**
  * A setup wizard layout for use with {@link android.support.v7.widget.RecyclerView}.
  * {@code android:entries} can also be used to specify an
  * {@link com.android.setupwizardlib.items.ItemHierarchy} to be used with this layout in XML.
  *
- * @see SetupWizardItemsLayout
+ * @see SetupWizardListLayout
  */
 public class SetupWizardRecyclerLayout extends SetupWizardLayout {
 
     private static final String TAG = "RecyclerLayout";
 
-    private RecyclerView.Adapter mAdapter;
-    private RecyclerView mRecyclerView;
-    private View mHeader;
-
-    private DividerItemDecoration mDividerDecoration;
-    private Drawable mDefaultDivider;
-    private Drawable mDivider;
-    private int mDividerInset;
+    protected RecyclerMixin mRecyclerMixin;
 
     public SetupWizardRecyclerLayout(Context context) {
         this(context, 0, 0);
@@ -76,47 +63,40 @@ public class SetupWizardRecyclerLayout extends SetupWizardLayout {
     }
 
     private void init(Context context, AttributeSet attrs, int defStyleAttr) {
-        final TypedArray a = context.obtainStyledAttributes(attrs,
-                R.styleable.SuwSetupWizardRecyclerItemsLayout, defStyleAttr, 0);
-        final int xml = a.getResourceId(
-                R.styleable.SuwSetupWizardRecyclerItemsLayout_android_entries, 0);
-        if (xml != 0) {
-            final ItemGroup inflated = (ItemGroup) new ItemInflater(context).inflate(xml);
-            mAdapter = new RecyclerItemAdapter(inflated);
-            mAdapter.setHasStableIds(a.getBoolean(
-                    R.styleable.SuwSetupWizardRecyclerItemsLayout_suwHasStableIds, false));
-            setAdapter(mAdapter);
-        }
-        int dividerInset = a.getDimensionPixelSize(
-                R.styleable.SuwSetupWizardRecyclerItemsLayout_suwDividerInset, 0);
-        if (dividerInset == 0) {
-            dividerInset = getResources()
-                    .getDimensionPixelSize(R.dimen.suw_items_icon_divider_inset);
-        }
-        setDividerInset(dividerInset);
-        a.recycle();
+        mRecyclerMixin.parseAttributes(attrs, defStyleAttr);
+        registerMixin(RecyclerMixin.class, mRecyclerMixin);
+
+
+        final RequireScrollMixin requireScrollMixin = getMixin(RequireScrollMixin.class);
+        requireScrollMixin.setScrollHandlingDelegate(
+                new RecyclerViewScrollHandlingDelegate(requireScrollMixin, getRecyclerView()));
     }
 
     @Override
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         super.onLayout(changed, left, top, right, bottom);
-        if (mDivider == null) {
-            // Update divider in case layout direction has just been resolved
-            updateDivider();
-        }
+        mRecyclerMixin.onLayout();
     }
 
-    public RecyclerView.Adapter getAdapter() {
-        return mAdapter;
+    /**
+     * @see RecyclerMixin#getAdapter()
+     */
+    public Adapter<? extends ViewHolder> getAdapter() {
+        return mRecyclerMixin.getAdapter();
     }
 
-    public void setAdapter(RecyclerView.Adapter adapter) {
-        mAdapter = adapter;
-        getRecyclerView().setAdapter(adapter);
+    /**
+     * @see RecyclerMixin#setAdapter(Adapter)
+     */
+    public void setAdapter(Adapter<? extends ViewHolder> adapter) {
+        mRecyclerMixin.setAdapter(adapter);
     }
 
+    /**
+     * @see RecyclerMixin#getRecyclerView()
+     */
     public RecyclerView getRecyclerView() {
-        return mRecyclerView;
+        return mRecyclerMixin.getRecyclerView();
     }
 
     @Override
@@ -128,21 +108,6 @@ public class SetupWizardRecyclerLayout extends SetupWizardLayout {
     }
 
     @Override
-    protected void onTemplateInflated() {
-        initRecyclerView((RecyclerView) findViewById(R.id.suw_recycler_view));
-    }
-
-    protected void initRecyclerView(RecyclerView recyclerView) {
-        mRecyclerView = recyclerView;
-        mRecyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
-        if (mRecyclerView instanceof HeaderRecyclerView) {
-            mHeader = ((HeaderRecyclerView) mRecyclerView).getHeader();
-        }
-        mDividerDecoration = new DividerItemDecoration(getContext());
-        mRecyclerView.addItemDecoration(mDividerDecoration);
-    }
-
-    @Override
     protected View onInflateTemplate(LayoutInflater inflater, int template) {
         if (template == 0) {
             template = R.layout.suw_recycler_template;
@@ -151,26 +116,26 @@ public class SetupWizardRecyclerLayout extends SetupWizardLayout {
     }
 
     @Override
-    protected View findManagedViewById(int id) {
-        if (mHeader != null) {
-            final View view = mHeader.findViewById(id);
+    protected void onTemplateInflated() {
+        final View recyclerView = findViewById(R.id.suw_recycler_view);
+        if (recyclerView instanceof RecyclerView) {
+            mRecyclerMixin = new RecyclerMixin(this, (RecyclerView) recyclerView);
+        } else {
+            throw new IllegalStateException(
+                    "SetupWizardRecyclerLayout should use a template with recycler view");
+        }
+    }
+
+    @Override
+    public View findManagedViewById(int id) {
+        final View header = mRecyclerMixin.getHeader();
+        if (header != null) {
+            final View view = header.findViewById(id);
             if (view != null) {
                 return view;
             }
         }
         return super.findViewById(id);
-    }
-
-    @Override
-    public void requireScrollToBottom() {
-        final NavigationBar navigationBar = getNavigationBar();
-        final RecyclerView recyclerView = getRecyclerView();
-        if (navigationBar != null && recyclerView != null) {
-            RecyclerViewRequireScrollHelper.requireScroll(navigationBar, recyclerView);
-        } else {
-            Log.e(TAG, "Both suw_layout_navigation_bar and suw_recycler_view must exist in"
-                    + " the template to require scrolling.");
-        }
     }
 
     /**
@@ -180,32 +145,24 @@ public class SetupWizardRecyclerLayout extends SetupWizardLayout {
      * @param inset The number of pixels to inset on the "start" side of the list divider. Typically
      *              this will be either {@code @dimen/suw_items_icon_divider_inset} or
      *              {@code @dimen/suw_items_text_divider_inset}.
+     *
+     * @see RecyclerMixin#setDividerInset(int)
      */
     public void setDividerInset(int inset) {
-        mDividerInset = inset;
-        updateDivider();
+        mRecyclerMixin.setDividerInset(inset);
     }
 
+    /**
+     * @see RecyclerMixin#getDividerInset()
+     */
     public int getDividerInset() {
-        return mDividerInset;
+        return mRecyclerMixin.getDividerInset();
     }
 
-    private void updateDivider() {
-        boolean shouldUpdate = true;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            shouldUpdate = isLayoutDirectionResolved();
-        }
-        if (shouldUpdate) {
-            if (mDefaultDivider == null) {
-                mDefaultDivider = mDividerDecoration.getDivider();
-            }
-            mDivider = DrawableLayoutDirectionHelper.createRelativeInsetDrawable(mDefaultDivider,
-                    mDividerInset /* start */, 0 /* top */, 0 /* end */, 0 /* bottom */, this);
-            mDividerDecoration.setDivider(mDivider);
-        }
-    }
-
+    /**
+     * @see RecyclerMixin#getDivider()
+     */
     public Drawable getDivider() {
-        return mDivider;
+        return mRecyclerMixin.getDivider();
     }
 }

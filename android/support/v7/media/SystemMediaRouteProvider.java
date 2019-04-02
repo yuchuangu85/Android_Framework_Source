@@ -24,6 +24,7 @@ import android.content.IntentFilter;
 import android.content.res.Resources;
 import android.media.AudioManager;
 import android.os.Build;
+import android.support.annotation.RequiresApi;
 import android.support.v7.mediarouter.R;
 import android.view.Display;
 
@@ -96,7 +97,15 @@ abstract class SystemMediaRouteProvider extends MediaRouteProvider {
      * Callbacks into the media router to synchronize state with the framework media router.
      */
     public interface SyncCallback {
-        public MediaRouter.RouteInfo getSystemRouteByDescriptorId(String id);
+        MediaRouter.RouteInfo getSystemRouteByDescriptorId(String id);
+    }
+
+    protected Object getDefaultRoute() {
+        return null;
+    }
+
+    protected Object getSystemRoute(MediaRouter.RouteInfo route) {
+        return null;
     }
 
     /**
@@ -204,6 +213,7 @@ abstract class SystemMediaRouteProvider extends MediaRouteProvider {
     /**
      * Jellybean implementation.
      */
+    @RequiresApi(16)
     static class JellybeanImpl extends SystemMediaRouteProvider
             implements MediaRouterJellybean.Callback, MediaRouterJellybean.VolumeCallback {
         private static final ArrayList<IntentFilter> LIVE_AUDIO_CONTROL_FILTERS;
@@ -652,11 +662,24 @@ abstract class SystemMediaRouteProvider extends MediaRouteProvider {
                     MediaRouterJellybean.ALL_ROUTE_TYPES, routeObj);
         }
 
+        @Override
         protected Object getDefaultRoute() {
             if (mGetDefaultRouteWorkaround == null) {
                 mGetDefaultRouteWorkaround = new MediaRouterJellybean.GetDefaultRouteWorkaround();
             }
             return mGetDefaultRouteWorkaround.getDefaultRoute(mRouterObj);
+        }
+
+        @Override
+        protected Object getSystemRoute(MediaRouter.RouteInfo route) {
+            if (route == null) {
+                return null;
+            }
+            int index = findSystemRouteRecordByDescriptorId(route.getDescriptorId());
+            if (index >= 0) {
+                return mSystemRouteRecords.get(index).mRouteObj;
+            }
+            return null;
         }
 
         /**
@@ -688,7 +711,7 @@ abstract class SystemMediaRouteProvider extends MediaRouteProvider {
             }
         }
 
-        protected final class SystemRouteController extends RouteController {
+        protected static final class SystemRouteController extends RouteController {
             private final Object mRouteObj;
 
             public SystemRouteController(Object routeObj) {
@@ -710,6 +733,7 @@ abstract class SystemMediaRouteProvider extends MediaRouteProvider {
     /**
      * Jellybean MR1 implementation.
      */
+    @RequiresApi(17)
     private static class JellybeanMr1Impl extends JellybeanImpl
             implements MediaRouterJellybeanMr1.Callback {
         private MediaRouterJellybeanMr1.ActiveScanWorkaround mActiveScanWorkaround;
@@ -786,6 +810,7 @@ abstract class SystemMediaRouteProvider extends MediaRouteProvider {
     /**
      * Jellybean MR2 implementation.
      */
+    @RequiresApi(18)
     private static class JellybeanMr2Impl extends JellybeanMr1Impl {
         public JellybeanMr2Impl(Context context, SyncCallback syncCallback) {
             super(context, syncCallback);
@@ -843,6 +868,7 @@ abstract class SystemMediaRouteProvider extends MediaRouteProvider {
     /**
      * Api24 implementation.
      */
+    @RequiresApi(24)
     private static class Api24Impl extends JellybeanMr2Impl {
         public Api24Impl(Context context, SyncCallback syncCallback) {
             super(context, syncCallback);

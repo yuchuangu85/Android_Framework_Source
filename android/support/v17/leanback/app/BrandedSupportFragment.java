@@ -1,3 +1,4 @@
+// CHECKSTYLE:OFF Generated code
 /* This file is auto-generated from BrandedFragment.java.  DO NOT MODIFY. */
 
 /*
@@ -152,6 +153,7 @@ public class BrandedSupportFragment extends Fragment {
         }
         if (mTitleView != null && view instanceof ViewGroup) {
             mTitleHelper = new TitleHelper((ViewGroup) view, mTitleView);
+            mTitleHelper.showTitle(mShowingTitle);
         }
     }
 

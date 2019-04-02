@@ -21,9 +21,11 @@ import android.net.LinkProperties;
 import android.os.AsyncResult;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.ResultReceiver;
 import android.os.Message;
 import android.os.RegistrantList;
 import android.os.SystemProperties;
+import android.os.WorkSource;
 import android.telephony.CellLocation;
 import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
@@ -110,7 +112,7 @@ abstract class SipPhoneBase extends Phone {
     }
 
     @Override
-    public CellLocation getCellLocation() {
+    public CellLocation getCellLocation(WorkSource workSource) {
         return null;
     }
 
@@ -235,6 +237,11 @@ abstract class SipPhoneBase extends Phone {
 
     @Override
     public boolean handlePinMmi(String dialString) {
+        return false;
+    }
+
+    @Override
+    public boolean handleUssdRequest(String dialString, ResultReceiver wrappedCallback) {
         return false;
     }
 
@@ -393,10 +400,6 @@ abstract class SipPhoneBase extends Phone {
     @Override
     public void selectNetworkManually(OperatorInfo network, boolean persistSelection,
             Message response) {
-    }
-
-    @Override
-    public void getNeighboringCids(Message response) {
     }
 
     @Override

@@ -77,13 +77,19 @@ public final class MediaSession {
     /**
      * Set this flag on the session to indicate that it can handle media button
      * events.
+     * @deprecated This flag is no longer used. All media sessions are expected to handle media
+     * button events now.
      */
+    @Deprecated
     public static final int FLAG_HANDLES_MEDIA_BUTTONS = 1 << 0;
 
     /**
      * Set this flag on the session to indicate that it handles transport
      * control commands through its {@link Callback}.
+     * @deprecated This flag is no longer used. All media sessions are expected to handle transport
+     * controls now.
      */
+    @Deprecated
     public static final int FLAG_HANDLES_TRANSPORT_CONTROLS = 1 << 1;
 
     /**
@@ -407,12 +413,14 @@ public final class MediaSession {
 
     /**
      * Update the current metadata. New metadata can be created using
-     * {@link android.media.MediaMetadata.Builder}.
+     * {@link android.media.MediaMetadata.Builder}. This operation may take time proportional to
+     * the size of the bitmap to replace large bitmaps with a scaled down copy.
      *
      * @param metadata The new metadata
+     * @see android.media.MediaMetadata.Builder#putBitmap
      */
     public void setMetadata(@Nullable MediaMetadata metadata) {
-        if (metadata != null ) {
+        if (metadata != null) {
             metadata = (new MediaMetadata.Builder(metadata, mMaxBitmapSize)).build();
         }
         try {
@@ -1174,7 +1182,7 @@ public final class MediaSession {
      */
     public static final class QueueItem implements Parcelable {
         /**
-         * This id is reserved. No items can be explicitly asigned this id.
+         * This id is reserved. No items can be explicitly assigned this id.
          */
         public static final int UNKNOWN_ID = -1;
 

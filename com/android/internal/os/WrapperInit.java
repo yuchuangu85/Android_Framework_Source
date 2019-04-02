@@ -17,8 +17,15 @@
 package com.android.internal.os;
 
 import android.os.Process;
+import android.os.Trace;
+import android.system.ErrnoException;
+import android.system.Os;
+import android.system.OsConstants;
+import android.system.StructCapUserData;
+import android.system.StructCapUserHeader;
+import android.util.BootTimingsTraceLog;
 import android.util.Slog;
-
+import com.android.internal.os.Zygote.MethodAndArgsCaller;
 import dalvik.system.VMRuntime;
 import java.io.DataOutputStream;
 import java.io.FileDescriptor;
@@ -74,14 +81,15 @@ public class WrapperInit {
                 }
             }
 
-            // Mimic Zygote preloading.
-            ZygoteInit.preload();
+            // Mimic system Zygote preloading.
+            ZygoteInit.preload(new BootTimingsTraceLog("WrapperInitTiming",
+                    Trace.TRACE_TAG_DALVIK));
 
             // Launch the application.
             String[] runtimeArgs = new String[args.length - 2];
             System.arraycopy(args, 2, runtimeArgs, 0, runtimeArgs.length);
-            RuntimeInit.wrapperInit(targetSdkVersion, runtimeArgs);
-        } catch (ZygoteInit.MethodAndArgsCaller caller) {
+            WrapperInit.wrapperInit(targetSdkVersion, runtimeArgs);
+        } catch (Zygote.MethodAndArgsCaller caller) {
             caller.run();
         }
     }
@@ -119,6 +127,95 @@ public class WrapperInit {
         command.append(' ');
         command.append(targetSdkVersion);
         Zygote.appendQuotedShellArgs(command, args);
+        preserveCapabilities();
         Zygote.execShell(command.toString());
+    }
+
+    /**
+     * The main function called when an application is started through a
+     * wrapper process.
+     *
+     * When the wrapper starts, the runtime starts {@link RuntimeInit#main}
+     * which calls {@link main} which then calls this method.
+     * So we don't need to call commonInit() here.
+     *
+     * @param targetSdkVersion target SDK version
+     * @param argv arg strings
+     */
+    private static void wrapperInit(int targetSdkVersion, String[] argv)
+            throws Zygote.MethodAndArgsCaller {
+        if (RuntimeInit.DEBUG) {
+            Slog.d(RuntimeInit.TAG, "RuntimeInit: Starting application from wrapper");
+        }
+
+        // Check whether the first argument is a "-cp" in argv, and assume the next argument is the
+        // classpath. If found, create a PathClassLoader and use it for applicationInit.
+        ClassLoader classLoader = null;
+        if (argv != null && argv.length > 2 && argv[0].equals("-cp")) {
+            classLoader = ZygoteInit.createPathClassLoader(argv[1], targetSdkVersion);
+
+            // Install this classloader as the context classloader, too.
+            Thread.currentThread().setContextClassLoader(classLoader);
+
+            // Remove the classpath from the arguments.
+            String removedArgs[] = new String[argv.length - 2];
+            System.arraycopy(argv, 2, removedArgs, 0, argv.length - 2);
+            argv = removedArgs;
+        }
+
+        RuntimeInit.applicationInit(targetSdkVersion, argv, classLoader);
+    }
+
+    /**
+     * Copy current capabilities to ambient capabilities. This is required for apps using
+     * capabilities, as execv will re-evaluate the capability set, and the set of sh is
+     * empty. Ambient capabilities have to be set to inherit them effectively.
+     *
+     * Note: This is BEST EFFORT ONLY. In case capabilities can't be raised, this function
+     *       will silently return. In THIS CASE ONLY, as this is a development feature, it
+     *       is better to return and try to run anyways, instead of blocking the wrapped app.
+     *       This is acceptable here as failure will leave the wrapped app with strictly less
+     *       capabilities, which may make it crash, but not exceed its allowances.
+     */
+    private static void preserveCapabilities() {
+        StructCapUserHeader header = new StructCapUserHeader(
+                OsConstants._LINUX_CAPABILITY_VERSION_3, 0);
+        StructCapUserData[] data;
+        try {
+            data = Os.capget(header);
+        } catch (ErrnoException e) {
+            Slog.e(RuntimeInit.TAG, "RuntimeInit: Failed capget", e);
+            return;
+        }
+
+        if (data[0].permitted != data[0].inheritable ||
+                data[1].permitted != data[1].inheritable) {
+            data[0] = new StructCapUserData(data[0].effective, data[0].permitted,
+                    data[0].permitted);
+            data[1] = new StructCapUserData(data[1].effective, data[1].permitted,
+                    data[1].permitted);
+            try {
+                Os.capset(header, data);
+            } catch (ErrnoException e) {
+                Slog.e(RuntimeInit.TAG, "RuntimeInit: Failed capset", e);
+                return;
+            }
+        }
+
+        for (int i = 0; i < 64; i++) {
+            int dataIndex = OsConstants.CAP_TO_INDEX(i);
+            int capMask = OsConstants.CAP_TO_MASK(i);
+            if ((data[dataIndex].inheritable & capMask) != 0) {
+                try {
+                    Os.prctl(OsConstants.PR_CAP_AMBIENT, OsConstants.PR_CAP_AMBIENT_RAISE, i, 0,
+                            0);
+                } catch (ErrnoException ex) {
+                    // Only log here. Try to run the wrapped application even without this
+                    // ambient capability. It may crash after fork, but at least we'll try.
+                    Slog.e(RuntimeInit.TAG, "RuntimeInit: Failed to raise ambient capability "
+                            + i, ex);
+                }
+            }
+        }
     }
 }

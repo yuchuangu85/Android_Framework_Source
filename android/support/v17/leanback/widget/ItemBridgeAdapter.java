@@ -197,6 +197,15 @@ public class ItemBridgeAdapter extends RecyclerView.Adapter implements FacetProv
     }
 
     /**
+     * Changes Presenter that creates and binds the view.
+     * @param presenterSelector Presenter that creates and binds the view.
+     */
+    public void setPresenter(PresenterSelector presenterSelector) {
+        mPresenterSelector = presenterSelector;
+        notifyDataSetChanged();
+    }
+
+    /**
      * Sets the {@link Wrapper}.
      */
     public void setWrapper(Wrapper wrapper) {
@@ -243,8 +252,8 @@ public class ItemBridgeAdapter extends RecyclerView.Adapter implements FacetProv
 
     @Override
     public int getItemViewType(int position) {
-        PresenterSelector presenterSelector = mPresenterSelector != null ?
-                mPresenterSelector : mAdapter.getPresenterSelector();
+        PresenterSelector presenterSelector = mPresenterSelector != null
+                ? mPresenterSelector : mAdapter.getPresenterSelector();
         Object item = mAdapter.get(position);
         Presenter presenter = presenterSelector.getPresenter(item);
         int type = mPresenters.indexOf(presenter);

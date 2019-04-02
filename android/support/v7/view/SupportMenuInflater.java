@@ -16,14 +16,15 @@
 
 package android.support.v7.view;
 
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 
 import android.app.Activity;
 import android.content.Context;
 import android.content.ContextWrapper;
+import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
+import android.graphics.PorterDuff;
 import android.support.annotation.RestrictTo;
 import android.support.v4.internal.view.SupportMenu;
 import android.support.v4.view.ActionProvider;
@@ -31,21 +32,24 @@ import android.support.v4.view.MenuItemCompat;
 import android.support.v7.appcompat.R;
 import android.support.v7.view.menu.MenuItemImpl;
 import android.support.v7.view.menu.MenuItemWrapperICS;
+import android.support.v7.widget.DrawableUtils;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Xml;
 import android.view.InflateException;
+import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.SubMenu;
 import android.view.View;
 
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * This class is used to instantiate menu XML files into Menu objects.
@@ -58,7 +62,7 @@ import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
  *
  * @hide
  */
-@RestrictTo(GROUP_ID)
+@RestrictTo(LIBRARY_GROUP)
 public class SupportMenuInflater extends MenuInflater {
     static final String LOG_TAG = "SupportMenuInflater";
 
@@ -251,6 +255,7 @@ public class SupportMenuInflater extends MenuInflater {
             }
         }
 
+        @Override
         public boolean onMenuItemClick(MenuItem item) {
             try {
                 if (mMethod.getReturnType() == Boolean.TYPE) {
@@ -292,7 +297,9 @@ public class SupportMenuInflater extends MenuInflater {
         private CharSequence itemTitleCondensed;
         private int itemIconResId;
         private char itemAlphabeticShortcut;
+        private int itemAlphabeticModifiers;
         private char itemNumericShortcut;
+        private int itemNumericModifiers;
         /**
          * Sync to attrs.xml enum:
          * - 0: none
@@ -320,6 +327,12 @@ public class SupportMenuInflater extends MenuInflater {
         private String itemListenerMethodName;
 
         ActionProvider itemActionProvider;
+
+        private CharSequence itemContentDescription;
+        private CharSequence itemTooltipText;
+
+        private ColorStateList itemIconTintList = null;
+        private PorterDuff.Mode itemIconTintMode = null;
 
         private static final int defaultGroupId = NO_ID;
         private static final int defaultItemId = NO_ID;
@@ -380,8 +393,12 @@ public class SupportMenuInflater extends MenuInflater {
             itemIconResId = a.getResourceId(R.styleable.MenuItem_android_icon, 0);
             itemAlphabeticShortcut =
                     getShortcut(a.getString(R.styleable.MenuItem_android_alphabeticShortcut));
+            itemAlphabeticModifiers =
+                    a.getInt(R.styleable.MenuItem_alphabeticModifiers, KeyEvent.META_CTRL_ON);
             itemNumericShortcut =
                     getShortcut(a.getString(R.styleable.MenuItem_android_numericShortcut));
+            itemNumericModifiers =
+                    a.getInt(R.styleable.MenuItem_numericModifiers, KeyEvent.META_CTRL_ON);
             if (a.hasValue(R.styleable.MenuItem_android_checkable)) {
                 // Item has attribute checkable, use it
                 itemCheckable = a.getBoolean(R.styleable.MenuItem_android_checkable, false) ? 1 : 0;
@@ -412,6 +429,23 @@ public class SupportMenuInflater extends MenuInflater {
                 itemActionProvider = null;
             }
 
+            itemContentDescription = a.getText(R.styleable.MenuItem_contentDescription);
+            itemTooltipText = a.getText(R.styleable.MenuItem_tooltipText);
+            if (a.hasValue(R.styleable.MenuItem_iconTintMode)) {
+                itemIconTintMode = DrawableUtils.parseTintMode(a.getInt(
+                        R.styleable.MenuItem_iconTintMode, -1),
+                        itemIconTintMode);
+            } else {
+                // Reset to null so that it's not carried over to the next item
+                itemIconTintMode = null;
+            }
+            if (a.hasValue(R.styleable.MenuItem_iconTint)) {
+                itemIconTintList = a.getColorStateList(R.styleable.MenuItem_iconTint);
+            } else {
+                // Reset to null so that it's not carried over to the next item
+                itemIconTintList = null;
+            }
+
             a.recycle();
 
             itemAdded = false;
@@ -431,12 +465,10 @@ public class SupportMenuInflater extends MenuInflater {
                     .setEnabled(itemEnabled)
                     .setCheckable(itemCheckable >= 1)
                     .setTitleCondensed(itemTitleCondensed)
-                    .setIcon(itemIconResId)
-                    .setAlphabeticShortcut(itemAlphabeticShortcut)
-                    .setNumericShortcut(itemNumericShortcut);
+                    .setIcon(itemIconResId);
 
             if (itemShowAsAction >= 0) {
-                MenuItemCompat.setShowAsAction(item, itemShowAsAction);
+                item.setShowAsAction(itemShowAsAction);
             }
 
             if (itemListenerMethodName != null) {
@@ -461,12 +493,12 @@ public class SupportMenuInflater extends MenuInflater {
             if (itemActionViewClassName != null) {
                 View actionView = (View) newInstance(itemActionViewClassName,
                         ACTION_VIEW_CONSTRUCTOR_SIGNATURE, mActionViewConstructorArguments);
-                MenuItemCompat.setActionView(item, actionView);
+                item.setActionView(actionView);
                 actionViewSpecified = true;
             }
             if (itemActionViewLayout > 0) {
                 if (!actionViewSpecified) {
-                    MenuItemCompat.setActionView(item, itemActionViewLayout);
+                    item.setActionView(itemActionViewLayout);
                     actionViewSpecified = true;
                 } else {
                     Log.w(LOG_TAG, "Ignoring attribute 'itemActionViewLayout'."
@@ -475,6 +507,19 @@ public class SupportMenuInflater extends MenuInflater {
             }
             if (itemActionProvider != null) {
                 MenuItemCompat.setActionProvider(item, itemActionProvider);
+            }
+
+            MenuItemCompat.setContentDescription(item, itemContentDescription);
+            MenuItemCompat.setTooltipText(item, itemTooltipText);
+            MenuItemCompat.setAlphabeticShortcut(item, itemAlphabeticShortcut,
+                    itemAlphabeticModifiers);
+            MenuItemCompat.setNumericShortcut(item, itemNumericShortcut, itemNumericModifiers);
+
+            if (itemIconTintMode != null) {
+                MenuItemCompat.setIconTintMode(item, itemIconTintMode);
+            }
+            if (itemIconTintList != null) {
+                MenuItemCompat.setIconTintList(item, itemIconTintList);
             }
         }
 
@@ -494,7 +539,7 @@ public class SupportMenuInflater extends MenuInflater {
             return itemAdded;
         }
 
-        @SuppressWarnings("unchecked")
+        @SuppressWarnings({"unchecked", "TypeParameterUnusedInFormals"})
         private <T> T newInstance(String className, Class<?>[] constructorSignature,
                 Object[] arguments) {
             try {

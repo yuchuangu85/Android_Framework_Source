@@ -16,6 +16,7 @@
 
 package android.net;
 
+import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.app.DownloadManager;
 import android.app.backup.BackupManager;
@@ -108,6 +109,26 @@ public class TrafficStats {
      */
     public static final int TAG_SYSTEM_RESTORE = 0xFFFFFF04;
 
+    /** @hide */
+    public static final int TAG_SYSTEM_DHCP = 0xFFFFFF05;
+    /** @hide */
+    public static final int TAG_SYSTEM_NTP = 0xFFFFFF06;
+    /** @hide */
+    public static final int TAG_SYSTEM_PROBE = 0xFFFFFF07;
+    /** @hide */
+    public static final int TAG_SYSTEM_NEIGHBOR = 0xFFFFFF08;
+    /** @hide */
+    public static final int TAG_SYSTEM_GPS = 0xFFFFFF09;
+    /** @hide */
+    public static final int TAG_SYSTEM_PAC = 0xFFFFFF0A;
+
+    /**
+     * Sockets that are strictly local on device; never hits network.
+     *
+     * @hide
+     */
+    public static final int TAG_SYSTEM_LOCAL = 0xFFFFFFAA;
+
     private static INetworkStatsService sStatsService;
 
     private synchronized static INetworkStatsService getStatsService() {
@@ -144,6 +165,24 @@ public class TrafficStats {
      */
     public static void setThreadStatsTag(int tag) {
         NetworkManagementSocketTagger.setThreadSocketStatsTag(tag);
+    }
+
+    /**
+     * Set active tag to use when accounting {@link Socket} traffic originating
+     * from the current thread. Only one active tag per thread is supported.
+     * <p>
+     * Changes only take effect during subsequent calls to
+     * {@link #tagSocket(Socket)}.
+     * <p>
+     * Tags between {@code 0xFFFFFF00} and {@code 0xFFFFFFFF} are reserved and
+     * used internally by system services like {@link DownloadManager} when
+     * performing traffic on behalf of an application.
+     *
+     * @return the current tag for the calling thread, which can be used to
+     *         restore any existing values after a nested operation is finished
+     */
+    public static int getAndSetThreadStatsTag(int tag) {
+        return NetworkManagementSocketTagger.setThreadSocketStatsTag(tag);
     }
 
     /**
@@ -205,6 +244,7 @@ public class TrafficStats {
      * @hide
      */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.UPDATE_DEVICE_STATS)
     public static void setThreadStatsUid(int uid) {
         NetworkManagementSocketTagger.setThreadSocketStatsUid(uid);
     }
@@ -217,6 +257,7 @@ public class TrafficStats {
      * @hide
      */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.UPDATE_DEVICE_STATS)
     public static void clearThreadStatsUid() {
         NetworkManagementSocketTagger.setThreadSocketStatsUid(-1);
     }

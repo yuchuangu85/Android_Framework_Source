@@ -33,9 +33,15 @@ public class PortraitConfigTest extends BaseDataBinderTest<MultiResLayoutBinding
         super(MultiResLayoutBinding.class, ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
     }
 
+    @Override
+    protected void setUp() throws Exception {
+        super.setUp();
+        initBinder();
+        getInstrumentation().waitForIdleSync();
+    }
+
     public void testSharedViewIdAndVariableInheritance()
             throws InterruptedException, NoSuchMethodException, NoSuchFieldException {
-        initBinder();
         assertEquals("MultiResLayoutBindingImpl", mBinder.getClass().getSimpleName());
         assertPublicField(TextView.class, "objectInLandTextView");
         assertPublicField(TextView.class, "objectInDefaultTextView");
@@ -52,7 +58,6 @@ public class PortraitConfigTest extends BaseDataBinderTest<MultiResLayoutBinding
 
     @UiThreadTest
     public void testSetVariable() throws Throwable {
-        initBinder();
         assertTrue(mBinder.setVariable(BR.objectInBoth, null));
         assertTrue(mBinder.setVariable(BR.objectInDefault, null));
         assertFalse(mBinder.setVariable(BR.obj, null));

@@ -16,27 +16,36 @@
 
 package com.android.setupwizardlib.test;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
-import android.test.AndroidTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import android.view.View;
 
 import com.android.setupwizardlib.view.Illustration;
 
-public class IllustrationTest extends AndroidTestCase {
+import org.junit.Test;
+import org.junit.runner.RunWith;
 
-    @SmallTest
+@RunWith(AndroidJUnit4.class)
+@SmallTest
+public class IllustrationTest {
+
+    @Test
     public void testWillDraw() {
-        final Illustration illustration = new Illustration(getContext());
+        final Illustration illustration = new Illustration(InstrumentationRegistry.getContext());
         assertFalse("The illustration needs to be drawn", illustration.willNotDraw());
     }
 
-    @SmallTest
+    @Test
     public void testAspectRatio() {
-        final Context context = getContext();
+        final Context context = InstrumentationRegistry.getContext();
         // Force the context to be xhdpi
         context.getResources().getDisplayMetrics().density = 2.0f;
 

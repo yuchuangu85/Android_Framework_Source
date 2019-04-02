@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
+ * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 
 package com.android.ims.internal;
 
-import com.android.internal.os.SomeArgs;
-
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
@@ -28,6 +26,11 @@ import android.telecom.VideoProfile;
 import android.telecom.VideoProfile.CameraCapabilities;
 import android.view.Surface;
 
+import com.android.internal.os.SomeArgs;
+
+/**
+ * @hide
+ */
 public abstract class ImsVideoCallProvider {
     private static final int MSG_SET_CALLBACK = 1;
     private static final int MSG_SET_CAMERA = 2;
@@ -56,8 +59,16 @@ public abstract class ImsVideoCallProvider {
                     mCallback = (IImsVideoCallCallback) msg.obj;
                     break;
                 case MSG_SET_CAMERA:
-                    onSetCamera((String) msg.obj);
+                {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    try {
+                        onSetCamera((String) args.arg1);
+                        onSetCamera((String) args.arg1, args.argi1);
+                    } finally {
+                        args.recycle();
+                    }
                     break;
+                }
                 case MSG_SET_PREVIEW_SURFACE:
                     onSetPreviewSurface((Surface) msg.obj);
                     break;
@@ -108,8 +119,11 @@ public abstract class ImsVideoCallProvider {
             mProviderHandler.obtainMessage(MSG_SET_CALLBACK, callback).sendToTarget();
         }
 
-        public void setCamera(String cameraId) {
-            mProviderHandler.obtainMessage(MSG_SET_CAMERA, cameraId).sendToTarget();
+        public void setCamera(String cameraId, int uid) {
+            SomeArgs args = SomeArgs.obtain();
+            args.arg1 = cameraId;
+            args.argi1 = uid;
+            mProviderHandler.obtainMessage(MSG_SET_CAMERA, args).sendToTarget();
         }
 
         public void setPreviewSurface(Surface surface) {
@@ -166,6 +180,18 @@ public abstract class ImsVideoCallProvider {
 
     /** @see Connection.VideoProvider#onSetCamera */
     public abstract void onSetCamera(String cameraId);
+
+    /**
+     * Similar to {@link #onSetCamera(String)}, except includes the UID of the calling process which
+     * the IMS service uses when opening the camera.  This ensures camera permissions are verified
+     * by the camera service.
+     *
+     * @param cameraId The id of the camera to be opened.
+     * @param uid The uid of the caller, used when opening the camera for permission verification.
+     * @see Connection.VideoProvider#onSetCamera
+     */
+    public void onSetCamera(String cameraId, int uid) {
+    }
 
     /** @see Connection.VideoProvider#onSetPreviewSurface */
     public abstract void onSetPreviewSurface(Surface surface);

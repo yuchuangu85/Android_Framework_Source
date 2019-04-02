@@ -18,8 +18,14 @@ package com.android.server.wifi.p2p;
 
 import android.content.Context;
 import android.util.Log;
+
 import com.android.server.SystemService;
 
+/**
+ * Wifi P2p Service class, instantiates P2p service
+ * Overrides onStart() and onBootPhase() methods in
+ * the super class.
+ */
 public final class WifiP2pService extends SystemService {
 
     private static final String TAG = "WifiP2pService";

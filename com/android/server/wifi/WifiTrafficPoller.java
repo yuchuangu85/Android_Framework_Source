@@ -38,12 +38,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/* Polls for traffic stats and notifies the clients */
-final class WifiTrafficPoller {
+/**
+ * Polls for traffic stats and notifies the clients
+ */
+public class WifiTrafficPoller {
 
-    private boolean DBG = false;
-    private boolean VDBG = false;
-
+    private static final boolean DBG = false;
     private static final String TAG = "WifiTrafficPoller";
     /**
      * Interval in milliseconds between polling for traffic
@@ -70,6 +70,8 @@ final class WifiTrafficPoller {
     private final TrafficHandler mTrafficHandler;
     private NetworkInfo mNetworkInfo;
     private final String mInterface;
+
+    private boolean mVerboseLoggingEnabled = false;
 
     WifiTrafficPoller(Context context, Looper looper, String iface) {
         mInterface = iface;
@@ -110,10 +112,10 @@ final class WifiTrafficPoller {
     }
 
     void enableVerboseLogging(int verbose) {
-        if (verbose > 0 ) {
-            DBG = true;
+        if (verbose > 0) {
+            mVerboseLoggingEnabled = true;
         } else {
-            DBG = false;
+            mVerboseLoggingEnabled = false;
         }
     }
 
@@ -126,8 +128,8 @@ final class WifiTrafficPoller {
             switch (msg.what) {
                 case ENABLE_TRAFFIC_STATS_POLL:
                     mEnableTrafficStatsPoll = (msg.arg1 == 1);
-                    if (DBG) {
-                        Log.e(TAG, "ENABLE_TRAFFIC_STATS_POLL "
+                    if (mVerboseLoggingEnabled) {
+                        Log.d(TAG, "ENABLE_TRAFFIC_STATS_POLL "
                                 + mEnableTrafficStatsPoll + " Token "
                                 + Integer.toString(mTrafficStatsPollToken));
                     }
@@ -139,8 +141,8 @@ final class WifiTrafficPoller {
                     }
                     break;
                 case TRAFFIC_STATS_POLL:
-                    if (VDBG) {
-                        Log.e(TAG, "TRAFFIC_STATS_POLL "
+                    if (DBG) {
+                        Log.d(TAG, "TRAFFIC_STATS_POLL "
                                 + mEnableTrafficStatsPoll + " Token "
                                 + Integer.toString(mTrafficStatsPollToken)
                                 + " num clients " + mClients.size());
@@ -153,8 +155,8 @@ final class WifiTrafficPoller {
                     break;
                 case ADD_CLIENT:
                     mClients.add((Messenger) msg.obj);
-                    if (DBG) {
-                        Log.e(TAG, "ADD_CLIENT: "
+                    if (mVerboseLoggingEnabled) {
+                        Log.d(TAG, "ADD_CLIENT: "
                                 + Integer.toString(mClients.size()));
                     }
                     break;
@@ -187,8 +189,8 @@ final class WifiTrafficPoller {
         mTxPkts = TrafficStats.getTxPackets(mInterface);
         mRxPkts = TrafficStats.getRxPackets(mInterface);
 
-        if (VDBG) {
-            Log.e(TAG, " packet count Tx="
+        if (DBG) {
+            Log.d(TAG, " packet count Tx="
                     + Long.toString(mTxPkts)
                     + " Rx="
                     + Long.toString(mRxPkts));
@@ -206,7 +208,7 @@ final class WifiTrafficPoller {
 
             if (dataActivity != mDataActivity && mScreenOn.get()) {
                 mDataActivity = dataActivity;
-                if (DBG) {
+                if (mVerboseLoggingEnabled) {
                     Log.e(TAG, "notifying of data activity "
                             + Integer.toString(mDataActivity));
                 }

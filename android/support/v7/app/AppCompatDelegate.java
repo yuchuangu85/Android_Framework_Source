@@ -16,6 +16,8 @@
 
 package android.support.v7.app;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
@@ -29,9 +31,7 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.RestrictTo;
 import android.support.v4.app.FragmentActivity;
-import android.support.v4.os.BuildCompat;
 import android.support.v4.view.WindowCompat;
-import android.support.v7.appcompat.R;
 import android.support.v7.view.ActionMode;
 import android.support.v7.widget.Toolbar;
 import android.util.AttributeSet;
@@ -43,8 +43,6 @@ import android.view.Window;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * This class represents a delegate which you can use to extend AppCompat's support to any
@@ -133,7 +131,7 @@ public abstract class AppCompatDelegate {
     private static boolean sCompatVectorFromResourcesEnabled = false;
 
     /** @hide */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     @IntDef({MODE_NIGHT_NO, MODE_NIGHT_YES, MODE_NIGHT_AUTO, MODE_NIGHT_FOLLOW_SYSTEM,
             MODE_NIGHT_UNSPECIFIED})
     @Retention(RetentionPolicy.SOURCE)
@@ -196,14 +194,13 @@ public abstract class AppCompatDelegate {
 
     private static AppCompatDelegate create(Context context, Window window,
             AppCompatCallback callback) {
-        final int sdk = Build.VERSION.SDK_INT;
-        if (BuildCompat.isAtLeastN()) {
+        if (Build.VERSION.SDK_INT >= 24) {
             return new AppCompatDelegateImplN(context, window, callback);
-        } else if (sdk >= 23) {
+        } else if (Build.VERSION.SDK_INT >= 23) {
             return new AppCompatDelegateImplV23(context, window, callback);
-        } else if (sdk >= 14) {
+        } else if (Build.VERSION.SDK_INT >= 14) {
             return new AppCompatDelegateImplV14(context, window, callback);
-        } else if (sdk >= 11) {
+        } else if (Build.VERSION.SDK_INT >= 11) {
             return new AppCompatDelegateImplV11(context, window, callback);
         } else {
             return new AppCompatDelegateImplV9(context, window, callback);
@@ -291,8 +288,9 @@ public abstract class AppCompatDelegate {
      *
      * @return The view if found or null otherwise.
      */
+    @SuppressWarnings("TypeParameterUnusedInFormals")
     @Nullable
-    public abstract View findViewById(@IdRes int id);
+    public abstract <T extends View> T findViewById(@IdRes int id);
 
     /**
      * Should be called instead of {@link Activity#setContentView(android.view.View)}}
@@ -391,7 +389,7 @@ public abstract class AppCompatDelegate {
 
     /**
      * This should be called from a
-     * {@link android.support.v4.view.LayoutInflaterFactory LayoutInflaterFactory} in order
+     * {@link android.view.LayoutInflater.Factory2 LayoutInflater.Factory2} in order
      * to return tint-aware widgets.
      * <p>
      * This is only needed if you are using your own
@@ -426,7 +424,8 @@ public abstract class AppCompatDelegate {
      * Allow AppCompat to apply the {@code night} and {@code notnight} resource qualifiers.
      *
      * <p>Doing this enables the
-     * {@link R.style#Theme_AppCompat_DayNight Theme.AppCompat.DayNight}
+     * {@link
+     * android.support.v7.appcompat.R.style#Theme_AppCompat_DayNight Theme.AppCompat.DayNight}
      * family of themes to work, using the computed twilight to automatically select a dark or
      * light theme.</p>
      *
@@ -519,7 +518,7 @@ public abstract class AppCompatDelegate {
      * manually, then you probably do not want to enable this. You have been warned.</p>
      *
      * <p>Even with this disabled, you can still use vector resources through
-     * {@link android.support.v7.widget.AppCompatImageView#setImageResource(int)} and it's
+     * {@link android.support.v7.widget.AppCompatImageView#setImageResource(int)} and its
      * {@code app:srcCompat} attribute. They can also be used in anything which AppCompat inflates
      * for you, such as menu resources.</p>
      *

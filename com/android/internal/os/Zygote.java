@@ -22,6 +22,9 @@ import dalvik.system.ZygoteHooks;
 import android.system.ErrnoException;
 import android.system.Os;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+
 /** @hide */
 public final class Zygote {
     /*
@@ -30,7 +33,7 @@ public final class Zygote {
     */
 
     /** enable debugging over JDWP */
-    public static final int DEBUG_ENABLE_DEBUGGER   = 1;
+    public static final int DEBUG_ENABLE_JDWP   = 1;
     /** enable JNI checks */
     public static final int DEBUG_ENABLE_CHECKJNI   = 1 << 1;
     /** enable Java programming language "assert" statements */
@@ -43,8 +46,10 @@ public final class Zygote {
     public static final int DEBUG_GENERATE_DEBUG_INFO = 1 << 5;
     /** Always use JIT-ed code. */
     public static final int DEBUG_ALWAYS_JIT = 1 << 6;
-    /** Make the code debuggable with turning off some optimizations. */
+    /** Make the code native debuggable by turning off some optimizations. */
     public static final int DEBUG_NATIVE_DEBUGGABLE = 1 << 7;
+    /** Make the code Java debuggable by turning off some optimizations. */
+    public static final int DEBUG_JAVA_DEBUGGABLE = 1 << 8;
 
     /** No external storage should be mounted. */
     public static final int MOUNT_EXTERNAL_NONE = 0;
@@ -82,6 +87,9 @@ public final class Zygote {
      * file descriptor numbers that are to be closed by the child
      * (and replaced by /dev/null) after forking.  An integer value
      * of -1 in any entry in the array means "ignore this one".
+     * @param fdsToIgnore null-ok an array of ints, either null or holding
+     * one or more POSIX file descriptor numbers that are to be ignored
+     * in the file descriptor table check.
      * @param instructionSet null-ok the instruction set to use.
      * @param appDataDir null-ok the data directory of the app.
      *
@@ -90,11 +98,13 @@ public final class Zygote {
      */
     public static int forkAndSpecialize(int uid, int gid, int[] gids, int debugFlags,
           int[][] rlimits, int mountExternal, String seInfo, String niceName, int[] fdsToClose,
-          String instructionSet, String appDataDir) {
+          int[] fdsToIgnore, String instructionSet, String appDataDir) {
         VM_HOOKS.preFork();
+        // Resets nice priority for zygote process.
+        resetNicePriority();
         int pid = nativeForkAndSpecialize(
                   uid, gid, gids, debugFlags, rlimits, mountExternal, seInfo, niceName, fdsToClose,
-                  instructionSet, appDataDir);
+                  fdsToIgnore, instructionSet, appDataDir);
         // Enable tracing as soon as possible for the child process.
         if (pid == 0) {
             Trace.setTracingEnabled(true);
@@ -108,7 +118,7 @@ public final class Zygote {
 
     native private static int nativeForkAndSpecialize(int uid, int gid, int[] gids,int debugFlags,
           int[][] rlimits, int mountExternal, String seInfo, String niceName, int[] fdsToClose,
-          String instructionSet, String appDataDir);
+          int[] fdsToIgnore, String instructionSet, String appDataDir);
 
     /**
      * Special method to start the system server process. In addition to the
@@ -136,6 +146,8 @@ public final class Zygote {
     public static int forkSystemServer(int uid, int gid, int[] gids, int debugFlags,
             int[][] rlimits, long permittedCapabilities, long effectiveCapabilities) {
         VM_HOOKS.preFork();
+        // Resets nice priority for zygote process.
+        resetNicePriority();
         int pid = nativeForkSystemServer(
                 uid, gid, gids, debugFlags, rlimits, permittedCapabilities, effectiveCapabilities);
         // Enable tracing as soon as we enter the system_server.
@@ -150,6 +162,11 @@ public final class Zygote {
             int[][] rlimits, long permittedCapabilities, long effectiveCapabilities);
 
     /**
+     * Lets children of the zygote inherit open file descriptors to this path.
+     */
+    native protected static void nativeAllowFileAcrossFork(String path);
+
+    /**
      * Zygote unmount storage space on initializing.
      * This method is called once.
      */
@@ -160,6 +177,14 @@ public final class Zygote {
         VM_HOOKS.postForkChild(debugFlags, isSystemServer, instructionSet);
     }
 
+    /**
+     * Resets the calling thread priority to the default value (Thread.NORM_PRIORITY
+     * or nice value 0). This updates both the priority value in java.lang.Thread and
+     * the nice value (setpriority).
+     */
+    static void resetNicePriority() {
+        Thread.currentThread().setPriority(Thread.NORM_PRIORITY);
+    }
 
     /**
      * Executes "/system/bin/sh -c &lt;command&gt;" using the exec() system call.
@@ -189,6 +214,41 @@ public final class Zygote {
     public static void appendQuotedShellArgs(StringBuilder command, String[] args) {
         for (String arg : args) {
             command.append(" '").append(arg.replace("'", "'\\''")).append("'");
+        }
+    }
+
+    /**
+     * Helper exception class which holds a method and arguments and
+     * can call them. This is used as part of a trampoline to get rid of
+     * the initial process setup stack frames.
+     */
+    public static class MethodAndArgsCaller extends Exception
+            implements Runnable {
+        /** method to call */
+        private final Method mMethod;
+
+        /** argument array */
+        private final String[] mArgs;
+
+        public MethodAndArgsCaller(Method method, String[] args) {
+            mMethod = method;
+            mArgs = args;
+        }
+
+        public void run() {
+            try {
+                mMethod.invoke(null, new Object[] { mArgs });
+            } catch (IllegalAccessException ex) {
+                throw new RuntimeException(ex);
+            } catch (InvocationTargetException ex) {
+                Throwable cause = ex.getCause();
+                if (cause instanceof RuntimeException) {
+                    throw (RuntimeException) cause;
+                } else if (cause instanceof Error) {
+                    throw (Error) cause;
+                }
+                throw new RuntimeException(ex);
+            }
         }
     }
 }

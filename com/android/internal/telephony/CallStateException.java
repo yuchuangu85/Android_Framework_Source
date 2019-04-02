@@ -27,6 +27,7 @@ public class CallStateException extends Exception
     public static final int ERROR_INVALID = -1;
 
     public static final int ERROR_DISCONNECTED = 1;
+    public static final int ERROR_POWER_OFF = 2;
 
     public
     CallStateException()

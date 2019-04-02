@@ -18,9 +18,10 @@ package com.android.ims.internal;
 
 import android.os.Message;
 import android.os.RemoteException;
-import android.telecom.Connection;
 
 import java.util.Objects;
+
+import android.telephony.ims.stub.ImsCallSessionListenerImplBase;
 import android.util.Log;
 import com.android.ims.ImsCallProfile;
 import com.android.ims.ImsConferenceState;
@@ -223,7 +224,7 @@ public class ImsCallSession {
         /**
          * Called when the session is updated (except for hold/unhold).
          *
-         * @param call the call object that carries out the IMS call
+         * @param session the session object that carries out the IMS session
          */
         public void callSessionUpdated(ImsCallSession session,
                 ImsCallProfile profile) {
@@ -643,7 +644,7 @@ public class ImsCallSession {
      * Initiates an IMS call with the specified target and call profile.
      * The session listener is called back upon defined session events.
      * The method is only valid to call when the session state is in
-     * {@link ImsCallSession#State#IDLE}.
+     * {@link ImsCallSession.State#IDLE}.
      *
      * @param callee dialed string to make the call to
      * @param profile call profile to make the call with the specified service type,
@@ -665,7 +666,7 @@ public class ImsCallSession {
      * Initiates an IMS conference call with the specified target and call profile.
      * The session listener is called back upon defined session events.
      * The method is only valid to call when the session state is in
-     * {@link ImsCallSession#State#IDLE}.
+     * {@link ImsCallSession.State#IDLE}.
      *
      * @param participants participant list to initiate an IMS conference call
      * @param profile call profile to make the call with the specified service type,
@@ -807,8 +808,9 @@ public class ImsCallSession {
     /**
      * Extends this call to the conference call with the specified recipients.
      *
-     * @participants participant list to be invited to the conference call after extending the call
-     * @see Listener#sessionConferenceExtened, Listener#sessionConferenceExtendFailed
+     * @param participants list to be invited to the conference call after extending the call
+     * @see Listener#callSessionConferenceExtended
+     * @see Listener#callSessionConferenceExtendFailed
      */
     public void extendToConference(String[] participants) {
         if (mClosed) {
@@ -824,9 +826,9 @@ public class ImsCallSession {
     /**
      * Requests the conference server to invite an additional participants to the conference.
      *
-     * @participants participant list to be invited to the conference call
-     * @see Listener#sessionInviteParticipantsRequestDelivered,
-     *      Listener#sessionInviteParticipantsRequestFailed
+     * @param participants list to be invited to the conference call
+     * @see Listener#callSessionInviteParticipantsRequestDelivered
+     * @see Listener#callSessionInviteParticipantsRequestFailed
      */
     public void inviteParticipants(String[] participants) {
         if (mClosed) {
@@ -843,8 +845,8 @@ public class ImsCallSession {
      * Requests the conference server to remove the specified participants from the conference.
      *
      * @param participants participant list to be removed from the conference call
-     * @see Listener#sessionRemoveParticipantsRequestDelivered,
-     *      Listener#sessionRemoveParticipantsRequestFailed
+     * @see Listener#callSessionRemoveParticipantsRequestDelivered
+     * @see Listener#callSessionRemoveParticipantsRequestFailed
      */
     public void removeParticipants(String[] participants) {
         if (mClosed) {
@@ -947,7 +949,7 @@ public class ImsCallSession {
      * the application is notified by having one of the methods called on
      * the {@link IImsCallSessionListener}.
      */
-    private class IImsCallSessionListenerProxy extends IImsCallSessionListener.Stub {
+    private class IImsCallSessionListenerProxy extends ImsCallSessionListenerImplBase {
         /**
          * Notifies the result of the basic session operation (setup / terminate).
          */
@@ -1052,7 +1054,7 @@ public class ImsCallSession {
         /**
          * Notifies the successful completion of a call merge operation.
          *
-         * @param session The call session.
+         * @param newSession The call session.
          */
         @Override
         public void callSessionMergeComplete(IImsCallSession newSession) {

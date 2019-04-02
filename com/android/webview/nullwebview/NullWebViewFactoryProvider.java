@@ -31,6 +31,10 @@ import android.webkit.WebViewProvider;
 
 public class NullWebViewFactoryProvider implements WebViewFactoryProvider {
 
+    public static WebViewFactoryProvider create(WebViewDelegate delegate) {
+        return new NullWebViewFactoryProvider(delegate);
+    }
+
     public NullWebViewFactoryProvider(WebViewDelegate delegate) {
     }
 

@@ -46,7 +46,7 @@ public class CastExpr extends Expr {
     }
 
     protected String computeUniqueKey() {
-        return addTwoWay(join(mType, getCastExpr().computeUniqueKey()));
+        return join(mType, getCastExpr().computeUniqueKey());
     }
 
     public Expr getCastExpr() {
@@ -58,11 +58,12 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    protected KCode generateCode(boolean expand) {
+    protected KCode generateCode() {
         return new KCode()
                 .app("(")
                 .app(getCastType())
-                .app(") ", getCastExpr().toCode(expand));
+                .app(") (", getCastExpr().toCode())
+                .app(")");
     }
 
     @Override
@@ -71,8 +72,20 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public KCode toInverseCode(KCode value) {
-        // assume no need to cast in reverse
-        return getCastExpr().toInverseCode(value);
+    public Expr generateInverse(ExprModel model, Expr value, String bindingClassName) {
+        Expr castExpr = getCastExpr();
+        ModelClass exprType = castExpr.getResolvedType();
+        Expr castValue = model.castExpr(exprType.toJavaCode(), value);
+        return castExpr.generateInverse(model, castValue, bindingClassName);
+    }
+
+    @Override
+    public Expr cloneToModel(ExprModel model) {
+        return model.castExpr(mType, getCastExpr().cloneToModel(model));
+    }
+
+    @Override
+    public String toString() {
+        return "(" + mType + ") " + getCastExpr();
     }
 }

@@ -269,7 +269,7 @@ public class OperationScheduler {
      */
     public boolean setMoratoriumTimeHttp(String retryAfter) {
         try {
-            long ms = Long.valueOf(retryAfter) * 1000;
+            long ms = Long.parseLong(retryAfter) * 1000;
             setMoratoriumTimeMillis(ms + currentTimeMillis());
             return true;
         } catch (NumberFormatException nfe) {

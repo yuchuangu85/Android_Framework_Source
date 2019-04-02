@@ -247,6 +247,11 @@ public class AlertController {
         return false;
     }
 
+    public void installContent(AlertParams params) {
+        params.apply(this);
+        installContent();
+    }
+
     public void installContent() {
         int contentView = selectContentView();
         mWindow.setContentView(contentView);
@@ -888,7 +893,8 @@ public class AlertController {
             final int checkedItem = mCheckedItem;
             if (checkedItem > -1) {
                 listView.setItemChecked(checkedItem, true);
-                listView.setSelection(checkedItem);
+                listView.setSelectionFromTop(checkedItem,
+                        a.getDimensionPixelSize(R.styleable.AlertDialog_selectionScrollOffset, 0));
             }
         }
     }

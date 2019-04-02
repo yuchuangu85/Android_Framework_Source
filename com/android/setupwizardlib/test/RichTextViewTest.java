@@ -16,8 +16,14 @@
 
 package com.android.setupwizardlib.test;
 
-import android.test.AndroidTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+import android.annotation.SuppressLint;
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import android.text.Annotation;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
@@ -26,17 +32,22 @@ import android.text.style.TextAppearanceSpan;
 import com.android.setupwizardlib.span.LinkSpan;
 import com.android.setupwizardlib.view.RichTextView;
 
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
 import java.util.Arrays;
 
-public class RichTextViewTest extends AndroidTestCase {
+@RunWith(AndroidJUnit4.class)
+@SmallTest
+public class RichTextViewTest {
 
-    @SmallTest
+    @Test
     public void testLinkAnnotation() {
         Annotation link = new Annotation("link", "foobar");
         SpannableStringBuilder ssb = new SpannableStringBuilder("Hello world");
         ssb.setSpan(link, 1, 2, 0 /* flags */);
 
-        RichTextView textView = new RichTextView(getContext());
+        RichTextView textView = new RichTextView(InstrumentationRegistry.getContext());
         textView.setText(ssb);
 
         final CharSequence text = textView.getText();
@@ -52,13 +63,13 @@ public class RichTextViewTest extends AndroidTestCase {
                 "foobar", ((LinkSpan) spans[0]).getId());
     }
 
-    @SmallTest
+    @Test
     public void testTextStyle() {
         Annotation link = new Annotation("textAppearance", "foobar");
         SpannableStringBuilder ssb = new SpannableStringBuilder("Hello world");
         ssb.setSpan(link, 1, 2, 0 /* flags */);
 
-        RichTextView textView = new RichTextView(getContext());
+        RichTextView textView = new RichTextView(InstrumentationRegistry.getContext());
         textView.setText(ssb);
 
         final CharSequence text = textView.getText();
@@ -73,22 +84,23 @@ public class RichTextViewTest extends AndroidTestCase {
                 spans[0] instanceof TextAppearanceSpan);
     }
 
-    @SmallTest
+    @Test
     public void testTextContaininingLinksAreFocusable() {
         Annotation testLink = new Annotation("link", "value");
         SpannableStringBuilder spannableStringBuilder = new SpannableStringBuilder("Linked");
         spannableStringBuilder.setSpan(testLink, 0, 3, 0);
 
-        RichTextView view = new RichTextView(getContext());
+        RichTextView view = new RichTextView(InstrumentationRegistry.getContext());
         view.setText(spannableStringBuilder);
 
         assertTrue("TextView should be focusable since it contains spans", view.isFocusable());
     }
 
 
-    @SmallTest
+    @SuppressLint("SetTextI18n")  // It's OK. This is just a test.
+    @Test
     public void testTextContainingNoLinksAreNotFocusable() {
-        RichTextView textView = new RichTextView(getContext());
+        RichTextView textView = new RichTextView(InstrumentationRegistry.getContext());
         textView.setText("Thou shall not be focusable!");
 
         assertFalse("TextView should not be focusable since it does not contain any span",
@@ -98,9 +110,10 @@ public class RichTextViewTest extends AndroidTestCase {
 
     // Based on the text contents of the text view, the "focusable" property of the element
     // should also be automatically changed.
-    @SmallTest
+    @SuppressLint("SetTextI18n")  // It's OK. This is just a test.
+    @Test
     public void testRichTxtViewFocusChangesWithTextChange() {
-        RichTextView textView = new RichTextView(getContext());
+        RichTextView textView = new RichTextView(InstrumentationRegistry.getContext());
         textView.setText("Thou shall not be focusable!");
 
         assertFalse(textView.isFocusable());

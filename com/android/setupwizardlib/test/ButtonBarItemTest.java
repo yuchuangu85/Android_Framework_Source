@@ -16,7 +16,13 @@
 
 package com.android.setupwizardlib.test;
 
-import android.test.AndroidTestCase;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.fail;
+
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -26,20 +32,26 @@ import com.android.setupwizardlib.items.ButtonItem;
 import com.android.setupwizardlib.items.Item;
 import com.android.setupwizardlib.items.ItemHierarchy;
 
-public class ButtonBarItemTest extends AndroidTestCase {
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+@RunWith(AndroidJUnit4.class)
+@SmallTest
+public class ButtonBarItemTest {
 
     private ButtonItem mChild1;
     private ButtonItem mChild2;
     private ButtonItem mChild3;
 
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
+    @Before
+    public void setUp() throws Exception {
         mChild1 = new ButtonItem();
         mChild2 = new ButtonItem();
         mChild3 = new ButtonItem();
     }
 
+    @Test
     public void testFindItemById() {
         ButtonBarItem item = new ButtonBarItem();
         item.setId(888);
@@ -61,6 +73,7 @@ public class ButtonBarItemTest extends AndroidTestCase {
         assertNull("Finding 999 should return null", item.findItemById(999));
     }
 
+    @Test
     public void testBindEmpty() {
         ButtonBarItem item = new ButtonBarItem();
         final ViewGroup layout = createLayout();
@@ -70,6 +83,7 @@ public class ButtonBarItemTest extends AndroidTestCase {
                 layout.getChildCount());
     }
 
+    @Test
     public void testBind() {
         ButtonBarItem item = new ButtonBarItem();
 
@@ -92,6 +106,7 @@ public class ButtonBarItemTest extends AndroidTestCase {
                 ((Button) layout.getChildAt(2)).getText());
     }
 
+    @Test
     public void testAddInvalidChild() {
         ButtonBarItem item = new ButtonBarItem();
 
@@ -106,6 +121,6 @@ public class ButtonBarItemTest extends AndroidTestCase {
     }
 
     private ViewGroup createLayout() {
-        return new LinearLayout(mContext);
+        return new LinearLayout(InstrumentationRegistry.getContext());
     }
 }

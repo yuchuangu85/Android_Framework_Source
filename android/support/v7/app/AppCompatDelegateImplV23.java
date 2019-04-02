@@ -18,9 +18,11 @@ package android.support.v7.app;
 
 import android.app.UiModeManager;
 import android.content.Context;
+import android.support.annotation.RequiresApi;
 import android.view.ActionMode;
 import android.view.Window;
 
+@RequiresApi(23)
 class AppCompatDelegateImplV23 extends AppCompatDelegateImplV14 {
 
     private final UiModeManager mUiModeManager;

@@ -16,14 +16,17 @@
 
 package android.support.v7.preference;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.drawable.Drawable;
+import android.os.Build;
+import android.support.annotation.Nullable;
 import android.support.annotation.RestrictTo;
 import android.support.v4.content.ContextCompat;
 import android.support.v4.content.SharedPreferencesCompat;
-import android.support.v4.os.BuildCompat;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+import android.text.TextUtils;
 
 /**
  * Used to help create {@link Preference} hierarchies
@@ -37,8 +40,6 @@ import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
  * @see PreferenceFragmentCompat
  */
 public class PreferenceManager {
-
-    private static final String TAG = "PreferenceManager";
 
     public static final String KEY_HAS_SET_DEFAULT_VALUES = "_has_set_default_values";
 
@@ -55,12 +56,21 @@ public class PreferenceManager {
     /**
      * Cached shared preferences.
      */
+    @Nullable
     private SharedPreferences mSharedPreferences;
+
+    /**
+     * Data store to be used by the Preferences or null if {@link android.content.SharedPreferences}
+     * should be used.
+     */
+    @Nullable
+    private PreferenceDataStore mPreferenceDataStore;
 
     /**
      * If in no-commit mode, the shared editor to give out (which will be
      * committed when exiting no-commit mode).
      */
+    @Nullable
     private SharedPreferences.Editor mEditor;
 
     /**
@@ -91,6 +101,7 @@ public class PreferenceManager {
      */
     private PreferenceScreen mPreferenceScreen;
 
+    private PreferenceComparisonCallback mPreferenceComparisonCallback;
     private OnPreferenceTreeClickListener mOnPreferenceTreeClickListener;
     private OnDisplayPreferenceDialogListener mOnDisplayPreferenceDialogListener;
     private OnNavigateToScreenListener mOnNavigateToScreenListener;
@@ -98,7 +109,7 @@ public class PreferenceManager {
     /**
      * @hide
      */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     public PreferenceManager(Context context) {
         mContext = context;
 
@@ -117,7 +128,7 @@ public class PreferenceManager {
      *         root).
      * @hide
      */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     public PreferenceScreen inflateFromResource(Context context, int resId,
             PreferenceScreen rootPreferences) {
         // Block commits
@@ -151,7 +162,7 @@ public class PreferenceManager {
     }
 
     /**
-     * Returns the current name of the SharedPreferences file that preferences managed by
+     * Returns the current name of the {@link SharedPreferences} file that preferences managed by
      * this will use.
      *
      * @return The name that can be passed to {@link Context#getSharedPreferences(String, int)}.
@@ -162,11 +173,14 @@ public class PreferenceManager {
     }
 
     /**
-     * Sets the name of the SharedPreferences file that preferences managed by this
+     * Sets the name of the {@link SharedPreferences} file that preferences managed by this
      * will use.
+     *
+     * <p>If custom {@link PreferenceDataStore} is set, this won't override its usage.
      *
      * @param sharedPreferencesName The name of the SharedPreferences file.
      * @see Context#getSharedPreferences(String, int)
+     * @see #setPreferenceDataStore(PreferenceDataStore)
      */
     public void setSharedPreferencesName(String sharedPreferencesName) {
         mSharedPreferencesName = sharedPreferencesName;
@@ -201,7 +215,7 @@ public class PreferenceManager {
      * provided by the hosting {@link Context}.
      */
     public void setStorageDefault() {
-        if (BuildCompat.isAtLeastN()) {
+        if (Build.VERSION.SDK_INT >= 24) {
             mStorage = STORAGE_DEFAULT;
             mSharedPreferences = null;
         }
@@ -222,25 +236,16 @@ public class PreferenceManager {
      * example, storing sensitive authentication tokens or passwords in the
      * device-protected area is strongly discouraged.
      * <p>
-     * Prior to {@link BuildCompat#isAtLeastN()} this method has no effect,
+     * Prior to API 24 this method has no effect,
      * since device-protected storage is not available.
      *
      * @see Context#createDeviceProtectedStorageContext()
      */
     public void setStorageDeviceProtected() {
-        if (BuildCompat.isAtLeastN()) {
+        if (Build.VERSION.SDK_INT >= 24) {
             mStorage = STORAGE_DEVICE_PROTECTED;
             mSharedPreferences = null;
         }
-    }
-
-    /**
-     * @removed
-     * @deprecated
-     */
-    @Deprecated
-    public void setStorageDeviceEncrypted() {
-        setStorageDeviceProtected();
     }
 
     /**
@@ -251,7 +256,7 @@ public class PreferenceManager {
      * @see #setStorageDeviceProtected()
      */
     public boolean isStorageDefault() {
-        if (BuildCompat.isAtLeastN()) {
+        if (Build.VERSION.SDK_INT >= 24) {
             return mStorage == STORAGE_DEFAULT;
         } else {
             return true;
@@ -266,7 +271,7 @@ public class PreferenceManager {
      * @see #setStorageDeviceProtected()
      */
     public boolean isStorageDeviceProtected() {
-        if (BuildCompat.isAtLeastN()) {
+        if (Build.VERSION.SDK_INT >= 24) {
             return mStorage == STORAGE_DEVICE_PROTECTED;
         } else {
             return false;
@@ -274,13 +279,44 @@ public class PreferenceManager {
     }
 
     /**
-     * Gets a SharedPreferences instance that preferences managed by this will
+     * Sets a {@link PreferenceDataStore} to be used by all Preferences associated with this manager
+     * that don't have a custom {@link PreferenceDataStore} assigned via
+     * {@link Preference#setPreferenceDataStore(PreferenceDataStore)}. Also if the data store is
+     * set, the child preferences won't use {@link android.content.SharedPreferences} as long as
+     * they are assigned to this manager.
+     *
+     * @param dataStore the {@link PreferenceDataStore} to be used by this manager
+     * @see Preference#setPreferenceDataStore(PreferenceDataStore)
+     */
+    public void setPreferenceDataStore(PreferenceDataStore dataStore) {
+        mPreferenceDataStore = dataStore;
+    }
+
+    /**
+     * Returns the {@link PreferenceDataStore} associated with this manager or {@code null} if
+     * the default {@link android.content.SharedPreferences} are used instead.
+     *
+     * @return The {@link PreferenceDataStore} associated with this manager or {@code null} if none.
+     * @see #setPreferenceDataStore(PreferenceDataStore)
+     */
+    @Nullable
+    public PreferenceDataStore getPreferenceDataStore() {
+        return mPreferenceDataStore;
+    }
+
+    /**
+     * Gets a {@link SharedPreferences} instance that preferences managed by this will
      * use.
      *
-     * @return A SharedPreferences instance pointing to the file that contains
-     *         the values of preferences that are managed by this.
+     * @return a {@link SharedPreferences} instance pointing to the file that contain the values of
+     *         preferences that are managed by this PreferenceManager. If
+     *         a {@link PreferenceDataStore} has been set, this method returns {@code null}.
      */
     public SharedPreferences getSharedPreferences() {
+        if (getPreferenceDataStore() != null) {
+            return null;
+        }
+
         if (mSharedPreferences == null) {
             final Context storageContext;
             switch (mStorage) {
@@ -384,7 +420,6 @@ public class PreferenceManager {
      *            parameter set to true.
      */
     public static void setDefaultValues(Context context, int resId, boolean readAgain) {
-
         // Use the default shared preferences name and mode
         setDefaultValues(context, getDefaultSharedPreferencesName(context),
                 getDefaultSharedPreferencesMode(), resId, readAgain);
@@ -438,13 +473,17 @@ public class PreferenceManager {
 
     /**
      * Returns an editor to use when modifying the shared preferences.
-     * <p>
-     * Do NOT commit unless {@link #shouldCommit()} returns true.
      *
-     * @return An editor to use to write to shared preferences.
+     * <p>Do NOT commit unless {@link #shouldCommit()} returns true.
+     *
+     * @return an editor to use to write to shared preferences. If a {@link PreferenceDataStore} has
+     *         been set, this method returns {@code null}.
      * @see #shouldCommit()
      */
     SharedPreferences.Editor getEditor() {
+        if (mPreferenceDataStore != null) {
+            return null;
+        }
 
         if (mNoCommit) {
             if (mEditor == null) {
@@ -461,6 +500,8 @@ public class PreferenceManager {
      * Whether it is the client's responsibility to commit on the
      * {@link #getEditor()}. This will return false in cases where the writes
      * should be batched, for example when inflating preferences from XML.
+     *
+     * <p>If preferences are using {@link PreferenceDataStore} this value is irrelevant.
      *
      * @return Whether the client should commit.
      */
@@ -482,6 +523,15 @@ public class PreferenceManager {
      */
     public Context getContext() {
         return mContext;
+    }
+
+    public PreferenceComparisonCallback getPreferenceComparisonCallback() {
+        return mPreferenceComparisonCallback;
+    }
+
+    public void setPreferenceComparisonCallback(
+            PreferenceComparisonCallback preferenceComparisonCallback) {
+        mPreferenceComparisonCallback = preferenceComparisonCallback;
     }
 
     public OnDisplayPreferenceDialogListener getOnDisplayPreferenceDialogListener() {
@@ -533,6 +583,102 @@ public class PreferenceManager {
      */
     public OnNavigateToScreenListener getOnNavigateToScreenListener() {
         return mOnNavigateToScreenListener;
+    }
+
+    /**
+     * Callback class to be used by the {@link android.support.v7.widget.RecyclerView.Adapter}
+     * associated with the {@link PreferenceScreen}, used to determine when two {@link Preference}
+     * objects are semantically and visually the same.
+     */
+    public static abstract class PreferenceComparisonCallback {
+        /**
+         * Called to determine if two {@link Preference} objects represent the same item
+         *
+         * @param p1 {@link Preference} object to compare
+         * @param p2 {@link Preference} object to compare
+         * @return {@code true} if the objects represent the same item
+         */
+        public abstract boolean arePreferenceItemsTheSame(Preference p1, Preference p2);
+
+        /**
+         * Called to determine if two {@link Preference} objects will display the same data
+         *
+         * @param p1 {@link Preference} object to compare
+         * @param p2 {@link Preference} object to compare
+         * @return {@code true} if the objects are visually identical
+         */
+        public abstract boolean arePreferenceContentsTheSame(Preference p1, Preference p2);
+    }
+
+    /**
+     * A basic implementation of {@link PreferenceComparisonCallback} suitable for use with the
+     * default {@link Preference} classes. If the {@link PreferenceScreen} contains custom
+     * {@link Preference} subclasses, you must override
+     * {@link #arePreferenceContentsTheSame(Preference, Preference)}
+     */
+    public static class SimplePreferenceComparisonCallback extends PreferenceComparisonCallback {
+        /**
+         * {@inheritDoc}
+         *
+         * <p>This method will not be able to track replaced {@link Preference} objects if they
+         * do not have a unique key.</p>
+         *
+         * @see Preference#setKey(String)
+         */
+        @Override
+        public boolean arePreferenceItemsTheSame(Preference p1, Preference p2) {
+            return p1.getId() == p2.getId();
+        }
+
+        /**
+         * {@inheritDoc}
+         *
+         * <p>The result of this method is only valid for the default {@link Preference} objects,
+         * and custom subclasses which do not override
+         * {@link Preference#onBindViewHolder(PreferenceViewHolder)}. This method also assumes
+         * that if a preference object is being replaced by a new instance, the old instance was
+         * not modified after being removed from its containing {@link PreferenceGroup}.</p>
+         */
+        @Override
+        public boolean arePreferenceContentsTheSame(Preference p1, Preference p2) {
+            if (p1.getClass() != p2.getClass()) {
+                return false;
+            }
+            if (p1 == p2 && p1.wasDetached()) {
+                // Defensively handle the case where a preference was removed, updated and re-added.
+                // Hopefully this is rare.
+                return false;
+            }
+            if (!TextUtils.equals(p1.getTitle(), p2.getTitle())) {
+                return false;
+            }
+            if (!TextUtils.equals(p1.getSummary(), p2.getSummary())) {
+                return false;
+            }
+            final Drawable p1Icon = p1.getIcon();
+            final Drawable p2Icon = p2.getIcon();
+            if (p1Icon != p2Icon && (p1Icon == null || !p1Icon.equals(p2Icon))) {
+                return false;
+            }
+            if (p1.isEnabled() != p2.isEnabled()) {
+                return false;
+            }
+            if (p1.isSelectable() != p2.isSelectable()) {
+                return false;
+            }
+            if (p1 instanceof TwoStatePreference) {
+                if (((TwoStatePreference) p1).isChecked()
+                        != ((TwoStatePreference) p2).isChecked()) {
+                    return false;
+                }
+            }
+            if (p1 instanceof DropDownPreference && p1 != p2) {
+                // Different object, must re-bind spinner adapter
+                return false;
+            }
+
+            return true;
+        }
     }
 
     /**

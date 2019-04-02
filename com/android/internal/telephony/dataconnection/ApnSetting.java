@@ -17,6 +17,7 @@
 package com.android.internal.telephony.dataconnection;
 
 import android.content.Context;
+import android.hardware.radio.V1_0.ApnTypes;
 import android.os.PersistableBundle;
 import android.telephony.CarrierConfigManager;
 import android.telephony.Rlog;
@@ -29,10 +30,8 @@ import com.android.internal.telephony.uicc.IccRecords;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * This class represents a apn setting for create PDP link
@@ -57,6 +56,7 @@ public class ApnSetting {
     public final String password;
     public final int authType;
     public final String[] types;
+    public final int typesBitmap;
     public final int id;
     public final String numeric;
     public final String protocol;
@@ -112,25 +112,14 @@ public class ApnSetting {
      * */
     public boolean permanentFailed = false;
 
-    /**
-     * Metered APN types which would be accounted for in data usage. This is a map of subId ->
-     * set of metered apn strings for the carrier.
-     */
-    private static HashMap<Integer, HashSet<String>> sMeteredApnTypes = new HashMap<>();
-
-    /**
-     * Metered Roaming APN types which would be accounted for in data usage. This is a map of
-     * subId -> set of metered roaming apn strings for the carrier.
-     */
-    private static HashMap<Integer, HashSet<String>> sMeteredRoamingApnTypes = new HashMap<>();
-
     public ApnSetting(int id, String numeric, String carrier, String apn,
-            String proxy, String port,
-            String mmsc, String mmsProxy, String mmsPort,
-            String user, String password, int authType, String[] types,
-            String protocol, String roamingProtocol, boolean carrierEnabled, int bearer,
-            int bearerBitmask, int profileId, boolean modemCognitive, int maxConns, int waitTime,
-            int maxConnsTime, int mtu, String mvnoType, String mvnoMatchData) {
+                      String proxy, String port,
+                      String mmsc, String mmsProxy, String mmsPort,
+                      String user, String password, int authType, String[] types,
+                      String protocol, String roamingProtocol, boolean carrierEnabled, int bearer,
+                      int bearerBitmask, int profileId, boolean modemCognitive, int maxConns,
+                      int waitTime, int maxConnsTime, int mtu, String mvnoType,
+                      String mvnoMatchData) {
         this.id = id;
         this.numeric = numeric;
         this.carrier = carrier;
@@ -144,9 +133,12 @@ public class ApnSetting {
         this.password = password;
         this.authType = authType;
         this.types = new String[types.length];
+        int apnBitmap = 0;
         for (int i = 0; i < types.length; i++) {
-            this.types[i] = types[i].toLowerCase(Locale.ROOT);
+            this.types[i] = types[i].toLowerCase();
+            apnBitmap |= getApnBitmask(this.types[i]);
         }
+        this.typesBitmap = apnBitmap;
         this.protocol = protocol;
         this.roamingProtocol = roamingProtocol;
         this.carrierEnabled = carrierEnabled;
@@ -352,10 +344,12 @@ public class ApnSetting {
 
     public boolean canHandleType(String type) {
         if (!carrierEnabled) return false;
+        boolean wildcardable = true;
+        if (PhoneConstants.APN_TYPE_IA.equalsIgnoreCase(type)) wildcardable = false;
         for (String t : types) {
             // DEFAULT handles all, and HIPRI is handled by DEFAULT
             if (t.equalsIgnoreCase(type) ||
-                    t.equalsIgnoreCase(PhoneConstants.APN_TYPE_ALL) ||
+                    (wildcardable && t.equalsIgnoreCase(PhoneConstants.APN_TYPE_ALL)) ||
                     (t.equalsIgnoreCase(PhoneConstants.APN_TYPE_DEFAULT) &&
                     type.equalsIgnoreCase(PhoneConstants.APN_TYPE_HIPRI))) {
                 return true;
@@ -413,64 +407,55 @@ public class ApnSetting {
     public static boolean isMeteredApnType(String type, Context context, int subId,
                                            boolean isRoaming) {
 
-        HashMap<Integer, HashSet<String>> meteredApnTypesCache = (isRoaming) ?
-                sMeteredApnTypes : sMeteredRoamingApnTypes;
         String carrierConfig = (isRoaming) ?
                 CarrierConfigManager.KEY_CARRIER_METERED_ROAMING_APN_TYPES_STRINGS :
                 CarrierConfigManager.KEY_CARRIER_METERED_APN_TYPES_STRINGS;
 
-        synchronized (meteredApnTypesCache) {
-            HashSet<String> meteredApnSet = meteredApnTypesCache.get(subId);
+        CarrierConfigManager configManager = (CarrierConfigManager)
+                context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        if (configManager == null) {
+            Rlog.e(LOG_TAG, "Carrier config service is not available");
+            return true;
+        }
 
-            // In case of cache miss, we need to look up the settings from carrier config.
-            if (meteredApnSet == null) {
-                // Retrieve the metered APN types from carrier config
-                CarrierConfigManager configManager = (CarrierConfigManager)
-                        context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
-                if (configManager == null) {
-                    Rlog.e(LOG_TAG, "Carrier config service is not available");
-                    return true;
-                }
+        PersistableBundle b = configManager.getConfigForSubId(subId);
+        if (b == null) {
+            Rlog.e(LOG_TAG, "Can't get the config. subId = " + subId);
+            return true;
+        }
 
-                PersistableBundle b = configManager.getConfigForSubId(subId);
-                if (b == null) {
-                    Rlog.e(LOG_TAG, "Can't get the config. subId = " + subId);
-                    return true;
-                }
+        String[] meteredApnTypes = b.getStringArray(carrierConfig);
+        if (meteredApnTypes == null) {
+            Rlog.e(LOG_TAG, carrierConfig +  " is not available. " + "subId = " + subId);
+            return true;
+        }
 
-                String[] meteredApnTypes = b.getStringArray(carrierConfig);
-                if (meteredApnTypes == null) {
-                    Rlog.e(LOG_TAG, carrierConfig +  " is not available. " + "subId = " + subId);
-                    return true;
-                }
+        HashSet<String> meteredApnSet = new HashSet<>(Arrays.asList(meteredApnTypes));
+        if (DBG) {
+            Rlog.d(LOG_TAG, "For subId = " + subId + ", metered APN types are " +
+                    Arrays.toString(meteredApnSet.toArray()) +
+                    " isRoaming: " + isRoaming);
+        }
 
-                meteredApnSet = new HashSet<String>(Arrays.asList(meteredApnTypes));
-                meteredApnTypesCache.put(subId, meteredApnSet);
-                if (DBG) {
-                    Rlog.d(LOG_TAG, "For subId = " + subId + ", metered APN types are " +
-                            Arrays.toString(meteredApnSet.toArray()) +
-                            " isRoaming: " + isRoaming);
-                }
-            }
-            // If all types of APN are metered, then this APN setting must be metered.
-            if (meteredApnSet.contains(PhoneConstants.APN_TYPE_ALL)) {
-                if (DBG) Rlog.d(LOG_TAG, "All APN types are metered. isRoaming: " + isRoaming);
+        // If all types of APN are metered, then this APN setting must be metered.
+        if (meteredApnSet.contains(PhoneConstants.APN_TYPE_ALL)) {
+            if (DBG) Rlog.d(LOG_TAG, "All APN types are metered. isRoaming: " + isRoaming);
+            return true;
+        }
+
+        if (meteredApnSet.contains(type)) {
+            if (DBG) Rlog.d(LOG_TAG, type + " is metered. isRoaming: " + isRoaming);
+            return true;
+        } else if (type.equals(PhoneConstants.APN_TYPE_ALL)) {
+            // Assuming no configuration error, if at least one APN type is
+            // metered, then this APN setting is metered.
+            if (meteredApnSet.size() > 0) {
+                if (DBG) Rlog.d(LOG_TAG, "APN_TYPE_ALL APN is metered. isRoaming: " +
+                        isRoaming);
                 return true;
-            }
-
-            if (meteredApnSet.contains(type)) {
-                if (DBG) Rlog.d(LOG_TAG, type + " is metered. isRoaming: " + isRoaming);
-                return true;
-            } else if (type.equals(PhoneConstants.APN_TYPE_ALL)) {
-                // Assuming no configuration error, if at least one APN type is
-                // metered, then this APN setting is metered.
-                if (meteredApnSet.size() > 0) {
-                    if (DBG) Rlog.d(LOG_TAG, "APN_TYPE_ALL APN is metered. isRoaming: " +
-                            isRoaming);
-                    return true;
-                }
             }
         }
+
         if (DBG) Rlog.d(LOG_TAG, type + " is not metered. isRoaming: " + isRoaming);
         return false;
     }
@@ -498,28 +483,50 @@ public class ApnSetting {
 
         ApnSetting other = (ApnSetting) o;
 
-        return carrier.equals(other.carrier) &&
-                id == other.id &&
-                numeric.equals(other.numeric) &&
-                apn.equals(other.apn) &&
-                proxy.equals(other.proxy) &&
-                mmsc.equals(other.mmsc) &&
-                mmsProxy.equals(other.mmsProxy) &&
-                port.equals(other.port) &&
-                authType == other.authType &&
-                Arrays.deepEquals(types, other.types) &&
-                protocol.equals(other.protocol) &&
-                roamingProtocol.equals(other.roamingProtocol) &&
-                carrierEnabled == other.carrierEnabled &&
-                bearer == other.bearer &&
-                bearerBitmask == other.bearerBitmask &&
-                profileId == other.profileId &&
-                modemCognitive == other.modemCognitive &&
-                maxConns == other.maxConns &&
-                waitTime == other.waitTime &&
-                maxConnsTime == other.maxConnsTime &&
-                mtu == other.mtu &&
-                mvnoType.equals(other.mvnoType) &&
-                mvnoMatchData.equals(other.mvnoMatchData);
+        return carrier.equals(other.carrier)
+                && id == other.id
+                && numeric.equals(other.numeric)
+                && apn.equals(other.apn)
+                && proxy.equals(other.proxy)
+                && mmsc.equals(other.mmsc)
+                && mmsProxy.equals(other.mmsProxy)
+                && TextUtils.equals(mmsPort, other.mmsPort)
+                && port.equals(other.port)
+                && TextUtils.equals(user, other.user)
+                && TextUtils.equals(password, other.password)
+                && authType == other.authType
+                && Arrays.deepEquals(types, other.types)
+                && typesBitmap == other.typesBitmap
+                && protocol.equals(other.protocol)
+                && roamingProtocol.equals(other.roamingProtocol)
+                && carrierEnabled == other.carrierEnabled
+                && bearer == other.bearer
+                && bearerBitmask == other.bearerBitmask
+                && profileId == other.profileId
+                && modemCognitive == other.modemCognitive
+                && maxConns == other.maxConns
+                && waitTime == other.waitTime
+                && maxConnsTime == other.maxConnsTime
+                && mtu == other.mtu
+                && mvnoType.equals(other.mvnoType)
+                && mvnoMatchData.equals(other.mvnoMatchData);
+    }
+
+    // Helper function to convert APN string into a 32-bit bitmask.
+    private static int getApnBitmask(String apn) {
+        switch (apn) {
+            case PhoneConstants.APN_TYPE_DEFAULT: return ApnTypes.DEFAULT;
+            case PhoneConstants.APN_TYPE_MMS: return ApnTypes.MMS;
+            case PhoneConstants.APN_TYPE_SUPL: return ApnTypes.SUPL;
+            case PhoneConstants.APN_TYPE_DUN: return ApnTypes.DUN;
+            case PhoneConstants.APN_TYPE_HIPRI: return ApnTypes.HIPRI;
+            case PhoneConstants.APN_TYPE_FOTA: return ApnTypes.FOTA;
+            case PhoneConstants.APN_TYPE_IMS: return ApnTypes.IMS;
+            case PhoneConstants.APN_TYPE_CBS: return ApnTypes.CBS;
+            case PhoneConstants.APN_TYPE_IA: return ApnTypes.IA;
+            case PhoneConstants.APN_TYPE_EMERGENCY: return ApnTypes.EMERGENCY;
+            case PhoneConstants.APN_TYPE_ALL: return ApnTypes.ALL;
+            default: return ApnTypes.NONE;
+        }
     }
 }

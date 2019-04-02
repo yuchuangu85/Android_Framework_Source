@@ -16,19 +16,16 @@
 
 package android.support.v7.view;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.os.Build;
 import android.support.annotation.RestrictTo;
-import android.support.v4.content.res.ConfigurationHelper;
-import android.support.v4.view.ViewConfigurationCompat;
 import android.support.v7.appcompat.R;
-import android.util.DisplayMetrics;
 import android.view.ViewConfiguration;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Allows components to query for various configuration policy decisions about how the action bar
@@ -36,7 +33,7 @@ import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
  *
  * @hide
  */
-@RestrictTo(GROUP_ID)
+@RestrictTo(LIBRARY_GROUP)
 public class ActionBarPolicy {
 
     private Context mContext;
@@ -55,10 +52,10 @@ public class ActionBarPolicy {
      * "always" items can override this.
      */
     public int getMaxActionButtons() {
-        final Resources res = mContext.getResources();
-        final int widthDp = ConfigurationHelper.getScreenWidthDp(res);
-        final int heightDp = ConfigurationHelper.getScreenHeightDp(res);
-        final int smallest = ConfigurationHelper.getSmallestScreenWidthDp(res);
+        final Configuration configuration = mContext.getResources().getConfiguration();
+        final int widthDp = configuration.screenWidthDp;
+        final int heightDp = configuration.screenHeightDp;
+        final int smallest = configuration.smallestScreenWidthDp;
 
         if (smallest > 600 || widthDp > 600 || (widthDp > 960 && heightDp > 720)
                 || (widthDp > 720 && heightDp > 960)) {
@@ -80,7 +77,7 @@ public class ActionBarPolicy {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             return true;
         } else {
-            return !ViewConfigurationCompat.hasPermanentMenuKey(ViewConfiguration.get(mContext));
+            return !ViewConfiguration.get(mContext).hasPermanentMenuKey();
         }
     }
 

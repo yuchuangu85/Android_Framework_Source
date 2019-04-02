@@ -28,6 +28,7 @@ import com.android.internal.telephony.Phone;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
+import android.os.ResultReceiver;
 import android.telephony.Rlog;
 
 import java.util.regex.Pattern;
@@ -207,6 +208,11 @@ public final class CdmaMmiCode  extends Handler implements MmiCode {
         return false;
     }
 
+    @Override
+    public String getDialString() {
+        return null;
+    }
+
     /** Process a MMI PUK code */
     public void
     processCode() {
@@ -368,4 +374,8 @@ public final class CdmaMmiCode  extends Handler implements MmiCode {
         mPhone.onMMIDone(this);
     }
 
+    @Override
+    public ResultReceiver getUssdCallbackReceiver() {
+        return null;
+    }
 }

@@ -16,7 +16,7 @@
 
 package android.support.v7.view.menu;
 
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 
 import android.content.ComponentName;
 import android.content.Context;
@@ -34,7 +34,6 @@ import android.support.v4.content.ContextCompat;
 import android.support.v4.internal.view.SupportMenu;
 import android.support.v4.internal.view.SupportMenuItem;
 import android.support.v4.view.ActionProvider;
-import android.support.v4.view.MenuItemCompat;
 import android.support.v7.appcompat.R;
 import android.util.SparseArray;
 import android.view.ContextMenu;
@@ -55,7 +54,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *
  * @hide
  */
-@RestrictTo(GROUP_ID)
+@RestrictTo(LIBRARY_GROUP)
 public class MenuBuilder implements SupportMenu {
 
     private static final String TAG = "MenuBuilder";
@@ -191,7 +190,7 @@ public class MenuBuilder implements SupportMenu {
      * @hide
      */
 
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     public interface Callback {
 
         /**
@@ -215,7 +214,7 @@ public class MenuBuilder implements SupportMenu {
      * Called by menu items to execute their associated action
      * @hide
      */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     public interface ItemInvoker {
         boolean invokeItem(MenuItemImpl item);
     }
@@ -375,13 +374,13 @@ public class MenuBuilder implements SupportMenu {
         final int itemCount = size();
         for (int i = 0; i < itemCount; i++) {
             final MenuItem item = getItem(i);
-            final View v = MenuItemCompat.getActionView(item);
+            final View v = item.getActionView();
             if (v != null && v.getId() != View.NO_ID) {
                 if (viewStates == null) {
                     viewStates = new SparseArray<Parcelable>();
                 }
                 v.saveHierarchyState(viewStates);
-                if (MenuItemCompat.isActionViewExpanded(item)) {
+                if (item.isActionViewExpanded()) {
                     outStates.putInt(EXPANDED_ACTION_VIEW_ID, item.getItemId());
                 }
             }
@@ -407,7 +406,7 @@ public class MenuBuilder implements SupportMenu {
         final int itemCount = size();
         for (int i = 0; i < itemCount; i++) {
             final MenuItem item = getItem(i);
-            final View v = MenuItemCompat.getActionView(item);
+            final View v = item.getActionView();
             if (v != null && v.getId() != View.NO_ID) {
                 v.restoreHierarchyState(viewStates);
             }
@@ -421,7 +420,7 @@ public class MenuBuilder implements SupportMenu {
         if (expandedId > 0) {
             MenuItem itemToExpand = findItem(expandedId);
             if (itemToExpand != null) {
-                MenuItemCompat.expandActionView(itemToExpand);
+                itemToExpand.expandActionView();
             }
         }
     }
@@ -461,6 +460,7 @@ public class MenuBuilder implements SupportMenu {
                 defaultShowAsAction);
     }
 
+    @Override
     public MenuItem add(CharSequence title) {
         return addInternal(0, 0, 0, title);
     }
@@ -868,7 +868,7 @@ public class MenuBuilder implements SupportMenu {
     @SuppressWarnings("deprecation")
     void findItemsWithShortcutForKey(List<MenuItemImpl> items, int keyCode, KeyEvent event) {
         final boolean qwerty = isQwertyMode();
-        final int metaState = event.getMetaState();
+        final int modifierState = event.getModifiers();
         final KeyCharacterMap.KeyData possibleChars = new KeyCharacterMap.KeyData();
         // Get the chars associated with the keyCode (i.e using any chording combo)
         final boolean isKeyCodeMapped = event.getKeyData(possibleChars);
@@ -884,14 +884,18 @@ public class MenuBuilder implements SupportMenu {
             if (item.hasSubMenu()) {
                 ((MenuBuilder)item.getSubMenu()).findItemsWithShortcutForKey(items, keyCode, event);
             }
-            final char shortcutChar = qwerty ? item.getAlphabeticShortcut() : item.getNumericShortcut();
-            if (((metaState & (KeyEvent.META_SHIFT_ON | KeyEvent.META_SYM_ON)) == 0) &&
-                  (shortcutChar != 0) &&
-                  (shortcutChar == possibleChars.meta[0]
-                      || shortcutChar == possibleChars.meta[2]
-                      || (qwerty && shortcutChar == '\b' &&
-                          keyCode == KeyEvent.KEYCODE_DEL)) &&
-                  item.isEnabled()) {
+            final char shortcutChar =
+                    qwerty ? item.getAlphabeticShortcut() : item.getNumericShortcut();
+            final int shortcutModifiers =
+                    qwerty ? item.getAlphabeticModifiers() : item.getNumericModifiers();
+            final boolean isModifiersExactMatch = (modifierState & SUPPORTED_MODIFIERS_MASK)
+                    == (shortcutModifiers & SUPPORTED_MODIFIERS_MASK);
+            if (isModifiersExactMatch && (shortcutChar != 0)
+                    && (shortcutChar == possibleChars.meta[0]
+                            || shortcutChar == possibleChars.meta[2]
+                            || (qwerty && shortcutChar == '\b'
+                                && keyCode == KeyEvent.KEYCODE_DEL))
+                    && item.isEnabled()) {
                 items.add(item);
             }
         }

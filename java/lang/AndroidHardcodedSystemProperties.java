@@ -106,6 +106,9 @@ public final class AndroidHardcodedSystemProperties {
 
         // Hardcode default value for AVA. b/28174137
         { "com.sun.security.preserveOldDCEncoding", null },
+
+        // Hardcode default value for LogManager. b/28174137
+        { "java.util.logging.manager", null },
     };
 }
 

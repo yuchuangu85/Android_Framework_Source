@@ -18,17 +18,16 @@ package android.support.v7.widget.helper;
 
 import android.graphics.Canvas;
 import android.support.v4.view.ViewCompat;
+import android.support.v7.recyclerview.R;
 import android.support.v7.widget.RecyclerView;
 import android.view.View;
-import android.support.v7.recyclerview.R;
-
 
 /**
  * Package private class to keep implementations. Putting them inside ItemTouchUIUtil makes them
  * public API, which is not desired in this case.
  */
 class ItemTouchUIUtilImpl {
-    static class Lollipop extends Honeycomb {
+    static class Api21Impl extends BaseImpl {
         @Override
         public void onDraw(Canvas c, RecyclerView recyclerView, View view,
                 float dX, float dY, int actionState, boolean isCurrentlyActive) {
@@ -71,12 +70,12 @@ class ItemTouchUIUtilImpl {
         }
     }
 
-    static class Honeycomb implements ItemTouchUIUtil {
+    static class BaseImpl implements ItemTouchUIUtil {
 
         @Override
         public void clearView(View view) {
-            ViewCompat.setTranslationX(view, 0f);
-            ViewCompat.setTranslationY(view, 0f);
+            view.setTranslationX(0f);
+            view.setTranslationY(0f);
         }
 
         @Override
@@ -87,52 +86,14 @@ class ItemTouchUIUtilImpl {
         @Override
         public void onDraw(Canvas c, RecyclerView recyclerView, View view,
                 float dX, float dY, int actionState, boolean isCurrentlyActive) {
-            ViewCompat.setTranslationX(view, dX);
-            ViewCompat.setTranslationY(view, dY);
+            view.setTranslationX(dX);
+            view.setTranslationY(dY);
         }
 
         @Override
         public void onDrawOver(Canvas c, RecyclerView recyclerView,
                 View view, float dX, float dY, int actionState, boolean isCurrentlyActive) {
 
-        }
-    }
-
-    static class Gingerbread implements ItemTouchUIUtil {
-
-        private void draw(Canvas c, RecyclerView parent, View view,
-                float dX, float dY) {
-            c.save();
-            c.translate(dX, dY);
-            parent.drawChild(c, view, 0);
-            c.restore();
-        }
-
-        @Override
-        public void clearView(View view) {
-            view.setVisibility(View.VISIBLE);
-        }
-
-        @Override
-        public void onSelected(View view) {
-            view.setVisibility(View.INVISIBLE);
-        }
-
-        @Override
-        public void onDraw(Canvas c, RecyclerView recyclerView, View view,
-                float dX, float dY, int actionState, boolean isCurrentlyActive) {
-            if (actionState != ItemTouchHelper.ACTION_STATE_DRAG) {
-                draw(c, recyclerView, view, dX, dY);
-            }
-        }
-
-        @Override
-        public void onDrawOver(Canvas c, RecyclerView recyclerView,
-                View view, float dX, float dY,
-                int actionState, boolean isCurrentlyActive) {
-            if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
-                draw(c, recyclerView, view, dX, dY);
-            }
         }
     }
 }

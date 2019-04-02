@@ -21,12 +21,14 @@ import android.media.browse.MediaBrowser;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.service.media.MediaBrowserService;
+import android.support.annotation.RequiresApi;
 import android.util.Log;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 
+@RequiresApi(24)
 class MediaBrowserServiceCompatApi24 {
     private static final String TAG = "MBSCompatApi24";
 

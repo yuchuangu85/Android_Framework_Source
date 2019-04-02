@@ -34,4 +34,17 @@ package java.lang.reflect;
  */
 
 public interface Type {
+    /**
+     * Returns a string describing this type, including information
+     * about any type parameters.
+     *
+     * @implSpec The default implementation calls {@code toString}.
+     *
+     * @return a string describing this type
+     * @since 1.8
+     * @hide Pending tests
+     */
+    default String getTypeName() {
+        return toString();
+    }
 }

@@ -16,6 +16,8 @@
 
 package com.android.server.connectivity.tethering;
 
+import static android.net.util.NetworkConstants.RFC7421_PREFIX_LENGTH;
+
 import android.net.INetd;
 import android.net.IpPrefix;
 import android.net.LinkAddress;
@@ -26,10 +28,10 @@ import android.net.RouteInfo;
 import android.net.ip.RouterAdvertisementDaemon;
 import android.net.ip.RouterAdvertisementDaemon.RaParams;
 import android.net.util.NetdService;
+import android.net.util.SharedLog;
 import android.os.INetworkManagementService;
 import android.os.ServiceSpecificException;
 import android.os.RemoteException;
-import android.util.Log;
 import android.util.Slog;
 
 import java.net.Inet6Address;
@@ -40,18 +42,19 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Objects;
+import java.util.Random;
 
 
 /**
  * @hide
  */
-class IPv6TetheringInterfaceServices {
+public class IPv6TetheringInterfaceServices {
     private static final String TAG = IPv6TetheringInterfaceServices.class.getSimpleName();
     private static final IpPrefix LINK_LOCAL_PREFIX = new IpPrefix("fe80::/64");
-    private static final int RFC7421_IP_PREFIX_LENGTH = 64;
 
     private final String mIfName;
     private final INetworkManagementService mNMService;
+    private final SharedLog mLog;
 
     private NetworkInterface mNetworkInterface;
     private byte[] mHwAddr;
@@ -59,16 +62,25 @@ class IPv6TetheringInterfaceServices {
     private RouterAdvertisementDaemon mRaDaemon;
     private RaParams mLastRaParams;
 
-    IPv6TetheringInterfaceServices(String ifname, INetworkManagementService nms) {
+    public IPv6TetheringInterfaceServices(
+            String ifname, INetworkManagementService nms, SharedLog log) {
         mIfName = ifname;
         mNMService = nms;
+        mLog = log.forSubComponent(mIfName);
     }
 
     public boolean start() {
+        // TODO: Refactor for testability (perhaps passing an android.system.Os
+        // instance and calling getifaddrs() directly).
         try {
             mNetworkInterface = NetworkInterface.getByName(mIfName);
         } catch (SocketException e) {
-            Log.e(TAG, "Failed to find NetworkInterface for " + mIfName, e);
+            mLog.e("Error looking up NetworkInterfaces: " + e);
+            stop();
+            return false;
+        }
+        if (mNetworkInterface == null) {
+            mLog.e("Failed to find NetworkInterface");
             stop();
             return false;
         }
@@ -76,7 +88,7 @@ class IPv6TetheringInterfaceServices {
         try {
             mHwAddr = mNetworkInterface.getHardwareAddress();
         } catch (SocketException e) {
-            Log.e(TAG, "Failed to find hardware address for " + mIfName, e);
+            mLog.e("Failed to find hardware address: " + e);
             stop();
             return false;
         }
@@ -124,7 +136,7 @@ class IPv6TetheringInterfaceServices {
             params.hasDefaultRoute = v6only.hasIPv6DefaultRoute();
 
             for (LinkAddress linkAddr : v6only.getLinkAddresses()) {
-                if (linkAddr.getPrefixLength() != RFC7421_IP_PREFIX_LENGTH) continue;
+                if (linkAddr.getPrefixLength() != RFC7421_PREFIX_LENGTH) continue;
 
                 final IpPrefix prefix = new IpPrefix(
                         linkAddr.getAddress(), linkAddr.getPrefixLength());
@@ -152,11 +164,11 @@ class IPv6TetheringInterfaceServices {
             try {
                 final int removalFailures = mNMService.removeRoutesFromLocalNetwork(toBeRemoved);
                 if (removalFailures > 0) {
-                    Log.e(TAG, String.format("Failed to remove %d IPv6 routes from local table.",
+                    mLog.e(String.format("Failed to remove %d IPv6 routes from local table.",
                             removalFailures));
                 }
             } catch (RemoteException e) {
-                Log.e(TAG, "Failed to remove IPv6 routes from local table: ", e);
+                mLog.e("Failed to remove IPv6 routes from local table: " + e);
             }
         }
 
@@ -186,7 +198,7 @@ class IPv6TetheringInterfaceServices {
                     // error (EEXIST is silently ignored).
                     mNMService.addInterfaceToLocalNetwork(mIfName, toBeAdded);
                 } catch (RemoteException e) {
-                    Log.e(TAG, "Failed to add IPv6 routes to local table: ", e);
+                    mLog.e("Failed to add IPv6 routes to local table: " + e);
                 }
             }
         }
@@ -197,7 +209,7 @@ class IPv6TetheringInterfaceServices {
         final INetd netd = NetdService.getInstance();
         if (netd == null) {
             if (newDnses != null) newDnses.clear();
-            Log.e(TAG, "No netd service instance available; not setting local IPv6 addresses");
+            mLog.e("No netd service instance available; not setting local IPv6 addresses");
             return;
         }
 
@@ -206,9 +218,9 @@ class IPv6TetheringInterfaceServices {
             for (Inet6Address dns : deprecatedDnses) {
                 final String dnsString = dns.getHostAddress();
                 try {
-                    netd.interfaceDelAddress(mIfName, dnsString, RFC7421_IP_PREFIX_LENGTH);
+                    netd.interfaceDelAddress(mIfName, dnsString, RFC7421_PREFIX_LENGTH);
                 } catch (ServiceSpecificException | RemoteException e) {
-                    Log.e(TAG, "Failed to remove local dns IP: " + dnsString, e);
+                    mLog.e("Failed to remove local dns IP " + dnsString + ": " + e);
                 }
             }
         }
@@ -223,9 +235,9 @@ class IPv6TetheringInterfaceServices {
             for (Inet6Address dns : addedDnses) {
                 final String dnsString = dns.getHostAddress();
                 try {
-                    netd.interfaceAddAddress(mIfName, dnsString, RFC7421_IP_PREFIX_LENGTH);
+                    netd.interfaceAddAddress(mIfName, dnsString, RFC7421_PREFIX_LENGTH);
                 } catch (ServiceSpecificException | RemoteException e) {
-                    Log.e(TAG, "Failed to add local dns IP: " + dnsString, e);
+                    mLog.e("Failed to add local dns IP " + dnsString + ": " + e);
                     newDnses.remove(dns);
                 }
             }
@@ -234,7 +246,7 @@ class IPv6TetheringInterfaceServices {
         try {
             netd.tetherApplyDnsInterfaces();
         } catch (ServiceSpecificException | RemoteException e) {
-            Log.e(TAG, "Failed to update local DNS caching server");
+            mLog.e("Failed to update local DNS caching server");
             if (newDnses != null) newDnses.clear();
         }
     }
@@ -266,15 +278,22 @@ class IPv6TetheringInterfaceServices {
         return localRoutes;
     }
 
-    // Given a prefix like 2001:db8::/64 return 2001:db8::1.
+    // Given a prefix like 2001:db8::/64 return an address like 2001:db8::1.
     private static Inet6Address getLocalDnsIpFor(IpPrefix localPrefix) {
         final byte[] dnsBytes = localPrefix.getRawAddress();
-        dnsBytes[dnsBytes.length - 1] = 0x1;
+        dnsBytes[dnsBytes.length - 1] = getRandomNonZeroByte();
         try {
             return Inet6Address.getByAddress(null, dnsBytes, 0);
         } catch (UnknownHostException e) {
             Slog.wtf(TAG, "Failed to construct Inet6Address from: " + localPrefix);
             return null;
         }
+    }
+
+    private static byte getRandomNonZeroByte() {
+        final byte random = (byte) (new Random()).nextInt();
+        // Don't pick the subnet-router anycast address, since that might be
+        // in use on the upstream already.
+        return (random != 0) ? random : 0x1;
     }
 }

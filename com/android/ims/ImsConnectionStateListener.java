@@ -27,16 +27,16 @@ import android.net.Uri;
  */
 public class ImsConnectionStateListener {
     /**
-     * Called when the device is connected to the IMS network.
+     * Called when the device is connected to the IMS network with {@param imsRadioTech}.
      */
-    public void onImsConnected() {
+    public void onImsConnected(int imsRadioTech) {
         // no-op
     }
 
     /**
-     * Called when the device is trying to connect to the IMS network.
+     * Called when the device is trying to connect to the IMS network with {@param imsRadioTech}.
      */
-    public void onImsProgressing() {
+    public void onImsProgressing(int imsRadioTech) {
         // no-op
     }
 
@@ -81,6 +81,13 @@ public class ImsConnectionStateListener {
      * Called after IMS registration.
      */
     public void registrationAssociatedUriChanged(Uri[] uris) {
+        // no-op
+    }
+
+    /**
+     * Called when IMS registration attempt on {@param imsRadioTech} failed
+     */
+    public void onRegistrationChangeFailed(int imsRadioTech, ImsReasonInfo imsReasonInfo) {
         // no-op
     }
 }

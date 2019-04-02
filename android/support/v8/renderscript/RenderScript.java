@@ -1253,6 +1253,7 @@ public class RenderScript {
         static final int RS_MESSAGE_TO_CLIENT_ERROR = 3;
 
         static final int RS_MESSAGE_TO_CLIENT_USER = 4;
+        static final int RS_ERROR_FATAL_DEBUG = 0x800;
         static final int RS_ERROR_FATAL_UNKNOWN = 0x1000;
 
         MessageThread(RenderScript rs) {
@@ -1295,7 +1296,19 @@ public class RenderScript {
                 if (msg == RS_MESSAGE_TO_CLIENT_ERROR) {
                     String e = mRS.nContextGetErrorMessage(mRS.mContext);
 
-                    if (subID >= RS_ERROR_FATAL_UNKNOWN) {
+                    // Copied from java/android/renderscript/RenderScript.java
+                    // Throw RSRuntimeException under the following conditions:
+                    //
+                    // 1) It is an unknown fatal error.
+                    // 2) It is a debug fatal error, and we are not in a
+                    //    debug context.
+                    // 3) It is a debug fatal error, and we do not have an
+                    //    error callback.
+                    if (subID >= RS_ERROR_FATAL_UNKNOWN ||
+                        (subID >= RS_ERROR_FATAL_DEBUG &&
+                         (mRS.mContextType != ContextType.DEBUG ||
+                          mRS.mErrorCallback == null))) {
+                        android.util.Log.e(LOG_TAG, "fatal RS error, " + e);
                         throw new RSRuntimeException("Fatal error " + subID + ", details: " + e);
                     }
 

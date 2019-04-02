@@ -3730,9 +3730,10 @@ public class CompletableFutureTest extends JSR166TestCase {
             (method) -> method.getName() + Arrays.toString(method.getParameterTypes());
         Predicate<Method> isNotStatic =
             (method) -> (method.getModifiers() & Modifier.STATIC) == 0;
+        // Android-changed: Added a cast to workaround an ECJ bug. http://b/33371837
         List<Method> minimalMethods =
             Stream.of(Object.class, CompletionStage.class)
-            .flatMap((klazz) -> Stream.of(klazz.getMethods()))
+            .flatMap((klazz) -> (Stream<Method>) Stream.of(klazz.getMethods()))
             .filter(isNotStatic)
             .collect(Collectors.toList());
         // Methods from CompletableFuture permitted NOT to throw UOE

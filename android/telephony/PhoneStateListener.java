@@ -20,17 +20,9 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
-import android.telephony.SubscriptionManager;
-import android.telephony.CellLocation;
-import android.telephony.CellInfo;
-import android.telephony.VoLteServiceState;
-import android.telephony.Rlog;
-import android.telephony.ServiceState;
-import android.telephony.SignalStrength;
-import android.telephony.PreciseCallState;
-import android.telephony.PreciseDataConnectionState;
 
 import com.android.internal.telephony.IPhoneStateListener;
+
 import java.util.List;
 import java.lang.ref.WeakReference;
 
@@ -216,7 +208,9 @@ public class PhoneStateListener {
      *
      * @see #onOemHookRawEvent
      * @hide
+     * @deprecated OEM needs a vendor-extension hal and their apps should use that instead
      */
+    @Deprecated
     public static final int LISTEN_OEM_HOOK_RAW_EVENT                       = 0x00008000;
 
     /**
@@ -228,12 +222,44 @@ public class PhoneStateListener {
      */
     public static final int LISTEN_CARRIER_NETWORK_CHANGE                   = 0x00010000;
 
+    /**
+     *  Listen for changes to the sim voice activation state
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATING
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_DEACTIVATED
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_RESTRICTED
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_UNKNOWN
+     *  {@more}
+     *  Example: TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED indicates voice service has been
+     *  fully activated
+     *
+     *  @see #onVoiceActivationStateChanged
+     *  @hide
+     */
+    public static final int LISTEN_VOICE_ACTIVATION_STATE                   = 0x00020000;
+
+    /**
+     *  Listen for changes to the sim data activation state
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATING
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_DEACTIVATED
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_RESTRICTED
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_UNKNOWN
+     *  {@more}
+     *  Example: TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED indicates data service has been
+     *  fully activated
+     *
+     *  @see #onDataActivationStateChanged
+     *  @hide
+     */
+    public static final int LISTEN_DATA_ACTIVATION_STATE                   = 0x00040000;
+
      /*
      * Subscription used to listen to the phone state changes
      * @hide
      */
     /** @hide */
-    protected int mSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+    protected Integer mSubId;
 
     private final Handler mHandler;
 
@@ -242,7 +268,7 @@ public class PhoneStateListener {
      * This class requires Looper.myLooper() not return null.
      */
     public PhoneStateListener() {
-        this(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID, Looper.myLooper());
+        this(null, Looper.myLooper());
     }
 
     /**
@@ -251,7 +277,7 @@ public class PhoneStateListener {
      * @hide
      */
     public PhoneStateListener(Looper looper) {
-        this(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID, looper);
+        this(null, looper);
     }
 
     /**
@@ -260,7 +286,7 @@ public class PhoneStateListener {
      * own non-null Looper use PhoneStateListener(int subId, Looper looper) below.
      * @hide
      */
-    public PhoneStateListener(int subId) {
+    public PhoneStateListener(Integer subId) {
         this(subId, Looper.myLooper());
     }
 
@@ -269,7 +295,7 @@ public class PhoneStateListener {
      * and non-null Looper.
      * @hide
      */
-    public PhoneStateListener(int subId, Looper looper) {
+    public PhoneStateListener(Integer subId, Looper looper) {
         if (DBG) log("ctor: subId=" + subId + " looper=" + looper);
         mSubId = subId;
         mHandler = new Handler(looper) {
@@ -326,6 +352,12 @@ public class PhoneStateListener {
                         break;
                     case LISTEN_VOLTE_STATE:
                         PhoneStateListener.this.onVoLteServiceStateChanged((VoLteServiceState)msg.obj);
+                        break;
+                    case LISTEN_VOICE_ACTIVATION_STATE:
+                        PhoneStateListener.this.onVoiceActivationStateChanged((int)msg.obj);
+                        break;
+                    case LISTEN_DATA_ACTIVATION_STATE:
+                        PhoneStateListener.this.onDataActivationStateChanged((int)msg.obj);
                         break;
                     case LISTEN_OEM_HOOK_RAW_EVENT:
                         PhoneStateListener.this.onOemHookRawEvent((byte[])msg.obj);
@@ -506,6 +538,24 @@ public class PhoneStateListener {
     }
 
     /**
+     * Callback invoked when the SIM voice activation state has changed
+     * @param state is the current SIM voice activation state
+     * @hide
+     */
+    public void onVoiceActivationStateChanged(int state) {
+
+    }
+
+    /**
+     * Callback invoked when the SIM data activation state has changed
+     * @param state is the current SIM data activation state
+     * @hide
+     */
+    public void onDataActivationStateChanged(int state) {
+
+    }
+
+    /**
      * Callback invoked when OEM hook raw event is received. Requires
      * the READ_PRIVILEGED_PHONE_STATE permission.
      * @param rawData is the byte array of the OEM hook raw data.
@@ -617,6 +667,14 @@ public class PhoneStateListener {
 
         public void onVoLteServiceStateChanged(VoLteServiceState lteState) {
             send(LISTEN_VOLTE_STATE, 0, 0, lteState);
+        }
+
+        public void onVoiceActivationStateChanged(int activationState) {
+            send(LISTEN_VOICE_ACTIVATION_STATE, 0, 0, activationState);
+        }
+
+        public void onDataActivationStateChanged(int activationState) {
+            send(LISTEN_DATA_ACTIVATION_STATE, 0, 0, activationState);
         }
 
         public void onOemHookRawEvent(byte[] rawData) {

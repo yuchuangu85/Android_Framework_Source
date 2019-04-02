@@ -17,10 +17,12 @@
 package android.support.v4.print;
 
 import android.content.Context;
+import android.support.annotation.RequiresApi;
 
 /**
  * Api20 specific PrintManager API implementation.
  */
+@RequiresApi(20)
 class PrintHelperApi20 extends PrintHelperKitkat {
     PrintHelperApi20(Context context) {
         super(context);

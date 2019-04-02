@@ -18,6 +18,7 @@ package android.telephony;
 
 import android.annotation.NonNull;
 import android.annotation.SdkConstant;
+import android.annotation.SystemService;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.content.Context;
 import android.content.Intent;
@@ -41,12 +42,10 @@ import java.util.List;
 /**
  * SubscriptionManager is the application interface to SubscriptionController
  * and provides information about the current Telephony Subscriptions.
- * * <p>
- * You do not instantiate this class directly; instead, you retrieve
- * a reference to an instance through {@link #from}.
  * <p>
  * All SDK public methods require android.Manifest.permission.READ_PHONE_STATE.
  */
+@SystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE)
 public class SubscriptionManager {
     private static final String LOG_TAG = "SubscriptionManager";
     private static final boolean DBG = false;
@@ -342,6 +341,32 @@ public class SubscriptionManager {
     public static final String SUB_DEFAULT_CHANGED_ACTION =
         "android.intent.action.SUB_DEFAULT_CHANGED";
 
+    /**
+     * Broadcast Action: The default subscription has changed.  This has the following
+     * extra values:</p>
+     * The {@link #EXTRA_SUBSCRIPTION_INDEX} extra indicates the current default subscription index
+     */
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+    public static final String ACTION_DEFAULT_SUBSCRIPTION_CHANGED
+            = "android.telephony.action.DEFAULT_SUBSCRIPTION_CHANGED";
+
+    /**
+     * Broadcast Action: The default sms subscription has changed.  This has the following
+     * extra values:</p>
+     * {@link #EXTRA_SUBSCRIPTION_INDEX} extra indicates the current default sms
+     * subscription index
+     */
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+    public static final String ACTION_DEFAULT_SMS_SUBSCRIPTION_CHANGED
+            = "android.telephony.action.DEFAULT_SMS_SUBSCRIPTION_CHANGED";
+
+    /**
+     * Integer extra used with {@link #ACTION_DEFAULT_SUBSCRIPTION_CHANGED} and
+     * {@link #ACTION_DEFAULT_SMS_SUBSCRIPTION_CHANGED} to indicate the subscription
+     * which has changed.
+     */
+    public static final String EXTRA_SUBSCRIPTION_INDEX = "android.telephony.extra.SUBSCRIPTION_INDEX";
+
     private final Context mContext;
 
     /**
@@ -521,14 +546,14 @@ public class SubscriptionManager {
     }
 
     /**
-     * Get the active SubscriptionInfo associated with the slotIdx
-     * @param slotIdx the slot which the subscription is inserted
+     * Get the active SubscriptionInfo associated with the slotIndex
+     * @param slotIndex the slot which the subscription is inserted
      * @return SubscriptionInfo, maybe null if its not active
      */
-    public SubscriptionInfo getActiveSubscriptionInfoForSimSlotIndex(int slotIdx) {
-        if (VDBG) logd("[getActiveSubscriptionInfoForSimSlotIndex]+ slotIdx=" + slotIdx);
-        if (!isValidSlotId(slotIdx)) {
-            logd("[getActiveSubscriptionInfoForSimSlotIndex]- invalid slotIdx");
+    public SubscriptionInfo getActiveSubscriptionInfoForSimSlotIndex(int slotIndex) {
+        if (VDBG) logd("[getActiveSubscriptionInfoForSimSlotIndex]+ slotIndex=" + slotIndex);
+        if (!isValidSlotIndex(slotIndex)) {
+            logd("[getActiveSubscriptionInfoForSimSlotIndex]- invalid slotIndex");
             return null;
         }
 
@@ -537,7 +562,7 @@ public class SubscriptionManager {
         try {
             ISub iSub = ISub.Stub.asInterface(ServiceManager.getService("isub"));
             if (iSub != null) {
-                result = iSub.getActiveSubscriptionInfoForSimSlotIndex(slotIdx,
+                result = iSub.getActiveSubscriptionInfoForSimSlotIndex(slotIndex,
                         mContext.getOpPackageName());
             }
         } catch (RemoteException ex) {
@@ -671,24 +696,24 @@ public class SubscriptionManager {
     /**
      * Add a new SubscriptionInfo to SubscriptionInfo database if needed
      * @param iccId the IccId of the SIM card
-     * @param slotId the slot which the SIM is inserted
+     * @param slotIndex the slot which the SIM is inserted
      * @return the URL of the newly created row or the updated row
      * @hide
      */
-    public Uri addSubscriptionInfoRecord(String iccId, int slotId) {
-        if (VDBG) logd("[addSubscriptionInfoRecord]+ iccId:" + iccId + " slotId:" + slotId);
+    public Uri addSubscriptionInfoRecord(String iccId, int slotIndex) {
+        if (VDBG) logd("[addSubscriptionInfoRecord]+ iccId:" + iccId + " slotIndex:" + slotIndex);
         if (iccId == null) {
             logd("[addSubscriptionInfoRecord]- null iccId");
         }
-        if (!isValidSlotId(slotId)) {
-            logd("[addSubscriptionInfoRecord]- invalid slotId");
+        if (!isValidSlotIndex(slotIndex)) {
+            logd("[addSubscriptionInfoRecord]- invalid slotIndex");
         }
 
         try {
             ISub iSub = ISub.Stub.asInterface(ServiceManager.getService("isub"));
             if (iSub != null) {
                 // FIXME: This returns 1 on success, 0 on error should should we return it?
-                iSub.addSubInfoRecord(iccId, slotId);
+                iSub.addSubInfoRecord(iccId, slotIndex);
             }
         } catch (RemoteException ex) {
             // ignore it
@@ -830,15 +855,15 @@ public class SubscriptionManager {
     }
 
     /**
-     * Get slotId associated with the subscription.
-     * @return slotId as a positive integer or a negative value if an error either
+     * Get slotIndex associated with the subscription.
+     * @return slotIndex as a positive integer or a negative value if an error either
      * SIM_NOT_INSERTED or < 0 if an invalid slot index
      * @hide
      */
-    public static int getSlotId(int subId) {
+    public static int getSlotIndex(int subId) {
         if (!isValidSubscriptionId(subId)) {
             if (DBG) {
-                logd("[getSlotId]- fail");
+                logd("[getSlotIndex]- fail");
             }
         }
 
@@ -847,7 +872,7 @@ public class SubscriptionManager {
         try {
             ISub iSub = ISub.Stub.asInterface(ServiceManager.getService("isub"));
             if (iSub != null) {
-                result = iSub.getSlotId(subId);
+                result = iSub.getSlotIndex(subId);
             }
         } catch (RemoteException ex) {
             // ignore it
@@ -858,8 +883,8 @@ public class SubscriptionManager {
     }
 
     /** @hide */
-    public static int[] getSubId(int slotId) {
-        if (!isValidSlotId(slotId)) {
+    public static int[] getSubId(int slotIndex) {
+        if (!isValidSlotIndex(slotIndex)) {
             logd("[getSubId]- fail");
             return null;
         }
@@ -869,7 +894,7 @@ public class SubscriptionManager {
         try {
             ISub iSub = ISub.Stub.asInterface(ServiceManager.getService("isub"));
             if (iSub != null) {
-                subId = iSub.getSubId(slotId);
+                subId = iSub.getSubId(slotIndex);
             }
         } catch (RemoteException ex) {
             // ignore it
@@ -1155,8 +1180,8 @@ public class SubscriptionManager {
     }
 
     /** @hide */
-    public static boolean isValidSlotId(int slotId) {
-        return slotId >= 0 && slotId < TelephonyManager.getDefault().getSimCount();
+    public static boolean isValidSlotIndex(int slotIndex) {
+        return slotIndex >= 0 && slotIndex < TelephonyManager.getDefault().getSimCount();
     }
 
     /** @hide */
@@ -1178,8 +1203,9 @@ public class SubscriptionManager {
     public static void putPhoneIdAndSubIdExtra(Intent intent, int phoneId, int subId) {
         if (VDBG) logd("putPhoneIdAndSubIdExtra: phoneId=" + phoneId + " subId=" + subId);
         intent.putExtra(PhoneConstants.SUBSCRIPTION_KEY, subId);
+        intent.putExtra(EXTRA_SUBSCRIPTION_INDEX, subId);
         intent.putExtra(PhoneConstants.PHONE_KEY, phoneId);
-        //FIXME this is using phoneId and slotId interchangeably
+        //FIXME this is using phoneId and slotIndex interchangeably
         //Eventually, this should be removed as it is not the slot id
         intent.putExtra(PhoneConstants.SLOT_KEY, phoneId);
     }
@@ -1228,9 +1254,9 @@ public class SubscriptionManager {
     }
 
     /**
-     * Returns a constant indicating the state of sim for the slot idx.
+     * Returns a constant indicating the state of sim for the slot index.
      *
-     * @param slotIdx
+     * @param slotIndex
      *
      * {@See TelephonyManager#SIM_STATE_UNKNOWN}
      * {@See TelephonyManager#SIM_STATE_ABSENT}
@@ -1244,13 +1270,13 @@ public class SubscriptionManager {
      *
      * {@hide}
      */
-    public static int getSimStateForSlotIdx(int slotIdx) {
+    public static int getSimStateForSlotIndex(int slotIndex) {
         int simState = TelephonyManager.SIM_STATE_UNKNOWN;
 
         try {
             ISub iSub = ISub.Stub.asInterface(ServiceManager.getService("isub"));
             if (iSub != null) {
-                simState = iSub.getSimStateForSlotIdx(slotIdx);
+                simState = iSub.getSimStateForSlotIndex(slotIndex);
             }
         } catch (RemoteException ex) {
         }

@@ -208,13 +208,15 @@ public class MultiLayoutVerificationTest extends BaseCompilationTest {
         CompilationResult result = runGradle("assembleDebug");
         assertNotEquals(result.output, 0, result.resultCode);
         List<ScopedException> exceptions = result.getBindingExceptions();
-        assertEquals(result.error, 2, exceptions.size());
 
         boolean foundNormal = false;
         boolean foundLandscape = false;
         for (ScopedException exception : exceptions) {
             ScopedErrorReport report = exception.getScopedErrorReport();
             assertNotNull(report);
+            if (exception.getMessage().startsWith("Cannot find the setter")) {
+                continue;
+            }
             File file = new File(report.getFilePath());
             assertTrue(file.exists());
             assertEquals(result.error, 1, report.getLocations().size());

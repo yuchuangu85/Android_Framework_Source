@@ -16,37 +16,37 @@
 
 package android.support.v4.app;
 
-import android.app.Notification;
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.app.PendingIntent;
-import android.content.Context;
 import android.os.Bundle;
 import android.support.annotation.RestrictTo;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * @hide
  */
-@RestrictTo(GROUP_ID)
+@RestrictTo(LIBRARY_GROUP)
 public class NotificationCompatBase {
-
-    public static abstract class Action {
+    public abstract static class Action {
         public abstract int getIcon();
         public abstract CharSequence getTitle();
         public abstract PendingIntent getActionIntent();
         public abstract Bundle getExtras();
         public abstract RemoteInputCompatBase.RemoteInput[] getRemoteInputs();
+        /** Returns RemoteInputs that ONLY accept data results, not text. */
+        public abstract RemoteInputCompatBase.RemoteInput[] getDataOnlyRemoteInputs();
         public abstract boolean getAllowGeneratedReplies();
 
         public interface Factory {
             Action build(int icon, CharSequence title, PendingIntent actionIntent,
                     Bundle extras, RemoteInputCompatBase.RemoteInput[] remoteInputs,
+                    RemoteInputCompatBase.RemoteInput[] dataOnlyRemoteInputs,
                     boolean allowGeneratedReplies);
-            public Action[] newArray(int length);
+            Action[] newArray(int length);
         }
     }
 
-    public static abstract class UnreadConversation {
+    public abstract static class UnreadConversation {
         abstract String[] getParticipants();
         abstract String getParticipant();
         abstract String[] getMessages();
@@ -61,13 +61,5 @@ public class NotificationCompatBase {
                     PendingIntent replyPendingIntent, PendingIntent readPendingIntent,
                     String[] participants, long latestTimestamp);
         }
-    }
-
-    public static Notification add(Notification notification, Context context,
-            CharSequence contentTitle, CharSequence contentText, PendingIntent contentIntent,
-            PendingIntent fullScreenIntent) {
-        notification.setLatestEventInfo(context, contentTitle, contentText, contentIntent);
-        notification.fullScreenIntent = fullScreenIntent;
-        return notification;
     }
 }

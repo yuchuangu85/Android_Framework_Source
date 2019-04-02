@@ -31,8 +31,6 @@ import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 
-import com.android.setupwizardlib.R;
-
 /**
  * A helper class to manage the system navigation bar and status bar. This will add various
  * systemUiVisibility flags to the given Window or View to make them follow the Setup Wizard style.

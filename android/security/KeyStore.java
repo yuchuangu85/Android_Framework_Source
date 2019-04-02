@@ -93,6 +93,16 @@ public class KeyStore {
      */
     public static final int FLAG_ENCRYPTED = 1;
 
+    /**
+     * A private flag that's only available to system server to indicate that this key is part of
+     * device encryption flow so it receives special treatment from keystore. For example this key
+     * will not be super encrypted, and it will be stored separately under an unique UID instead
+     * of the caller UID i.e. SYSTEM.
+     *
+     * Need to be in sync with KeyStoreFlag in system/security/keystore/include/keystore/keystore.h
+     */
+    public static final int FLAG_CRITICAL_TO_DEVICE_ENCRYPTION = 1 << 3;
+
     // States
     public enum State { UNLOCKED, LOCKED, UNINITIALIZED };
 
@@ -626,6 +636,25 @@ public class KeyStore {
         }
     }
 
+    public int attestDeviceIds(KeymasterArguments params, KeymasterCertificateChain outChain) {
+        try {
+            return mBinder.attestDeviceIds(params, outChain);
+        } catch (RemoteException e) {
+            Log.w(TAG, "Cannot connect to keystore", e);
+            return SYSTEM_ERROR;
+        }
+    }
+
+    /**
+     * Notify keystore that the device went off-body.
+     */
+    public void onDeviceOffBody() {
+        try {
+            mBinder.onDeviceOffBody();
+        } catch (RemoteException e) {
+            Log.w(TAG, "Cannot connect to keystore", e);
+        }
+    }
 
     /**
      * Returns a {@link KeyStoreException} corresponding to the provided keystore/keymaster error

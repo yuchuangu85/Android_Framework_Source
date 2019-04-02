@@ -14,6 +14,8 @@
 
 package android.support.v17.leanback.widget.picker;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.support.annotation.RestrictTo;
@@ -30,8 +32,6 @@ import java.util.Calendar;
 import java.util.Locale;
 import java.util.TimeZone;
 
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
-
 /**
  * {@link DatePicker} is a directly subclass of {@link Picker}.
  * This class is a widget for selecting a date. The date can be selected by a
@@ -44,7 +44,7 @@ import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
  * @attr ref R.styleable#lbDatePicker_datePickerFormat
  * @hide
  */
-@RestrictTo(GROUP_ID)
+@RestrictTo(LIBRARY_GROUP)
 public class DatePicker extends Picker {
 
     static final String LOG_TAG = "DatePicker";
@@ -59,7 +59,7 @@ public class DatePicker extends Picker {
 
     final static String DATE_FORMAT = "MM/dd/yyyy";
     final DateFormat mDateFormat = new SimpleDateFormat(DATE_FORMAT);
-    PickerConstant mConstant;
+    PickerUtility.DateConstant mConstant;
 
     Calendar mMinDate;
     Calendar mMaxDate;
@@ -179,23 +179,13 @@ public class DatePicker extends Picker {
         return mDatePickerFormat;
     }
 
-    private Calendar getCalendarForLocale(Calendar oldCalendar, Locale locale) {
-        if (oldCalendar == null) {
-            return Calendar.getInstance(locale);
-        } else {
-            final long currentTimeMillis = oldCalendar.getTimeInMillis();
-            Calendar newCalendar = Calendar.getInstance(locale);
-            newCalendar.setTimeInMillis(currentTimeMillis);
-            return newCalendar;
-        }
-    }
-
     private void updateCurrentLocale() {
-        mConstant = new PickerConstant(Locale.getDefault(), getContext().getResources());
-        mTempDate = getCalendarForLocale(mTempDate, mConstant.locale);
-        mMinDate = getCalendarForLocale(mMinDate, mConstant.locale);
-        mMaxDate = getCalendarForLocale(mMaxDate, mConstant.locale);
-        mCurrentDate = getCalendarForLocale(mCurrentDate, mConstant.locale);
+        mConstant = PickerUtility.getDateConstantInstance(Locale.getDefault(),
+                getContext().getResources());
+        mTempDate = PickerUtility.getCalendarForLocale(mTempDate, mConstant.locale);
+        mMinDate = PickerUtility.getCalendarForLocale(mMinDate, mConstant.locale);
+        mMaxDate = PickerUtility.getCalendarForLocale(mMaxDate, mConstant.locale);
+        mCurrentDate = PickerUtility.getCalendarForLocale(mCurrentDate, mConstant.locale);
 
         if (mMonthColumn != null) {
             mMonthColumn.setStaticLabels(mConstant.months);

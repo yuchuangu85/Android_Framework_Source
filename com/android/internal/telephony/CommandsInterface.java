@@ -16,18 +16,18 @@
 
 package com.android.internal.telephony;
 
+import android.os.Handler;
+import android.os.Message;
+import android.os.WorkSource;
+import android.service.carrier.CarrierIdentifier;
+import android.telephony.ClientRequestStats;
+
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
 import com.android.internal.telephony.dataconnection.DataProfile;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
-import com.android.internal.telephony.RadioCapability;
 import com.android.internal.telephony.uicc.IccCardStatus;
 
-import android.os.Message;
-import android.os.Handler;
-import android.service.carrier.CarrierIdentifier;
-
 import java.util.List;
-
 
 /**
  * {@hide}
@@ -190,10 +190,14 @@ public interface CommandsInterface {
 
     void registerForCallStateChanged(Handler h, int what, Object obj);
     void unregisterForCallStateChanged(Handler h);
-    void registerForVoiceNetworkStateChanged(Handler h, int what, Object obj);
-    void unregisterForVoiceNetworkStateChanged(Handler h);
-    void registerForDataNetworkStateChanged(Handler h, int what, Object obj);
-    void unregisterForDataNetworkStateChanged(Handler h);
+    /** Register for network state changed event */
+    void registerForNetworkStateChanged(Handler h, int what, Object obj);
+    /** Unregister from network state changed event */
+    void unregisterForNetworkStateChanged(Handler h);
+    /** Register for data call list changed event */
+    void registerForDataCallListChanged(Handler h, int what, Object obj);
+    /** Unregister from data call list changed event */
+    void unregisterForDataCallListChanged(Handler h);
 
     /** InCall voice privacy notifications */
     void registerForInCallVoicePrivacyOn(Handler h, int what, Object obj);
@@ -1384,8 +1388,9 @@ public interface CommandsInterface {
      * Query neighboring cell ids
      *
      * @param response s callback message to cell ids
+     * @param workSource calling WorkSource
      */
-    void getNeighboringCids(Message response);
+    default void getNeighboringCids(Message response, WorkSource workSource){}
 
     /**
      * Request to enable/disable network state change notifications when
@@ -1599,26 +1604,17 @@ public interface CommandsInterface {
      *
      * @param radioTechnology
      *            Radio technology to use. Values is one of RIL_RADIO_TECHNOLOGY_*
-     * @param profile
-     *            Profile Number. Values is one of DATA_PROFILE_*
-     * @param apn
-     *            the APN to connect to if radio technology is GSM/UMTS.
-     *            Otherwise null for CDMA.
-     * @param user
-     *            the username for APN, or NULL
-     * @param password
-     *            the password for APN, or NULL
-     * @param authType
-     *            the PAP / CHAP auth type. Values is one of SETUP_DATA_AUTH_*
-     * @param protocol
-     *            one of the PDP_type values in TS 27.007 section 10.1.1.
-     *            For example, "IP", "IPV6", "IPV4V6", or "PPP".
+     * @param dataProfile
+     *            Data profile for data call setup
+     * @param isRoaming
+     *            Device is roaming or not
+     * @param allowRoaming
+     *            Flag indicating data roaming is enabled or not
      * @param result
      *            Callback message
      */
-    public void setupDataCall(int radioTechnology, int profile,
-            String apn, String user, String password, int authType,
-            String protocol, Message result);
+    void setupDataCall(int radioTechnology, DataProfile dataProfile, boolean isRoaming,
+                       boolean allowRoaming, Message result);
 
     /**
      * Deactivate packet data connection
@@ -1727,8 +1723,9 @@ public interface CommandsInterface {
      * AsyncResult.result is a of Collection<CellInfo>
      *
      * @param result is sent back to handler and result.obj is a AsyncResult
+     * @param workSource calling WorkSource
      */
-    void getCellInfoList(Message result);
+    default void getCellInfoList(Message result, WorkSource workSource) {}
 
     /**
      * Sets the minimum time in milli-seconds between when RIL_UNSOL_CELL_INFO_LIST
@@ -1744,8 +1741,9 @@ public interface CommandsInterface {
      * @param response.obj is AsyncResult ar when sent to associated handler
      *                        ar.exception carries exception on failure or null on success
      *                        otherwise the error.
+     * @param workSource calling WorkSource
      */
-    void setCellInfoListRate(int rateInMillis, Message response);
+    default void setCellInfoListRate(int rateInMillis, Message response, WorkSource workSource){}
 
     /**
      * Fires when RIL_UNSOL_CELL_INFO_LIST is received from the RIL.
@@ -1756,33 +1754,26 @@ public interface CommandsInterface {
     /**
      * Set Initial Attach Apn
      *
-     * @param apn
-     *            the APN to connect to if radio technology is GSM/UMTS.
-     * @param protocol
-     *            one of the PDP_type values in TS 27.007 section 10.1.1.
-     *            For example, "IP", "IPV6", "IPV4V6", or "PPP".
-     * @param authType
-     *            authentication protocol used for this PDP context
-     *            (None: 0, PAP: 1, CHAP: 2, PAP&CHAP: 3)
-     * @param username
-     *            the username for APN, or NULL
-     * @param password
-     *            the password for APN, or NULL
+     * @param dataProfile
+     *            data profile for initial APN attach
+     * @param isRoaming
+     *            indicating the device is roaming or not
      * @param result
      *            callback message contains the information of SUCCESS/FAILURE
      */
-    public void setInitialAttachApn(String apn, String protocol, int authType, String username,
-            String password, Message result);
+    void setInitialAttachApn(DataProfile dataProfile, boolean isRoaming, Message result);
 
     /**
      * Set data profiles in modem
      *
      * @param dps
      *            Array of the data profiles set to modem
+     * @param isRoaming
+     *            Indicating if the device is roaming or not
      * @param result
      *            callback message contains the information of SUCCESS/FAILURE
      */
-    public void setDataProfile(DataProfile[] dps, Message result);
+    void setDataProfile(DataProfile[] dps, boolean isRoaming, Message result);
 
     /**
      * Notifiy that we are testing an emergency call
@@ -1795,10 +1786,11 @@ public interface CommandsInterface {
      * Input parameters equivalent to TS 27.007 AT+CCHO command.
      *
      * @param AID Application id. See ETSI 102.221 and 101.220.
+     * @param p2 P2 parameter (described in ISO 7816-4).
      * @param response Callback message. response.obj will be an int [1] with
      *            element [0] set to the id of the logical channel.
      */
-    public void iccOpenLogicalChannel(String AID, Message response);
+    public void iccOpenLogicalChannel(String AID, int p2, Message response);
 
     /**
      * Close a previously opened logical channel to the SIM.
@@ -2052,4 +2044,33 @@ public interface CommandsInterface {
      * @param h handler to be removed
      */
     public void unregisterForPcoData(Handler h);
+
+    /**
+     * Send the updated device state
+     *
+     * @param stateType Device state type
+     * @param state True if enabled, otherwise disabled
+     * @param result callback message contains the information of SUCCESS/FAILURE
+     */
+    void sendDeviceState(int stateType, boolean state, Message result);
+
+    /**
+     * Send the device state to the modem
+     *
+     * @param filter unsolicited response filter. See DeviceStateMonitor.UnsolicitedResponseFilter
+     * @param result callback message contains the information of SUCCESS/FAILURE
+     */
+    void setUnsolResponseFilter(int filter, Message result);
+
+    /**
+     * Set SIM card power up or down
+     *
+     * @param powerUp True if powering up the sim card
+     * @param result callback message contains the information of SUCCESS/FAILURE
+     */
+    void setSimCardPower(boolean powerUp, Message result);
+
+    default public List<ClientRequestStats> getClientRequestStats() {
+        return null;
+    }
 }

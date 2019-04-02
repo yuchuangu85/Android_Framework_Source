@@ -28,12 +28,8 @@ import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.PreciseCallState;
-import android.telephony.DisconnectCause;
 
-import com.android.internal.telephony.Call;
-import com.android.internal.telephony.CallManager;
-import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.ITelephonyRegistry;
+import com.android.internal.telephony.PhoneConstantConversions;
 import com.android.internal.telephony.PhoneConstants;
 
 import java.util.List;
@@ -64,7 +60,8 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
         try {
             if (mRegistry != null) {
                   mRegistry.notifyCallStateForPhoneId(phoneId, subId,
-                        convertCallState(sender.getState()), incomingNumber);
+                        PhoneConstantConversions.convertCallState(
+                            sender.getState()), incomingNumber);
             }
         } catch (RemoteException ex) {
             // system process is dead
@@ -182,7 +179,7 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
         try {
             if (mRegistry != null) {
                 mRegistry.notifyDataConnectionForSubscriber(subId,
-                    convertDataState(state),
+                    PhoneConstantConversions.convertDataState(state),
                     sender.isDataConnectivityPossible(apnType), reason,
                     sender.getActiveApnHost(apnType),
                     apnType,
@@ -294,75 +291,31 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     }
 
     @Override
-    public void notifyOemHookRawEventForSubscriber(int subId, byte[] rawData) {
+    public void notifyDataActivationStateChanged(Phone sender, int activationState) {
         try {
-            mRegistry.notifyOemHookRawEventForSubscriber(subId, rawData);
+            mRegistry.notifySimActivationStateChangedForPhoneId(sender.getPhoneId(),
+                    sender.getSubId(), PhoneConstants.SIM_ACTIVATION_TYPE_DATA, activationState);
         } catch (RemoteException ex) {
             // system process is dead
         }
     }
 
-    /**
-     * Convert the {@link PhoneConstants.State} enum into the TelephonyManager.CALL_STATE_*
-     * constants for the public API.
-     */
-    public static int convertCallState(PhoneConstants.State state) {
-        switch (state) {
-            case RINGING:
-                return TelephonyManager.CALL_STATE_RINGING;
-            case OFFHOOK:
-                return TelephonyManager.CALL_STATE_OFFHOOK;
-            default:
-                return TelephonyManager.CALL_STATE_IDLE;
+    @Override
+    public void notifyVoiceActivationStateChanged(Phone sender, int activationState) {
+        try {
+            mRegistry.notifySimActivationStateChangedForPhoneId(sender.getPhoneId(),
+                    sender.getSubId(), PhoneConstants.SIM_ACTIVATION_TYPE_VOICE, activationState);
+        } catch (RemoteException ex) {
+            // system process is dead
         }
     }
 
-    /**
-     * Convert the TelephonyManager.CALL_STATE_* constants into the
-     * {@link PhoneConstants.State} enum for the public API.
-     */
-    public static PhoneConstants.State convertCallState(int state) {
-        switch (state) {
-            case TelephonyManager.CALL_STATE_RINGING:
-                return PhoneConstants.State.RINGING;
-            case TelephonyManager.CALL_STATE_OFFHOOK:
-                return PhoneConstants.State.OFFHOOK;
-            default:
-                return PhoneConstants.State.IDLE;
-        }
-    }
-
-    /**
-     * Convert the {@link PhoneConstants.DataState} enum into the TelephonyManager.DATA_* constants
-     * for the public API.
-     */
-    public static int convertDataState(PhoneConstants.DataState state) {
-        switch (state) {
-            case CONNECTING:
-                return TelephonyManager.DATA_CONNECTING;
-            case CONNECTED:
-                return TelephonyManager.DATA_CONNECTED;
-            case SUSPENDED:
-                return TelephonyManager.DATA_SUSPENDED;
-            default:
-                return TelephonyManager.DATA_DISCONNECTED;
-        }
-    }
-
-    /**
-     * Convert the TelephonyManager.DATA_* constants into {@link PhoneConstants.DataState} enum
-     * for the public API.
-     */
-    public static PhoneConstants.DataState convertDataState(int state) {
-        switch (state) {
-            case TelephonyManager.DATA_CONNECTING:
-                return PhoneConstants.DataState.CONNECTING;
-            case TelephonyManager.DATA_CONNECTED:
-                return PhoneConstants.DataState.CONNECTED;
-            case TelephonyManager.DATA_SUSPENDED:
-                return PhoneConstants.DataState.SUSPENDED;
-            default:
-                return PhoneConstants.DataState.DISCONNECTED;
+    @Override
+    public void notifyOemHookRawEventForSubscriber(int subId, byte[] rawData) {
+        try {
+            mRegistry.notifyOemHookRawEventForSubscriber(subId, rawData);
+        } catch (RemoteException ex) {
+            // system process is dead
         }
     }
 

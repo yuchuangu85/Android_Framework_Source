@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,7 +26,24 @@
 package java.lang;
 
 /**
- * A resource that must be closed when it is no longer needed.
+ * An object that may hold resources (such as file or socket handles)
+ * until it is closed. The {@link #close()} method of an {@code AutoCloseable}
+ * object is called automatically when exiting a {@code
+ * try}-with-resources block for which the object has been declared in
+ * the resource specification header. This construction ensures prompt
+ * release, avoiding resource exhaustion exceptions and errors that
+ * may otherwise occur.
+ *
+ * @apiNote
+ * <p>It is possible, and in fact common, for a base class to
+ * implement AutoCloseable even though not all of its subclasses or
+ * instances will hold releasable resources.  For code that must operate
+ * in complete generality, or when it is known that the {@code AutoCloseable}
+ * instance requires resource release, it is recommended to use {@code
+ * try}-with-resources constructions. However, when using facilities such as
+ * {@link java.util.stream.Stream} that support both I/O-based and
+ * non-I/O-based forms, {@code try}-with-resources blocks are in
+ * general unnecessary when using non-I/O-based forms.
  *
  * @author Josh Bloch
  * @since 1.7
@@ -42,6 +59,15 @@ public interface AutoCloseable {
      * declare concrete implementations of the {@code close} method to
      * throw more specific exceptions, or to throw no exception at all
      * if the close operation cannot fail.
+     *
+     * <p> Cases where the close operation may fail require careful
+     * attention by implementers. It is strongly advised to relinquish
+     * the underlying resources and to internally <em>mark</em> the
+     * resource as closed, prior to throwing the exception. The {@code
+     * close} method is unlikely to be invoked more than once and so
+     * this ensures that the resources are released in a timely manner.
+     * Furthermore it reduces problems that could arise when the resource
+     * wraps, or is wrapped, by another resource.
      *
      * <p><em>Implementers of this interface are also strongly advised
      * to not have the {@code close} method throw {@link

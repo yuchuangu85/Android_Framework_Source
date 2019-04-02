@@ -36,12 +36,14 @@ import android.util.LocalLog;
 
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.dataconnection.TelephonyNetworkFactory;
+import com.android.internal.telephony.ims.ImsResolver;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneFactory;
 import com.android.internal.telephony.sip.SipPhone;
 import com.android.internal.telephony.sip.SipPhoneFactory;
 import com.android.internal.telephony.uicc.IccCardProxy;
 import com.android.internal.telephony.uicc.UiccController;
+import com.android.internal.telephony.util.NotificationChannelController;
 import com.android.internal.util.IndentingPrintWriter;
 
 import java.io.FileDescriptor;
@@ -78,6 +80,8 @@ public class PhoneFactory {
     static private PhoneSwitcher sPhoneSwitcher;
     static private SubscriptionMonitor sSubscriptionMonitor;
     static private TelephonyNetworkFactory[] sTelephonyNetworkFactories;
+    static private ImsResolver sImsResolver;
+    static private NotificationChannelController sNotificationChannelController;
 
     static private final HashMap<String, LocalLog>sLocalLogs = new HashMap<String, LocalLog>();
 
@@ -136,6 +140,13 @@ public class PhoneFactory {
                    where as in single SIM mode only instance. isMultiSimEnabled() function checks
                    whether it is single SIM or multi SIM mode */
                 int numPhones = TelephonyManager.getDefault().getPhoneCount();
+                // Start ImsResolver and bind to ImsServices.
+                String defaultImsPackage = sContext.getResources().getString(
+                        com.android.internal.R.string.config_ims_package);
+                Rlog.i(LOG_TAG, "ImsResolver: defaultImsPackage: " + defaultImsPackage);
+                sImsResolver = new ImsResolver(sContext, defaultImsPackage, numPhones);
+                sImsResolver.populateCacheAndStartBind();
+
                 int[] networkModes = new int[numPhones];
                 sPhones = new Phone[numPhones];
                 sCommandsInterfaces = new RIL[numPhones];
@@ -203,8 +214,9 @@ public class PhoneFactory {
                 SubscriptionController.getInstance().updatePhonesAvailability(sPhones);
 
                 // Start monitoring after defaults have been made.
-                // Default phone must be ready before ImsPhone is created
-                // because ImsService might need it when it is being opened.
+                // Default phone must be ready before ImsPhone is created because ImsService might
+                // need it when it is being opened. This should initialize multiple ImsPhones for
+                // ImsResolver implementations of ImsService.
                 for (int i = 0; i < numPhones; i++) {
                     sPhones[i].startMonitoringImsService();
                 }
@@ -221,6 +233,8 @@ public class PhoneFactory {
 
                 sProxyController = ProxyController.getInstance(context, sPhones,
                         sUiccController, sCommandsInterfaces, sPhoneSwitcher);
+
+                sNotificationChannelController = new NotificationChannelController(context);
 
                 sTelephonyNetworkFactories = new TelephonyNetworkFactory[numPhones];
                 for (int i = 0; i < numPhones; i++) {
@@ -273,6 +287,10 @@ public class PhoneFactory {
             }
             return sPhones;
         }
+    }
+
+    public static ImsResolver getImsResolver() {
+        return sImsResolver;
     }
 
     /**

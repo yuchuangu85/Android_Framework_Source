@@ -36,8 +36,7 @@ import java.util.Arrays;
  * }
  * </pre>
  */
-public class SntpClient
-{
+public class SntpClient {
     private static final String TAG = "SntpClient";
     private static final boolean DBG = true;
 
@@ -88,6 +87,7 @@ public class SntpClient
         try {
             address = InetAddress.getByName(host);
         } catch (Exception e) {
+            EventLogTags.writeNtpFailure(host, e.toString());
             if (DBG) Log.d(TAG, "request time failed: " + e);
             return false;
         }
@@ -96,6 +96,7 @@ public class SntpClient
 
     public boolean requestTime(InetAddress address, int port, int timeout) {
         DatagramSocket socket = null;
+        final int oldTag = TrafficStats.getAndSetThreadStatsTag(TrafficStats.TAG_SYSTEM_NTP);
         try {
             socket = new DatagramSocket();
             socket.setSoTimeout(timeout);
@@ -142,6 +143,7 @@ public class SntpClient
             //             = (transit + skew - transit + skew)/2
             //             = (2 * skew)/2 = skew
             long clockOffset = ((receiveTime - originateTime) + (transmitTime - responseTime))/2;
+            EventLogTags.writeNtpSuccess(address.toString(), roundTripTime, clockOffset);
             if (DBG) {
                 Log.d(TAG, "round trip: " + roundTripTime + "ms, " +
                         "clock offset: " + clockOffset + "ms");
@@ -153,12 +155,14 @@ public class SntpClient
             mNtpTimeReference = responseTicks;
             mRoundTripTime = roundTripTime;
         } catch (Exception e) {
+            EventLogTags.writeNtpFailure(address.toString(), e.toString());
             if (DBG) Log.d(TAG, "request time failed: " + e);
             return false;
         } finally {
             if (socket != null) {
                 socket.close();
             }
+            TrafficStats.setThreadStatsTag(oldTag);
         }
 
         return true;

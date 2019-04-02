@@ -16,46 +16,38 @@
 
 package android.net;
 
-import android.Manifest;
+import android.Manifest.permission;
+import android.annotation.IntDef;
+import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
+import android.annotation.SystemService;
 import android.content.Context;
-import android.content.Intent;
-import android.net.NetworkScorerAppManager.NetworkScorerAppData;
-import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.os.UserHandle;
+import android.os.ServiceManager.ServiceNotFoundException;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.List;
 
 /**
  * Class that manages communication between network subsystems and a network scorer.
  *
- * <p>You can get an instance of this class by calling
- * {@link android.content.Context#getSystemService(String)}:
- *
- * <pre>NetworkScoreManager manager =
- *     (NetworkScoreManager) getSystemService(Context.NETWORK_SCORE_SERVICE)</pre>
- *
  * <p>A network scorer is any application which:
  * <ul>
- * <li>Declares the {@link android.Manifest.permission#SCORE_NETWORKS} permission.
- * <li>Includes a receiver for {@link #ACTION_SCORE_NETWORKS} guarded by the
- *     {@link android.Manifest.permission#BROADCAST_NETWORK_PRIVILEGED} permission which scores
- *     networks and (eventually) calls {@link #updateScores} with the results. If this receiver
- *     specifies an android:label attribute, this label will be used when referring to the
- *     application throughout system settings; otherwise, the application label will be used.
+ * <li>Declares the {@link permission#SCORE_NETWORKS} permission.
+ * <li>Include a Service for the {@link #ACTION_RECOMMEND_NETWORKS} action
+ *     protected by the {@link permission#BIND_NETWORK_RECOMMENDATION_SERVICE}
+ *     permission.
  * </ul>
- *
- * <p>The system keeps track of an active scorer application; at any time, only this application
- * will receive {@link #ACTION_SCORE_NETWORKS} broadcasts and will be permitted to call
- * {@link #updateScores}. Applications may determine the current active scorer with
- * {@link #getActiveScorerPackage()} and request to change the active scorer by sending an
- * {@link #ACTION_CHANGE_ACTIVE} broadcast with another scorer.
  *
  * @hide
  */
 @SystemApi
+@SystemService(Context.NETWORK_SCORE_SERVICE)
 public class NetworkScoreManager {
     /**
      * Activity action: ask the user to change the active network scorer. This will show a dialog
@@ -92,15 +84,38 @@ public class NetworkScoreManager {
     public static final String EXTRA_NETWORKS_TO_SCORE = "networksToScore";
 
     /**
-     * Activity action: launch a custom activity for configuring a scorer before enabling it.
-     * Scorer applications may choose to specify an activity for this action, in which case the
-     * framework will launch that activity which should return RESULT_OK if scoring was enabled.
-     *
-     * <p>If no activity is included in a scorer which implements this action, the system dialog for
-     * selecting a scorer will be shown instead.
+     * Activity action: launch an activity for configuring a provider for the feature that connects
+     * and secures open wifi networks available before enabling it. Applications that enable this
+     * feature must provide an activity for this action. The framework will launch this activity
+     * which must return RESULT_OK if the feature should be enabled.
      */
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_CUSTOM_ENABLE = "android.net.scoring.CUSTOM_ENABLE";
+
+    /**
+     * Meta-data specified on a {@link NetworkRecommendationProvider} that provides a user-visible
+     * label of the recommendation service.
+     * @hide
+     */
+    public static final String RECOMMENDATION_SERVICE_LABEL_META_DATA =
+            "android.net.scoring.recommendation_service_label";
+
+    /**
+     * Meta-data specified on a {@link NetworkRecommendationProvider} that specified the package
+     * name of the application that connects and secures open wifi networks automatically. The
+     * specified package must provide an Activity for {@link #ACTION_CUSTOM_ENABLE}.
+     * @hide
+     */
+    public static final String USE_OPEN_WIFI_PACKAGE_META_DATA =
+            "android.net.wifi.use_open_wifi_package";
+
+    /**
+     * Meta-data specified on a {@link NetworkRecommendationProvider} that specifies the
+     * {@link android.app.NotificationChannel} ID used to post open network notifications.
+     * @hide
+     */
+    public static final String NETWORK_AVAILABLE_NOTIFICATION_CHANNEL_ID_META_DATA =
+            "android.net.wifi.notification_channel_id_network_available";
 
     /**
      * Broadcast action: the active scorer has been changed. Scorer apps may listen to this to
@@ -117,20 +132,88 @@ public class NetworkScoreManager {
     public static final String ACTION_SCORER_CHANGED = "android.net.scoring.SCORER_CHANGED";
 
     /**
+     * Service action: Used to discover and bind to a network recommendation provider.
+     * Implementations should return {@link NetworkRecommendationProvider#getBinder()} from
+     * their <code>onBind()</code> method.
+     */
+    @SdkConstant(SdkConstantType.SERVICE_ACTION)
+    public static final String ACTION_RECOMMEND_NETWORKS = "android.net.action.RECOMMEND_NETWORKS";
+
+    /**
      * Extra used with {@link #ACTION_SCORER_CHANGED} to specify the newly selected scorer's package
      * name. Will be null if scoring was disabled. Can be obtained with
      * {@link android.content.Intent#getStringExtra(String)}.
      */
     public static final String EXTRA_NEW_SCORER = "newScorer";
 
+    /** @hide */
+    @IntDef({CACHE_FILTER_NONE, CACHE_FILTER_CURRENT_NETWORK, CACHE_FILTER_SCAN_RESULTS})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface CacheUpdateFilter {}
+
+    /**
+     * Do not filter updates sent to the cache.
+     * @hide
+     */
+    public static final int CACHE_FILTER_NONE = 0;
+
+    /**
+     * Only send cache updates when the network matches the connected network.
+     * @hide
+     */
+    public static final int CACHE_FILTER_CURRENT_NETWORK = 1;
+
+    /**
+     * Only send cache updates when the network is part of the current scan result set.
+     * @hide
+     */
+    public static final int CACHE_FILTER_SCAN_RESULTS = 2;
+
+    /** @hide */
+    @IntDef({RECOMMENDATIONS_ENABLED_FORCED_OFF, RECOMMENDATIONS_ENABLED_OFF,
+            RECOMMENDATIONS_ENABLED_ON})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface RecommendationsEnabledSetting {}
+
+    /**
+     * Recommendations have been forced off.
+     * <p>
+     * This value is never set by any of the NetworkScore classes, it must be set via other means.
+     * This state is also "sticky" and we won't transition out of this state once entered. To move
+     * to a different state this value has to be explicitly set to a different value via
+     * other means.
+     * @hide
+     */
+    public static final int RECOMMENDATIONS_ENABLED_FORCED_OFF = -1;
+
+    /**
+     * Recommendations are not enabled.
+     * <p>
+     * This is a transient state that can be entered when the default recommendation app is enabled
+     * but no longer valid. This state will transition to RECOMMENDATIONS_ENABLED_ON when a valid
+     * recommendation app is enabled.
+     * @hide
+     */
+    public static final int RECOMMENDATIONS_ENABLED_OFF = 0;
+
+    /**
+     * Recommendations are enabled.
+     * <p>
+     * This is a transient state that means a valid recommendation app is active. This state will
+     * transition to RECOMMENDATIONS_ENABLED_OFF if the current and default recommendation apps
+     * become invalid.
+     * @hide
+     */
+    public static final int RECOMMENDATIONS_ENABLED_ON = 1;
+
     private final Context mContext;
     private final INetworkScoreService mService;
 
     /** @hide */
-    public NetworkScoreManager(Context context) {
+    public NetworkScoreManager(Context context) throws ServiceNotFoundException {
         mContext = context;
-        IBinder iBinder = ServiceManager.getService(Context.NETWORK_SCORE_SERVICE);
-        mService = INetworkScoreService.Stub.asInterface(iBinder);
+        mService = INetworkScoreService.Stub
+                .asInterface(ServiceManager.getServiceOrThrow(Context.NETWORK_SCORE_SERVICE));
     }
 
     /**
@@ -144,11 +227,40 @@ public class NetworkScoreManager {
      *         scorer.
      */
     public String getActiveScorerPackage() {
-        NetworkScorerAppData app = NetworkScorerAppManager.getActiveScorer(mContext);
-        if (app == null) {
-            return null;
+        try {
+            return mService.getActiveScorerPackage();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
         }
-        return app.mPackageName;
+    }
+
+    /**
+     * Returns metadata about the active scorer or <code>null</code> if there is no active scorer.
+     *
+     * @hide
+     */
+    @Nullable
+    @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
+    public NetworkScorerAppData getActiveScorer() {
+        try {
+            return mService.getActiveScorer();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Returns the list of available scorer apps. The list will be empty if there are
+     * no valid scorers.
+     *
+     * @hide
+     */
+    public List<NetworkScorerAppData> getAllValidScorers() {
+        try {
+            return mService.getAllValidScorers();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
     }
 
     /**
@@ -162,6 +274,7 @@ public class NetworkScoreManager {
      * @return whether the update was successful.
      * @throws SecurityException if the caller is not the active scorer.
      */
+    @RequiresPermission(android.Manifest.permission.SCORE_NETWORKS)
     public boolean updateScores(ScoredNetwork[] networks) throws SecurityException {
         try {
             return mService.updateScores(networks);
@@ -182,6 +295,7 @@ public class NetworkScoreManager {
      * @return whether the clear was successful.
      * @throws SecurityException if the caller is not the active scorer or privileged.
      */
+    @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
     public boolean clearScores() throws SecurityException {
         try {
             return mService.clearScores();
@@ -197,11 +311,12 @@ public class NetworkScoreManager {
      * the {@link #ACTION_CHANGE_ACTIVE} broadcast, or using a custom configuration activity.
      *
      * @return true if the operation succeeded, or false if the new package is not a valid scorer.
-     * @throws SecurityException if the caller does not hold the
-     *         {@link android.Manifest.permission#SCORE_NETWORKS} permission.
+     * @throws SecurityException if the caller is not a system process or does not hold the
+     *         {@link permission#SCORE_NETWORKS} permission
      * @hide
      */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.SCORE_NETWORKS)
     public boolean setActiveScorer(String packageName) throws SecurityException {
         try {
             return mService.setActiveScorer(packageName);
@@ -217,6 +332,7 @@ public class NetworkScoreManager {
      *
      * @throws SecurityException if the caller is neither the active scorer nor the system.
      */
+    @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
     public void disableScoring() throws SecurityException {
         try {
             mService.disableScoring();
@@ -228,28 +344,17 @@ public class NetworkScoreManager {
     /**
      * Request scoring for networks.
      *
-     * <p>Note that this is just a helper method to assemble the broadcast, and will run in the
-     * calling process.
-     *
      * @return true if the broadcast was sent, or false if there is no active scorer.
      * @throws SecurityException if the caller does not hold the
-     *         {@link android.Manifest.permission#BROADCAST_NETWORK_PRIVILEGED} permission.
+     *         {@link permission#REQUEST_NETWORK_SCORES} permission.
      * @hide
      */
     public boolean requestScores(NetworkKey[] networks) throws SecurityException {
-        String activeScorer = getActiveScorerPackage();
-        if (activeScorer == null) {
-            return false;
+        try {
+            return mService.requestScores(networks);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
         }
-        Intent intent = new Intent(ACTION_SCORE_NETWORKS);
-        intent.setPackage(activeScorer);
-        intent.setFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
-        intent.putExtra(EXTRA_NETWORKS_TO_SCORE, networks);
-        // A scorer should never become active if its package doesn't hold SCORE_NETWORKS, but
-        // ensure the package still holds it to be extra safe.
-        // TODO: http://b/23422763
-        mContext.sendBroadcastAsUser(intent, UserHandle.SYSTEM, Manifest.permission.SCORE_NETWORKS);
-        return true;
     }
 
     /**
@@ -258,13 +363,64 @@ public class NetworkScoreManager {
      * @param networkType the type of network this cache can handle. See {@link NetworkKey#type}.
      * @param scoreCache implementation of {@link INetworkScoreCache} to store the scores.
      * @throws SecurityException if the caller does not hold the
-     *         {@link android.Manifest.permission#BROADCAST_NETWORK_PRIVILEGED} permission.
+     *         {@link permission#REQUEST_NETWORK_SCORES} permission.
+     * @throws IllegalArgumentException if a score cache is already registered for this type.
+     * @deprecated equivalent to registering for cache updates with CACHE_FILTER_NONE.
+     * @hide
+     */
+    @Deprecated // migrate to registerNetworkScoreCache(int, INetworkScoreCache, int)
+    public void registerNetworkScoreCache(int networkType, INetworkScoreCache scoreCache) {
+        registerNetworkScoreCache(networkType, scoreCache, CACHE_FILTER_NONE);
+    }
+
+    /**
+     * Register a network score cache.
+     *
+     * @param networkType the type of network this cache can handle. See {@link NetworkKey#type}
+     * @param scoreCache implementation of {@link INetworkScoreCache} to store the scores
+     * @param filterType the {@link CacheUpdateFilter} to apply
+     * @throws SecurityException if the caller does not hold the
+     *         {@link permission#REQUEST_NETWORK_SCORES} permission.
      * @throws IllegalArgumentException if a score cache is already registered for this type.
      * @hide
      */
-    public void registerNetworkScoreCache(int networkType, INetworkScoreCache scoreCache) {
+    public void registerNetworkScoreCache(int networkType, INetworkScoreCache scoreCache,
+            @CacheUpdateFilter int filterType) {
         try {
-            mService.registerNetworkScoreCache(networkType, scoreCache);
+            mService.registerNetworkScoreCache(networkType, scoreCache, filterType);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Unregister a network score cache.
+     *
+     * @param networkType the type of network this cache can handle. See {@link NetworkKey#type}.
+     * @param scoreCache implementation of {@link INetworkScoreCache} to store the scores.
+     * @throws SecurityException if the caller does not hold the
+     *         {@link permission#REQUEST_NETWORK_SCORES} permission.
+     * @throws IllegalArgumentException if a score cache is already registered for this type.
+     * @hide
+     */
+    public void unregisterNetworkScoreCache(int networkType, INetworkScoreCache scoreCache) {
+        try {
+            mService.unregisterNetworkScoreCache(networkType, scoreCache);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Determine whether the application with the given UID is the enabled scorer.
+     *
+     * @param callingUid the UID to check
+     * @return true if the provided UID is the active scorer, false otherwise.
+     * @hide
+     */
+    public boolean isCallerActiveScorer(int callingUid) {
+        try {
+            return mService.isCallerActiveScorer(callingUid);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

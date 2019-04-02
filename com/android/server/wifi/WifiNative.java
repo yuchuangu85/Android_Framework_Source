@@ -16,54 +16,28 @@
 
 package com.android.server.wifi;
 
-import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.app.AlarmManager;
-import android.app.PendingIntent;
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
 import android.net.apf.ApfCapabilities;
+import android.net.wifi.IApInterface;
+import android.net.wifi.IClientInterface;
 import android.net.wifi.RttManager;
 import android.net.wifi.RttManager.ResponderConfig;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
-import android.net.wifi.WifiEnterpriseConfig;
 import android.net.wifi.WifiLinkLayerStats;
-import android.net.wifi.WifiManager;
 import android.net.wifi.WifiScanner;
-import android.net.wifi.WifiSsid;
 import android.net.wifi.WifiWakeReasonAndCounts;
-import android.net.wifi.WpsInfo;
-import android.net.wifi.p2p.WifiP2pConfig;
-import android.net.wifi.p2p.WifiP2pGroup;
-import android.net.wifi.p2p.nsd.WifiP2pServiceInfo;
 import android.os.SystemClock;
-import android.os.SystemProperties;
-import android.text.TextUtils;
-import android.util.LocalLog;
 import android.util.Log;
+import android.util.SparseArray;
 
 import com.android.internal.annotations.Immutable;
 import com.android.internal.util.HexDump;
 import com.android.server.connectivity.KeepalivePacketData;
-import com.android.server.wifi.hotspot2.NetworkDetail;
-import com.android.server.wifi.hotspot2.SupplicantBridge;
-import com.android.server.wifi.hotspot2.Utils;
 import com.android.server.wifi.util.FrameParser;
-import com.android.server.wifi.util.InformationElementUtil;
-
-import libcore.util.HexEncoding;
-
-import org.json.JSONException;
-import org.json.JSONObject;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.io.UnsupportedEncodingException;
-import java.net.URLDecoder;
-import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -71,12 +45,7 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Date;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -87,702 +56,263 @@ import java.util.TimeZone;
  * Native calls for bring up/shut down of the supplicant daemon and for
  * sending requests to the supplicant daemon
  *
- * waitForEvent() is called on the monitor thread for events. All other methods
- * must be serialized from the framework.
- *
  * {@hide}
  */
 public class WifiNative {
-    private static boolean DBG = false;
-
-    // Must match wifi_hal.h
-    public static final int WIFI_SUCCESS = 0;
-
-    /**
-     * Hold this lock before calling supplicant or HAL methods
-     * it is required to mutually exclude access to the driver
-     */
-    public static final Object sLock = new Object();
-
-    private static final LocalLog sLocalLog = new LocalLog(8192);
-
-    public @NonNull LocalLog getLocalLog() {
-        return sLocalLog;
-    }
-
-    /* Register native functions */
-    static {
-        /* Native functions are defined in libwifi-service.so */
-        System.loadLibrary("wifi-service");
-        registerNatives();
-    }
-
-    private static native int registerNatives();
-
-    /*
-     * Singleton WifiNative instances
-     */
-    private static WifiNative wlanNativeInterface =
-            new WifiNative(SystemProperties.get("wifi.interface", "wlan0"), true);
-    public static WifiNative getWlanNativeInterface() {
-        return wlanNativeInterface;
-    }
-
-    private static WifiNative p2pNativeInterface =
-            // commands for p2p0 interface don't need prefix
-            new WifiNative(SystemProperties.get("wifi.direct.interface", "p2p0"), false);
-    public static WifiNative getP2pNativeInterface() {
-        return p2pNativeInterface;
-    }
-
-
     private final String mTAG;
     private final String mInterfaceName;
-    private final String mInterfacePrefix;
+    private final SupplicantStaIfaceHal mSupplicantStaIfaceHal;
+    private final WifiVendorHal mWifiVendorHal;
+    private final WificondControl mWificondControl;
 
-    private Context mContext = null;
-    public void initContext(Context context) {
-        if (mContext == null && context != null) {
-            mContext = context;
-        }
-    }
-
-    private WifiNative(String interfaceName,
-                       boolean requiresPrefix) {
-        mInterfaceName = interfaceName;
+    public WifiNative(String interfaceName, WifiVendorHal vendorHal,
+                      SupplicantStaIfaceHal staIfaceHal, WificondControl condControl) {
         mTAG = "WifiNative-" + interfaceName;
-
-        if (requiresPrefix) {
-            mInterfacePrefix = "IFNAME=" + interfaceName + " ";
-        } else {
-            mInterfacePrefix = "";
-        }
+        mInterfaceName = interfaceName;
+        mWifiVendorHal = vendorHal;
+        mSupplicantStaIfaceHal = staIfaceHal;
+        mWificondControl = condControl;
     }
 
     public String getInterfaceName() {
         return mInterfaceName;
     }
 
-    // Note this affects logging on for all interfaces
-    void enableVerboseLogging(int verbose) {
-        if (verbose > 0) {
-            DBG = true;
-        } else {
-            DBG = false;
-        }
-    }
-
-    private void localLog(String s) {
-        if (sLocalLog != null) sLocalLog.log(mInterfaceName + ": " + s);
-    }
-
-
-
-    /*
-     * Driver and Supplicant management
+    /**
+     * Enable verbose logging for all sub modules.
      */
-    private native static boolean loadDriverNative();
-    public boolean loadDriver() {
-        synchronized (sLock) {
-            return loadDriverNative();
-        }
+    public void enableVerboseLogging(int verbose) {
+        mWificondControl.enableVerboseLogging(verbose > 0 ? true : false);
+        mSupplicantStaIfaceHal.enableVerboseLogging(verbose > 0);
+        mWifiVendorHal.enableVerboseLogging(verbose > 0);
     }
 
-    private native static boolean isDriverLoadedNative();
-    public boolean isDriverLoaded() {
-        synchronized (sLock) {
-            return isDriverLoadedNative();
-        }
-    }
+   /********************************************************
+    * Native Initialization/Deinitialization
+    ********************************************************/
 
-    private native static boolean unloadDriverNative();
-    public boolean unloadDriver() {
-        synchronized (sLock) {
-            return unloadDriverNative();
+   /**
+    * Setup wifi native for Client mode operations.
+    *
+    * 1. Starts the Wifi HAL and configures it in client/STA mode.
+    * 2. Setup Wificond to operate in client mode and retrieve the handle to use for client
+    * operations.
+    *
+    * @return An IClientInterface as wificond client interface binder handler.
+    * Returns null on failure.
+    */
+    public IClientInterface setupForClientMode() {
+        if (!startHalIfNecessary(true)) {
+            Log.e(mTAG, "Failed to start HAL for client mode");
+            return null;
         }
-    }
-
-    private native static boolean startSupplicantNative(boolean p2pSupported);
-    public boolean startSupplicant(boolean p2pSupported) {
-        synchronized (sLock) {
-            return startSupplicantNative(p2pSupported);
-        }
-    }
-
-    /* Sends a kill signal to supplicant. To be used when we have lost connection
-       or when the supplicant is hung */
-    private native static boolean killSupplicantNative(boolean p2pSupported);
-    public boolean killSupplicant(boolean p2pSupported) {
-        synchronized (sLock) {
-            return killSupplicantNative(p2pSupported);
-        }
-    }
-
-    private native static boolean connectToSupplicantNative();
-    public boolean connectToSupplicant() {
-        synchronized (sLock) {
-            localLog(mInterfacePrefix + "connectToSupplicant");
-            return connectToSupplicantNative();
-        }
-    }
-
-    private native static void closeSupplicantConnectionNative();
-    public void closeSupplicantConnection() {
-        synchronized (sLock) {
-            localLog(mInterfacePrefix + "closeSupplicantConnection");
-            closeSupplicantConnectionNative();
-        }
+        return mWificondControl.setupDriverForClientMode();
     }
 
     /**
-     * Wait for the supplicant to send an event, returning the event string.
-     * @return the event string sent by the supplicant.
+     * Setup wifi native for AP mode operations.
+     *
+     * 1. Starts the Wifi HAL and configures it in AP mode.
+     * 2. Setup Wificond to operate in AP mode and retrieve the handle to use for ap operations.
+     *
+     * @return An IApInterface as wificond Ap interface binder handler.
+     * Returns null on failure.
      */
-    private native static String waitForEventNative();
-    public String waitForEvent() {
-        // No synchronization necessary .. it is implemented in WifiMonitor
-        return waitForEventNative();
-    }
-
-
-    /*
-     * Supplicant Command Primitives
-     */
-    private native boolean doBooleanCommandNative(String command);
-
-    private native int doIntCommandNative(String command);
-
-    private native String doStringCommandNative(String command);
-
-    private boolean doBooleanCommand(String command) {
-        if (DBG) Log.d(mTAG, "doBoolean: " + command);
-        synchronized (sLock) {
-            String toLog = mInterfacePrefix + command;
-            boolean result = doBooleanCommandNative(mInterfacePrefix + command);
-            localLog(toLog + " -> " + result);
-            if (DBG) Log.d(mTAG, command + ": returned " + result);
-            return result;
+    public IApInterface setupForSoftApMode() {
+        if (!startHalIfNecessary(false)) {
+            Log.e(mTAG, "Failed to start HAL for AP mode");
+            return null;
         }
-    }
-
-    private boolean doBooleanCommandWithoutLogging(String command) {
-        if (DBG) Log.d(mTAG, "doBooleanCommandWithoutLogging: " + command);
-        synchronized (sLock) {
-            boolean result = doBooleanCommandNative(mInterfacePrefix + command);
-            if (DBG) Log.d(mTAG, command + ": returned " + result);
-            return result;
-        }
-    }
-
-    private int doIntCommand(String command) {
-        if (DBG) Log.d(mTAG, "doInt: " + command);
-        synchronized (sLock) {
-            String toLog = mInterfacePrefix + command;
-            int result = doIntCommandNative(mInterfacePrefix + command);
-            localLog(toLog + " -> " + result);
-            if (DBG) Log.d(mTAG, "   returned " + result);
-            return result;
-        }
-    }
-
-    private String doStringCommand(String command) {
-        if (DBG) {
-            //GET_NETWORK commands flood the logs
-            if (!command.startsWith("GET_NETWORK")) {
-                Log.d(mTAG, "doString: [" + command + "]");
-            }
-        }
-        synchronized (sLock) {
-            String toLog = mInterfacePrefix + command;
-            String result = doStringCommandNative(mInterfacePrefix + command);
-            if (result == null) {
-                if (DBG) Log.d(mTAG, "doStringCommandNative no result");
-            } else {
-                if (!command.startsWith("STATUS-")) {
-                    localLog(toLog + " -> " + result);
-                }
-                if (DBG) Log.d(mTAG, "   returned " + result.replace("\n", " "));
-            }
-            return result;
-        }
-    }
-
-    private String doStringCommandWithoutLogging(String command) {
-        if (DBG) {
-            //GET_NETWORK commands flood the logs
-            if (!command.startsWith("GET_NETWORK")) {
-                Log.d(mTAG, "doString: [" + command + "]");
-            }
-        }
-        synchronized (sLock) {
-            return doStringCommandNative(mInterfacePrefix + command);
-        }
-    }
-
-    public String doCustomSupplicantCommand(String command) {
-        return doStringCommand(command);
-    }
-
-    /*
-     * Wrappers for supplicant commands
-     */
-    public boolean ping() {
-        String pong = doStringCommand("PING");
-        return (pong != null && pong.equals("PONG"));
-    }
-
-    public void setSupplicantLogLevel(String level) {
-        doStringCommand("LOG_LEVEL " + level);
-    }
-
-    public String getFreqCapability() {
-        return doStringCommand("GET_CAPABILITY freq");
+        return mWificondControl.setupDriverForSoftApMode();
     }
 
     /**
-     * Create a comma separate string from integer set.
-     * @param values List of integers.
-     * @return comma separated string.
+     * Teardown all mode configurations in wifi native.
+     *
+     * 1. Tears down all the interfaces from Wificond.
+     * 2. Stops the Wifi HAL.
+     *
+     * @return Returns true on success.
      */
-    private static String createCSVStringFromIntegerSet(Set<Integer> values) {
-        StringBuilder list = new StringBuilder();
-        boolean first = true;
-        for (Integer value : values) {
-            if (!first) {
-                list.append(",");
-            }
-            list.append(value);
-            first = false;
+    public boolean tearDown() {
+        if (!mWificondControl.tearDownInterfaces()) {
+            // TODO(b/34859006): Handle failures.
+            Log.e(mTAG, "Failed to teardown interfaces from Wificond");
+            return false;
         }
-        return list.toString();
+        stopHalIfNecessary();
+        return true;
+    }
+
+    /********************************************************
+     * Wificond operations
+     ********************************************************/
+    /**
+     * Result of a signal poll.
+     */
+    public static class SignalPollResult {
+        // RSSI value in dBM.
+        public int currentRssi;
+        //Transmission bit rate in Mbps.
+        public int txBitrate;
+        // Association frequency in MHz.
+        public int associationFrequency;
     }
 
     /**
-     * Start a scan using wpa_supplicant for the given frequencies.
+     * WiFi interface transimission counters.
+     */
+    public static class TxPacketCounters {
+        // Number of successfully transmitted packets.
+        public int txSucceeded;
+        // Number of tramsmission failures.
+        public int txFailed;
+    }
+
+    /**
+    * Disable wpa_supplicant via wificond.
+    * @return Returns true on success.
+    */
+    public boolean disableSupplicant() {
+        return mWificondControl.disableSupplicant();
+    }
+
+    /**
+    * Enable wpa_supplicant via wificond.
+    * @return Returns true on success.
+    */
+    public boolean enableSupplicant() {
+        return mWificondControl.enableSupplicant();
+    }
+
+    /**
+    * Request signal polling to wificond.
+    * Returns an SignalPollResult object.
+    * Returns null on failure.
+    */
+    public SignalPollResult signalPoll() {
+        return mWificondControl.signalPoll();
+    }
+
+    /**
+     * Fetch TX packet counters on current connection from wificond.
+    * Returns an TxPacketCounters object.
+    * Returns null on failure.
+    */
+    public TxPacketCounters getTxPacketCounters() {
+        return mWificondControl.getTxPacketCounters();
+    }
+
+    /**
+     * Start a scan using wificond for the given parameters.
      * @param freqs list of frequencies to scan for, if null scan all supported channels.
-     * @param hiddenNetworkIds List of hidden networks to be scanned for.
+     * @param hiddenNetworkSSIDs List of hidden networks to be scanned for.
+     * @return Returns true on success.
      */
-    public boolean scan(Set<Integer> freqs, Set<Integer> hiddenNetworkIds) {
-        String freqList = null;
-        String hiddenNetworkIdList = null;
-        if (freqs != null && freqs.size() != 0) {
-            freqList = createCSVStringFromIntegerSet(freqs);
-        }
-        if (hiddenNetworkIds != null && hiddenNetworkIds.size() != 0) {
-            hiddenNetworkIdList = createCSVStringFromIntegerSet(hiddenNetworkIds);
-        }
-        return scanWithParams(freqList, hiddenNetworkIdList);
-    }
-
-    private boolean scanWithParams(String freqList, String hiddenNetworkIdList) {
-        StringBuilder scanCommand = new StringBuilder();
-        scanCommand.append("SCAN TYPE=ONLY");
-        if (freqList != null) {
-            scanCommand.append(" freq=" + freqList);
-        }
-        if (hiddenNetworkIdList != null) {
-            scanCommand.append(" scan_id=" + hiddenNetworkIdList);
-        }
-        return doBooleanCommand(scanCommand.toString());
-    }
-
-    /* Does a graceful shutdown of supplicant. Is a common stop function for both p2p and sta.
-     *
-     * Note that underneath we use a harsh-sounding "terminate" supplicant command
-     * for a graceful stop and a mild-sounding "stop" interface
-     * to kill the process
-     */
-    public boolean stopSupplicant() {
-        return doBooleanCommand("TERMINATE");
-    }
-
-    public String listNetworks() {
-        return doStringCommand("LIST_NETWORKS");
-    }
-
-    public String listNetworks(int last_id) {
-        return doStringCommand("LIST_NETWORKS LAST_ID=" + last_id);
-    }
-
-    public int addNetwork() {
-        return doIntCommand("ADD_NETWORK");
-    }
-
-    public boolean setNetworkExtra(int netId, String name, Map<String, String> values) {
-        final String encoded;
-        try {
-            encoded = URLEncoder.encode(new JSONObject(values).toString(), "UTF-8");
-        } catch (NullPointerException e) {
-            Log.e(TAG, "Unable to serialize networkExtra: " + e.toString());
-            return false;
-        } catch (UnsupportedEncodingException e) {
-            Log.e(TAG, "Unable to serialize networkExtra: " + e.toString());
-            return false;
-        }
-        return setNetworkVariable(netId, name, "\"" + encoded + "\"");
-    }
-
-    public boolean setNetworkVariable(int netId, String name, String value) {
-        if (TextUtils.isEmpty(name) || TextUtils.isEmpty(value)) return false;
-        if (name.equals(WifiConfiguration.pskVarName)
-                || name.equals(WifiEnterpriseConfig.PASSWORD_KEY)) {
-            return doBooleanCommandWithoutLogging("SET_NETWORK " + netId + " " + name + " " + value);
-        } else {
-            return doBooleanCommand("SET_NETWORK " + netId + " " + name + " " + value);
-        }
-    }
-
-    public Map<String, String> getNetworkExtra(int netId, String name) {
-        final String wrapped = getNetworkVariable(netId, name);
-        if (wrapped == null || !wrapped.startsWith("\"") || !wrapped.endsWith("\"")) {
-            return null;
-        }
-        try {
-            final String encoded = wrapped.substring(1, wrapped.length() - 1);
-            // This method reads a JSON dictionary that was written by setNetworkExtra(). However,
-            // on devices that upgraded from Marshmallow, it may encounter a legacy value instead -
-            // an FQDN stored as a plain string. If such a value is encountered, the JSONObject
-            // constructor will thrown a JSONException and the method will return null.
-            final JSONObject json = new JSONObject(URLDecoder.decode(encoded, "UTF-8"));
-            final Map<String, String> values = new HashMap<String, String>();
-            final Iterator<?> it = json.keys();
-            while (it.hasNext()) {
-                final String key = (String) it.next();
-                final Object value = json.get(key);
-                if (value instanceof String) {
-                    values.put(key, (String) value);
-                }
-            }
-            return values;
-        } catch (UnsupportedEncodingException e) {
-            Log.e(TAG, "Unable to deserialize networkExtra: " + e.toString());
-            return null;
-        } catch (JSONException e) {
-            // This is not necessarily an error. This exception will also occur if we encounter a
-            // legacy FQDN stored as a plain string. We want to return null in this case as no JSON
-            // dictionary of extras was found.
-            return null;
-        }
-    }
-
-    public String getNetworkVariable(int netId, String name) {
-        if (TextUtils.isEmpty(name)) return null;
-
-        // GET_NETWORK will likely flood the logs ...
-        return doStringCommandWithoutLogging("GET_NETWORK " + netId + " " + name);
-    }
-
-    public boolean removeNetwork(int netId) {
-        return doBooleanCommand("REMOVE_NETWORK " + netId);
-    }
-
-
-    private void logDbg(String debug) {
-        long now = SystemClock.elapsedRealtimeNanos();
-        String ts = String.format("[%,d us] ", now/1000);
-        Log.e("WifiNative: ", ts+debug+ " stack:"
-                + Thread.currentThread().getStackTrace()[2].getMethodName() +" - "
-                + Thread.currentThread().getStackTrace()[3].getMethodName() +" - "
-                + Thread.currentThread().getStackTrace()[4].getMethodName() +" - "
-                + Thread.currentThread().getStackTrace()[5].getMethodName()+" - "
-                + Thread.currentThread().getStackTrace()[6].getMethodName());
-
+    public boolean scan(Set<Integer> freqs, Set<String> hiddenNetworkSSIDs) {
+        return mWificondControl.scan(freqs, hiddenNetworkSSIDs);
     }
 
     /**
-     * Enables a network in wpa_supplicant.
-     * @param netId - Network ID of the network to be enabled.
-     * @return true if command succeeded, false otherwise.
+     * Fetch the latest scan result from kernel via wificond.
+     * @return Returns an ArrayList of ScanDetail.
+     * Returns an empty ArrayList on failure.
      */
-    public boolean enableNetwork(int netId) {
-        if (DBG) logDbg("enableNetwork nid=" + Integer.toString(netId));
-        return doBooleanCommand("ENABLE_NETWORK " + netId);
-    }
-
-    /**
-     * Enable a network in wpa_supplicant, do not connect.
-     * @param netId - Network ID of the network to be enabled.
-     * @return true if command succeeded, false otherwise.
-     */
-    public boolean enableNetworkWithoutConnect(int netId) {
-        if (DBG) logDbg("enableNetworkWithoutConnect nid=" + Integer.toString(netId));
-        return doBooleanCommand("ENABLE_NETWORK " + netId + " " + "no-connect");
-    }
-
-    /**
-     * Disables a network in wpa_supplicant.
-     * @param netId - Network ID of the network to be disabled.
-     * @return true if command succeeded, false otherwise.
-     */
-    public boolean disableNetwork(int netId) {
-        if (DBG) logDbg("disableNetwork nid=" + Integer.toString(netId));
-        return doBooleanCommand("DISABLE_NETWORK " + netId);
-    }
-
-    /**
-     * Select a network in wpa_supplicant (Disables all others).
-     * @param netId - Network ID of the network to be selected.
-     * @return true if command succeeded, false otherwise.
-     */
-    public boolean selectNetwork(int netId) {
-        if (DBG) logDbg("selectNetwork nid=" + Integer.toString(netId));
-        return doBooleanCommand("SELECT_NETWORK " + netId);
-    }
-
-    public boolean reconnect() {
-        if (DBG) logDbg("RECONNECT ");
-        return doBooleanCommand("RECONNECT");
-    }
-
-    public boolean reassociate() {
-        if (DBG) logDbg("REASSOCIATE ");
-        return doBooleanCommand("REASSOCIATE");
-    }
-
-    public boolean disconnect() {
-        if (DBG) logDbg("DISCONNECT ");
-        return doBooleanCommand("DISCONNECT");
-    }
-
-    public String status() {
-        return status(false);
-    }
-
-    public String status(boolean noEvents) {
-        if (noEvents) {
-            return doStringCommand("STATUS-NO_EVENTS");
-        } else {
-            return doStringCommand("STATUS");
-        }
-    }
-
-    public String getMacAddress() {
-        //Macaddr = XX.XX.XX.XX.XX.XX
-        String ret = doStringCommand("DRIVER MACADDR");
-        if (!TextUtils.isEmpty(ret)) {
-            String[] tokens = ret.split(" = ");
-            if (tokens.length == 2) return tokens[1];
-        }
-        return null;
-    }
-
-
-
-    /**
-     * Format of results:
-     * =================
-     * id=1
-     * bssid=68:7f:76:d7:1a:6e
-     * freq=2412
-     * level=-44
-     * tsf=1344626243700342
-     * flags=[WPA2-PSK-CCMP][WPS][ESS]
-     * ssid=zfdy
-     * ====
-     * id=2
-     * bssid=68:5f:74:d7:1a:6f
-     * freq=5180
-     * level=-73
-     * tsf=1344626243700373
-     * flags=[WPA2-PSK-CCMP][WPS][ESS]
-     * ssid=zuby
-     * ====
-     *
-     * RANGE=ALL gets all scan results
-     * RANGE=ID- gets results from ID
-     * MASK=<N> BSS command information mask.
-     *
-     * The mask used in this method, 0x29d87, gets the following fields:
-     *
-     *     WPA_BSS_MASK_ID         (Bit 0)
-     *     WPA_BSS_MASK_BSSID      (Bit 1)
-     *     WPA_BSS_MASK_FREQ       (Bit 2)
-     *     WPA_BSS_MASK_LEVEL      (Bit 7)
-     *     WPA_BSS_MASK_TSF        (Bit 8)
-     *     WPA_BSS_MASK_IE         (Bit 10)
-     *     WPA_BSS_MASK_FLAGS      (Bit 11)
-     *     WPA_BSS_MASK_SSID       (Bit 12)
-     *     WPA_BSS_MASK_INTERNETW  (Bit 15) (adds ANQP info)
-     *     WPA_BSS_MASK_DELIM      (Bit 17)
-     *
-     * See wpa_supplicant/src/common/wpa_ctrl.h for details.
-     */
-    private String getRawScanResults(String range) {
-        return doStringCommandWithoutLogging("BSS RANGE=" + range + " MASK=0x29d87");
-    }
-
-    private static final String BSS_IE_STR = "ie=";
-    private static final String BSS_ID_STR = "id=";
-    private static final String BSS_BSSID_STR = "bssid=";
-    private static final String BSS_FREQ_STR = "freq=";
-    private static final String BSS_LEVEL_STR = "level=";
-    private static final String BSS_TSF_STR = "tsf=";
-    private static final String BSS_FLAGS_STR = "flags=";
-    private static final String BSS_SSID_STR = "ssid=";
-    private static final String BSS_DELIMITER_STR = "====";
-    private static final String BSS_END_STR = "####";
-
     public ArrayList<ScanDetail> getScanResults() {
-        int next_sid = 0;
-        ArrayList<ScanDetail> results = new ArrayList<>();
-        while(next_sid >= 0) {
-            String rawResult = getRawScanResults(next_sid+"-");
-            next_sid = -1;
-
-            if (TextUtils.isEmpty(rawResult))
-                break;
-
-            String[] lines = rawResult.split("\n");
-
-
-            // note that all these splits and substrings keep references to the original
-            // huge string buffer while the amount we really want is generally pretty small
-            // so make copies instead (one example b/11087956 wasted 400k of heap here).
-            final int bssidStrLen = BSS_BSSID_STR.length();
-            final int flagLen = BSS_FLAGS_STR.length();
-
-            String bssid = "";
-            int level = 0;
-            int freq = 0;
-            long tsf = 0;
-            String flags = "";
-            WifiSsid wifiSsid = null;
-            String infoElementsStr = null;
-            List<String> anqpLines = null;
-
-            for (String line : lines) {
-                if (line.startsWith(BSS_ID_STR)) { // Will find the last id line
-                    try {
-                        next_sid = Integer.parseInt(line.substring(BSS_ID_STR.length())) + 1;
-                    } catch (NumberFormatException e) {
-                        // Nothing to do
-                    }
-                } else if (line.startsWith(BSS_BSSID_STR)) {
-                    bssid = new String(line.getBytes(), bssidStrLen, line.length() - bssidStrLen);
-                } else if (line.startsWith(BSS_FREQ_STR)) {
-                    try {
-                        freq = Integer.parseInt(line.substring(BSS_FREQ_STR.length()));
-                    } catch (NumberFormatException e) {
-                        freq = 0;
-                    }
-                } else if (line.startsWith(BSS_LEVEL_STR)) {
-                    try {
-                        level = Integer.parseInt(line.substring(BSS_LEVEL_STR.length()));
-                        /* some implementations avoid negative values by adding 256
-                         * so we need to adjust for that here.
-                         */
-                        if (level > 0) level -= 256;
-                    } catch (NumberFormatException e) {
-                        level = 0;
-                    }
-                } else if (line.startsWith(BSS_TSF_STR)) {
-                    try {
-                        tsf = Long.parseLong(line.substring(BSS_TSF_STR.length()));
-                    } catch (NumberFormatException e) {
-                        tsf = 0;
-                    }
-                } else if (line.startsWith(BSS_FLAGS_STR)) {
-                    flags = new String(line.getBytes(), flagLen, line.length() - flagLen);
-                } else if (line.startsWith(BSS_SSID_STR)) {
-                    wifiSsid = WifiSsid.createFromAsciiEncoded(
-                            line.substring(BSS_SSID_STR.length()));
-                } else if (line.startsWith(BSS_IE_STR)) {
-                    infoElementsStr = line;
-                } else if (SupplicantBridge.isAnqpAttribute(line)) {
-                    if (anqpLines == null) {
-                        anqpLines = new ArrayList<>();
-                    }
-                    anqpLines.add(line);
-                } else if (line.startsWith(BSS_DELIMITER_STR) || line.startsWith(BSS_END_STR)) {
-                    if (bssid != null) {
-                        try {
-                            if (infoElementsStr == null) {
-                                throw new IllegalArgumentException("Null information element data");
-                            }
-                            int seperator = infoElementsStr.indexOf('=');
-                            if (seperator < 0) {
-                                throw new IllegalArgumentException("No element separator");
-                            }
-
-                            ScanResult.InformationElement[] infoElements =
-                                        InformationElementUtil.parseInformationElements(
-                                        Utils.hexToBytes(infoElementsStr.substring(seperator + 1)));
-
-                            NetworkDetail networkDetail = new NetworkDetail(bssid,
-                                    infoElements, anqpLines, freq);
-                            String xssid = (wifiSsid != null) ? wifiSsid.toString() : WifiSsid.NONE;
-                            if (!xssid.equals(networkDetail.getTrimmedSSID())) {
-                                Log.d(TAG, String.format(
-                                        "Inconsistent SSID on BSSID '%s': '%s' vs '%s': %s",
-                                        bssid, xssid, networkDetail.getSSID(), infoElementsStr));
-                            }
-
-                            if (networkDetail.hasInterworking()) {
-                                if (DBG) Log.d(TAG, "HSNwk: '" + networkDetail);
-                            }
-                            ScanDetail scan = new ScanDetail(networkDetail, wifiSsid, bssid, flags,
-                                    level, freq, tsf, infoElements, anqpLines);
-                            results.add(scan);
-                        } catch (IllegalArgumentException iae) {
-                            Log.d(TAG, "Failed to parse information elements: " + iae);
-                        }
-                    }
-                    bssid = null;
-                    level = 0;
-                    freq = 0;
-                    tsf = 0;
-                    flags = "";
-                    wifiSsid = null;
-                    infoElementsStr = null;
-                    anqpLines = null;
-                }
-            }
-        }
-        return results;
+        return mWificondControl.getScanResults();
     }
 
     /**
-     * Format of result:
-     * id=1016
-     * bssid=00:03:7f:40:84:10
-     * freq=2462
-     * beacon_int=200
-     * capabilities=0x0431
-     * qual=0
-     * noise=0
-     * level=-46
-     * tsf=0000002669008476
-     * age=5
-     * ie=00105143412d485332302d52322d54455354010882848b960c12182403010b0706555...
-     * flags=[WPA2-EAP-CCMP][ESS][P2P][HS20]
-     * ssid=QCA-HS20-R2-TEST
-     * p2p_device_name=
-     * p2p_config_methods=0x0SET_NE
-     * anqp_venue_name=02083d656e6757692d466920416c6c69616e63650a3239383920436f...
-     * anqp_network_auth_type=010000
-     * anqp_roaming_consortium=03506f9a05001bc504bd
-     * anqp_ip_addr_type_availability=0c
-     * anqp_nai_realm=0200300000246d61696c2e6578616d706c652e636f6d3b636973636f2...
-     * anqp_3gpp=000600040132f465
-     * anqp_domain_name=0b65786d61706c652e636f6d
-     * hs20_operator_friendly_name=11656e6757692d466920416c6c69616e63650e636869...
-     * hs20_wan_metrics=01c40900008001000000000a00
-     * hs20_connection_capability=0100000006140001061600000650000106bb010106bb0...
-     * hs20_osu_providers_list=0b5143412d4f53552d425353010901310015656e6757692d...
+     * Start PNO scan.
+     * @param pnoSettings Pno scan configuration.
+     * @return true on success.
      */
-    public String scanResult(String bssid) {
-        return doStringCommand("BSS " + bssid);
+    public boolean startPnoScan(PnoSettings pnoSettings) {
+        return mWificondControl.startPnoScan(pnoSettings);
     }
 
-    public boolean startDriver() {
-        return doBooleanCommand("DRIVER START");
+    /**
+     * Stop PNO scan.
+     * @return true on success.
+     */
+    public boolean stopPnoScan() {
+        return mWificondControl.stopPnoScan();
     }
 
-    public boolean stopDriver() {
-        return doBooleanCommand("DRIVER STOP");
+    /********************************************************
+     * Supplicant operations
+     ********************************************************/
+
+    /**
+     * This method is called repeatedly until the connection to wpa_supplicant is established.
+     *
+     * @return true if connection is established, false otherwise.
+     * TODO: Add unit tests for these once we remove the legacy code.
+     */
+    public boolean connectToSupplicant() {
+        // Start initialization if not already started.
+        if (!mSupplicantStaIfaceHal.isInitializationStarted()
+                && !mSupplicantStaIfaceHal.initialize()) {
+            return false;
+        }
+        // Check if the initialization is complete.
+        return mSupplicantStaIfaceHal.isInitializationComplete();
     }
 
+    /**
+     * Close supplicant connection.
+     */
+    public void closeSupplicantConnection() {
+        // Nothing to do for HIDL.
+    }
 
+    /**
+     * Set supplicant log level
+     *
+     * @param turnOnVerbose Whether to turn on verbose logging or not.
+     */
+    public void setSupplicantLogLevel(boolean turnOnVerbose) {
+        mSupplicantStaIfaceHal.setLogLevel(turnOnVerbose);
+    }
+
+    /**
+     * Trigger a reconnection if the iface is disconnected.
+     *
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean reconnect() {
+        return mSupplicantStaIfaceHal.reconnect();
+    }
+
+    /**
+     * Trigger a reassociation even if the iface is currently connected.
+     *
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean reassociate() {
+        return mSupplicantStaIfaceHal.reassociate();
+    }
+
+    /**
+     * Trigger a disconnection from the currently connected network.
+     *
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean disconnect() {
+        return mSupplicantStaIfaceHal.disconnect();
+    }
+
+    /**
+     * Makes a callback to HIDL to getMacAddress from supplicant
+     *
+     * @return string containing the MAC address, or null on a failed call
+     */
+    public String getMacAddress() {
+        return mSupplicantStaIfaceHal.getMacAddress();
+    }
+
+    public static final int RX_FILTER_TYPE_V4_MULTICAST = 0;
+    public static final int RX_FILTER_TYPE_V6_MULTICAST = 1;
     /**
      * Start filtering out Multicast V4 packets
      * @return {@code true} if the operation succeeded, {@code false} otherwise
@@ -808,9 +338,10 @@ public class WifiNative {
      * The  SETSUSPENDOPT driver command overrides the filtering rules
      */
     public boolean startFilteringMulticastV4Packets() {
-        return doBooleanCommand("DRIVER RXFILTER-STOP")
-            && doBooleanCommand("DRIVER RXFILTER-REMOVE 2")
-            && doBooleanCommand("DRIVER RXFILTER-START");
+        return mSupplicantStaIfaceHal.stopRxFilter()
+                && mSupplicantStaIfaceHal.removeRxFilter(
+                RX_FILTER_TYPE_V4_MULTICAST)
+                && mSupplicantStaIfaceHal.startRxFilter();
     }
 
     /**
@@ -818,9 +349,10 @@ public class WifiNative {
      * @return {@code true} if the operation succeeded, {@code false} otherwise
      */
     public boolean stopFilteringMulticastV4Packets() {
-        return doBooleanCommand("DRIVER RXFILTER-STOP")
-            && doBooleanCommand("DRIVER RXFILTER-ADD 2")
-            && doBooleanCommand("DRIVER RXFILTER-START");
+        return mSupplicantStaIfaceHal.stopRxFilter()
+                && mSupplicantStaIfaceHal.addRxFilter(
+                RX_FILTER_TYPE_V4_MULTICAST)
+                && mSupplicantStaIfaceHal.startRxFilter();
     }
 
     /**
@@ -828,9 +360,10 @@ public class WifiNative {
      * @return {@code true} if the operation succeeded, {@code false} otherwise
      */
     public boolean startFilteringMulticastV6Packets() {
-        return doBooleanCommand("DRIVER RXFILTER-STOP")
-            && doBooleanCommand("DRIVER RXFILTER-REMOVE 3")
-            && doBooleanCommand("DRIVER RXFILTER-START");
+        return mSupplicantStaIfaceHal.stopRxFilter()
+                && mSupplicantStaIfaceHal.removeRxFilter(
+                RX_FILTER_TYPE_V6_MULTICAST)
+                && mSupplicantStaIfaceHal.startRxFilter();
     }
 
     /**
@@ -838,34 +371,15 @@ public class WifiNative {
      * @return {@code true} if the operation succeeded, {@code false} otherwise
      */
     public boolean stopFilteringMulticastV6Packets() {
-        return doBooleanCommand("DRIVER RXFILTER-STOP")
-            && doBooleanCommand("DRIVER RXFILTER-ADD 3")
-            && doBooleanCommand("DRIVER RXFILTER-START");
+        return mSupplicantStaIfaceHal.stopRxFilter()
+                && mSupplicantStaIfaceHal.addRxFilter(
+                RX_FILTER_TYPE_V6_MULTICAST)
+                && mSupplicantStaIfaceHal.startRxFilter();
     }
 
-    /**
-     * Set the operational frequency band
-     * @param band One of
-     *     {@link WifiManager#WIFI_FREQUENCY_BAND_AUTO},
-     *     {@link WifiManager#WIFI_FREQUENCY_BAND_5GHZ},
-     *     {@link WifiManager#WIFI_FREQUENCY_BAND_2GHZ},
-     * @return {@code true} if the operation succeeded, {@code false} otherwise
-     */
-    public boolean setBand(int band) {
-        String bandstr;
-
-        if (band == WifiManager.WIFI_FREQUENCY_BAND_5GHZ)
-            bandstr = "5G";
-        else if (band == WifiManager.WIFI_FREQUENCY_BAND_2GHZ)
-            bandstr = "2G";
-        else
-            bandstr = "AUTO";
-        return doBooleanCommand("SET SETBAND " + bandstr);
-    }
-
-    public static final int BLUETOOTH_COEXISTENCE_MODE_ENABLED     = 0;
-    public static final int BLUETOOTH_COEXISTENCE_MODE_DISABLED    = 1;
-    public static final int BLUETOOTH_COEXISTENCE_MODE_SENSE       = 2;
+    public static final int BLUETOOTH_COEXISTENCE_MODE_ENABLED  = 0;
+    public static final int BLUETOOTH_COEXISTENCE_MODE_DISABLED = 1;
+    public static final int BLUETOOTH_COEXISTENCE_MODE_SENSE    = 2;
     /**
       * Sets the bluetooth coexistence mode.
       *
@@ -875,7 +389,7 @@ public class WifiNative {
       * @return Whether the mode was successfully set.
       */
     public boolean setBluetoothCoexistenceMode(int mode) {
-        return doBooleanCommand("DRIVER BTCOEXMODE " + mode);
+        return mSupplicantStaIfaceHal.setBtCoexistenceMode(mode);
     }
 
     /**
@@ -883,758 +397,456 @@ public class WifiNative {
      * some of the low-level scan parameters used by the driver are changed to
      * reduce interference with A2DP streaming.
      *
-     * @param isSet whether to enable or disable this mode
+     * @param setCoexScanMode whether to enable or disable this mode
      * @return {@code true} if the command succeeded, {@code false} otherwise.
      */
     public boolean setBluetoothCoexistenceScanMode(boolean setCoexScanMode) {
-        if (setCoexScanMode) {
-            return doBooleanCommand("DRIVER BTCOEXSCAN-START");
-        } else {
-            return doBooleanCommand("DRIVER BTCOEXSCAN-STOP");
-        }
-    }
-
-    public void enableSaveConfig() {
-        doBooleanCommand("SET update_config 1");
-    }
-
-    public boolean saveConfig() {
-        return doBooleanCommand("SAVE_CONFIG");
-    }
-
-    public boolean addToBlacklist(String bssid) {
-        if (TextUtils.isEmpty(bssid)) return false;
-        return doBooleanCommand("BLACKLIST " + bssid);
-    }
-
-    public boolean clearBlacklist() {
-        return doBooleanCommand("BLACKLIST clear");
-    }
-
-    public boolean setSuspendOptimizations(boolean enabled) {
-        if (enabled) {
-            return doBooleanCommand("DRIVER SETSUSPENDMODE 1");
-        } else {
-            return doBooleanCommand("DRIVER SETSUSPENDMODE 0");
-        }
-    }
-
-    public boolean setCountryCode(String countryCode) {
-        if (countryCode != null)
-            return doBooleanCommand("DRIVER COUNTRY " + countryCode.toUpperCase(Locale.ROOT));
-        else
-            return doBooleanCommand("DRIVER COUNTRY");
+        return mSupplicantStaIfaceHal.setBtCoexistenceScanModeEnabled(setCoexScanMode);
     }
 
     /**
-     * Start/Stop PNO scan.
-     * @param enable boolean indicating whether PNO is being enabled or disabled.
+     * Enable or disable suspend mode optimizations.
+     *
+     * @param enabled true to enable, false otherwise.
+     * @return true if request is sent successfully, false otherwise.
      */
-    public boolean setPnoScan(boolean enable) {
-        String cmd = enable ? "SET pno 1" : "SET pno 0";
-        return doBooleanCommand(cmd);
+    public boolean setSuspendOptimizations(boolean enabled) {
+        return mSupplicantStaIfaceHal.setSuspendModeEnabled(enabled);
     }
 
-    public void enableAutoConnect(boolean enable) {
-        if (enable) {
-            doBooleanCommand("STA_AUTOCONNECT 1");
-        } else {
-            doBooleanCommand("STA_AUTOCONNECT 0");
-        }
+    /**
+     * Set country code.
+     *
+     * @param countryCode 2 byte ASCII string. For ex: US, CA.
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean setCountryCode(String countryCode) {
+        return mSupplicantStaIfaceHal.setCountryCode(countryCode);
     }
 
-    public void setScanInterval(int scanInterval) {
-        doBooleanCommand("SCAN_INTERVAL " + scanInterval);
-    }
-
-    public void setHs20(boolean hs20) {
-        if (hs20) {
-            doBooleanCommand("SET HS20 1");
-        } else {
-            doBooleanCommand("SET HS20 0");
-        }
-    }
-
+    /**
+     * Initiate TDLS discover and setup or teardown with the specified peer.
+     *
+     * @param macAddr MAC Address of the peer.
+     * @param enable true to start discovery and setup, false to teardown.
+     */
     public void startTdls(String macAddr, boolean enable) {
         if (enable) {
-            synchronized (sLock) {
-                doBooleanCommand("TDLS_DISCOVER " + macAddr);
-                doBooleanCommand("TDLS_SETUP " + macAddr);
-            }
+            mSupplicantStaIfaceHal.initiateTdlsDiscover(macAddr);
+            mSupplicantStaIfaceHal.initiateTdlsSetup(macAddr);
         } else {
-            doBooleanCommand("TDLS_TEARDOWN " + macAddr);
+            mSupplicantStaIfaceHal.initiateTdlsTeardown(macAddr);
         }
-    }
-
-    /** Example output:
-     * RSSI=-65
-     * LINKSPEED=48
-     * NOISE=9999
-     * FREQUENCY=0
-     */
-    public String signalPoll() {
-        return doStringCommandWithoutLogging("SIGNAL_POLL");
-    }
-
-    /** Example outout:
-     * TXGOOD=396
-     * TXBAD=1
-     */
-    public String pktcntPoll() {
-        return doStringCommand("PKTCNT_POLL");
-    }
-
-    public void bssFlush() {
-        doBooleanCommand("BSS_FLUSH 0");
-    }
-
-    public boolean startWpsPbc(String bssid) {
-        if (TextUtils.isEmpty(bssid)) {
-            return doBooleanCommand("WPS_PBC");
-        } else {
-            return doBooleanCommand("WPS_PBC " + bssid);
-        }
-    }
-
-    public boolean startWpsPbc(String iface, String bssid) {
-        synchronized (sLock) {
-            if (TextUtils.isEmpty(bssid)) {
-                return doBooleanCommandNative("IFNAME=" + iface + " WPS_PBC");
-            } else {
-                return doBooleanCommandNative("IFNAME=" + iface + " WPS_PBC " + bssid);
-            }
-        }
-    }
-
-    public boolean startWpsPinKeypad(String pin) {
-        if (TextUtils.isEmpty(pin)) return false;
-        return doBooleanCommand("WPS_PIN any " + pin);
-    }
-
-    public boolean startWpsPinKeypad(String iface, String pin) {
-        if (TextUtils.isEmpty(pin)) return false;
-        synchronized (sLock) {
-            return doBooleanCommandNative("IFNAME=" + iface + " WPS_PIN any " + pin);
-        }
-    }
-
-
-    public String startWpsPinDisplay(String bssid) {
-        if (TextUtils.isEmpty(bssid)) {
-            return doStringCommand("WPS_PIN any");
-        } else {
-            return doStringCommand("WPS_PIN " + bssid);
-        }
-    }
-
-    public String startWpsPinDisplay(String iface, String bssid) {
-        synchronized (sLock) {
-            if (TextUtils.isEmpty(bssid)) {
-                return doStringCommandNative("IFNAME=" + iface + " WPS_PIN any");
-            } else {
-                return doStringCommandNative("IFNAME=" + iface + " WPS_PIN " + bssid);
-            }
-        }
-    }
-
-    public boolean setExternalSim(boolean external) {
-        String value = external ? "1" : "0";
-        Log.d(TAG, "Setting external_sim to " + value);
-        return doBooleanCommand("SET external_sim " + value);
-    }
-
-    public boolean simAuthResponse(int id, String type, String response) {
-        // with type = GSM-AUTH, UMTS-AUTH or UMTS-AUTS
-        return doBooleanCommand("CTRL-RSP-SIM-" + id + ":" + type + response);
-    }
-
-    public boolean simAuthFailedResponse(int id) {
-        // should be used with type GSM-AUTH
-        return doBooleanCommand("CTRL-RSP-SIM-" + id + ":GSM-FAIL");
-    }
-
-    public boolean umtsAuthFailedResponse(int id) {
-        // should be used with type UMTS-AUTH
-        return doBooleanCommand("CTRL-RSP-SIM-" + id + ":UMTS-FAIL");
-    }
-
-    public boolean simIdentityResponse(int id, String response) {
-        return doBooleanCommand("CTRL-RSP-IDENTITY-" + id + ":" + response);
-    }
-
-    /* Configures an access point connection */
-    public boolean startWpsRegistrar(String bssid, String pin) {
-        if (TextUtils.isEmpty(bssid) || TextUtils.isEmpty(pin)) return false;
-        return doBooleanCommand("WPS_REG " + bssid + " " + pin);
-    }
-
-    public boolean cancelWps() {
-        return doBooleanCommand("WPS_CANCEL");
-    }
-
-    public boolean setPersistentReconnect(boolean enabled) {
-        int value = (enabled == true) ? 1 : 0;
-        return doBooleanCommand("SET persistent_reconnect " + value);
-    }
-
-    public boolean setDeviceName(String name) {
-        return doBooleanCommand("SET device_name " + name);
-    }
-
-    public boolean setDeviceType(String type) {
-        return doBooleanCommand("SET device_type " + type);
-    }
-
-    public boolean setConfigMethods(String cfg) {
-        return doBooleanCommand("SET config_methods " + cfg);
-    }
-
-    public boolean setManufacturer(String value) {
-        return doBooleanCommand("SET manufacturer " + value);
-    }
-
-    public boolean setModelName(String value) {
-        return doBooleanCommand("SET model_name " + value);
-    }
-
-    public boolean setModelNumber(String value) {
-        return doBooleanCommand("SET model_number " + value);
-    }
-
-    public boolean setSerialNumber(String value) {
-        return doBooleanCommand("SET serial_number " + value);
-    }
-
-    public boolean setP2pSsidPostfix(String postfix) {
-        return doBooleanCommand("SET p2p_ssid_postfix " + postfix);
-    }
-
-    public boolean setP2pGroupIdle(String iface, int time) {
-        synchronized (sLock) {
-            return doBooleanCommandNative("IFNAME=" + iface + " SET p2p_group_idle " + time);
-        }
-    }
-
-    public void setPowerSave(boolean enabled) {
-        if (enabled) {
-            doBooleanCommand("SET ps 1");
-        } else {
-            doBooleanCommand("SET ps 0");
-        }
-    }
-
-    public boolean setP2pPowerSave(String iface, boolean enabled) {
-        synchronized (sLock) {
-            if (enabled) {
-                return doBooleanCommandNative("IFNAME=" + iface + " P2P_SET ps 1");
-            } else {
-                return doBooleanCommandNative("IFNAME=" + iface + " P2P_SET ps 0");
-            }
-        }
-    }
-
-    public boolean setWfdEnable(boolean enable) {
-        return doBooleanCommand("SET wifi_display " + (enable ? "1" : "0"));
-    }
-
-    public boolean setWfdDeviceInfo(String hex) {
-        return doBooleanCommand("WFD_SUBELEM_SET 0 " + hex);
     }
 
     /**
-     * "sta" prioritizes STA connection over P2P and "p2p" prioritizes
-     * P2P connection over STA
+     * Start WPS pin display operation with the specified peer.
+     *
+     * @param bssid BSSID of the peer.
+     * @return true if request is sent successfully, false otherwise.
      */
-    public boolean setConcurrencyPriority(String s) {
-        return doBooleanCommand("P2P_SET conc_pref " + s);
+    public boolean startWpsPbc(String bssid) {
+        return mSupplicantStaIfaceHal.startWpsPbc(bssid);
     }
 
-    public boolean p2pFind() {
-        return doBooleanCommand("P2P_FIND");
+    /**
+     * Start WPS pin keypad operation with the specified pin.
+     *
+     * @param pin Pin to be used.
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean startWpsPinKeypad(String pin) {
+        return mSupplicantStaIfaceHal.startWpsPinKeypad(pin);
     }
 
-    public boolean p2pFind(int timeout) {
-        if (timeout <= 0) {
-            return p2pFind();
-        }
-        return doBooleanCommand("P2P_FIND " + timeout);
+    /**
+     * Start WPS pin display operation with the specified peer.
+     *
+     * @param bssid BSSID of the peer.
+     * @return new pin generated on success, null otherwise.
+     */
+    public String startWpsPinDisplay(String bssid) {
+        return mSupplicantStaIfaceHal.startWpsPinDisplay(bssid);
     }
 
-    public boolean p2pStopFind() {
-       return doBooleanCommand("P2P_STOP_FIND");
+    /**
+     * Sets whether to use external sim for SIM/USIM processing.
+     *
+     * @param external true to enable, false otherwise.
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean setExternalSim(boolean external) {
+        return mSupplicantStaIfaceHal.setExternalSim(external);
     }
 
-    public boolean p2pListen() {
-        return doBooleanCommand("P2P_LISTEN");
-    }
+    /**
+     * Sim auth response types.
+     */
+    public static final String SIM_AUTH_RESP_TYPE_GSM_AUTH = "GSM-AUTH";
+    public static final String SIM_AUTH_RESP_TYPE_UMTS_AUTH = "UMTS-AUTH";
+    public static final String SIM_AUTH_RESP_TYPE_UMTS_AUTS = "UMTS-AUTS";
 
-    public boolean p2pListen(int timeout) {
-        if (timeout <= 0) {
-            return p2pListen();
-        }
-        return doBooleanCommand("P2P_LISTEN " + timeout);
-    }
-
-    public boolean p2pExtListen(boolean enable, int period, int interval) {
-        if (enable && interval < period) {
+    /**
+     * Send the sim auth response for the currently configured network.
+     *
+     * @param type |GSM-AUTH|, |UMTS-AUTH| or |UMTS-AUTS|.
+     * @param response Response params.
+     * @return true if succeeds, false otherwise.
+     */
+    public boolean simAuthResponse(int id, String type, String response) {
+        if (SIM_AUTH_RESP_TYPE_GSM_AUTH.equals(type)) {
+            return mSupplicantStaIfaceHal.sendCurrentNetworkEapSimGsmAuthResponse(response);
+        } else if (SIM_AUTH_RESP_TYPE_UMTS_AUTH.equals(type)) {
+            return mSupplicantStaIfaceHal.sendCurrentNetworkEapSimUmtsAuthResponse(response);
+        } else if (SIM_AUTH_RESP_TYPE_UMTS_AUTS.equals(type)) {
+            return mSupplicantStaIfaceHal.sendCurrentNetworkEapSimUmtsAutsResponse(response);
+        } else {
             return false;
         }
-        return doBooleanCommand("P2P_EXT_LISTEN"
-                    + (enable ? (" " + period + " " + interval) : ""));
     }
 
-    public boolean p2pSetChannel(int lc, int oc) {
-        if (DBG) Log.d(mTAG, "p2pSetChannel: lc="+lc+", oc="+oc);
-
-        synchronized (sLock) {
-            if (lc >=1 && lc <= 11) {
-                if (!doBooleanCommand("P2P_SET listen_channel " + lc)) {
-                    return false;
-                }
-            } else if (lc != 0) {
-                return false;
-            }
-
-            if (oc >= 1 && oc <= 165 ) {
-                int freq = (oc <= 14 ? 2407 : 5000) + oc * 5;
-                return doBooleanCommand("P2P_SET disallow_freq 1000-"
-                        + (freq - 5) + "," + (freq + 5) + "-6000");
-            } else if (oc == 0) {
-                /* oc==0 disables "P2P_SET disallow_freq" (enables all freqs) */
-                return doBooleanCommand("P2P_SET disallow_freq \"\"");
-            }
-        }
-        return false;
-    }
-
-    public boolean p2pFlush() {
-        return doBooleanCommand("P2P_FLUSH");
-    }
-
-    private static final int DEFAULT_GROUP_OWNER_INTENT     = 6;
-    /* p2p_connect <peer device address> <pbc|pin|PIN#> [label|display|keypad]
-        [persistent] [join|auth] [go_intent=<0..15>] [freq=<in MHz>] */
-    public String p2pConnect(WifiP2pConfig config, boolean joinExistingGroup) {
-        if (config == null) return null;
-        List<String> args = new ArrayList<String>();
-        WpsInfo wps = config.wps;
-        args.add(config.deviceAddress);
-
-        switch (wps.setup) {
-            case WpsInfo.PBC:
-                args.add("pbc");
-                break;
-            case WpsInfo.DISPLAY:
-                if (TextUtils.isEmpty(wps.pin)) {
-                    args.add("pin");
-                } else {
-                    args.add(wps.pin);
-                }
-                args.add("display");
-                break;
-            case WpsInfo.KEYPAD:
-                args.add(wps.pin);
-                args.add("keypad");
-                break;
-            case WpsInfo.LABEL:
-                args.add(wps.pin);
-                args.add("label");
-            default:
-                break;
-        }
-
-        if (config.netId == WifiP2pGroup.PERSISTENT_NET_ID) {
-            args.add("persistent");
-        }
-
-        if (joinExistingGroup) {
-            args.add("join");
-        } else {
-            //TODO: This can be adapted based on device plugged in state and
-            //device battery state
-            int groupOwnerIntent = config.groupOwnerIntent;
-            if (groupOwnerIntent < 0 || groupOwnerIntent > 15) {
-                groupOwnerIntent = DEFAULT_GROUP_OWNER_INTENT;
-            }
-            args.add("go_intent=" + groupOwnerIntent);
-        }
-
-        String command = "P2P_CONNECT ";
-        for (String s : args) command += s + " ";
-
-        return doStringCommand(command);
-    }
-
-    public boolean p2pCancelConnect() {
-        return doBooleanCommand("P2P_CANCEL");
-    }
-
-    public boolean p2pProvisionDiscovery(WifiP2pConfig config) {
-        if (config == null) return false;
-
-        switch (config.wps.setup) {
-            case WpsInfo.PBC:
-                return doBooleanCommand("P2P_PROV_DISC " + config.deviceAddress + " pbc");
-            case WpsInfo.DISPLAY:
-                //We are doing display, so provision discovery is keypad
-                return doBooleanCommand("P2P_PROV_DISC " + config.deviceAddress + " keypad");
-            case WpsInfo.KEYPAD:
-                //We are doing keypad, so provision discovery is display
-                return doBooleanCommand("P2P_PROV_DISC " + config.deviceAddress + " display");
-            default:
-                break;
-        }
-        return false;
-    }
-
-    public boolean p2pGroupAdd(boolean persistent) {
-        if (persistent) {
-            return doBooleanCommand("P2P_GROUP_ADD persistent");
-        }
-        return doBooleanCommand("P2P_GROUP_ADD");
-    }
-
-    public boolean p2pGroupAdd(int netId) {
-        return doBooleanCommand("P2P_GROUP_ADD persistent=" + netId);
-    }
-
-    public boolean p2pGroupRemove(String iface) {
-        if (TextUtils.isEmpty(iface)) return false;
-        synchronized (sLock) {
-            return doBooleanCommandNative("IFNAME=" + iface + " P2P_GROUP_REMOVE " + iface);
-        }
-    }
-
-    public boolean p2pReject(String deviceAddress) {
-        return doBooleanCommand("P2P_REJECT " + deviceAddress);
-    }
-
-    /* Invite a peer to a group */
-    public boolean p2pInvite(WifiP2pGroup group, String deviceAddress) {
-        if (TextUtils.isEmpty(deviceAddress)) return false;
-
-        if (group == null) {
-            return doBooleanCommand("P2P_INVITE peer=" + deviceAddress);
-        } else {
-            return doBooleanCommand("P2P_INVITE group=" + group.getInterface()
-                    + " peer=" + deviceAddress + " go_dev_addr=" + group.getOwner().deviceAddress);
-        }
-    }
-
-    /* Reinvoke a persistent connection */
-    public boolean p2pReinvoke(int netId, String deviceAddress) {
-        if (TextUtils.isEmpty(deviceAddress) || netId < 0) return false;
-
-        return doBooleanCommand("P2P_INVITE persistent=" + netId + " peer=" + deviceAddress);
-    }
-
-    public String p2pGetSsid(String deviceAddress) {
-        return p2pGetParam(deviceAddress, "oper_ssid");
-    }
-
-    public String p2pGetDeviceAddress() {
-        Log.d(TAG, "p2pGetDeviceAddress");
-
-        String status = null;
-
-        /* Explicitly calling the API without IFNAME= prefix to take care of the devices that
-        don't have p2p0 interface. Supplicant seems to be returning the correct address anyway. */
-
-        synchronized (sLock) {
-            status = doStringCommandNative("STATUS");
-        }
-
-        String result = "";
-        if (status != null) {
-            String[] tokens = status.split("\n");
-            for (String token : tokens) {
-                if (token.startsWith("p2p_device_address=")) {
-                    String[] nameValue = token.split("=");
-                    if (nameValue.length != 2)
-                        break;
-                    result = nameValue[1];
-                }
-            }
-        }
-
-        Log.d(TAG, "p2pGetDeviceAddress returning " + result);
-        return result;
-    }
-
-    public int getGroupCapability(String deviceAddress) {
-        int gc = 0;
-        if (TextUtils.isEmpty(deviceAddress)) return gc;
-        String peerInfo = p2pPeer(deviceAddress);
-        if (TextUtils.isEmpty(peerInfo)) return gc;
-
-        String[] tokens = peerInfo.split("\n");
-        for (String token : tokens) {
-            if (token.startsWith("group_capab=")) {
-                String[] nameValue = token.split("=");
-                if (nameValue.length != 2) break;
-                try {
-                    return Integer.decode(nameValue[1]);
-                } catch(NumberFormatException e) {
-                    return gc;
-                }
-            }
-        }
-        return gc;
-    }
-
-    public String p2pPeer(String deviceAddress) {
-        return doStringCommand("P2P_PEER " + deviceAddress);
-    }
-
-    private String p2pGetParam(String deviceAddress, String key) {
-        if (deviceAddress == null) return null;
-
-        String peerInfo = p2pPeer(deviceAddress);
-        if (peerInfo == null) return null;
-        String[] tokens= peerInfo.split("\n");
-
-        key += "=";
-        for (String token : tokens) {
-            if (token.startsWith(key)) {
-                String[] nameValue = token.split("=");
-                if (nameValue.length != 2) break;
-                return nameValue[1];
-            }
-        }
-        return null;
-    }
-
-    public boolean p2pServiceAdd(WifiP2pServiceInfo servInfo) {
-        /*
-         * P2P_SERVICE_ADD bonjour <query hexdump> <RDATA hexdump>
-         * P2P_SERVICE_ADD upnp <version hex> <service>
-         *
-         * e.g)
-         * [Bonjour]
-         * # IP Printing over TCP (PTR) (RDATA=MyPrinter._ipp._tcp.local.)
-         * P2P_SERVICE_ADD bonjour 045f697070c00c000c01 094d795072696e746572c027
-         * # IP Printing over TCP (TXT) (RDATA=txtvers=1,pdl=application/postscript)
-         * P2P_SERVICE_ADD bonjour 096d797072696e746572045f697070c00c001001
-         *  09747874766572733d311a70646c3d6170706c69636174696f6e2f706f7374736372797074
-         *
-         * [UPnP]
-         * P2P_SERVICE_ADD upnp 10 uuid:6859dede-8574-59ab-9332-123456789012
-         * P2P_SERVICE_ADD upnp 10 uuid:6859dede-8574-59ab-9332-123456789012::upnp:rootdevice
-         * P2P_SERVICE_ADD upnp 10 uuid:6859dede-8574-59ab-9332-123456789012::urn:schemas-upnp
-         * -org:device:InternetGatewayDevice:1
-         * P2P_SERVICE_ADD upnp 10 uuid:6859dede-8574-59ab-9322-123456789012::urn:schemas-upnp
-         * -org:service:ContentDirectory:2
-         */
-        synchronized (sLock) {
-            for (String s : servInfo.getSupplicantQueryList()) {
-                String command = "P2P_SERVICE_ADD";
-                command += (" " + s);
-                if (!doBooleanCommand(command)) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    public boolean p2pServiceDel(WifiP2pServiceInfo servInfo) {
-        /*
-         * P2P_SERVICE_DEL bonjour <query hexdump>
-         * P2P_SERVICE_DEL upnp <version hex> <service>
-         */
-        synchronized (sLock) {
-            for (String s : servInfo.getSupplicantQueryList()) {
-                String command = "P2P_SERVICE_DEL ";
-
-                String[] data = s.split(" ");
-                if (data.length < 2) {
-                    return false;
-                }
-                if ("upnp".equals(data[0])) {
-                    command += s;
-                } else if ("bonjour".equals(data[0])) {
-                    command += data[0];
-                    command += (" " + data[1]);
-                } else {
-                    return false;
-                }
-                if (!doBooleanCommand(command)) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    public boolean p2pServiceFlush() {
-        return doBooleanCommand("P2P_SERVICE_FLUSH");
-    }
-
-    public String p2pServDiscReq(String addr, String query) {
-        String command = "P2P_SERV_DISC_REQ";
-        command += (" " + addr);
-        command += (" " + query);
-
-        return doStringCommand(command);
-    }
-
-    public boolean p2pServDiscCancelReq(String id) {
-        return doBooleanCommand("P2P_SERV_DISC_CANCEL_REQ " + id);
-    }
-
-    /* Set the current mode of miracast operation.
-     *  0 = disabled
-     *  1 = operating as source
-     *  2 = operating as sink
+    /**
+     * Send the eap sim gsm auth failure for the currently configured network.
+     *
+     * @return true if succeeds, false otherwise.
      */
-    public void setMiracastMode(int mode) {
-        // Note: optional feature on the driver. It is ok for this to fail.
-        doBooleanCommand("DRIVER MIRACAST " + mode);
+    public boolean simAuthFailedResponse(int id) {
+        return mSupplicantStaIfaceHal.sendCurrentNetworkEapSimGsmAuthFailure();
     }
 
-    public boolean fetchAnqp(String bssid, String subtypes) {
-        return doBooleanCommand("ANQP_GET " + bssid + " " + subtypes);
-    }
-
-    /*
-     * NFC-related calls
+    /**
+     * Send the eap sim umts auth failure for the currently configured network.
+     *
+     * @return true if succeeds, false otherwise.
      */
-    public String getNfcWpsConfigurationToken(int netId) {
-        return doStringCommand("WPS_NFC_CONFIG_TOKEN WPS " + netId);
+    public boolean umtsAuthFailedResponse(int id) {
+        return mSupplicantStaIfaceHal.sendCurrentNetworkEapSimUmtsAuthFailure();
     }
 
-    public String getNfcHandoverRequest() {
-        return doStringCommand("NFC_GET_HANDOVER_REQ NDEF P2P-CR");
+    /**
+     * Send the eap identity response for the currently configured network.
+     *
+     * @param response String to send.
+     * @return true if succeeds, false otherwise.
+     */
+    public boolean simIdentityResponse(int id, String response) {
+        return mSupplicantStaIfaceHal.sendCurrentNetworkEapIdentityResponse(response);
     }
 
-    public String getNfcHandoverSelect() {
-        return doStringCommand("NFC_GET_HANDOVER_SEL NDEF P2P-CR");
+    /**
+     * This get anonymous identity from supplicant and returns it as a string.
+     *
+     * @return anonymous identity string if succeeds, null otherwise.
+     */
+    public String getEapAnonymousIdentity() {
+        return mSupplicantStaIfaceHal.getCurrentNetworkEapAnonymousIdentity();
     }
 
-    public boolean initiatorReportNfcHandover(String selectMessage) {
-        return doBooleanCommand("NFC_REPORT_HANDOVER INIT P2P 00 " + selectMessage);
+    /**
+     * Start WPS pin registrar operation with the specified peer and pin.
+     *
+     * @param bssid BSSID of the peer.
+     * @param pin Pin to be used.
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean startWpsRegistrar(String bssid, String pin) {
+        return mSupplicantStaIfaceHal.startWpsRegistrar(bssid, pin);
     }
 
-    public boolean responderReportNfcHandover(String requestMessage) {
-        return doBooleanCommand("NFC_REPORT_HANDOVER RESP P2P " + requestMessage + " 00");
+    /**
+     * Cancels any ongoing WPS requests.
+     *
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean cancelWps() {
+        return mSupplicantStaIfaceHal.cancelWps();
     }
 
+    /**
+     * Set WPS device name.
+     *
+     * @param name String to be set.
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean setDeviceName(String name) {
+        return mSupplicantStaIfaceHal.setWpsDeviceName(name);
+    }
 
-    /* kernel logging support */
-    private static native byte[] readKernelLogNative();
+    /**
+     * Set WPS device type.
+     *
+     * @param type Type specified as a string. Used format: <categ>-<OUI>-<subcateg>
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean setDeviceType(String type) {
+        return mSupplicantStaIfaceHal.setWpsDeviceType(type);
+    }
 
-    synchronized public String readKernelLog() {
-        byte[] bytes = readKernelLogNative();
-        if (bytes != null) {
-            CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
-            try {
-                CharBuffer decoded = decoder.decode(ByteBuffer.wrap(bytes));
-                return decoded.toString();
-            } catch (CharacterCodingException cce) {
-                return new String(bytes, StandardCharsets.ISO_8859_1);
-            }
-        } else {
-            return "*** failed to read kernel log ***";
+    /**
+     * Set WPS config methods
+     *
+     * @param cfg List of config methods.
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean setConfigMethods(String cfg) {
+        return mSupplicantStaIfaceHal.setWpsConfigMethods(cfg);
+    }
+
+    /**
+     * Set WPS manufacturer.
+     *
+     * @param value String to be set.
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean setManufacturer(String value) {
+        return mSupplicantStaIfaceHal.setWpsManufacturer(value);
+    }
+
+    /**
+     * Set WPS model name.
+     *
+     * @param value String to be set.
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean setModelName(String value) {
+        return mSupplicantStaIfaceHal.setWpsModelName(value);
+    }
+
+    /**
+     * Set WPS model number.
+     *
+     * @param value String to be set.
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean setModelNumber(String value) {
+        return mSupplicantStaIfaceHal.setWpsModelNumber(value);
+    }
+
+    /**
+     * Set WPS serial number.
+     *
+     * @param value String to be set.
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean setSerialNumber(String value) {
+        return mSupplicantStaIfaceHal.setWpsSerialNumber(value);
+    }
+
+    /**
+     * Enable or disable power save mode.
+     *
+     * @param enabled true to enable, false to disable.
+     */
+    public void setPowerSave(boolean enabled) {
+        mSupplicantStaIfaceHal.setPowerSave(enabled);
+    }
+
+    /**
+     * Set concurrency priority between P2P & STA operations.
+     *
+     * @param isStaHigherPriority Set to true to prefer STA over P2P during concurrency operations,
+     *                            false otherwise.
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean setConcurrencyPriority(boolean isStaHigherPriority) {
+        return mSupplicantStaIfaceHal.setConcurrencyPriority(isStaHigherPriority);
+    }
+
+    /**
+     * Enable/Disable auto reconnect functionality in wpa_supplicant.
+     *
+     * @param enable true to enable auto reconnecting, false to disable.
+     * @return true if request is sent successfully, false otherwise.
+     */
+    public boolean enableStaAutoReconnect(boolean enable) {
+        return mSupplicantStaIfaceHal.enableAutoReconnect(enable);
+    }
+
+    /**
+     * Migrate all the configured networks from wpa_supplicant.
+     *
+     * @param configs       Map of configuration key to configuration objects corresponding to all
+     *                      the networks.
+     * @param networkExtras Map of extra configuration parameters stored in wpa_supplicant.conf
+     * @return Max priority of all the configs.
+     */
+    public boolean migrateNetworksFromSupplicant(Map<String, WifiConfiguration> configs,
+                                                 SparseArray<Map<String, String>> networkExtras) {
+        return mSupplicantStaIfaceHal.loadNetworks(configs, networkExtras);
+    }
+
+    /**
+     * Add the provided network configuration to wpa_supplicant and initiate connection to it.
+     * This method does the following:
+     * 1. Abort any ongoing scan to unblock the connection request.
+     * 2. Remove any existing network in wpa_supplicant(This implicitly triggers disconnect).
+     * 3. Add a new network to wpa_supplicant.
+     * 4. Save the provided configuration to wpa_supplicant.
+     * 5. Select the new network in wpa_supplicant.
+     * 6. Triggers reconnect command to wpa_supplicant.
+     *
+     * @param configuration WifiConfiguration parameters for the provided network.
+     * @return {@code true} if it succeeds, {@code false} otherwise
+     */
+    public boolean connectToNetwork(WifiConfiguration configuration) {
+        // Abort ongoing scan before connect() to unblock connection request.
+        mWificondControl.abortScan();
+        return mSupplicantStaIfaceHal.connectToNetwork(configuration);
+    }
+
+    /**
+     * Initiates roaming to the already configured network in wpa_supplicant. If the network
+     * configuration provided does not match the already configured network, then this triggers
+     * a new connection attempt (instead of roam).
+     * 1. Abort any ongoing scan to unblock the roam request.
+     * 2. First check if we're attempting to connect to the same network as we currently have
+     * configured.
+     * 3. Set the new bssid for the network in wpa_supplicant.
+     * 4. Triggers reassociate command to wpa_supplicant.
+     *
+     * @param configuration WifiConfiguration parameters for the provided network.
+     * @return {@code true} if it succeeds, {@code false} otherwise
+     */
+    public boolean roamToNetwork(WifiConfiguration configuration) {
+        // Abort ongoing scan before connect() to unblock roaming request.
+        mWificondControl.abortScan();
+        return mSupplicantStaIfaceHal.roamToNetwork(configuration);
+    }
+
+    /**
+     * Get the framework network ID corresponding to the provided supplicant network ID for the
+     * network configured in wpa_supplicant.
+     *
+     * @param supplicantNetworkId network ID in wpa_supplicant for the network.
+     * @return Corresponding framework network ID if found, -1 if network not found.
+     */
+    public int getFrameworkNetworkId(int supplicantNetworkId) {
+        return supplicantNetworkId;
+    }
+
+    /**
+     * Remove all the networks.
+     *
+     * @return {@code true} if it succeeds, {@code false} otherwise
+     */
+    public boolean removeAllNetworks() {
+        return mSupplicantStaIfaceHal.removeAllNetworks();
+    }
+
+    /**
+     * Set the BSSID for the currently configured network in wpa_supplicant.
+     *
+     * @return true if successful, false otherwise.
+     */
+    public boolean setConfiguredNetworkBSSID(String bssid) {
+        return mSupplicantStaIfaceHal.setCurrentNetworkBssid(bssid);
+    }
+
+    /**
+     * Initiate ANQP query.
+     *
+     * @param bssid BSSID of the AP to be queried
+     * @param anqpIds Set of anqp IDs.
+     * @param hs20Subtypes Set of HS20 subtypes.
+     * @return true on success, false otherwise.
+     */
+    public boolean requestAnqp(String bssid, Set<Integer> anqpIds, Set<Integer> hs20Subtypes) {
+        if (bssid == null || ((anqpIds == null || anqpIds.isEmpty())
+                && (hs20Subtypes == null || hs20Subtypes.isEmpty()))) {
+            Log.e(mTAG, "Invalid arguments for ANQP request.");
+            return false;
         }
-    }
-
-    /* WIFI HAL support */
-
-    // HAL command ids
-    private static int sCmdId = 1;
-    private static int getNewCmdIdLocked() {
-        return sCmdId++;
-    }
-
-    private static final String TAG = "WifiNative-HAL";
-    private static long sWifiHalHandle = 0;             /* used by JNI to save wifi_handle */
-    private static long[] sWifiIfaceHandles = null;     /* used by JNI to save interface handles */
-    public static int sWlan0Index = -1;
-    private static MonitorThread sThread;
-    private static final int STOP_HAL_TIMEOUT_MS = 1000;
-
-    private static native boolean startHalNative();
-    private static native void stopHalNative();
-    private static native void waitForHalEventNative();
-
-    private static class MonitorThread extends Thread {
-        public void run() {
-            Log.i(TAG, "Waiting for HAL events mWifiHalHandle=" + Long.toString(sWifiHalHandle));
-            waitForHalEventNative();
+        ArrayList<Short> anqpIdList = new ArrayList<>();
+        for (Integer anqpId : anqpIds) {
+            anqpIdList.add(anqpId.shortValue());
         }
+        ArrayList<Integer> hs20SubtypeList = new ArrayList<>();
+        hs20SubtypeList.addAll(hs20Subtypes);
+        return mSupplicantStaIfaceHal.initiateAnqpQuery(bssid, anqpIdList, hs20SubtypeList);
     }
 
-    public boolean startHal() {
-        String debugLog = "startHal stack: ";
-        java.lang.StackTraceElement[] elements = Thread.currentThread().getStackTrace();
-        for (int i = 2; i < elements.length && i <= 7; i++ ) {
-            debugLog = debugLog + " - " + elements[i].getMethodName();
+    /**
+     * Request a passpoint icon file |filename| from the specified AP |bssid|.
+     * @param bssid BSSID of the AP
+     * @param fileName name of the icon file
+     * @return true if request is sent successfully, false otherwise
+     */
+    public boolean requestIcon(String  bssid, String fileName) {
+        if (bssid == null || fileName == null) {
+            Log.e(mTAG, "Invalid arguments for Icon request.");
+            return false;
         }
-
-        sLocalLog.log(debugLog);
-
-        synchronized (sLock) {
-            if (startHalNative()) {
-                int wlan0Index = queryInterfaceIndex(mInterfaceName);
-                if (wlan0Index == -1) {
-                    if (DBG) sLocalLog.log("Could not find interface with name: " + mInterfaceName);
-                    return false;
-                }
-                sWlan0Index = wlan0Index;
-                sThread = new MonitorThread();
-                sThread.start();
-                return true;
-            } else {
-                if (DBG) sLocalLog.log("Could not start hal");
-                Log.e(TAG, "Could not start hal");
-                return false;
-            }
-        }
+        return mSupplicantStaIfaceHal.initiateHs20IconQuery(bssid, fileName);
     }
 
-    public void stopHal() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                stopHalNative();
-                try {
-                    sThread.join(STOP_HAL_TIMEOUT_MS);
-                    Log.d(TAG, "HAL event thread stopped successfully");
-                } catch (InterruptedException e) {
-                    Log.e(TAG, "Could not stop HAL cleanly");
-                }
-                sThread = null;
-                sWifiHalHandle = 0;
-                sWifiIfaceHandles = null;
-                sWlan0Index = -1;
-            }
-        }
+    /**
+     * Get the currently configured network's WPS NFC token.
+     *
+     * @return Hex string corresponding to the WPS NFC token.
+     */
+    public String getCurrentNetworkWpsNfcConfigurationToken() {
+        return mSupplicantStaIfaceHal.getCurrentNetworkWpsNfcConfigurationToken();
     }
 
+    /** Remove the request |networkId| from supplicant if it's the current network,
+     * if the current configured network matches |networkId|.
+     *
+     * @param networkId network id of the network to be removed from supplicant.
+     */
+    public void removeNetworkIfCurrent(int networkId) {
+        mSupplicantStaIfaceHal.removeNetworkIfCurrent(networkId);
+    }
+
+    /********************************************************
+     * Vendor HAL operations
+     ********************************************************/
+    /**
+     * Callback to notify vendor HAL death.
+     */
+    public interface VendorHalDeathEventHandler {
+        /**
+         * Invoked when the vendor HAL dies.
+         */
+        void onDeath();
+    }
+
+    /**
+     * Initializes the vendor HAL. This is just used to initialize the {@link HalDeviceManager}.
+     */
+    public boolean initializeVendorHal(VendorHalDeathEventHandler handler) {
+        return mWifiVendorHal.initialize(handler);
+    }
+
+    /**
+     * Bring up the Vendor HAL and configure for STA mode or AP mode, if vendor HAL is supported.
+     *
+     * @param isStaMode true to start HAL in STA mode, false to start in AP mode.
+     * @return false if the HAL start fails, true if successful or if vendor HAL not supported.
+     */
+    private boolean startHalIfNecessary(boolean isStaMode) {
+        if (!mWifiVendorHal.isVendorHalSupported()) {
+            Log.i(mTAG, "Vendor HAL not supported, Ignore start...");
+            return true;
+        }
+        return mWifiVendorHal.startVendorHal(isStaMode);
+    }
+
+    /**
+     * Stops the HAL, if vendor HAL is supported.
+     */
+    private void stopHalIfNecessary() {
+        if (!mWifiVendorHal.isVendorHalSupported()) {
+            Log.i(mTAG, "Vendor HAL not supported, Ignore stop...");
+            return;
+        }
+        mWifiVendorHal.stopVendorHal();
+    }
+
+    /**
+     * Tests whether the HAL is running or not
+     */
     public boolean isHalStarted() {
-        return (sWifiHalHandle != 0);
-    }
-    private static native int getInterfacesNative();
-
-    public int queryInterfaceIndex(String interfaceName) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                int num = getInterfacesNative();
-                for (int i = 0; i < num; i++) {
-                    String name = getInterfaceNameNative(i);
-                    if (name.equals(interfaceName)) {
-                        return i;
-                    }
-                }
-            }
-        }
-        return -1;
-    }
-
-    private static native String getInterfaceNameNative(int index);
-    public String getInterfaceName(int index) {
-        synchronized (sLock) {
-            return getInterfaceNameNative(index);
-        }
+        return mWifiVendorHal.isHalStarted();
     }
 
     // TODO: Change variable names to camel style.
@@ -1644,28 +856,17 @@ public class WifiNative {
         public int  max_ap_cache_per_scan;
         public int  max_rssi_sample_size;
         public int  max_scan_reporting_threshold;
-        public int  max_hotlist_bssids;
-        public int  max_significant_wifi_change_aps;
-        public int  max_bssid_history_entries;
-        public int  max_number_epno_networks;
-        public int  max_number_epno_networks_by_ssid;
-        public int  max_number_of_white_listed_ssid;
     }
 
-    public boolean getScanCapabilities(ScanCapabilities capabilities) {
-        synchronized (sLock) {
-            return isHalStarted() && getScanCapabilitiesNative(sWlan0Index, capabilities);
-        }
+    /**
+     * Gets the scan capabilities
+     *
+     * @param capabilities object to be filled in
+     * @return true for success. false for failure
+     */
+    public boolean getBgScanCapabilities(ScanCapabilities capabilities) {
+        return mWifiVendorHal.getBgScanCapabilities(capabilities);
     }
-
-    private static native boolean getScanCapabilitiesNative(
-            int iface, ScanCapabilities capabilities);
-
-    private static native boolean startScanNative(int iface, int id, ScanSettings settings);
-    private static native boolean stopScanNative(int iface, int id);
-    private static native WifiScanner.ScanData[] getScanResultsNative(int iface, boolean flush);
-    private static native WifiLinkLayerStats getWifiLinkLayerStatsNative(int iface);
-    private static native void setWifiLinkLayerStatsNative(int iface, int enable);
 
     public static class ChannelSettings {
         public int frequency;
@@ -1684,14 +885,37 @@ public class WifiNative {
         public ChannelSettings[] channels;
     }
 
+    /**
+     * Network parameters for hidden networks to be scanned for.
+     */
+    public static class HiddenNetwork {
+        public String ssid;
+
+        @Override
+        public boolean equals(Object otherObj) {
+            if (this == otherObj) {
+                return true;
+            } else if (otherObj == null || getClass() != otherObj.getClass()) {
+                return false;
+            }
+            HiddenNetwork other = (HiddenNetwork) otherObj;
+            return Objects.equals(ssid, other.ssid);
+        }
+
+        @Override
+        public int hashCode() {
+            return (ssid == null ? 0 : ssid.hashCode());
+        }
+    }
+
     public static class ScanSettings {
         public int base_period_ms;
         public int max_ap_per_scan;
         public int report_threshold_percent;
         public int report_threshold_num_scans;
         public int num_buckets;
-        /* Not part of gscan HAL API. Used only for wpa_supplicant scanning */
-        public int[] hiddenNetworkIds;
+        /* Not used for bg scans. Only works for single scans. */
+        public HiddenNetwork[] hiddenNetworks;
         public BucketSettings[] buckets;
     }
 
@@ -1700,8 +924,6 @@ public class WifiNative {
      */
     public static class PnoNetwork {
         public String ssid;
-        public int networkId;
-        public int priority;
         public byte flags;
         public byte auth_bit_field;
 
@@ -1713,9 +935,15 @@ public class WifiNative {
                 return false;
             }
             PnoNetwork other = (PnoNetwork) otherObj;
-            return ((Objects.equals(ssid, other.ssid)) && (networkId == other.networkId)
-                    && (priority == other.priority) && (flags == other.flags)
+            return ((Objects.equals(ssid, other.ssid)) && (flags == other.flags)
                     && (auth_bit_field == other.auth_bit_field));
+        }
+
+        @Override
+        public int hashCode() {
+            int result = (ssid == null ? 0 : ssid.hashCode());
+            result ^= ((int) flags * 31) + ((int) auth_bit_field << 8);
+            return result;
         }
     }
 
@@ -1731,19 +959,9 @@ public class WifiNative {
         public int sameNetworkBonus;
         public int secureBonus;
         public int band5GHzBonus;
+        public int periodInMs;
         public boolean isConnected;
         public PnoNetwork[] networkList;
-    }
-
-    /**
-     * Wi-Fi channel information.
-     */
-    public static class WifiChannelInfo {
-        int mPrimaryFrequency;
-        int mCenterFrequency0;
-        int mCenterFrequency1;
-        int mChannelWidth;
-        // TODO: add preamble once available in HAL.
     }
 
     public static interface ScanEventHandler {
@@ -1783,775 +1001,245 @@ public class WifiNative {
         void onPnoScanFailed();
     }
 
-    /* scan status, keep these values in sync with gscan.h */
     public static final int WIFI_SCAN_RESULTS_AVAILABLE = 0;
     public static final int WIFI_SCAN_THRESHOLD_NUM_SCANS = 1;
     public static final int WIFI_SCAN_THRESHOLD_PERCENT = 2;
     public static final int WIFI_SCAN_FAILED = 3;
 
-    // Callback from native
-    private static void onScanStatus(int id, int event) {
-        ScanEventHandler handler = sScanEventHandler;
-        if (handler != null) {
-            handler.onScanStatus(event);
-        }
+    /**
+     * Starts a background scan.
+     * Any ongoing scan will be stopped first
+     *
+     * @param settings     to control the scan
+     * @param eventHandler to call with the results
+     * @return true for success
+     */
+    public boolean startBgScan(ScanSettings settings, ScanEventHandler eventHandler) {
+        return mWifiVendorHal.startBgScan(settings, eventHandler);
     }
 
-    public static  WifiSsid createWifiSsid(byte[] rawSsid) {
-        String ssidHexString = String.valueOf(HexEncoding.encode(rawSsid));
-
-        if (ssidHexString == null) {
-            return null;
-        }
-
-        WifiSsid wifiSsid = WifiSsid.createFromHex(ssidHexString);
-
-        return wifiSsid;
+    /**
+     * Stops any ongoing backgound scan
+     */
+    public void stopBgScan() {
+        mWifiVendorHal.stopBgScan();
     }
 
-    public static String ssidConvert(byte[] rawSsid) {
-        String ssid;
-
-        CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
-        try {
-            CharBuffer decoded = decoder.decode(ByteBuffer.wrap(rawSsid));
-            ssid = decoded.toString();
-        } catch (CharacterCodingException cce) {
-            ssid = null;
-        }
-
-        if (ssid == null) {
-            ssid = new String(rawSsid, StandardCharsets.ISO_8859_1);
-        }
-
-        return ssid;
+    /**
+     * Pauses an ongoing backgound scan
+     */
+    public void pauseBgScan() {
+        mWifiVendorHal.pauseBgScan();
     }
 
-    // Called from native
-    public static boolean setSsid(byte[] rawSsid, ScanResult result) {
-        if (rawSsid == null || rawSsid.length == 0 || result == null) {
-            return false;
-        }
-
-        result.SSID = ssidConvert(rawSsid);
-        result.wifiSsid = createWifiSsid(rawSsid);
-        return true;
+    /**
+     * Restarts a paused scan
+     */
+    public void restartBgScan() {
+        mWifiVendorHal.restartBgScan();
     }
 
-    private static void populateScanResult(ScanResult result, int beaconCap, String dbg) {
-        if (dbg == null) dbg = "";
-
-        InformationElementUtil.HtOperation htOperation = new InformationElementUtil.HtOperation();
-        InformationElementUtil.VhtOperation vhtOperation =
-                new InformationElementUtil.VhtOperation();
-        InformationElementUtil.ExtendedCapabilities extendedCaps =
-                new InformationElementUtil.ExtendedCapabilities();
-
-        ScanResult.InformationElement elements[] =
-                InformationElementUtil.parseInformationElements(result.bytes);
-        for (ScanResult.InformationElement ie : elements) {
-            if(ie.id == ScanResult.InformationElement.EID_HT_OPERATION) {
-                htOperation.from(ie);
-            } else if(ie.id == ScanResult.InformationElement.EID_VHT_OPERATION) {
-                vhtOperation.from(ie);
-            } else if (ie.id == ScanResult.InformationElement.EID_EXTENDED_CAPS) {
-                extendedCaps.from(ie);
-            }
-        }
-
-        if (extendedCaps.is80211McRTTResponder) {
-            result.setFlag(ScanResult.FLAG_80211mc_RESPONDER);
-        } else {
-            result.clearFlag(ScanResult.FLAG_80211mc_RESPONDER);
-        }
-
-        //handle RTT related information
-        if (vhtOperation.isValid()) {
-            result.channelWidth = vhtOperation.getChannelWidth();
-            result.centerFreq0 = vhtOperation.getCenterFreq0();
-            result.centerFreq1 = vhtOperation.getCenterFreq1();
-        } else {
-            result.channelWidth = htOperation.getChannelWidth();
-            result.centerFreq0 = htOperation.getCenterFreq0(result.frequency);
-            result.centerFreq1  = 0;
-        }
-
-        // build capabilities string
-        BitSet beaconCapBits = new BitSet(16);
-        for (int i = 0; i < 16; i++) {
-            if ((beaconCap & (1 << i)) != 0) {
-                beaconCapBits.set(i);
-            }
-        }
-        result.capabilities = InformationElementUtil.Capabilities.buildCapabilities(elements,
-                                               beaconCapBits);
-
-        if(DBG) {
-            Log.d(TAG, dbg + "SSID: " + result.SSID + " ChannelWidth is: " + result.channelWidth
-                    + " PrimaryFreq: " + result.frequency + " mCenterfreq0: " + result.centerFreq0
-                    + " mCenterfreq1: " + result.centerFreq1 + (extendedCaps.is80211McRTTResponder
-                    ? "Support RTT reponder: " : "Do not support RTT responder")
-                    + " Capabilities: " + result.capabilities);
-        }
-
-        result.informationElements = elements;
-    }
-
-    // Callback from native
-    private static void onFullScanResult(int id, ScanResult result,
-            int bucketsScanned, int beaconCap) {
-        if (DBG) Log.i(TAG, "Got a full scan results event, ssid = " + result.SSID);
-
-        ScanEventHandler handler = sScanEventHandler;
-        if (handler != null) {
-            populateScanResult(result, beaconCap, " onFullScanResult ");
-            handler.onFullScanResult(result, bucketsScanned);
-        }
-    }
-
-    private static int sScanCmdId = 0;
-    private static ScanEventHandler sScanEventHandler;
-    private static ScanSettings sScanSettings;
-
-    public boolean startScan(ScanSettings settings, ScanEventHandler eventHandler) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                if (sScanCmdId != 0) {
-                    stopScan();
-                } else if (sScanSettings != null || sScanEventHandler != null) {
-                /* current scan is paused; no need to stop it */
-                }
-
-                sScanCmdId = getNewCmdIdLocked();
-
-                sScanSettings = settings;
-                sScanEventHandler = eventHandler;
-
-                if (startScanNative(sWlan0Index, sScanCmdId, settings) == false) {
-                    sScanEventHandler = null;
-                    sScanSettings = null;
-                    sScanCmdId = 0;
-                    return false;
-                }
-
-                return true;
-            } else {
-                return false;
-            }
-        }
-    }
-
-    public void stopScan() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                if (sScanCmdId != 0) {
-                    stopScanNative(sWlan0Index, sScanCmdId);
-                }
-                sScanSettings = null;
-                sScanEventHandler = null;
-                sScanCmdId = 0;
-            }
-        }
-    }
-
-    public void pauseScan() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                if (sScanCmdId != 0 && sScanSettings != null && sScanEventHandler != null) {
-                    Log.d(TAG, "Pausing scan");
-                    WifiScanner.ScanData scanData[] = getScanResultsNative(sWlan0Index, true);
-                    stopScanNative(sWlan0Index, sScanCmdId);
-                    sScanCmdId = 0;
-                    sScanEventHandler.onScanPaused(scanData);
-                }
-            }
-        }
-    }
-
-    public void restartScan() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                if (sScanCmdId == 0 && sScanSettings != null && sScanEventHandler != null) {
-                    Log.d(TAG, "Restarting scan");
-                    ScanEventHandler handler = sScanEventHandler;
-                    ScanSettings settings = sScanSettings;
-                    if (startScan(sScanSettings, sScanEventHandler)) {
-                        sScanEventHandler.onScanRestarted();
-                    } else {
-                    /* we are still paused; don't change state */
-                        sScanEventHandler = handler;
-                        sScanSettings = settings;
-                    }
-                }
-            }
-        }
-    }
-
-    public WifiScanner.ScanData[] getScanResults(boolean flush) {
-        synchronized (sLock) {
-            WifiScanner.ScanData[] sd = null;
-            if (isHalStarted()) {
-                sd = getScanResultsNative(sWlan0Index, flush);
-            }
-
-            if (sd != null) {
-                return sd;
-            } else {
-                return new WifiScanner.ScanData[0];
-            }
-        }
-    }
-
-    public static interface HotlistEventHandler {
-        void onHotlistApFound (ScanResult[] result);
-        void onHotlistApLost  (ScanResult[] result);
-    }
-
-    private static int sHotlistCmdId = 0;
-    private static HotlistEventHandler sHotlistEventHandler;
-
-    private native static boolean setHotlistNative(int iface, int id,
-            WifiScanner.HotlistSettings settings);
-    private native static boolean resetHotlistNative(int iface, int id);
-
-    public boolean setHotlist(WifiScanner.HotlistSettings settings,
-            HotlistEventHandler eventHandler) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                if (sHotlistCmdId != 0) {
-                    return false;
-                } else {
-                    sHotlistCmdId = getNewCmdIdLocked();
-                }
-
-                sHotlistEventHandler = eventHandler;
-                if (setHotlistNative(sWlan0Index, sHotlistCmdId, settings) == false) {
-                    sHotlistEventHandler = null;
-                    return false;
-                }
-
-                return true;
-            } else {
-                return false;
-            }
-        }
-    }
-
-    public void resetHotlist() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                if (sHotlistCmdId != 0) {
-                    resetHotlistNative(sWlan0Index, sHotlistCmdId);
-                    sHotlistCmdId = 0;
-                    sHotlistEventHandler = null;
-                }
-            }
-        }
-    }
-
-    // Callback from native
-    private static void onHotlistApFound(int id, ScanResult[] results) {
-        HotlistEventHandler handler = sHotlistEventHandler;
-        if (handler != null) {
-            handler.onHotlistApFound(results);
-        } else {
-            /* this can happen because of race conditions */
-            Log.d(TAG, "Ignoring hotlist AP found event");
-        }
-    }
-
-    // Callback from native
-    private static void onHotlistApLost(int id, ScanResult[] results) {
-        HotlistEventHandler handler = sHotlistEventHandler;
-        if (handler != null) {
-            handler.onHotlistApLost(results);
-        } else {
-            /* this can happen because of race conditions */
-            Log.d(TAG, "Ignoring hotlist AP lost event");
-        }
-    }
-
-    public static interface SignificantWifiChangeEventHandler {
-        void onChangesFound(ScanResult[] result);
-    }
-
-    private static SignificantWifiChangeEventHandler sSignificantWifiChangeHandler;
-    private static int sSignificantWifiChangeCmdId;
-
-    private static native boolean trackSignificantWifiChangeNative(
-            int iface, int id, WifiScanner.WifiChangeSettings settings);
-    private static native boolean untrackSignificantWifiChangeNative(int iface, int id);
-
-    public boolean trackSignificantWifiChange(
-            WifiScanner.WifiChangeSettings settings, SignificantWifiChangeEventHandler handler) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                if (sSignificantWifiChangeCmdId != 0) {
-                    return false;
-                } else {
-                    sSignificantWifiChangeCmdId = getNewCmdIdLocked();
-                }
-
-                sSignificantWifiChangeHandler = handler;
-                if (trackSignificantWifiChangeNative(sWlan0Index, sSignificantWifiChangeCmdId,
-                        settings) == false) {
-                    sSignificantWifiChangeHandler = null;
-                    return false;
-                }
-
-                return true;
-            } else {
-                return false;
-            }
-
-        }
-    }
-
-    public void untrackSignificantWifiChange() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                if (sSignificantWifiChangeCmdId != 0) {
-                    untrackSignificantWifiChangeNative(sWlan0Index, sSignificantWifiChangeCmdId);
-                    sSignificantWifiChangeCmdId = 0;
-                    sSignificantWifiChangeHandler = null;
-                }
-            }
-        }
-    }
-
-    // Callback from native
-    private static void onSignificantWifiChange(int id, ScanResult[] results) {
-        SignificantWifiChangeEventHandler handler = sSignificantWifiChangeHandler;
-        if (handler != null) {
-            handler.onChangesFound(results);
-        } else {
-            /* this can happen because of race conditions */
-            Log.d(TAG, "Ignoring significant wifi change");
-        }
+    /**
+     * Gets the latest scan results received.
+     */
+    public WifiScanner.ScanData[] getBgScanResults() {
+        return mWifiVendorHal.getBgScanResults();
     }
 
     public WifiLinkLayerStats getWifiLinkLayerStats(String iface) {
-        // TODO: use correct iface name to Index translation
-        if (iface == null) return null;
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getWifiLinkLayerStatsNative(sWlan0Index);
-            } else {
-                return null;
-            }
-        }
+        return mWifiVendorHal.getWifiLinkLayerStats();
     }
 
-    public void setWifiLinkLayerStats(String iface, int enable) {
-        if (iface == null) return;
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                setWifiLinkLayerStatsNative(sWlan0Index, enable);
-            }
-        }
-    }
-
-    public static native int getSupportedFeatureSetNative(int iface);
+    /**
+     * Get the supported features
+     *
+     * @return bitmask defined by WifiManager.WIFI_FEATURE_*
+     */
     public int getSupportedFeatureSet() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getSupportedFeatureSetNative(sWlan0Index);
-            } else {
-                Log.d(TAG, "Failing getSupportedFeatureset because HAL isn't started");
-                return 0;
-            }
-        }
+        return mWifiVendorHal.getSupportedFeatureSet();
     }
 
-    /* Rtt related commands/events */
     public static interface RttEventHandler {
         void onRttResults(RttManager.RttResult[] result);
     }
 
-    private static RttEventHandler sRttEventHandler;
-    private static int sRttCmdId;
-
-    // Callback from native
-    private static void onRttResults(int id, RttManager.RttResult[] results) {
-        RttEventHandler handler = sRttEventHandler;
-        if (handler != null && id == sRttCmdId) {
-            Log.d(TAG, "Received " + results.length + " rtt results");
-            handler.onRttResults(results);
-            sRttCmdId = 0;
-        } else {
-            Log.d(TAG, "RTT Received event for unknown cmd = " + id +
-                    ", current id = " + sRttCmdId);
-        }
-    }
-
-    private static native boolean requestRangeNative(
-            int iface, int id, RttManager.RttParams[] params);
-    private static native boolean cancelRangeRequestNative(
-            int iface, int id, RttManager.RttParams[] params);
-
+    /**
+     * Starts a new rtt request
+     *
+     * @param params RTT request params. Refer to {@link RttManager#RttParams}.
+     * @param handler Callback to be invoked to notify any results.
+     * @return true if the request was successful, false otherwise.
+     */
     public boolean requestRtt(
             RttManager.RttParams[] params, RttEventHandler handler) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                if (sRttCmdId != 0) {
-                    Log.w(TAG, "Last one is still under measurement!");
-                    return false;
-                } else {
-                    sRttCmdId = getNewCmdIdLocked();
-                }
-                sRttEventHandler = handler;
-                return requestRangeNative(sWlan0Index, sRttCmdId, params);
-            } else {
-                return false;
-            }
-        }
+        return mWifiVendorHal.requestRtt(params, handler);
     }
 
+    /**
+     * Cancels an outstanding rtt request
+     *
+     * @param params RTT request params. Refer to {@link RttManager#RttParams}
+     * @return true if there was an outstanding request and it was successfully cancelled
+     */
     public boolean cancelRtt(RttManager.RttParams[] params) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                if (sRttCmdId == 0) {
-                    return false;
-                }
-
-                sRttCmdId = 0;
-
-                if (cancelRangeRequestNative(sWlan0Index, sRttCmdId, params)) {
-                    sRttEventHandler = null;
-                    return true;
-                } else {
-                    Log.e(TAG, "RTT cancel Request failed");
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
+        return mWifiVendorHal.cancelRtt(params);
     }
 
-    private static int sRttResponderCmdId = 0;
-
-    private static native ResponderConfig enableRttResponderNative(int iface, int commandId,
-            int timeoutSeconds, WifiChannelInfo channelHint);
     /**
      * Enable RTT responder role on the device. Returns {@link ResponderConfig} if the responder
      * role is successfully enabled, {@code null} otherwise.
+     *
+     * @param timeoutSeconds timeout to use for the responder.
      */
     @Nullable
     public ResponderConfig enableRttResponder(int timeoutSeconds) {
-        synchronized (sLock) {
-            if (!isHalStarted()) return null;
-            if (sRttResponderCmdId != 0) {
-                if (DBG) Log.e(mTAG, "responder mode already enabled - this shouldn't happen");
-                return null;
-            }
-            int id = getNewCmdIdLocked();
-            ResponderConfig config = enableRttResponderNative(
-                    sWlan0Index, id, timeoutSeconds, null);
-            if (config != null) sRttResponderCmdId = id;
-            if (DBG) Log.d(TAG, "enabling rtt " + (config != null));
-            return config;
-        }
+        return mWifiVendorHal.enableRttResponder(timeoutSeconds);
     }
 
-    private static native boolean disableRttResponderNative(int iface, int commandId);
     /**
      * Disable RTT responder role. Returns {@code true} if responder role is successfully disabled,
      * {@code false} otherwise.
      */
     public boolean disableRttResponder() {
-        synchronized (sLock) {
-            if (!isHalStarted()) return false;
-            if (sRttResponderCmdId == 0) {
-                Log.e(mTAG, "responder role not enabled yet");
-                return true;
-            }
-            sRttResponderCmdId = 0;
-            return disableRttResponderNative(sWlan0Index, sRttResponderCmdId);
-        }
+        return mWifiVendorHal.disableRttResponder();
     }
 
-    private static native boolean setScanningMacOuiNative(int iface, byte[] oui);
-
+    /**
+     * Set the MAC OUI during scanning.
+     * An OUI {Organizationally Unique Identifier} is a 24-bit number that
+     * uniquely identifies a vendor or manufacturer.
+     *
+     * @param oui OUI to set.
+     * @return true for success
+     */
     public boolean setScanningMacOui(byte[] oui) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return setScanningMacOuiNative(sWlan0Index, oui);
-            } else {
-                return false;
-            }
-        }
+        return mWifiVendorHal.setScanningMacOui(oui);
     }
 
-    private static native int[] getChannelsForBandNative(
-            int iface, int band);
-
+    /**
+     * Query the list of valid frequencies for the provided band.
+     * The result depends on the on the country code that has been set.
+     *
+     * @param band as specified by one of the WifiScanner.WIFI_BAND_* constants.
+     * @return frequencies vector of valid frequencies (MHz), or null for error.
+     * @throws IllegalArgumentException if band is not recognized.
+     */
     public int [] getChannelsForBand(int band) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getChannelsForBandNative(sWlan0Index, band);
-            } else {
-                return null;
-            }
-        }
+        return mWifiVendorHal.getChannelsForBand(band);
     }
 
-    private static native boolean isGetChannelsForBandSupportedNative();
-    public boolean isGetChannelsForBandSupported(){
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return isGetChannelsForBandSupportedNative();
-            } else {
-                return false;
-            }
-        }
+    /**
+     * Indicates whether getChannelsForBand is supported.
+     *
+     * @return true if it is.
+     */
+    public boolean isGetChannelsForBandSupported() {
+        return mWifiVendorHal.isGetChannelsForBandSupported();
     }
 
-    private static native boolean setDfsFlagNative(int iface, boolean dfsOn);
-    public boolean setDfsFlag(boolean dfsOn) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return setDfsFlagNative(sWlan0Index, dfsOn);
-            } else {
-                return false;
-            }
-        }
-    }
-
-    private static native boolean setInterfaceUpNative(boolean up);
-    public boolean setInterfaceUp(boolean up) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return setInterfaceUpNative(up);
-            } else {
-                return false;
-            }
-        }
-    }
-
-    private static native RttManager.RttCapabilities getRttCapabilitiesNative(int iface);
+    /**
+     * RTT (Round Trip Time) measurement capabilities of the device.
+     */
     public RttManager.RttCapabilities getRttCapabilities() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getRttCapabilitiesNative(sWlan0Index);
-            } else {
-                return null;
-            }
-        }
+        return mWifiVendorHal.getRttCapabilities();
     }
 
-    private static native ApfCapabilities getApfCapabilitiesNative(int iface);
+    /**
+     * Get the APF (Android Packet Filter) capabilities of the device
+     */
     public ApfCapabilities getApfCapabilities() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getApfCapabilitiesNative(sWlan0Index);
-            } else {
-                return null;
-            }
-        }
+        return mWifiVendorHal.getApfCapabilities();
     }
 
-    private static native boolean installPacketFilterNative(int iface, byte[] filter);
+    /**
+     * Installs an APF program on this iface, replacing any existing program.
+     *
+     * @param filter is the android packet filter program
+     * @return true for success
+     */
     public boolean installPacketFilter(byte[] filter) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return installPacketFilterNative(sWlan0Index, filter);
-            } else {
-                return false;
-            }
-        }
+        return mWifiVendorHal.installPacketFilter(filter);
     }
 
-    private static native boolean setCountryCodeHalNative(int iface, String CountryCode);
-    public boolean setCountryCodeHal(String CountryCode) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return setCountryCodeHalNative(sWlan0Index, CountryCode);
-            } else {
-                return false;
-            }
-        }
-    }
-
-    /* Rtt related commands/events */
-    public abstract class TdlsEventHandler {
-        abstract public void onTdlsStatus(String macAddr, int status, int reason);
-    }
-
-    private static TdlsEventHandler sTdlsEventHandler;
-
-    private static native boolean enableDisableTdlsNative(int iface, boolean enable,
-            String macAddr);
-    public boolean enableDisableTdls(boolean enable, String macAdd, TdlsEventHandler tdlsCallBack) {
-        synchronized (sLock) {
-            sTdlsEventHandler = tdlsCallBack;
-            return enableDisableTdlsNative(sWlan0Index, enable, macAdd);
-        }
-    }
-
-    // Once TDLS per mac and event feature is implemented, this class definition should be
-    // moved to the right place, like WifiManager etc
-    public static class TdlsStatus {
-        int channel;
-        int global_operating_class;
-        int state;
-        int reason;
-    }
-    private static native TdlsStatus getTdlsStatusNative(int iface, String macAddr);
-    public TdlsStatus getTdlsStatus(String macAdd) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getTdlsStatusNative(sWlan0Index, macAdd);
-            } else {
-                return null;
-            }
-        }
-    }
-
-    //ToFix: Once TDLS per mac and event feature is implemented, this class definition should be
-    // moved to the right place, like WifiStateMachine etc
-    public static class TdlsCapabilities {
-        /* Maximum TDLS session number can be supported by the Firmware and hardware */
-        int maxConcurrentTdlsSessionNumber;
-        boolean isGlobalTdlsSupported;
-        boolean isPerMacTdlsSupported;
-        boolean isOffChannelTdlsSupported;
-    }
-
-
-
-    private static native TdlsCapabilities getTdlsCapabilitiesNative(int iface);
-    public TdlsCapabilities getTdlsCapabilities () {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getTdlsCapabilitiesNative(sWlan0Index);
-            } else {
-                return null;
-            }
-        }
-    }
-
-    private static boolean onTdlsStatus(String macAddr, int status, int reason) {
-        TdlsEventHandler handler = sTdlsEventHandler;
-        if (handler == null) {
-            return false;
-        } else {
-            handler.onTdlsStatus(macAddr, status, reason);
-            return true;
-        }
+    /**
+     * Set country code for this AP iface.
+     *
+     * @param countryCode - two-letter country code (as ISO 3166)
+     * @return true for success
+     */
+    public boolean setCountryCodeHal(String countryCode) {
+        return mWifiVendorHal.setCountryCodeHal(countryCode);
     }
 
     //---------------------------------------------------------------------------------
-
     /* Wifi Logger commands/events */
-
     public static interface WifiLoggerEventHandler {
         void onRingBufferData(RingBufferStatus status, byte[] buffer);
         void onWifiAlert(int errorCode, byte[] buffer);
     }
 
-    private static WifiLoggerEventHandler sWifiLoggerEventHandler = null;
-
-    // Callback from native
-    private static void onRingBufferData(RingBufferStatus status, byte[] buffer) {
-        WifiLoggerEventHandler handler = sWifiLoggerEventHandler;
-        if (handler != null)
-            handler.onRingBufferData(status, buffer);
-    }
-
-    // Callback from native
-    private static void onWifiAlert(byte[] buffer, int errorCode) {
-        WifiLoggerEventHandler handler = sWifiLoggerEventHandler;
-        if (handler != null)
-            handler.onWifiAlert(errorCode, buffer);
-    }
-
-    private static int sLogCmdId = -1;
-    private static native boolean setLoggingEventHandlerNative(int iface, int id);
+    /**
+     * Registers the logger callback and enables alerts.
+     * Ring buffer data collection is only triggered when |startLoggingRingBuffer| is invoked.
+     *
+     * @param handler Callback to be invoked.
+     * @return true on success, false otherwise.
+     */
     public boolean setLoggingEventHandler(WifiLoggerEventHandler handler) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                int oldId =  sLogCmdId;
-                sLogCmdId = getNewCmdIdLocked();
-                if (!setLoggingEventHandlerNative(sWlan0Index, sLogCmdId)) {
-                    sLogCmdId = oldId;
-                    return false;
-                }
-                sWifiLoggerEventHandler = handler;
-                return true;
-            } else {
-                return false;
-            }
-        }
+        return mWifiVendorHal.setLoggingEventHandler(handler);
     }
 
-    private static native boolean startLoggingRingBufferNative(int iface, int verboseLevel,
-            int flags, int minIntervalSec ,int minDataSize, String ringName);
+    /**
+     * Control debug data collection
+     *
+     * @param verboseLevel 0 to 3, inclusive. 0 stops logging.
+     * @param flags        Ignored.
+     * @param maxInterval  Maximum interval between reports; ignore if 0.
+     * @param minDataSize  Minimum data size in buffer for report; ignore if 0.
+     * @param ringName     Name of the ring for which data collection is to start.
+     * @return true for success, false otherwise.
+     */
     public boolean startLoggingRingBuffer(int verboseLevel, int flags, int maxInterval,
             int minDataSize, String ringName){
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return startLoggingRingBufferNative(sWlan0Index, verboseLevel, flags, maxInterval,
-                        minDataSize, ringName);
-            } else {
-                return false;
-            }
-        }
+        return mWifiVendorHal.startLoggingRingBuffer(
+                verboseLevel, flags, maxInterval, minDataSize, ringName);
     }
 
-    private static native int getSupportedLoggerFeatureSetNative(int iface);
+    /**
+     * Logger features exposed.
+     * This is a no-op now, will always return -1.
+     *
+     * @return true on success, false otherwise.
+     */
     public int getSupportedLoggerFeatureSet() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getSupportedLoggerFeatureSetNative(sWlan0Index);
-            } else {
-                return 0;
-            }
-        }
+        return mWifiVendorHal.getSupportedLoggerFeatureSet();
     }
 
-    private static native boolean resetLogHandlerNative(int iface, int id);
+    /**
+     * Stops all logging and resets the logger callback.
+     * This stops both the alerts and ring buffer data collection.
+     * @return true on success, false otherwise.
+     */
     public boolean resetLogHandler() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                if (sLogCmdId == -1) {
-                    Log.e(TAG,"Can not reset handler Before set any handler");
-                    return false;
-                }
-                sWifiLoggerEventHandler = null;
-                if (resetLogHandlerNative(sWlan0Index, sLogCmdId)) {
-                    sLogCmdId = -1;
-                    return true;
-                } else {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
+        return mWifiVendorHal.resetLogHandler();
     }
 
-    private static native String getDriverVersionNative(int iface);
+    /**
+     * Vendor-provided wifi driver version string
+     *
+     * @return String returned from the HAL.
+     */
     public String getDriverVersion() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getDriverVersionNative(sWlan0Index);
-            } else {
-                return "";
-            }
-        }
+        return mWifiVendorHal.getDriverVersion();
     }
 
-
-    private static native String getFirmwareVersionNative(int iface);
+    /**
+     * Vendor-provided wifi firmware version string
+     *
+     * @return String returned from the HAL.
+     */
     public String getFirmwareVersion() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getFirmwareVersionNative(sWlan0Index);
-            } else {
-                return "";
-            }
-        }
+        return mWifiVendorHal.getFirmwareVersion();
     }
 
     public static class RingBufferStatus{
@@ -2564,6 +1252,11 @@ public class WifiNative {
         int readBytes;
         int writtenRecords;
 
+        // Bit masks for interpreting |flag|
+        public static final int HAS_BINARY_ENTRIES = (1 << 0);
+        public static final int HAS_ASCII_ENTRIES = (1 << 1);
+        public static final int HAS_PER_PACKET_ENTRIES = (1 << 2);
+
         @Override
         public String toString() {
             return "name: " + name + " flag: " + flag + " ringBufferId: " + ringBufferId +
@@ -2573,64 +1266,39 @@ public class WifiNative {
         }
     }
 
-    private static native RingBufferStatus[] getRingBufferStatusNative(int iface);
+    /**
+     * API to get the status of all ring buffers supported by driver
+     */
     public RingBufferStatus[] getRingBufferStatus() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getRingBufferStatusNative(sWlan0Index);
-            } else {
-                return null;
-            }
-        }
+        return mWifiVendorHal.getRingBufferStatus();
     }
 
-    private static native boolean getRingBufferDataNative(int iface, String ringName);
+    /**
+     * Indicates to driver that all the data has to be uploaded urgently
+     *
+     * @param ringName Name of the ring buffer requested.
+     * @return true on success, false otherwise.
+     */
     public boolean getRingBufferData(String ringName) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getRingBufferDataNative(sWlan0Index, ringName);
-            } else {
-                return false;
-            }
-        }
+        return mWifiVendorHal.getRingBufferData(ringName);
     }
 
-    private static byte[] mFwMemoryDump;
-    // Callback from native
-    private static void onWifiFwMemoryAvailable(byte[] buffer) {
-        mFwMemoryDump = buffer;
-        if (DBG) {
-            Log.d(TAG, "onWifiFwMemoryAvailable is called and buffer length is: " +
-                    (buffer == null ? 0 :  buffer.length));
-        }
-    }
-
-    private static native boolean getFwMemoryDumpNative(int iface);
+    /**
+     * Request vendor debug info from the firmware
+     *
+     * @return Raw data obtained from the HAL.
+     */
     public byte[] getFwMemoryDump() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                if(getFwMemoryDumpNative(sWlan0Index)) {
-                    byte[] fwMemoryDump = mFwMemoryDump;
-                    mFwMemoryDump = null;
-                    return fwMemoryDump;
-                } else {
-                    return null;
-                }
-            }
-            return null;
-        }
+        return mWifiVendorHal.getFwMemoryDump();
     }
 
-    private static native byte[] getDriverStateDumpNative(int iface);
-    /** Fetch the driver state, for driver debugging. */
+    /**
+     * Request vendor debug info from the driver
+     *
+     * @return Raw data obtained from the HAL.
+     */
     public byte[] getDriverStateDump() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getDriverStateDumpNative(sWlan0Index);
-            } else {
-                return null;
-            }
-        }
+        return mWifiVendorHal.getDriverStateDump();
     }
 
     //---------------------------------------------------------------------------------
@@ -2834,66 +1502,30 @@ public class WifiNative {
         }
     }
 
-    private static native int startPktFateMonitoringNative(int iface);
     /**
      * Ask the HAL to enable packet fate monitoring. Fails unless HAL is started.
+     *
+     * @return true for success, false otherwise.
      */
     public boolean startPktFateMonitoring() {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return startPktFateMonitoringNative(sWlan0Index) == WIFI_SUCCESS;
-            } else {
-                return false;
-            }
-        }
+        return mWifiVendorHal.startPktFateMonitoring();
     }
 
-    private static native int getTxPktFatesNative(int iface, TxFateReport[] reportBufs);
     /**
      * Fetch the most recent TX packet fates from the HAL. Fails unless HAL is started.
+     *
+     * @return true for success, false otherwise.
      */
     public boolean getTxPktFates(TxFateReport[] reportBufs) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                int res = getTxPktFatesNative(sWlan0Index, reportBufs);
-                if (res != WIFI_SUCCESS) {
-                    Log.e(TAG, "getTxPktFatesNative returned " + res);
-                    return false;
-                } else {
-                    return true;
-                }
-            } else {
-                return false;
-            }
-        }
+        return mWifiVendorHal.getTxPktFates(reportBufs);
     }
 
-    private static native int getRxPktFatesNative(int iface, RxFateReport[] reportBufs);
     /**
      * Fetch the most recent RX packet fates from the HAL. Fails unless HAL is started.
      */
     public boolean getRxPktFates(RxFateReport[] reportBufs) {
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                int res = getRxPktFatesNative(sWlan0Index, reportBufs);
-                if (res != WIFI_SUCCESS) {
-                    Log.e(TAG, "getRxPktFatesNative returned " + res);
-                    return false;
-                } else {
-                    return true;
-                }
-            } else {
-                return false;
-            }
-        }
+        return mWifiVendorHal.getRxPktFates(reportBufs);
     }
-
-    //---------------------------------------------------------------------------------
-    /* Configure ePNO/PNO */
-    private static PnoEventHandler sPnoEventHandler;
-    private static int sPnoCmdId = 0;
-
-    private static native boolean setPnoListNative(int iface, int id, PnoSettings settings);
 
     /**
      * Set the PNO settings & the network list in HAL to start PNO.
@@ -2902,229 +1534,176 @@ public class WifiNative {
      * @return true if success, false otherwise
      */
     public boolean setPnoList(PnoSettings settings, PnoEventHandler eventHandler) {
-        Log.e(TAG, "setPnoList cmd " + sPnoCmdId);
-
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                sPnoCmdId = getNewCmdIdLocked();
-                sPnoEventHandler = eventHandler;
-                if (setPnoListNative(sWlan0Index, sPnoCmdId, settings)) {
-                    return true;
-                }
-            }
-            sPnoEventHandler = null;
-            return false;
-        }
+        Log.e(mTAG, "setPnoList not supported");
+        return false;
     }
-
-    /**
-     * Set the PNO network list in HAL to start PNO.
-     * @param list PNO network list.
-     * @param eventHandler Handler to receive notifications back during PNO scan.
-     * @return true if success, false otherwise
-     */
-    public boolean setPnoList(PnoNetwork[] list, PnoEventHandler eventHandler) {
-        PnoSettings settings = new PnoSettings();
-        settings.networkList = list;
-        return setPnoList(settings, eventHandler);
-    }
-
-    private static native boolean resetPnoListNative(int iface, int id);
 
     /**
      * Reset the PNO settings in HAL to stop PNO.
      * @return true if success, false otherwise
      */
     public boolean resetPnoList() {
-        Log.e(TAG, "resetPnoList cmd " + sPnoCmdId);
-
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                sPnoCmdId = getNewCmdIdLocked();
-                sPnoEventHandler = null;
-                if (resetPnoListNative(sWlan0Index, sPnoCmdId)) {
-                    return true;
-                }
-            }
-            return false;
-        }
+        Log.e(mTAG, "resetPnoList not supported");
+        return false;
     }
 
-    // Callback from native
-    private static void onPnoNetworkFound(int id, ScanResult[] results, int[] beaconCaps) {
-        if (results == null) {
-            Log.e(TAG, "onPnoNetworkFound null results");
-            return;
-
-        }
-        Log.d(TAG, "WifiNative.onPnoNetworkFound result " + results.length);
-
-        PnoEventHandler handler = sPnoEventHandler;
-        if (sPnoCmdId != 0 && handler != null) {
-            for (int i=0; i<results.length; i++) {
-                Log.e(TAG, "onPnoNetworkFound SSID " + results[i].SSID
-                        + " " + results[i].level + " " + results[i].frequency);
-
-                populateScanResult(results[i], beaconCaps[i], "onPnoNetworkFound ");
-                results[i].wifiSsid = WifiSsid.createFromAsciiEncoded(results[i].SSID);
-            }
-
-            handler.onPnoNetworkFound(results);
-        } else {
-            /* this can happen because of race conditions */
-            Log.d(TAG, "Ignoring Pno Network found event");
-        }
-    }
-
-    private native static boolean setBssidBlacklistNative(int iface, int id,
-                                              String list[]);
-
-    public boolean setBssidBlacklist(String list[]) {
-        int size = 0;
-        if (list != null) {
-            size = list.length;
-        }
-        Log.e(TAG, "setBssidBlacklist cmd " + sPnoCmdId + " size " + size);
-
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                sPnoCmdId = getNewCmdIdLocked();
-                return setBssidBlacklistNative(sWlan0Index, sPnoCmdId, list);
-            } else {
-                return false;
-            }
-        }
-    }
-
-    private native static int startSendingOffloadedPacketNative(int iface, int idx,
-                                    byte[] srcMac, byte[] dstMac, byte[] pktData, int period);
-
-    public int
-    startSendingOffloadedPacket(int slot, KeepalivePacketData keepAlivePacket, int period) {
-        Log.d(TAG, "startSendingOffloadedPacket slot=" + slot + " period=" + period);
-
+    /**
+     * Start sending the specified keep alive packets periodically.
+     *
+     * @param slot Integer used to identify each request.
+     * @param keepAlivePacket Raw packet contents to send.
+     * @param period Period to use for sending these packets.
+     * @return 0 for success, -1 for error
+     */
+    public int startSendingOffloadedPacket(int slot, KeepalivePacketData keepAlivePacket,
+                                           int period) {
         String[] macAddrStr = getMacAddress().split(":");
         byte[] srcMac = new byte[6];
-        for(int i = 0; i < 6; i++) {
+        for (int i = 0; i < 6; i++) {
             Integer hexVal = Integer.parseInt(macAddrStr[i], 16);
             srcMac[i] = hexVal.byteValue();
         }
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return startSendingOffloadedPacketNative(sWlan0Index, slot, srcMac,
-                        keepAlivePacket.dstMac, keepAlivePacket.data, period);
-            } else {
-                return -1;
-            }
-        }
+        return mWifiVendorHal.startSendingOffloadedPacket(
+                slot, srcMac, keepAlivePacket, period);
     }
 
-    private native static int stopSendingOffloadedPacketNative(int iface, int idx);
-
-    public int
-    stopSendingOffloadedPacket(int slot) {
-        Log.d(TAG, "stopSendingOffloadedPacket " + slot);
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return stopSendingOffloadedPacketNative(sWlan0Index, slot);
-            } else {
-                return -1;
-            }
-        }
+    /**
+     * Stop sending the specified keep alive packets.
+     *
+     * @param slot id - same as startSendingOffloadedPacket call.
+     * @return 0 for success, -1 for error
+     */
+    public int stopSendingOffloadedPacket(int slot) {
+        return mWifiVendorHal.stopSendingOffloadedPacket(slot);
     }
 
     public static interface WifiRssiEventHandler {
         void onRssiThresholdBreached(byte curRssi);
     }
 
-    private static WifiRssiEventHandler sWifiRssiEventHandler;
-
-    // Callback from native
-    private static void onRssiThresholdBreached(int id, byte curRssi) {
-        WifiRssiEventHandler handler = sWifiRssiEventHandler;
-        if (handler != null) {
-            handler.onRssiThresholdBreached(curRssi);
-        }
-    }
-
-    private native static int startRssiMonitoringNative(int iface, int id,
-                                        byte maxRssi, byte minRssi);
-
-    private static int sRssiMonitorCmdId = 0;
-
+    /**
+     * Start RSSI monitoring on the currently connected access point.
+     *
+     * @param maxRssi          Maximum RSSI threshold.
+     * @param minRssi          Minimum RSSI threshold.
+     * @param rssiEventHandler Called when RSSI goes above maxRssi or below minRssi
+     * @return 0 for success, -1 for failure
+     */
     public int startRssiMonitoring(byte maxRssi, byte minRssi,
-                                                WifiRssiEventHandler rssiEventHandler) {
-        Log.d(TAG, "startRssiMonitoring: maxRssi=" + maxRssi + " minRssi=" + minRssi);
-        synchronized (sLock) {
-            sWifiRssiEventHandler = rssiEventHandler;
-            if (isHalStarted()) {
-                if (sRssiMonitorCmdId != 0) {
-                    stopRssiMonitoring();
-                }
-
-                sRssiMonitorCmdId = getNewCmdIdLocked();
-                Log.d(TAG, "sRssiMonitorCmdId = " + sRssiMonitorCmdId);
-                int ret = startRssiMonitoringNative(sWlan0Index, sRssiMonitorCmdId,
-                        maxRssi, minRssi);
-                if (ret != 0) { // if not success
-                    sRssiMonitorCmdId = 0;
-                }
-                return ret;
-            } else {
-                return -1;
-            }
-        }
+                                   WifiRssiEventHandler rssiEventHandler) {
+        return mWifiVendorHal.startRssiMonitoring(maxRssi, minRssi, rssiEventHandler);
     }
-
-    private native static int stopRssiMonitoringNative(int iface, int idx);
 
     public int stopRssiMonitoring() {
-        Log.d(TAG, "stopRssiMonitoring, cmdId " + sRssiMonitorCmdId);
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                int ret = 0;
-                if (sRssiMonitorCmdId != 0) {
-                    ret = stopRssiMonitoringNative(sWlan0Index, sRssiMonitorCmdId);
-                }
-                sRssiMonitorCmdId = 0;
-                return ret;
-            } else {
-                return -1;
-            }
-        }
+        return mWifiVendorHal.stopRssiMonitoring();
     }
-
-    private static native WifiWakeReasonAndCounts getWlanWakeReasonCountNative(int iface);
 
     /**
      * Fetch the host wakeup reasons stats from wlan driver.
+     *
      * @return the |WifiWakeReasonAndCounts| object retrieved from the wlan driver.
      */
     public WifiWakeReasonAndCounts getWlanWakeReasonCount() {
-        Log.d(TAG, "getWlanWakeReasonCount " + sWlan0Index);
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                return getWlanWakeReasonCountNative(sWlan0Index);
-            } else {
-                return null;
-            }
-        }
+        return mWifiVendorHal.getWlanWakeReasonCount();
     }
 
-    private static native int configureNeighborDiscoveryOffload(int iface, boolean enabled);
-
+    /**
+     * Enable/Disable Neighbour discovery offload functionality in the firmware.
+     *
+     * @param enabled true to enable, false to disable.
+     * @return true for success, false otherwise.
+     */
     public boolean configureNeighborDiscoveryOffload(boolean enabled) {
-        final String logMsg =  "configureNeighborDiscoveryOffload(" + enabled + ")";
-        Log.d(mTAG, logMsg);
-        synchronized (sLock) {
-            if (isHalStarted()) {
-                final int ret = configureNeighborDiscoveryOffload(sWlan0Index, enabled);
-                if (ret != 0) {
-                    Log.d(mTAG, logMsg + " returned: " + ret);
-                }
-                return (ret == 0);
+        return mWifiVendorHal.configureNeighborDiscoveryOffload(enabled);
+    }
+
+    // Firmware roaming control.
+
+    /**
+     * Class to retrieve firmware roaming capability parameters.
+     */
+    public static class RoamingCapabilities {
+        public int  maxBlacklistSize;
+        public int  maxWhitelistSize;
+    }
+
+    /**
+     * Query the firmware roaming capabilities.
+     * @return true for success, false otherwise.
+     */
+    public boolean getRoamingCapabilities(RoamingCapabilities capabilities) {
+        return mWifiVendorHal.getRoamingCapabilities(capabilities);
+    }
+
+    /**
+     * Macros for controlling firmware roaming.
+     */
+    public static final int DISABLE_FIRMWARE_ROAMING = 0;
+    public static final int ENABLE_FIRMWARE_ROAMING = 1;
+
+    /**
+     * Enable/disable firmware roaming.
+     *
+     * @return error code returned from HAL.
+     */
+    public int enableFirmwareRoaming(int state) {
+        return mWifiVendorHal.enableFirmwareRoaming(state);
+    }
+
+    /**
+     * Class for specifying the roaming configurations.
+     */
+    public static class RoamingConfig {
+        public ArrayList<String> blacklistBssids;
+        public ArrayList<String> whitelistSsids;
+    }
+
+    /**
+     * Set firmware roaming configurations.
+     */
+    public boolean configureRoaming(RoamingConfig config) {
+        Log.d(mTAG, "configureRoaming ");
+        return mWifiVendorHal.configureRoaming(config);
+    }
+
+    /**
+     * Reset firmware roaming configuration.
+     */
+    public boolean resetRoamingConfiguration() {
+        // Pass in an empty RoamingConfig object which translates to zero size
+        // blacklist and whitelist to reset the firmware roaming configuration.
+        return mWifiVendorHal.configureRoaming(new RoamingConfig());
+    }
+
+    /********************************************************
+     * JNI operations
+     ********************************************************/
+    /* Register native functions */
+    static {
+        /* Native functions are defined in libwifi-service.so */
+        System.loadLibrary("wifi-service");
+        registerNatives();
+    }
+
+    private static native int registerNatives();
+    /* kernel logging support */
+    private static native byte[] readKernelLogNative();
+
+    /**
+     * Fetches the latest kernel logs.
+     */
+    public synchronized String readKernelLog() {
+        byte[] bytes = readKernelLogNative();
+        if (bytes != null) {
+            CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
+            try {
+                CharBuffer decoded = decoder.decode(ByteBuffer.wrap(bytes));
+                return decoded.toString();
+            } catch (CharacterCodingException cce) {
+                return new String(bytes, StandardCharsets.ISO_8859_1);
             }
+        } else {
+            return "*** failed to read kernel log ***";
         }
-        return false;
     }
 }

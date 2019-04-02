@@ -17,6 +17,7 @@
 package android.net.wifi.p2p;
 
 import android.annotation.SdkConstant;
+import android.annotation.SystemService;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.content.Context;
 import android.net.wifi.WpsInfo;
@@ -119,9 +120,6 @@ import java.util.Map;
  * {@link android.Manifest.permission#CHANGE_WIFI_STATE} to perform any further peer-to-peer
  * operations.
  *
- * Get an instance of this class by calling {@link android.content.Context#getSystemService(String)
- * Context.getSystemService(Context.WIFI_P2P_SERVICE)}.
- *
  * {@see WifiP2pConfig}
  * {@see WifiP2pInfo}
  * {@see WifiP2pGroup}
@@ -129,6 +127,7 @@ import java.util.Map;
  * {@see WifiP2pDeviceList}
  * {@see android.net.wifi.WpsInfo}
  */
+@SystemService(Context.WIFI_P2P_SERVICE)
 public class WifiP2pManager {
     private static final String TAG = "WifiP2pManager";
     /**
@@ -282,6 +281,13 @@ public class WifiP2pManager {
      */
     public static final String EXTRA_HANDOVER_MESSAGE =
             "android.net.wifi.p2p.EXTRA_HANDOVER_MESSAGE";
+
+    /**
+     * The lookup key for a calling package returned by the WifiP2pService.
+     * @hide
+     */
+    public static final String CALLING_PACKAGE =
+            "android.net.wifi.p2p.CALLING_PACKAGE";
 
     IWifiP2pManager mService;
 
@@ -1271,7 +1277,10 @@ public class WifiP2pManager {
      */
     public void requestPeers(Channel c, PeerListListener listener) {
         checkChannel(c);
-        c.mAsyncChannel.sendMessage(REQUEST_PEERS, 0, c.putListener(listener));
+        Bundle callingPackage = new Bundle();
+        callingPackage.putString(CALLING_PACKAGE, c.mContext.getOpPackageName());
+        c.mAsyncChannel.sendMessage(REQUEST_PEERS, 0, c.putListener(listener),
+                callingPackage);
     }
 
     /**
@@ -1314,6 +1323,11 @@ public class WifiP2pManager {
             Channel c, WifiP2pWfdInfo wfdInfo,
             ActionListener listener) {
         checkChannel(c);
+        try {
+            mService.checkConfigureWifiDisplayPermission();
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
         c.mAsyncChannel.sendMessage(SET_WFD_INFO, 0, c.putListener(listener), wfdInfo);
     }
 

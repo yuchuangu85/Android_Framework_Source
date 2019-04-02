@@ -34,7 +34,7 @@ import android.net.netlink.RtNetlinkNeighborMessage;
 import android.net.netlink.StructNdaCacheInfo;
 import android.net.netlink.StructNdMsg;
 import android.net.netlink.StructNlMsgHdr;
-import android.net.util.AvoidBadWifiTracker;
+import android.net.util.MultinetworkPolicyTracker;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.system.ErrnoException;
@@ -50,9 +50,9 @@ import java.net.NetworkInterface;
 import java.net.SocketAddress;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -151,7 +151,7 @@ public class IpReachabilityMonitor {
     private final String mInterfaceName;
     private final int mInterfaceIndex;
     private final Callback mCallback;
-    private final AvoidBadWifiTracker mAvoidBadWifiTracker;
+    private final MultinetworkPolicyTracker mMultinetworkPolicyTracker;
     private final NetlinkSocketObserver mNetlinkSocketObserver;
     private final Thread mObserverThread;
     private final IpConnectivityLog mMetricsLog = new IpConnectivityLog();
@@ -163,8 +163,7 @@ public class IpReachabilityMonitor {
     private Map<InetAddress, Short> mIpWatchList = new HashMap<>();
     @GuardedBy("mLock")
     private int mIpWatchListVersion;
-    @GuardedBy("mLock")
-    private boolean mRunning;
+    private volatile boolean mRunning;
     // Time in milliseconds of the last forced probe request.
     private volatile long mLastProbeTimeMs;
 
@@ -227,7 +226,7 @@ public class IpReachabilityMonitor {
     }
 
     public IpReachabilityMonitor(Context context, String ifName, Callback callback,
-            AvoidBadWifiTracker tracker) throws IllegalArgumentException {
+            MultinetworkPolicyTracker tracker) throws IllegalArgumentException {
         mInterfaceName = ifName;
         int ifIndex = -1;
         try {
@@ -239,14 +238,14 @@ public class IpReachabilityMonitor {
         mWakeLock = ((PowerManager) context.getSystemService(Context.POWER_SERVICE)).newWakeLock(
                 PowerManager.PARTIAL_WAKE_LOCK, TAG + "." + mInterfaceName);
         mCallback = callback;
-        mAvoidBadWifiTracker = tracker;
+        mMultinetworkPolicyTracker = tracker;
         mNetlinkSocketObserver = new NetlinkSocketObserver();
         mObserverThread = new Thread(mNetlinkSocketObserver);
         mObserverThread.start();
     }
 
     public void stop() {
-        synchronized (mLock) { mRunning = false; }
+        mRunning = false;
         clearLinkProperties();
         mNetlinkSocketObserver.clearNetlinkSocket();
     }
@@ -278,12 +277,6 @@ public class IpReachabilityMonitor {
     private boolean isWatching(InetAddress ip) {
         synchronized (mLock) {
             return mRunning && mIpWatchList.containsKey(ip);
-        }
-    }
-
-    private boolean stillRunning() {
-        synchronized (mLock) {
-            return mRunning;
         }
     }
 
@@ -386,16 +379,16 @@ public class IpReachabilityMonitor {
     }
 
     private boolean avoidingBadLinks() {
-        return (mAvoidBadWifiTracker != null) ? mAvoidBadWifiTracker.currentValue() : true;
+        return (mMultinetworkPolicyTracker == null) || mMultinetworkPolicyTracker.getAvoidBadWifi();
     }
 
     public void probeAll() {
-        Set<InetAddress> ipProbeList = new HashSet<InetAddress>();
+        final List<InetAddress> ipProbeList;
         synchronized (mLock) {
-            ipProbeList.addAll(mIpWatchList.keySet());
+            ipProbeList = new ArrayList<>(mIpWatchList.keySet());
         }
 
-        if (!ipProbeList.isEmpty() && stillRunning()) {
+        if (!ipProbeList.isEmpty() && mRunning) {
             // Keep the CPU awake long enough to allow all ARP/ND
             // probes a reasonable chance at success. See b/23197666.
             //
@@ -406,7 +399,7 @@ public class IpReachabilityMonitor {
         }
 
         for (InetAddress target : ipProbeList) {
-            if (!stillRunning()) {
+            if (!mRunning) {
                 break;
             }
             final int returnValue = probeNeighbor(mInterfaceIndex, target);
@@ -433,7 +426,7 @@ public class IpReachabilityMonitor {
 
     private void logEvent(int probeType, int errorCode) {
         int eventType = probeType | (errorCode & 0xff);
-        mMetricsLog.log(new IpReachabilityEvent(mInterfaceName, eventType));
+        mMetricsLog.log(mInterfaceName, new IpReachabilityEvent(eventType));
     }
 
     private void logNudFailed(ProvisioningChange delta) {
@@ -441,7 +434,7 @@ public class IpReachabilityMonitor {
         boolean isFromProbe = (duration < getProbeWakeLockDuration());
         boolean isProvisioningLost = (delta == ProvisioningChange.LOST_PROVISIONING);
         int eventType = IpReachabilityEvent.nudFailureEventType(isFromProbe, isProvisioningLost);
-        mMetricsLog.log(new IpReachabilityEvent(mInterfaceName, eventType));
+        mMetricsLog.log(mInterfaceName, new IpReachabilityEvent(eventType));
     }
 
     // TODO: simplify the number of objects by making this extend Thread.
@@ -451,21 +444,21 @@ public class IpReachabilityMonitor {
         @Override
         public void run() {
             if (VDBG) { Log.d(TAG, "Starting observing thread."); }
-            synchronized (mLock) { mRunning = true; }
+            mRunning = true;
 
             try {
                 setupNetlinkSocket();
             } catch (ErrnoException | SocketException e) {
                 Log.e(TAG, "Failed to suitably initialize a netlink socket", e);
-                synchronized (mLock) { mRunning = false; }
+                mRunning = false;
             }
 
-            ByteBuffer byteBuffer;
-            while (stillRunning()) {
+            while (mRunning) {
+                final ByteBuffer byteBuffer;
                 try {
                     byteBuffer = recvKernelReply();
                 } catch (ErrnoException e) {
-                    if (stillRunning()) { Log.w(TAG, "ErrnoException: ", e); }
+                    if (mRunning) { Log.w(TAG, "ErrnoException: ", e); }
                     break;
                 }
                 final long whenMs = SystemClock.elapsedRealtime();
@@ -477,7 +470,7 @@ public class IpReachabilityMonitor {
 
             clearNetlinkSocket();
 
-            synchronized (mLock) { mRunning = false; }
+            mRunning = false; // Not a no-op when ErrnoException happened.
             if (VDBG) { Log.d(TAG, "Finishing observing thread."); }
         }
 

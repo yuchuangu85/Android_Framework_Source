@@ -16,6 +16,9 @@
 
 package android.widget;
 
+import static android.view.ViewDebug.ExportedProperty;
+import static android.widget.RemoteViews.RemoteView;
+
 import android.annotation.NonNull;
 import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
@@ -37,13 +40,10 @@ import android.view.ViewHierarchyEncoder;
 
 import com.android.internal.R;
 
-import java.util.Calendar;
-import java.util.TimeZone;
-
 import libcore.icu.LocaleData;
 
-import static android.view.ViewDebug.ExportedProperty;
-import static android.widget.RemoteViews.*;
+import java.util.Calendar;
+import java.util.TimeZone;
 
 /**
  * <p><code>TextClock</code> can display the current date and/or time as
@@ -102,6 +102,7 @@ public class TextClock extends TextView {
      *
      * @deprecated Let the system use locale-appropriate defaults instead.
      */
+    @Deprecated
     public static final CharSequence DEFAULT_FORMAT_12_HOUR = "h:mm a";
 
     /**
@@ -116,6 +117,7 @@ public class TextClock extends TextView {
      *
      * @deprecated Let the system use locale-appropriate defaults instead.
      */
+    @Deprecated
     public static final CharSequence DEFAULT_FORMAT_24_HOUR = "H:mm";
 
     private CharSequence mFormat12;
@@ -130,7 +132,8 @@ public class TextClock extends TextView {
 
     private CharSequence mDescFormat;
 
-    private boolean mAttached;
+    private boolean mRegistered;
+    private boolean mShouldRunTicker;
 
     private Calendar mTime;
     private String mTimeZone;
@@ -250,8 +253,7 @@ public class TextClock extends TextView {
         }
 
         createTime(mTimeZone);
-        // Wait until onAttachedToWindow() to handle the ticker
-        chooseFormat(false);
+        chooseFormat();
     }
 
     private void createTime(String timeZone) {
@@ -459,16 +461,6 @@ public class TextClock extends TextView {
     }
 
     /**
-     * Selects either one of {@link #getFormat12Hour()} or {@link #getFormat24Hour()}
-     * depending on whether the user has selected 24-hour format.
-     *
-     * Calling this method does not schedule or unschedule the time ticker.
-     */
-    private void chooseFormat() {
-        chooseFormat(true);
-    }
-
-    /**
      * Returns the current format string. Always valid after constructor has
      * finished, and will never be {@code null}.
      *
@@ -481,11 +473,8 @@ public class TextClock extends TextView {
     /**
      * Selects either one of {@link #getFormat12Hour()} or {@link #getFormat24Hour()}
      * depending on whether the user has selected 24-hour format.
-     *
-     * @param handleTicker true if calling this method should schedule/unschedule the
-     *                     time ticker, false otherwise
      */
-    private void chooseFormat(boolean handleTicker) {
+    private void chooseFormat() {
         final boolean format24Requested = is24HourModeEnabled();
 
         LocaleData ld = LocaleData.get(getContext().getResources().getConfiguration().locale);
@@ -501,7 +490,7 @@ public class TextClock extends TextView {
         boolean hadSeconds = mHasSeconds;
         mHasSeconds = DateFormat.hasSeconds(mFormat);
 
-        if (handleTicker && mAttached && hadSeconds != mHasSeconds) {
+        if (mShouldRunTicker && hadSeconds != mHasSeconds) {
             if (hadSeconds) getHandler().removeCallbacks(mTicker);
             else mTicker.run();
         }
@@ -518,19 +507,30 @@ public class TextClock extends TextView {
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
 
-        if (!mAttached) {
-            mAttached = true;
+        if (!mRegistered) {
+            mRegistered = true;
 
             registerReceiver();
             registerObserver();
 
             createTime(mTimeZone);
+        }
+    }
 
+    @Override
+    public void onVisibilityAggregated(boolean isVisible) {
+        super.onVisibilityAggregated(isVisible);
+
+        if (!mShouldRunTicker && isVisible) {
+            mShouldRunTicker = true;
             if (mHasSeconds) {
                 mTicker.run();
             } else {
                 onTimeChanged();
             }
+        } else if (mShouldRunTicker && !isVisible) {
+            mShouldRunTicker = false;
+            getHandler().removeCallbacks(mTicker);
         }
     }
 
@@ -538,13 +538,11 @@ public class TextClock extends TextView {
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
 
-        if (mAttached) {
+        if (mRegistered) {
             unregisterReceiver();
             unregisterObserver();
 
-            getHandler().removeCallbacks(mTicker);
-
-            mAttached = false;
+            mRegistered = false;
         }
     }
 
@@ -567,7 +565,7 @@ public class TextClock extends TextView {
     }
 
     private void registerObserver() {
-        if (isAttachedToWindow()) {
+        if (mRegistered) {
             if (mFormatChangeObserver == null) {
                 mFormatChangeObserver = new FormatChangeObserver(getHandler());
             }
@@ -593,10 +591,16 @@ public class TextClock extends TextView {
         }
     }
 
+    /**
+     * Update the displayed time if this view and its ancestors and window is visible
+     */
     private void onTimeChanged() {
-        mTime.setTimeInMillis(System.currentTimeMillis());
-        setText(DateFormat.format(mFormat, mTime));
-        setContentDescription(DateFormat.format(mDescFormat, mTime));
+        // mShouldRunTicker always equals the last value passed into onVisibilityAggregated
+        if (mShouldRunTicker) {
+            mTime.setTimeInMillis(System.currentTimeMillis());
+            setText(DateFormat.format(mFormat, mTime));
+            setContentDescription(DateFormat.format(mDescFormat, mTime));
+        }
     }
 
     /** @hide */

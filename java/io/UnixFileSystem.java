@@ -236,6 +236,7 @@ class UnixFileSystem extends FileSystem {
 
     private native int getBooleanAttributes0(String abspath);
 
+    // Android-changed: Added thread policy check
     public int getBooleanAttributes(File f) {
         BlockGuard.getThreadPolicy().onReadFromDisk();
 
@@ -245,43 +246,43 @@ class UnixFileSystem extends FileSystem {
         return rv | (hidden ? BA_HIDDEN : 0);
     }
 
+    // Android-changed: Added thread policy check
     public boolean checkAccess(File f, int access) {
         BlockGuard.getThreadPolicy().onReadFromDisk();
         return checkAccess0(f, access);
     }
-
     private native boolean checkAccess0(File f, int access);
 
+    // Android-changed: Added thread policy check
     public long getLastModifiedTime(File f) {
         BlockGuard.getThreadPolicy().onReadFromDisk();
         return getLastModifiedTime0(f);
     }
-
     private native long getLastModifiedTime0(File f);
 
+    // Android-changed: Added thread policy check
     public long getLength(File f) {
         BlockGuard.getThreadPolicy().onReadFromDisk();
         return getLength0(f);
     }
-
     private native long getLength0(File f);
 
+    // Android-changed: Added thread policy check
     public boolean setPermission(File f, int access, boolean enable, boolean owneronly) {
         BlockGuard.getThreadPolicy().onWriteToDisk();
         return setPermission0(f, access, enable, owneronly);
     }
-
     private native boolean setPermission0(File f, int access, boolean enable, boolean owneronly);
 
     /* -- File operations -- */
-
+    // Android-changed: Added thread policy check
     public boolean createFileExclusively(String path) throws IOException {
         BlockGuard.getThreadPolicy().onWriteToDisk();
         return createFileExclusively0(path);
     }
-
     private native boolean createFileExclusively0(String path) throws IOException;
 
+    // Android-changed: Added thread policy check
     public boolean delete(File f) {
         // Keep canonicalization caches in sync after file deletion
         // and renaming operations. Could be more clever than this
@@ -296,20 +297,21 @@ class UnixFileSystem extends FileSystem {
 
     private native boolean delete0(File f);
 
+    // Android-changed: Added thread policy check
     public String[] list(File f) {
         BlockGuard.getThreadPolicy().onReadFromDisk();
         return list0(f);
     }
-
     private native String[] list0(File f);
 
+    // Android-changed: Added thread policy check
     public boolean createDirectory(File f) {
         BlockGuard.getThreadPolicy().onWriteToDisk();
         return createDirectory0(f);
     }
-
     private native boolean createDirectory0(File f);
 
+    // Android-changed: Added thread policy check
     public boolean rename(File f1, File f2) {
         // Keep canonicalization caches in sync after file deletion
         // and renaming operations. Could be more clever than this
@@ -324,18 +326,18 @@ class UnixFileSystem extends FileSystem {
 
     private native boolean rename0(File f1, File f2);
 
+    // Android-changed: Added thread policy check
     public boolean setLastModifiedTime(File f, long time) {
         BlockGuard.getThreadPolicy().onWriteToDisk();
         return setLastModifiedTime0(f, time);
     }
-
     private native boolean setLastModifiedTime0(File f, long time);
 
+    // Android-changed: Added thread policy check
     public boolean setReadOnly(File f) {
         BlockGuard.getThreadPolicy().onWriteToDisk();
         return setReadOnly0(f);
     }
-
     private native boolean setReadOnly0(File f);
 
 
@@ -354,12 +356,12 @@ class UnixFileSystem extends FileSystem {
     }
 
     /* -- Disk usage -- */
+    // Android-changed: Added thread policy check
     public long getSpace(File f, int t) {
         BlockGuard.getThreadPolicy().onReadFromDisk();
 
         return getSpace0(f, t);
     }
-
     private native long getSpace0(File f, int t);
 
     /* -- Basic infrastructure -- */

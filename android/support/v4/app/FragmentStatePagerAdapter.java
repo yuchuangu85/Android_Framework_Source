@@ -75,7 +75,7 @@ public abstract class FragmentStatePagerAdapter extends PagerAdapter {
     public FragmentStatePagerAdapter(FragmentManager fm) {
         mFragmentManager = fm;
     }
-o
+
     /**
      * Return the Fragment associated with a specified position.
      */
@@ -145,6 +145,7 @@ o
     }
 
     @Override
+    @SuppressWarnings("ReferenceEquality")
     public void setPrimaryItem(ViewGroup container, int position, Object object) {
         Fragment fragment = (Fragment)object;
         if (fragment != mCurrentPrimaryItem) {

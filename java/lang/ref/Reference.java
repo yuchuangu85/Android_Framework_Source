@@ -26,6 +26,8 @@
 
 package java.lang.ref;
 
+import dalvik.annotation.optimization.FastNative;
+
 
 /**
  * Abstract base class for reference objects.  This class defines the
@@ -96,6 +98,7 @@ public abstract class Reference<T> {
         return getReferent();
     }
 
+    @FastNative
     private final native T getReferent();
 
     /**
@@ -106,9 +109,13 @@ public abstract class Reference<T> {
      * clears references it does so directly, without invoking this method.
      */
     public void clear() {
-        this.referent = null;
+        clearReferent();
     }
 
+    // Direct access to the referent is prohibited, clearReferent blocks and set
+    // the referent to null when it is safe to do so.
+    @FastNative
+    native void clearReferent();
 
     /* -- Queue operations -- */
 

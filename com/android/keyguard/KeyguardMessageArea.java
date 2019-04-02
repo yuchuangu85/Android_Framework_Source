@@ -41,24 +41,11 @@ class KeyguardMessageArea extends TextView implements SecurityMessageDisplay {
     private static final long ANNOUNCEMENT_DELAY = 250;
     private static final int DEFAULT_COLOR = -1;
 
-    private static final int SECURITY_MESSAGE_DURATION = 5000;
-
-    private final KeyguardUpdateMonitor mUpdateMonitor;
     private final Handler mHandler;
     private final int mDefaultColor;
 
-    // Timeout before we reset the message to show charging/owner info
-    long mTimeout = SECURITY_MESSAGE_DURATION;
-    CharSequence mMessage;
+    private CharSequence mMessage;
     private int mNextMessageColor = DEFAULT_COLOR;
-
-    private final Runnable mClearMessageRunnable = new Runnable() {
-        @Override
-        public void run() {
-            mMessage = null;
-            update();
-        }
-    };
 
     private KeyguardUpdateMonitorCallback mInfoCallback = new KeyguardUpdateMonitorCallback() {
         public void onFinishedGoingToSleep(int why) {
@@ -74,11 +61,14 @@ class KeyguardMessageArea extends TextView implements SecurityMessageDisplay {
     }
 
     public KeyguardMessageArea(Context context, AttributeSet attrs) {
+        this(context, attrs, KeyguardUpdateMonitor.getInstance(context));
+    }
+
+    public KeyguardMessageArea(Context context, AttributeSet attrs, KeyguardUpdateMonitor monitor) {
         super(context, attrs);
         setLayerType(LAYER_TYPE_HARDWARE, null); // work around nested unclipped SaveLayer bug
 
-        mUpdateMonitor = KeyguardUpdateMonitor.getInstance(getContext());
-        mUpdateMonitor.registerCallback(mInfoCallback);
+        monitor.registerCallback(mInfoCallback);
         mHandler = new Handler(Looper.myLooper());
 
         mDefaultColor = getCurrentTextColor();
@@ -91,8 +81,8 @@ class KeyguardMessageArea extends TextView implements SecurityMessageDisplay {
     }
 
     @Override
-    public void setMessage(CharSequence msg, boolean important) {
-        if (!TextUtils.isEmpty(msg) && important) {
+    public void setMessage(CharSequence msg) {
+        if (!TextUtils.isEmpty(msg)) {
             securityMessageChanged(msg);
         } else {
             clearMessage();
@@ -100,28 +90,21 @@ class KeyguardMessageArea extends TextView implements SecurityMessageDisplay {
     }
 
     @Override
-    public void setMessage(int resId, boolean important) {
-        if (resId != 0 && important) {
-            CharSequence message = getContext().getResources().getText(resId);
-            securityMessageChanged(message);
-        } else {
-            clearMessage();
+    public void setMessage(int resId) {
+        CharSequence message = null;
+        if (resId != 0) {
+            message = getContext().getResources().getText(resId);
         }
+        setMessage(message);
     }
 
     @Override
-    public void setMessage(int resId, boolean important, Object... formatArgs) {
-        if (resId != 0 && important) {
-            String message = getContext().getString(resId, formatArgs);
-            securityMessageChanged(message);
-        } else {
-            clearMessage();
+    public void formatMessage(int resId, Object... formatArgs) {
+        CharSequence message = null;
+        if (resId != 0) {
+            message = getContext().getString(resId, formatArgs);
         }
-    }
-
-    @Override
-    public void setTimeout(int timeoutMs) {
-        mTimeout = timeoutMs;
+        setMessage(message);
     }
 
     public static SecurityMessageDisplay findSecurityMessageDisplay(View v) {
@@ -142,18 +125,14 @@ class KeyguardMessageArea extends TextView implements SecurityMessageDisplay {
     private void securityMessageChanged(CharSequence message) {
         mMessage = message;
         update();
-        mHandler.removeCallbacks(mClearMessageRunnable);
-        if (mTimeout > 0) {
-            mHandler.postDelayed(mClearMessageRunnable, mTimeout);
-        }
         mHandler.removeCallbacksAndMessages(ANNOUNCE_TOKEN);
         mHandler.postAtTime(new AnnounceRunnable(this, getText()), ANNOUNCE_TOKEN,
                 (SystemClock.uptimeMillis() + ANNOUNCEMENT_DELAY));
     }
 
     private void clearMessage() {
-        mHandler.removeCallbacks(mClearMessageRunnable);
-        mHandler.post(mClearMessageRunnable);
+        mMessage = null;
+        update();
     }
 
     private void update() {

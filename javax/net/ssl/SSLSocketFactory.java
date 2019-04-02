@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -206,8 +206,7 @@ public abstract class SSLSocketFactory extends SocketFactory
      * @throws NullPointerException if the parameter s is null
      */
     public abstract Socket createSocket(Socket s, String host,
-                                        int port, boolean autoClose)
-    throws IOException;
+            int port, boolean autoClose) throws IOException;
 }
 
 
@@ -225,18 +224,21 @@ class DefaultSSLSocketFactory extends SSLSocketFactory
             new SocketException(reason.toString()).initCause(reason);
     }
 
+    @Override
     public Socket createSocket()
     throws IOException
     {
         return throwException();
     }
 
+    @Override
     public Socket createSocket(String host, int port)
     throws IOException
     {
         return throwException();
     }
 
+    @Override
     public Socket createSocket(Socket s, String host,
                                 int port, boolean autoClose)
     throws IOException
@@ -244,12 +246,14 @@ class DefaultSSLSocketFactory extends SSLSocketFactory
         return throwException();
     }
 
+    @Override
     public Socket createSocket(InetAddress address, int port)
     throws IOException
     {
         return throwException();
     }
 
+    @Override
     public Socket createSocket(String host, int port,
         InetAddress clientAddress, int clientPort)
     throws IOException
@@ -257,6 +261,7 @@ class DefaultSSLSocketFactory extends SSLSocketFactory
         return throwException();
     }
 
+    @Override
     public Socket createSocket(InetAddress address, int port,
         InetAddress clientAddress, int clientPort)
     throws IOException
@@ -264,10 +269,12 @@ class DefaultSSLSocketFactory extends SSLSocketFactory
         return throwException();
     }
 
+    @Override
     public String [] getDefaultCipherSuites() {
         return new String[0];
     }
 
+    @Override
     public String [] getSupportedCipherSuites() {
         return new String[0];
     }

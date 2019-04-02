@@ -30,6 +30,7 @@ import android.os.Bundle;
 import android.os.Message;
 import android.telecom.ConferenceParticipant;
 import android.telecom.Connection;
+import android.telephony.Rlog;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -1677,10 +1678,10 @@ public class ImsCall implements ICall {
             String endpoint = confInfo.getString(ImsConferenceState.ENDPOINT);
 
             if (CONF_DBG) {
-                logi("notifyConferenceStateUpdated :: key=" + key +
+                logi("notifyConferenceStateUpdated :: key=" + Rlog.pii(TAG, key) +
                         ", status=" + status +
-                        ", user=" + user +
-                        ", displayName= " + displayName +
+                        ", user=" + Rlog.pii(TAG, user) +
+                        ", displayName= " + Rlog.pii(TAG, displayName) +
                         ", endpoint=" + endpoint);
             }
 
@@ -1794,13 +1795,16 @@ public class ImsCall implements ICall {
             setIsMerged(playDisconnectTone);
             mSessionEndDuringMerge = true;
             String reasonInfo;
+            int reasonCode = ImsReasonInfo.CODE_UNSPECIFIED;
             if (playDisconnectTone) {
+                reasonCode = ImsReasonInfo.CODE_USER_TERMINATED_BY_REMOTE;
                 reasonInfo = "Call ended by network";
             } else {
+                reasonCode = ImsReasonInfo.CODE_LOCAL_ENDED_BY_CONFERENCE_MERGE;
                 reasonInfo = "Call ended during conference merge process.";
             }
             mSessionEndDuringMergeReasonInfo = new ImsReasonInfo(
-                    ImsReasonInfo.CODE_UNSPECIFIED, 0, reasonInfo);
+                    reasonCode, 0, reasonInfo);
         }
     }
 
@@ -3198,6 +3202,7 @@ public class ImsCall implements ICall {
         sb.append(" mute:");
         sb.append(isMuted() ? "Y" : "N");
         if (mCallProfile != null) {
+            sb.append(" mCallProfile:" + mCallProfile);
             sb.append(" tech:");
             sb.append(mCallProfile.getCallExtra(ImsCallProfile.EXTRA_CALL_RAT_TYPE));
         }
@@ -3222,8 +3227,12 @@ public class ImsCall implements ICall {
         sb.append(isConferenceHost() ? "Y" : "N");
         sb.append(" buried term:");
         sb.append(mSessionEndDuringMerge ? "Y" : "N");
+        sb.append(" isVideo: ");
+        sb.append(isVideoCall() ? "Y" : "N");
         sb.append(" wasVideo: ");
         sb.append(mWasVideoCall ? "Y" : "N");
+        sb.append(" isWifi: ");
+        sb.append(isWifiCall() ? "Y" : "N");
         sb.append(" session:");
         sb.append(mSession);
         sb.append(" transientSession:");

@@ -258,7 +258,7 @@ public class CatService extends Handler implements AppInterface {
             mHandlerThread = null;
             removeCallbacksAndMessages(null);
             if (sInstance != null) {
-                if (SubscriptionManager.isValidSlotId(mSlotId)) {
+                if (SubscriptionManager.isValidSlotIndex(mSlotId)) {
                     sInstance[mSlotId] = null;
                 } else {
                     CatLog.d(this, "error: invaild slot id: " + mSlotId);
@@ -513,6 +513,7 @@ public class CatService extends Handler implements AppInterface {
         Intent intent = new Intent(AppInterface.CAT_CMD_ACTION);
         intent.putExtra("STK CMD", cmdMsg);
         intent.putExtra("SLOT_ID", mSlotId);
+        intent.setComponent(AppInterface.getDefaultSTKApplication());
         CatLog.d(this, "Sending CmdMsg: " + cmdMsg+ " on slotid:" + mSlotId);
         mContext.sendBroadcast(intent, AppInterface.STK_PERMISSION);
     }
@@ -527,6 +528,7 @@ public class CatService extends Handler implements AppInterface {
         mCurrntCmd = mMenuCmd;
         Intent intent = new Intent(AppInterface.CAT_SESSION_END_ACTION);
         intent.putExtra("SLOT_ID", mSlotId);
+        intent.setComponent(AppInterface.getDefaultSTKApplication());
         mContext.sendBroadcast(intent, AppInterface.STK_PERMISSION);
     }
 
@@ -775,7 +777,7 @@ public class CatService extends Handler implements AppInterface {
         int slotId = PhoneConstants.DEFAULT_CARD_INDEX;
         SubscriptionController sControl = SubscriptionController.getInstance();
         if (sControl != null) {
-            slotId = sControl.getSlotId(sControl.getDefaultSubId());
+            slotId = sControl.getSlotIndex(sControl.getDefaultSubId());
         }
         return getInstance(null, null, null, slotId);
     }
@@ -878,6 +880,7 @@ public class CatService extends Handler implements AppInterface {
 
         // This sends an intent with CARD_ABSENT (0 - false) /CARD_PRESENT (1 - true).
         intent.putExtra(AppInterface.CARD_STATUS, cardPresent);
+        intent.setComponent(AppInterface.getDefaultSTKApplication());
         CatLog.d(this, "Sending Card Status: "
                 + cardState + " " + "cardPresent: " + cardPresent);
         mContext.sendBroadcast(intent, AppInterface.STK_PERMISSION);
@@ -889,6 +892,7 @@ public class CatService extends Handler implements AppInterface {
         intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
         intent.putExtra(AppInterface.ALPHA_STRING, alphaString);
         intent.putExtra("SLOT_ID", mSlotId);
+        intent.setComponent(AppInterface.getDefaultSTKApplication());
         mContext.sendBroadcast(intent, AppInterface.STK_PERMISSION);
     }
 
