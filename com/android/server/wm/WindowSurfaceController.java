@@ -24,10 +24,8 @@ import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_SURFACE_TRACE
 import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_VISIBILITY;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WITH_CLASS_NAME;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
-import static android.view.Surface.SCALING_MODE_FREEZE;
 import static android.view.Surface.SCALING_MODE_SCALE_TO_WINDOW;
 
-import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.graphics.PointF;
 import android.graphics.Rect;
@@ -52,7 +50,7 @@ class WindowSurfaceController {
 
     final WindowStateAnimator mAnimator;
 
-    private SurfaceControl mSurfaceControl;
+    private SurfaceControlWithBackground mSurfaceControl;
 
     // Should only be set from within setShown().
     private boolean mSurfaceShown = false;
@@ -99,15 +97,10 @@ class WindowSurfaceController {
         mWindowType = windowType;
         mWindowSession = win.mSession;
 
-        if (DEBUG_SURFACE_TRACE) {
-            mSurfaceControl = new SurfaceTrace(
-                    s, name, w, h, format, flags, windowType, ownerUid);
-        } else {
-            Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "new SurfaceControl");
-            mSurfaceControl = new SurfaceControl(
-                    s, name, w, h, format, flags, windowType, ownerUid);
-            Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
-        }
+        Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "new SurfaceControl");
+        mSurfaceControl = new SurfaceControlWithBackground(
+                s, name, w, h, format, flags, windowType, ownerUid, this);
+        Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
 
         if (mService.mRoot.mSurfaceTraceEnabled) {
             mSurfaceControl = new RemoteSurfaceTrace(
@@ -120,7 +113,7 @@ class WindowSurfaceController {
     }
 
     void removeRemoteTrace() {
-        mSurfaceControl = new SurfaceControl(mSurfaceControl);
+        mSurfaceControl = new SurfaceControlWithBackground(mSurfaceControl);
     }
 
 
@@ -293,30 +286,30 @@ class WindowSurfaceController {
         mSurfaceControl.setGeometryAppliesWithResize();
     }
 
-    void setMatrixInTransaction(float dsdx, float dtdx, float dsdy, float dtdy,
+    void setMatrixInTransaction(float dsdx, float dtdx, float dtdy, float dsdy,
             boolean recoveringMemory) {
         final boolean matrixChanged = mLastDsdx != dsdx || mLastDtdx != dtdx ||
-                                      mLastDsdy != dsdy || mLastDtdy != dtdy;
+                                      mLastDtdy != dtdy || mLastDsdy != dsdy;
         if (!matrixChanged) {
             return;
         }
 
         mLastDsdx = dsdx;
         mLastDtdx = dtdx;
-        mLastDsdy = dsdy;
         mLastDtdy = dtdy;
+        mLastDsdy = dsdy;
 
         try {
             if (SHOW_TRANSACTIONS) logSurface(
-                    "MATRIX [" + dsdx + "," + dtdx + "," + dsdy + "," + dtdy + "]", null);
+                    "MATRIX [" + dsdx + "," + dtdx + "," + dtdy + "," + dsdy + "]", null);
             mSurfaceControl.setMatrix(
-                    dsdx, dtdx, dsdy, dtdy);
+                    dsdx, dtdx, dtdy, dsdy);
         } catch (RuntimeException e) {
             // If something goes wrong with the surface (such
             // as running out of memory), don't take down the
             // entire system.
             Slog.e(TAG, "Error setting matrix on surface surface" + title
-                    + " MATRIX [" + dsdx + "," + dtdx + "," + dsdy + "," + dtdy + "]", null);
+                    + " MATRIX [" + dsdx + "," + dtdx + "," + dtdy + "," + dsdy + "]", null);
             if (!recoveringMemory) {
                 mAnimator.reclaimSomeSurfaceMemory("matrix", true);
             }
@@ -423,6 +416,10 @@ class WindowSurfaceController {
         }
     }
 
+    void getContainerRect(Rect rect) {
+        mAnimator.getContainerRect(rect);
+    }
+
     boolean showRobustlyInTransaction() {
         if (SHOW_TRANSACTIONS) logSurface(
                 "SHOW (performLayout)", null);
@@ -513,6 +510,8 @@ class WindowSurfaceController {
 
     void setShown(boolean surfaceShown) {
         mSurfaceShown = surfaceShown;
+
+        mService.updateNonSystemOverlayWindowsVisibilityIfNeeded(mAnimator.mWin, surfaceShown);
 
         if (mWindowSession != null) {
             mWindowSession.onWindowSurfaceVisibilityChanged(this, mSurfaceShown, mWindowType);

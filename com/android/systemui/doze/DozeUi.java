@@ -23,6 +23,7 @@ import android.os.SystemClock;
 import android.text.format.Formatter;
 import android.util.Log;
 
+import com.android.systemui.util.AlarmTimeout;
 import com.android.systemui.util.wakelock.WakeLock;
 
 import java.util.Calendar;
@@ -35,26 +36,23 @@ public class DozeUi implements DozeMachine.Part {
 
     private static final long TIME_TICK_DEADLINE_MILLIS = 90 * 1000; // 1.5min
     private final Context mContext;
-    private final AlarmManager mAlarmManager;
     private final DozeHost mHost;
     private final Handler mHandler;
     private final WakeLock mWakeLock;
     private final DozeMachine mMachine;
-    private final AlarmManager.OnAlarmListener mTimeTick;
+    private final AlarmTimeout mTimeTicker;
 
-    private boolean mTimeTickScheduled = false;
     private long mLastTimeTickElapsed = 0;
 
     public DozeUi(Context context, AlarmManager alarmManager, DozeMachine machine,
             WakeLock wakeLock, DozeHost host, Handler handler) {
         mContext = context;
-        mAlarmManager = alarmManager;
         mMachine = machine;
         mWakeLock = wakeLock;
         mHost = host;
         mHandler = handler;
 
-        mTimeTick = this::onTimeTick;
+        mTimeTicker = new AlarmTimeout(alarmManager, this::onTimeTick, "doze_time_tick", handler);
     }
 
     private void pulseWhileDozing(int reason) {
@@ -76,6 +74,7 @@ public class DozeUi implements DozeMachine.Part {
     public void transitionTo(DozeMachine.State oldState, DozeMachine.State newState) {
         switch (newState) {
             case DOZE_AOD:
+            case DOZE_AOD_PAUSING:
                 scheduleTimeTick();
                 break;
             case DOZE:
@@ -85,8 +84,6 @@ public class DozeUi implements DozeMachine.Part {
             case DOZE_REQUEST_PULSE:
                 pulseWhileDozing(mMachine.getPulseReason());
                 break;
-            case DOZE_PULSE_DONE:
-                mHost.abortPulsing();
             case INITIALIZED:
                 mHost.startDozing();
                 break;
@@ -95,40 +92,41 @@ public class DozeUi implements DozeMachine.Part {
                 unscheduleTimeTick();
                 break;
         }
-        mHost.setAnimateWakeup(shouldAnimateWakeup(newState));
+        updateAnimateWakeup(newState);
     }
 
-    private boolean shouldAnimateWakeup(DozeMachine.State state) {
+    private void updateAnimateWakeup(DozeMachine.State state) {
         switch (state) {
-            case DOZE_AOD:
             case DOZE_REQUEST_PULSE:
             case DOZE_PULSING:
             case DOZE_PULSE_DONE:
-                return true;
+                mHost.setAnimateWakeup(true);
+                break;
+            case FINISH:
+                // Keep current state.
+                break;
             default:
-                return false;
+                mHost.setAnimateWakeup(false);
+                break;
         }
     }
 
     private void scheduleTimeTick() {
-        if (mTimeTickScheduled) {
+        if (mTimeTicker.isScheduled()) {
             return;
         }
 
         long delta = roundToNextMinute(System.currentTimeMillis()) - System.currentTimeMillis();
-        mAlarmManager.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + delta, "doze_time_tick", mTimeTick, mHandler);
-
-        mTimeTickScheduled = true;
+        mTimeTicker.schedule(delta, AlarmTimeout.MODE_IGNORE_IF_SCHEDULED);
         mLastTimeTickElapsed = SystemClock.elapsedRealtime();
     }
 
     private void unscheduleTimeTick() {
-        if (!mTimeTickScheduled) {
+        if (!mTimeTicker.isScheduled()) {
             return;
         }
         verifyLastTimeTick();
-        mAlarmManager.cancel(mTimeTick);
+        mTimeTicker.cancel();
     }
 
     private void verifyLastTimeTick() {
@@ -151,10 +149,6 @@ public class DozeUi implements DozeMachine.Part {
     }
 
     private void onTimeTick() {
-        if (!mTimeTickScheduled) {
-            // Alarm was canceled, but we still got the callback. Ignore.
-            return;
-        }
         verifyLastTimeTick();
 
         mHost.dozeTimeTick();
@@ -162,7 +156,6 @@ public class DozeUi implements DozeMachine.Part {
         // Keep wakelock until a frame has been pushed.
         mHandler.post(mWakeLock.wrap(() -> {}));
 
-        mTimeTickScheduled = false;
         scheduleTimeTick();
     }
 }

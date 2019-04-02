@@ -16,35 +16,48 @@
 
 package com.android.systemui.statusbar.phone;
 
+import android.annotation.ColorInt;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.content.res.TypedArray;
+import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
+import com.android.internal.statusbar.StatusBarIcon;
+import com.android.settingslib.Utils;
 import com.android.systemui.BatteryMeterView;
 import com.android.systemui.Dependency;
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
 import com.android.systemui.qs.QSPanel;
+import com.android.systemui.statusbar.phone.StatusBarIconController.IconManager;
+import com.android.systemui.statusbar.phone.StatusBarIconController.TintedIconManager;
 import com.android.systemui.statusbar.policy.BatteryController;
 import com.android.systemui.statusbar.policy.BatteryController.BatteryStateChangeCallback;
+import com.android.systemui.statusbar.policy.ConfigurationController;
+import com.android.systemui.statusbar.policy.ConfigurationController.ConfigurationListener;
+import com.android.systemui.statusbar.policy.DarkIconDispatcher.DarkReceiver;
 import com.android.systemui.statusbar.policy.KeyguardUserSwitcher;
 import com.android.systemui.statusbar.policy.UserInfoController;
 import com.android.systemui.statusbar.policy.UserInfoController.OnUserInfoChangedListener;
+import com.android.systemui.statusbar.policy.UserInfoControllerImpl;
 import com.android.systemui.statusbar.policy.UserSwitcherController;
 
 /**
  * The header group on Keyguard.
  */
 public class KeyguardStatusBarView extends RelativeLayout
-        implements BatteryStateChangeCallback, OnUserInfoChangedListener {
+        implements BatteryStateChangeCallback, OnUserInfoChangedListener, ConfigurationListener {
 
     private boolean mBatteryCharging;
     private boolean mKeyguardUserSwitcherShowing;
@@ -63,6 +76,7 @@ public class KeyguardStatusBarView extends RelativeLayout
     private int mSystemIconsSwitcherHiddenExpandedMargin;
     private int mSystemIconsBaseMargin;
     private View mSystemIconsContainer;
+    private TintedIconManager mIconManager;
 
     public KeyguardStatusBarView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -203,12 +217,18 @@ public class KeyguardStatusBarView extends RelativeLayout
         mUserSwitcherController = Dependency.get(UserSwitcherController.class);
         mMultiUserSwitch.setUserSwitcherController(mUserSwitcherController);
         userInfoController.reloadUserInfo();
+        Dependency.get(ConfigurationController.class).addCallback(this);
+        mIconManager = new TintedIconManager(findViewById(R.id.statusIcons));
+        Dependency.get(StatusBarIconController.class).addIconGroup(mIconManager);
+        onOverlayChanged();
     }
 
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
         Dependency.get(UserInfoController.class).removeCallback(this);
+        Dependency.get(StatusBarIconController.class).removeIconGroup(mIconManager);
+        Dependency.get(ConfigurationController.class).removeCallback(this);
     }
 
     @Override
@@ -311,5 +331,31 @@ public class KeyguardStatusBarView extends RelativeLayout
     @Override
     public boolean hasOverlappingRendering() {
         return false;
+    }
+
+    public void onOverlayChanged() {
+        @ColorInt int textColor = Utils.getColorAttr(mContext, R.attr.wallpaperTextColor);
+        @ColorInt int iconColor = Utils.getDefaultColor(mContext, Color.luminance(textColor) < 0.5 ?
+                R.color.dark_mode_icon_color_single_tone :
+                R.color.light_mode_icon_color_single_tone);
+        float intensity = textColor == Color.WHITE ? 0 : 1;
+        mCarrierLabel.setTextColor(iconColor);
+        mBatteryView.setFillColor(iconColor);
+        mIconManager.setTint(iconColor);
+        Rect tintArea = new Rect(0, 0, 0, 0);
+
+        applyDarkness(R.id.signal_cluster, tintArea, intensity, iconColor);
+        applyDarkness(R.id.battery, tintArea, intensity, iconColor);
+        applyDarkness(R.id.clock, tintArea, intensity, iconColor);
+        // Reload user avatar
+        ((UserInfoControllerImpl) Dependency.get(UserInfoController.class))
+                .onDensityOrFontScaleChanged();
+    }
+
+    private void applyDarkness(int id, Rect tintArea, float intensity, int color) {
+        View v = findViewById(id);
+        if (v instanceof DarkReceiver) {
+            ((DarkReceiver) v).onDarkChanged(tintArea, intensity, color);
+        }
     }
 }

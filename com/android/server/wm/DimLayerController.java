@@ -261,7 +261,8 @@ class DimLayerController {
                 dimLayer = state.animator.mAnimLayer + LAYER_OFFSET_DIM;
                 dimAmount = DEFAULT_DIM_AMOUNT_DEAD_WINDOW;
             } else {
-                dimLayer = state.animator.mAnimLayer - LAYER_OFFSET_DIM;
+                dimLayer = dimLayerUser.getLayerForDim(state.animator, LAYER_OFFSET_DIM,
+                        state.animator.mAnimLayer - LAYER_OFFSET_DIM);
                 dimAmount = state.animator.mWin.mAttrs.dimAmount;
             }
         }
@@ -289,7 +290,7 @@ class DimLayerController {
             state.dimLayer.setLayer(dimLayer);
         }
         if (state.dimLayer.isAnimating()) {
-            if (!mDisplayContent.mService.okToDisplay()) {
+            if (!mDisplayContent.okToAnimate()) {
                 // Jump to the end of the animation.
                 state.dimLayer.show();
             } else {

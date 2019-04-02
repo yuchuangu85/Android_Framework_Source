@@ -48,6 +48,7 @@ import android.os.VibrationEffect;
 import android.os.WorkSource;
 import android.provider.Settings;
 import android.provider.Settings.SettingNotFoundException;
+import android.util.DebugUtils;
 import android.util.Slog;
 import android.view.InputDevice;
 import android.media.AudioAttributes;
@@ -60,10 +61,7 @@ import com.android.server.power.BatterySaverPolicy.ServiceType;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
 import java.util.LinkedList;
-import java.util.ListIterator;
 
 public class VibratorService extends IVibratorService.Stub
         implements InputManager.InputDeviceListener {
@@ -225,19 +223,24 @@ public class VibratorService extends IVibratorService.Stub
 
         long[] clickEffectTimings = getLongIntArray(context.getResources(),
                 com.android.internal.R.array.config_virtualKeyVibePattern);
-        VibrationEffect clickEffect;
-        if (clickEffectTimings.length == 0) {
-            clickEffect = null;
-        } else if (clickEffectTimings.length == 1) {
-            clickEffect = VibrationEffect.createOneShot(
-                    clickEffectTimings[0], VibrationEffect.DEFAULT_AMPLITUDE);
-        } else {
-            clickEffect = VibrationEffect.createWaveform(clickEffectTimings, -1);
-        }
+        VibrationEffect clickEffect = createEffect(clickEffectTimings);
         VibrationEffect doubleClickEffect = VibrationEffect.createWaveform(
                 new long[] {0, 30, 100, 30} /*timings*/, -1);
+        long[] tickEffectTimings = getLongIntArray(context.getResources(),
+                com.android.internal.R.array.config_clockTickVibePattern);
+        VibrationEffect tickEffect = createEffect(tickEffectTimings);
 
-        mFallbackEffects = new VibrationEffect[] { clickEffect, doubleClickEffect };
+        mFallbackEffects = new VibrationEffect[] { clickEffect, doubleClickEffect, tickEffect };
+    }
+
+    private static VibrationEffect createEffect(long[] timings) {
+        if (timings == null || timings.length == 0) {
+            return null;
+        } else if (timings.length == 1) {
+            return VibrationEffect.createOneShot(timings[0], VibrationEffect.DEFAULT_AMPLITUDE);
+        } else {
+            return VibrationEffect.createWaveform(timings, -1);
+        }
     }
 
     public void systemReady() {
@@ -370,10 +373,22 @@ public class VibratorService extends IVibratorService.Stub
             if (mCurrentVibration.hasLongerTimeout(newOneShot.getTiming())
                     && newOneShot.getAmplitude() == currentOneShot.getAmplitude()) {
                 if (DEBUG) {
-                    Slog.e(TAG, "Ignoring incoming vibration in favor of current vibration");
+                    Slog.d(TAG, "Ignoring incoming vibration in favor of current vibration");
                 }
                 return;
             }
+        }
+
+        // If the current vibration is repeating and the incoming one is non-repeating, then ignore
+        // the non-repeating vibration. This is so that we don't cancel vibrations that are meant
+        // to grab the attention of the user, like ringtones and alarms, in favor of one-shot
+        // vibrations that are likely quite short.
+        if (!isRepeatingVibration(effect)
+                && mCurrentVibration != null && isRepeatingVibration(mCurrentVibration.mEffect)) {
+            if (DEBUG) {
+                Slog.d(TAG, "Ignoring incoming vibration in favor of alarm vibration");
+            }
+            return;
         }
 
         Vibration vib = new Vibration(token, effect, usageHint, uid, opPkg);
@@ -399,6 +414,16 @@ public class VibratorService extends IVibratorService.Stub
         } finally {
             Binder.restoreCallingIdentity(ident);
         }
+    }
+
+    private static boolean isRepeatingVibration(VibrationEffect effect) {
+        if (effect instanceof VibrationEffect.Waveform) {
+            final VibrationEffect.Waveform waveform = (VibrationEffect.Waveform) effect;
+            if (waveform.getRepeatIndex() >= 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void addToPreviousVibrationsLocked(Vibration vib) {
@@ -725,6 +750,9 @@ public class VibratorService extends IVibratorService.Stub
                     return timeout;
                 }
             }
+            if (!prebaked.shouldFallback()) {
+                return 0;
+            }
             final int id = prebaked.getId();
             if (id < 0 || id >= mFallbackEffects.length || mFallbackEffects[id] == null) {
                 Slog.w(TAG, "Failed to play prebaked effect, no fallback");
@@ -943,6 +971,21 @@ public class VibratorService extends IVibratorService.Stub
         }
 
         private int runVibrate() {
+            try {
+                final int zenMode = Settings.Global.getInt(mContext.getContentResolver(),
+                        Settings.Global.ZEN_MODE);
+                if (zenMode != Settings.Global.ZEN_MODE_OFF) {
+                    try (PrintWriter pw = getOutPrintWriter();) {
+                        pw.print("Ignoring because device is on DND mode ");
+                        pw.println(DebugUtils.flagsToString(Settings.Global.class, "ZEN_MODE_",
+                                zenMode));
+                        return 0;
+                    }
+                }
+            } catch (SettingNotFoundException e) {
+                // ignore
+            }
+
             final long duration = Long.parseLong(getNextArgRequired());
             if (duration > MAX_VIBRATION_MS) {
                 throw new IllegalArgumentException("maximum duration is " + MAX_VIBRATION_MS);
@@ -967,7 +1010,8 @@ public class VibratorService extends IVibratorService.Stub
                 pw.println("    Prints this help text.");
                 pw.println("");
                 pw.println("  vibrate duration [description]");
-                pw.println("    Vibrates for duration milliseconds.");
+                pw.println("    Vibrates for duration milliseconds; ignored when device is on DND ");
+                pw.println("    (Do Not Disturb) mode.");
                 pw.println("");
             }
         }

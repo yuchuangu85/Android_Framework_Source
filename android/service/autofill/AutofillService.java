@@ -18,16 +18,15 @@ package android.service.autofill;
 import android.annotation.CallSuper;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.os.RemoteException;
-import android.provider.Settings;
-
-import com.android.internal.os.HandlerCaller;
 import android.annotation.SdkConstant;
-import android.app.Service;import android.content.Intent;
+import android.app.Service;
+import android.content.Intent;
 import android.os.CancellationSignal;
 import android.os.IBinder;
 import android.os.ICancellationSignal;
 import android.os.Looper;
+import android.os.RemoteException;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewStructure;
@@ -35,6 +34,7 @@ import android.view.autofill.AutofillId;
 import android.view.autofill.AutofillManager;
 import android.view.autofill.AutofillValue;
 
+import com.android.internal.os.HandlerCaller;
 import com.android.internal.os.SomeArgs;
 
 /**
@@ -51,6 +51,7 @@ import com.android.internal.os.SomeArgs;
  *       Settings screen).
  * </ol>
  *
+ * <a name="BasicUsage"></a>
  * <h3>Basic usage</h3>
  *
  * <p>The basic autofill process is defined by the workflow below:
@@ -122,12 +123,14 @@ import com.android.internal.os.SomeArgs;
  * each {@link #onFillRequest(FillRequest, CancellationSignal, FillCallback)} received - if it
  * doesn't, the request will eventually time out and be discarded by the Android System.
  *
+ * <a name="SavingUserData"></a>
  * <h3>Saving user data</h3>
  *
  * <p>If the service is also interested on saving the data filled by the user, it must set a
  * {@link SaveInfo} object in the {@link FillResponse}. See {@link SaveInfo} for more details and
  * examples.
  *
+ * <a name="UserAuthentication"></a>
  * <h3>User authentication</h3>
  *
  * <p>The service can provide an extra degree of security by requiring the user to authenticate
@@ -164,6 +167,7 @@ import com.android.internal.os.SomeArgs;
  * credentials in "vaults": the first response would contain fake datasets with the vault names,
  * and the subsequent response would contain the app credentials stored in that vault.
  *
+ * <a name="DataPartioning"></a>
  * <h3>Data partitioning</h3>
  *
  * <p>The autofillable views in a screen should be grouped in logical groups called "partitions".
@@ -179,11 +183,18 @@ import com.android.internal.os.SomeArgs;
  * should not contain fields for username, password, and credit card information. The reason for
  * this rule is that a malicious app could draft a view structure where the credit card fields
  * are not visible, so when the user selects a dataset from the username UI, the credit card info is
- * released to the application without the user knowledge. Similar, it's recommended to always
+ * released to the application without the user knowledge. Similarly, it's recommended to always
  * protect a dataset that contains sensitive information by requiring dataset authentication
- * (see {@link Dataset.Builder#setAuthentication(android.content.IntentSender)}).
+ * (see {@link Dataset.Builder#setAuthentication(android.content.IntentSender)}), and to include
+ * info about the "primary" field of the partition in the custom presentation for "secondary"
+ * fields &mdash; that would prevent a malicious app from getting the "primary" fields without the
+ * user realizing they're being released (for example, a malicious app could have fields for a
+ * credit card number, verification code, and expiration date crafted in a way that just the latter
+ * is visible; by explicitly indicating the expiration date is related to a given credit card
+ * number, the service would be providing a visual clue for the users to check what would be
+ * released upon selecting that field).
  *
- * <p>When the service detects that a screen have multiple partitions, it should return a
+ * <p>When the service detects that a screen has multiple partitions, it should return a
  * {@link FillResponse} with just the datasets for the partition that originated the request (i.e.,
  * the partition that has the {@link android.app.assist.AssistStructure.ViewNode} whose
  * {@link android.app.assist.AssistStructure.ViewNode#isFocused()} returns {@code true}); then if
@@ -236,6 +247,44 @@ import com.android.internal.os.SomeArgs;
  * <p>When the service returns multiple {@link FillResponse}, the last one overrides the previous;
  * that's why the {@link SaveInfo} in the 2nd request above has the info for both partitions.
  *
+ * <a name="PackageVerification"></a>
+ * <h3>Package verification</h3>
+ *
+ * <p>When autofilling app-specific data (like username and password), the service must verify
+ * the authenticity of the request by obtaining all signing certificates of the app being
+ * autofilled, and only fulfilling the request when they match the values that were
+ * obtained when the data was first saved &mdash; such verification is necessary to avoid phishing
+ * attempts by apps that were sideloaded in the device with the same package name of another app.
+ * Here's an example on how to achieve that by hashing the signing certificates:
+ *
+ * <pre class="prettyprint">
+ * private String getCertificatesHash(String packageName) throws Exception {
+ *   PackageManager pm = mContext.getPackageManager();
+ *   PackageInfo info = pm.getPackageInfo(packageName, PackageManager.GET_SIGNATURES);
+ *   ArrayList<String> hashes = new ArrayList<>(info.signatures.length);
+ *   for (Signature sig : info.signatures) {
+ *     byte[] cert = sig.toByteArray();
+ *     MessageDigest md = MessageDigest.getInstance("SHA-256");
+ *     md.update(cert);
+ *     hashes.add(toHexString(md.digest()));
+ *   }
+ *   Collections.sort(hashes);
+ *   StringBuilder hash = new StringBuilder();
+ *   for (int i = 0; i < hashes.size(); i++) {
+ *     hash.append(hashes.get(i));
+ *   }
+ *   return hash.toString();
+ * }
+ * </pre>
+ *
+ * <p>If the service did not store the signing certificates data the first time the data was saved
+ * &mdash; for example, because the data was created by a previous version of the app that did not
+ * use the Autofill Framework &mdash; the service should warn the user that the authenticity of the
+ * app cannot be confirmed (see an example on how to show such warning in the
+ * <a href="#WebSecurityDisclaimer">Web security</a> section below), and if the user agrees,
+ * then the service could save the data from the signing ceriticates for future use.
+ *
+ * <a name="IgnoringViews"></a>
  * <h3>Ignoring views</h3>
  *
  * <p>If the service find views that cannot be autofilled (for example, a text field representing
@@ -243,6 +292,154 @@ import com.android.internal.os.SomeArgs;
  * calling {@link FillResponse.Builder#setIgnoredIds(AutofillId...)} so the system does not trigger
  * a new {@link #onFillRequest(FillRequest, CancellationSignal, FillCallback)} when these views are
  * focused.
+ *
+ * <a name="WebSecurity"></a>
+ * <h3>Web security</h3>
+ *
+ * <p>When handling autofill requests that represent web pages (typically
+ * view structures whose root's {@link android.app.assist.AssistStructure.ViewNode#getClassName()}
+ * is a {@link android.webkit.WebView}), the service should take the following steps to verify if
+ * the structure can be autofilled with the data associated with the app requesting it:
+ *
+ * <ol>
+ *   <li>Use the {@link android.app.assist.AssistStructure.ViewNode#getWebDomain()} to get the
+ *       source of the document.
+ *   <li>Get the canonical domain using the
+ *       <a href="https://publicsuffix.org/">Public Suffix List</a> (see example below).
+ *   <li>Use <a href="https://developers.google.com/digital-asset-links/">Digital Asset Links</a>
+ *       to obtain the package name and certificate fingerprint of the package corresponding to
+ *       the canonical domain.
+ *   <li>Make sure the certificate fingerprint matches the value returned by Package Manager
+ *       (see "Package verification" section above).
+ * </ol>
+ *
+ * <p>Here's an example on how to get the canonical domain using
+ * <a href="https://github.com/google/guava">Guava</a>:
+ *
+ * <pre class="prettyprint">
+ * private static String getCanonicalDomain(String domain) {
+ *   InternetDomainName idn = InternetDomainName.from(domain);
+ *   while (idn != null && !idn.isTopPrivateDomain()) {
+ *     idn = idn.parent();
+ *   }
+ *   return idn == null ? null : idn.toString();
+ * }
+ * </pre>
+ *
+ * <a name="WebSecurityDisclaimer"></a>
+ * <p>If the association between the web domain and app package cannot be verified through the steps
+ * above, but the service thinks that it is appropriate to fill persisted credentials that are
+ * stored for the web domain, the service should warn the user about the potential data
+ * leakage first, and ask for the user to confirm. For example, the service could:
+ *
+ * <ol>
+ *   <li>Create a dataset that requires
+ *       {@link Dataset.Builder#setAuthentication(android.content.IntentSender) authentication} to
+ *       unlock.
+ *   <li>Include the web domain in the custom presentation for the
+ *       {@link Dataset.Builder#setValue(AutofillId, AutofillValue, android.widget.RemoteViews)
+ *       dataset value}.
+ *   <li>When the user selects that dataset, show a disclaimer dialog explaining that the app is
+ *       requesting credentials for a web domain, but the service could not verify if the app owns
+ *       that domain. If the user agrees, then the service can unlock the dataset.
+ *   <li>Similarly, when adding a {@link SaveInfo} object for the request, the service should
+ *       include the above disclaimer in the {@link SaveInfo.Builder#setDescription(CharSequence)}.
+ * </ol>
+ *
+ * <p>This same procedure could also be used when the autofillable data is contained inside an
+ * {@code IFRAME}, in which case the WebView generates a new autofill context when a node inside
+ * the {@code IFRAME} is focused, with the root node containing the {@code IFRAME}'s {@code src}
+ * attribute on {@link android.app.assist.AssistStructure.ViewNode#getWebDomain()}. A typical and
+ * legitimate use case for this scenario is a financial app that allows the user
+ * to login on different bank accounts. For example, a financial app {@code my_financial_app} could
+ * use a WebView that loads contents from {@code banklogin.my_financial_app.com}, which contains an
+ * {@code IFRAME} node whose {@code src} attribute is {@code login.some_bank.com}. When fulfilling
+ * that request, the service could add an
+ * {@link Dataset.Builder#setAuthentication(android.content.IntentSender) authenticated dataset}
+ * whose presentation displays "Username for some_bank.com" and
+ * "Password for some_bank.com". Then when the user taps one of these options, the service
+ * shows the disclaimer dialog explaining that selecting that option would release the
+ * {@code login.some_bank.com} credentials to the {@code my_financial_app}; if the user agrees,
+ * then the service returns an unlocked dataset with the {@code some_bank.com} credentials.
+ *
+ * <p><b>Note:</b> The autofill service could also whitelist well-known browser apps and skip the
+ * verifications above, as long as the service can verify the authenticity of the browser app by
+ * checking its signing certificate.
+ *
+ * <a name="MultipleStepsSave"></a>
+ * <h3>Saving when data is split in multiple screens</h3>
+ *
+ * Apps often split the user data in multiple screens in the same activity, specially in
+ * activities used to create a new user account. For example, the first screen asks for a username,
+ * and if the username is available, it moves to a second screen, which asks for a password.
+ *
+ * <p>It's tricky to handle save for autofill in these situations, because the autofill service must
+ * wait until the user enters both fields before the autofill save UI can be shown. But it can be
+ * done by following the steps below:
+ *
+ * <ol>
+ * <li>In the first
+ * {@link #onFillRequest(FillRequest, CancellationSignal, FillCallback) fill request}, the service
+ * adds a {@link FillResponse.Builder#setClientState(android.os.Bundle) client state bundle} in
+ * the response, containing the autofill ids of the partial fields present in the screen.
+ * <li>In the second
+ * {@link #onFillRequest(FillRequest, CancellationSignal, FillCallback) fill request}, the service
+ * retrieves the {@link FillRequest#getClientState() client state bundle}, gets the autofill ids
+ * set in the previous request from the client state, and adds these ids and the
+ * {@link SaveInfo#FLAG_SAVE_ON_ALL_VIEWS_INVISIBLE} to the {@link SaveInfo} used in the second
+ * response.
+ * <li>In the {@link #onSaveRequest(SaveRequest, SaveCallback) save request}, the service uses the
+ * proper {@link FillContext fill contexts} to get the value of each field (there is one fill
+ * context per fill request).
+ * </ol>
+ *
+ * <p>For example, in an app that uses 2 steps for the username and password fields, the workflow
+ * would be:
+ * <pre class="prettyprint">
+ *  // On first fill request
+ *  AutofillId usernameId = // parse from AssistStructure;
+ *  Bundle clientState = new Bundle();
+ *  clientState.putParcelable("usernameId", usernameId);
+ *  fillCallback.onSuccess(
+ *    new FillResponse.Builder()
+ *        .setClientState(clientState)
+ *        .setSaveInfo(new SaveInfo
+ *             .Builder(SaveInfo.SAVE_DATA_TYPE_USERNAME, new AutofillId[] {usernameId})
+ *             .build())
+ *        .build());
+ *
+ *  // On second fill request
+ *  Bundle clientState = fillRequest.getClientState();
+ *  AutofillId usernameId = clientState.getParcelable("usernameId");
+ *  AutofillId passwordId = // parse from AssistStructure
+ *  clientState.putParcelable("passwordId", passwordId);
+ *  fillCallback.onSuccess(
+ *    new FillResponse.Builder()
+ *        .setClientState(clientState)
+ *        .setSaveInfo(new SaveInfo
+ *             .Builder(SaveInfo.SAVE_DATA_TYPE_USERNAME | SaveInfo.SAVE_DATA_TYPE_PASSWORD,
+ *                      new AutofillId[] {usernameId, passwordId})
+ *             .setFlags(SaveInfo.FLAG_SAVE_ON_ALL_VIEWS_INVISIBLE)
+ *             .build())
+ *        .build());
+ *
+ *  // On save request
+ *  Bundle clientState = saveRequest.getClientState();
+ *  AutofillId usernameId = clientState.getParcelable("usernameId");
+ *  AutofillId passwordId = clientState.getParcelable("passwordId");
+ *  List<FillContext> fillContexts = saveRequest.getFillContexts();
+ *
+ *  FillContext usernameContext = fillContexts.get(0);
+ *  ViewNode usernameNode = findNodeByAutofillId(usernameContext.getStructure(), usernameId);
+ *  AutofillValue username = usernameNode.getAutofillValue().getTextValue().toString();
+ *
+ *  FillContext passwordContext = fillContexts.get(1);
+ *  ViewNode passwordNode = findNodeByAutofillId(passwordContext.getStructure(), passwordId);
+ *  AutofillValue password = passwordNode.getAutofillValue().getTextValue().toString();
+ *
+ *  save(username, password);
+ *
+ * </pre>
  */
 public abstract class AutofillService extends Service {
     private static final String TAG = "AutofillService";
@@ -381,13 +578,19 @@ public abstract class AutofillService extends Service {
             @NonNull CancellationSignal cancellationSignal, @NonNull FillCallback callback);
 
     /**
-     * Called when user requests service to save the fields of a screen.
+     * Called when the user requests the service to save the contents of a screen.
      *
      * <p>Service must call one of the {@link SaveCallback} methods (like
      * {@link SaveCallback#onSuccess()} or {@link SaveCallback#onFailure(CharSequence)})
-     * to notify the result of the request.
+     * to notify the Android System of the result of the request.
      *
-     * <p><b>NOTE: </b>to retrieve the actual value of the field, the service should call
+     * <p>If the service could not handle the request right away&mdash;for example, because it must
+     * launch an activity asking the user to authenticate first or because the network is
+     * down&mdash;the service could keep the {@link SaveRequest request} and reuse it later,
+     * but the service must call {@link SaveCallback#onSuccess()} right away.
+     *
+     * <p><b>Note:</b> To retrieve the actual value of fields input by the user, the service
+     * should call
      * {@link android.app.assist.AssistStructure.ViewNode#getAutofillValue()}; if it calls
      * {@link android.app.assist.AssistStructure.ViewNode#getText()} or other methods, there is no
      * guarantee such method will return the most recent value of the field.

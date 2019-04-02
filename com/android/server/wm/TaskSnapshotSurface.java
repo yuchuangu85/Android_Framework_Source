@@ -20,6 +20,7 @@ import static android.graphics.Color.WHITE;
 import static android.graphics.Color.alpha;
 import static android.view.SurfaceControl.HIDDEN;
 import static android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+import static android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND;
 import static android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED;
 import static android.view.WindowManager.LayoutParams.FLAG_IGNORE_CHEEK_PRESSES;
 import static android.view.WindowManager.LayoutParams.FLAG_LOCAL_FOCUS_MODE;
@@ -32,7 +33,6 @@ import static android.view.WindowManager.LayoutParams.FLAG_SLIPPERY;
 import static android.view.WindowManager.LayoutParams.FLAG_SPLIT_TOUCH;
 import static android.view.WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH;
 import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_FORCE_DRAW_STATUS_BAR_BACKGROUND;
-import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_TASK_SNAPSHOT;
 import static android.view.WindowManager.LayoutParams.TYPE_APPLICATION_STARTING;
 import static com.android.internal.policy.DecorView.NAVIGATION_BAR_COLOR_VIEW_ATTRIBUTES;
 import static com.android.internal.policy.DecorView.STATUS_BAR_COLOR_VIEW_ATTRIBUTES;
@@ -150,42 +150,50 @@ class TaskSnapshotSurface implements StartingSurface {
         final int currentOrientation;
         synchronized (service.mWindowMap) {
             final WindowState mainWindow = token.findMainWindow();
-            if (mainWindow == null) {
+            final Task task = token.getTask();
+            if (task == null) {
+                Slog.w(TAG, "TaskSnapshotSurface.create: Failed to find task for token="
+                        + token);
+                return null;
+            }
+            final AppWindowToken topFullscreenToken = token.getTask().getTopFullscreenAppToken();
+            if (topFullscreenToken == null) {
+                Slog.w(TAG, "TaskSnapshotSurface.create: Failed to find top fullscreen for task="
+                        + task);
+                return null;
+            }
+            final WindowState topFullscreenWindow = topFullscreenToken.getTopFullscreenWindow();
+            if (mainWindow == null || topFullscreenWindow == null) {
                 Slog.w(TAG, "TaskSnapshotSurface.create: Failed to find main window for token="
                         + token);
                 return null;
             }
-            sysUiVis = mainWindow.getSystemUiVisibility();
-            windowFlags = mainWindow.getAttrs().flags;
-            windowPrivateFlags = mainWindow.getAttrs().privateFlags;
+            sysUiVis = topFullscreenWindow.getSystemUiVisibility();
+            windowFlags = topFullscreenWindow.getAttrs().flags;
+            windowPrivateFlags = topFullscreenWindow.getAttrs().privateFlags;
 
+            layoutParams.dimAmount = mainWindow.getAttrs().dimAmount;
             layoutParams.type = TYPE_APPLICATION_STARTING;
             layoutParams.format = snapshot.getSnapshot().getFormat();
             layoutParams.flags = (windowFlags & ~FLAG_INHERIT_EXCLUDES)
                     | FLAG_NOT_FOCUSABLE
                     | FLAG_NOT_TOUCHABLE;
-            layoutParams.privateFlags = PRIVATE_FLAG_TASK_SNAPSHOT
-                    | (windowPrivateFlags & PRIVATE_FLAG_INHERITS);
+            layoutParams.privateFlags = windowPrivateFlags & PRIVATE_FLAG_INHERITS;
             layoutParams.token = token.token;
             layoutParams.width = LayoutParams.MATCH_PARENT;
             layoutParams.height = LayoutParams.MATCH_PARENT;
             layoutParams.systemUiVisibility = sysUiVis;
-            final Task task = token.getTask();
-            if (task != null) {
-                layoutParams.setTitle(String.format(TITLE_FORMAT, task.mTaskId));
+            layoutParams.setTitle(String.format(TITLE_FORMAT, task.mTaskId));
 
-                final TaskDescription taskDescription = task.getTaskDescription();
-                if (taskDescription != null) {
-                    backgroundColor = taskDescription.getBackgroundColor();
-                    statusBarColor = taskDescription.getStatusBarColor();
-                    navigationBarColor = taskDescription.getNavigationBarColor();
-                }
-                taskBounds = new Rect();
-                task.getBounds(taskBounds);
-            } else {
-                taskBounds = null;
+            final TaskDescription taskDescription = task.getTaskDescription();
+            if (taskDescription != null) {
+                backgroundColor = taskDescription.getBackgroundColor();
+                statusBarColor = taskDescription.getStatusBarColor();
+                navigationBarColor = taskDescription.getNavigationBarColor();
             }
-            currentOrientation = mainWindow.getConfiguration().orientation;
+            taskBounds = new Rect();
+            task.getBounds(taskBounds);
+            currentOrientation = topFullscreenWindow.getConfiguration().orientation;
         }
         try {
             final int res = session.addToDisplay(window, window.mSeq, layoutParams,
@@ -312,6 +320,10 @@ class TaskSnapshotSurface implements StartingSurface {
             mChildSurfaceControl.show();
             mChildSurfaceControl.setWindowCrop(crop);
             mChildSurfaceControl.setPosition(frame.left, frame.top);
+
+            // Scale the mismatch dimensions to fill the task bounds
+            final float scale = 1 / mSnapshot.getScale();
+            mChildSurfaceControl.setMatrix(scale, 0, 0, scale);
         } finally {
             SurfaceControl.closeTransaction();
         }
@@ -324,6 +336,11 @@ class TaskSnapshotSurface implements StartingSurface {
         mSurface.release();
     }
 
+    /**
+     * Calculates the snapshot crop in snapshot coordinate space.
+     *
+     * @return crop rect in snapshot coordinate space.
+     */
     @VisibleForTesting
     Rect calculateSnapshotCrop() {
         final Rect rect = new Rect();
@@ -332,16 +349,28 @@ class TaskSnapshotSurface implements StartingSurface {
 
         // Let's remove all system decorations except the status bar, but only if the task is at the
         // very top of the screen.
-        rect.inset(insets.left, mTaskBounds.top != 0 ? insets.top : 0, insets.right, insets.bottom);
+        rect.inset((int) (insets.left * mSnapshot.getScale()),
+                mTaskBounds.top != 0 ? (int) (insets.top * mSnapshot.getScale()) : 0,
+                (int) (insets.right * mSnapshot.getScale()),
+                (int) (insets.bottom * mSnapshot.getScale()));
         return rect;
     }
 
+    /**
+     * Calculates the snapshot frame in window coordinate space from crop.
+     *
+     * @param crop rect that is in snapshot coordinate space.
+     */
     @VisibleForTesting
     Rect calculateSnapshotFrame(Rect crop) {
         final Rect frame = new Rect(crop);
+        final float scale = mSnapshot.getScale();
+
+        // Rescale the frame from snapshot to window coordinate space
+        frame.scale(1 / scale);
 
         // By default, offset it to to top/left corner
-        frame.offsetTo(-crop.left, -crop.top);
+        frame.offsetTo((int) (-crop.left / scale), (int) (-crop.top / scale));
 
         // However, we also need to make space for the navigation bar on the left side.
         final int colorViewLeftInset = getColorViewLeftInset(mStableInsets.left,

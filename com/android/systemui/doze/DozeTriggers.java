@@ -16,6 +16,7 @@
 
 package com.android.systemui.doze;
 
+import android.app.AlarmManager;
 import android.app.UiModeManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -39,6 +40,7 @@ import com.android.systemui.util.Assert;
 import com.android.systemui.util.wakelock.WakeLock;
 
 import java.io.PrintWriter;
+import java.util.function.IntConsumer;
 
 /**
  * Handles triggers for ambient state changes.
@@ -69,7 +71,7 @@ public class DozeTriggers implements DozeMachine.Part {
 
 
     public DozeTriggers(Context context, DozeMachine machine, DozeHost dozeHost,
-            AmbientDisplayConfiguration config,
+            AlarmManager alarmManager, AmbientDisplayConfiguration config,
             DozeParameters dozeParameters, SensorManager sensorManager, Handler handler,
             WakeLock wakeLock, boolean allowPulseTriggers) {
         mContext = context;
@@ -81,8 +83,9 @@ public class DozeTriggers implements DozeMachine.Part {
         mHandler = handler;
         mWakeLock = wakeLock;
         mAllowPulseTriggers = allowPulseTriggers;
-        mDozeSensors = new DozeSensors(context, mSensorManager, dozeParameters, config,
-                wakeLock, this::onSensor, this::onProximityFar);
+        mDozeSensors = new DozeSensors(context, alarmManager, mSensorManager, dozeParameters,
+                config, wakeLock, this::onSensor, this::onProximityFar,
+                new AlwaysOnDisplayPolicy(context));
         mUiModeManager = mContext.getSystemService(UiModeManager.class);
     }
 
@@ -98,10 +101,53 @@ public class DozeTriggers implements DozeMachine.Part {
         requestPulse(DozeLog.PULSE_REASON_NOTIFICATION, false /* performedProxCheck */);
     }
 
-    private void onSensor(int pulseReason, boolean sensorPerformedProxCheck) {
-        requestPulse(pulseReason, sensorPerformedProxCheck);
+    private void proximityCheckThenCall(IntConsumer callback,
+            boolean alreadyPerformedProxCheck,
+            int pulseReason) {
+        Boolean cachedProxFar = mDozeSensors.isProximityCurrentlyFar();
+        if (alreadyPerformedProxCheck) {
+            callback.accept(ProximityCheck.RESULT_NOT_CHECKED);
+        } else if (cachedProxFar != null) {
+            callback.accept(cachedProxFar ? ProximityCheck.RESULT_FAR : ProximityCheck.RESULT_NEAR);
+        } else {
+            final long start = SystemClock.uptimeMillis();
+            new ProximityCheck() {
+                @Override
+                public void onProximityResult(int result) {
+                    final long end = SystemClock.uptimeMillis();
+                    DozeLog.traceProximityResult(mContext, result == RESULT_NEAR,
+                            end - start, pulseReason);
+                    callback.accept(result);
+                }
+            }.check();
+        }
+    }
 
-        if (pulseReason == DozeLog.PULSE_REASON_SENSOR_PICKUP) {
+    private void onSensor(int pulseReason, boolean sensorPerformedProxCheck,
+            float screenX, float screenY) {
+        boolean isDoubleTap = pulseReason == DozeLog.PULSE_REASON_SENSOR_DOUBLE_TAP;
+        boolean isPickup = pulseReason == DozeLog.PULSE_REASON_SENSOR_PICKUP;
+        boolean isLongPress = pulseReason == DozeLog.PULSE_REASON_SENSOR_LONG_PRESS;
+
+        if (mConfig.alwaysOnEnabled(UserHandle.USER_CURRENT) && !isLongPress) {
+            proximityCheckThenCall((result) -> {
+                if (result == ProximityCheck.RESULT_NEAR) {
+                    // In pocket, drop event.
+                    return;
+                }
+                if (isDoubleTap) {
+                    mDozeHost.onDoubleTap(screenX, screenY);
+                    mMachine.wakeUp();
+                } else {
+                    mDozeHost.extendPulse();
+                }
+            }, sensorPerformedProxCheck, pulseReason);
+            return;
+        } else {
+            requestPulse(pulseReason, sensorPerformedProxCheck);
+        }
+
+        if (isPickup) {
             final long timeSinceNotification =
                     SystemClock.elapsedRealtime() - mNotificationPulseTime;
             final boolean withinVibrationThreshold =
@@ -112,27 +158,23 @@ public class DozeTriggers implements DozeMachine.Part {
 
     private void onProximityFar(boolean far) {
         final boolean near = !far;
-        DozeMachine.State state = mMachine.getState();
-        if (near && state == DozeMachine.State.DOZE_PULSING) {
-            if (DEBUG) Log.i(TAG, "Prox NEAR, ending pulse");
-            DozeLog.tracePulseCanceledByProx(mContext);
-            mMachine.requestState(DozeMachine.State.DOZE_PULSE_DONE);
+        final DozeMachine.State state = mMachine.getState();
+        final boolean paused = (state == DozeMachine.State.DOZE_AOD_PAUSED);
+        final boolean pausing = (state == DozeMachine.State.DOZE_AOD_PAUSING);
+        final boolean aod = (state == DozeMachine.State.DOZE_AOD);
+
+        if (state == DozeMachine.State.DOZE_PULSING) {
+            boolean ignoreTouch = near;
+            if (DEBUG) Log.i(TAG, "Prox changed, ignore touch = " + ignoreTouch);
+            mDozeHost.onIgnoreTouchWhilePulsing(ignoreTouch);
         }
-        if (far && state == DozeMachine.State.DOZE_AOD_PAUSED) {
+        if (far && (paused || pausing)) {
             if (DEBUG) Log.i(TAG, "Prox FAR, unpausing AOD");
             mMachine.requestState(DozeMachine.State.DOZE_AOD);
-        } else if (near && state == DozeMachine.State.DOZE_AOD) {
+        } else if (near && aod) {
             if (DEBUG) Log.i(TAG, "Prox NEAR, pausing AOD");
-            mMachine.requestState(DozeMachine.State.DOZE_AOD_PAUSED);
+            mMachine.requestState(DozeMachine.State.DOZE_AOD_PAUSING);
         }
-    }
-
-    private void onCarMode() {
-        mMachine.requestState(DozeMachine.State.FINISH);
-    }
-
-    private void onPowerSave() {
-        mMachine.requestState(DozeMachine.State.FINISH);
     }
 
     @Override
@@ -145,14 +187,19 @@ public class DozeTriggers implements DozeMachine.Part {
                 break;
             case DOZE:
             case DOZE_AOD:
-            case DOZE_AOD_PAUSED:
                 mDozeSensors.setProxListening(newState != DozeMachine.State.DOZE);
-                mDozeSensors.setListening(true);
                 if (oldState != DozeMachine.State.INITIALIZED) {
                     mDozeSensors.reregisterAllSensors();
                 }
+                mDozeSensors.setListening(true);
+                break;
+            case DOZE_AOD_PAUSED:
+            case DOZE_AOD_PAUSING:
+                mDozeSensors.setProxListening(true);
+                mDozeSensors.setListening(false);
                 break;
             case DOZE_PULSING:
+                mDozeSensors.setTouchscreenSensorsListening(false);
                 mDozeSensors.setProxListening(true);
                 break;
             case FINISH:
@@ -166,11 +213,11 @@ public class DozeTriggers implements DozeMachine.Part {
     }
 
     private void checkTriggersAtInit() {
-        if (mUiModeManager.getCurrentModeType() == Configuration.UI_MODE_TYPE_CAR) {
-            onCarMode();
-        }
-        if (mDozeHost.isPowerSaveActive()) {
-            onPowerSave();
+        if (mUiModeManager.getCurrentModeType() == Configuration.UI_MODE_TYPE_CAR
+                || mDozeHost.isPowerSaveActive()
+                || mDozeHost.isBlockingDoze()
+                || !mDozeHost.isProvisioned()) {
+            mMachine.requestState(DozeMachine.State.FINISH);
         }
     }
 
@@ -186,33 +233,15 @@ public class DozeTriggers implements DozeMachine.Part {
         }
 
         mPulsePending = true;
-        if (!mDozeParameters.getProxCheckBeforePulse() || performedProxCheck) {
-            // skip proximity check
-            continuePulseRequest(reason);
-            return;
-        }
-
-        final long start = SystemClock.uptimeMillis();
-        new ProximityCheck() {
-            @Override
-            public void onProximityResult(int result) {
-                final long end = SystemClock.uptimeMillis();
-                DozeLog.traceProximityResult(mContext, result == RESULT_NEAR,
-                        end - start, reason);
-                if (performedProxCheck) {
-                    // we already continued
-                    return;
-                }
-                // avoid pulsing in pockets
-                if (result == RESULT_NEAR) {
-                    mPulsePending = false;
-                    return;
-                }
-
-                // not in-pocket, continue pulsing
+        proximityCheckThenCall((result) -> {
+            if (result == ProximityCheck.RESULT_NEAR) {
+                // in pocket, abort pulse
+                mPulsePending = false;
+            } else {
+                // not in pocket, continue pulsing
                 continuePulseRequest(reason);
             }
-        }.check();
+        }, !mDozeParameters.getProxCheckBeforePulse() || performedProxCheck, reason);
     }
 
     private boolean canPulse() {
@@ -246,6 +275,7 @@ public class DozeTriggers implements DozeMachine.Part {
         protected static final int RESULT_UNKNOWN = 0;
         protected static final int RESULT_NEAR = 1;
         protected static final int RESULT_FAR = 2;
+        protected static final int RESULT_NOT_CHECKED = 3;
 
         private boolean mRegistered;
         private boolean mFinished;
@@ -323,7 +353,7 @@ public class DozeTriggers implements DozeMachine.Part {
                 requestPulse(DozeLog.PULSE_REASON_INTENT, false /* performedProxCheck */);
             }
             if (UiModeManager.ACTION_ENTER_CAR_MODE.equals(intent.getAction())) {
-                onCarMode();
+                mMachine.requestState(DozeMachine.State.FINISH);
             }
             if (Intent.ACTION_USER_SWITCHED.equals(intent.getAction())) {
                 mDozeSensors.onUserSwitched();
@@ -359,7 +389,7 @@ public class DozeTriggers implements DozeMachine.Part {
         @Override
         public void onPowerSaveChanged(boolean active) {
             if (active) {
-                onPowerSave();
+                mMachine.requestState(DozeMachine.State.FINISH);
             }
         }
     };

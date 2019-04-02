@@ -87,6 +87,7 @@ import com.android.internal.telephony.uicc.SIMRecords;
 import com.android.internal.telephony.uicc.UiccCardApplication;
 import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.telephony.util.NotificationChannelController;
+import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.IndentingPrintWriter;
 
 import java.io.FileDescriptor;
@@ -209,6 +210,7 @@ public class ServiceStateTracker extends Handler {
     protected static final int EVENT_ALL_DATA_DISCONNECTED             = 49;
     protected static final int EVENT_PHONE_TYPE_SWITCHED               = 50;
     protected static final int EVENT_RADIO_POWER_FROM_CARRIER          = 51;
+    protected static final int EVENT_SIM_NOT_INSERTED                  = 52;
 
     protected static final String TIMEZONE_PROPERTY = "persist.sys.timezone";
 
@@ -353,6 +355,14 @@ public class ServiceStateTracker extends Handler {
                 }
                 // update voicemail count and notify message waiting changed
                 mPhone.updateVoiceMail();
+
+                // cancel notifications if we see SIM_NOT_INSERTED (This happens on bootup before
+                // the SIM is first detected and then subsequently on SIM removals)
+                if (mSubscriptionController.getSlotIndex(subId)
+                        == SubscriptionManager.SIM_NOT_INSERTED) {
+                    // this is handled on the main thread to mitigate racing with setNotification().
+                    sendMessage(obtainMessage(EVENT_SIM_NOT_INSERTED));
+                }
             }
         }
     };
@@ -445,7 +455,6 @@ public class ServiceStateTracker extends Handler {
     public static final int CS_NORMAL_ENABLED = 1005;     // Access Control blocks normal voice/sms service
     public static final int CS_EMERGENCY_ENABLED = 1006;  // Access Control blocks emergency call service
     public static final int CS_REJECT_CAUSE_ENABLED = 2001;     // Notify MM rejection cause
-    public static final int CS_REJECT_CAUSE_DISABLED = 2002;    // Cancel MM rejection cause
     /** Notification id. */
     public static final int PS_NOTIFICATION = 888;  // Id to update and cancel PS restricted
     public static final int CS_NOTIFICATION = 999;  // Id to update and cancel CS restricted
@@ -604,6 +613,23 @@ public class ServiceStateTracker extends Handler {
 
     @VisibleForTesting
     public void updatePhoneType() {
+        // If we are previously voice roaming, we need to notify that roaming status changed before
+        // we change back to non-roaming.
+        if (mSS != null && mSS.getVoiceRoaming()) {
+            mVoiceRoamingOffRegistrants.notifyRegistrants();
+        }
+
+        // If we are previously data roaming, we need to notify that roaming status changed before
+        // we change back to non-roaming.
+        if (mSS != null && mSS.getDataRoaming()) {
+            mDataRoamingOffRegistrants.notifyRegistrants();
+        }
+
+        // If we are previously in service, we need to notify that we are out of service now.
+        if (mSS != null && mSS.getDataRegState() == ServiceState.STATE_IN_SERVICE) {
+            mDetachedRegistrants.notifyRegistrants();
+        }
+
         mSS = new ServiceState();
         mNewSS = new ServiceState();
         mLastCellInfoListTime = 0;
@@ -668,11 +694,7 @@ public class ServiceStateTracker extends Handler {
 
         logPhoneTypeChange();
 
-        // Tell everybody that we've thrown away state and are starting over with
-        // empty, detached ServiceStates.
-        mVoiceRoamingOffRegistrants.notifyRegistrants();
-        mDataRoamingOffRegistrants.notifyRegistrants();
-        mDetachedRegistrants.notifyRegistrants();
+        // Tell everybody that the registration state and RAT have changed.
         notifyDataRegStateRilRadioTechnologyChanged();
     }
 
@@ -829,12 +851,13 @@ public class ServiceStateTracker extends Handler {
      * @param h handler to notify
      * @param what what code of message when delivered
      * @param obj placed in Message.obj
+     * @param notifyNow notify upon registration if data roaming is off
      */
-    public void registerForDataRoamingOff(Handler h, int what, Object obj) {
+    public void registerForDataRoamingOff(Handler h, int what, Object obj, boolean notifyNow) {
         Registrant r = new Registrant(h, what, obj);
         mDataRoamingOffRegistrants.add(r);
 
-        if (!mSS.getDataRoaming()) {
+        if (notifyNow && !mSS.getDataRoaming()) {
             r.notifyRegistrant();
         }
     }
@@ -1282,6 +1305,14 @@ public class ServiceStateTracker extends Handler {
                 }
                 break;
 
+            case EVENT_SIM_NOT_INSERTED:
+                if (DBG) log("EVENT_SIM_NOT_INSERTED");
+                cancelAllNotifications();
+                mMdn = null;
+                mMin = null;
+                mIsMinInfoReady = false;
+                break;
+
             case EVENT_ALL_DATA_DISCONNECTED:
                 int dds = SubscriptionManager.getDefaultDataSubscriptionId();
                 ProxyController.getInstance().unregisterForAllDataDisconnected(dds, this);
@@ -1635,7 +1666,13 @@ public class ServiceStateTracker extends Handler {
 
                 // Setting SS Roaming (general)
                 if (mIsSubscriptionFromRuim) {
-                    mNewSS.setVoiceRoaming(isRoamingBetweenOperators(mNewSS.getVoiceRoaming(), mNewSS));
+                    boolean isRoamingBetweenOperators = isRoamingBetweenOperators(
+                            mNewSS.getVoiceRoaming(), mNewSS);
+                    if (isRoamingBetweenOperators != mNewSS.getVoiceRoaming()) {
+                        log("isRoamingBetweenOperators=" + isRoamingBetweenOperators
+                                + ". Override CDMA voice roaming to " + isRoamingBetweenOperators);
+                        mNewSS.setVoiceRoaming(isRoamingBetweenOperators);
+                    }
                 }
                 /**
                  * For CDMA, voice and data should have the same roaming status.
@@ -1648,15 +1685,25 @@ public class ServiceStateTracker extends Handler {
                     final boolean isVoiceInService =
                             (mNewSS.getVoiceRegState() == ServiceState.STATE_IN_SERVICE);
                     if (isVoiceInService) {
-                        mNewSS.setDataRoaming(mNewSS.getVoiceRoaming());
+                        boolean isVoiceRoaming = mNewSS.getVoiceRoaming();
+                        if (mNewSS.getDataRoaming() != isVoiceRoaming) {
+                            log("Data roaming != Voice roaming. Override data roaming to "
+                                    + isVoiceRoaming);
+                            mNewSS.setDataRoaming(isVoiceRoaming);
+                        }
                     } else {
                         /**
                          * As per VoiceRegStateResult from radio types.hal the TSB58
                          * Roaming Indicator shall be sent if device is registered
                          * on a CDMA or EVDO system.
                          */
-                        mNewSS.setDataRoaming(
-                                !isRoamIndForHomeSystem(Integer.toString(mRoamingIndicator)));
+                        boolean isRoamIndForHomeSystem = isRoamIndForHomeSystem(
+                                Integer.toString(mRoamingIndicator));
+                        if (mNewSS.getDataRoaming() == isRoamIndForHomeSystem) {
+                            log("isRoamIndForHomeSystem=" + isRoamIndForHomeSystem
+                                    + ", override data roaming to " + !isRoamIndForHomeSystem);
+                            mNewSS.setDataRoaming(!isRoamIndForHomeSystem);
+                        }
                     }
                 }
 
@@ -1861,6 +1908,9 @@ public class ServiceStateTracker extends Handler {
                     mNewReasonDataDenied = dataRegStateResult.reasonDataDenied;
                     mNewMaxDataCalls = dataRegStateResult.maxDataCalls;
                     mDataRoaming = regCodeIsRoaming(regState);
+                    // Save the data roaming state reported by modem registration before resource
+                    // overlay or carrier config possibly overrides it.
+                    mNewSS.setDataRoamingFromRegistration(mDataRoaming);
 
                     if (DBG) {
                         log("handlPollStateResultMessage: GsmSST setDataRegState=" + dataRegState
@@ -1869,7 +1919,11 @@ public class ServiceStateTracker extends Handler {
                     }
                 } else if (mPhone.isPhoneTypeCdma()) {
 
-                    mNewSS.setDataRoaming(regCodeIsRoaming(regState));
+                    boolean isDataRoaming = regCodeIsRoaming(regState);
+                    mNewSS.setDataRoaming(isDataRoaming);
+                    // Save the data roaming state reported by modem registration before resource
+                    // overlay or carrier config possibly overrides it.
+                    mNewSS.setDataRoamingFromRegistration(isDataRoaming);
 
                     if (DBG) {
                         log("handlPollStateResultMessage: cdma setDataRegState=" + dataRegState
@@ -1894,11 +1948,15 @@ public class ServiceStateTracker extends Handler {
                     }
 
                     // voice roaming state in done while handling EVENT_POLL_STATE_REGISTRATION_CDMA
-                    mNewSS.setDataRoaming(regCodeIsRoaming(regState));
+                    boolean isDataRoaming = regCodeIsRoaming(regState);
+                    mNewSS.setDataRoaming(isDataRoaming);
+                    // Save the data roaming state reported by modem registration before resource
+                    // overlay or carrier config possibly overrides it.
+                    mNewSS.setDataRoamingFromRegistration(isDataRoaming);
                     if (DBG) {
-                        log("handlPollStateResultMessage: CdmaLteSST setDataRegState=" + dataRegState
-                                + " regState=" + regState
-                                + " dataRadioTechnology=" + newDataRat);
+                        log("handlPollStateResultMessage: CdmaLteSST setDataRegState="
+                                + dataRegState + " regState=" + regState + " dataRadioTechnology="
+                                + newDataRat);
                     }
                 }
 
@@ -1961,7 +2019,7 @@ public class ServiceStateTracker extends Handler {
             case EVENT_POLL_STATE_NETWORK_SELECTION_MODE: {
                 ints = (int[])ar.result;
                 mNewSS.setIsManualSelection(ints[0] == 1);
-                if ((ints[0] == 1) && (!mPhone.isManualNetSelAllowed())) {
+                if ((ints[0] == 1) && (mPhone.shouldForceAutoNetworkSelect())) {
                         /*
                          * modem is currently in manual selection but manual
                          * selection is not allowed in the current mode so
@@ -1988,8 +2046,9 @@ public class ServiceStateTracker extends Handler {
      */
     private boolean isRoamIndForHomeSystem(String roamInd) {
         // retrieve the carrier-specified list of ERIs for home system
-        String[] homeRoamIndicators = mPhone.getContext().getResources()
+        String[] homeRoamIndicators = Resources.getSystem()
                 .getStringArray(com.android.internal.R.array.config_cdma_home_system);
+        log("isRoamIndForHomeSystem: homeRoamIndicators=" + Arrays.toString(homeRoamIndicators));
 
         if (homeRoamIndicators != null) {
             // searches through the comma-separated list for a match,
@@ -2000,10 +2059,12 @@ public class ServiceStateTracker extends Handler {
                 }
             }
             // no matches found against the list!
+            log("isRoamIndForHomeSystem: No match found against list for roamInd=" + roamInd);
             return false;
         }
 
         // no system property found for the roaming indicators for home system
+        log("isRoamIndForHomeSystem: No list found");
         return false;
     }
 
@@ -2027,13 +2088,14 @@ public class ServiceStateTracker extends Handler {
              * agreements and MVNO's.
              */
             boolean roaming = (mGsmRoaming || mDataRoaming);
-            if (mGsmRoaming && !isOperatorConsideredRoaming(mNewSS) &&
-                    (isSameNamedOperators(mNewSS) || isOperatorConsideredNonRoaming(mNewSS))) {
+
+            if (mGsmRoaming && !isOperatorConsideredRoaming(mNewSS)
+                    && (isSameNamedOperators(mNewSS) || isOperatorConsideredNonRoaming(mNewSS))) {
+                log("updateRoamingState: resource override set non roaming.isSameNamedOperators="
+                        + isSameNamedOperators(mNewSS) + ",isOperatorConsideredNonRoaming="
+                        + isOperatorConsideredNonRoaming(mNewSS));
                 roaming = false;
             }
-
-            // Save the roaming state before carrier config possibly overrides it.
-            mNewSS.setDataRoamingFromRegistration(roaming);
 
             CarrierConfigManager configLoader = (CarrierConfigManager)
                     mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
@@ -2064,9 +2126,6 @@ public class ServiceStateTracker extends Handler {
             mNewSS.setVoiceRoaming(roaming);
             mNewSS.setDataRoaming(roaming);
         } else {
-            // Save the roaming state before carrier config possibly overrides it.
-            mNewSS.setDataRoamingFromRegistration(mNewSS.getDataRoaming());
-
             CarrierConfigManager configLoader = (CarrierConfigManager)
                     mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
             if (configLoader != null) {
@@ -2120,8 +2179,15 @@ public class ServiceStateTracker extends Handler {
 
         String wfcVoiceSpnFormat = null;
         String wfcDataSpnFormat = null;
-        if (mPhone.getImsPhone() != null && mPhone.getImsPhone().isWifiCallingEnabled()) {
-            // In Wi-Fi Calling mode show SPN+WiFi
+        int combinedRegState = getCombinedRegState();
+        if (mPhone.getImsPhone() != null && mPhone.getImsPhone().isWifiCallingEnabled()
+                && (combinedRegState == ServiceState.STATE_IN_SERVICE)) {
+            // In Wi-Fi Calling mode show SPN or PLMN + WiFi Calling
+            //
+            // 1) Show SPN + Wi-Fi Calling If SIM has SPN and SPN display condition
+            //    is satisfied or SPN override is enabled for this carrier
+            //
+            // 2) Show PLMN + Wi-Fi Calling if there is no valid SPN in case 1
 
             String[] wfcSpnFormats = mPhone.getContext().getResources().getStringArray(
                     com.android.internal.R.array.wfcSpnFormats);
@@ -2146,7 +2212,6 @@ public class ServiceStateTracker extends Handler {
             wfcDataSpnFormat = wfcSpnFormats[dataIdx];
         }
 
-        int combinedRegState = getCombinedRegState();
         if (mPhone.isPhoneTypeGsm()) {
             // The values of plmn/showPlmn change in different scenarios.
             // 1) No service but emergency call allowed -> expected
@@ -2211,13 +2276,19 @@ public class ServiceStateTracker extends Handler {
 
             if (!TextUtils.isEmpty(spn) && !TextUtils.isEmpty(wfcVoiceSpnFormat) &&
                     !TextUtils.isEmpty(wfcDataSpnFormat)) {
-                // In Wi-Fi Calling mode show SPN+WiFi
+                // Show SPN + Wi-Fi Calling If SIM has SPN and SPN display condition
+                // is satisfied or SPN override is enabled for this carrier.
 
                 String originalSpn = spn.trim();
                 spn = String.format(wfcVoiceSpnFormat, originalSpn);
                 dataSpn = String.format(wfcDataSpnFormat, originalSpn);
                 showSpn = true;
                 showPlmn = false;
+            } else if (!TextUtils.isEmpty(plmn) && !TextUtils.isEmpty(wfcVoiceSpnFormat)) {
+                // Show PLMN + Wi-Fi Calling if there is no valid SPN in the above case
+
+                String originalPlmn = plmn.trim();
+                plmn = String.format(wfcVoiceSpnFormat, originalPlmn);
             } else if (mSS.getVoiceRegState() == ServiceState.STATE_POWER_OFF
                     || (showPlmn && TextUtils.equals(spn, plmn))) {
                 // airplane mode or spn equals plmn, do not show spn
@@ -2765,7 +2836,7 @@ public class ServiceStateTracker extends Handler {
         }
 
         if (hasRejectCauseChanged) {
-            setNotification(mRejectCode == 0 ? CS_REJECT_CAUSE_DISABLED : CS_REJECT_CAUSE_ENABLED);
+            setNotification(CS_REJECT_CAUSE_ENABLED);
         }
 
         if (hasChanged) {
@@ -2792,7 +2863,13 @@ public class ServiceStateTracker extends Handler {
                 tm.setNetworkCountryIsoForPhone(mPhone.getPhoneId(), "");
                 mGotCountryCode = false;
                 mNitzUpdatedTime = false;
-            } else {
+            } else if (mSS.getRilDataRadioTechnology() != ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN) {
+                // Update time zone, ISO, and IDD.
+                //
+                // If the device is on IWLAN, modems manufacture a ServiceState with the MCC/MNC of
+                // the SIM as if we were talking to towers. Telephony code then uses that with
+                // mccTable to suggest a timezone. We shouldn't do that if the MCC/MNC is from IWLAN
+
                 String iso = "";
                 String mcc = "";
                 try {
@@ -2813,20 +2890,20 @@ public class ServiceStateTracker extends Handler {
                             TelephonyProperties.PROPERTY_IGNORE_NITZ, false)
                             && ((SystemClock.uptimeMillis() & 1) == 0);
 
-                    ArrayList<TimeZone> uniqueZones = TimeUtils.getTimeZonesWithUniqueOffsets(iso);
-                    if ((uniqueZones.size() == 1) || testOneUniqueOffsetPath) {
-                        TimeZone zone = uniqueZones.get(0);
+                    List<String> uniqueZoneIds = TimeUtils.getTimeZoneIdsWithUniqueOffsets(iso);
+                    if ((uniqueZoneIds.size() == 1) || testOneUniqueOffsetPath) {
+                        String zoneId = uniqueZoneIds.get(0);
                         if (DBG) {
                             log("pollStateDone: no nitz but one TZ for iso-cc=" + iso
-                                    + " with zone.getID=" + zone.getID()
+                                    + " with zone.getID=" + zoneId
                                     + " testOneUniqueOffsetPath=" + testOneUniqueOffsetPath);
                         }
-                        mTimeZoneLog.log("pollStateDone: set time zone=" + zone.getID()
+                        mTimeZoneLog.log("pollStateDone: set time zone=" + zoneId
                                 + " mcc=" + mcc + " iso=" + iso);
-                        setAndBroadcastNetworkSetTimeZone(zone.getID());
+                        setAndBroadcastNetworkSetTimeZone(zoneId);
                     } else {
                         if (DBG) {
-                            log("pollStateDone: there are " + uniqueZones.size()
+                            log("pollStateDone: there are " + uniqueZoneIds.size()
                                     + " unique offsets for iso-cc='" + iso
                                     + " testOneUniqueOffsetPath=" + testOneUniqueOffsetPath
                                     + "', do nothing");
@@ -3121,8 +3198,6 @@ public class ServiceStateTracker extends Handler {
                 + mNeedFixZoneAfterNitz + " zone=" + (zone != null ? zone.getID() : "NULL");
         mTimeZoneLog.log(tmpLog);
 
-        mNeedFixZoneAfterNitz = false;
-
         if (zone != null) {
             log("fixTimeZone: zone != null zone.getID=" + zone.getID());
             if (getAutoTimeZone()) {
@@ -3130,10 +3205,13 @@ public class ServiceStateTracker extends Handler {
             } else {
                 log("fixTimeZone: skip changing zone as getAutoTimeZone was false");
             }
-            saveNitzTimeZone(zone.getID());
+            if (mNeedFixZoneAfterNitz) {
+                saveNitzTimeZone(zone.getID());
+            }
         } else {
             log("fixTimeZone: zone == null, do nothing for zone");
         }
+        mNeedFixZoneAfterNitz = false;
     }
 
     /**
@@ -3252,7 +3330,8 @@ public class ServiceStateTracker extends Handler {
     /**
      * Do not set roaming state in case of oprators considered non-roaming.
      *
-     * Can use mcc or mcc+mnc as item of config_operatorConsideredNonRoaming.
+     * Can use mcc or mcc+mnc as item of
+     * {@link CarrierConfigManager#KEY_NON_ROAMING_OPERATOR_STRING_ARRAY}.
      * For example, 302 or 21407. If mcc or mcc+mnc match with operator,
      * don't set roaming state.
      *
@@ -3261,15 +3340,22 @@ public class ServiceStateTracker extends Handler {
      */
     private boolean isOperatorConsideredNonRoaming(ServiceState s) {
         String operatorNumeric = s.getOperatorNumeric();
-        String[] numericArray = mPhone.getContext().getResources().getStringArray(
-                com.android.internal.R.array.config_operatorConsideredNonRoaming);
-
-        if (numericArray.length == 0 || operatorNumeric == null) {
+        final CarrierConfigManager configManager = (CarrierConfigManager) mPhone.getContext()
+                .getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        String[] numericArray = null;
+        if (configManager != null) {
+            PersistableBundle config = configManager.getConfigForSubId(mPhone.getSubId());
+            if (config != null) {
+                numericArray = config.getStringArray(
+                        CarrierConfigManager.KEY_NON_ROAMING_OPERATOR_STRING_ARRAY);
+            }
+        }
+        if (ArrayUtils.isEmpty(numericArray) || operatorNumeric == null) {
             return false;
         }
 
         for (String numeric : numericArray) {
-            if (operatorNumeric.startsWith(numeric)) {
+            if (!TextUtils.isEmpty(numeric) && operatorNumeric.startsWith(numeric)) {
                 return true;
             }
         }
@@ -3278,15 +3364,22 @@ public class ServiceStateTracker extends Handler {
 
     private boolean isOperatorConsideredRoaming(ServiceState s) {
         String operatorNumeric = s.getOperatorNumeric();
-        String[] numericArray = mPhone.getContext().getResources().getStringArray(
-                com.android.internal.R.array.config_sameNamedOperatorConsideredRoaming);
-
-        if (numericArray.length == 0 || operatorNumeric == null) {
+        final CarrierConfigManager configManager = (CarrierConfigManager) mPhone.getContext()
+                .getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        String[] numericArray = null;
+        if (configManager != null) {
+            PersistableBundle config = configManager.getConfigForSubId(mPhone.getSubId());
+            if (config != null) {
+                numericArray = config.getStringArray(
+                        CarrierConfigManager.KEY_ROAMING_OPERATOR_STRING_ARRAY);
+            }
+        }
+        if (ArrayUtils.isEmpty(numericArray) || operatorNumeric == null) {
             return false;
         }
 
         for (String numeric : numericArray) {
-            if (operatorNumeric.startsWith(numeric)) {
+            if (!TextUtils.isEmpty(numeric) && operatorNumeric.startsWith(numeric)) {
                 return true;
             }
         }
@@ -3769,6 +3862,18 @@ public class ServiceStateTracker extends Handler {
     }
 
     /**
+     * Cancels all notifications posted to NotificationManager. These notifications for restricted
+     * state and rejection cause for cs registration are no longer valid after the SIM has been
+     * removed.
+     */
+    private void cancelAllNotifications() {
+        if (DBG) log("setNotification: cancelAllNotifications");
+        NotificationManager notificationManager = (NotificationManager)
+                mPhone.getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+        notificationManager.cancelAll();
+    }
+
+    /**
      * Post a notification to NotificationManager for restricted state and
      * rejection cause for cs registration
      *
@@ -3843,16 +3948,13 @@ public class ServiceStateTracker extends Handler {
                 notificationId = CS_REJECT_CAUSE_NOTIFICATION;
                 int resId = selectResourceForRejectCode(mRejectCode);
                 if (0 == resId) {
-                    // cancel notification because current reject code is not handled.
-                    notifyType = CS_REJECT_CAUSE_DISABLED;
+                    loge("setNotification: mRejectCode=" + mRejectCode + " is not handled.");
+                    return;
                 } else {
                     icon = com.android.internal.R.drawable.stat_notify_mmcc_indication_icn;
                     title = Resources.getSystem().getString(resId);
                     details = null;
                 }
-                break;
-            case CS_REJECT_CAUSE_DISABLED:
-                notificationId = CS_REJECT_CAUSE_NOTIFICATION;
                 break;
         }
 
@@ -3869,6 +3971,7 @@ public class ServiceStateTracker extends Handler {
                 .setColor(context.getResources().getColor(
                         com.android.internal.R.color.system_notification_accent_color))
                 .setContentTitle(title)
+                .setStyle(new Notification.BigTextStyle().bigText(details))
                 .setContentText(details)
                 .setChannel(NotificationChannelController.CHANNEL_ID_ALERT)
                 .build();
@@ -3876,8 +3979,7 @@ public class ServiceStateTracker extends Handler {
         NotificationManager notificationManager = (NotificationManager)
                 context.getSystemService(Context.NOTIFICATION_SERVICE);
 
-        if (notifyType == PS_DISABLED || notifyType == CS_DISABLED
-                || notifyType == CS_REJECT_CAUSE_DISABLED) {
+        if (notifyType == PS_DISABLED || notifyType == CS_DISABLED) {
             // cancel previous post notification
             notificationManager.cancel(notificationId);
         } else {

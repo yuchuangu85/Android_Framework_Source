@@ -155,8 +155,7 @@ public class Item extends AbstractItem {
             // Set the image drawable to null before setting the state and level to avoid affecting
             // any recycled drawable in the ImageView
             iconView.setImageDrawable(null);
-            iconView.setImageState(icon.getState(), false /* merge */);
-            iconView.setImageLevel(icon.getLevel());
+            onMergeIconStateAndLevels(iconView, icon);
             iconView.setImageDrawable(icon);
             iconContainer.setVisibility(View.VISIBLE);
         } else {
@@ -164,5 +163,15 @@ public class Item extends AbstractItem {
         }
 
         view.setId(getViewId());
+    }
+
+    /**
+     * Copies state and level information from {@link #getIcon()} to the currently bound view's
+     * ImageView. Subclasses can override this method to change whats being copied from the icon
+     * to the ImageView.
+     */
+    protected void onMergeIconStateAndLevels(ImageView iconView, Drawable icon) {
+        iconView.setImageState(icon.getState(), false /* merge */);
+        iconView.setImageLevel(icon.getLevel());
     }
 }

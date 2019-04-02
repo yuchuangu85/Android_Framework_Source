@@ -20,6 +20,7 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.database.ContentObserver;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.support.v4.util.ArraySet;
@@ -65,7 +66,7 @@ public class HeadsUpManager implements ViewTreeObserver.OnComputeInternalInsetsL
     private final ArrayMap<String, Long> mSnoozedPackages;
     private final HashSet<OnHeadsUpChangedListener> mListeners = new HashSet<>();
     private final int mDefaultSnoozeLengthMs;
-    private final Handler mHandler = new Handler();
+    private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final Pools.Pool<HeadsUpEntry> mEntryPool = new Pools.Pool<HeadsUpEntry>() {
 
         private Stack<HeadsUpEntry> mPoolObjects = new Stack<>();
@@ -255,6 +256,12 @@ public class HeadsUpManager implements ViewTreeObserver.OnComputeInternalInsetsL
             listener.onHeadsUpStateChanged(entry, false);
         }
         mEntryPool.release(remove);
+    }
+
+    public void removeAllHeadsUpEntries() {
+        for (String key : mHeadsUpEntries.keySet()) {
+            removeHeadsUpEntry(mHeadsUpEntries.get(key).entry);
+        }
     }
 
     private void updatePinnedMode() {
@@ -618,6 +625,7 @@ public class HeadsUpManager implements ViewTreeObserver.OnComputeInternalInsetsL
 
     @Override
     public void onReorderingAllowed() {
+        mBar.getNotificationScrollLayout().setHeadsUpGoingAwayAnimationsAllowed(false);
         for (NotificationData.Entry entry : mEntriesToRemoveWhenReorderingAllowed) {
             if (isHeadsUp(entry.key)) {
                 // Maybe the heads-up was removed already
@@ -625,6 +633,7 @@ public class HeadsUpManager implements ViewTreeObserver.OnComputeInternalInsetsL
             }
         }
         mEntriesToRemoveWhenReorderingAllowed.clear();
+        mBar.getNotificationScrollLayout().setHeadsUpGoingAwayAnimationsAllowed(true);
     }
 
     public void setVisualStabilityManager(VisualStabilityManager visualStabilityManager) {

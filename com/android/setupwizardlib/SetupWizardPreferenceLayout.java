@@ -59,8 +59,7 @@ import com.android.setupwizardlib.template.RecyclerMixin;
  * }</pre>
  *
  * <p />Fragments using this layout <em>must</em> delegate {@code onCreateRecyclerView} to the
- * implementation in this class:
- * {@link #onCreateRecyclerView(android.view.LayoutInflater, android.view.ViewGroup, android.os.Bundle)}
+ * implementation in this class: {@link #onCreateRecyclerView}
  */
 public class SetupWizardPreferenceLayout extends SetupWizardRecyclerLayout {
 

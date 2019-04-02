@@ -17,10 +17,10 @@
 package com.android.systemui.statusbar.stack;
 
 import android.content.Context;
+import android.content.res.Resources;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
-
 import com.android.systemui.R;
 import com.android.systemui.statusbar.DismissView;
 import com.android.systemui.statusbar.EmptyShadeView;
@@ -48,6 +48,7 @@ public class StackScrollAlgorithm {
 
     private StackScrollAlgorithmState mTempAlgorithmState = new StackScrollAlgorithmState();
     private boolean mIsExpanded;
+    private boolean mClipNotificationScrollToTop;
     private int mStatusBarHeight;
 
     public StackScrollAlgorithm(Context context) {
@@ -59,13 +60,14 @@ public class StackScrollAlgorithm {
     }
 
     private void initConstants(Context context) {
-        mPaddingBetweenElements = context.getResources().getDimensionPixelSize(
+        Resources res = context.getResources();
+        mPaddingBetweenElements = res.getDimensionPixelSize(
                 R.dimen.notification_divider_height);
-        mIncreasedPaddingBetweenElements = context.getResources()
-                .getDimensionPixelSize(R.dimen.notification_divider_height_increased);
-        mCollapsedSize = context.getResources()
-                .getDimensionPixelSize(R.dimen.notification_min_height);
-        mStatusBarHeight = context.getResources().getDimensionPixelSize(R.dimen.status_bar_height);
+        mIncreasedPaddingBetweenElements =
+                res.getDimensionPixelSize(R.dimen.notification_divider_height_increased);
+        mCollapsedSize = res.getDimensionPixelSize(R.dimen.notification_min_height);
+        mStatusBarHeight = res.getDimensionPixelSize(R.dimen.status_bar_height);
+        mClipNotificationScrollToTop = res.getBoolean(R.bool.config_clipNotificationScrollToTop);
     }
 
     public void getStackScrollState(AmbientState ambientState, StackScrollState resultState) {
@@ -142,7 +144,8 @@ public class StackScrollAlgorithm {
             float newNotificationEnd = newYTranslation + newHeight;
             boolean isHeadsUp = (child instanceof ExpandableNotificationRow)
                     && ((ExpandableNotificationRow) child).isPinned();
-            if (!state.inShelf && newYTranslation < previousNotificationEnd
+            if (mClipNotificationScrollToTop
+                    && !state.inShelf && newYTranslation < previousNotificationEnd
                     && (!isHeadsUp || ambientState.isShadeExpanded())) {
                 // The previous view is overlapping on top, clip!
                 float overlapAmount = previousNotificationEnd - newYTranslation;
@@ -246,14 +249,28 @@ public class StackScrollAlgorithm {
         state.paddingMap.clear();
         int notGoneIndex = 0;
         ExpandableView lastView = null;
+        int firstHiddenIndex = ambientState.isDark()
+                ? (ambientState.hasPulsingNotifications() ? 1 : 0)
+                : childCount;
+
+        // The goal here is to fill the padding map, by iterating over how much padding each child
+        // needs. The map is thereby reused, by first filling it with the padding amount and when
+        // iterating over it again, it's filled with the actual resolved value.
+
         for (int i = 0; i < childCount; i++) {
             ExpandableView v = (ExpandableView) hostView.getChildAt(i);
             if (v.getVisibility() != View.GONE) {
                 if (v == ambientState.getShelf()) {
                     continue;
                 }
+                if (i >= firstHiddenIndex) {
+                    // we need normal padding now, to be in sync with what the stack calculates
+                    lastView = null;
+                    ExpandableViewState viewState = resultState.getViewStateForView(v);
+                    viewState.hidden = true;
+                }
                 notGoneIndex = updateNotGoneIndex(resultState, state, notGoneIndex, v);
-                float increasedPadding = v.getIncreasedPaddingAmount();;
+                float increasedPadding = v.getIncreasedPaddingAmount();
                 if (increasedPadding != 0.0f) {
                     state.paddingMap.put(v, increasedPadding);
                     if (lastView != null) {
@@ -276,6 +293,8 @@ public class StackScrollAlgorithm {
                         state.paddingMap.put(lastView, newValue);
                     }
                 } else if (lastView != null) {
+
+                    // Let's now resolve the value to an actual padding
                     float newValue = getPaddingForValue(state.paddingMap.get(lastView));
                     state.paddingMap.put(lastView, newValue);
                 }
@@ -410,7 +429,7 @@ public class StackScrollAlgorithm {
             if (mIsExpanded) {
                 // Ensure that the heads up is always visible even when scrolled off
                 clampHunToTop(ambientState, row, childState);
-                if (i == 0 && row.isAboveShelf()) {
+                if (i == 0 && ambientState.isAboveShelf(row)) {
                     // the first hun can't get off screen.
                     clampHunToMaxTranslation(ambientState, row, childState);
                     childState.hidden = false;
@@ -512,7 +531,7 @@ public class StackScrollAlgorithm {
         ExpandableViewState childViewState = resultState.getViewStateForView(child);
         int zDistanceBetweenElements = ambientState.getZDistanceBetweenElements();
         float baseZ = ambientState.getBaseZHeight();
-        if (child.mustStayOnScreen()
+        if (child.mustStayOnScreen() && !ambientState.isDozingAndNotPulsing(child)
                 && childViewState.yTranslation < ambientState.getTopPadding()
                 + ambientState.getStackTranslation()) {
             if (childrenOnTop != 0.0f) {
@@ -524,7 +543,7 @@ public class StackScrollAlgorithm {
             }
             childViewState.zTranslation = baseZ
                     + childrenOnTop * zDistanceBetweenElements;
-        } else if (i == 0 && child.isAboveShelf()) {
+        } else if (i == 0 && ambientState.isAboveShelf(child)) {
             // In case this is a new view that has never been measured before, we don't want to
             // elevate if we are currently expanded more then the notification
             int shelfHeight = ambientState.getShelf().getIntrinsicHeight();

@@ -29,6 +29,7 @@ import static org.mockito.Mockito.verify;
 
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.ShapeDrawable;
 import android.graphics.drawable.shapes.RectShape;
 import android.support.test.InstrumentationRegistry;
@@ -133,12 +134,26 @@ public class RecyclerItemAdapterTest {
     }
 
     @Test
-    public void testCreateViewHolderNoBcakground() {
+    public void testCreateViewHolderNoBackground() {
         RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
         FrameLayout parent = new FrameLayout(InstrumentationRegistry.getContext());
 
         final ItemViewHolder viewHolder =
                 adapter.onCreateViewHolder(parent, R.layout.test_list_item_no_background);
         assertNull("Background should be null", viewHolder.itemView.getBackground());
+    }
+
+    @Test
+    public void testCreateViewHolderWithExistingBackground() {
+        RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
+        FrameLayout parent = new FrameLayout(InstrumentationRegistry.getContext());
+
+        final ItemViewHolder viewHolder =
+                adapter.onCreateViewHolder(parent, R.layout.test_existing_background);
+        Drawable background = viewHolder.itemView.getBackground();
+        assertTrue(background instanceof PatchedLayerDrawable);
+
+        PatchedLayerDrawable layerDrawable = (PatchedLayerDrawable) background;
+        assertTrue(layerDrawable.getDrawable(0) instanceof GradientDrawable);
     }
 }

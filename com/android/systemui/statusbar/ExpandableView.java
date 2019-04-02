@@ -24,8 +24,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
-import com.android.systemui.statusbar.stack.NotificationStackScrollLayout;
 import com.android.systemui.statusbar.stack.ExpandableViewState;
+import com.android.systemui.statusbar.stack.NotificationStackScrollLayout;
 import com.android.systemui.statusbar.stack.StackScrollState;
 
 import java.util.ArrayList;
@@ -151,9 +151,21 @@ public abstract class ExpandableView extends FrameLayout {
     }
 
     /**
-     * @return The minimum content height of this notification.
+     * @return The minimum content height of this notification. This also respects the temporary
+     * states of the view.
      */
     public int getMinHeight() {
+        return getMinHeight(false /* ignoreTemporaryStates */);
+    }
+
+    /**
+     * Get the minimum height of this view.
+     *
+     * @param ignoreTemporaryStates should temporary states be ignored like the guts or heads-up.
+     *
+     * @return The minimum height that this view needs.
+     */
+    public int getMinHeight(boolean ignoreTemporaryStates) {
         return getHeight();
     }
 
@@ -355,7 +367,7 @@ public abstract class ExpandableView extends FrameLayout {
         if (mClipToActualHeight) {
             int top = getClipTopAmount();
             mClipRect.set(0, top, getWidth(), Math.max(getActualHeight() + getExtraBottomPadding()
-                                - mClipBottomAmount, top));
+                    - mClipBottomAmount, top));
             setClipBounds(mClipRect);
         } else {
             setClipBounds(null);

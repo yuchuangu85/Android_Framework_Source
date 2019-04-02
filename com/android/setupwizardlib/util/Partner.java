@@ -26,6 +26,9 @@ import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
+import android.support.annotation.AnyRes;
+import android.support.annotation.DrawableRes;
+import android.support.annotation.StringRes;
 import android.support.annotation.VisibleForTesting;
 import android.util.Log;
 
@@ -56,7 +59,7 @@ public class Partner {
      *
      * @see #getResourceEntry(android.content.Context, int)
      */
-    public static Drawable getDrawable(Context context, int id) {
+    public static Drawable getDrawable(Context context, @DrawableRes int id) {
         final ResourceEntry entry = getResourceEntry(context, id);
         return entry.resources.getDrawable(entry.id);
     }
@@ -67,9 +70,18 @@ public class Partner {
      *
      * @see #getResourceEntry(android.content.Context, int)
      */
-    public static String getString(Context context, int id) {
+    public static String getString(Context context, @StringRes int id) {
         final ResourceEntry entry = getResourceEntry(context, id);
         return entry.resources.getString(entry.id);
+    }
+
+    /**
+     * Convenience method to get a CharSequence from partner overlay, or if not available, the text
+     * from the original context.
+     */
+    public static CharSequence getText(Context context, @StringRes int id) {
+        final ResourceEntry entry = getResourceEntry(context, id);
+        return entry.resources.getText(id);
     }
 
     /**
@@ -82,7 +94,7 @@ public class Partner {
      * {@code entry.resources.getString(entry.id)}, or other methods available in
      * {@link android.content.res.Resources}.
      */
-    public static ResourceEntry getResourceEntry(Context context, int id) {
+    public static ResourceEntry getResourceEntry(Context context, @AnyRes int id) {
         final Partner partner = Partner.get(context);
         if (partner != null) {
             final Resources ourResources = context.getResources();

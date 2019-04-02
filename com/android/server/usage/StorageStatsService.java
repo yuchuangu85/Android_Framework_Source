@@ -197,7 +197,7 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
             // logic should be kept in sync with getAllocatableBytes().
             if (isQuotaSupported(volumeUuid, callingPackage)) {
                 final long cacheTotal = getCacheBytes(volumeUuid, callingPackage);
-                final long cacheReserved = mStorage.getStorageCacheBytes(path);
+                final long cacheReserved = mStorage.getStorageCacheBytes(path, 0);
                 final long cacheClearable = Math.max(0, cacheTotal - cacheReserved);
 
                 return path.getUsableSpace() + cacheClearable;
@@ -392,6 +392,7 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
         res.videoBytes = stats[2];
         res.imageBytes = stats[3];
         res.appBytes = stats[4];
+        res.obbBytes = stats[5];
         return res;
     }
 

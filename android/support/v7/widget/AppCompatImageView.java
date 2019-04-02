@@ -23,7 +23,6 @@ import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.support.annotation.DrawableRes;
 import android.support.annotation.Nullable;
@@ -36,7 +35,7 @@ import android.util.AttributeSet;
 import android.widget.ImageView;
 
 /**
- * A {@link ImageView} which supports compatible features on older version of the platform,
+ * A {@link ImageView} which supports compatible features on older versions of the platform,
  * including:
  * <ul>
  *     <li>Allows dynamic tint of its background via the background tint methods in
@@ -49,8 +48,10 @@ import android.widget.ImageView;
  *     {@link R.attr#tintMode}.</li>
  * </ul>
  *
- * <p>This will automatically be used when you use {@link android.widget.ImageView} in your
- * layouts. You should only need to manually use this class when writing custom views.</p>
+ * <p>This will automatically be used when you use {@link ImageView} in your layouts
+ * and the top-level activity / dialog is provided by
+ * <a href="{@docRoot}topic/libraries/support-library/packages.html#v7-appcompat">appcompat</a>.
+ * You should only need to manually use this class when writing custom views.</p>
  */
 public class AppCompatImageView extends ImageView implements TintableBackgroundView,
         TintableImageSourceView {
@@ -104,14 +105,6 @@ public class AppCompatImageView extends ImageView implements TintableBackgroundV
     @Override
     public void setImageBitmap(Bitmap bm) {
         super.setImageBitmap(bm);
-        if (mImageHelper != null) {
-            mImageHelper.applySupportImageTint();
-        }
-    }
-
-    @Override
-    public void setImageIcon(@Nullable Icon icon) {
-        super.setImageIcon(icon);
         if (mImageHelper != null) {
             mImageHelper.applySupportImageTint();
         }

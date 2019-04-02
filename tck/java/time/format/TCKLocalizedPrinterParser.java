@@ -72,6 +72,7 @@ import java.time.temporal.TemporalAccessor;
 import java.util.Date;
 import java.util.Locale;
 
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
@@ -81,6 +82,21 @@ import org.testng.annotations.Test;
  */
 @Test
 public class TCKLocalizedPrinterParser {
+
+    // BEGIN Android-added: Clear DateFormat.is24Hour during test run (http://b/62651881).
+    private Boolean originalIs24Hour;
+
+    @BeforeMethod
+    public void clearIs24Hour() {
+        originalIs24Hour = DateFormat.is24Hour;
+        DateFormat.set24HourTimePref(null);
+    }
+
+    @AfterMethod
+    public void resetIs24Hour() {
+        DateFormat.set24HourTimePref(originalIs24Hour);
+    }
+    // END Android-added: Clear DateFormat.is24Hour during test run (http://b/62651881).
 
     private DateTimeFormatterBuilder builder;
     private ParsePosition pos;

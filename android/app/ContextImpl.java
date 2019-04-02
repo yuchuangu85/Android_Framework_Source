@@ -60,12 +60,10 @@ import android.os.Looper;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.os.SystemProperties;
 import android.os.Trace;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.os.storage.IStorageManager;
-import android.os.storage.StorageManager;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -76,6 +74,7 @@ import android.util.Log;
 import android.util.Slog;
 import android.view.Display;
 import android.view.DisplayAdjustments;
+import android.view.autofill.AutofillManager.AutofillClient;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.Preconditions;
@@ -90,6 +89,7 @@ import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
 import java.util.Objects;
 
 class ReceiverRestrictedContext extends ContextWrapper {
@@ -185,6 +185,8 @@ class ContextImpl extends Context {
 
     // The name of the split this Context is representing. May be null.
     private @Nullable String mSplitName = null;
+
+    private AutofillClient mAutofillClient = null;
 
     private final Object mSync = new Object();
 
@@ -370,31 +372,22 @@ class ContextImpl extends Context {
         return getSharedPreferences(file, mode);
     }
 
-    private boolean isBuggy() {
-        // STOPSHIP: fix buggy apps
-        if (SystemProperties.getBoolean("fw.ignore_buggy", false)) return false;
-        if ("com.google.android.tts".equals(getApplicationInfo().packageName)) return true;
-        if ("com.breel.geswallpapers".equals(getApplicationInfo().packageName)) return true;
-        return false;
-    }
-
     @Override
     public SharedPreferences getSharedPreferences(File file, int mode) {
-        checkMode(mode);
-        if (getApplicationInfo().targetSdkVersion >= android.os.Build.VERSION_CODES.O) {
-            if (isCredentialProtectedStorage()
-                    && !getSystemService(StorageManager.class).isUserKeyUnlocked(
-                            UserHandle.myUserId())
-                    && !isBuggy()) {
-                throw new IllegalStateException("SharedPreferences in credential encrypted "
-                        + "storage are not available until after user is unlocked");
-            }
-        }
         SharedPreferencesImpl sp;
         synchronized (ContextImpl.class) {
             final ArrayMap<File, SharedPreferencesImpl> cache = getSharedPreferencesCacheLocked();
             sp = cache.get(file);
             if (sp == null) {
+                checkMode(mode);
+                if (getApplicationInfo().targetSdkVersion >= android.os.Build.VERSION_CODES.O) {
+                    if (isCredentialProtectedStorage()
+                            && !getSystemService(UserManager.class)
+                                    .isUserUnlockingOrUnlocked(UserHandle.myUserId())) {
+                        throw new IllegalStateException("SharedPreferences in credential encrypted "
+                                + "storage are not available until after user is unlocked");
+                    }
+                }
                 sp = new SharedPreferencesImpl(file, mode);
                 cache.put(file, sp);
                 return sp;
@@ -423,6 +416,26 @@ class ContextImpl extends Context {
         }
 
         return packagePrefs;
+    }
+
+    @Override
+    public void reloadSharedPreferences() {
+        // Build the list of all per-context impls (i.e. caches) we know about
+        ArrayList<SharedPreferencesImpl> spImpls = new ArrayList<>();
+        synchronized (ContextImpl.class) {
+            final ArrayMap<File, SharedPreferencesImpl> cache = getSharedPreferencesCacheLocked();
+            for (int i = 0; i < cache.size(); i++) {
+                final SharedPreferencesImpl sp = cache.valueAt(i);
+                if (sp != null) {
+                    spImpls.add(sp);
+                }
+            }
+        }
+
+        // Issue the reload outside the cache lock
+        for (int i = 0; i < spImpls.size(); i++) {
+            spImpls.get(i).startReloadIfChangedUnexpectedly();
+        }
     }
 
     /**
@@ -609,7 +622,8 @@ class ContextImpl extends Context {
     @Override
     public File getExternalFilesDir(String type) {
         // Operates on primary external storage
-        return getExternalFilesDirs(type)[0];
+        final File[] dirs = getExternalFilesDirs(type);
+        return (dirs != null && dirs.length > 0) ? dirs[0] : null;
     }
 
     @Override
@@ -626,7 +640,8 @@ class ContextImpl extends Context {
     @Override
     public File getObbDir() {
         // Operates on primary external storage
-        return getObbDirs()[0];
+        final File[] dirs = getObbDirs();
+        return (dirs != null && dirs.length > 0) ? dirs[0] : null;
     }
 
     @Override
@@ -660,7 +675,8 @@ class ContextImpl extends Context {
     @Override
     public File getExternalCacheDir() {
         // Operates on primary external storage
-        return getExternalCacheDirs()[0];
+        final File[] dirs = getExternalCacheDirs();
+        return (dirs != null && dirs.length > 0) ? dirs[0] : null;
     }
 
     @Override
@@ -2210,6 +2226,18 @@ class ContextImpl extends Context {
     @Override
     public int getUserId() {
         return mUser.getIdentifier();
+    }
+
+    /** @hide */
+    @Override
+    public AutofillClient getAutofillClient() {
+        return mAutofillClient;
+    }
+
+    /** @hide */
+    @Override
+    public void setAutofillClient(AutofillClient client) {
+        mAutofillClient = client;
     }
 
     static ContextImpl createSystemContext(ActivityThread mainThread) {

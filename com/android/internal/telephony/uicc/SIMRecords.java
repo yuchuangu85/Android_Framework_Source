@@ -97,7 +97,7 @@ public class SIMRecords extends IccRecords {
     public String toString() {
         return "SimRecords: " + super.toString()
                 + " mVmConfig" + mVmConfig
-                + " mSpnOverride=" + "mSpnOverride"
+                + " mSpnOverride=" + mSpnOverride
                 + " callForwardingEnabled=" + mCallForwardingStatus
                 + " spnState=" + mSpnState
                 + " mCphsInfo=" + mCphsInfo
@@ -295,30 +295,11 @@ public class SIMRecords extends IccRecords {
         mRecordsRequested = false;
     }
 
-
     //***** Public Methods
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public String getIMSI() {
-        return mImsi;
-    }
 
     @Override
     public String getMsisdnNumber() {
         return mMsisdn;
-    }
-
-    @Override
-    public String getGid1() {
-        return mGid1;
-    }
-
-    @Override
-    public String getGid2() {
-        return mGid2;
     }
 
     @Override
@@ -638,7 +619,8 @@ public class SIMRecords extends IccRecords {
      */
     @Override
     public String getOperatorNumeric() {
-        if (mImsi == null) {
+        String imsi = getIMSI();
+        if (imsi == null) {
             log("getOperatorNumeric: IMSI == null");
             return null;
         }
@@ -649,7 +631,11 @@ public class SIMRecords extends IccRecords {
 
         // Length = length of MCC + length of MNC
         // length of mcc = 3 (TS 23.003 Section 2.2)
-        return mImsi.substring(0, 3 + mMncLength);
+        if (imsi.length() >= 3 + mMncLength) {
+            return imsi.substring(0, 3 + mMncLength);
+        } else {
+            return null;
+        }
     }
 
     // ***** Overridden from Handler
@@ -699,11 +685,17 @@ public class SIMRecords extends IccRecords {
                     }
 
                     log("IMSI: mMncLength=" + mMncLength);
-                    log("IMSI: " + mImsi.substring(0, 6) + Rlog.pii(LOG_TAG, mImsi.substring(6)));
+
+                    if (mImsi != null && mImsi.length() >= 6) {
+                        log("IMSI: " + mImsi.substring(0, 6)
+                                + Rlog.pii(LOG_TAG, mImsi.substring(6)));
+                    }
+
+                    String imsi = getIMSI();
 
                     if (((mMncLength == UNKNOWN) || (mMncLength == 2))
-                            && ((mImsi != null) && (mImsi.length() >= 6))) {
-                        String mccmncCode = mImsi.substring(0, 6);
+                            && ((imsi != null) && (imsi.length() >= 6))) {
+                        String mccmncCode = imsi.substring(0, 6);
                         for (String mccmnc : MCCMNC_CODES_HAVING_3DIGITS_MNC) {
                             if (mccmnc.equals(mccmncCode)) {
                                 mMncLength = 3;
@@ -717,7 +709,7 @@ public class SIMRecords extends IccRecords {
                         // the SIM has told us all it knows, but it didn't know the mnc length.
                         // guess using the mcc
                         try {
-                            int mcc = Integer.parseInt(mImsi.substring(0, 3));
+                            int mcc = Integer.parseInt(imsi.substring(0, 3));
                             mMncLength = MccTable.smallestDigitsMccForMnc(mcc);
                             log("setting2 mMncLength=" + mMncLength);
                         } catch (NumberFormatException e) {
@@ -726,12 +718,13 @@ public class SIMRecords extends IccRecords {
                         }
                     }
 
-                    if (mMncLength != UNKNOWN && mMncLength != UNINITIALIZED) {
-                        log("update mccmnc=" + mImsi.substring(0, 3 + mMncLength));
+                    if (mMncLength != UNKNOWN && mMncLength != UNINITIALIZED
+                            && imsi.length() >= 3 + mMncLength) {
+                        log("update mccmnc=" + imsi.substring(0, 3 + mMncLength));
                         // finally have both the imsi and the mncLength and
                         // can parse the imsi properly
                         MccTable.updateMccMncConfiguration(mContext,
-                                mImsi.substring(0, 3 + mMncLength), false);
+                                imsi.substring(0, 3 + mMncLength), false);
                     }
                     mImsiReadyRegistrants.notifyRegistrants();
                     break;
@@ -925,27 +918,39 @@ public class SIMRecords extends IccRecords {
                     try {
                         isRecordLoadResponse = true;
 
-                        ar = (AsyncResult) msg.obj;
-                        data = (byte[]) ar.result;
+                        if (mCarrierTestOverride.isInTestMode() && getIMSI() != null) {
+                            imsi = getIMSI();
+                            try {
+                                int mcc = Integer.parseInt(imsi.substring(0, 3));
+                                mMncLength = MccTable.smallestDigitsMccForMnc(mcc);
+                                log("[TestMode] mMncLength=" + mMncLength);
+                            } catch (NumberFormatException e) {
+                                mMncLength = UNKNOWN;
+                                loge("[TestMode] Corrupt IMSI! mMncLength=" + mMncLength);
+                            }
+                        } else {
+                            ar = (AsyncResult) msg.obj;
+                            data = (byte[]) ar.result;
 
-                        if (ar.exception != null) {
-                            break;
+                            if (ar.exception != null) {
+                                break;
+                            }
+
+                            log("EF_AD: " + IccUtils.bytesToHexString(data));
+
+                            if (data.length < 3) {
+                                log("Corrupt AD data on SIM");
+                                break;
+                            }
+
+                            if (data.length == 3) {
+                                log("MNC length not present in EF_AD");
+                                break;
+                            }
+
+                            mMncLength = data[3] & 0xf;
+                            log("setting4 mMncLength=" + mMncLength);
                         }
-
-                        log("EF_AD: " + IccUtils.bytesToHexString(data));
-
-                        if (data.length < 3) {
-                            log("Corrupt AD data on SIM");
-                            break;
-                        }
-
-                        if (data.length == 3) {
-                            log("MNC length not present in EF_AD");
-                            break;
-                        }
-
-                        mMncLength = data[3] & 0xf;
-                        log("setting4 mMncLength=" + mMncLength);
 
                         if (mMncLength == 0xf) {
                             mMncLength = UNKNOWN;
@@ -955,10 +960,14 @@ public class SIMRecords extends IccRecords {
                             log("setting5 mMncLength=" + mMncLength);
                         }
                     } finally {
+
+                        // IMSI could be a value reading from Sim or a fake IMSI if in the test mode
+                        imsi = getIMSI();
+
                         if (((mMncLength == UNINITIALIZED) || (mMncLength == UNKNOWN)
-                                    || (mMncLength == 2)) && ((mImsi != null)
-                                    && (mImsi.length() >= 6))) {
-                            String mccmncCode = mImsi.substring(0, 6);
+                                    || (mMncLength == 2)) && ((imsi != null)
+                                    && (imsi.length() >= 6))) {
+                            String mccmncCode = imsi.substring(0, 6);
                             log("mccmncCode=" + mccmncCode);
                             for (String mccmnc : MCCMNC_CODES_HAVING_3DIGITS_MNC) {
                                 if (mccmnc.equals(mccmncCode)) {
@@ -970,9 +979,9 @@ public class SIMRecords extends IccRecords {
                         }
 
                         if (mMncLength == UNKNOWN || mMncLength == UNINITIALIZED) {
-                            if (mImsi != null) {
+                            if (imsi != null) {
                                 try {
-                                    int mcc = Integer.parseInt(mImsi.substring(0, 3));
+                                    int mcc = Integer.parseInt(imsi.substring(0, 3));
 
                                     mMncLength = MccTable.smallestDigitsMccForMnc(mcc);
                                     log("setting7 mMncLength=" + mMncLength);
@@ -987,12 +996,13 @@ public class SIMRecords extends IccRecords {
                                         + "mMncLength=" + mMncLength);
                             }
                         }
-                        if (mImsi != null && mMncLength != UNKNOWN) {
+                        if (imsi != null && mMncLength != UNKNOWN
+                                && imsi.length() >= 3 + mMncLength) {
                             // finally have both imsi and the length of the mnc and can parse
                             // the imsi properly
-                            log("update mccmnc=" + mImsi.substring(0, 3 + mMncLength));
+                            log("update mccmnc=" + imsi.substring(0, 3 + mMncLength));
                             MccTable.updateMccMncConfiguration(mContext,
-                                    mImsi.substring(0, 3 + mMncLength), false);
+                                    imsi.substring(0, 3 + mMncLength), false);
                         }
                     }
                     break;
@@ -1248,7 +1258,9 @@ public class SIMRecords extends IccRecords {
                         mGid1 = null;
                         break;
                     }
+
                     mGid1 = IccUtils.bytesToHexString(data);
+
                     log("GID1: " + mGid1);
 
                     break;
@@ -1263,7 +1275,9 @@ public class SIMRecords extends IccRecords {
                         mGid2 = null;
                         break;
                     }
+
                     mGid2 = IccUtils.bytesToHexString(data);
+
                     log("GID2: " + mGid2);
 
                     break;
@@ -1597,11 +1611,13 @@ public class SIMRecords extends IccRecords {
             log("onAllRecordsLoaded empty 'gsm.sim.operator.numeric' skipping");
         }
 
-        if (!TextUtils.isEmpty(mImsi)) {
-            log("onAllRecordsLoaded set mcc imsi" + (VDBG ? ("=" + mImsi) : ""));
+        String imsi = getIMSI();
+
+        if (!TextUtils.isEmpty(imsi) && imsi.length() >= 3) {
+            log("onAllRecordsLoaded set mcc imsi" + (VDBG ? ("=" + imsi) : ""));
             mTelephonyManager.setSimCountryIsoForPhone(
                     mParentApp.getPhoneId(), MccTable.countryCodeForMcc(
-                    Integer.parseInt(mImsi.substring(0,3))));
+                    Integer.parseInt(imsi.substring(0, 3))));
         } else {
             log("onAllRecordsLoaded empty imsi skipping setting mcc");
         }
@@ -1909,7 +1925,7 @@ public class SIMRecords extends IccRecords {
                     mSpnDisplayCondition = 0xff & data[0];
 
                     setServiceProviderName(IccUtils.adnStringFieldToString(
-                            data, 1, data.length - 1));
+                                data, 1, data.length - 1));
                     // for card double-check and brand override
                     // we have to do this:
                     final String spn = getServiceProviderName();
@@ -1943,7 +1959,7 @@ public class SIMRecords extends IccRecords {
                     data = (byte[]) ar.result;
 
                     setServiceProviderName(IccUtils.adnStringFieldToString(
-                            data, 0, data.length));
+                                data, 0, data.length));
                     // for card double-check and brand override
                     // we have to do this:
                     final String spn = getServiceProviderName();
@@ -1975,7 +1991,7 @@ public class SIMRecords extends IccRecords {
                     data = (byte[]) ar.result;
 
                     setServiceProviderName(IccUtils.adnStringFieldToString(
-                            data, 0, data.length));
+                                data, 0, data.length));
                     // for card double-check and brand override
                     // we have to do this:
                     final String spn = getServiceProviderName();
@@ -2158,7 +2174,13 @@ public class SIMRecords extends IccRecords {
         pw.println(" mPnnHomeName=" + mPnnHomeName);
         pw.println(" mUsimServiceTable=" + mUsimServiceTable);
         pw.println(" mGid1=" + mGid1);
+        if (mCarrierTestOverride.isInTestMode()) {
+            pw.println(" mFakeGid1=" + ((mFakeGid1 != null) ? mFakeGid1 : "null"));
+        }
         pw.println(" mGid2=" + mGid2);
+        if (mCarrierTestOverride.isInTestMode()) {
+            pw.println(" mFakeGid2=" + ((mFakeGid2 != null) ? mFakeGid2 : "null"));
+        }
         pw.println(" mPlmnActRecords[]=" + Arrays.toString(mPlmnActRecords));
         pw.println(" mOplmnActRecords[]=" + Arrays.toString(mOplmnActRecords));
         pw.println(" mHplmnActRecords[]=" + Arrays.toString(mHplmnActRecords));

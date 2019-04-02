@@ -30,6 +30,7 @@ package javax.net.ssl;
 import java.net.*;
 import javax.net.SocketFactory;
 import java.io.IOException;
+import java.io.InputStream;
 import java.security.*;
 import java.util.Locale;
 
@@ -44,8 +45,16 @@ import sun.security.action.GetPropertyAction;
  */
 public abstract class SSLSocketFactory extends SocketFactory
 {
+    // Android-changed: Renamed field.
+    // Some apps rely on changing this field via reflection, so we can't change the name
+    // without introducing app compatibility problems.  See http://b/62248930.
     private static SSLSocketFactory defaultSocketFactory;
 
+    // Android-changed: Check Security.getVersion() on each update.
+    // If the set of providers or other such things changes, it may change the default
+    // factory, so we track the version returned from Security.getVersion() instead of
+    // only having a flag that says if we've ever initialized the default.
+    // private static boolean propertyChecked;
     private static int lastVersion = -1;
 
     static final boolean DEBUG;
@@ -86,7 +95,7 @@ public abstract class SSLSocketFactory extends SocketFactory
      * @see SSLContext#getDefault
      */
     public static synchronized SocketFactory getDefault() {
-        // Android-changed: Use security version instead of propertyChecked.
+        // Android-changed: Check Security.getVersion() on each update.
         if (defaultSocketFactory != null && lastVersion == Security.getVersion()) {
             return defaultSocketFactory;
         }
@@ -98,6 +107,7 @@ public abstract class SSLSocketFactory extends SocketFactory
         String clsName = getSecurityProperty("ssl.SocketFactory.provider");
 
         if (clsName != null) {
+            // Android-changed: Check if we already have an instance of the default factory class.
             // The instance for the default socket factory is checked for updates quite
             // often (for instance, every time a security provider is added). Which leads
             // to unnecessary overload and excessive error messages in case of class-loading
@@ -109,49 +119,49 @@ public abstract class SSLSocketFactory extends SocketFactory
             }
             log("setting up default SSLSocketFactory");
             try {
-                Class cls = null;
+                Class<?> cls = null;
                 try {
                     cls = Class.forName(clsName);
                 } catch (ClassNotFoundException e) {
-                    // Android-changed; Try the contextClassLoader first.
+                    // Android-changed: Try the contextClassLoader first.
                     ClassLoader cl = Thread.currentThread().getContextClassLoader();
                     if (cl == null) {
                         cl = ClassLoader.getSystemClassLoader();
                     }
 
                     if (cl != null) {
+                        // Android-changed: Use Class.forName() so the class gets initialized.
                         cls = Class.forName(clsName, true, cl);
                     }
                 }
                 log("class " + clsName + " is loaded");
-                defaultSocketFactory = (SSLSocketFactory)cls.newInstance();
+                SSLSocketFactory fac = (SSLSocketFactory)cls.newInstance();
                 log("instantiated an instance of class " + clsName);
-                if (defaultSocketFactory != null) {
-                    return defaultSocketFactory;
-                }
+                defaultSocketFactory = fac;
+                return fac;
             } catch (Exception e) {
                 log("SSLSocketFactory instantiation failed: " + e.toString());
+                // Android-changed: Fallback to the default SSLContext on exception.
             }
         }
 
-        // Android-changed: Allow for {@code null} SSLContext.getDefault.
         try {
+            // Android-changed: Allow for {@code null} SSLContext.getDefault.
             SSLContext context = SSLContext.getDefault();
             if (context != null) {
                 defaultSocketFactory = context.getSocketFactory();
+            } else {
+                defaultSocketFactory = new DefaultSSLSocketFactory(new IllegalStateException("No factory found."));
             }
+            return defaultSocketFactory;
         } catch (NoSuchAlgorithmException e) {
+            return new DefaultSSLSocketFactory(e);
         }
-
-        if (defaultSocketFactory == null) {
-            defaultSocketFactory = new DefaultSSLSocketFactory(new IllegalStateException("No factory found."));
-        }
-
-        return defaultSocketFactory;
     }
 
     static String getSecurityProperty(final String name) {
         return AccessController.doPrivileged(new PrivilegedAction<String>() {
+            @Override
             public String run() {
                 String s = java.security.Security.getProperty(name);
                 if (s != null) {
@@ -207,6 +217,56 @@ public abstract class SSLSocketFactory extends SocketFactory
      */
     public abstract Socket createSocket(Socket s, String host,
             int port, boolean autoClose) throws IOException;
+
+    /**
+     * Creates a server mode {@link Socket} layered over an
+     * existing connected socket, and is able to read data which has
+     * already been consumed/removed from the {@link Socket}'s
+     * underlying {@link InputStream}.
+     * <p>
+     * This method can be used by a server application that needs to
+     * observe the inbound data but still create valid SSL/TLS
+     * connections: for example, inspection of Server Name Indication
+     * (SNI) extensions (See section 3 of <A
+     * HREF="http://www.ietf.org/rfc/rfc6066.txt">TLS Extensions
+     * (RFC6066)</A>).  Data that has been already removed from the
+     * underlying {@link InputStream} should be loaded into the
+     * {@code consumed} stream before this method is called, perhaps
+     * using a {@link java.io.ByteArrayInputStream}.  When this
+     * {@link Socket} begins handshaking, it will read all of the data in
+     * {@code consumed} until it reaches {@code EOF}, then all further
+     * data is read from the underlying {@link InputStream} as
+     * usual.
+     * <p>
+     * The returned socket is configured using the socket options
+     * established for this factory, and is set to use server mode when
+     * handshaking (see {@link SSLSocket#setUseClientMode(boolean)}).
+     *
+     * @param  s
+     *         the existing socket
+     * @param  consumed
+     *         the consumed inbound network data that has already been
+     *         removed from the existing {@link Socket}
+     *         {@link InputStream}.  This parameter may be
+     *         {@code null} if no data has been removed.
+     * @param  autoClose close the underlying socket when this socket is closed.
+     *
+     * @return the {@link Socket} compliant with the socket options
+     *         established for this factory
+     *
+     * @throws IOException if an I/O error occurs when creating the socket
+     * @throws UnsupportedOperationException if the underlying provider
+     *         does not implement the operation
+     * @throws NullPointerException if {@code s} is {@code null}
+     *
+     * @since 1.8
+     *
+     * @hide
+     */
+    public Socket createSocket(Socket s, InputStream consumed,
+            boolean autoClose) throws IOException {
+        throw new UnsupportedOperationException();
+    }
 }
 
 

@@ -19,6 +19,8 @@ package com.android.internal.telephony.test;
 import android.os.Handler;
 import android.os.Message;
 import android.service.carrier.CarrierIdentifier;
+import android.telephony.ImsiEncryptionInfo;
+import android.telephony.NetworkScanRequest;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.RadioCapability;
@@ -945,6 +947,16 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
+    public void startNetworkScan(NetworkScanRequest nsr, Message response) {
+
+    }
+
+    @Override
+    public void stopNetworkScan(Message response) {
+
+    }
+
+    @Override
     public void getBasebandVersion(Message response) {
 
     }
@@ -1338,6 +1350,12 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
+    public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo,
+                                                Message result) {
+
+    }
+
+    @Override
     public void setAllowedCarriers(List<CarrierIdentifier> carriers, Message result) {
 
     }
@@ -1356,6 +1374,14 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
+    public void registerForModemReset(Handler h, int what, Object obj) {
+    }
+
+    @Override
+    public void unregisterForModemReset(Handler h) {
+    }
+
+    @Override
     public void sendDeviceState(int stateType, boolean state, Message result) {
     }
 
@@ -1364,6 +1390,22 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
-    public void setSimCardPower(boolean powerUp, Message result) {
+    public void setSimCardPower(int state, Message result) {
+    }
+
+    @Override
+    public void registerForCarrierInfoForImsiEncryption(Handler h, int what, Object obj) {
+    }
+
+    @Override
+    public void registerForNetworkScanResult(Handler h, int what, Object obj) {
+    }
+
+    @Override
+    public void unregisterForNetworkScanResult(Handler h) {
+    }
+
+    @Override
+    public void unregisterForCarrierInfoForImsiEncryption(Handler h) {
     }
 }

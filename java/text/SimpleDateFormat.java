@@ -128,7 +128,7 @@ import static java.text.DateFormatSymbols.*;
  *         <td>Week year
  *         <td><a href="#year">Year</a>
  *         <td><code>2009</code>; <code>09</code>
- *         <td>1+</td>
+ *         <td>24+</td>
  *     <tr style="background-color: rgb(238, 238, 255);">
  *         <td><code>M</code>
  *         <td>Month in year (context sensitive)
@@ -242,7 +242,7 @@ import static java.text.DateFormatSymbols.*;
  *         <td>Time zone
  *         <td><a href="#iso8601timezone">ISO 8601 time zone</a>
  *         <td><code>-08</code>; <code>-0800</code>;  <code>-08:00</code>
- *         <td>1+</td>
+ *         <td>24+</td>
  * </table>
  * </blockquote>
  * Pattern letters are usually repeated, as their number determines the
@@ -1212,18 +1212,18 @@ public class SimpleDateFormat extends DateFormat {
             break;
 
         case PATTERN_MONTH: // 'M'
-        {
-            current = formatMonth(count, value, maxIntCount, buffer, useDateFormatSymbols,
-                    false /* standalone */);
+            if (useDateFormatSymbols) {
+                current = formatMonth(count, value, maxIntCount, buffer, useDateFormatSymbols,
+                        false /* standalone */);
+            }
             break;
-        }
 
         case PATTERN_MONTH_STANDALONE: // 'L'
-        {
-            current = formatMonth(count, value, maxIntCount, buffer, useDateFormatSymbols,
-                    true /* standalone */);
+            if (useDateFormatSymbols) {
+                current = formatMonth(count, value, maxIntCount, buffer, useDateFormatSymbols,
+                        true /* standalone */);
+            }
             break;
-        }
 
         case PATTERN_HOUR_OF_DAY1: // 'k' 1-based.  eg, 23:59 + 1 hour =>> 24:59
             if (current == null) {
@@ -1237,16 +1237,16 @@ public class SimpleDateFormat extends DateFormat {
             break;
 
         case PATTERN_DAY_OF_WEEK: // 'E'
-        {
-            current = formatWeekday(count, value, useDateFormatSymbols, false /* standalone */);
+            if (current == null) {
+                current = formatWeekday(count, value, useDateFormatSymbols, false /* standalone */);
+            }
             break;
-        }
 
         case PATTERN_STANDALONE_DAY_OF_WEEK: // 'c'
-        {
-            current = formatWeekday(count, value, useDateFormatSymbols, true /* standalone */);
+            if (current == null) {
+                current = formatWeekday(count, value, useDateFormatSymbols, true /* standalone */);
+            }
             break;
-        }
 
         case PATTERN_AM_PM:    // 'a'
             if (useDateFormatSymbols) {

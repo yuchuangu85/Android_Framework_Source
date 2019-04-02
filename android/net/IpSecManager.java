@@ -21,10 +21,10 @@ import android.annotation.NonNull;
 import android.annotation.SystemService;
 import android.content.Context;
 import android.os.Binder;
-import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.util.AndroidException;
+import android.util.Log;
 import dalvik.system.CloseGuard;
 import java.io.FileDescriptor;
 import java.io.IOException;
@@ -56,12 +56,6 @@ public final class IpSecManager {
         public static final int SPI_UNAVAILABLE = 2;
     }
 
-    /** @hide */
-    public static final String KEY_STATUS = "status";
-    /** @hide */
-    public static final String KEY_RESOURCE_ID = "resourceId";
-    /** @hide */
-    public static final String KEY_SPI = "spi";
     /** @hide */
     public static final int INVALID_RESOURCE_ID = 0;
 
@@ -127,7 +121,11 @@ public final class IpSecManager {
          */
         @Override
         public void close() {
-            mSpi = INVALID_SECURITY_PARAMETER_INDEX;
+            try {
+                mService.releaseSecurityParameterIndex(mResourceId);
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
             mCloseGuard.close();
         }
 
@@ -146,7 +144,7 @@ public final class IpSecManager {
             mService = service;
             mRemoteAddress = remoteAddress;
             try {
-                Bundle result =
+                IpSecSpiResponse result =
                         mService.reserveSecurityParameterIndex(
                                 direction, remoteAddress.getHostAddress(), spi, new Binder());
 
@@ -154,7 +152,7 @@ public final class IpSecManager {
                     throw new NullPointerException("Received null response from IpSecService");
                 }
 
-                int status = result.getInt(KEY_STATUS);
+                int status = result.status;
                 switch (status) {
                     case Status.OK:
                         break;
@@ -167,8 +165,8 @@ public final class IpSecManager {
                         throw new RuntimeException(
                                 "Unknown status returned by IpSecService: " + status);
                 }
-                mSpi = result.getInt(KEY_SPI);
-                mResourceId = result.getInt(KEY_RESOURCE_ID);
+                mSpi = result.spi;
+                mResourceId = result.resourceId;
 
                 if (mSpi == INVALID_SECURITY_PARAMETER_INDEX) {
                     throw new RuntimeException("Invalid SPI returned by IpSecService: " + status);
@@ -183,6 +181,11 @@ public final class IpSecManager {
                 throw e.rethrowFromSystemServer();
             }
             mCloseGuard.open("open");
+        }
+
+        /** @hide */
+        int getResourceId() {
+            return mResourceId;
         }
     }
 
@@ -200,8 +203,7 @@ public final class IpSecManager {
      * @throws SpiUnavailableException indicating that a particular SPI cannot be reserved
      */
     public SecurityParameterIndex reserveSecurityParameterIndex(
-            int direction, InetAddress remoteAddress)
-            throws ResourceUnavailableException {
+            int direction, InetAddress remoteAddress) throws ResourceUnavailableException {
         try {
             return new SecurityParameterIndex(
                     mService,
@@ -250,7 +252,9 @@ public final class IpSecManager {
      */
     public void applyTransportModeTransform(Socket socket, IpSecTransform transform)
             throws IOException {
-        applyTransportModeTransform(ParcelFileDescriptor.fromSocket(socket), transform);
+        try (ParcelFileDescriptor pfd = ParcelFileDescriptor.fromSocket(socket)) {
+            applyTransportModeTransform(pfd, transform);
+        }
     }
 
     /**
@@ -268,15 +272,8 @@ public final class IpSecManager {
      */
     public void applyTransportModeTransform(DatagramSocket socket, IpSecTransform transform)
             throws IOException {
-        applyTransportModeTransform(ParcelFileDescriptor.fromDatagramSocket(socket), transform);
-    }
-
-    /* Call down to activate a transform */
-    private void applyTransportModeTransform(ParcelFileDescriptor pfd, IpSecTransform transform) {
-        try {
-            mService.applyTransportModeTransform(pfd, transform.getResourceId());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+        try (ParcelFileDescriptor pfd = ParcelFileDescriptor.fromDatagramSocket(socket)) {
+            applyTransportModeTransform(pfd, transform);
         }
     }
 
@@ -294,7 +291,22 @@ public final class IpSecManager {
      */
     public void applyTransportModeTransform(FileDescriptor socket, IpSecTransform transform)
             throws IOException {
-        applyTransportModeTransform(new ParcelFileDescriptor(socket), transform);
+        // We dup() the FileDescriptor here because if we don't, then the ParcelFileDescriptor()
+        // constructor takes control and closes the user's FD when we exit the method
+        // This is behaviorally the same as the other versions, but the PFD constructor does not
+        // dup() automatically, whereas PFD.fromSocket() and PDF.fromDatagramSocket() do dup().
+        try (ParcelFileDescriptor pfd = ParcelFileDescriptor.dup(socket)) {
+            applyTransportModeTransform(pfd, transform);
+        }
+    }
+
+    /* Call down to activate a transform */
+    private void applyTransportModeTransform(ParcelFileDescriptor pfd, IpSecTransform transform) {
+        try {
+            mService.applyTransportModeTransform(pfd, transform.getResourceId());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
     }
 
     /**
@@ -323,7 +335,9 @@ public final class IpSecManager {
      */
     public void removeTransportModeTransform(Socket socket, IpSecTransform transform)
             throws IOException {
-        removeTransportModeTransform(ParcelFileDescriptor.fromSocket(socket), transform);
+        try (ParcelFileDescriptor pfd = ParcelFileDescriptor.fromSocket(socket)) {
+            removeTransportModeTransform(pfd, transform);
+        }
     }
 
     /**
@@ -339,7 +353,9 @@ public final class IpSecManager {
      */
     public void removeTransportModeTransform(DatagramSocket socket, IpSecTransform transform)
             throws IOException {
-        removeTransportModeTransform(ParcelFileDescriptor.fromDatagramSocket(socket), transform);
+        try (ParcelFileDescriptor pfd = ParcelFileDescriptor.fromDatagramSocket(socket)) {
+            removeTransportModeTransform(pfd, transform);
+        }
     }
 
     /**
@@ -354,7 +370,9 @@ public final class IpSecManager {
      */
     public void removeTransportModeTransform(FileDescriptor socket, IpSecTransform transform)
             throws IOException {
-        removeTransportModeTransform(new ParcelFileDescriptor(socket), transform);
+        try (ParcelFileDescriptor pfd = ParcelFileDescriptor.dup(socket)) {
+            removeTransportModeTransform(pfd, transform);
+        }
     }
 
     /* Call down to activate a transform */
@@ -387,33 +405,48 @@ public final class IpSecManager {
      * FileDescriptor. Instead, disposing of this socket requires a call to close().
      */
     public static final class UdpEncapsulationSocket implements AutoCloseable {
-        private final FileDescriptor mFd;
+        private final ParcelFileDescriptor mPfd;
         private final IIpSecService mService;
+        private final int mResourceId;
+        private final int mPort;
         private final CloseGuard mCloseGuard = CloseGuard.get();
 
         private UdpEncapsulationSocket(@NonNull IIpSecService service, int port)
-                throws ResourceUnavailableException {
+                throws ResourceUnavailableException, IOException {
             mService = service;
+            try {
+                IpSecUdpEncapResponse result =
+                        mService.openUdpEncapsulationSocket(port, new Binder());
+                switch (result.status) {
+                    case Status.OK:
+                        break;
+                    case Status.RESOURCE_UNAVAILABLE:
+                        throw new ResourceUnavailableException(
+                                "No more Sockets may be allocated by this requester.");
+                    default:
+                        throw new RuntimeException(
+                                "Unknown status returned by IpSecService: " + result.status);
+                }
+                mResourceId = result.resourceId;
+                mPort = result.port;
+                mPfd = result.fileDescriptor;
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
             mCloseGuard.open("constructor");
-            // TODO: go down to the kernel and get a socket on the specified
-            mFd = new FileDescriptor();
-        }
-
-        private UdpEncapsulationSocket(IIpSecService service) throws ResourceUnavailableException {
-            mService = service;
-            mCloseGuard.open("constructor");
-            // TODO: go get a random socket on a random port
-            mFd = new FileDescriptor();
         }
 
         /** Access the inner UDP Encapsulation Socket */
         public FileDescriptor getSocket() {
-            return mFd;
+            if (mPfd == null) {
+                return null;
+            }
+            return mPfd.getFileDescriptor();
         }
 
         /** Retrieve the port number of the inner encapsulation socket */
         public int getPort() {
-            return 0; // TODO get the port number from the Socket;
+            return mPort;
         }
 
         @Override
@@ -428,7 +461,18 @@ public final class IpSecManager {
          * @param fd a file descriptor previously returned as a UDP Encapsulation socket.
          */
         public void close() throws IOException {
-            // TODO: Go close the socket
+            try {
+                mService.closeUdpEncapsulationSocket(mResourceId);
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
+
+            try {
+                mPfd.close();
+            } catch (IOException e) {
+                Log.e(TAG, "Failed to close UDP Encapsulation Socket with Port= " + mPort);
+                throw e;
+            }
             mCloseGuard.close();
         }
 
@@ -437,8 +481,12 @@ public final class IpSecManager {
             if (mCloseGuard != null) {
                 mCloseGuard.warnIfOpen();
             }
-
             close();
+        }
+
+        /** @hide */
+        int getResourceId() {
+            return mResourceId;
         }
     };
 
@@ -466,7 +514,13 @@ public final class IpSecManager {
     // socket.
     public UdpEncapsulationSocket openUdpEncapsulationSocket(int port)
             throws IOException, ResourceUnavailableException {
-        // Temporary code
+        /*
+         * Most range checking is done in the service, but this version of the constructor expects
+         * a valid port number, and zero cannot be checked after being passed to the service.
+         */
+        if (port == 0) {
+            throw new IllegalArgumentException("Specified port must be a valid port number!");
+        }
         return new UdpEncapsulationSocket(mService, port);
     }
 
@@ -490,8 +544,7 @@ public final class IpSecManager {
     // socket.
     public UdpEncapsulationSocket openUdpEncapsulationSocket()
             throws IOException, ResourceUnavailableException {
-        // Temporary code
-        return new UdpEncapsulationSocket(mService);
+        return new UdpEncapsulationSocket(mService, 0);
     }
 
     /**

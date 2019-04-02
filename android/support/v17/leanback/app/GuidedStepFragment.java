@@ -1,3 +1,6 @@
+// CHECKSTYLE:OFF Generated code
+/* This file is auto-generated from GuidedStepSupportFragment.java.  DO NOT MODIFY. */
+
 /*
  * Copyright (C) 2015 The Android Open Source Project
  *
@@ -17,11 +20,6 @@ import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 
 import android.animation.Animator;
 import android.animation.AnimatorSet;
-import android.app.Activity;
-import android.app.Fragment;
-import android.app.FragmentManager;
-import android.app.FragmentManager.BackStackEntry;
-import android.app.FragmentTransaction;
 import android.content.Context;
 import android.os.Build;
 import android.os.Bundle;
@@ -35,7 +33,13 @@ import android.support.v17.leanback.widget.GuidedAction;
 import android.support.v17.leanback.widget.GuidedActionAdapter;
 import android.support.v17.leanback.widget.GuidedActionAdapterGroup;
 import android.support.v17.leanback.widget.GuidedActionsStylist;
+import android.support.v17.leanback.widget.NonOverlappingLinearLayout;
 import android.support.v4.app.ActivityCompat;
+import android.app.Fragment;
+import android.app.Activity;
+import android.app.FragmentManager;
+import android.app.FragmentManager.BackStackEntry;
+import android.app.FragmentTransaction;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
 import android.util.TypedValue;
@@ -233,7 +237,7 @@ public class GuidedStepFragment extends Fragment implements GuidedActionAdapter.
     @RestrictTo(LIBRARY_GROUP)
     public static final int SLIDE_FROM_BOTTOM = 1;
 
-    private static final String TAG = "GuidedStepFragment";
+    private static final String TAG = "GuidedStepF";
     private static final boolean DEBUG = false;
 
     /**
@@ -1045,6 +1049,7 @@ public class GuidedStepFragment extends Fragment implements GuidedActionAdapter.
 
         ViewGroup guidanceContainer = (ViewGroup) root.findViewById(R.id.content_fragment);
         ViewGroup actionContainer = (ViewGroup) root.findViewById(R.id.action_fragment);
+        ((NonOverlappingLinearLayout) actionContainer).setFocusableViewAvailableFixEnabled(true);
 
         Guidance guidance = onCreateGuidance(savedInstanceState);
         View guidanceView = mGuidanceStylist.onCreateView(inflater, guidanceContainer, guidance);
@@ -1129,7 +1134,7 @@ public class GuidedStepFragment extends Fragment implements GuidedActionAdapter.
         } else {
             // when there are two actions panel, we need adjust the weight of action to
             // guidedActionContentWidthWeightTwoPanels.
-            Context ctx = mThemeWrapper != null ? mThemeWrapper : FragmentUtil.getContext(this);
+            Context ctx = mThemeWrapper != null ? mThemeWrapper : FragmentUtil.getContext(GuidedStepFragment.this);
             TypedValue typedValue = new TypedValue();
             if (ctx.getTheme().resolveAttribute(R.attr.guidedActionContentWidthWeightTwoPanels,
                     typedValue, true)) {
@@ -1336,7 +1341,7 @@ public class GuidedStepFragment extends Fragment implements GuidedActionAdapter.
     private void resolveTheme() {
         // Look up the guidedStepTheme in the currently specified theme.  If it exists,
         // replace the theme with its value.
-        Context context = FragmentUtil.getContext(this);
+        Context context = FragmentUtil.getContext(GuidedStepFragment.this);
         int theme = onProvideTheme();
         if (theme == -1 && !isGuidedStepTheme(context)) {
             // Look up the guidedStepTheme in the activity's currently specified theme.  If it

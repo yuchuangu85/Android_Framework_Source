@@ -146,7 +146,7 @@ public abstract class InboundSmsHandler extends StateMachine {
     /** Sent on exit from {@link WaitingState} to return to idle after sending all broadcasts. */
     private static final int EVENT_RETURN_TO_IDLE = 4;
 
-    /** Release wakelock after a short timeout when returning to idle state. */
+    /** Release wakelock after {@link mWakeLockTimeout} when returning to idle state. */
     private static final int EVENT_RELEASE_WAKELOCK = 5;
 
     /** Sent by {@link SmsBroadcastUndelivered} after cleaning the raw table. */
@@ -157,6 +157,17 @@ public abstract class InboundSmsHandler extends StateMachine {
 
     /** New SMS received as an AsyncResult. */
     public static final int EVENT_INJECT_SMS = 8;
+
+    /** Update tracker object; used only in waiting state */
+    private static final int EVENT_UPDATE_TRACKER = 9;
+
+    /** Timeout in case state machine is stuck in a state for too long; used only in waiting
+     * state */
+    private static final int EVENT_STATE_TIMEOUT = 10;
+
+    /** Timeout duration for EVENT_STATE_TIMEOUT */
+    @VisibleForTesting
+    public static final int STATE_TIMEOUT = 30000;
 
     /** Wakelock release delay when returning to idle state. */
     private static final int WAKELOCK_TIMEOUT = 3000;
@@ -215,6 +226,9 @@ public abstract class InboundSmsHandler extends StateMachine {
 
     private static String ACTION_OPEN_SMS_APP =
         "com.android.internal.telephony.OPEN_DEFAULT_SMS_APP";
+
+    /** Timeout for releasing wakelock */
+    private int mWakeLockTimeout;
 
     /**
      * Create a new SMS broadcast helper.
@@ -325,6 +339,14 @@ public abstract class InboundSmsHandler extends StateMachine {
      */
     private class StartupState extends State {
         @Override
+        public void enter() {
+            if (DBG) log("entering Startup state");
+            // Set wakelock timeout to 0 during startup, this will ensure that the wakelock is not
+            // held if there are no pending messages to be handled.
+            setWakeLockTimeout(0);
+        }
+
+        @Override
         public boolean processMessage(Message msg) {
             log("StartupState.processMessage:" + msg.what);
             switch (msg.what) {
@@ -356,7 +378,7 @@ public abstract class InboundSmsHandler extends StateMachine {
         @Override
         public void enter() {
             if (DBG) log("entering Idle state");
-            sendMessageDelayed(EVENT_RELEASE_WAKELOCK, WAKELOCK_TIMEOUT);
+            sendMessageDelayed(EVENT_RELEASE_WAKELOCK, getWakeLockTimeout());
         }
 
         @Override
@@ -439,6 +461,7 @@ public abstract class InboundSmsHandler extends StateMachine {
                     // if any broadcasts were sent, transition to waiting state
                     InboundSmsTracker inboundSmsTracker = (InboundSmsTracker) msg.obj;
                     if (processMessagePart(inboundSmsTracker)) {
+                        sendMessage(EVENT_UPDATE_TRACKER, inboundSmsTracker);
                         transitionTo(mWaitingState);
                     } else {
                         // if event is sent from SmsBroadcastUndelivered.broadcastSms(), and
@@ -482,10 +505,41 @@ public abstract class InboundSmsHandler extends StateMachine {
      * {@link IdleState} after any deferred {@link #EVENT_BROADCAST_SMS} messages are handled.
      */
     private class WaitingState extends State {
+        private InboundSmsTracker mTracker;
+
+        @Override
+        public void enter() {
+            if (DBG) log("entering Waiting state");
+            mTracker = null;
+            sendMessageDelayed(EVENT_STATE_TIMEOUT, STATE_TIMEOUT);
+        }
+
+        @Override
+        public void exit() {
+            if (DBG) log("exiting Waiting state");
+            // Before moving to idle state, set wakelock timeout to WAKE_LOCK_TIMEOUT milliseconds
+            // to give any receivers time to take their own wake locks
+            setWakeLockTimeout(WAKELOCK_TIMEOUT);
+            if (VDBG) {
+                if (hasMessages(EVENT_STATE_TIMEOUT)) {
+                    log("exiting Waiting state: removing EVENT_STATE_TIMEOUT from message queue");
+                }
+                if (hasMessages(EVENT_UPDATE_TRACKER)) {
+                    log("exiting Waiting state: removing EVENT_UPDATE_TRACKER from message queue");
+                }
+            }
+            removeMessages(EVENT_STATE_TIMEOUT);
+            removeMessages(EVENT_UPDATE_TRACKER);
+        }
+
         @Override
         public boolean processMessage(Message msg) {
             log("WaitingState.processMessage:" + msg.what);
             switch (msg.what) {
+                case EVENT_UPDATE_TRACKER:
+                    mTracker = (InboundSmsTracker) msg.obj;
+                    return HANDLED;
+
                 case EVENT_BROADCAST_SMS:
                     // defer until the current broadcast completes
                     deferMessage(msg);
@@ -499,6 +553,18 @@ public abstract class InboundSmsHandler extends StateMachine {
 
                 case EVENT_RETURN_TO_IDLE:
                     // not ready to return to idle; ignore
+                    return HANDLED;
+
+                case EVENT_STATE_TIMEOUT:
+                    // stuck in WaitingState for too long; drop the message and exit this state
+                    if (mTracker != null) {
+                        log("WaitingState.processMessage: EVENT_STATE_TIMEOUT; dropping message");
+                        dropSms(new SmsBroadcastReceiver(mTracker));
+                    } else {
+                        log("WaitingState.processMessage: EVENT_STATE_TIMEOUT; mTracker is null "
+                                + "- sending EVENT_BROADCAST_COMPLETE");
+                        sendMessage(EVENT_BROADCAST_COMPLETE);
+                    }
                     return HANDLED;
 
                 default:
@@ -1519,7 +1585,14 @@ public abstract class InboundSmsHandler extends StateMachine {
 
     @VisibleForTesting
     public int getWakeLockTimeout() {
-        return WAKELOCK_TIMEOUT;
+        return mWakeLockTimeout;
+    }
+
+    /**
+    * Sets the wakelock timeout to {@link timeOut} milliseconds
+    */
+    private void setWakeLockTimeout(int timeOut) {
+        mWakeLockTimeout = timeOut;
     }
 
     /**

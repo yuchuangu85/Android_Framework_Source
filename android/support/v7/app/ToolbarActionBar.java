@@ -16,13 +16,13 @@
 
 package android.support.v7.app;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.drawable.Drawable;
 import android.support.annotation.Nullable;
 import android.support.v4.view.ViewCompat;
 import android.support.v7.view.WindowCallbackWrapper;
-import android.support.v7.view.menu.ListMenuPresenter;
 import android.support.v7.view.menu.MenuBuilder;
 import android.support.v7.view.menu.MenuPresenter;
 import android.support.v7.widget.DecorToolbar;
@@ -48,8 +48,6 @@ class ToolbarActionBar extends ActionBar {
 
     private boolean mLastMenuVisibility;
     private ArrayList<OnMenuVisibilityListener> mMenuVisibilityListeners = new ArrayList<>();
-
-    private ListMenuPresenter mListMenuPresenter;
 
     private final Runnable mMenuInvalidator = new Runnable() {
         @Override
@@ -249,6 +247,7 @@ class ToolbarActionBar extends ActionBar {
         mDecorToolbar.setSubtitle(resId != 0 ? mDecorToolbar.getContext().getText(resId) : null);
     }
 
+    @SuppressLint("WrongConstant")
     @Override
     public void setDisplayOptions(@DisplayOptions int options) {
         setDisplayOptions(options, 0xffffffff);

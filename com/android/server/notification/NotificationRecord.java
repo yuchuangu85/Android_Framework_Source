@@ -35,8 +35,10 @@ import android.media.AudioSystem;
 import android.metrics.LogMaker;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.UserHandle;
 import android.provider.Settings;
+import android.service.notification.Adjustment;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.NotificationRecordProto;
 import android.service.notification.SnoozeCriterion;
@@ -57,6 +59,7 @@ import java.io.PrintWriter;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -132,6 +135,8 @@ public final class NotificationRecord {
     private String mGroupLogTag;
     private String mChannelIdLogTag;
 
+    private final List<Adjustment> mAdjustments;
+
     @VisibleForTesting
     public NotificationRecord(Context context, StatusBarNotification sbn,
             NotificationChannel channel)
@@ -150,6 +155,7 @@ public final class NotificationRecord {
         mAttributes = calculateAttributes();
         mImportance = calculateImportance();
         mLight = calculateLights();
+        mAdjustments = new ArrayList<>();
     }
 
     private boolean isPreChannelsNotification() {
@@ -386,6 +392,7 @@ public final class NotificationRecord {
         prefix = prefix + "  ";
         pw.println(prefix + "uid=" + sbn.getUid() + " userId=" + sbn.getUserId());
         pw.println(prefix + "icon=" + iconStr);
+        pw.println(prefix + "flags=0x" + Integer.toHexString(notification.flags));
         pw.println(prefix + "pri=" + notification.priority);
         pw.println(prefix + "key=" + sbn.getKey());
         pw.println(prefix + "seen=" + mIsSeen);
@@ -495,6 +502,7 @@ public final class NotificationRecord {
         pw.println(prefix + "mAttributes= " + mAttributes);
         pw.println(prefix + "mLight= " + mLight);
         pw.println(prefix + "mShowBadge=" + mShowBadge);
+        pw.println(prefix + "mColorized=" + notification.isColorized());
         pw.println(prefix + "effectiveNotificationChannel=" + getChannel());
         if (getPeopleOverride() != null) {
             pw.println(prefix + "overridePeople= " + TextUtils.join(",", getPeopleOverride()));
@@ -502,6 +510,7 @@ public final class NotificationRecord {
         if (getSnoozeCriteria() != null) {
             pw.println(prefix + "snoozeCriteria=" + TextUtils.join(",", getSnoozeCriteria()));
         }
+        pw.println(prefix + "mAdjustments=" + mAdjustments);
     }
 
 
@@ -530,11 +539,41 @@ public final class NotificationRecord {
     public final String toString() {
         return String.format(
                 "NotificationRecord(0x%08x: pkg=%s user=%s id=%d tag=%s importance=%d key=%s" +
-                        " channel=%s: %s)",
+                        ": %s)",
                 System.identityHashCode(this),
                 this.sbn.getPackageName(), this.sbn.getUser(), this.sbn.getId(),
-                this.sbn.getTag(), this.mImportance, this.sbn.getKey(), this.getChannel().getId(),
+                this.sbn.getTag(), this.mImportance, this.sbn.getKey(),
                 this.sbn.getNotification());
+    }
+
+    public void addAdjustment(Adjustment adjustment) {
+        synchronized (mAdjustments) {
+            mAdjustments.add(adjustment);
+        }
+    }
+
+    public void applyAdjustments() {
+        synchronized (mAdjustments) {
+            for (Adjustment adjustment: mAdjustments) {
+                Bundle signals = adjustment.getSignals();
+                if (signals.containsKey(Adjustment.KEY_PEOPLE)) {
+                    final ArrayList<String> people =
+                            adjustment.getSignals().getStringArrayList(Adjustment.KEY_PEOPLE);
+                    setPeopleOverride(people);
+                }
+                if (signals.containsKey(Adjustment.KEY_SNOOZE_CRITERIA)) {
+                    final ArrayList<SnoozeCriterion> snoozeCriterionList =
+                            adjustment.getSignals().getParcelableArrayList(
+                                    Adjustment.KEY_SNOOZE_CRITERIA);
+                    setSnoozeCriteria(snoozeCriterionList);
+                }
+                if (signals.containsKey(Adjustment.KEY_GROUP_KEY)) {
+                    final String groupOverrideKey =
+                            adjustment.getSignals().getString(Adjustment.KEY_GROUP_KEY);
+                    setOverrideGroupKey(groupOverrideKey);
+                }
+            }
+        }
     }
 
     public void setContactAffinity(float contactAffinity) {

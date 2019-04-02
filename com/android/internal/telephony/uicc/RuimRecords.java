@@ -153,11 +153,6 @@ public class RuimRecords extends IccRecords {
         mRecordsRequested = false;
     }
 
-    @Override
-    public String getIMSI() {
-        return mImsi;
-    }
-
     public String getMdnNumber() {
         return mMyMobileNumber;
     }
@@ -215,21 +210,23 @@ public class RuimRecords extends IccRecords {
      *  provided the RUIM card. Returns null of RUIM is not yet ready
      */
     public String getRUIMOperatorNumeric() {
-        if (mImsi == null) {
+        String imsi = getIMSI();
+
+        if (imsi == null) {
             return null;
         }
 
         if (mMncLength != UNINITIALIZED && mMncLength != UNKNOWN) {
             // Length = length of MCC + length of MNC
             // length of mcc = 3 (3GPP2 C.S0005 - Section 2.3)
-            return mImsi.substring(0, 3 + mMncLength);
+            return imsi.substring(0, 3 + mMncLength);
         }
 
         // Guess the MNC length based on the MCC if we don't
         // have a valid value in ef[ad]
 
-        int mcc = Integer.parseInt(mImsi.substring(0,3));
-        return mImsi.substring(0, 3 + MccTable.smallestDigitsMccForMnc(mcc));
+        int mcc = Integer.parseInt(imsi.substring(0, 3));
+        return imsi.substring(0, 3 + MccTable.smallestDigitsMccForMnc(mcc));
     }
 
     // Refer to ETSI TS 102.221
@@ -774,12 +771,14 @@ public class RuimRecords extends IccRecords {
                 log("onAllRecordsLoaded empty 'gsm.sim.operator.numeric' skipping");
             }
 
-            if (!TextUtils.isEmpty(mImsi)) {
-                log("onAllRecordsLoaded set mcc imsi=" + (VDBG ? ("=" + mImsi) : ""));
+            String imsi = getIMSI();
+
+            if (!TextUtils.isEmpty(imsi)) {
+                log("onAllRecordsLoaded set mcc imsi=" + (VDBG ? ("=" + imsi) : ""));
                 mTelephonyManager.setSimCountryIsoForPhone(
                         mParentApp.getPhoneId(),
                         MccTable.countryCodeForMcc(
-                        Integer.parseInt(mImsi.substring(0,3))));
+                        Integer.parseInt(imsi.substring(0, 3))));
             } else {
                 log("onAllRecordsLoaded empty imsi skipping setting mcc");
             }

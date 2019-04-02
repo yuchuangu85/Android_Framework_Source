@@ -475,9 +475,15 @@ public class ImsConfig {
          */
         public static final int VICE_SETTING_ENABLED = 65;
 
+        /**
+         * RTT status: Enabled (1), or Disabled (0).
+         * Value is in Integer format.
+         */
+        public static final int RTT_SETTING_ENABLED = 66;
+
         // Expand the operator config items as needed here, need to change
         // PROVISIONED_CONFIG_END after that.
-        public static final int PROVISIONED_CONFIG_END = VICE_SETTING_ENABLED;
+        public static final int PROVISIONED_CONFIG_END = RTT_SETTING_ENABLED;
 
         // Expand the operator config items as needed here.
     }
@@ -518,6 +524,7 @@ public class ImsConfig {
     * Defines IMS feature value.
     */
     public static class FeatureValueConstants {
+        public static final int ERROR = -1;
         public static final int OFF = 0;
         public static final int ON = 1;
     }
@@ -690,5 +697,12 @@ public class ImsConfig {
             throw new ImsException("setFeatureValue()", e,
                     ImsReasonInfo.CODE_LOCAL_SERVICE_UNAVAILABLE);
         }
+    }
+
+    /**
+     * @return true if the binder connection is alive, false otherwise.
+     */
+    public boolean isBinderAlive() {
+        return miConfig.asBinder().isBinderAlive();
     }
 }

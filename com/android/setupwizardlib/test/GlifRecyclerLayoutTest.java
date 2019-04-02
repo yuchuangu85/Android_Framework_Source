@@ -105,7 +105,7 @@ public class GlifRecyclerLayoutTest {
     }
 
     @Test
-    public void testDividerInset() {
+    public void testDividerInsetLegacy() {
         GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
@@ -114,6 +114,22 @@ public class GlifRecyclerLayoutTest {
 
         layout.setDividerInset(10);
         assertEquals("Divider inset should be 10", 10, layout.getDividerInset());
+
+        final Drawable divider = layout.getDivider();
+        assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
+    }
+
+    @Test
+    public void testDividerInsets() {
+        GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
+        }
+        assertRecyclerTemplateInflated(layout);
+
+        layout.setDividerInsets(10, 15);
+        assertEquals("Divider inset start should be 10", 10, layout.getDividerInsetStart());
+        assertEquals("Divider inset end should be 15", 15, layout.getDividerInsetEnd());
 
         final Drawable divider = layout.getDivider();
         assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);

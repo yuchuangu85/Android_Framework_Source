@@ -31,6 +31,7 @@ import android.widget.TextView;
 
 import com.android.internal.widget.NotificationExpandButton;
 import com.android.systemui.Interpolators;
+import com.android.systemui.R;
 import com.android.systemui.ViewInvertHelper;
 import com.android.systemui.statusbar.ExpandableNotificationRow;
 import com.android.systemui.statusbar.TransformableView;
@@ -61,9 +62,12 @@ public class NotificationHeaderViewWrapper extends NotificationViewWrapper {
     private ImageView mWorkProfileImage;
     private boolean mIsLowPriority;
     private boolean mTransformLowPriorityTitle;
+    private boolean mShowExpandButtonAtEnd;
 
     protected NotificationHeaderViewWrapper(Context ctx, View view, ExpandableNotificationRow row) {
         super(ctx, view, row);
+        mShowExpandButtonAtEnd = ctx.getResources().getBoolean(
+                R.bool.config_showNotificationExpandButtonAtEnd);
         mInvertHelper = new ViewInvertHelper(ctx, NotificationPanelView.DOZE_ANIMATION_DURATION);
         mTransformationHelper = new ViewTransformationHelper();
 
@@ -110,10 +114,10 @@ public class NotificationHeaderViewWrapper extends NotificationViewWrapper {
         mIcon = mView.findViewById(com.android.internal.R.id.icon);
         mHeaderText = mView.findViewById(com.android.internal.R.id.header_text);
         mExpandButton = mView.findViewById(com.android.internal.R.id.expand_button);
-        mExpandButton.setLabeledBy(mRow);
         mWorkProfileImage = mView.findViewById(com.android.internal.R.id.profile_badge);
         mColor = resolveColor(mExpandButton);
         mNotificationHeader = mView.findViewById(com.android.internal.R.id.notification_header);
+        mNotificationHeader.setShowExpandButtonAtEnd(mShowExpandButtonAtEnd);
         getDozer().setColor(mColor);
     }
 

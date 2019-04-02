@@ -1,6 +1,3 @@
-// CHECKSTYLE:OFF Generated code
-/* This file is auto-generated from VerticalGridFragment.java.  DO NOT MODIFY. */
-
 /*
  * Copyright (C) 2014 The Android Open Source Project
  *
@@ -41,7 +38,7 @@ import android.view.ViewGroup;
  * an {@link ObjectAdapter}.
  */
 public class VerticalGridSupportFragment extends BaseSupportFragment {
-    static final String TAG = "VerticalGridSupportFragment";
+    static final String TAG = "VerticalGF";
     static boolean DEBUG = false;
 
     private ObjectAdapter mAdapter;

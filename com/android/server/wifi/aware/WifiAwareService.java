@@ -53,7 +53,6 @@ public final class WifiAwareService extends SystemService {
             }
 
             HalDeviceManager halDeviceManager = wifiInjector.getHalDeviceManager();
-            halDeviceManager.initialize();
 
             WifiAwareStateManager wifiAwareStateManager = new WifiAwareStateManager();
             WifiAwareNativeCallback wifiAwareNativeCallback = new WifiAwareNativeCallback(
@@ -61,10 +60,16 @@ public final class WifiAwareService extends SystemService {
             WifiAwareNativeManager wifiAwareNativeManager = new WifiAwareNativeManager(
                     wifiAwareStateManager, halDeviceManager, wifiAwareNativeCallback);
             WifiAwareNativeApi wifiAwareNativeApi = new WifiAwareNativeApi(wifiAwareNativeManager);
-            wifiAwareStateManager.setNative(wifiAwareNativeApi);
+            wifiAwareStateManager.setNative(wifiAwareNativeManager, wifiAwareNativeApi);
+            WifiAwareShellCommand wifiAwareShellCommand = new WifiAwareShellCommand();
+            wifiAwareShellCommand.register("native_api", wifiAwareNativeApi);
+            wifiAwareShellCommand.register("native_cb", wifiAwareNativeCallback);
+            wifiAwareShellCommand.register("state_mgr", wifiAwareStateManager);
 
             HandlerThread awareHandlerThread = wifiInjector.getWifiAwareHandlerThread();
-            mImpl.start(awareHandlerThread, wifiAwareStateManager);
+            mImpl.start(awareHandlerThread, wifiAwareStateManager, wifiAwareShellCommand,
+                    wifiInjector.getWifiMetrics().getWifiAwareMetrics(),
+                    wifiInjector.getWifiPermissionsWrapper());
         } else if (phase == SystemService.PHASE_BOOT_COMPLETED) {
             mImpl.startLate();
         }

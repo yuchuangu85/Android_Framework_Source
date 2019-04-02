@@ -18,9 +18,7 @@ package com.android.server.wifi.hotspot2;
 
 import static android.net.wifi.WifiManager.ACTION_PASSPOINT_DEAUTH_IMMINENT;
 import static android.net.wifi.WifiManager.ACTION_PASSPOINT_ICON;
-import static android.net.wifi.WifiManager.ACTION_PASSPOINT_OSU_PROVIDERS_LIST;
 import static android.net.wifi.WifiManager.ACTION_PASSPOINT_SUBSCRIPTION_REMEDIATION;
-import static android.net.wifi.WifiManager.EXTRA_ANQP_ELEMENT_DATA;
 import static android.net.wifi.WifiManager.EXTRA_BSSID_LONG;
 import static android.net.wifi.WifiManager.EXTRA_DELAY;
 import static android.net.wifi.WifiManager.EXTRA_ESS;
@@ -35,6 +33,7 @@ import android.graphics.drawable.Icon;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiEnterpriseConfig;
+import android.net.wifi.hotspot2.OsuProvider;
 import android.net.wifi.hotspot2.PasspointConfiguration;
 import android.os.UserHandle;
 import android.text.TextUtils;
@@ -46,10 +45,12 @@ import com.android.server.wifi.SIMAccessor;
 import com.android.server.wifi.WifiConfigManager;
 import com.android.server.wifi.WifiConfigStore;
 import com.android.server.wifi.WifiKeyStore;
+import com.android.server.wifi.WifiMetrics;
 import com.android.server.wifi.WifiNative;
 import com.android.server.wifi.hotspot2.anqp.ANQPElement;
 import com.android.server.wifi.hotspot2.anqp.Constants;
-import com.android.server.wifi.hotspot2.anqp.RawByteElement;
+import com.android.server.wifi.hotspot2.anqp.HSOsuProvidersElement;
+import com.android.server.wifi.hotspot2.anqp.OsuProviderInfo;
 import com.android.server.wifi.util.InformationElementUtil;
 import com.android.server.wifi.util.ScanResultUtil;
 
@@ -97,6 +98,7 @@ public class PasspointManager {
     private final ANQPRequestManager mAnqpRequestManager;
     private final WifiConfigManager mWifiConfigManager;
     private final CertificateVerifier mCertVerifier;
+    private final WifiMetrics mWifiMetrics;
 
     // Counter used for assigning unique identifier to each provider.
     private long mProviderIndex;
@@ -121,18 +123,6 @@ public class PasspointManager {
 
             // Add new entry to the cache.
             mAnqpCache.addEntry(anqpKey, anqpElements);
-
-            // Broadcast OSU providers info.
-            if (anqpElements.containsKey(Constants.ANQPElementType.HSOSUProviders)) {
-                RawByteElement osuProviders = (RawByteElement) anqpElements.get(
-                        Constants.ANQPElementType.HSOSUProviders);
-                Intent intent = new Intent(ACTION_PASSPOINT_OSU_PROVIDERS_LIST);
-                intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
-                intent.putExtra(EXTRA_BSSID_LONG, bssid);
-                intent.putExtra(EXTRA_ANQP_ELEMENT_DATA, osuProviders.getPayload());
-                mContext.sendBroadcastAsUser(intent, UserHandle.ALL,
-                        android.Manifest.permission.ACCESS_WIFI_STATE);
-            }
         }
 
         @Override
@@ -206,7 +196,8 @@ public class PasspointManager {
 
     public PasspointManager(Context context, WifiNative wifiNative, WifiKeyStore keyStore,
             Clock clock, SIMAccessor simAccessor, PasspointObjectFactory objectFactory,
-            WifiConfigManager wifiConfigManager, WifiConfigStore wifiConfigStore) {
+            WifiConfigManager wifiConfigManager, WifiConfigStore wifiConfigStore,
+            WifiMetrics wifiMetrics) {
         mHandler = objectFactory.makePasspointEventHandler(wifiNative,
                 new CallbackHandler(context));
         mKeyStore = keyStore;
@@ -217,6 +208,7 @@ public class PasspointManager {
         mAnqpRequestManager = objectFactory.makeANQPRequestManager(mHandler, clock);
         mCertVerifier = objectFactory.makeCertificateVerifier();
         mWifiConfigManager = wifiConfigManager;
+        mWifiMetrics = wifiMetrics;
         mProviderIndex = 0;
         wifiConfigStore.registerStoreData(objectFactory.makePasspointConfigStoreData(
                 mKeyStore, mSimAccessor, new DataSourceHandler()));
@@ -234,6 +226,7 @@ public class PasspointManager {
      * @return true if provider is added, false otherwise
      */
     public boolean addOrUpdateProvider(PasspointConfiguration config, int uid) {
+        mWifiMetrics.incrementNumPasspointProviderInstallation();
         if (config == null) {
             Log.e(TAG, "Configuration not provided");
             return false;
@@ -278,6 +271,7 @@ public class PasspointManager {
         mWifiConfigManager.saveToStore(true /* forceWrite */);
         Log.d(TAG, "Added/updated Passpoint configuration: " + config.getHomeSp().getFqdn()
                 + " by " + uid);
+        mWifiMetrics.incrementNumPasspointProviderInstallSuccess();
         return true;
     }
 
@@ -288,6 +282,7 @@ public class PasspointManager {
      * @return true if a provider is removed, false otherwise
      */
     public boolean removeProvider(String fqdn) {
+        mWifiMetrics.incrementNumPasspointProviderUninstallation();
         if (!mProviders.containsKey(fqdn)) {
             Log.e(TAG, "Config doesn't exist");
             return false;
@@ -297,6 +292,7 @@ public class PasspointManager {
         mProviders.remove(fqdn);
         mWifiConfigManager.saveToStore(true /* forceWrite */);
         Log.d(TAG, "Removed Passpoint configuration: " + fqdn);
+        mWifiMetrics.incrementNumPasspointProviderUninstallSuccess();
         return true;
     }
 
@@ -337,7 +333,13 @@ public class PasspointManager {
                 scanResult.informationElements);
 
         // Lookup ANQP data in the cache.
-        long bssid = Utils.parseMac(scanResult.BSSID);
+        long bssid;
+        try {
+            bssid = Utils.parseMac(scanResult.BSSID);
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Invalid BSSID provided in the scan result: " + scanResult.BSSID);
+            return null;
+        }
         ANQPNetworkKey anqpKey = ANQPNetworkKey.buildKey(scanResult.SSID, bssid, scanResult.hessid,
                 vsa.anqpDomainID);
         ANQPData anqpEntry = mAnqpCache.getEntry(anqpKey);
@@ -448,7 +450,13 @@ public class PasspointManager {
                 InformationElementUtil.getHS2VendorSpecificIE(scanResult.informationElements);
 
         // Lookup ANQP data in the cache.
-        long bssid = Utils.parseMac(scanResult.BSSID);
+        long bssid;
+        try {
+            bssid = Utils.parseMac(scanResult.BSSID);
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Invalid BSSID provided in the scan result: " + scanResult.BSSID);
+            return new HashMap<Constants.ANQPElementType, ANQPElement>();
+        }
         ANQPData anqpEntry = mAnqpCache.getEntry(ANQPNetworkKey.buildKey(
                 scanResult.SSID, bssid, scanResult.hessid, vsa.anqpDomainID));
         if (anqpEntry != null) {
@@ -472,6 +480,10 @@ public class PasspointManager {
             Log.e(TAG, "Attempt to get matching config for a null ScanResult");
             return null;
         }
+        if (!scanResult.isPasspointNetwork()) {
+            Log.e(TAG, "Attempt to get matching config for a non-Passpoint AP");
+            return null;
+        }
         Pair<PasspointProvider, PasspointMatch> matchedProvider = matchProvider(scanResult);
         if (matchedProvider == null) {
             return null;
@@ -482,6 +494,80 @@ public class PasspointManager {
             config.isHomeProviderNetwork = true;
         }
         return config;
+    }
+
+    /**
+     * Return the list of Hosspot 2.0 OSU (Online Sign-Up) providers associated with the given
+     * AP.
+     *
+     * An empty list will be returned when an invalid scan result is provided or no match is found.
+     *
+     * @param scanResult The scan result of the AP
+     * @return List of {@link OsuProvider}
+     */
+    public List<OsuProvider> getMatchingOsuProviders(ScanResult scanResult) {
+        if (scanResult == null) {
+            Log.e(TAG, "Attempt to retrieve OSU providers for a null ScanResult");
+            return new ArrayList<OsuProvider>();
+        }
+        if (!scanResult.isPasspointNetwork()) {
+            Log.e(TAG, "Attempt to retrieve OSU providers for a non-Passpoint AP");
+            return new ArrayList<OsuProvider>();
+        }
+
+        // Lookup OSU Providers ANQP element.
+        Map<Constants.ANQPElementType, ANQPElement> anqpElements = getANQPElements(scanResult);
+        if (!anqpElements.containsKey(Constants.ANQPElementType.HSOSUProviders)) {
+            return new ArrayList<OsuProvider>();
+        }
+
+        HSOsuProvidersElement element =
+                (HSOsuProvidersElement) anqpElements.get(Constants.ANQPElementType.HSOSUProviders);
+        List<OsuProvider> providers = new ArrayList<>();
+        for (OsuProviderInfo info : element.getProviders()) {
+            // TODO(b/62256482): include icon data once the icon file retrieval and management
+            // support is added.
+            OsuProvider provider = new OsuProvider(element.getOsuSsid(), info.getFriendlyName(),
+                    info.getServiceDescription(), info.getServerUri(),
+                    info.getNetworkAccessIdentifier(), info.getMethodList(), null);
+            providers.add(provider);
+        }
+        return providers;
+    }
+
+    /**
+     * Invoked when a Passpoint network was successfully connected based on the credentials
+     * provided by the given Passpoint provider (specified by its FQDN).
+     *
+     * @param fqdn The FQDN of the Passpoint provider
+     */
+    public void onPasspointNetworkConnected(String fqdn) {
+        PasspointProvider provider = mProviders.get(fqdn);
+        if (provider == null) {
+            Log.e(TAG, "Passpoint network connected without provider: " + fqdn);
+            return;
+        }
+
+        if (!provider.getHasEverConnected()) {
+            // First successful connection using this provider.
+            provider.setHasEverConnected(true);
+        }
+    }
+
+    /**
+     * Update metrics related to installed Passpoint providers, this includes the number of
+     * installed providers and the number of those providers that results in a successful network
+     * connection.
+     */
+    public void updateMetrics() {
+        int numProviders = mProviders.size();
+        int numConnectedProviders = 0;
+        for (Map.Entry<String, PasspointProvider> entry : mProviders.entrySet()) {
+            if (entry.getValue().getHasEverConnected()) {
+                numConnectedProviders++;
+            }
+        }
+        mWifiMetrics.updateSavedPasspointProfiles(numProviders, numConnectedProviders);
     }
 
     /**
@@ -544,7 +630,7 @@ public class PasspointManager {
                 mSimAccessor, mProviderIndex++, wifiConfig.creatorUid,
                 enterpriseConfig.getCaCertificateAlias(),
                 enterpriseConfig.getClientCertificateAlias(),
-                enterpriseConfig.getClientCertificateAlias());
+                enterpriseConfig.getClientCertificateAlias(), false);
         mProviders.put(passpointConfig.getHomeSp().getFqdn(), provider);
         return true;
     }

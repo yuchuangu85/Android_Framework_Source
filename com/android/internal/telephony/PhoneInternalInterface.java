@@ -19,10 +19,12 @@ package com.android.internal.telephony;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.os.WorkSource;
 import android.os.ResultReceiver;
-import android.telephony.CellLocation;
+import android.os.WorkSource;
 import android.telephony.CarrierConfigManager;
+import android.telephony.CellLocation;
+import android.telephony.ImsiEncryptionInfo;
+import android.telephony.NetworkScanRequest;
 import android.telephony.ServiceState;
 
 import com.android.internal.telephony.PhoneConstants.*; // ????
@@ -173,7 +175,7 @@ public interface PhoneInternalInterface {
     static final int CDMA_SUBSCRIPTION_RUIM_SIM = 0; // RUIM/SIM (default)
     static final int CDMA_SUBSCRIPTION_NV       = 1; // NV -> non-volatile memory
 
-    static final int PREFERRED_CDMA_SUBSCRIPTION = CDMA_SUBSCRIPTION_NV;
+    static final int PREFERRED_CDMA_SUBSCRIPTION = CDMA_SUBSCRIPTION_RUIM_SIM;
 
     static final int TTY_MODE_OFF = 0;
     static final int TTY_MODE_FULL = 1;
@@ -644,6 +646,30 @@ public interface PhoneInternalInterface {
     void getAvailableNetworks(Message response);
 
     /**
+     * Start a network scan. This method is asynchronous; .
+     * On completion, <code>response.obj</code> is set to an AsyncResult with
+     * one of the following members:.<p>
+     * <ul>
+     * <li><code>response.obj.result</code> will be a <code>NetworkScanResult</code> object, or</li>
+     * <li><code>response.obj.exception</code> will be set with an exception
+     * on failure.</li>
+     * </ul>
+     */
+    void startNetworkScan(NetworkScanRequest nsr, Message response);
+
+    /**
+     * Stop ongoing network scan. This method is asynchronous; .
+     * On completion, <code>response.obj</code> is set to an AsyncResult with
+     * one of the following members:.<p>
+     * <ul>
+     * <li><code>response.obj.result</code> will be a <code>NetworkScanResult</code> object, or</li>
+     * <li><code>response.obj.exception</code> will be set with an exception
+     * on failure.</li>
+     * </ul>
+     */
+    void stopNetworkScan(Message response);
+
+    /**
      * Query neighboring cell IDs.  <code>response</code> is dispatched when
      * this is complete.  <code>response.obj</code> will be an AsyncResult,
      * and <code>response.obj.exception</code> will be non-null on failure.
@@ -802,4 +828,22 @@ public interface PhoneInternalInterface {
      *            Callback message is empty on completion
      */
     public void setCellBroadcastSmsConfig(int[] configValuesArray, Message response);
+
+    /*
+    * Sets the carrier information needed to encrypt the IMSI and IMPI.
+    * @param imsiEncryptionInfo Carrier specific information that will be used to encrypt the
+    *        IMSI and IMPI. This includes the Key type, the Public key
+    *        {@link java.security.PublicKey} and the Key identifier.
+    */
+    public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo);
+
+    /**
+     * Returns Carrier specific information that will be used to encrypt the IMSI and IMPI.
+     * @param keyType whether the key is being used for WLAN or ePDG.
+     * @return ImsiEncryptionInfo which includes the Key Type, the Public Key
+     *        {@link java.security.PublicKey} and the Key Identifier.
+     *        The keyIdentifier This is used by the server to help it locate the private key to
+     *        decrypt the permanent identity.
+     */
+    public ImsiEncryptionInfo getCarrierInfoForImsiEncryption(int keyType);
 }

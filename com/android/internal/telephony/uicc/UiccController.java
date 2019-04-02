@@ -89,8 +89,6 @@ public class UiccController extends Handler {
     private static final int EVENT_RADIO_UNAVAILABLE = 3;
     private static final int EVENT_SIM_REFRESH = 4;
 
-    private static final String DECRYPT_STATE = "trigger_restart_framework";
-
     private CommandsInterface[] mCis;
     private UiccCard[] mUiccCards = new UiccCard[TelephonyManager.getDefault().getPhoneCount()];
 
@@ -125,12 +123,11 @@ public class UiccController extends Handler {
             Integer index = new Integer(i);
             mCis[i].registerForIccStatusChanged(this, EVENT_ICC_STATUS_CHANGED, index);
             // TODO remove this once modem correctly notifies the unsols
-            // If the device has been decrypted or FBE is supported, read SIM when radio state is
-            // available.
+            // If the device is unencrypted or has been decrypted or FBE is supported,
+            // i.e. not in cryptkeeper bounce, read SIM when radio state isavailable.
             // Else wait for radio to be on. This is needed for the scenario when SIM is locked --
             // to avoid overlap of CryptKeeper and SIM unlock screen.
-            if (DECRYPT_STATE.equals(SystemProperties.get("vold.decrypt")) ||
-                    StorageManager.isFileEncryptedNativeOrEmulated()) {
+            if (!StorageManager.inCryptKeeperBounce()) {
                 mCis[i].registerForAvailable(this, EVENT_ICC_STATUS_CHANGED, index);
             } else {
                 mCis[i].registerForOn(this, EVENT_ICC_STATUS_CHANGED, index);
@@ -342,7 +339,7 @@ public class UiccController extends Handler {
             if (requirePowerOffOnSimRefreshReset) {
                 mCis[index].setRadioPower(false, null);
             } else {
-                mCis[index].getIccCardStatus(obtainMessage(EVENT_GET_ICC_STATUS_DONE));
+                mCis[index].getIccCardStatus(obtainMessage(EVENT_GET_ICC_STATUS_DONE, index));
             }
             mIccChangedRegistrants.notifyRegistrants(new AsyncResult(null, index, null));
         }

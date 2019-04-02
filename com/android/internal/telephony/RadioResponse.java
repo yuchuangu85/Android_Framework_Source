@@ -24,7 +24,6 @@ import android.hardware.radio.V1_0.CarrierRestrictions;
 import android.hardware.radio.V1_0.CdmaBroadcastSmsConfigInfo;
 import android.hardware.radio.V1_0.DataRegStateResult;
 import android.hardware.radio.V1_0.GsmBroadcastSmsConfigInfo;
-import android.hardware.radio.V1_0.IRadioResponse;
 import android.hardware.radio.V1_0.LastCallFailCauseInfo;
 import android.hardware.radio.V1_0.LceDataInfo;
 import android.hardware.radio.V1_0.LceStatusInfo;
@@ -34,6 +33,8 @@ import android.hardware.radio.V1_0.RadioResponseInfo;
 import android.hardware.radio.V1_0.SendSmsResult;
 import android.hardware.radio.V1_0.SetupDataCallResult;
 import android.hardware.radio.V1_0.VoiceRegStateResult;
+import android.hardware.radio.V1_1.IRadioResponse;
+import android.hardware.radio.V1_1.KeepaliveStatus;
 import android.os.AsyncResult;
 import android.os.Message;
 import android.os.SystemClock;
@@ -45,6 +46,7 @@ import android.telephony.PhoneNumberUtils;
 import android.telephony.SignalStrength;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
+import android.text.TextUtils;
 
 import com.android.internal.telephony.dataconnection.DataCallResponse;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
@@ -491,6 +493,22 @@ public class RadioResponse extends IRadioResponse.Stub {
                                              ArrayList<android.hardware.radio.V1_0.OperatorInfo>
                                                      networkInfos) {
         responseOperatorInfos(responseInfo, networkInfos);
+    }
+
+    /**
+     *
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     */
+    public void startNetworkScanResponse(RadioResponseInfo responseInfo) {
+        responseScanStatus(responseInfo);
+    }
+
+    /**
+     *
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     */
+    public void stopNetworkScanResponse(RadioResponseInfo responseInfo) {
+        responseScanStatus(responseInfo);
     }
 
     /**
@@ -1175,6 +1193,13 @@ public class RadioResponse extends IRadioResponse.Stub {
     /**
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
+    public void setCarrierInfoForImsiEncryptionResponse(RadioResponseInfo responseInfo) {
+        responseVoid(responseInfo);
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     */
     public void setIndicationFilterResponse(RadioResponseInfo responseInfo) {
         responseVoid(responseInfo);
     }
@@ -1184,6 +1209,29 @@ public class RadioResponse extends IRadioResponse.Stub {
      */
     public void setSimCardPowerResponse(RadioResponseInfo responseInfo) {
         responseVoid(responseInfo);
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     */
+    public void setSimCardPowerResponse_1_1(RadioResponseInfo responseInfo) {
+        responseVoid(responseInfo);
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     * @param keepaliveStatus status of the keepalive with a handle for the session
+     */
+    public void startKeepaliveResponse(RadioResponseInfo responseInfo,
+            KeepaliveStatus keepaliveStatus) {
+        throw new UnsupportedOperationException("startKeepaliveResponse not implemented");
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     */
+    public void stopKeepaliveResponse(RadioResponseInfo responseInfo) {
+        throw new UnsupportedOperationException("stopKeepaliveResponse not implemented");
     }
 
     private void responseIccCardStatus(RadioResponseInfo responseInfo, CardStatus cardStatus) {
@@ -1282,11 +1330,11 @@ public class RadioResponse extends IRadioResponse.Stub {
                     dc.uusInfo = new UUSInfo();
                     dc.uusInfo.setType(calls.get(i).uusInfo.get(0).uusType);
                     dc.uusInfo.setDcs(calls.get(i).uusInfo.get(0).uusDcs);
-                    if (calls.get(i).uusInfo.get(0).uusData != null) {
+                    if (!TextUtils.isEmpty(calls.get(i).uusInfo.get(0).uusData)) {
                         byte[] userData = calls.get(i).uusInfo.get(0).uusData.getBytes();
                         dc.uusInfo.setUserData(userData);
                     } else {
-                        mRil.riljLog("responseCurrentCalls: uusInfo data is null");
+                        mRil.riljLog("responseCurrentCalls: uusInfo data is null or empty");
                     }
 
                     mRil.riljLogv(String.format("Incoming UUS : type=%d, dcs=%d, length=%d",
@@ -1494,6 +1542,20 @@ public class RadioResponse extends IRadioResponse.Stub {
                 sendMessageResponse(rr.mResult, ret);
             }
             mRil.processResponseDone(rr, responseInfo, ret);
+        }
+    }
+
+    private void responseScanStatus(RadioResponseInfo responseInfo) {
+        RILRequest rr = mRil.processResponse(responseInfo);
+
+        if (rr != null) {
+            NetworkScanResult nsr = null;
+            if (responseInfo.error == RadioError.NONE) {
+                nsr = new NetworkScanResult(
+                        NetworkScanResult.SCAN_STATUS_PARTIAL, RadioError.NONE, null);
+                sendMessageResponse(rr.mResult, nsr);
+            }
+            mRil.processResponseDone(rr, responseInfo, nsr);
         }
     }
 

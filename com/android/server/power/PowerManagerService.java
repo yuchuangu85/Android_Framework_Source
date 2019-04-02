@@ -53,6 +53,7 @@ import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.Trace;
 import android.os.UserHandle;
+import android.os.UserManager;
 import android.os.WorkSource;
 import android.provider.Settings;
 import android.provider.Settings.SettingNotFoundException;
@@ -196,6 +197,9 @@ public final class PowerManagerService extends SystemService
 
     // System property indicating that the screen should remain off until an explicit user action
     private static final String SYSTEM_PROPERTY_QUIESCENT = "ro.boot.quiescent";
+
+    // System Property indicating that retail demo mode is currently enabled.
+    private static final String SYSTEM_PROPERTY_RETAIL_DEMO_ENABLED = "sys.retaildemo.enabled";
 
     // Possible reasons for shutting down for use in data/misc/reboot/last_shutdown_reason
     private static final String REASON_SHUTDOWN = "shutdown";
@@ -805,6 +809,9 @@ public final class PowerManagerService extends SystemService
         resolver.registerContentObserver(Settings.Secure.getUriFor(
                 Settings.Secure.DOUBLE_TAP_TO_WAKE),
                 false, mSettingsObserver, UserHandle.USER_ALL);
+        resolver.registerContentObserver(Settings.Global.getUriFor(
+                Settings.Global.DEVICE_DEMO_MODE),
+                false, mSettingsObserver, UserHandle.USER_SYSTEM);
         IVrManager vrManager = (IVrManager) getBinderService(Context.VR_SERVICE);
         if (vrManager != null) {
             try {
@@ -910,6 +917,11 @@ public final class PowerManagerService extends SystemService
                 mDoubleTapWakeEnabled = doubleTapWakeEnabled;
                 nativeSetFeature(POWER_FEATURE_DOUBLE_TAP_TO_WAKE, mDoubleTapWakeEnabled ? 1 : 0);
             }
+        }
+
+        final String retailDemoValue = UserManager.isDeviceInDemoMode(mContext) ? "1" : "0";
+        if (!retailDemoValue.equals(SystemProperties.get(SYSTEM_PROPERTY_RETAIL_DEMO_ENABLED))) {
+            SystemProperties.set(SYSTEM_PROPERTY_RETAIL_DEMO_ENABLED, retailDemoValue);
         }
 
         final int oldScreenBrightnessSetting = getCurrentBrightnessSettingLocked();
@@ -1398,13 +1410,16 @@ public final class PowerManagerService extends SystemService
         try {
             switch (mWakefulness) {
                 case WAKEFULNESS_ASLEEP:
-                    Slog.i(TAG, "Waking up from sleep (uid " + reasonUid +")...");
+                    Slog.i(TAG, "Waking up from sleep (uid=" + reasonUid + " reason=" + reason
+                            + ")...");
                     break;
                 case WAKEFULNESS_DREAMING:
-                    Slog.i(TAG, "Waking up from dream (uid " + reasonUid +")...");
+                    Slog.i(TAG, "Waking up from dream (uid=" + reasonUid + " reason=" + reason
+                            + ")...");
                     break;
                 case WAKEFULNESS_DOZING:
-                    Slog.i(TAG, "Waking up from dozing (uid " + reasonUid +")...");
+                    Slog.i(TAG, "Waking up from dozing (uid=" + reasonUid + " reason=" + reason
+                            + ")...");
                     break;
             }
 
@@ -1554,12 +1569,15 @@ public final class PowerManagerService extends SystemService
         return true;
     }
 
-    private void setWakefulnessLocked(int wakefulness, int reason) {
+    @VisibleForTesting
+    void setWakefulnessLocked(int wakefulness, int reason) {
         if (mWakefulness != wakefulness) {
             mWakefulness = wakefulness;
             mWakefulnessChanging = true;
             mDirty |= DIRTY_WAKEFULNESS;
-            mNotifier.onWakefulnessChangeStarted(wakefulness, reason);
+            if (mNotifier != null) {
+                mNotifier.onWakefulnessChangeStarted(wakefulness, reason);
+            }
         }
     }
 
@@ -2417,11 +2435,8 @@ public final class PowerManagerService extends SystemService
         return value >= -1.0f && value <= 1.0f;
     }
 
-    private int getDesiredScreenPolicyLocked() {
-        if (mIsVrModeEnabled) {
-            return DisplayPowerRequest.POLICY_VR;
-        }
-
+    @VisibleForTesting
+    int getDesiredScreenPolicyLocked() {
         if (mWakefulness == WAKEFULNESS_ASLEEP || sQuiescent) {
             return DisplayPowerRequest.POLICY_OFF;
         }
@@ -2435,6 +2450,13 @@ public final class PowerManagerService extends SystemService
             }
             // Fall through and preserve the current screen policy if not configured to
             // doze after screen off.  This causes the screen off transition to be skipped.
+        }
+
+        // It is important that POLICY_VR check happens after the wakefulness checks above so
+        // that VR-mode does not prevent displays from transitioning to the correct state when
+        // dozing or sleeping.
+        if (mIsVrModeEnabled) {
+            return DisplayPowerRequest.POLICY_VR;
         }
 
         if ((mWakeLockSummary & WAKE_LOCK_SCREEN_BRIGHT) != 0
@@ -2946,8 +2968,15 @@ public final class PowerManagerService extends SystemService
             boolean disabled = false;
             final int appid = UserHandle.getAppId(wakeLock.mOwnerUid);
             if (appid >= Process.FIRST_APPLICATION_UID) {
+                // Cached inactive processes are never allowed to hold wake locks.
+                if (mConstants.NO_CACHED_WAKE_LOCKS) {
+                    disabled = !wakeLock.mUidState.mActive &&
+                            wakeLock.mUidState.mProcState
+                                    != ActivityManager.PROCESS_STATE_NONEXISTENT &&
+                            wakeLock.mUidState.mProcState > ActivityManager.PROCESS_STATE_RECEIVER;
+                }
                 if (mDeviceIdleMode) {
-                    // If we are in idle mode, we will ignore all partial wake locks that are
+                    // If we are in idle mode, we will also ignore all partial wake locks that are
                     // for application uids that are not whitelisted.
                     final UidState state = wakeLock.mUidState;
                     if (Arrays.binarySearch(mDeviceIdleWhitelist, appid) < 0 &&
@@ -2956,11 +2985,6 @@ public final class PowerManagerService extends SystemService
                             state.mProcState > ActivityManager.PROCESS_STATE_FOREGROUND_SERVICE) {
                         disabled = true;
                     }
-                } else if (mConstants.NO_CACHED_WAKE_LOCKS) {
-                    disabled = !wakeLock.mUidState.mActive &&
-                            wakeLock.mUidState.mProcState
-                                    != ActivityManager.PROCESS_STATE_NONEXISTENT &&
-                            wakeLock.mUidState.mProcState > ActivityManager.PROCESS_STATE_RECEIVER;
                 }
             }
             if (wakeLock.mDisabled != disabled) {
@@ -3094,6 +3118,11 @@ public final class PowerManagerService extends SystemService
                 updatePowerStateLocked();
             }
         }
+    }
+
+    @VisibleForTesting
+    void setVrModeEnabled(boolean enabled) {
+        mIsVrModeEnabled = enabled;
     }
 
     private void powerHintInternal(int hintId, int data) {
@@ -3793,7 +3822,7 @@ public final class PowerManagerService extends SystemService
 
             synchronized (mLock) {
                 if (mIsVrModeEnabled != enabled) {
-                    mIsVrModeEnabled = enabled;
+                    setVrModeEnabled(enabled);
                     mDirty |= DIRTY_VR_MODE_CHANGED;
                     updatePowerStateLocked();
                 }

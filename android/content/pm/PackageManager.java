@@ -31,6 +31,7 @@ import android.annotation.SystemApi;
 import android.annotation.TestApi;
 import android.annotation.UserIdInt;
 import android.annotation.XmlRes;
+import android.app.ActivityManager;
 import android.app.PackageDeleteObserver;
 import android.app.PackageInstallObserver;
 import android.app.admin.DevicePolicyManager;
@@ -46,6 +47,7 @@ import android.content.res.XmlResourceParser;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -54,7 +56,6 @@ import android.os.UserHandle;
 import android.os.UserManager;
 import android.os.storage.StorageManager;
 import android.os.storage.VolumeInfo;
-import android.provider.Settings;
 import android.util.AndroidException;
 import android.util.Log;
 
@@ -810,6 +811,14 @@ public abstract class PackageManager {
      */
     public static final int INSTALL_ALLOCATE_AGGRESSIVE = 0x00008000;
 
+    /**
+     * Flag parameter for {@link #installPackage} to indicate that this package
+     * is a virtual preload.
+     *
+     * @hide
+     */
+    public static final int INSTALL_VIRTUAL_PRELOAD = 0x00010000;
+
     /** @hide */
     @IntDef(flag = true, prefix = { "DONT_KILL_APP" }, value = {
             DONT_KILL_APP
@@ -1490,6 +1499,9 @@ public abstract class PackageManager {
      */
     public static final int MOVE_FAILED_3RD_PARTY_NOT_ALLOWED_ON_INTERNAL = -9;
 
+    /** @hide */
+    public static final int MOVE_FAILED_LOCKED_USER = -10;
+
     /**
      * Flag parameter for {@link #movePackage} to indicate that
      * the package should be moved to internal storage if its
@@ -1780,6 +1792,24 @@ public abstract class PackageManager {
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device's
+     * {@link ActivityManager#isLowRamDevice() ActivityManager.isLowRamDevice()} method returns
+     * true.
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_RAM_LOW = "android.hardware.ram.low";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device's
+     * {@link ActivityManager#isLowRamDevice() ActivityManager.isLowRamDevice()} method returns
+     * false.
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_RAM_NORMAL = "android.hardware.ram.normal";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
      * {@link #hasSystemFeature}: The device can record audio via a
      * microphone.
      */
@@ -1874,10 +1904,16 @@ public abstract class PackageManager {
      * Feature for {@link #getSystemAvailableFeatures} and
      * {@link #hasSystemFeature(String, int)}: If this feature is supported, the Vulkan native API
      * will enumerate at least one {@code VkPhysicalDevice}, and the feature version will indicate
-     * what level of optional compute features are supported beyond the Vulkan 1.0 requirements.
+     * what level of optional compute features that device supports beyond the Vulkan 1.0
+     * requirements.
      * <p>
-     * Compute level 0 indicates support for the {@code VariablePointers} SPIR-V capability defined
-     * by the SPV_KHR_variable_pointers extension.
+     * Compute level 0 indicates:
+     * <ul>
+     * <li>The {@code VK_KHR_variable_pointers} extension and
+     *     {@code VkPhysicalDeviceVariablePointerFeaturesKHR::variablePointers} feature are
+           supported.</li>
+     * <li>{@code VkPhysicalDeviceLimits::maxPerStageDescriptorStorageBuffers} is at least 16.</li>
+     * </ul>
      */
     @SdkConstant(SdkConstantType.FEATURE)
     public static final String FEATURE_VULKAN_HARDWARE_COMPUTE = "android.hardware.vulkan.compute";
@@ -1896,6 +1932,15 @@ public abstract class PackageManager {
      */
     @SdkConstant(SdkConstantType.FEATURE)
     public static final String FEATURE_VULKAN_HARDWARE_VERSION = "android.hardware.vulkan.version";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device includes broadcast radio tuner.
+     * @hide
+     */
+    @SystemApi
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_BROADCAST_RADIO = "android.hardware.broadcastradio";
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and
@@ -2029,6 +2074,15 @@ public abstract class PackageManager {
     @SdkConstant(SdkConstantType.FEATURE)
     public static final String FEATURE_TELEPHONY_CARRIERLOCK =
             "android.hardware.telephony.carrierlock";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and {@link #hasSystemFeature}: The device
+     * supports embedded subscriptions on eUICCs.
+     * TODO(b/35851809): Make this public.
+     * @hide
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_TELEPHONY_EUICC = "android.hardware.telephony.euicc";
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and
@@ -2267,6 +2321,23 @@ public abstract class PackageManager {
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device supports Wi-Fi Passpoint and all
+     * Passpoint related APIs in {@link WifiManager} are supported. Refer to
+     * {@link WifiManager#addOrUpdatePasspointConfiguration} for more info.
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_WIFI_PASSPOINT = "android.hardware.wifi.passpoint";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device supports LoWPAN networking.
+     * @hide
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_LOWPAN = "android.hardware.lowpan";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
      * {@link #hasSystemFeature}: This is a device dedicated to showing UI
      * on a vehicle headunit. A headunit here is defined to be inside a
      * vehicle that may or may not be moving. A headunit uses either a
@@ -2310,6 +2381,17 @@ public abstract class PackageManager {
      */
     @SdkConstant(SdkConstantType.FEATURE)
     public static final String FEATURE_EMBEDDED = "android.hardware.type.embedded";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: This is a device dedicated to be primarily used
+     * with keyboard, mouse or touchpad. This includes traditional desktop
+     * computers, laptops and variants such as convertibles or detachables.
+     * Due to the larger screen, the device will most likely use the
+     * {@link #FEATURE_FREEFORM_WINDOW_MANAGEMENT} feature as well.
+     */
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_PC = "android.hardware.type.pc";
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and {@link #hasSystemFeature}:
@@ -3267,6 +3349,7 @@ public abstract class PackageManager {
      *
      * @hide
      */
+    @TestApi
     public abstract String getPermissionControllerPackageName();
 
     /**
@@ -3535,6 +3618,14 @@ public abstract class PackageManager {
     public abstract @Nullable String getNameForUid(int uid);
 
     /**
+     * Retrieves the official names associated with each given uid.
+     * @see #getNameForUid(int)
+     *
+     * @hide
+     */
+    public abstract @Nullable String[] getNamesForUids(int[] uids);
+
+    /**
      * Return the user id associated with a shared user name. Multiple
      * applications can specify a shared user name in their manifest and thus
      * end up using a common uid. This might be used for new applications
@@ -3713,7 +3804,6 @@ public abstract class PackageManager {
 
     /**
      * @removed
-     * @hide
      */
     public abstract boolean setInstantAppCookie(@Nullable byte[] cookie);
 
@@ -3966,6 +4056,7 @@ public abstract class PackageManager {
      * @hide
      */
     @SystemApi
+    @RequiresPermission(Manifest.permission.INTERACT_ACROSS_USERS)
     public List<ResolveInfo> queryBroadcastReceiversAsUser(Intent intent,
             @ResolveInfoFlags int flags, UserHandle userHandle) {
         return queryBroadcastReceiversAsUser(intent, flags, userHandle.getIdentifier());
@@ -4636,6 +4727,7 @@ public abstract class PackageManager {
      * on the system for other users, also install it for the calling user.
      * @hide
      */
+    @SystemApi
     public abstract int installExistingPackage(String packageName) throws NameNotFoundException;
 
     /**
@@ -4643,6 +4735,7 @@ public abstract class PackageManager {
      * on the system for other users, also install it for the calling user.
      * @hide
      */
+    @SystemApi
     public abstract int installExistingPackage(String packageName, @InstallReason int installReason)
             throws NameNotFoundException;
 
@@ -4754,6 +4847,7 @@ public abstract class PackageManager {
      * @hide
      */
     @SystemApi
+    @RequiresPermission(Manifest.permission.INTERACT_ACROSS_USERS_FULL)
     public abstract int getIntentVerificationStatusAsUser(String packageName, @UserIdInt int userId);
 
     /**
@@ -4823,6 +4917,7 @@ public abstract class PackageManager {
      */
     @TestApi
     @SystemApi
+    @RequiresPermission(Manifest.permission.INTERACT_ACROSS_USERS_FULL)
     public abstract String getDefaultBrowserPackageNameAsUser(@UserIdInt int userId);
 
     /**
@@ -4838,7 +4933,9 @@ public abstract class PackageManager {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.SET_PREFERRED_APPLICATIONS)
+    @RequiresPermission(allOf = {
+            Manifest.permission.SET_PREFERRED_APPLICATIONS,
+            Manifest.permission.INTERACT_ACROSS_USERS_FULL})
     public abstract boolean setDefaultBrowserPackageNameAsUser(String packageName,
             @UserIdInt int userId);
 
@@ -5731,4 +5828,48 @@ public abstract class PackageManager {
      * @hide
      */
     public abstract String getInstantAppAndroidId(String packageName, @NonNull UserHandle user);
+
+    /**
+     * Callback use to notify the callers of module registration that the operation
+     * has finished.
+     *
+     * @hide
+     */
+    @SystemApi
+    public static abstract class DexModuleRegisterCallback {
+        public abstract void onDexModuleRegistered(String dexModulePath, boolean success,
+                String message);
+    }
+
+    /**
+     * Register an application dex module with the package manager.
+     * The package manager will keep track of the given module for future optimizations.
+     *
+     * Dex module optimizations will disable the classpath checking at runtime. The client bares
+     * the responsibility to ensure that the static assumptions on classes in the optimized code
+     * hold at runtime (e.g. there's no duplicate classes in the classpath).
+     *
+     * Note that the package manager already keeps track of dex modules loaded with
+     * {@link dalvik.system.DexClassLoader} and {@link dalvik.system.PathClassLoader}.
+     * This can be called for an eager registration.
+     *
+     * The call might take a while and the results will be posted on the main thread, using
+     * the given callback.
+     *
+     * If the module is intended to be shared with other apps, make sure that the file
+     * permissions allow for it.
+     * If at registration time the permissions allow for others to read it, the module would
+     * be marked as a shared module which might undergo a different optimization strategy.
+     * (usually shared modules will generated larger optimizations artifacts,
+     * taking more disk space).
+     *
+     * @param dexModulePath the absolute path of the dex module.
+     * @param callback if not null, {@link DexModuleRegisterCallback#onDexModuleRegistered} will
+     *                 be called once the registration finishes.
+     *
+     * @hide
+     */
+    @SystemApi
+    public abstract void registerDexModule(String dexModulePath,
+            @Nullable DexModuleRegisterCallback callback);
 }

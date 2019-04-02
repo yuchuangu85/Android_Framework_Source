@@ -46,7 +46,16 @@ public class RecyclerItemAdapter extends RecyclerView.Adapter<ItemViewHolder>
      */
     public static final String TAG_NO_BACKGROUND = "noBackground";
 
+    /**
+     * Listener for item selection in this adapter.
+     */
     public interface OnItemSelectedListener {
+
+        /**
+         * Called when an item in this adapter is clicked.
+         *
+         * @param item The Item corresponding to the position being clicked.
+         */
         void onItemSelected(IItem item);
     }
 
@@ -58,6 +67,11 @@ public class RecyclerItemAdapter extends RecyclerView.Adapter<ItemViewHolder>
         mItemHierarchy.registerObserver(this);
     }
 
+    /**
+     * Gets the item at the given position.
+     *
+     * @see ItemHierarchy#getItemAt(int)
+     */
     public IItem getItem(int position) {
         return mItemHierarchy.getItemAt(position);
     }
@@ -95,8 +109,11 @@ public class RecyclerItemAdapter extends RecyclerView.Adapter<ItemViewHolder>
                         R.styleable.SuwRecyclerItemAdapter_selectableItemBackground);
             }
 
-            final Drawable background = typedArray.getDrawable(
-                    R.styleable.SuwRecyclerItemAdapter_android_colorBackground);
+            Drawable background = view.getBackground();
+            if (background == null) {
+                background = typedArray.getDrawable(
+                        R.styleable.SuwRecyclerItemAdapter_android_colorBackground);
+            }
 
             if (selectableItemBackground == null || background == null) {
                 Log.e(TAG, "Cannot resolve required attributes."
@@ -177,14 +194,27 @@ public class RecyclerItemAdapter extends RecyclerView.Adapter<ItemViewHolder>
         notifyItemRangeRemoved(positionStart, itemCount);
     }
 
+    /**
+     * Find an item hierarchy within the root hierarchy.
+     *
+     * @see ItemHierarchy#findItemById(int)
+     */
     public ItemHierarchy findItemById(int id) {
         return mItemHierarchy.findItemById(id);
     }
 
+    /**
+     * Gets the root item hierarchy in this adapter.
+     */
     public ItemHierarchy getRootItemHierarchy() {
         return mItemHierarchy;
     }
 
+    /**
+     * Sets the listener to listen for when user clicks on a item.
+     *
+     * @see OnItemSelectedListener
+     */
     public void setOnItemSelectedListener(OnItemSelectedListener listener) {
         mListener = listener;
     }

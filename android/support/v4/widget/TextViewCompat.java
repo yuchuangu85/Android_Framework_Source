@@ -27,6 +27,7 @@ import android.support.annotation.Nullable;
 import android.support.annotation.RequiresApi;
 import android.support.annotation.RestrictTo;
 import android.support.annotation.StyleRes;
+import android.support.v4.os.BuildCompat;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
@@ -37,20 +38,20 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
 
 /**
- * Helper for accessing features in {@link TextView} in a backwards compatible fashion.
+ * Helper for accessing features in {@link TextView}.
  */
 public final class TextViewCompat {
 
     /**
      * The TextView does not auto-size text (default).
      */
-    public static final int AUTO_SIZE_TEXT_TYPE_NONE = 0;
+    public static final int AUTO_SIZE_TEXT_TYPE_NONE = TextView.AUTO_SIZE_TEXT_TYPE_NONE;
 
     /**
      * The TextView scales text size both horizontally and vertically to fit within the
      * container.
      */
-    public static final int AUTO_SIZE_TEXT_TYPE_UNIFORM = 1;
+    public static final int AUTO_SIZE_TEXT_TYPE_UNIFORM = TextView.AUTO_SIZE_TEXT_TYPE_UNIFORM;
 
     /** @hide */
     @RestrictTo(LIBRARY_GROUP)
@@ -313,8 +314,8 @@ public final class TextViewCompat {
         }
     }
 
-    @RequiresApi(26)
-    static class TextViewCompatApi26Impl extends TextViewCompatApi23Impl {
+    @RequiresApi(27)
+    static class TextViewCompatApi27Impl extends TextViewCompatApi23Impl {
         @Override
         public void setAutoSizeTextTypeWithDefaults(TextView textView, int autoSizeTextType) {
             textView.setAutoSizeTextTypeWithDefaults(autoSizeTextType);
@@ -366,8 +367,8 @@ public final class TextViewCompat {
     static final TextViewCompatBaseImpl IMPL;
 
     static {
-        if (Build.VERSION.SDK_INT >= 26) {
-            IMPL = new TextViewCompatApi26Impl();
+        if (BuildCompat.isAtLeastOMR1()) {
+            IMPL = new TextViewCompatApi27Impl();
         } else if (Build.VERSION.SDK_INT >= 23) {
             IMPL = new TextViewCompatApi23Impl();
         } else if (Build.VERSION.SDK_INT >= 18) {

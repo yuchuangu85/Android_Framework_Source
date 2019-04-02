@@ -20,6 +20,8 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Message;
 import android.service.carrier.CarrierIdentifier;
+import android.telephony.ImsiEncryptionInfo;
+import android.telephony.NetworkScanRequest;
 
 import com.android.internal.telephony.BaseCommands;
 import com.android.internal.telephony.CommandsInterface;
@@ -334,6 +336,14 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
     }
 
     @Override
+    public void startNetworkScan(NetworkScanRequest nsr, Message response) {
+    }
+
+    @Override
+    public void stopNetworkScan(Message response) {
+    }
+
+    @Override
     public void setCallForward(int action, int cfReason, int serviceClass,
                 String number, int timeSeconds, Message response) {
     }
@@ -617,6 +627,11 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
     }
 
     @Override
+    public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo,
+                                                Message result) {
+    }
+
+    @Override
     public void setAllowedCarriers(List<CarrierIdentifier> carriers, Message result) {
     }
 
@@ -633,6 +648,6 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void setSimCardPower(boolean powerUp, Message result) {
+    public void setSimCardPower(int state, Message result) {
     }
 }

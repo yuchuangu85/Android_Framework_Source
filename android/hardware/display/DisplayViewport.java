@@ -67,6 +67,9 @@ public final class DisplayViewport {
         uniqueId = viewport.uniqueId;
     }
 
+    /**
+     * Creates a copy of this DisplayViewport.
+     */
     public DisplayViewport makeCopy() {
         DisplayViewport dv = new DisplayViewport();
         dv.copyFrom(this);
@@ -84,29 +87,29 @@ public final class DisplayViewport {
         }
 
         DisplayViewport other = (DisplayViewport) o;
-        return valid == other.valid &&
-              displayId == other.displayId &&
-              orientation == other.orientation &&
-              logicalFrame.equals(other.logicalFrame) &&
-              physicalFrame.equals(other.physicalFrame) &&
-              deviceWidth == other.deviceWidth &&
-              deviceHeight == other.deviceHeight &&
-              TextUtils.equals(uniqueId, other.uniqueId);
+        return valid == other.valid
+              && displayId == other.displayId
+              && orientation == other.orientation
+              && logicalFrame.equals(other.logicalFrame)
+              && physicalFrame.equals(other.physicalFrame)
+              && deviceWidth == other.deviceWidth
+              && deviceHeight == other.deviceHeight
+              && TextUtils.equals(uniqueId, other.uniqueId);
     }
 
     @Override
     public int hashCode() {
-      final int prime = 31;
-      int result = 1;
-      result += prime * result + (valid ? 1 : 0);
-      result += prime * result + displayId;
-      result += prime * result + orientation;
-      result += prime * result + logicalFrame.hashCode();
-      result += prime * result + physicalFrame.hashCode();
-      result += prime * result + deviceWidth;
-      result += prime * result + deviceHeight;
-      result += prime * result + uniqueId.hashCode();
-      return result;
+        final int prime = 31;
+        int result = 1;
+        result += prime * result + (valid ? 1 : 0);
+        result += prime * result + displayId;
+        result += prime * result + orientation;
+        result += prime * result + logicalFrame.hashCode();
+        result += prime * result + physicalFrame.hashCode();
+        result += prime * result + deviceWidth;
+        result += prime * result + deviceHeight;
+        result += prime * result + uniqueId.hashCode();
+        return result;
     }
 
     // For debugging purposes.

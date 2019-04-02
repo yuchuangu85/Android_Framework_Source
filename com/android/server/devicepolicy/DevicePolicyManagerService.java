@@ -43,6 +43,7 @@ import static android.app.admin.DevicePolicyManager.DELEGATION_PACKAGE_ACCESS;
 import static android.app.admin.DevicePolicyManager.DELEGATION_PERMISSION_GRANT;
 import static android.app.admin.DevicePolicyManager.PASSWORD_QUALITY_COMPLEX;
 import static android.app.admin.DevicePolicyManager.PROFILE_KEYGUARD_FEATURES_AFFECT_OWNER;
+import static android.app.admin.DevicePolicyManager.WIPE_EUICC;
 import static android.app.admin.DevicePolicyManager.WIPE_EXTERNAL_STORAGE;
 import static android.app.admin.DevicePolicyManager.WIPE_RESET_PROTECTION_DATA;
 import static android.content.pm.PackageManager.MATCH_UNINSTALLED_PACKAGES;
@@ -98,6 +99,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.PackageManagerInternal;
 import android.content.pm.ParceledListSlice;
+import android.content.pm.PermissionInfo;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.content.pm.StringParceledListSlice;
@@ -151,6 +153,7 @@ import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.ArraySet;
+import android.util.EventLog;
 import android.util.Log;
 import android.util.Pair;
 import android.util.Slog;
@@ -253,6 +256,8 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
     private static final String TAG_INITIALIZATION_BUNDLE = "initialization-bundle";
 
     private static final String TAG_PASSWORD_TOKEN_HANDLE = "password-token";
+
+    private static final String TAG_PASSWORD_VALIDITY = "password-validity";
 
     private static final int REQUEST_EXPIRE_PASSWORD = 5571;
 
@@ -478,6 +483,8 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
     public static class DevicePolicyData {
         @NonNull PasswordMetrics mActivePasswordMetrics = new PasswordMetrics();
         int mFailedPasswordAttempts = 0;
+        boolean mPasswordStateHasBeenSetSinceBoot = false;
+        boolean mPasswordValidAtLastCheckpoint = false;
 
         int mUserHandle;
         int mPasswordOwner = -1;
@@ -521,7 +528,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
         // TODO(b/35385311): Keep track of metadata in TrustedCertificateStore instead.
         Set<String> mOwnerInstalledCaCerts = new ArraySet<>();
 
-        // Used for initialization of users created by createAndManageUsers.
+        // Used for initialization of users created by createAndManageUser.
         boolean mAdminBroadcastPending = false;
         PersistableBundle mInitBundle = null;
 
@@ -1687,9 +1694,9 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
             mContext.getSystemService(PowerManager.class).reboot(reason);
         }
 
-        void recoverySystemRebootWipeUserData(boolean shutdown, String reason, boolean force)
-                throws IOException {
-            RecoverySystem.rebootWipeUserData(mContext, shutdown, reason, force);
+        void recoverySystemRebootWipeUserData(boolean shutdown, String reason, boolean force,
+                boolean wipeEuicc) throws IOException {
+            RecoverySystem.rebootWipeUserData(mContext, shutdown, reason, force, wipeEuicc);
         }
 
         boolean systemPropertiesGetBoolean(String key, boolean def) {
@@ -2015,12 +2022,10 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
     private void setDeviceOwnerSystemPropertyLocked() {
         final boolean deviceProvisioned =
                 mInjector.settingsGlobalGetInt(Settings.Global.DEVICE_PROVISIONED, 0) != 0;
+        final boolean hasDeviceOwner = mOwners.hasDeviceOwner();
         // If the device is not provisioned and there is currently no device owner, do not set the
-        // read-only system property yet, since Device owner may still be provisioned. For Wear
-        // devices, if there is already a device owner then it's OK to set the property to true now,
-        // regardless the provision state.
-        final boolean isWatchWithDeviceOwner = mIsWatch && mOwners.hasDeviceOwner();
-        if (!isWatchWithDeviceOwner && !deviceProvisioned) {
+        // read-only system property yet, since Device owner may still be provisioned.
+        if (!hasDeviceOwner && !deviceProvisioned) {
             return;
         }
         // Still at the first stage of CryptKeeper double bounce, mOwners.hasDeviceOwner is
@@ -2029,20 +2034,16 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
             return;
         }
 
-        if (!TextUtils.isEmpty(mInjector.systemPropertiesGet(PROPERTY_DEVICE_OWNER_PRESENT))) {
+        if (!mInjector.systemPropertiesGet(PROPERTY_DEVICE_OWNER_PRESENT, "").isEmpty()) {
             Slog.w(LOG_TAG, "Trying to set ro.device_owner, but it has already been set?");
         } else {
-            if (mOwners.hasDeviceOwner()) {
-                mInjector.systemPropertiesSet(PROPERTY_DEVICE_OWNER_PRESENT, "true");
-                Slog.i(LOG_TAG, "Set ro.device_owner property to true");
+            final String value = Boolean.toString(hasDeviceOwner);
+            mInjector.systemPropertiesSet(PROPERTY_DEVICE_OWNER_PRESENT, value);
+            Slog.i(LOG_TAG, "Set ro.device_owner property to " + value);
 
-                if (mInjector.securityLogGetLoggingEnabledProperty()) {
-                    mSecurityLogMonitor.start();
-                    maybePauseDeviceWideLoggingLocked();
-                }
-            } else {
-                mInjector.systemPropertiesSet(PROPERTY_DEVICE_OWNER_PRESENT, "false");
-                Slog.i(LOG_TAG, "Set ro.device_owner property to false");
+            if (hasDeviceOwner && mInjector.securityLogGetLoggingEnabledProperty()) {
+                mSecurityLogMonitor.start();
+                maybePauseDeviceWideLoggingLocked();
             }
         }
     }
@@ -2379,6 +2380,9 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
             BroadcastReceiver result) {
         Intent intent = new Intent(action);
         intent.setComponent(admin.info.getComponent());
+        if (UserManager.isDeviceInDemoMode(mContext)) {
+            intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+        }
         if (action.equals(DeviceAdminReceiver.ACTION_PASSWORD_EXPIRING)) {
             intent.putExtra("expiration", admin.passwordExpirationDate);
         }
@@ -2574,19 +2578,14 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                 out.endTag(null, "failed-password-attempts");
             }
 
-            // Don't save metrics for FBE devices
-            final PasswordMetrics metrics = policy.mActivePasswordMetrics;
-            if (!mInjector.storageManagerIsFileBasedEncryptionEnabled() && !metrics.isDefault()) {
-                out.startTag(null, "active-password");
-                out.attribute(null, "quality", Integer.toString(metrics.quality));
-                out.attribute(null, "length", Integer.toString(metrics.length));
-                out.attribute(null, "uppercase", Integer.toString(metrics.upperCase));
-                out.attribute(null, "lowercase", Integer.toString(metrics.lowerCase));
-                out.attribute(null, "letters", Integer.toString(metrics.letters));
-                out.attribute(null, "numeric", Integer.toString(metrics.numeric));
-                out.attribute(null, "symbols", Integer.toString(metrics.symbols));
-                out.attribute(null, "nonletter", Integer.toString(metrics.nonLetter));
-                out.endTag(null, "active-password");
+            // For FDE devices only, we save this flag so we can report on password sufficiency
+            // before the user enters their password for the first time after a reboot.  For
+            // security reasons, we don't want to store the full set of active password metrics.
+            if (!mInjector.storageManagerIsFileBasedEncryptionEnabled()) {
+                out.startTag(null, TAG_PASSWORD_VALIDITY);
+                out.attribute(null, ATTR_VALUE,
+                        Boolean.toString(policy.mPasswordValidAtLastCheckpoint));
+                out.endTag(null, TAG_PASSWORD_VALIDITY);
             }
 
             for (int i = 0; i < policy.mAcceptedCaCertificates.size(); i++) {
@@ -2864,19 +2863,14 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                 } else if (TAG_INITIALIZATION_BUNDLE.equals(tag)) {
                     policy.mInitBundle = PersistableBundle.restoreFromXml(parser);
                 } else if ("active-password".equals(tag)) {
-                    if (mInjector.storageManagerIsFileBasedEncryptionEnabled()) {
-                        // Remove this from FBE devices
-                        needsRewrite = true;
-                    } else {
-                        final PasswordMetrics m = policy.mActivePasswordMetrics;
-                        m.quality = Integer.parseInt(parser.getAttributeValue(null, "quality"));
-                        m.length = Integer.parseInt(parser.getAttributeValue(null, "length"));
-                        m.upperCase = Integer.parseInt(parser.getAttributeValue(null, "uppercase"));
-                        m.lowerCase = Integer.parseInt(parser.getAttributeValue(null, "lowercase"));
-                        m.letters = Integer.parseInt(parser.getAttributeValue(null, "letters"));
-                        m.numeric = Integer.parseInt(parser.getAttributeValue(null, "numeric"));
-                        m.symbols = Integer.parseInt(parser.getAttributeValue(null, "symbols"));
-                        m.nonLetter = Integer.parseInt(parser.getAttributeValue(null, "nonletter"));
+                    // Remove password metrics from saved settings, as we no longer wish to store
+                    // these on disk
+                    needsRewrite = true;
+                } else if (TAG_PASSWORD_VALIDITY.equals(tag)) {
+                    if (!mInjector.storageManagerIsFileBasedEncryptionEnabled()) {
+                        // This flag is only used for FDE devices
+                        policy.mPasswordValidAtLastCheckpoint = Boolean.parseBoolean(
+                                parser.getAttributeValue(null, ATTR_VALUE));
                     }
                 } else if (TAG_PASSWORD_TOKEN_HANDLE.equals(tag)) {
                     policy.mPasswordTokenHandle = Long.parseLong(
@@ -3453,9 +3447,22 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                     who, DeviceAdminInfo.USES_POLICY_LIMIT_PASSWORD, parent);
             if (ap.minimumPasswordMetrics.quality != quality) {
                 ap.minimumPasswordMetrics.quality = quality;
+                updatePasswordValidityCheckpointLocked(mInjector.userHandleGetCallingUserId());
                 saveSettingsLocked(mInjector.userHandleGetCallingUserId());
             }
         }
+    }
+
+    /**
+     * Updates flag in memory that tells us whether the user's password currently satisfies the
+     * requirements set by all of the user's active admins.  This should be called before
+     * {@link #saveSettingsLocked} whenever the password or the admin policies have changed.
+     */
+    @GuardedBy("DevicePolicyManagerService.this")
+    private void updatePasswordValidityCheckpointLocked(int userHandle) {
+        DevicePolicyData policy = getUserData(userHandle);
+        policy.mPasswordValidAtLastCheckpoint = isActivePasswordSufficientForUserLocked(
+                policy, policy.mUserHandle, false);
     }
 
     @Override
@@ -3540,6 +3547,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                     who, DeviceAdminInfo.USES_POLICY_LIMIT_PASSWORD, parent);
             if (ap.minimumPasswordMetrics.length != length) {
                 ap.minimumPasswordMetrics.length = length;
+                updatePasswordValidityCheckpointLocked(mInjector.userHandleGetCallingUserId());
                 saveSettingsLocked(mInjector.userHandleGetCallingUserId());
             }
         }
@@ -3584,6 +3592,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                     who, DeviceAdminInfo.USES_POLICY_LIMIT_PASSWORD, parent);
             if (ap.passwordHistoryLength != length) {
                 ap.passwordHistoryLength = length;
+                updatePasswordValidityCheckpointLocked(mInjector.userHandleGetCallingUserId());
                 saveSettingsLocked(mInjector.userHandleGetCallingUserId());
             }
         }
@@ -3796,6 +3805,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                     who, DeviceAdminInfo.USES_POLICY_LIMIT_PASSWORD, parent);
             if (ap.minimumPasswordMetrics.upperCase != length) {
                 ap.minimumPasswordMetrics.upperCase = length;
+                updatePasswordValidityCheckpointLocked(mInjector.userHandleGetCallingUserId());
                 saveSettingsLocked(mInjector.userHandleGetCallingUserId());
             }
         }
@@ -3837,6 +3847,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                     who, DeviceAdminInfo.USES_POLICY_LIMIT_PASSWORD, parent);
             if (ap.minimumPasswordMetrics.lowerCase != length) {
                 ap.minimumPasswordMetrics.lowerCase = length;
+                updatePasswordValidityCheckpointLocked(mInjector.userHandleGetCallingUserId());
                 saveSettingsLocked(mInjector.userHandleGetCallingUserId());
             }
         }
@@ -3881,6 +3892,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                     who, DeviceAdminInfo.USES_POLICY_LIMIT_PASSWORD, parent);
             if (ap.minimumPasswordMetrics.letters != length) {
                 ap.minimumPasswordMetrics.letters = length;
+                updatePasswordValidityCheckpointLocked(mInjector.userHandleGetCallingUserId());
                 saveSettingsLocked(mInjector.userHandleGetCallingUserId());
             }
         }
@@ -3928,6 +3940,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                     who, DeviceAdminInfo.USES_POLICY_LIMIT_PASSWORD, parent);
             if (ap.minimumPasswordMetrics.numeric != length) {
                 ap.minimumPasswordMetrics.numeric = length;
+                updatePasswordValidityCheckpointLocked(mInjector.userHandleGetCallingUserId());
                 saveSettingsLocked(mInjector.userHandleGetCallingUserId());
             }
         }
@@ -3975,6 +3988,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                     who, DeviceAdminInfo.USES_POLICY_LIMIT_PASSWORD, parent);
             if (ap.minimumPasswordMetrics.symbols != length) {
                 ap.minimumPasswordMetrics.symbols = length;
+                updatePasswordValidityCheckpointLocked(mInjector.userHandleGetCallingUserId());
                 saveSettingsLocked(mInjector.userHandleGetCallingUserId());
             }
         }
@@ -4022,6 +4036,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                     who, DeviceAdminInfo.USES_POLICY_LIMIT_PASSWORD, parent);
             if (ap.minimumPasswordMetrics.nonLetter != length) {
                 ap.minimumPasswordMetrics.nonLetter = length;
+                updatePasswordValidityCheckpointLocked(mInjector.userHandleGetCallingUserId());
                 saveSettingsLocked(mInjector.userHandleGetCallingUserId());
             }
         }
@@ -4064,6 +4079,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
             return true;
         }
         enforceFullCrossUsersPermission(userHandle);
+        enforceUserUnlocked(userHandle, parent);
 
         synchronized (this) {
             // This API can only be called by an active device admin,
@@ -4083,7 +4099,8 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
         enforceManagedProfile(userHandle, "call APIs refering to the parent profile");
 
         synchronized (this) {
-            int targetUser = getProfileParentId(userHandle);
+            final int targetUser = getProfileParentId(userHandle);
+            enforceUserUnlocked(targetUser, false);
             DevicePolicyData policy = getUserDataUnchecked(getCredentialOwner(userHandle, false));
             return isActivePasswordSufficientForUserLocked(policy, targetUser, false);
         }
@@ -4091,9 +4108,26 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
 
     private boolean isActivePasswordSufficientForUserLocked(
             DevicePolicyData policy, int userHandle, boolean parent) {
-        enforceUserUnlocked(userHandle, parent);
-
         final int requiredPasswordQuality = getPasswordQuality(null, userHandle, parent);
+        if (requiredPasswordQuality == DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED) {
+            // A special case is when there is no required password quality, then we just return
+            // true since any password would be sufficient. This is for the scenario when a work
+            // profile is first created so there is no information about the current password but
+            // it should be considered sufficient as there is no password requirement either.
+            // This is useful since it short-circuits the password checkpoint for FDE device below.
+            return true;
+        }
+
+        if (!mInjector.storageManagerIsFileBasedEncryptionEnabled()
+                && !policy.mPasswordStateHasBeenSetSinceBoot) {
+            // Before user enters their password for the first time after a reboot, return the
+            // value of this flag, which tells us whether the password was valid the last time
+            // settings were saved.  If DPC changes password requirements on boot so that the
+            // current password no longer meets the requirements, this value will be stale until
+            // the next time the password is entered.
+            return policy.mPasswordValidAtLastCheckpoint;
+        }
+
         if (policy.mActivePasswordMetrics.quality < requiredPasswordQuality) {
             return false;
         }
@@ -4229,6 +4263,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
             mInjector.binderRestoreCallingIdentity(token);
         }
     }
+
     @Override
     public boolean resetPassword(String passwordOrNull, int flags) throws RemoteException {
         final int callingUid = mInjector.binderGetCallingUid();
@@ -4414,7 +4449,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                 result = mLockPatternUtils.setLockCredentialWithToken(password,
                         TextUtils.isEmpty(password) ? LockPatternUtils.CREDENTIAL_TYPE_NONE
                                 : LockPatternUtils.CREDENTIAL_TYPE_PASSWORD,
-                        tokenHandle, token, userHandle);
+                                quality, tokenHandle, token, userHandle);
             }
             boolean requireEntry = (flags & DevicePolicyManager.RESET_PASSWORD_REQUIRE_ENTRY) != 0;
             if (requireEntry) {
@@ -5277,7 +5312,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
         }
     }
 
-    private void forceWipeDeviceNoLock(boolean wipeExtRequested, String reason) {
+    private void forceWipeDeviceNoLock(boolean wipeExtRequested, String reason, boolean wipeEuicc) {
         wtfIfInLock();
 
         if (wipeExtRequested) {
@@ -5287,7 +5322,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
         }
         try {
             mInjector.recoverySystemRebootWipeUserData(
-                    /*shutdown=*/ false, reason, /*force=*/ true);
+                    /*shutdown=*/ false, reason, /*force=*/ true, /*wipeEuicc=*/ wipeEuicc);
         } catch (IOException | SecurityException e) {
             Slog.w(LOG_TAG, "Failed requesting data wipe", e);
         }
@@ -5364,7 +5399,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
             // removes that user (but still clears FRP...)
             if (userId == UserHandle.USER_SYSTEM) {
                 forceWipeDeviceNoLock(/*wipeExtRequested=*/ (flags & WIPE_EXTERNAL_STORAGE) != 0,
-                        reason);
+                        reason, /*wipeEuicc=*/ (flags & WIPE_EUICC) != 0);
             } else {
                 forceWipeUser(userId);
             }
@@ -5418,6 +5453,11 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
         }
     }
 
+    /**
+     * Notify DPMS regarding the metric of the current password. This happens when the user changes
+     * the password, but also when the user just unlocks the keyguard. In comparison,
+     * reportPasswordChanged() is only called when the user changes the password.
+     */
     @Override
     public void setActivePasswordState(PasswordMetrics metrics, int userHandle) {
         if (!mHasFeature) {
@@ -5436,6 +5476,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
         DevicePolicyData policy = getUserData(userHandle);
         synchronized (this) {
             policy.mActivePasswordMetrics = metrics;
+            policy.mPasswordStateHasBeenSetSinceBoot = true;
         }
     }
 
@@ -5460,6 +5501,7 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
         try {
             synchronized (this) {
                 policy.mFailedPasswordAttempts = 0;
+                updatePasswordValidityCheckpointLocked(userId);
                 saveSettingsLocked(userId);
                 updatePasswordExpirationsLocked(userId);
                 setExpirationAlarmCheckLocked(mContext, userId, /* parent */ false);
@@ -7347,9 +7389,8 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
 
     private void enableIfNecessary(String packageName, int userId) {
         try {
-            ApplicationInfo ai = mIPackageManager.getApplicationInfo(packageName,
-                    PackageManager.GET_DISABLED_UNTIL_USED_COMPONENTS,
-                    userId);
+            final ApplicationInfo ai = mIPackageManager.getApplicationInfo(packageName,
+                    PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS, userId);
             if (ai.enabledSetting
                     == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED) {
                 mIPackageManager.setApplicationEnabledSetting(packageName,
@@ -8103,8 +8144,10 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
         if (!mInjector.binderGetCallingUserHandle().isSystem()) {
             throw new SecurityException("createAndManageUser was called from non-system user");
         }
-        if (!mInjector.userManagerIsSplitSystemUser()
-                && (flags & DevicePolicyManager.MAKE_USER_EPHEMERAL) != 0) {
+        final boolean ephemeral = (flags & DevicePolicyManager.MAKE_USER_EPHEMERAL) != 0;
+        final boolean demo = (flags & DevicePolicyManager.MAKE_USER_DEMO) != 0
+                && UserManager.isDeviceInDemoMode(mContext);
+        if (ephemeral && !mInjector.userManagerIsSplitSystemUser() && !demo) {
             throw new IllegalArgumentException(
                     "Ephemeral users are only supported on systems with a split system user.");
         }
@@ -8116,8 +8159,11 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
             final long id = mInjector.binderClearCallingIdentity();
             try {
                 int userInfoFlags = 0;
-                if ((flags & DevicePolicyManager.MAKE_USER_EPHEMERAL) != 0) {
+                if (ephemeral) {
                     userInfoFlags |= UserInfo.FLAG_EPHEMERAL;
+                }
+                if (demo) {
+                    userInfoFlags |= UserInfo.FLAG_DEMO;
                 }
                 UserInfo userInfo = mUserManagerInternal.createUserEvenWhenDisallowed(name,
                         userInfoFlags);
@@ -8443,6 +8489,8 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
             enforceCanManageScope(who, callerPackage, DeviceAdminInfo.USES_POLICY_PROFILE_OWNER,
                     DELEGATION_ENABLE_SYSTEM_APP);
 
+            final boolean isDemo = isCurrentUserDemo();
+
             int userId = UserHandle.getCallingUserId();
             long id = mInjector.binderClearCallingIdentity();
 
@@ -8453,14 +8501,19 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                 }
 
                 int parentUserId = getProfileParentId(userId);
-                if (!isSystemApp(mIPackageManager, packageName, parentUserId)) {
+                if (!isDemo && !isSystemApp(mIPackageManager, packageName, parentUserId)) {
                     throw new IllegalArgumentException("Only system apps can be enabled this way.");
                 }
 
                 // Install the app.
                 mIPackageManager.installExistingPackageAsUser(packageName, userId,
                         0 /*installFlags*/, PackageManager.INSTALL_REASON_POLICY);
-
+                if (isDemo) {
+                    // Ensure the app is also ENABLED for demo users.
+                    mIPackageManager.setApplicationEnabledSetting(packageName,
+                            PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                            PackageManager.DONT_KILL_APP, userId, "DevicePolicyManager");
+                }
             } catch (RemoteException re) {
                 // shouldn't happen
                 Slog.wtf(LOG_TAG, "Failed to install " + packageName, re);
@@ -8905,7 +8958,8 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                 return;
             }
 
-            if (!GLOBAL_SETTINGS_WHITELIST.contains(setting)) {
+            if (!GLOBAL_SETTINGS_WHITELIST.contains(setting)
+                    && !UserManager.isDeviceInDemoMode(mContext)) {
                 throw new SecurityException(String.format(
                         "Permission denial: device owners cannot update %1$s", setting));
             }
@@ -8937,11 +8991,12 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
             getActiveAdminForCallerLocked(who, DeviceAdminInfo.USES_POLICY_PROFILE_OWNER);
 
             if (isDeviceOwner(who, callingUserId)) {
-                if (!SECURE_SETTINGS_DEVICEOWNER_WHITELIST.contains(setting)) {
+                if (!SECURE_SETTINGS_DEVICEOWNER_WHITELIST.contains(setting)
+                        && !isCurrentUserDemo()) {
                     throw new SecurityException(String.format(
                             "Permission denial: Device owners cannot update %1$s", setting));
                 }
-            } else if (!SECURE_SETTINGS_WHITELIST.contains(setting)) {
+            } else if (!SECURE_SETTINGS_WHITELIST.contains(setting) && !isCurrentUserDemo()) {
                 throw new SecurityException(String.format(
                         "Permission denial: Profile owners cannot update %1$s", setting));
             }
@@ -9392,12 +9447,6 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
 
     @Override
     public SystemUpdatePolicy getSystemUpdatePolicy() {
-        if (UserManager.isDeviceInDemoMode(mContext)) {
-            // Pretending to have an automatic update policy when the device is in retail demo
-            // mode. This will allow the device to download and install an ota without
-            // any user interaction.
-            return SystemUpdatePolicy.createAutomaticInstallPolicy();
-        }
         synchronized (this) {
             SystemUpdatePolicy policy =  mOwners.getSystemUpdatePolicy();
             if (policy != null && !policy.isValid()) {
@@ -9543,6 +9592,10 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                         < android.os.Build.VERSION_CODES.M) {
                     return false;
                 }
+                if (!isRuntimePermission(permission)) {
+                    EventLog.writeEvent(0x534e4554, "62623498", user.getIdentifier(), "");
+                    return false;
+                }
                 final PackageManager packageManager = mInjector.getPackageManager();
                 switch (grantState) {
                     case DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED: {
@@ -9568,6 +9621,8 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                 }
                 return true;
             } catch (SecurityException se) {
+                return false;
+            } catch (NameNotFoundException e) {
                 return false;
             } finally {
                 mInjector.binderRestoreCallingIdentity(ident);
@@ -9616,6 +9671,13 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
         } catch (RemoteException re) {
             throw new RuntimeException("Package manager has died", re);
         }
+    }
+
+    public boolean isRuntimePermission(String permissionName) throws NameNotFoundException {
+        final PackageManager packageManager = mInjector.getPackageManager();
+        PermissionInfo permissionInfo = packageManager.getPermissionInfo(permissionName, 0);
+        return (permissionInfo.protectionLevel & PermissionInfo.PROTECTION_MASK_BASE)
+                == PermissionInfo.PROTECTION_DANGEROUS;
     }
 
     @Override
@@ -10402,6 +10464,19 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
         synchronized (this) {
             return getUserDataUnchecked(UserHandle.USER_SYSTEM).mUserSetupComplete;
         }
+    }
+
+    private boolean isCurrentUserDemo() {
+        if (UserManager.isDeviceInDemoMode(mContext)) {
+            final int userId = mInjector.userHandleGetCallingUserId();
+            final long callingIdentity = mInjector.binderClearCallingIdentity();
+            try {
+                return mUserManager.getUserInfo(userId).isDemo();
+            } finally {
+                mInjector.binderRestoreCallingIdentity(callingIdentity);
+            }
+        }
+        return false;
     }
 
     private void removePackageIfRequired(final String packageName, final int userId) {

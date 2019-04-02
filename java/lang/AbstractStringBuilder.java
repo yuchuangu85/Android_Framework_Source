@@ -153,7 +153,7 @@ abstract class AbstractStringBuilder implements Appendable, CharSequence {
             newCapacity = minCapacity;
         }
         return (newCapacity <= 0 || MAX_ARRAY_SIZE - newCapacity < 0)
-           ? hugeCapacity(minCapacity)
+            ? hugeCapacity(minCapacity)
             : newCapacity;
     }
 

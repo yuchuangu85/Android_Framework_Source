@@ -16,8 +16,10 @@
 
 package android.view;
 
+import android.Manifest.permission;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.annotation.TestApi;
@@ -27,6 +29,7 @@ import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.graphics.Region;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -168,6 +171,18 @@ public interface WindowManager extends ViewManager {
      * @hide
      */
     public void requestAppKeyboardShortcuts(final KeyboardShortcutsReceiver receiver, int deviceId);
+
+    /**
+     * Return the touch region for the current IME window, or an empty region if there is none.
+     *
+     * @return The region of the IME that is accepting touch inputs, or null if there is no IME, no
+     *         region or there was an error.
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.RESTRICTED_VR_ACCESS)
+    public Region getCurrentImeTouchRegion();
 
     public static class LayoutParams extends ViewGroup.LayoutParams implements Parcelable {
         /**
@@ -941,7 +956,11 @@ public interface WindowManager extends ViewManager {
          * {@link #FLAG_DISMISS_KEYGUARD} to automatically fully dismisss
          * non-secure keyguards.  This flag only applies to the top-most
          * full-screen window.
+         * @deprecated Use {@link android.R.attr#showWhenLocked} or
+         * {@link android.app.Activity#setShowWhenLocked(boolean)} instead to prevent an
+         * unintentional double life-cycle event.
          */
+        @Deprecated
         public static final int FLAG_SHOW_WHEN_LOCKED = 0x00080000;
 
         /** Window flag: ask that the system wallpaper be shown behind
@@ -966,24 +985,32 @@ public interface WindowManager extends ViewManager {
         /** Window flag: when set as a window is being added or made
          * visible, once the window has been shown then the system will
          * poke the power manager's user activity (as if the user had woken
-         * up the device) to turn the screen on. */
+         * up the device) to turn the screen on.
+         * @deprecated Use {@link android.R.attr#turnScreenOn} or
+         * {@link android.app.Activity#setTurnScreenOn(boolean)} instead to prevent an
+         * unintentional double life-cycle event.
+         */
+        @Deprecated
         public static final int FLAG_TURN_SCREEN_ON = 0x00200000;
 
-        /** Window flag: when set the window will cause the keyguard to
-         * be dismissed, only if it is not a secure lock keyguard. Because such
-         * a keyguard is not needed for security, it will never re-appear if
-         * the user navigates to another window (in contrast to
-         * {@link #FLAG_SHOW_WHEN_LOCKED}, which will only temporarily
-         * hide both secure and non-secure keyguards but ensure they reappear
-         * when the user moves to another UI that doesn't hide them).
-         * If the keyguard is currently active and is secure (requires an
-         * unlock credential) than the user will still need to confirm it before
-         * seeing this window, unless {@link #FLAG_SHOW_WHEN_LOCKED} has
-         * also been set.
-         * @deprecated Use {@link #FLAG_SHOW_WHEN_LOCKED} or {@link KeyguardManager#dismissKeyguard}
-         * instead. Since keyguard was dismissed all the time as long as an activity with this flag
-         * on its window was focused, keyguard couldn't guard against unintentional touches on the
-         * screen, which isn't desired.
+        /**
+         * Window flag: when set the window will cause the keyguard to be
+         * dismissed, only if it is not a secure lock keyguard. Because such a
+         * keyguard is not needed for security, it will never re-appear if the
+         * user navigates to another window (in contrast to
+         * {@link #FLAG_SHOW_WHEN_LOCKED}, which will only temporarily hide both
+         * secure and non-secure keyguards but ensure they reappear when the
+         * user moves to another UI that doesn't hide them). If the keyguard is
+         * currently active and is secure (requires an unlock credential) than
+         * the user will still need to confirm it before seeing this window,
+         * unless {@link #FLAG_SHOW_WHEN_LOCKED} has also been set.
+         *
+         * @deprecated Use {@link #FLAG_SHOW_WHEN_LOCKED} or
+         *             {@link KeyguardManager#requestDismissKeyguard} instead.
+         *             Since keyguard was dismissed all the time as long as an
+         *             activity with this flag on its window was focused,
+         *             keyguard couldn't guard against unintentional touches on
+         *             the screen, which isn't desired.
          */
         @Deprecated
         public static final int FLAG_DISMISS_KEYGUARD = 0x00400000;
@@ -1380,15 +1407,31 @@ public interface WindowManager extends ViewManager {
         public static final int PRIVATE_FLAG_SUSTAINED_PERFORMANCE_MODE = 0x00040000;
 
         /**
-         * Flag to indicate that this window is used as a task snapshot window. A task snapshot
-         * window is a starting window that gets shown with a screenshot from the previous state
-         * that is active until the app has drawn its first frame.
-         *
-         * <p>If this flag is set, SystemUI flags are ignored such that the real window behind can
-         * set the SystemUI flags.
+         * Flag to indicate that any window added by an application process that is of type
+         * {@link #TYPE_TOAST} or that requires
+         * {@link android.app.AppOpsManager#OP_SYSTEM_ALERT_WINDOW} permission should be hidden when
+         * this window is visible.
          * @hide
          */
-        public static final int PRIVATE_FLAG_TASK_SNAPSHOT = 0x00080000;
+        @RequiresPermission(android.Manifest.permission.HIDE_NON_SYSTEM_OVERLAY_WINDOWS)
+        public static final int PRIVATE_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS = 0x00080000;
+
+        /**
+         * Indicates that this window is the rounded corners overlay present on some
+         * devices this means that it will be excluded from: screenshots,
+         * screen magnification, and mirroring.
+         * @hide
+         */
+        public static final int PRIVATE_FLAG_IS_ROUNDED_CORNERS_OVERLAY = 0x00100000;
+
+        /**
+         * If this flag is set on the window, window manager will acquire a sleep token that puts
+         * all activities to sleep as long as this window is visible. When this flag is set, the
+         * window needs to occlude all activity windows.
+         * @hide
+         */
+        @RequiresPermission(permission.DEVICE_POWER)
+        public static final int PRIVATE_FLAG_ACQUIRES_SLEEP_TOKEN = 0x00200000;
 
         /**
          * Control flags that are private to the platform.
@@ -1720,6 +1763,13 @@ public interface WindowManager extends ViewManager {
          * from dark to full bright.
          */
         public float buttonBrightness = BRIGHTNESS_OVERRIDE_NONE;
+
+        /**
+         * Unspecified value for {@link #rotationAnimation} indicating
+         * a lack of preference.
+         * @hide
+         */
+        public static final int ROTATION_ANIMATION_UNSPECIFIED = -1;
 
         /**
          * Value for {@link #rotationAnimation} which specifies that this
@@ -2087,6 +2137,7 @@ public interface WindowManager extends ViewManager {
             out.writeInt(needsMenuKey);
             out.writeInt(accessibilityIdOfAnchor);
             TextUtils.writeToParcel(accessibilityTitle, out, parcelableFlags);
+            out.writeInt(mColorMode);
             out.writeLong(hideTimeoutMilliseconds);
         }
 
@@ -2141,6 +2192,7 @@ public interface WindowManager extends ViewManager {
             needsMenuKey = in.readInt();
             accessibilityIdOfAnchor = in.readInt();
             accessibilityTitle = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(in);
+            mColorMode = in.readInt();
             hideTimeoutMilliseconds = in.readLong();
         }
 
@@ -2185,6 +2237,8 @@ public interface WindowManager extends ViewManager {
         /** {@hide} */
         @TestApi
         public static final int ACCESSIBILITY_TITLE_CHANGED = 1 << 25;
+        /** {@hide} */
+        public static final int COLOR_MODE_CHANGED = 1 << 26;
         /** {@hide} */
         public static final int EVERYTHING_CHANGED = 0xffffffff;
 
@@ -2361,6 +2415,11 @@ public interface WindowManager extends ViewManager {
                 // NOTE: accessibilityTitle only copied if the originator set one.
                 accessibilityTitle = o.accessibilityTitle;
                 changes |= ACCESSIBILITY_TITLE_CHANGED;
+            }
+
+            if (mColorMode != o.mColorMode) {
+                mColorMode = o.mColorMode;
+                changes |= COLOR_MODE_CHANGED;
             }
 
             // This can't change, it's only set at window creation time.
@@ -2553,6 +2612,17 @@ public interface WindowManager extends ViewManager {
             encoder.addProperty("verticalWeight", verticalWeight);
             encoder.addProperty("type", type);
             encoder.addProperty("flags", flags);
+        }
+
+        /**
+         * @hide
+         * @return True if the layout parameters will cause the window to cover the full screen;
+         *         false otherwise.
+         */
+        public boolean isFullscreen() {
+            return x == 0 && y == 0
+                    && width == WindowManager.LayoutParams.MATCH_PARENT
+                    && height == WindowManager.LayoutParams.MATCH_PARENT;
         }
     }
 }

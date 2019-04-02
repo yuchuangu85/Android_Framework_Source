@@ -27,13 +27,15 @@ package java.io;
 
 import java.security.*;
 
+// Android-changed: Stubbed the implementation.  Android doesn't support SecurityManager.
+// See comments in java.lang.SecurityManager for details.
 /**
  * Legacy security code; do not use.
  */
 
 public final class FilePermission extends Permission implements Serializable {
 
-    public FilePermission(String path, String actions) { super(""); }
+    public FilePermission(String path, String actions) { super(path); }
 
     public boolean implies(Permission p) { return true; }
     public String getActions() { return null; }

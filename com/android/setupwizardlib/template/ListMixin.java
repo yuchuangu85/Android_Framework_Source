@@ -49,7 +49,9 @@ public class ListMixin implements Mixin {
 
     private Drawable mDivider;
     private Drawable mDefaultDivider;
-    private int mDividerInset;
+
+    private int mDividerInsetStart;
+    private int mDividerInsetEnd;
 
     /**
      * @param layout The layout this mixin belongs to.
@@ -69,8 +71,16 @@ public class ListMixin implements Mixin {
             setAdapter(new ItemAdapter(inflated));
         }
         int dividerInset =
-                a.getDimensionPixelSize(R.styleable.SuwListMixin_suwDividerInset, 0);
-        setDividerInset(dividerInset);
+                a.getDimensionPixelSize(R.styleable.SuwListMixin_suwDividerInset, -1);
+        if (dividerInset != -1) {
+            setDividerInset(dividerInset);
+        } else {
+            int dividerInsetStart =
+                    a.getDimensionPixelSize(R.styleable.SuwListMixin_suwDividerInsetStart, 0);
+            int dividerInsetEnd =
+                    a.getDimensionPixelSize(R.styleable.SuwListMixin_suwDividerInsetEnd, 0);
+            setDividerInsets(dividerInsetStart, dividerInsetEnd);
+        }
         a.recycle();
     }
 
@@ -136,23 +146,49 @@ public class ListMixin implements Mixin {
     }
 
     /**
+     * @deprecated Use {@link #setDividerInsets(int, int)} instead.
+     */
+    @Deprecated
+    public void setDividerInset(int inset) {
+        setDividerInsets(inset, 0);
+    }
+
+    /**
      * Sets the start inset of the divider. This will use the default divider drawable set in the
-     * theme and inset it {@code inset} pixels to the right (or left in RTL layouts).
+     * theme and apply insets to it.
      *
-     * @param inset The number of pixels to inset on the "start" side of the list divider. Typically
+     * @param start The number of pixels to inset on the "start" side of the list divider. Typically
      *              this will be either {@code @dimen/suw_items_glif_icon_divider_inset} or
      *              {@code @dimen/suw_items_glif_text_divider_inset}.
+     * @param end The number of pixels to inset on the "end" side of the list divider.
      */
-    public void setDividerInset(int inset) {
-        mDividerInset = inset;
+    public void setDividerInsets(int start, int end) {
+        mDividerInsetStart = start;
+        mDividerInsetEnd = end;
         updateDivider();
     }
 
     /**
      * @return The number of pixels inset on the start side of the divider.
+     * @deprecated This is the same as {@link #getDividerInsetStart()}. Use that instead.
      */
+    @Deprecated
     public int getDividerInset() {
-        return mDividerInset;
+        return getDividerInsetStart();
+    }
+
+    /**
+     * @return The number of pixels inset on the start side of the divider.
+     */
+    public int getDividerInsetStart() {
+        return mDividerInsetStart;
+    }
+
+    /**
+     * @return The number of pixels inset on the end side of the divider.
+     */
+    public int getDividerInsetEnd() {
+        return mDividerInsetEnd;
     }
 
     private void updateDivider() {
@@ -170,9 +206,9 @@ public class ListMixin implements Mixin {
             }
             mDivider = DrawableLayoutDirectionHelper.createRelativeInsetDrawable(
                     mDefaultDivider,
-                    mDividerInset /* start */,
+                    mDividerInsetStart /* start */,
                     0 /* top */,
-                    0 /* end */,
+                    mDividerInsetEnd /* end */,
                     0 /* bottom */,
                     mTemplateLayout);
             listView.setDivider(mDivider);

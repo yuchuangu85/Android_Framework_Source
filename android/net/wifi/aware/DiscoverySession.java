@@ -82,7 +82,7 @@ public class DiscoverySession implements AutoCloseable {
         mClientId = clientId;
         mSessionId = sessionId;
 
-        mCloseGuard.open("destroy");
+        mCloseGuard.open("close");
     }
 
     /**
@@ -130,8 +130,11 @@ public class DiscoverySession implements AutoCloseable {
     @Override
     protected void finalize() throws Throwable {
         try {
-            if (!mTerminated) {
+            if (mCloseGuard != null) {
                 mCloseGuard.warnIfOpen();
+            }
+
+            if (!mTerminated) {
                 close();
             }
         } finally {
@@ -339,8 +342,8 @@ public class DiscoverySession implements AutoCloseable {
      */
     public NetworkSpecifier createNetworkSpecifierPassphrase(
             @Nullable PeerHandle peerHandle, @NonNull String passphrase) {
-        if (passphrase == null || passphrase.length() == 0) {
-            throw new IllegalArgumentException("Passphrase must not be null or empty");
+        if (!WifiAwareUtils.validatePassphrase(passphrase)) {
+            throw new IllegalArgumentException("Passphrase must meet length requirements");
         }
 
         if (mTerminated) {
@@ -402,8 +405,8 @@ public class DiscoverySession implements AutoCloseable {
     @SystemApi
     public NetworkSpecifier createNetworkSpecifierPmk(@Nullable PeerHandle peerHandle,
             @NonNull byte[] pmk) {
-        if (pmk == null || pmk.length == 0) {
-            throw new IllegalArgumentException("PMK must not be null or empty");
+        if (!WifiAwareUtils.validatePmk(pmk)) {
+            throw new IllegalArgumentException("PMK must 32 bytes");
         }
 
         if (mTerminated) {

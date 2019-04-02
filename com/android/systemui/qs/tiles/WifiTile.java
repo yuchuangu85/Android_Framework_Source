@@ -37,10 +37,10 @@ import com.android.systemui.plugins.qs.DetailAdapter;
 import com.android.systemui.plugins.qs.QSIconView;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.plugins.qs.QSTile.SignalState;
+import com.android.systemui.qs.AlphaControlledSignalTileView;
 import com.android.systemui.qs.QSDetailItems;
 import com.android.systemui.qs.QSDetailItems.Item;
 import com.android.systemui.qs.QSHost;
-import com.android.systemui.qs.SignalTileView;
 import com.android.systemui.qs.tileimpl.QSTileImpl;
 import com.android.systemui.statusbar.policy.NetworkController;
 import com.android.systemui.statusbar.policy.NetworkController.AccessPointController;
@@ -75,7 +75,7 @@ public class WifiTile extends QSTileImpl<SignalState> {
     }
 
     @Override
-    public void setListening(boolean listening) {
+    public void handleSetListening(boolean listening) {
         if (listening) {
             mController.addCallback(mSignalCallback);
         } else {
@@ -104,7 +104,7 @@ public class WifiTile extends QSTileImpl<SignalState> {
 
     @Override
     public QSIconView createTileView(Context context) {
-        return new SignalTileView(context);
+        return new AlphaControlledSignalTileView(context);
     }
 
     @Override
@@ -127,6 +127,9 @@ public class WifiTile extends QSTileImpl<SignalState> {
             return;
         }
         showDetail(true);
+        if (!mState.value) {
+            mController.setWifiEnabled(true);
+        }
     }
 
     @Override
@@ -149,6 +152,12 @@ public class WifiTile extends QSTileImpl<SignalState> {
             mDetailAdapter.setItemsVisible(cb.enabled);
             fireToggleStateChanged(cb.enabled);
         }
+        if (state.slash == null) {
+            state.slash = new SlashState();
+            state.slash.rotation = 6;
+        }
+        state.slash.isSlashed = false;
+        state.state = Tile.STATE_ACTIVE;
         state.dualTarget = true;
         state.value = cb.enabled;
         state.activityIn = cb.enabled && cb.activityIn;
@@ -159,6 +168,8 @@ public class WifiTile extends QSTileImpl<SignalState> {
             state.icon = ResourceIcon.get(R.drawable.ic_signal_wifi_transient_animation);
             state.label = r.getString(R.string.quick_settings_wifi_label);
         } else if (!state.value) {
+            state.slash.isSlashed = true;
+            state.state = Tile.STATE_INACTIVE;
             state.icon = ResourceIcon.get(R.drawable.ic_qs_wifi_disabled);
             state.label = r.getString(R.string.quick_settings_wifi_label);
         } else if (wifiConnected) {
@@ -183,7 +194,6 @@ public class WifiTile extends QSTileImpl<SignalState> {
         state.dualLabelContentDescription = r.getString(
                 R.string.accessibility_quick_settings_open_settings, getTileLabel());
         state.expandedAccessibilityClassName = Switch.class.getName();
-        state.state = Tile.STATE_ACTIVE;
     }
 
     @Override
@@ -304,12 +314,10 @@ public class WifiTile extends QSTileImpl<SignalState> {
         public View createDetailView(Context context, View convertView, ViewGroup parent) {
             if (DEBUG) Log.d(TAG, "createDetailView convertView=" + (convertView != null));
             mAccessPoints = null;
-            mWifiController.scanForAccessPoints();
-            fireScanStateChanged(true);
             mItems = QSDetailItems.convertOrInflate(context, convertView, parent);
             mItems.setTagSuffix("Wifi");
             mItems.setCallback(this);
-            updateItems();
+            mWifiController.scanForAccessPoints(); // updates APs and items
             setItemsVisible(mState.value);
             return mItems;
         }
@@ -317,9 +325,24 @@ public class WifiTile extends QSTileImpl<SignalState> {
         @Override
         public void onAccessPointsChanged(final List<AccessPoint> accessPoints) {
             mAccessPoints = accessPoints.toArray(new AccessPoint[accessPoints.size()]);
+            filterUnreachableAPs();
+
             updateItems();
-            if (accessPoints != null && accessPoints.size() > 0) {
-                fireScanStateChanged(false);
+        }
+
+        /** Filter unreachable APs from mAccessPoints */
+        private void filterUnreachableAPs() {
+            int numReachable = 0;
+            for (AccessPoint ap : mAccessPoints) {
+                if (ap.isReachable()) numReachable++;
+            }
+            if (numReachable != mAccessPoints.length) {
+                AccessPoint[] unfiltered = mAccessPoints;
+                mAccessPoints = new AccessPoint[numReachable];
+                int i = 0;
+                for (AccessPoint ap : unfiltered) {
+                    if (ap.isReachable()) mAccessPoints[i++] = ap;
+                }
             }
         }
 
@@ -352,6 +375,12 @@ public class WifiTile extends QSTileImpl<SignalState> {
 
         private void updateItems() {
             if (mItems == null) return;
+            if ((mAccessPoints != null && mAccessPoints.length > 0)
+                    || !mSignalCallback.mInfo.enabled) {
+                fireScanStateChanged(false);
+            } else {
+                fireScanStateChanged(true);
+            }
 
             // Wi-Fi is off
             if (!mSignalCallback.mInfo.enabled) {

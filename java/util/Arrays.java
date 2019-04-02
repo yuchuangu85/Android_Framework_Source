@@ -124,11 +124,10 @@ public class Arrays {
         }
     }
 
+    // BEGIN Android-added: checkOffsetAndCount() helper method for AIOOBE enforcement.
     /**
      * Checks that the range described by {@code offset} and {@code count} doesn't exceed
      * {@code arrayLength}.
-     *
-     * Android-changed.
      * @hide
      */
     public static void checkOffsetAndCount(int arrayLength, int offset, int count) {
@@ -137,6 +136,7 @@ public class Arrays {
                     count);
         }
     }
+    // END Android-added: checkOffsetAndCount() helper method for AIOOBE enforcement.
 
     /*
      * Sorting methods. Note that all public "sort" methods take the

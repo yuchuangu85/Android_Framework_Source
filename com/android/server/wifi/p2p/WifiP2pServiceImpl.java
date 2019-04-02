@@ -24,6 +24,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.hardware.wifi.V1_0.IWifiP2pIface;
 import android.net.ConnectivityManager;
 import android.net.DhcpResults;
 import android.net.InterfaceConfiguration;
@@ -77,6 +78,7 @@ import com.android.internal.util.AsyncChannel;
 import com.android.internal.util.Protocol;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
+import com.android.server.wifi.HalDeviceManager;
 import com.android.server.wifi.WifiInjector;
 import com.android.server.wifi.WifiStateMachine;
 import com.android.server.wifi.util.WifiAsyncChannel;
@@ -91,6 +93,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * WifiP2pService includes a state machine to perform Wi-Fi p2p operations. Applications
@@ -228,6 +231,9 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
     // the ranges defined in Tethering.java
     private static final String SERVER_ADDRESS = "192.168.49.1";
 
+    // The empty device address set by wpa_supplicant.
+    private static final String EMPTY_DEVICE_ADDRESS = "00:00:00:00:00:00";
+
     /**
      * Error code definition.
      * see the Table.8 in the WiFi Direct specification for the detail.
@@ -358,6 +364,25 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
     }
     private ClientHandler mClientHandler;
 
+    private class DeathHandlerData {
+        DeathHandlerData(DeathRecipient dr, Messenger m) {
+            mDeathRecipient = dr;
+            mMessenger = m;
+        }
+
+        @Override
+        public String toString() {
+            return "deathRecipient=" + mDeathRecipient + ", messenger=" + mMessenger;
+        }
+
+        DeathRecipient mDeathRecipient;
+        Messenger mMessenger;
+    }
+    private Object mLock = new Object();
+    private final Map<IBinder, DeathHandlerData> mDeathDataByBinder = new HashMap<>();
+    private HalDeviceManager mHalDeviceManager;
+    private IWifiP2pIface mIWifiP2pIface;
+
     public WifiP2pServiceImpl(Context context) {
         mContext = context;
 
@@ -468,10 +493,47 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
      * an AsyncChannel communication with WifiP2pService
      */
     @Override
-    public Messenger getMessenger() {
+    public Messenger getMessenger(final IBinder binder) {
         enforceAccessPermission();
         enforceChangePermission();
-        return new Messenger(mClientHandler);
+
+        synchronized (mLock) {
+            final Messenger messenger = new Messenger(mClientHandler);
+            if (DBG) {
+                Log.d(TAG, "getMessenger: uid=" + getCallingUid() + ", binder=" + binder
+                        + ", messenger=" + messenger);
+            }
+
+            IBinder.DeathRecipient dr = () -> {
+                if (DBG) Log.d(TAG, "binderDied: binder=" + binder);
+                close(binder);
+            };
+
+            try {
+                binder.linkToDeath(dr, 0);
+                mDeathDataByBinder.put(binder, new DeathHandlerData(dr, messenger));
+            } catch (RemoteException e) {
+                Log.e(TAG, "Error on linkToDeath: e=" + e);
+                // fall-through here - won't clean up
+            }
+
+            if (mIWifiP2pIface == null) {
+                if (mHalDeviceManager == null) {
+                    if (mWifiInjector == null) {
+                        mWifiInjector = WifiInjector.getInstance();
+                    }
+                    mHalDeviceManager = mWifiInjector.getHalDeviceManager();
+                }
+                mIWifiP2pIface = mHalDeviceManager.createP2pIface(() -> {
+                    if (DBG) Log.d(TAG, "IWifiP2pIface destroyedListener");
+                    synchronized (mLock) {
+                        mIWifiP2pIface = null;
+                    }
+                }, mP2pStateMachine.getHandler().getLooper());
+            }
+
+            return messenger;
+        }
     }
 
     /**
@@ -485,6 +547,45 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
         enforceAccessPermission();
         enforceChangePermission();
         return new Messenger(mP2pStateMachine.getHandler());
+    }
+
+    /**
+     * Clean-up the state and configuration requested by the closing app. Takes same action as
+     * when the app dies (binder death).
+     */
+    @Override
+    public void close(IBinder binder) {
+        enforceAccessPermission();
+        enforceChangePermission();
+
+        DeathHandlerData dhd;
+        synchronized (mLock) {
+            dhd = mDeathDataByBinder.get(binder);
+            if (dhd == null) {
+                Log.w(TAG, "close(): no death recipient for binder");
+                return;
+            }
+
+            binder.unlinkToDeath(dhd.mDeathRecipient, 0);
+            mDeathDataByBinder.remove(binder);
+
+            // clean-up if there are no more clients registered
+            // TODO: what does the WifiStateMachine client do? It isn't tracked through here!
+            if (dhd.mMessenger != null && mDeathDataByBinder.isEmpty()) {
+                try {
+                    dhd.mMessenger.send(
+                            mClientHandler.obtainMessage(WifiP2pManager.STOP_DISCOVERY));
+                    dhd.mMessenger.send(mClientHandler.obtainMessage(WifiP2pManager.REMOVE_GROUP));
+                } catch (RemoteException e) {
+                    Log.e(TAG, "close: Failed sending clean-up commands: e=" + e);
+                }
+
+                if (mIWifiP2pIface != null) {
+                    mHalDeviceManager.removeIface(mIWifiP2pIface);
+                    mIWifiP2pIface = null;
+                }
+            }
+        }
     }
 
     /** This is used to provide information to drivers to optimize performance depending
@@ -538,6 +639,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
         pw.println("mNetworkInfo " + mNetworkInfo);
         pw.println("mTemporarilyDisconnectedWifi " + mTemporarilyDisconnectedWifi);
         pw.println("mServiceDiscReqId " + mServiceDiscReqId);
+        pw.println("mDeathDataByBinder " + mDeathDataByBinder);
         pw.println();
 
         final IpManager ipManager = mIpManager;
@@ -1491,7 +1593,11 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                         }
                         mGroup = (WifiP2pGroup) message.obj;
                         if (DBG) logd(getName() + " group started");
-
+                        if (mGroup.isGroupOwner()
+                                && EMPTY_DEVICE_ADDRESS.equals(mGroup.getOwner().deviceAddress)) {
+                            // wpa_supplicant doesn't set own device address to go_dev_addr.
+                            mGroup.getOwner().deviceAddress = mThisDevice.deviceAddress;
+                        }
                         // We hit this scenario when a persistent group is reinvoked
                         if (mGroup.getNetworkId() == WifiP2pGroup.PERSISTENT_NET_ID) {
                             mAutonomousGroup = false;
@@ -1824,9 +1930,14 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                         }
                         mGroup = (WifiP2pGroup) message.obj;
                         if (DBG) logd(getName() + " group started");
+                        if (mGroup.isGroupOwner()
+                                && EMPTY_DEVICE_ADDRESS.equals(mGroup.getOwner().deviceAddress)) {
+                            // wpa_supplicant doesn't set own device address to go_dev_addr.
+                            mGroup.getOwner().deviceAddress = mThisDevice.deviceAddress;
+                        }
                         if (mGroup.getNetworkId() == WifiP2pGroup.PERSISTENT_NET_ID) {
                              // update cache information and set network id to mGroup.
-                            updatePersistentNetworks(NO_RELOAD);
+                            updatePersistentNetworks(RELOAD);
                             String devAddr = mGroup.getOwner().deviceAddress;
                             mGroup.setNetworkId(mGroups.getNetworkId(devAddr,
                                     mGroup.getNetworkName()));
@@ -2245,12 +2356,7 @@ public class WifiP2pServiceImpl extends IWifiP2pManager.Stub {
                             int netId = mGroup.getNetworkId();
                             if (netId >= 0) {
                                 if (DBG) logd("Remove unknown client from the list");
-                                if (!removeClientFromList(netId,
-                                        mSavedPeerConfig.deviceAddress, false)) {
-                                    // not found the client on the list
-                                    loge("Already removed the client, ignore");
-                                    break;
-                                }
+                                removeClientFromList(netId, mSavedPeerConfig.deviceAddress, false);
                                 // try invitation.
                                 sendMessage(WifiP2pManager.CONNECT, mSavedPeerConfig);
                             }

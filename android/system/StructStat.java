@@ -53,14 +53,23 @@ public final class StructStat {
    */
   public final long st_size; /*off_t*/
 
-  /** Time of last access. */
+  /** Seconds part of time of last access. */
   public final long st_atime; /*time_t*/
 
-  /** Time of last data modification. */
+  /** StructTimespec with time of last access. */
+  public final StructTimespec st_atim;
+
+  /** Seconds part of time of last data modification. */
   public final long st_mtime; /*time_t*/
 
-  /** Time of last status change. */
+  /** StructTimespec with time of last modification. */
+  public final StructTimespec st_mtim;
+
+  /** Seconds part of time of last status change */
   public final long st_ctime; /*time_t*/
+
+  /** StructTimespec with time of last status change. */
+  public final StructTimespec st_ctim;
 
   /**
    * A file system-specific preferred I/O block size for this object.
@@ -77,6 +86,17 @@ public final class StructStat {
   public StructStat(long st_dev, long st_ino, int st_mode, long st_nlink, int st_uid, int st_gid,
                     long st_rdev, long st_size, long st_atime, long st_mtime, long st_ctime,
                     long st_blksize, long st_blocks) {
+    this(st_dev, st_ino, st_mode, st_nlink, st_uid, st_gid,
+        st_rdev, st_size, new StructTimespec(st_atime, 0L), new StructTimespec(st_mtime, 0L),
+        new StructTimespec(st_ctime, 0L), st_blksize, st_blocks);
+  }
+
+  /**
+   * Constructs an instance with the given field values.
+   */
+  public StructStat(long st_dev, long st_ino, int st_mode, long st_nlink, int st_uid, int st_gid,
+                    long st_rdev, long st_size, StructTimespec st_atim, StructTimespec st_mtim,
+                    StructTimespec st_ctim, long st_blksize, long st_blocks) {
     this.st_dev = st_dev;
     this.st_ino = st_ino;
     this.st_mode = st_mode;
@@ -85,9 +105,12 @@ public final class StructStat {
     this.st_gid = st_gid;
     this.st_rdev = st_rdev;
     this.st_size = st_size;
-    this.st_atime = st_atime;
-    this.st_mtime = st_mtime;
-    this.st_ctime = st_ctime;
+    this.st_atime = st_atim.tv_sec;
+    this.st_mtime = st_mtim.tv_sec;
+    this.st_ctime = st_ctim.tv_sec;
+    this.st_atim = st_atim;
+    this.st_mtim = st_mtim;
+    this.st_ctim = st_ctim;
     this.st_blksize = st_blksize;
     this.st_blocks = st_blocks;
   }

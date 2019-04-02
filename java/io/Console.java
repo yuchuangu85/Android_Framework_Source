@@ -514,11 +514,10 @@ public final class Console implements Flushable
         }
     }
 
-    // Android-changed: Remove SharedSecrets setup and also the shutdown
-    // hook that's a no-op (but causes trouble when it's turned on).
+    // Android-removed: SharedSecrets setup and also the shutdown hook.
+    // The hook is a no-op (but causes trouble when it's turned on).
 
-    private static Console cons;
-
+    // Android-changed: Use @hide rather than sun.misc.SharedSecrets to expose console().
     /** @hide */
     public static Console console() {
         if (istty()) {
@@ -528,15 +527,16 @@ public final class Console implements Flushable
         }
         return null;
     }
-
+    private static Console cons;
     private native static boolean istty();
-
     private Console() {
+    // BEGIN Android-changed: Support custom in/out streams for testing.
       this(new FileInputStream(FileDescriptor.in), new FileOutputStream(FileDescriptor.out));
     }
 
     // Constructor for tests
     private Console(InputStream inStream, OutputStream outStream) {
+    // END Android-changed: Support custom in/out streams for testing.
         readLock = new Object();
         writeLock = new Object();
         String csname = encoding();

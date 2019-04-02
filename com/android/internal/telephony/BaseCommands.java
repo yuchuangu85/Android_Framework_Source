@@ -71,6 +71,9 @@ public abstract class BaseCommands implements CommandsInterface {
     protected RegistrantList mPhoneRadioCapabilityChangedRegistrants =
             new RegistrantList();
     protected RegistrantList mPcoDataRegistrants = new RegistrantList();
+    protected RegistrantList mCarrierInfoForImsiEncryptionRegistrants = new RegistrantList();
+    protected RegistrantList mRilNetworkScanResultRegistrants = new RegistrantList();
+    protected RegistrantList mModemResetRegistrants = new RegistrantList();
 
 
     protected Registrant mGsmSmsRegistrant;
@@ -729,6 +732,17 @@ public abstract class BaseCommands implements CommandsInterface {
         mHardwareConfigChangeRegistrants.remove(h);
     }
 
+    @Override
+    public void registerForNetworkScanResult(Handler h, int what, Object obj) {
+        Registrant r = new Registrant(h, what, obj);
+        mRilNetworkScanResultRegistrants.add(r);
+    }
+
+    @Override
+    public void unregisterForNetworkScanResult(Handler h) {
+        mRilNetworkScanResultRegistrants.remove(h);
+    }
+
     /**
      * {@inheritDoc}
      */
@@ -897,6 +911,16 @@ public abstract class BaseCommands implements CommandsInterface {
     }
 
     @Override
+    public void registerForModemReset(Handler h, int what, Object obj) {
+        mModemResetRegistrants.add(new Registrant(h, what, obj));
+    }
+
+    @Override
+    public void unregisterForModemReset(Handler h) {
+        mModemResetRegistrants.remove(h);
+    }
+
+    @Override
     public void registerForPcoData(Handler h, int what, Object obj) {
         mPcoDataRegistrants.add(new Registrant(h, what, obj));
     }
@@ -904,5 +928,15 @@ public abstract class BaseCommands implements CommandsInterface {
     @Override
     public void unregisterForPcoData(Handler h) {
         mPcoDataRegistrants.remove(h);
+    }
+
+    @Override
+    public void registerForCarrierInfoForImsiEncryption(Handler h, int what, Object obj) {
+        mCarrierInfoForImsiEncryptionRegistrants.add(new Registrant(h, what, obj));
+    }
+
+    @Override
+    public void unregisterForCarrierInfoForImsiEncryption(Handler h) {
+        mCarrierInfoForImsiEncryptionRegistrants.remove(h);
     }
 }

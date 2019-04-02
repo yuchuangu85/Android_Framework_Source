@@ -22,53 +22,21 @@ import android.os.Build;
 import android.support.annotation.RestrictTo;
 import android.view.View;
 
-
 /**
  * Helper for view backgrounds.
  * @hide
  */
 @RestrictTo(LIBRARY_GROUP)
 public final class BackgroundHelper {
-
-    final static BackgroundHelperVersionImpl sImpl;
-
-    interface BackgroundHelperVersionImpl {
-        void setBackgroundPreservingAlpha(View view, Drawable drawable);
-    }
-
-    private static final class BackgroundHelperStubImpl implements BackgroundHelperVersionImpl {
-        BackgroundHelperStubImpl() {
-        }
-
-        @Override
-        public void setBackgroundPreservingAlpha(View view, Drawable drawable) {
+    public static void setBackgroundPreservingAlpha(View view, Drawable drawable) {
+        if (Build.VERSION.SDK_INT >= 19) {
+            if (view.getBackground() != null) {
+                drawable.setAlpha(view.getBackground().getAlpha());
+            }
+            view.setBackground(drawable);
+        } else {
             // Cannot query drawable alpha
             view.setBackground(drawable);
         }
-    }
-
-    private static final class BackgroundHelperKitkatImpl implements BackgroundHelperVersionImpl {
-        BackgroundHelperKitkatImpl() {
-        }
-
-        @Override
-        public void setBackgroundPreservingAlpha(View view, Drawable drawable) {
-            BackgroundHelperKitkat.setBackgroundPreservingAlpha(view, drawable);
-        }
-    }
-
-    private BackgroundHelper() {
-    }
-
-    static {
-        if (Build.VERSION.SDK_INT >= 19) {
-            sImpl = new BackgroundHelperKitkatImpl();
-        } else {
-            sImpl = new BackgroundHelperStubImpl();
-        }
-    }
-
-    public static void setBackgroundPreservingAlpha(View view, Drawable drawable) {
-        sImpl.setBackgroundPreservingAlpha(view, drawable);
     }
 }

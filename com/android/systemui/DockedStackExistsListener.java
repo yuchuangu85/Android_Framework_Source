@@ -14,56 +14,80 @@
 
 package com.android.systemui;
 
+import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Log;
 import android.view.IDockedStackListener;
 import android.view.WindowManagerGlobal;
 
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.function.Consumer;
 
 /**
  * Utility wrapper to listen for whether or not a docked stack exists, to be
  * used for things like the different overview icon in that mode.
  */
-public class DockedStackExistsListener extends IDockedStackListener.Stub {
+public class DockedStackExistsListener {
 
     private static final String TAG = "DockedStackExistsListener";
 
-    private final Consumer<Boolean> mCallback;
+    private static ArrayList<WeakReference<Consumer<Boolean>>> sCallbacks = new ArrayList<>();
+    private static boolean mLastExists;
 
-    private DockedStackExistsListener(Consumer<Boolean> callback) {
-        mCallback = callback;
+    static {
+        try {
+            WindowManagerGlobal.getWindowManagerService().registerDockedStackListener(
+                    new IDockedStackListener.Stub() {
+                        @Override
+                        public void onDividerVisibilityChanged(boolean b) throws RemoteException {
+
+                        }
+
+                        @Override
+                        public void onDockedStackExistsChanged(boolean exists)
+                                throws RemoteException {
+                            DockedStackExistsListener.onDockedStackExistsChanged(exists);
+                        }
+
+                        @Override
+                        public void onDockedStackMinimizedChanged(boolean b, long l, boolean b1)
+                                throws RemoteException {
+
+                        }
+
+                        @Override
+                        public void onAdjustedForImeChanged(boolean b, long l)
+                                throws RemoteException {
+
+                        }
+
+                        @Override
+                        public void onDockSideChanged(int i) throws RemoteException {
+
+                        }
+                    });
+        } catch (RemoteException e) {
+            Log.e(TAG, "Failed registering docked stack exists listener", e);
+        }
     }
 
-    @Override
-    public void onDividerVisibilityChanged(boolean visible) throws RemoteException {
-    }
 
-    @Override
-    public void onDockedStackExistsChanged(final boolean exists) throws RemoteException {
-        mCallback.accept(exists);
-    }
-
-    @Override
-    public void onDockedStackMinimizedChanged(boolean minimized, long animDuration,
-                                              boolean isHomeStackResizable) throws RemoteException {
-    }
-
-    @Override
-    public void onAdjustedForImeChanged(boolean adjustedForIme, long animDuration)
-            throws RemoteException {
-    }
-
-    @Override
-    public void onDockSideChanged(int newDockSide) throws RemoteException {
+    private static void onDockedStackExistsChanged(boolean exists) {
+        mLastExists = exists;
+        synchronized (sCallbacks) {
+            sCallbacks.removeIf(wf -> {
+                Consumer<Boolean> l = wf.get();
+                if (l != null) l.accept(exists);
+                return l == null;
+            });
+        }
     }
 
     public static void register(Consumer<Boolean> callback) {
-        try {
-            WindowManagerGlobal.getWindowManagerService().registerDockedStackListener(
-                    new DockedStackExistsListener(callback));
-        } catch (RemoteException e) {
-            Log.e(TAG, "Failed registering docked stack exists listener", e);
+        callback.accept(mLastExists);
+        synchronized (sCallbacks) {
+            sCallbacks.add(new WeakReference<>(callback));
         }
     }
 }

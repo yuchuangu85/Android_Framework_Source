@@ -2129,20 +2129,21 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
             pw.println();
             pw.println("Latest scan results:");
             List<ScanResult> scanResults = mSingleScanStateMachine.getCachedScanResultsAsList();
-            long nowMs = System.currentTimeMillis();
+            long nowMs = mClock.getElapsedSinceBootMillis();
             if (scanResults != null && scanResults.size() != 0) {
                 pw.println("    BSSID              Frequency  RSSI  Age(sec)   SSID "
                         + "                                Flags");
                 for (ScanResult r : scanResults) {
+                    long timeStampMs = r.timestamp / 1000;
                     String age;
-                    if (r.seen <= 0) {
+                    if (timeStampMs <= 0) {
                         age = "___?___";
-                    } else if (nowMs < r.seen) {
+                    } else if (nowMs < timeStampMs) {
                         age = "  0.000";
-                    } else if (r.seen < nowMs - 1000000) {
+                    } else if (timeStampMs < nowMs - 1000000) {
                         age = ">1000.0";
                     } else {
-                        age = String.format("%3.3f", (nowMs - r.seen) / 1000.0);
+                        age = String.format("%3.3f", (nowMs - timeStampMs) / 1000.0);
                     }
                     String ssid = r.SSID == null ? "" : r.SSID;
                     pw.printf("  %17s  %9d  %5d   %7s    %-32s  %s\n",
@@ -2155,6 +2156,9 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
                 }
             }
             pw.println();
+        }
+        if (mScannerImpl != null) {
+            mScannerImpl.dump(fd, pw, args);
         }
     }
 

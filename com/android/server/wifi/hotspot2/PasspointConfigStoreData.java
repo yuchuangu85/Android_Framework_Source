@@ -66,6 +66,7 @@ public class PasspointConfigStoreData implements WifiConfigStore.StoreData {
     private static final String XML_TAG_CLIENT_PRIVATE_KEY_ALIAS = "ClientPrivateKeyAlias";
 
     private static final String XML_TAG_PROVIDER_INDEX = "ProviderIndex";
+    private static final String XML_TAG_HAS_EVER_CONNECTED = "HasEverConnected";
 
     private final WifiKeyStore mKeyStore;
     private final SIMAccessor mSimAccessor;
@@ -211,6 +212,7 @@ public class PasspointConfigStoreData implements WifiConfigStore.StoreData {
                 provider.getClientCertificateAlias());
         XmlUtil.writeNextValue(out, XML_TAG_CLIENT_PRIVATE_KEY_ALIAS,
                 provider.getClientPrivateKeyAlias());
+        XmlUtil.writeNextValue(out, XML_TAG_HAS_EVER_CONNECTED, provider.getHasEverConnected());
         if (provider.getConfig() != null) {
             XmlUtil.writeNextSectionStart(out, XML_TAG_SECTION_HEADER_PASSPOINT_CONFIGURATION);
             PasspointXmlUtils.serializePasspointConfiguration(out, provider.getConfig());
@@ -304,6 +306,7 @@ public class PasspointConfigStoreData implements WifiConfigStore.StoreData {
         String caCertificateAlias = null;
         String clientCertificateAlias = null;
         String clientPrivateKeyAlias = null;
+        boolean hasEverConnected = false;
         PasspointConfiguration config = null;
         while (XmlUtils.nextElementWithin(in, outerTagDepth)) {
             if (in.getAttributeValue(null, "name") != null) {
@@ -326,6 +329,9 @@ public class PasspointConfigStoreData implements WifiConfigStore.StoreData {
                     case XML_TAG_CLIENT_PRIVATE_KEY_ALIAS:
                         clientPrivateKeyAlias = (String) value;
                         break;
+                    case XML_TAG_HAS_EVER_CONNECTED:
+                        hasEverConnected = (boolean) value;
+                        break;
                 }
             } else {
                 if (!TextUtils.equals(in.getName(),
@@ -344,7 +350,8 @@ public class PasspointConfigStoreData implements WifiConfigStore.StoreData {
             throw new XmlPullParserException("Missing Passpoint configuration");
         }
         return new PasspointProvider(config, mKeyStore, mSimAccessor, providerId, creatorUid,
-                caCertificateAlias, clientCertificateAlias, clientPrivateKeyAlias);
+                caCertificateAlias, clientCertificateAlias, clientPrivateKeyAlias,
+                hasEverConnected);
     }
 
     /**

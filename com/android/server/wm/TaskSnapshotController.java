@@ -18,6 +18,11 @@ package com.android.server.wm;
 
 import static android.app.ActivityManager.ENABLE_TASK_SNAPSHOTS;
 
+import static com.android.server.wm.TaskSnapshotPersister.DISABLE_FULL_SIZED_BITMAPS;
+import static com.android.server.wm.TaskSnapshotPersister.REDUCED_SCALE;
+import static com.android.server.wm.WindowManagerDebugConfig.TAG_WITH_CLASS_NAME;
+import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
+
 import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.app.ActivityManager.StackId;
@@ -29,6 +34,7 @@ import android.graphics.Rect;
 import android.os.Environment;
 import android.os.Handler;
 import android.util.ArraySet;
+import android.util.Slog;
 import android.view.DisplayListCanvas;
 import android.view.RenderNode;
 import android.view.ThreadedRenderer;
@@ -57,6 +63,7 @@ import java.io.PrintWriter;
  * To access this class, acquire the global window manager lock.
  */
 class TaskSnapshotController {
+    private static final String TAG = TAG_WITH_CLASS_NAME ? "TaskSnapshotController" : TAG_WM;
 
     /**
      * Return value for {@link #getSnapshotMode}: We are allowed to take a real screenshot to be
@@ -92,11 +99,25 @@ class TaskSnapshotController {
      */
     private final boolean mIsRunningOnTv;
 
+    /**
+     * Flag indicating whether we are running on an IoT device.
+     */
+    private final boolean mIsRunningOnIoT;
+
+    /**
+     * Flag indicating whether we are running on an Android Wear device.
+     */
+    private final boolean mIsRunningOnWear;
+
     TaskSnapshotController(WindowManagerService service) {
         mService = service;
         mCache = new TaskSnapshotCache(mService, mLoader);
         mIsRunningOnTv = mService.mContext.getPackageManager().hasSystemFeature(
                 PackageManager.FEATURE_LEANBACK);
+        mIsRunningOnIoT = mService.mContext.getPackageManager().hasSystemFeature(
+                PackageManager.FEATURE_EMBEDDED);
+        mIsRunningOnWear = mService.mContext.getPackageManager().hasSystemFeature(
+            PackageManager.FEATURE_WATCH);
     }
 
     void systemReady() {
@@ -147,10 +168,17 @@ class TaskSnapshotController {
                     break;
             }
             if (snapshot != null) {
-                mCache.putSnapshot(task, snapshot);
-                mPersister.persistSnapshot(task.mTaskId, task.mUserId, snapshot);
-                if (task.getController() != null) {
-                    task.getController().reportSnapshotChanged(snapshot);
+                final GraphicBuffer buffer = snapshot.getSnapshot();
+                if (buffer.getWidth() == 0 || buffer.getHeight() == 0) {
+                    buffer.destroy();
+                    Slog.e(TAG, "Invalid task snapshot dimensions " + buffer.getWidth() + "x"
+                            + buffer.getHeight());
+                } else {
+                    mCache.putSnapshot(task, snapshot);
+                    mPersister.persistSnapshot(task.mTaskId, task.mUserId, snapshot);
+                    if (task.getController() != null) {
+                        task.getController().reportSnapshotChanged(snapshot);
+                    }
                 }
             }
         }
@@ -162,7 +190,8 @@ class TaskSnapshotController {
      */
     @Nullable TaskSnapshot getSnapshot(int taskId, int userId, boolean restoreFromDisk,
             boolean reducedResolution) {
-        return mCache.getSnapshot(taskId, userId, restoreFromDisk, reducedResolution);
+        return mCache.getSnapshot(taskId, userId, restoreFromDisk, reducedResolution
+                || DISABLE_FULL_SIZED_BITMAPS);
     }
 
     /**
@@ -183,18 +212,20 @@ class TaskSnapshotController {
         if (mainWindow == null) {
             return null;
         }
+        final boolean isLowRamDevice = ActivityManager.isLowRamDeviceStatic();
+        final float scaleFraction = isLowRamDevice ? REDUCED_SCALE : 1f;
         final GraphicBuffer buffer = top.mDisplayContent.screenshotApplicationsToBuffer(top.token,
-                -1, -1, false, 1.0f, false, true);
-        if (buffer == null) {
+                -1, -1, false, scaleFraction, false, true);
+        if (buffer == null || buffer.getWidth() <= 1 || buffer.getHeight() <= 1) {
             return null;
         }
         return new TaskSnapshot(buffer, top.getConfiguration().orientation,
-                minRect(mainWindow.mContentInsets, mainWindow.mStableInsets), false /* reduced */,
-                1f /* scale */);
+                minRect(mainWindow.mContentInsets, mainWindow.mStableInsets),
+                isLowRamDevice /* reduced */, scaleFraction /* scale */);
     }
 
     private boolean shouldDisableSnapshots() {
-        return !ENABLE_TASK_SNAPSHOTS || ActivityManager.isLowRamDeviceStatic() || mIsRunningOnTv;
+        return !ENABLE_TASK_SNAPSHOTS || mIsRunningOnWear || mIsRunningOnTv || mIsRunningOnIoT;
     }
 
     private Rect minRect(Rect rect1, Rect rect2) {
@@ -265,10 +296,12 @@ class TaskSnapshotController {
         decorPainter.drawDecors(c, null /* statusBarExcludeFrame */);
         node.end(c);
         final Bitmap hwBitmap = ThreadedRenderer.createHardwareBitmap(node, width, height);
-
+        if (hwBitmap == null) {
+            return null;
+        }
         return new TaskSnapshot(hwBitmap.createGraphicBufferHandle(),
                 topChild.getConfiguration().orientation, mainWindow.mStableInsets,
-                false /* reduced */, 1.0f /* scale */);
+                ActivityManager.isLowRamDeviceStatic() /* reduced */, 1.0f /* scale */);
     }
 
     /**

@@ -17,11 +17,11 @@
 package android.hardware.display;
 
 import android.content.Context;
-import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.graphics.Point;
 import android.hardware.display.DisplayManager.DisplayListener;
-import android.media.projection.MediaProjection;
 import android.media.projection.IMediaProjection;
+import android.media.projection.MediaProjection;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -31,8 +31,8 @@ import android.os.ServiceManager;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.SparseArray;
-import android.view.DisplayAdjustments;
 import android.view.Display;
+import android.view.DisplayAdjustments;
 import android.view.DisplayInfo;
 import android.view.Surface;
 
@@ -440,6 +440,17 @@ public final class DisplayManagerGlobal {
     public void releaseVirtualDisplay(IVirtualDisplayCallback token) {
         try {
             mDm.releaseVirtualDisplay(token);
+        } catch (RemoteException ex) {
+            throw ex.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Gets the stable device display size, in pixels.
+     */
+    public Point getStableDisplaySize() {
+        try {
+            return mDm.getStableDisplaySize();
         } catch (RemoteException ex) {
             throw ex.rethrowFromSystemServer();
         }

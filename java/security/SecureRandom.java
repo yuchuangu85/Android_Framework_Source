@@ -99,7 +99,7 @@ import sun.security.jca.GetInstance.Instance;
 
 public class SecureRandom extends java.util.Random {
 
-    // Android-removed: this debugging mechanism is not supported in Android.
+    // Android-removed: this debugging mechanism is not used in Android.
     /*
     private static final Debug pdebug =
                         Debug.getInstance("provider", "Provider");
@@ -203,7 +203,7 @@ public class SecureRandom extends java.util.Random {
     private void getDefaultPRNG(boolean setSeed, byte[] seed) {
         String prng = getPrngAlgorithm();
         if (prng == null) {
-            // Android-changed, should never happen
+            // Android-changed: This should never happen, we always provide a SecureRandom
             throw new IllegalStateException("No SecureRandom implementation!");
         } else {
             try {
@@ -300,6 +300,7 @@ public class SecureRandom extends java.util.Random {
             instance.provider, algorithm);
     }
 
+    // BEGIN Android-added: Support for Crypto provider workaround
     /**
      * Maximum SDK version for which the workaround for the Crypto provider is in place.
      *
@@ -332,6 +333,7 @@ public class SecureRandom extends java.util.Random {
     public static int getSdkTargetForCryptoProviderWorkaround() {
         return sdkTargetForCryptoProviderWorkaround;
     }
+    // END Android-added: Support for Crypto provider workaround
 
     /**
      * Returns a SecureRandom object that implements the specified
@@ -383,6 +385,7 @@ public class SecureRandom extends java.util.Random {
                     SecureRandomSpi.class, algorithm, provider);
             return new SecureRandom((SecureRandomSpi) instance.impl,
                     instance.provider, algorithm);
+        // BEGIN Android-added: Crypto provider deprecation
         } catch (NoSuchProviderException nspe) {
             if ("Crypto".equals(provider)) {
                 System.logE(" ********** PLEASE READ ************ ");
@@ -424,6 +427,7 @@ public class SecureRandom extends java.util.Random {
         return new SecureRandom(
                 (SecureRandomSpi) instance.impl, instance.provider, algorithm);
     }
+    // END Android-added: Crypto provider deprecation
 
     /**
      * Returns a SecureRandom object that implements the specified
@@ -547,6 +551,9 @@ public class SecureRandom extends java.util.Random {
      * @param bytes the array to be filled in with random bytes.
      */
     @Override
+    // Android-changed: Added synchronized
+    // This method has been synchronized at least since Cupcake, so it would probably
+    // lead to problems if it was removed.
     synchronized public void nextBytes(byte[] bytes) {
         secureRandomSpi.engineNextBytes(bytes);
     }
@@ -695,6 +702,7 @@ public class SecureRandom extends java.util.Random {
      */
     public static SecureRandom getInstanceStrong()
             throws NoSuchAlgorithmException {
+
         String property = AccessController.doPrivileged(
             new PrivilegedAction<String>() {
                 @Override

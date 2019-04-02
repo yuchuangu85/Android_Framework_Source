@@ -63,6 +63,13 @@ public class DataEnabledSettings {
 
     private final RegistrantList mDataEnabledChangedRegistrants = new RegistrantList();
 
+    @Override
+    public String toString() {
+        return "[mInternalDataEnabled=" + mInternalDataEnabled + ", mUserDataEnabled="
+                + mUserDataEnabled + ", mPolicyDataEnabled=" + mPolicyDataEnabled
+                + ", mCarrierDataEnabled=" + mCarrierDataEnabled + "]";
+    }
+
     public synchronized void setInternalDataEnabled(boolean enabled) {
         boolean prevDataEnabled = isDataEnabled();
         mInternalDataEnabled = enabled;

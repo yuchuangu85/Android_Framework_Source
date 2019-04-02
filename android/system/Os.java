@@ -223,6 +223,8 @@ public final class Os {
 
   /** @hide */ public static StructPasswd getpwuid(int uid) throws ErrnoException { return Libcore.os.getpwuid(uid); }
 
+  /** @hide */ public static StructRlimit getrlimit(int resource) throws ErrnoException { return Libcore.os.getrlimit(resource); }
+
   /**
    * See <a href="http://man7.org/linux/man-pages/man2/getsockname.2.html">getsockname(2)</a>.
    */

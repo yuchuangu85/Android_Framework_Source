@@ -18,6 +18,7 @@ package com.android.server.wifi;
 
 import android.app.ActivityManager;
 import android.app.AppGlobals;
+import android.app.Notification;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -92,6 +93,13 @@ public class FrameworkFacade {
 
     public PendingIntent getBroadcast(Context context, int requestCode, Intent intent, int flags) {
         return PendingIntent.getBroadcast(context, requestCode, intent, flags);
+    }
+
+    /**
+     * Wrapper for {@link PendingIntent#getActivity}.
+     */
+    public PendingIntent getActivity(Context context, int requestCode, Intent intent, int flags) {
+        return PendingIntent.getActivity(context, requestCode, intent, flags);
     }
 
     public SupplicantStateTracker makeSupplicantStateTracker(Context context,
@@ -171,5 +179,15 @@ public class FrameworkFacade {
      */
     public boolean isAppForeground(int uid) throws RemoteException {
         return ActivityManager.getService().isAppForeground(uid);
+    }
+
+    /**
+     * Create a new instance of {@link Notification.Builder}.
+     * @param context reference to a Context
+     * @param channelId ID of the notification channel
+     * @return an instance of Notification.Builder
+     */
+    public Notification.Builder makeNotificationBuilder(Context context, String channelId) {
+        return new Notification.Builder(context, channelId);
     }
 }

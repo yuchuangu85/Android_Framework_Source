@@ -15,18 +15,22 @@
  */
 package com.android.systemui.qs;
 
+import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.UserInfo;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.os.UserManager;
 import android.provider.Settings;
 import android.text.SpannableStringBuilder;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.util.Log;
+import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -58,6 +62,8 @@ public class QSSecurityFooter implements OnClickListener, DialogInterface.OnClic
     private final Handler mMainHandler;
     private final View mDivider;
 
+    private final UserManager mUm;
+
     private AlertDialog mDialog;
     private QSTileHost mHost;
     protected H mHandler;
@@ -80,6 +86,7 @@ public class QSSecurityFooter implements OnClickListener, DialogInterface.OnClic
         mSecurityController = Dependency.get(SecurityController.class);
         mHandler = new H(Dependency.get(Dependency.BG_LOOPER));
         mDivider = qsPanel == null ? null : qsPanel.getDivider();
+        mUm = (UserManager) mContext.getSystemService(Context.USER_SERVICE);
     }
 
     public void setHostEnvironment(QSTileHost host) {
@@ -127,6 +134,9 @@ public class QSSecurityFooter implements OnClickListener, DialogInterface.OnClic
 
     private void handleRefreshState() {
         final boolean isDeviceManaged = mSecurityController.isDeviceManaged();
+        final UserInfo currentUser = mUm.getUserInfo(ActivityManager.getCurrentUser());
+        final boolean isDemoDevice = UserManager.isDeviceInDemoMode(mContext) && currentUser != null
+                && currentUser.isDemo();
         final boolean hasWorkProfile = mSecurityController.hasWorkProfile();
         final boolean hasCACerts = mSecurityController.hasCACertInCurrentUser();
         final boolean hasCACertsInWorkProfile = mSecurityController.hasCACertInWorkProfile();
@@ -136,7 +146,7 @@ public class QSSecurityFooter implements OnClickListener, DialogInterface.OnClic
         final CharSequence organizationName = mSecurityController.getDeviceOwnerOrganizationName();
         final CharSequence workProfileName = mSecurityController.getWorkProfileOrganizationName();
         // Update visibility of footer
-        mIsVisible = isDeviceManaged || hasCACerts || hasCACertsInWorkProfile ||
+        mIsVisible = (isDeviceManaged && !isDemoDevice) || hasCACerts || hasCACertsInWorkProfile ||
             vpnName != null || vpnNameWorkProfile != null;
         // Update the string
         mFooterTextContent = getFooterText(isDeviceManaged, hasWorkProfile,
@@ -244,8 +254,9 @@ public class QSSecurityFooter implements OnClickListener, DialogInterface.OnClic
 
         mDialog = new SystemUIDialog(mContext);
         mDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        View dialogView = LayoutInflater.from(mContext)
-               .inflate(R.layout.quick_settings_footer_dialog, null, false);
+        View dialogView = LayoutInflater.from(
+                new ContextThemeWrapper(mContext, R.style.Theme_SystemUI_Dialog))
+                .inflate(R.layout.quick_settings_footer_dialog, null, false);
         mDialog.setView(dialogView);
         mDialog.setButton(DialogInterface.BUTTON_POSITIVE, getPositiveButton(), this);
 
@@ -299,9 +310,45 @@ public class QSSecurityFooter implements OnClickListener, DialogInterface.OnClic
             vpnWarning.setMovementMethod(new LinkMovementMethod());
         }
 
+        // Note: if a new section is added, should update configSubtitleVisibility to include
+        // the handling of the subtitle
+        configSubtitleVisibility(managementMessage != null,
+                caCertsMessage != null,
+                networkLoggingMessage != null,
+                vpnMessage != null,
+                dialogView);
+
         mDialog.show();
         mDialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
+    }
+
+    protected void configSubtitleVisibility(boolean showDeviceManagement, boolean showCaCerts,
+            boolean showNetworkLogging, boolean showVpn, View dialogView) {
+        // Device Management title should always been shown
+        // When there is a Device Management message, all subtitles should be shown
+        if (showDeviceManagement) {
+            return;
+        }
+        // Hide the subtitle if there is only 1 message shown
+        int mSectionCountExcludingDeviceMgt = 0;
+        if (showCaCerts) { mSectionCountExcludingDeviceMgt++; }
+        if (showNetworkLogging) { mSectionCountExcludingDeviceMgt++; }
+        if (showVpn) { mSectionCountExcludingDeviceMgt++; }
+
+        // No work needed if there is no sections or more than 1 section
+        if (mSectionCountExcludingDeviceMgt != 1) {
+            return;
+        }
+        if (showCaCerts) {
+            dialogView.findViewById(R.id.ca_certs_subtitle).setVisibility(View.GONE);
+        }
+        if (showNetworkLogging) {
+            dialogView.findViewById(R.id.network_logging_subtitle).setVisibility(View.GONE);
+        }
+        if (showVpn) {
+            dialogView.findViewById(R.id.vpn_subtitle).setVisibility(View.GONE);
+        }
     }
 
     private String getSettingsButton() {
@@ -309,7 +356,7 @@ public class QSSecurityFooter implements OnClickListener, DialogInterface.OnClic
     }
 
     private String getPositiveButton() {
-        return mContext.getString(R.string.quick_settings_done);
+        return mContext.getString(R.string.ok);
     }
 
     protected CharSequence getManagementMessage(boolean isDeviceManaged,

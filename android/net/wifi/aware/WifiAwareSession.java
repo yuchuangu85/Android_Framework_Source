@@ -54,7 +54,7 @@ public class WifiAwareSession implements AutoCloseable {
         mClientId = clientId;
         mTerminated = false;
 
-        mCloseGuard.open("destroy");
+        mCloseGuard.open("close");
     }
 
     /**
@@ -67,6 +67,7 @@ public class WifiAwareSession implements AutoCloseable {
      * An application may re-attach after a destroy using
      * {@link WifiAwareManager#attach(AttachCallback, Handler)} .
      */
+    @Override
     public void close() {
         WifiAwareManager mgr = mMgr.get();
         if (mgr == null) {
@@ -83,8 +84,11 @@ public class WifiAwareSession implements AutoCloseable {
     @Override
     protected void finalize() throws Throwable {
         try {
-            if (!mTerminated) {
+            if (mCloseGuard != null) {
                 mCloseGuard.warnIfOpen();
+            }
+
+            if (!mTerminated) {
                 close();
             }
         } finally {
@@ -266,9 +270,10 @@ public class WifiAwareSession implements AutoCloseable {
             Log.e(TAG, "createNetworkSpecifierPassphrase: called after termination");
             return null;
         }
-        if (passphrase == null || passphrase.length() == 0) {
-            throw new IllegalArgumentException("Passphrase must not be null or empty");
+        if (!WifiAwareUtils.validatePassphrase(passphrase)) {
+            throw new IllegalArgumentException("Passphrase must meet length requirements");
         }
+
         return mgr.createNetworkSpecifier(mClientId, role, peer, null, passphrase);
     }
 
@@ -316,8 +321,8 @@ public class WifiAwareSession implements AutoCloseable {
             Log.e(TAG, "createNetworkSpecifierPmk: called after termination");
             return null;
         }
-        if (pmk == null || pmk.length == 0) {
-            throw new IllegalArgumentException("PMK must not be null or empty");
+        if (!WifiAwareUtils.validatePmk(pmk)) {
+            throw new IllegalArgumentException("PMK must 32 bytes");
         }
         return mgr.createNetworkSpecifier(mClientId, role, peer, pmk, null);
     }

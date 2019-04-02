@@ -16,34 +16,32 @@
 
 package android.content.res;
 
-import android.graphics.Point;
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.content.pm.ActivityInfo;
+import android.content.pm.ActivityInfo.Config;
 import android.graphics.Rect;
-import android.util.DisplayMetrics;
-import android.view.Display;
+import android.os.Build;
+import android.os.LocaleList;
+import android.os.Parcel;
+import android.os.Parcelable;
+import android.text.TextUtils;
 import android.view.DisplayInfo;
+import android.view.View;
+
 import com.android.internal.util.XmlUtils;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
 
-import android.annotation.IntDef;
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.content.pm.ActivityInfo;
-import android.content.pm.ActivityInfo.Config;
-import android.os.Build;
-import android.os.LocaleList;
-import android.os.Parcel;
-import android.os.Parcelable;
-import android.text.TextUtils;
-import android.view.View;
-
 import java.io.IOException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Locale;
+
 
 /**
  * This class describes all device configuration information that can
@@ -1277,7 +1275,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
             changed |= ActivityInfo.CONFIG_SCREEN_SIZE;
             setAppBounds(delta.appBounds);
         }
-        if (delta.assetsSeq != ASSETS_SEQ_UNDEFINED) {
+        if (delta.assetsSeq != ASSETS_SEQ_UNDEFINED && delta.assetsSeq != assetsSeq) {
             changed |= ActivityInfo.CONFIG_ASSETS_PATHS;
             assetsSeq = delta.assetsSeq;
         }
@@ -1320,7 +1318,19 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      * PackageManager.ActivityInfo.CONFIG_LAYOUT_DIRECTION}.
      */
     public int diff(Configuration delta) {
-        return diff(delta, false /* compareUndefined */);
+        return diff(delta, false /* compareUndefined */, false /* publicOnly */);
+    }
+
+    /**
+     * Returns the diff against the provided {@link Configuration} excluding values that would
+     * publicly be equivalent, such as appBounds.
+     * @param delta {@link Configuration} to compare to.
+     *
+     * TODO(b/36812336): Remove once appBounds has been moved out of Configuration.
+     * {@hide}
+     */
+    public int diffPublicOnly(Configuration delta) {
+        return diff(delta, false /* compareUndefined */, true /* publicOnly */);
     }
 
     /**
@@ -1328,7 +1338,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      *
      * @hide
      */
-    public int diff(Configuration delta, boolean compareUndefined) {
+    public int diff(Configuration delta, boolean compareUndefined, boolean publicOnly) {
         int changed = 0;
         if ((compareUndefined || delta.fontScale > 0) && fontScale != delta.fontScale) {
             changed |= ActivityInfo.CONFIG_FONT_SCALE;
@@ -1426,7 +1436,9 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         // Make sure that one of the values is not null and that they are not equal.
         if ((compareUndefined || delta.appBounds != null)
                 && appBounds != delta.appBounds
-                && (appBounds == null || !appBounds.equals(delta.appBounds))) {
+                && (appBounds == null || (!publicOnly && !appBounds.equals(delta.appBounds))
+                        || (publicOnly && (appBounds.width() != delta.appBounds.width()
+                                || appBounds.height() != delta.appBounds.height())))) {
             changed |= ActivityInfo.CONFIG_SCREEN_SIZE;
         }
 
@@ -1650,7 +1662,24 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         n = this.densityDpi - that.densityDpi;
         if (n != 0) return n;
         n = this.assetsSeq - that.assetsSeq;
-        //if (n != 0) return n;
+        if (n != 0) return n;
+
+        if (this.appBounds == null && that.appBounds != null) {
+            return 1;
+        } else if (this.appBounds != null && that.appBounds == null) {
+            return -1;
+        } else if (this.appBounds != null && that.appBounds != null) {
+            n = this.appBounds.left - that.appBounds.left;
+            if (n != 0) return n;
+            n = this.appBounds.top - that.appBounds.top;
+            if (n != 0) return n;
+            n = this.appBounds.right - that.appBounds.right;
+            if (n != 0) return n;
+            n = this.appBounds.bottom - that.appBounds.bottom;
+            if (n != 0) return n;
+        }
+
+        // if (n != 0) return n;
         return n;
     }
 
@@ -1818,9 +1847,11 @@ public final class Configuration implements Parcelable, Comparable<Configuration
     }
 
     /**
-     * Return whether the screen has a wide color gamut.
+     * Return whether the screen has a wide color gamut and wide color gamut rendering
+     * is supported by this device.
      *
-     * @return true if the screen has a wide color gamut, false otherwise
+     * @return true if the screen has a wide color gamut and wide color gamut rendering
+     * is supported, false otherwise
      */
     public boolean isScreenWideColorGamut() {
         return (colorMode & COLOR_MODE_WIDE_COLOR_GAMUT_MASK) == COLOR_MODE_WIDE_COLOR_GAMUT_YES;
@@ -2265,6 +2296,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
     private static final String XML_ATTR_NAVIGATION = "nav";
     private static final String XML_ATTR_NAVIGATION_HIDDEN = "navHid";
     private static final String XML_ATTR_ORIENTATION = "ori";
+    private static final String XML_ATTR_ROTATION = "rot";
     private static final String XML_ATTR_SCREEN_LAYOUT = "scrLay";
     private static final String XML_ATTR_COLOR_MODE = "clrMod";
     private static final String XML_ATTR_UI_MODE = "ui";

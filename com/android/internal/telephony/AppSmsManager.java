@@ -129,7 +129,7 @@ public class AppSmsManager {
         }
         StringBuilder fullMessageBuilder = new StringBuilder();
         for (SmsMessage message : messages) {
-            if (message.getMessageBody() == null) {
+            if (message == null || message.getMessageBody() == null) {
                 continue;
             }
             fullMessageBuilder.append(message.getMessageBody());

@@ -30,6 +30,8 @@ import android.service.carrier.CarrierIdentifier;
 import android.telephony.CellInfo;
 import android.telephony.CellInfoGsm;
 import android.telephony.IccOpenLogicalChannelResponse;
+import android.telephony.ImsiEncryptionInfo;
+import android.telephony.NetworkScanRequest;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
@@ -1360,7 +1362,25 @@ public class SimulatedCommands extends BaseCommands
      * ((AsyncResult)response.obj).result  is a List of NetworkInfo objects
      */
     @Override
-    public void getAvailableNetworks(Message result) {unimplemented(result);}
+    public void getAvailableNetworks(Message result) {
+        unimplemented(result);
+    }
+
+    /**
+     * Starts a network scan
+     */
+    @Override
+    public void startNetworkScan(NetworkScanRequest nsr, Message result) {
+        unimplemented(result);
+    }
+
+    /**
+     * Stops an ongoing network scan
+     */
+    @Override
+    public void stopNetworkScan(Message result) {
+        unimplemented(result);
+    }
 
     @Override
     public void getBasebandVersion (Message result) {
@@ -1430,6 +1450,16 @@ public class SimulatedCommands extends BaseCommands
         // Just echo back data
         if (response != null) {
             AsyncResult.forMessage(response).result = data;
+            response.sendToTarget();
+        }
+    }
+
+    @Override
+    public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo,
+                                                Message response) {
+        // Just echo back data
+        if (response != null) {
+            AsyncResult.forMessage(response).result = imsiEncryptionInfo;
             response.sendToTarget();
         }
     }
@@ -2010,6 +2040,12 @@ public class SimulatedCommands extends BaseCommands
         }
     }
 
+    public void notifyModemReset() {
+        if (mModemResetRegistrants != null) {
+            mModemResetRegistrants.notifyRegistrants(new AsyncResult(null, "Test", null));
+        }
+    }
+
     @Override
     public void registerForExitEmergencyCallbackMode(Handler h, int what, Object obj) {
         SimulatedCommandsVerifier.getInstance().registerForExitEmergencyCallbackMode(h, what, obj);
@@ -2099,6 +2135,12 @@ public class SimulatedCommands extends BaseCommands
     }
 
     @Override
+    public void registerForModemReset(Handler h, int what, Object obj) {
+        SimulatedCommandsVerifier.getInstance().registerForModemReset(h, what, obj);
+        super.registerForModemReset(h, what, obj);
+    }
+
+    @Override
     public void sendDeviceState(int stateType, boolean state, Message result) {
         SimulatedCommandsVerifier.getInstance().sendDeviceState(stateType, state, result);
         resultSuccess(result, null);
@@ -2111,7 +2153,7 @@ public class SimulatedCommands extends BaseCommands
     }
 
     @Override
-    public void setSimCardPower(boolean powerUp, Message result) {
+    public void setSimCardPower(int state, Message result) {
     }
 
     @VisibleForTesting

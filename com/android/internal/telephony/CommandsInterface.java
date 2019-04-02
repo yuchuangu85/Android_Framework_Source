@@ -21,6 +21,8 @@ import android.os.Message;
 import android.os.WorkSource;
 import android.service.carrier.CarrierIdentifier;
 import android.telephony.ClientRequestStats;
+import android.telephony.ImsiEncryptionInfo;
+import android.telephony.NetworkScanRequest;
 
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
 import com.android.internal.telephony.dataconnection.DataProfile;
@@ -1283,12 +1285,29 @@ public interface CommandsInterface {
     /**
      * Queries the currently available networks
      *
-     * ((AsyncResult)response.obj).result  is a List of NetworkInfo objects
+     * ((AsyncResult)response.obj).result is a List of NetworkInfo objects
      */
     void getAvailableNetworks(Message response);
 
-    void getBasebandVersion (Message response);
+    /**
+     * Starts a radio network scan
+     *
+     * ((AsyncResult)response.obj).result is a NetworkScanResult object
+     */
+    void startNetworkScan(NetworkScanRequest nsr, Message response);
 
+    /**
+     * Stops the ongoing network scan
+     *
+     * ((AsyncResult)response.obj).result is a NetworkScanResult object
+     *
+     */
+    void stopNetworkScan(Message response);
+
+    /**
+     * Gets the baseband version
+     */
+    void getBasebandVersion(Message response);
 
     /**
      * (AsyncResult)response.obj).result will be an Integer representing
@@ -1432,6 +1451,18 @@ public interface CommandsInterface {
     void reportStkServiceIsRunning(Message result);
 
     void invokeOemRilRequestRaw(byte[] data, Message response);
+
+    /**
+     * Sends carrier specific information to the vendor ril that can be used to
+     * encrypt the IMSI and IMPI.
+     *
+     * @param publicKey the public key of the carrier used to encrypt IMSI/IMPI.
+     * @param keyIdentifier the key identifier is optional information that is carrier
+     *        specific.
+     * @param response callback message
+     */
+    void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo,
+                                         Message response);
 
     void invokeOemRilRequestStrings(String[] strings, Message response);
 
@@ -2046,6 +2077,22 @@ public interface CommandsInterface {
     public void unregisterForPcoData(Handler h);
 
     /**
+     * Register for modem reset indication.
+     *
+     * @param h  Handler for the notification message
+     * @param what User-defined message code
+     * @param obj User object
+     */
+    void registerForModemReset(Handler h, int what, Object obj);
+
+    /**
+     * Unregister for modem reset
+     *
+     * @param h handler to be removed
+     */
+    void unregisterForModemReset(Handler h);
+
+    /**
      * Send the updated device state
      *
      * @param stateType Device state type
@@ -2065,10 +2112,45 @@ public interface CommandsInterface {
     /**
      * Set SIM card power up or down
      *
-     * @param powerUp True if powering up the sim card
+     * @param state  State of SIM (power down, power up, pass through)
+     * - {@link android.telephony.TelephonyManager#CARD_POWER_DOWN}
+     * - {@link android.telephony.TelephonyManager#CARD_POWER_UP}
+     * - {@link android.telephony.TelephonyManager#CARD_POWER_UP_PASS_THROUGH}
      * @param result callback message contains the information of SUCCESS/FAILURE
      */
-    void setSimCardPower(boolean powerUp, Message result);
+    void setSimCardPower(int state, Message result);
+
+    /**
+     * Register for unsolicited Carrier Public Key.
+     *
+     * @param h Handler for notificaiton message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    void registerForCarrierInfoForImsiEncryption(Handler h, int what, Object obj);
+
+    /**
+     * DeRegister for unsolicited Carrier Public Key.
+     *
+     * @param h Handler for notificaiton message.
+     */
+    void unregisterForCarrierInfoForImsiEncryption(Handler h);
+
+    /**
+     * Register for unsolicited Network Scan result.
+     *
+     * @param h Handler for notificaiton message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    void registerForNetworkScanResult(Handler h, int what, Object obj);
+
+    /**
+     * DeRegister for unsolicited Network Scan result.
+     *
+     * @param h Handler for notificaiton message.
+     */
+    void unregisterForNetworkScanResult(Handler h);
 
     default public List<ClientRequestStats> getClientRequestStats() {
         return null;

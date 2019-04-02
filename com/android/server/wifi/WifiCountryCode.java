@@ -83,11 +83,9 @@ public class WifiCountryCode {
     public synchronized void simCardRemoved() {
         if (DBG) Log.d(TAG, "SIM Card Removed");
         // SIM card is removed, we need to reset the country code to phone default.
-        if (mRevertCountryCodeOnCellularLoss) {
-            mTelephonyCountryCode = null;
-            if (mReady) {
-                updateCountryCode();
-            }
+        mTelephonyCountryCode = null;
+        if (mReady) {
+            updateCountryCode();
         }
     }
 
@@ -98,12 +96,9 @@ public class WifiCountryCode {
      */
     public synchronized void airplaneModeEnabled() {
         if (DBG) Log.d(TAG, "Airplane Mode Enabled");
-        mTelephonyCountryCode = null;
         // Airplane mode is enabled, we need to reset the country code to phone default.
-        if (mRevertCountryCodeOnCellularLoss) {
-            mTelephonyCountryCode = null;
-            // Country code will be set upon when wpa_supplicant starts next time.
-        }
+        // Country code will be set upon when wpa_supplicant starts next time.
+        mTelephonyCountryCode = null;
     }
 
     /**
@@ -133,8 +128,10 @@ public class WifiCountryCode {
         if (DBG) Log.d(TAG, "Receive set country code request: " + countryCode);
         // Empty country code.
         if (TextUtils.isEmpty(countryCode)) {
-            if (DBG) Log.d(TAG, "Received empty country code, reset to default country code");
-            mTelephonyCountryCode = null;
+            if (mRevertCountryCodeOnCellularLoss) {
+                if (DBG) Log.d(TAG, "Received empty country code, reset to default country code");
+                mTelephonyCountryCode = null;
+            }
         } else {
             mTelephonyCountryCode = countryCode.toUpperCase();
         }

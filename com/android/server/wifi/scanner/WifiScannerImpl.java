@@ -26,6 +26,8 @@ import com.android.server.wifi.WifiInjector;
 import com.android.server.wifi.WifiMonitor;
 import com.android.server.wifi.WifiNative;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.Comparator;
 
 /**
@@ -158,4 +160,6 @@ public abstract class WifiScannerImpl {
      * @return true if background scan needs to be started, false otherwise.
      */
     public abstract boolean shouldScheduleBackgroundScanForHwPno();
+
+    protected abstract void dump(FileDescriptor fd, PrintWriter pw, String[] args);
 }

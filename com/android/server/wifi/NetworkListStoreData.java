@@ -16,10 +16,12 @@
 
 package com.android.server.wifi;
 
+import android.content.Context;
 import android.net.IpConfiguration;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiConfiguration.NetworkSelectionStatus;
 import android.net.wifi.WifiEnterpriseConfig;
+import android.os.Process;
 import android.util.Log;
 import android.util.Pair;
 
@@ -52,6 +54,8 @@ public class NetworkListStoreData implements WifiConfigStore.StoreData {
     private static final String XML_TAG_SECTION_HEADER_WIFI_ENTERPRISE_CONFIGURATION =
             "WifiEnterpriseConfiguration";
 
+    private final Context mContext;
+
     /**
      * List of saved shared networks visible to all the users to be stored in the shared store file.
      */
@@ -62,7 +66,9 @@ public class NetworkListStoreData implements WifiConfigStore.StoreData {
      */
     private List<WifiConfiguration> mUserConfigurations;
 
-    NetworkListStoreData() {}
+    NetworkListStoreData(Context context) {
+        mContext = context;
+    }
 
     @Override
     public void serializeData(XmlSerializer out, boolean shared)
@@ -281,6 +287,19 @@ public class NetworkListStoreData implements WifiConfigStore.StoreData {
             throw new XmlPullParserException(
                     "Configuration key does not match. Retrieved: " + configKeyParsed
                             + ", Calculated: " + configKeyCalculated);
+        }
+        // Set creatorUid/creatorName for networks which don't have it set to valid value.
+        String creatorName = mContext.getPackageManager().getNameForUid(configuration.creatorUid);
+        if (creatorName == null) {
+            Log.e(TAG, "Invalid creatorUid for saved network " + configuration.configKey()
+                    + ", creatorUid=" + configuration.creatorUid);
+            configuration.creatorUid = Process.SYSTEM_UID;
+            configuration.creatorName = creatorName;
+        } else if (!creatorName.equals(configuration.creatorName)) {
+            Log.w(TAG, "Invalid creatorName for saved network " + configuration.configKey()
+                    + ", creatorUid=" + configuration.creatorUid
+                    + ", creatorName=" + configuration.creatorName);
+            configuration.creatorName = creatorName;
         }
 
         configuration.setNetworkSelectionStatus(status);

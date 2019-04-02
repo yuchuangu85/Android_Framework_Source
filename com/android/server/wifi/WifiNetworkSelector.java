@@ -29,6 +29,7 @@ import android.util.Pair;
 
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.server.wifi.util.ScanResultUtil;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -39,6 +40,8 @@ import java.util.List;
  * selects a network for the phone to connect or roam to.
  */
 public class WifiNetworkSelector {
+    private static final String TAG = "WifiNetworkSelector";
+
     private static final long INVALID_TIME_STAMP = Long.MIN_VALUE;
     // Minimum time gap between last successful network selection and a new selection
     // attempt.
@@ -53,10 +56,13 @@ public class WifiNetworkSelector {
     // WifiConfiguration (if any).
     private volatile List<Pair<ScanDetail, WifiConfiguration>> mConnectableNetworks =
             new ArrayList<>();
+    private List<ScanDetail> mFilteredNetworks = new ArrayList<>();
     private final int mThresholdQualifiedRssi24;
     private final int mThresholdQualifiedRssi5;
     private final int mThresholdMinimumRssi24;
     private final int mThresholdMinimumRssi5;
+    private final int mStayOnNetworkMinimumTxRate;
+    private final int mStayOnNetworkMinimumRxRate;
     private final boolean mEnableAutoJoinWhenAssociated;
 
     /**
@@ -129,7 +135,7 @@ public class WifiNetworkSelector {
         mLocalLog.log(log);
     }
 
-    private boolean isCurrentNetworkSufficient(WifiInfo wifiInfo) {
+    private boolean isCurrentNetworkSufficient(WifiInfo wifiInfo, List<ScanDetail> scanDetails) {
         WifiConfiguration network =
                             mWifiConfigManager.getConfiguredNetwork(wifiInfo.getNetworkId());
 
@@ -140,6 +146,18 @@ public class WifiNetworkSelector {
         } else {
             localLog("Current connected network: " + network.SSID
                     + " , ID: " + network.networkId);
+        }
+
+        int currentRssi = wifiInfo.getRssi();
+        boolean hasQualifiedRssi =
+                (wifiInfo.is24GHz() && (currentRssi > mThresholdQualifiedRssi24))
+                        || (wifiInfo.is5GHz() && (currentRssi > mThresholdQualifiedRssi5));
+        // getTxSuccessRate() and getRxSuccessRate() returns the packet rate in per 5 seconds unit.
+        boolean hasActiveStream = (wifiInfo.getTxSuccessRatePps() > mStayOnNetworkMinimumTxRate)
+                || (wifiInfo.getRxSuccessRatePps() > mStayOnNetworkMinimumRxRate);
+        if (hasQualifiedRssi && hasActiveStream) {
+            localLog("Stay on current network because of good RSSI and ongoing traffic");
+            return true;
         }
 
         // Ephemeral network is not qualified.
@@ -154,22 +172,28 @@ public class WifiNetworkSelector {
             return false;
         }
 
-        // 2.4GHz networks is not qualified.
         if (wifiInfo.is24GHz()) {
-            localLog("Current network is 2.4GHz.");
-            return false;
+            // 2.4GHz networks is not qualified whenever 5GHz is available
+            if (is5GHzNetworkAvailable(scanDetails)) {
+                localLog("Current network is 2.4GHz. 5GHz networks available.");
+                return false;
+            }
         }
-
-        // Is the current network's singnal strength qualified? It can only
-        // be a 5GHz network if we reach here.
-        int currentRssi = wifiInfo.getRssi();
-        if (wifiInfo.is5GHz() && currentRssi < mThresholdQualifiedRssi5) {
-            localLog("Current network band=" + (wifiInfo.is5GHz() ? "5GHz" : "2.4GHz")
-                    + ", RSSI[" + currentRssi + "]-acceptable but not qualified.");
+        if (!hasQualifiedRssi) {
+            localLog("Current network RSSI[" + currentRssi + "]-acceptable but not qualified.");
             return false;
         }
 
         return true;
+    }
+
+    // Determine whether there are any 5GHz networks in the scan result
+    private boolean is5GHzNetworkAvailable(List<ScanDetail> scanDetails) {
+        for (ScanDetail detail : scanDetails) {
+            ScanResult result = detail.getScanResult();
+            if (result.is5GHz()) return true;
+        }
+        return false;
     }
 
     private boolean isNetworkSelectionNeeded(List<ScanDetail> scanDetails, WifiInfo wifiInfo,
@@ -198,7 +222,7 @@ public class WifiNetworkSelector {
                 }
             }
 
-            if (isCurrentNetworkSufficient(wifiInfo)) {
+            if (isCurrentNetworkSufficient(wifiInfo, scanDetails)) {
                 localLog("Current connected network already sufficient. Skip network selection.");
                 return false;
             } else {
@@ -235,6 +259,14 @@ public class WifiNetworkSelector {
         return (network.SSID + ":" + network.networkId);
     }
 
+    /**
+     * Compares ScanResult level against the minimum threshold for its band, returns true if lower
+     */
+    public boolean isSignalTooWeak(ScanResult scanResult) {
+        return ((scanResult.is24GHz() && scanResult.level < mThresholdMinimumRssi24)
+                || (scanResult.is5GHz() && scanResult.level < mThresholdMinimumRssi5));
+    }
+
     private List<ScanDetail> filterScanResults(List<ScanDetail> scanDetails,
                 HashSet<String> bssidBlacklist, boolean isConnected, String currentBssid) {
         ArrayList<NetworkKey> unscoredNetworks = new ArrayList<NetworkKey>();
@@ -265,10 +297,7 @@ public class WifiNetworkSelector {
             }
 
             // Skip network with too weak signals.
-            if ((scanResult.is24GHz() && scanResult.level
-                    < mThresholdMinimumRssi24)
-                    || (scanResult.is5GHz() && scanResult.level
-                    < mThresholdMinimumRssi5)) {
+            if (isSignalTooWeak(scanResult)) {
                 lowRssi.append(scanId).append("(")
                     .append(scanResult.is24GHz() ? "2.4GHz" : "5GHz")
                     .append(")").append(scanResult.level).append(" / ");
@@ -305,12 +334,39 @@ public class WifiNetworkSelector {
     }
 
     /**
+     * This returns a list of ScanDetails that were filtered in the process of network selection.
+     * The list is further filtered for only open unsaved networks.
+     *
+     * @return the list of ScanDetails for open unsaved networks that do not have invalid SSIDS,
+     * blacklisted BSSIDS, or low signal strength. This will return an empty list when there are
+     * no open unsaved networks, or when network selection has not been run.
+     */
+    public List<ScanDetail> getFilteredScanDetailsForOpenUnsavedNetworks() {
+        List<ScanDetail> openUnsavedNetworks = new ArrayList<>();
+        for (ScanDetail scanDetail : mFilteredNetworks) {
+            ScanResult scanResult = scanDetail.getScanResult();
+
+            if (!ScanResultUtil.isScanResultForOpenNetwork(scanResult)) {
+                continue;
+            }
+
+            // Skip saved networks
+            if (mWifiConfigManager.getConfiguredNetworkForScanDetailAndCache(scanDetail) != null) {
+                continue;
+            }
+
+            openUnsavedNetworks.add(scanDetail);
+        }
+        return openUnsavedNetworks;
+    }
+
+    /**
      * @return the list of ScanDetails scored as potential candidates by the last run of
      * selectNetwork, this will be empty if Network selector determined no selection was
      * needed on last run. This includes scan details of sufficient signal strength, and
      * had an associated WifiConfiguration.
      */
-    public List<Pair<ScanDetail, WifiConfiguration>> getFilteredScanDetails() {
+    public List<Pair<ScanDetail, WifiConfiguration>> getConnectableScanDetails() {
         return mConnectableNetworks;
     }
 
@@ -428,6 +484,7 @@ public class WifiNetworkSelector {
     public WifiConfiguration selectNetwork(List<ScanDetail> scanDetails,
             HashSet<String> bssidBlacklist, WifiInfo wifiInfo,
             boolean connected, boolean disconnected, boolean untrustedNetworkAllowed) {
+        mFilteredNetworks.clear();
         mConnectableNetworks.clear();
         if (scanDetails.size() == 0) {
             localLog("Empty connectivity scan result");
@@ -454,9 +511,9 @@ public class WifiNetworkSelector {
         }
 
         // Filter out unwanted networks.
-        List<ScanDetail> filteredScanDetails = filterScanResults(scanDetails, bssidBlacklist,
+        mFilteredNetworks = filterScanResults(scanDetails, bssidBlacklist,
                 connected, currentBssid);
-        if (filteredScanDetails.size() == 0) {
+        if (mFilteredNetworks.size() == 0) {
             return null;
         }
 
@@ -466,9 +523,9 @@ public class WifiNetworkSelector {
         for (NetworkEvaluator registeredEvaluator : mEvaluators) {
             if (registeredEvaluator != null) {
                 localLog("About to run " + registeredEvaluator.getName() + " :");
-                selectedNetwork = registeredEvaluator.evaluateNetworks(filteredScanDetails,
-                            currentNetwork, currentBssid, connected,
-                            untrustedNetworkAllowed, mConnectableNetworks);
+                selectedNetwork = registeredEvaluator.evaluateNetworks(
+                        new ArrayList<>(mFilteredNetworks), currentNetwork, currentBssid, connected,
+                        untrustedNetworkAllowed, mConnectableNetworks);
                 if (selectedNetwork != null) {
                     localLog(registeredEvaluator.getName() + " selects "
                             + WifiNetworkSelector.toNetworkString(selectedNetwork) + " : "
@@ -518,14 +575,18 @@ public class WifiNetworkSelector {
         mLocalLog = localLog;
 
         mThresholdQualifiedRssi24 = context.getResources().getInteger(
-                            R.integer.config_wifi_framework_wifi_score_low_rssi_threshold_24GHz);
+                R.integer.config_wifi_framework_wifi_score_low_rssi_threshold_24GHz);
         mThresholdQualifiedRssi5 = context.getResources().getInteger(
-                            R.integer.config_wifi_framework_wifi_score_low_rssi_threshold_5GHz);
+                R.integer.config_wifi_framework_wifi_score_low_rssi_threshold_5GHz);
         mThresholdMinimumRssi24 = context.getResources().getInteger(
-                            R.integer.config_wifi_framework_wifi_score_bad_rssi_threshold_24GHz);
+                R.integer.config_wifi_framework_wifi_score_entry_rssi_threshold_24GHz);
         mThresholdMinimumRssi5 = context.getResources().getInteger(
-                            R.integer.config_wifi_framework_wifi_score_bad_rssi_threshold_5GHz);
+                R.integer.config_wifi_framework_wifi_score_entry_rssi_threshold_5GHz);
         mEnableAutoJoinWhenAssociated = context.getResources().getBoolean(
-                            R.bool.config_wifi_framework_enable_associated_network_selection);
+                R.bool.config_wifi_framework_enable_associated_network_selection);
+        mStayOnNetworkMinimumTxRate = context.getResources().getInteger(
+                R.integer.config_wifi_framework_min_tx_rate_for_staying_on_network);
+        mStayOnNetworkMinimumRxRate = context.getResources().getInteger(
+                R.integer.config_wifi_framework_min_rx_rate_for_staying_on_network);
     }
 }

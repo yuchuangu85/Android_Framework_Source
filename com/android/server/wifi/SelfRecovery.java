@@ -18,6 +18,9 @@ package com.android.server.wifi;
 
 import android.util.Log;
 
+import java.util.Iterator;
+import java.util.LinkedList;
+
 /**
  * This class is used to recover the wifi stack from a fatal failure. The recovery mechanism
  * involves triggering a stack restart (essentially simulating an airplane mode toggle) using
@@ -36,7 +39,8 @@ public class SelfRecovery {
     public static final int REASON_LAST_RESORT_WATCHDOG = 0;
     public static final int REASON_HAL_CRASH = 1;
     public static final int REASON_WIFICOND_CRASH = 2;
-
+    public static final long MAX_RESTARTS_IN_TIME_WINDOW = 2; // 2 restarts per hour
+    public static final long MAX_RESTARTS_TIME_WINDOW_MILLIS = 60 * 60 * 1000; // 1 hour
     private static final String[] REASON_STRINGS = {
             "Last Resort Watchdog", // REASON_LAST_RESORT_WATCHDOG
             "Hal Crash",            // REASON_HAL_CRASH
@@ -44,9 +48,13 @@ public class SelfRecovery {
     };
 
     private final WifiController mWifiController;
-
-    SelfRecovery(WifiController wifiController) {
+    private final Clock mClock;
+    // Time since boot (in millis) that restart occurred
+    private final LinkedList<Long> mPastRestartTimes;
+    public SelfRecovery(WifiController wifiController, Clock clock) {
         mWifiController = wifiController;
+        mClock = clock;
+        mPastRestartTimes = new LinkedList<Long>();
     }
 
     /**
@@ -59,11 +67,38 @@ public class SelfRecovery {
      * @param reason One of the above |REASON_*| codes.
      */
     public void trigger(int reason) {
-        if (reason < REASON_LAST_RESORT_WATCHDOG || reason > REASON_WIFICOND_CRASH) {
+        if (!(reason == REASON_LAST_RESORT_WATCHDOG || reason == REASON_HAL_CRASH
+                || reason == REASON_WIFICOND_CRASH)) {
             Log.e(TAG, "Invalid trigger reason. Ignoring...");
             return;
         }
-        Log.wtf(TAG, "Triggering recovery for reason: " + REASON_STRINGS[reason]);
+        Log.e(TAG, "Triggering recovery for reason: " + REASON_STRINGS[reason]);
+        if (reason == REASON_WIFICOND_CRASH || reason == REASON_HAL_CRASH) {
+            trimPastRestartTimes();
+            // Ensure there haven't been too many restarts within MAX_RESTARTS_TIME_WINDOW
+            if (mPastRestartTimes.size() >= MAX_RESTARTS_IN_TIME_WINDOW) {
+                Log.e(TAG, "Already restarted wifi (" + MAX_RESTARTS_IN_TIME_WINDOW + ") times in"
+                        + " last (" + MAX_RESTARTS_TIME_WINDOW_MILLIS + "ms ). Ignoring...");
+                return;
+            }
+            mPastRestartTimes.add(mClock.getElapsedSinceBootMillis());
+        }
         mWifiController.sendMessage(WifiController.CMD_RESTART_WIFI);
+    }
+
+    /**
+     * Process the mPastRestartTimes list, removing elements outside the max restarts time window
+     */
+    private void trimPastRestartTimes() {
+        Iterator<Long> iter = mPastRestartTimes.iterator();
+        long now = mClock.getElapsedSinceBootMillis();
+        while (iter.hasNext()) {
+            Long restartTimeMillis = iter.next();
+            if (now - restartTimeMillis > MAX_RESTARTS_TIME_WINDOW_MILLIS) {
+                iter.remove();
+            } else {
+                break;
+            }
+        }
     }
 }

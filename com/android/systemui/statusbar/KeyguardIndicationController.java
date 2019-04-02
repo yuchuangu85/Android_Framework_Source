@@ -16,7 +16,6 @@
 
 package com.android.systemui.statusbar;
 
-import android.app.ActivityManager;
 import android.app.admin.DevicePolicyManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -66,21 +65,22 @@ public class KeyguardIndicationController {
     private static final long TRANSIENT_FP_ERROR_TIMEOUT = 1300;
 
     private final Context mContext;
-    private final ViewGroup mIndicationArea;
-    private final KeyguardIndicationTextView mTextView;
-    private final KeyguardIndicationTextView mDisclosure;
+    private ViewGroup mIndicationArea;
+    private KeyguardIndicationTextView mTextView;
+    private KeyguardIndicationTextView mDisclosure;
     private final UserManager mUserManager;
     private final IBatteryStats mBatteryInfo;
     private final SettableWakeLock mWakeLock;
 
     private final int mSlowThreshold;
     private final int mFastThreshold;
-    private final LockIcon mLockIcon;
+    private LockIcon mLockIcon;
     private StatusBarKeyguardViewManager mStatusBarKeyguardViewManager;
 
     private String mRestingIndication;
     private String mTransientIndication;
     private int mTransientTextColor;
+    private int mInitialTextColor;
     private boolean mVisible;
 
     private boolean mPowerPluggedIn;
@@ -89,7 +89,7 @@ public class KeyguardIndicationController {
     private int mChargingWattage;
     private String mMessageToShowOnScreenOn;
 
-    private KeyguardUpdateMonitorCallback mUpdateMonitor;
+    private KeyguardUpdateMonitorCallback mUpdateMonitorCallback;
 
     private final DevicePolicyManager mDevicePolicyManager;
     private boolean mDozing;
@@ -115,6 +115,7 @@ public class KeyguardIndicationController {
         mIndicationArea = indicationArea;
         mTextView = (KeyguardIndicationTextView) indicationArea.findViewById(
                 R.id.keyguard_indication_text);
+        mInitialTextColor = mTextView != null ? mTextView.getCurrentTextColor() : Color.WHITE;
         mDisclosure = (KeyguardIndicationTextView) indicationArea.findViewById(
                 R.id.keyguard_indication_enterprise_disclosure);
         mLockIcon = lockIcon;
@@ -153,10 +154,10 @@ public class KeyguardIndicationController {
      * same instance.
      */
     protected KeyguardUpdateMonitorCallback getKeyguardCallback() {
-        if (mUpdateMonitor == null) {
-            mUpdateMonitor = new BaseKeyguardCallback();
+        if (mUpdateMonitorCallback == null) {
+            mUpdateMonitorCallback = new BaseKeyguardCallback();
         }
-        return mUpdateMonitor;
+        return mUpdateMonitorCallback;
     }
 
     private void updateDisclosure() {
@@ -183,8 +184,15 @@ public class KeyguardIndicationController {
         mVisible = visible;
         mIndicationArea.setVisibility(visible ? View.VISIBLE : View.GONE);
         if (visible) {
-            hideTransientIndication();
+            // If this is called after an error message was already shown, we should not clear it.
+            // Otherwise the error message won't be shown
+            if  (!mHandler.hasMessages(MSG_HIDE_TRANSIENT)) {
+                hideTransientIndication();
+            }
             updateIndication();
+        } else if (!visible) {
+            // If we unlock and return to keyguard quickly, previous error should not be shown
+            hideTransientIndication();
         }
     }
 
@@ -200,6 +208,24 @@ public class KeyguardIndicationController {
      * Sets the active controller managing changes and callbacks to user information.
      */
     public void setUserInfoController(UserInfoController userInfoController) {
+    }
+
+    /**
+     * Returns the indication text indicating that trust has been granted.
+     *
+     * @return {@code null} or an empty string if a trust indication text should not be shown.
+     */
+    protected String getTrustGrantedIndication() {
+        return null;
+    }
+
+    /**
+     * Returns the indication text indicating that trust is currently being managed.
+     *
+     * @return {@code null} or an empty string if a trust managed text should not be shown.
+     */
+    protected String getTrustManagedIndication() {
+        return null;
     }
 
     /**
@@ -221,7 +247,7 @@ public class KeyguardIndicationController {
      * Shows {@param transientIndication} until it is hidden by {@link #hideTransientIndication}.
      */
     public void showTransientIndication(String transientIndication) {
-        showTransientIndication(transientIndication, Color.WHITE);
+        showTransientIndication(transientIndication, mInitialTextColor);
     }
 
     /**
@@ -250,45 +276,56 @@ public class KeyguardIndicationController {
         }
     }
 
-    private void updateIndication() {
+    protected final void updateIndication() {
         if (TextUtils.isEmpty(mTransientIndication)) {
             mWakeLock.setAcquired(false);
         }
 
         if (mVisible) {
-            // Walk down a precedence-ordered list of what should indication
+            // Walk down a precedence-ordered list of what indication
             // should be shown based on user or device state
             if (mDozing) {
                 // If we're dozing, never show a persistent indication.
                 if (!TextUtils.isEmpty(mTransientIndication)) {
+                    // When dozing we ignore any text color and use white instead, because
+                    // colors can be hard to read in low brightness.
+                    mTextView.setTextColor(Color.WHITE);
                     mTextView.switchIndication(mTransientIndication);
-                    mTextView.setTextColor(mTransientTextColor);
-
                 } else {
                     mTextView.switchIndication(null);
                 }
                 return;
             }
 
-            if (!mUserManager.isUserUnlocked(KeyguardUpdateMonitor.getCurrentUser())) {
+            KeyguardUpdateMonitor updateMonitor = KeyguardUpdateMonitor.getInstance(mContext);
+            int userId = KeyguardUpdateMonitor.getCurrentUser();
+            String trustGrantedIndication = getTrustGrantedIndication();
+            String trustManagedIndication = getTrustManagedIndication();
+            if (!mUserManager.isUserUnlocked(userId)) {
                 mTextView.switchIndication(com.android.internal.R.string.lockscreen_storage_locked);
-                mTextView.setTextColor(Color.WHITE);
-
+                mTextView.setTextColor(mInitialTextColor);
             } else if (!TextUtils.isEmpty(mTransientIndication)) {
                 mTextView.switchIndication(mTransientIndication);
                 mTextView.setTextColor(mTransientTextColor);
-
+            } else if (!TextUtils.isEmpty(trustGrantedIndication)
+                    && updateMonitor.getUserHasTrust(userId)) {
+                mTextView.switchIndication(trustGrantedIndication);
+                mTextView.setTextColor(mInitialTextColor);
             } else if (mPowerPluggedIn) {
                 String indication = computePowerIndication();
                 if (DEBUG_CHARGING_SPEED) {
                     indication += ",  " + (mChargingWattage / 1000) + " mW";
                 }
                 mTextView.switchIndication(indication);
-                mTextView.setTextColor(Color.WHITE);
-
+                mTextView.setTextColor(mInitialTextColor);
+            } else if (!TextUtils.isEmpty(trustManagedIndication)
+                    && updateMonitor.getUserTrustIsManaged(userId)
+                    && !updateMonitor.getUserHasTrust(userId)) {
+                mTextView.switchIndication(trustManagedIndication);
+                mTextView.setTextColor(mInitialTextColor);
             } else {
                 mTextView.switchIndication(mRestingIndication);
-                mTextView.setTextColor(Color.WHITE);
+                mTextView.setTextColor(mInitialTextColor);
             }
         }
     }
@@ -359,7 +396,6 @@ public class KeyguardIndicationController {
                 hideTransientIndication();
             } else if (msg.what == MSG_CLEAR_FP_MSG) {
                 mLockIcon.setTransientFpError(false);
-                hideTransientIndication();
             }
         }
     };
@@ -413,10 +449,10 @@ public class KeyguardIndicationController {
             int errorColor = Utils.getColorError(mContext);
             if (mStatusBarKeyguardViewManager.isBouncerShowing()) {
                 mStatusBarKeyguardViewManager.showBouncerMessage(helpString, errorColor);
-            } else if (updateMonitor.isDeviceInteractive()
-                    || mDozing && updateMonitor.isScreenOn()) {
+            } else if (updateMonitor.isScreenOn()) {
                 mLockIcon.setTransientFpError(true);
                 showTransientIndication(helpString, errorColor);
+                hideTransientIndicationDelayed(TRANSIENT_FP_ERROR_TIMEOUT);
                 mHandler.removeMessages(MSG_CLEAR_FP_MSG);
                 mHandler.sendMessageDelayed(mHandler.obtainMessage(MSG_CLEAR_FP_MSG),
                         TRANSIENT_FP_ERROR_TIMEOUT);
@@ -429,7 +465,8 @@ public class KeyguardIndicationController {
         @Override
         public void onFingerprintError(int msgId, String errString) {
             KeyguardUpdateMonitor updateMonitor = KeyguardUpdateMonitor.getInstance(mContext);
-            if (!updateMonitor.isUnlockingWithFingerprintAllowed()
+            if ((!updateMonitor.isUnlockingWithFingerprintAllowed()
+                    && msgId != FingerprintManager.FINGERPRINT_ERROR_LOCKOUT_PERMANENT)
                     || msgId == FingerprintManager.FINGERPRINT_ERROR_CANCELED) {
                 return;
             }
@@ -442,7 +479,7 @@ public class KeyguardIndicationController {
                 if (mLastSuccessiveErrorMessage != msgId) {
                     mStatusBarKeyguardViewManager.showBouncerMessage(errString, errorColor);
                 }
-            } else if (updateMonitor.isDeviceInteractive()) {
+            } else if (updateMonitor.isScreenOn()) {
                 showTransientIndication(errString, errorColor);
                 // We want to keep this message around in case the screen was off
                 hideTransientIndicationDelayed(HIDE_DELAY_MS);

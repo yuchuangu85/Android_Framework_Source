@@ -23,6 +23,7 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.UserHandle;
 import android.text.TextUtils;
+import android.widget.RemoteViews;
 
 import java.util.ArrayList;
 
@@ -48,6 +49,12 @@ public class Tile implements Parcelable {
      * @attr ref android.R.styleable#PreferenceHeader_icon
      */
     public Icon icon;
+
+    /**
+     * Whether the icon can be tinted. This should be set to true for monochrome (single-color)
+     * icons that can be tinted to match the design.
+     */
+    public boolean isIconTintable;
 
     /**
      * Intent to launch when the preference is selected.
@@ -84,6 +91,11 @@ public class Tile implements Parcelable {
      */
     public String key;
 
+    /**
+     * Optional remote view which will be displayed instead of the regular title-summary item.
+     */
+    public RemoteViews remoteViews;
+
     public Tile() {
         // Empty
     }
@@ -119,6 +131,8 @@ public class Tile implements Parcelable {
         dest.writeInt(priority);
         dest.writeBundle(metaData);
         dest.writeString(key);
+        dest.writeParcelable(remoteViews, flags);
+        dest.writeBoolean(isIconTintable);
     }
 
     public void readFromParcel(Parcel in) {
@@ -139,6 +153,8 @@ public class Tile implements Parcelable {
         priority = in.readInt();
         metaData = in.readBundle();
         key = in.readString();
+        remoteViews = in.readParcelable(RemoteViews.class.getClassLoader());
+        isIconTintable = in.readBoolean();
     }
 
     Tile(Parcel in) {

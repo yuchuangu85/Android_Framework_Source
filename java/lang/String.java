@@ -117,7 +117,7 @@ import libcore.util.EmptyArray;
 public final class String
     implements java.io.Serializable, Comparable<String>, CharSequence {
 
-    // dThe associated character storage is managed by the runtime. We only
+    // The associated character storage is managed by the runtime. We only
     // keep track of the length here.
     //
     // private final char value[];

@@ -402,9 +402,9 @@ public abstract class EnumSet<E extends Enum<E>> extends AbstractSet<E>
      * The result is uncloned, cached, and shared by all callers.
      */
     private static <E extends Enum<E>> E[] getUniverse(Class<E> elementType) {
-        // Android-changed: Use JavaLangAccess directly instead of going via
-        // SharedSecrets.
-        return java.lang.JavaLangAccess.getEnumConstantsShared(elementType);
+        // Android-changed: Use getEnumConstantsShared directly instead of going
+        // through SharedSecrets.
+        return elementType.getEnumConstantsShared();
     }
 
     /**

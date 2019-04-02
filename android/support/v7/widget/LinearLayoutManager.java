@@ -62,10 +62,10 @@ public class LinearLayoutManager extends RecyclerView.LayoutManager implements
      */
     private static final float MAX_SCROLL_FACTOR = 1 / 3f;
 
-
     /**
      * Current orientation. Either {@link #HORIZONTAL} or {@link #VERTICAL}
      */
+    @RecyclerView.Orientation
     int mOrientation;
 
     /**
@@ -163,7 +163,8 @@ public class LinearLayoutManager extends RecyclerView.LayoutManager implements
      *                      #VERTICAL}.
      * @param reverseLayout When set to true, layouts from end to start.
      */
-    public LinearLayoutManager(Context context, int orientation, boolean reverseLayout) {
+    public LinearLayoutManager(Context context, @RecyclerView.Orientation int orientation,
+            boolean reverseLayout) {
         setOrientation(orientation);
         setReverseLayout(reverseLayout);
         setAutoMeasureEnabled(true);
@@ -319,6 +320,7 @@ public class LinearLayoutManager extends RecyclerView.LayoutManager implements
      * @return Current orientation,  either {@link #HORIZONTAL} or {@link #VERTICAL}
      * @see #setOrientation(int)
      */
+    @RecyclerView.Orientation
     public int getOrientation() {
         return mOrientation;
     }
@@ -329,7 +331,7 @@ public class LinearLayoutManager extends RecyclerView.LayoutManager implements
      *
      * @param orientation {@link #HORIZONTAL} or {@link #VERTICAL}
      */
-    public void setOrientation(int orientation) {
+    public void setOrientation(@RecyclerView.Orientation int orientation) {
         if (orientation != HORIZONTAL && orientation != VERTICAL) {
             throw new IllegalArgumentException("invalid orientation:" + orientation);
         }
@@ -491,6 +493,7 @@ public class LinearLayoutManager extends RecyclerView.LayoutManager implements
         // resolve layout direction
         resolveShouldLayoutReverse();
 
+        final View focused = getFocusedChild();
         if (!mAnchorInfo.mValid || mPendingScrollPosition != NO_POSITION
                 || mPendingSavedState != null) {
             mAnchorInfo.reset();
@@ -498,6 +501,22 @@ public class LinearLayoutManager extends RecyclerView.LayoutManager implements
             // calculate anchor position and coordinate
             updateAnchorInfoForLayout(recycler, state, mAnchorInfo);
             mAnchorInfo.mValid = true;
+        } else if (focused != null && (mOrientationHelper.getDecoratedStart(focused)
+                        >= mOrientationHelper.getEndAfterPadding()
+                || mOrientationHelper.getDecoratedEnd(focused)
+                <= mOrientationHelper.getStartAfterPadding())) {
+            // This case relates to when the anchor child is the focused view and due to layout
+            // shrinking the focused view fell outside the viewport, e.g. when soft keyboard shows
+            // up after tapping an EditText which shrinks RV causing the focused view (The tapped
+            // EditText which is the anchor child) to get kicked out of the screen. Will update the
+            // anchor coordinate in order to make sure that the focused view is laid out. Otherwise,
+            // the available space in layoutState will be calculated as negative preventing the
+            // focused view from being laid out in fill.
+            // Note that we won't update the anchor position between layout passes (refer to
+            // TestResizingRelayoutWithAutoMeasure), which happens if we were to call
+            // updateAnchorInfoForLayout for an anchor that's not the focused view (e.g. a reference
+            // child which can change between layout passes).
+            mAnchorInfo.assignFromViewAndKeepVisibleRect(focused);
         }
         if (DEBUG) {
             Log.d(TAG, "Anchor info:" + mAnchorInfo);
@@ -1293,6 +1312,7 @@ public class LinearLayoutManager extends RecyclerView.LayoutManager implements
             return;
         }
 
+        ensureLayoutState();
         final int layoutDirection = delta > 0 ? LayoutState.LAYOUT_END : LayoutState.LAYOUT_START;
         final int absDy = Math.abs(delta);
         updateLayoutState(layoutDirection, absDy, true, state);

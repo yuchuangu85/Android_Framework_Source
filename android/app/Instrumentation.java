@@ -48,6 +48,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.ViewConfiguration;
 import android.view.Window;
+
 import com.android.internal.content.ReferrerIntent;
 
 import java.io.File;
@@ -816,7 +817,7 @@ public class Instrumentation {
      * returned.  If the timeout expires, a null object is returned. 
      *
      * @param monitor The ActivityMonitor to wait for.
-     * @param timeOut The timeout value in secs.
+     * @param timeOut The timeout value in milliseconds.
      *
      * @return The Activity object that matched the monitor.
      */
@@ -1305,7 +1306,7 @@ public class Instrumentation {
      * @param intent The new intent being received.
      */
     public void callActivityOnNewIntent(Activity activity, Intent intent) {
-        activity.onNewIntent(intent);
+        activity.performNewIntent(intent);
     }
 
     /**

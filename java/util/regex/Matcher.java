@@ -124,6 +124,12 @@ public final class Matcher implements MatchResult {
             Matcher.class.getClassLoader(), getNativeFinalizer(), nativeSize());
 
     /**
+     * Holds the original CharSequence for {@link #reset} only. Any reference to the content after
+     * {@link #reset} can direct to {@link #input}.
+     */
+    private CharSequence originalInput;
+
+    /**
      * Holds the input text.
      */
     private String input;
@@ -490,6 +496,7 @@ public final class Matcher implements MatchResult {
      *          pattern
      */
     public boolean find(int start) {
+        reset();
         if (start < 0 || start > input.length()) {
             throw new IndexOutOfBoundsException("start=" + start + "; length=" + input.length());
         }
@@ -820,7 +827,7 @@ public final class Matcher implements MatchResult {
      * @since 1.5
      */
     public Matcher region(int start, int end) {
-        return reset(input, start, end);
+        return reset(originalInput, start, end);
     }
 
     /**
@@ -1024,7 +1031,7 @@ public final class Matcher implements MatchResult {
      * @return  This matcher
      */
     public Matcher reset() {
-        return reset(input, 0, input.length());
+        return reset(originalInput, 0, originalInput.length());
     }
 
     /**
@@ -1070,6 +1077,7 @@ public final class Matcher implements MatchResult {
             throw new IndexOutOfBoundsException();
         }
 
+        this.originalInput = input;
         this.input = input.toString();
         this.regionStart = start;
         this.regionEnd = end;

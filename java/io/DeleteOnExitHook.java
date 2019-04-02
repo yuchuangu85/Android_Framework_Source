@@ -36,11 +36,13 @@ import java.io.File;
 class DeleteOnExitHook {
     private static LinkedHashSet<String> files = new LinkedHashSet<>();
     static {
+        // BEGIN Android-changed: Use Runtime.addShutdownHook() rather than SharedSecrets.
         Runtime.getRuntime().addShutdownHook(new Thread() {
             public void run() {
                 runHooks();
             }
         });
+        // END Android-changed: Use Runtime.addShutdownHook() rather than SharedSecrets.
     }
 
     private DeleteOnExitHook() {}

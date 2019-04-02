@@ -54,6 +54,7 @@ public class TransformState {
 
     protected View mTransformedView;
     private int[] mOwnPosition = new int[2];
+    private boolean mSameAsAny;
     private float mTransformationEndY = UNDEFINED;
     private float mTransformationEndX = UNDEFINED;
 
@@ -107,7 +108,7 @@ public class TransformState {
         final View transformedView = mTransformedView;
         boolean transformX = (transformationFlags & TRANSFORM_X) != 0;
         boolean transformY = (transformationFlags & TRANSFORM_Y) != 0;
-        boolean transformScale = transformScale();
+        boolean transformScale = transformScale(otherState);
         // lets animate the positions correctly
         if (transformationAmount == 0.0f
                 || transformX && getTransformationStartX() == UNDEFINED
@@ -131,16 +132,16 @@ public class TransformState {
                 }
                 // we also want to animate the scale if we're the same
                 View otherView = otherState.getTransformedView();
-                if (transformScale && otherView.getWidth() != transformedView.getWidth()) {
-                    setTransformationStartScaleX(otherView.getWidth() * otherView.getScaleX()
-                            / (float) transformedView.getWidth());
+                if (transformScale && otherState.getViewWidth() != getViewWidth()) {
+                    setTransformationStartScaleX(otherState.getViewWidth() * otherView.getScaleX()
+                            / (float) getViewWidth());
                     transformedView.setPivotX(0);
                 } else {
                     setTransformationStartScaleX(UNDEFINED);
                 }
-                if (transformScale && otherView.getHeight() != transformedView.getHeight()) {
-                    setTransformationStartScaleY(otherView.getHeight() * otherView.getScaleY()
-                            / (float) transformedView.getHeight());
+                if (transformScale && otherState.getViewHeight() != getViewHeight()) {
+                    setTransformationStartScaleY(otherState.getViewHeight() * otherView.getScaleY()
+                            / (float) getViewHeight());
                     transformedView.setPivotY(0);
                 } else {
                     setTransformationStartScaleY(UNDEFINED);
@@ -204,7 +205,15 @@ public class TransformState {
         }
     }
 
-    protected boolean transformScale() {
+    protected int getViewWidth() {
+        return mTransformedView.getWidth();
+    }
+
+    protected int getViewHeight() {
+        return mTransformedView.getHeight();
+    }
+
+    protected boolean transformScale(TransformState otherState) {
         return false;
     }
 
@@ -258,7 +267,7 @@ public class TransformState {
         final View transformedView = mTransformedView;
         boolean transformX = (transformationFlags & TRANSFORM_X) != 0;
         boolean transformY = (transformationFlags & TRANSFORM_Y) != 0;
-        boolean transformScale = transformScale();
+        boolean transformScale = transformScale(otherState);
         // lets animate the positions correctly
         if (transformationAmount == 0.0f) {
             if (transformX) {
@@ -274,13 +283,13 @@ public class TransformState {
                 setTransformationStartY(start);
             }
             View otherView = otherState.getTransformedView();
-            if (transformScale && otherView.getWidth() != transformedView.getWidth()) {
+            if (transformScale && otherState.getViewWidth() != getViewWidth()) {
                 setTransformationStartScaleX(transformedView.getScaleX());
                 transformedView.setPivotX(0);
             } else {
                 setTransformationStartScaleX(UNDEFINED);
             }
-            if (transformScale && otherView.getHeight() != transformedView.getHeight()) {
+            if (transformScale && otherState.getViewHeight() != getViewHeight()) {
                 setTransformationStartScaleY(transformedView.getScaleY());
                 transformedView.setPivotY(0);
             } else {
@@ -332,14 +341,14 @@ public class TransformState {
             if (transformationStartScaleX != UNDEFINED) {
                 transformedView.setScaleX(
                         NotificationUtils.interpolate(transformationStartScaleX,
-                                (otherView.getWidth() / (float) transformedView.getWidth()),
+                                (otherState.getViewWidth() / (float) getViewWidth()),
                                 interpolatedValue));
             }
             float transformationStartScaleY = getTransformationStartScaleY();
             if (transformationStartScaleY != UNDEFINED) {
                 transformedView.setScaleY(
                         NotificationUtils.interpolate(transformationStartScaleY,
-                                (otherView.getHeight() / (float) transformedView.getHeight()),
+                                (otherState.getViewHeight() / (float) getViewHeight()),
                                 interpolatedValue));
             }
         }
@@ -418,7 +427,7 @@ public class TransformState {
     }
 
     protected boolean sameAs(TransformState otherState) {
-        return false;
+        return mSameAsAny;
     }
 
     public void appear(float transformationAmount, TransformableView otherView) {
@@ -449,6 +458,9 @@ public class TransformState {
         if (view instanceof ImageView) {
             ImageTransformState result = ImageTransformState.obtain();
             result.initFrom(view);
+            if (view.getId() == com.android.internal.R.id.reply_icon_action) {
+                ((TransformState) result).setIsSameAsAnyView(true);
+            }
             return result;
         }
         if (view instanceof ProgressBar) {
@@ -459,6 +471,10 @@ public class TransformState {
         TransformState result = obtain();
         result.initFrom(view);
         return result;
+    }
+
+    private void setIsSameAsAnyView(boolean sameAsAny) {
+        mSameAsAny = sameAsAny;
     }
 
     public void recycle() {
@@ -514,6 +530,7 @@ public class TransformState {
 
     protected void reset() {
         mTransformedView = null;
+        mSameAsAny = false;
         mTransformationEndX = UNDEFINED;
         mTransformationEndY = UNDEFINED;
     }

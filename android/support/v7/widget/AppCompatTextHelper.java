@@ -17,7 +17,9 @@
 package android.support.v7.widget;
 
 import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static android.support.v4.widget.AutoSizeableTextView.PLATFORM_SUPPORTS_AUTOSIZE;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
@@ -27,7 +29,6 @@ import android.os.Build;
 import android.support.annotation.NonNull;
 import android.support.annotation.RequiresApi;
 import android.support.annotation.RestrictTo;
-import android.support.v4.os.BuildCompat;
 import android.support.v4.widget.TextViewCompat;
 import android.support.v7.appcompat.R;
 import android.text.method.PasswordTransformationMethod;
@@ -37,6 +38,12 @@ import android.widget.TextView;
 
 @RequiresApi(9)
 class AppCompatTextHelper {
+
+    // Enum for the "typeface" XML parameter.
+    private static final int SANS = 1;
+    private static final int SERIF = 2;
+    private static final int MONOSPACE = 3;
+
 
     static AppCompatTextHelper create(TextView textView) {
         if (Build.VERSION.SDK_INT >= 17) {
@@ -62,6 +69,7 @@ class AppCompatTextHelper {
         mAutoSizeTextHelper = new AppCompatTextViewAutoSizeHelper(mView);
     }
 
+    @SuppressLint("NewApi")
     void loadFromAttributes(AttributeSet attrs, int defStyleAttr) {
         final Context context = mView.getContext();
         final AppCompatDrawableManager drawableManager = AppCompatDrawableManager.get();
@@ -171,7 +179,7 @@ class AppCompatTextHelper {
 
         mAutoSizeTextHelper.loadFromAttributes(attrs, defStyleAttr);
 
-        if (BuildCompat.isAtLeastO()) {
+        if (PLATFORM_SUPPORTS_AUTOSIZE) {
             // Delegate auto-size functionality to the framework implementation.
             if (mAutoSizeTextHelper.getAutoSizeTextType()
                     != TextViewCompat.AUTO_SIZE_TEXT_TYPE_NONE) {
@@ -200,6 +208,7 @@ class AppCompatTextHelper {
 
         if (a.hasValue(R.styleable.TextAppearance_android_fontFamily)
                 || a.hasValue(R.styleable.TextAppearance_fontFamily)) {
+            mFontTypeface = null;
             int fontFamilyId = a.hasValue(R.styleable.TextAppearance_android_fontFamily)
                     ? R.styleable.TextAppearance_android_fontFamily
                     : R.styleable.TextAppearance_fontFamily;
@@ -214,6 +223,24 @@ class AppCompatTextHelper {
                 // Try with String. This is done by TextView JB+, but fails in ICS
                 String fontFamilyName = a.getString(fontFamilyId);
                 mFontTypeface = Typeface.create(fontFamilyName, mStyle);
+            }
+            return;
+        }
+
+        if (a.hasValue(R.styleable.TextAppearance_android_typeface)) {
+            int typefaceIndex = a.getInt(R.styleable.TextAppearance_android_typeface, SANS);
+            switch (typefaceIndex) {
+                case SANS:
+                    mFontTypeface = Typeface.SANS_SERIF;
+                    break;
+
+                case SERIF:
+                    mFontTypeface = Typeface.SERIF;
+                    break;
+
+                case MONOSPACE:
+                    mFontTypeface = Typeface.MONOSPACE;
+                    break;
             }
         }
     }
@@ -282,44 +309,31 @@ class AppCompatTextHelper {
     /** @hide */
     @RestrictTo(LIBRARY_GROUP)
     void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        // Auto-size is supported by the framework starting from Android O.
-        if (!BuildCompat.isAtLeastO()) {
-            if (isAutoSizeEnabled()) {
-                if (getNeedsAutoSizeText()) {
-                    // Call auto-size after the width and height have been calculated.
-                    autoSizeText();
-                }
-                // Always try to auto-size if enabled. Functions that do not want to trigger
-                // auto-sizing after the next layout round should set this to false.
-                setNeedsAutoSizeText(true);
-            }
+        if (!PLATFORM_SUPPORTS_AUTOSIZE) {
+            autoSizeText();
         }
     }
 
     /** @hide */
     @RestrictTo(LIBRARY_GROUP)
     void setTextSize(int unit, float size) {
-        if (!BuildCompat.isAtLeastO()) {
+        if (!PLATFORM_SUPPORTS_AUTOSIZE) {
             if (!isAutoSizeEnabled()) {
                 setTextSizeInternal(unit, size);
             }
         }
     }
 
-    private boolean isAutoSizeEnabled() {
-        return mAutoSizeTextHelper.isAutoSizeEnabled();
-    }
-
-    private boolean getNeedsAutoSizeText() {
-        return mAutoSizeTextHelper.getNeedsAutoSizeText();
-    }
-
-    private void setNeedsAutoSizeText(boolean needsAutoSizeText) {
-        mAutoSizeTextHelper.setNeedsAutoSizeText(needsAutoSizeText);
-    }
-
-    private void autoSizeText() {
+    /** @hide */
+    @RestrictTo(LIBRARY_GROUP)
+    void autoSizeText() {
         mAutoSizeTextHelper.autoSizeText();
+    }
+
+    /** @hide */
+    @RestrictTo(LIBRARY_GROUP)
+    boolean isAutoSizeEnabled() {
+        return mAutoSizeTextHelper.isAutoSizeEnabled();
     }
 
     private void setTextSizeInternal(int unit, float size) {

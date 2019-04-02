@@ -518,7 +518,7 @@ public final class Byte extends Number implements Comparable<Byte> {
     /** use serialVersionUID from JDK 1.1. for interoperability */
     private static final long serialVersionUID = -7183698231559129828L;
 
-    // BEGIN Android-changed
+    // BEGIN Android-added: toHexString() for internal use.
     /**
      * @hide
      */
@@ -542,5 +542,5 @@ public final class Byte extends Number implements Comparable<Byte> {
         'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
         'U', 'V', 'W', 'X', 'Y', 'Z'
     };
-    // END Android-changed
+    // END Android-added: toHexString() for internal use.
 }

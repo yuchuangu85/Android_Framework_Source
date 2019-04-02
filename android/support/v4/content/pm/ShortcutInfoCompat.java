@@ -19,8 +19,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ShortcutInfo;
-import android.graphics.Bitmap;
-import android.support.annotation.DrawableRes;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.RequiresApi;
@@ -30,8 +28,7 @@ import android.text.TextUtils;
 import java.util.Arrays;
 
 /**
- * Helper for accessing features in {@link android.content.pm.ShortcutInfo}
- * introduced after API level 25 in a backwards compatible fashion.
+ * Helper for accessing features in {@link android.content.pm.ShortcutInfo}.
  */
 public class ShortcutInfoCompat {
 
@@ -49,8 +46,11 @@ public class ShortcutInfoCompat {
 
     private ShortcutInfoCompat() { }
 
-    @RequiresApi(26)
-    ShortcutInfo toShortcutInfo() {
+    /**
+     * @return {@link ShortcutInfo} object from this compat object.
+     */
+    @RequiresApi(25)
+    public ShortcutInfo toShortcutInfo() {
         ShortcutInfo.Builder builder = new ShortcutInfo.Builder(mContext, mId)
                 .setShortLabel(mLabel)
                 .setIntents(mIntents);
@@ -234,24 +234,6 @@ public class ShortcutInfoCompat {
         public Builder setIntents(@NonNull Intent[] intents) {
             mInfo.mIntents = intents;
             return this;
-        }
-
-        /**
-         * Sets an icon of a shortcut.
-         * @deprecated use {@link #setIcon(IconCompat)} instead
-         */
-        @NonNull
-        public Builder setIcon(@NonNull Bitmap icon) {
-            return setIcon(IconCompat.createWithBitmap(icon));
-        }
-
-        /**
-         * Sets an icon of a shortcut.
-         * @deprecated use {@link #setIcon(IconCompat)} instead
-         */
-        @NonNull
-        public Builder setIcon(@DrawableRes int icon) {
-            return setIcon(IconCompat.createWithResource(mInfo.mContext, icon));
         }
 
         /**

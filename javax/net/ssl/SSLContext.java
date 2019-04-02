@@ -178,7 +178,7 @@ public class SSLContext {
      * @return the new <code>SSLContext</code> object.
      *
      * @exception NoSuchAlgorithmException if no Provider supports a
-     *          TrustManagerFactorySpi implementation for the
+     *          SSLContextSpi implementation for the
      *          specified protocol.
      * @exception NullPointerException if protocol is null.
      *

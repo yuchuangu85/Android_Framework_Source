@@ -37,6 +37,7 @@ import com.android.server.Watchdog;
 import org.xmlpull.v1.XmlPullParser;
 
 import android.Manifest;
+import android.app.IInputForwarder;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -57,6 +58,7 @@ import android.content.res.Resources.NotFoundException;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
 import android.database.ContentObserver;
+import android.hardware.display.DisplayManager;
 import android.hardware.display.DisplayViewport;
 import android.hardware.input.IInputDevicesChangedListener;
 import android.hardware.input.IInputManager;
@@ -85,6 +87,7 @@ import android.text.TextUtils;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.util.Xml;
+import android.view.Display;
 import android.view.IInputFilter;
 import android.view.IInputFilterHost;
 import android.view.IWindow;
@@ -232,6 +235,9 @@ public class InputManagerService extends IInputManager.Stub
     private static native void nativeReloadDeviceAliases(long ptr);
     private static native String nativeDump(long ptr);
     private static native void nativeMonitor(long ptr);
+    private static native boolean nativeIsInputDeviceEnabled(long ptr, int deviceId);
+    private static native void nativeEnableInputDevice(long ptr, int deviceId);
+    private static native void nativeDisableInputDevice(long ptr, int deviceId);
     private static native void nativeSetPointerIconType(long ptr, int iconId);
     private static native void nativeReloadPointerIcons(long ptr);
     private static native void nativeSetCustomPointerIcon(long ptr, PointerIcon icon);
@@ -648,6 +654,32 @@ public class InputManagerService extends IInputManager.Stub
             }
         }
         return null;
+    }
+
+    // Binder call
+    @Override
+    public boolean isInputDeviceEnabled(int deviceId) {
+        return nativeIsInputDeviceEnabled(mPtr, deviceId);
+    }
+
+    // Binder call
+    @Override
+    public void enableInputDevice(int deviceId) {
+        if (!checkCallingPermission(android.Manifest.permission.DISABLE_INPUT_DEVICE,
+                "enableInputDevice()")) {
+            throw new SecurityException("Requires DISABLE_INPUT_DEVICE permission");
+        }
+        nativeEnableInputDevice(mPtr, deviceId);
+    }
+
+    // Binder call
+    @Override
+    public void disableInputDevice(int deviceId) {
+        if (!checkCallingPermission(android.Manifest.permission.DISABLE_INPUT_DEVICE,
+                "disableInputDevice()")) {
+            throw new SecurityException("Requires DISABLE_INPUT_DEVICE permission");
+        }
+        nativeDisableInputDevice(mPtr, deviceId);
     }
 
     /**
@@ -1831,6 +1863,29 @@ public class InputManagerService extends IInputManager.Stub
     public void monitor() {
         synchronized (mInputFilterLock) { }
         nativeMonitor(mPtr);
+    }
+
+    // Binder call
+    @Override
+    public IInputForwarder createInputForwarder(int displayId) throws RemoteException {
+        if (!checkCallingPermission(android.Manifest.permission.INJECT_EVENTS,
+                "createInputForwarder()")) {
+            throw new SecurityException("Requires INJECT_EVENTS permission");
+        }
+        final DisplayManager displayManager = mContext.getSystemService(DisplayManager.class);
+        final Display display = displayManager.getDisplay(displayId);
+        if (display == null) {
+            throw new IllegalArgumentException(
+                    "Can't create input forwarder for non-existent displayId: " + displayId);
+        }
+        final int callingUid = Binder.getCallingUid();
+        final int displayOwnerUid = display.getOwnerUid();
+        if (callingUid != displayOwnerUid) {
+            throw new SecurityException(
+                    "Only owner of the display can forward input events to it.");
+        }
+
+        return new InputForwarder(displayId);
     }
 
     // Native callback.

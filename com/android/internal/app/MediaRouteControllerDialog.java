@@ -72,6 +72,7 @@ public class MediaRouteControllerDialog extends AlertDialog {
     private boolean mVolumeSliderTouched;
 
     private View mControlView;
+    private boolean mAttachedToWindow;
 
     public MediaRouteControllerDialog(Context context, int theme) {
         super(context, theme);
@@ -142,7 +143,11 @@ public class MediaRouteControllerDialog extends AlertDialog {
                     @Override
                     public void onClick(DialogInterface dialogInterface, int id) {
                         if (mRoute.isSelected()) {
-                            mRouter.getDefaultRoute().select();
+                            if (mRoute.isBluetooth()) {
+                                mRouter.getDefaultRoute().select();
+                            } else {
+                                mRouter.getFallbackRoute().select();
+                            }
                         }
                         dismiss();
                     }
@@ -211,6 +216,7 @@ public class MediaRouteControllerDialog extends AlertDialog {
     @Override
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
+        mAttachedToWindow = true;
 
         mRouter.addCallback(0, mCallback, MediaRouter.CALLBACK_FLAG_UNFILTERED_EVENTS);
         update();
@@ -219,6 +225,7 @@ public class MediaRouteControllerDialog extends AlertDialog {
     @Override
     public void onDetachedFromWindow() {
         mRouter.removeCallback(mCallback);
+        mAttachedToWindow = false;
 
         super.onDetachedFromWindow();
     }
@@ -256,7 +263,14 @@ public class MediaRouteControllerDialog extends AlertDialog {
             mCurrentIconDrawable = icon;
             if (icon instanceof AnimationDrawable) {
                 AnimationDrawable animDrawable = (AnimationDrawable) icon;
-                if (!animDrawable.isRunning()) {
+                if (!mAttachedToWindow && !mRoute.isConnecting()) {
+                    // When the route is already connected before the view is attached, show the
+                    // last frame of the connected animation immediately.
+                    if (animDrawable.isRunning()) {
+                        animDrawable.stop();
+                    }
+                    icon = animDrawable.getFrame(animDrawable.getNumberOfFrames() - 1);
+                } else if (!animDrawable.isRunning()) {
                     animDrawable.start();
                 }
             }

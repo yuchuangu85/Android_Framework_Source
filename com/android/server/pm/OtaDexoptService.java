@@ -18,7 +18,6 @@ package com.android.server.pm;
 
 import static com.android.server.pm.InstructionSets.getAppDexInstructionSets;
 import static com.android.server.pm.InstructionSets.getDexCodeInstructionSets;
-import static com.android.server.pm.PackageManagerServiceCompilerMapping.getCompilerFilterForReason;
 
 import android.annotation.Nullable;
 import android.content.Context;
@@ -30,17 +29,16 @@ import android.os.ResultReceiver;
 import android.os.ServiceManager;
 import android.os.ShellCallback;
 import android.os.storage.StorageManager;
-import android.text.TextUtils;
 import android.util.Log;
 import android.util.Slog;
 
 import com.android.internal.logging.MetricsLogger;
 import com.android.server.pm.Installer.InstallerException;
+import com.android.server.pm.dex.DexoptOptions;
 
 import java.io.File;
 import java.io.FileDescriptor;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -55,7 +53,8 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
     private final static boolean DEBUG_DEXOPT = true;
 
     // The synthetic library dependencies denoting "no checks."
-    private final static String[] NO_LIBRARIES = new String[] { "&" };
+    private final static String[] NO_LIBRARIES =
+            new String[] { PackageDexOptimizer.SKIP_SHARED_LIBRARY_CHECK };
 
     // The amount of "available" (free - low threshold) space necessary at the start of an OTA to
     // not bulk-delete unused apps' odex files.
@@ -152,7 +151,7 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
             Log.i(TAG, "Low on space, deleting oat files in an attempt to free up space: "
                     + PackageManagerServiceUtils.packagesToString(others));
             for (PackageParser.Package pkg : others) {
-                deleteOatArtifactsOfPackage(pkg);
+                mPackageManagerService.deleteOatArtifactsOfPackage(pkg.packageName);
             }
         }
         long spaceAvailableNow = getAvailableSpace();
@@ -242,30 +241,6 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
         return usableSpace - lowThreshold;
     }
 
-    private static String getOatDir(PackageParser.Package pkg) {
-        if (!pkg.canHaveOatDir()) {
-            return null;
-        }
-        File codePath = new File(pkg.codePath);
-        if (codePath.isDirectory()) {
-            return PackageDexOptimizer.getOatDir(codePath).getAbsolutePath();
-        }
-        return null;
-    }
-
-    private void deleteOatArtifactsOfPackage(PackageParser.Package pkg) {
-        String[] instructionSets = getAppDexInstructionSets(pkg.applicationInfo);
-        for (String codePath : pkg.getAllCodePaths()) {
-            for (String isa : instructionSets) {
-                try {
-                    mPackageManagerService.mInstaller.deleteOdex(codePath, isa, getOatDir(pkg));
-                } catch (InstallerException e) {
-                    Log.e(TAG, "Failed deleting oat files for " + codePath, e);
-                }
-            }
-        }
-    }
-
     /**
      * Generate all dexopt commands for the given package.
      */
@@ -285,11 +260,12 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
             public void dexopt(String apkPath, int uid, @Nullable String pkgName,
                     String instructionSet, int dexoptNeeded, @Nullable String outputPath,
                     int dexFlags, String compilerFilter, @Nullable String volumeUuid,
-                    @Nullable String sharedLibraries, @Nullable String seInfo) throws InstallerException {
+                    @Nullable String sharedLibraries, @Nullable String seInfo, boolean downgrade)
+                    throws InstallerException {
                 final StringBuilder builder = new StringBuilder();
 
-                // The version. Right now it's 2.
-                builder.append("2 ");
+                // The version. Right now it's 3.
+                builder.append("3 ");
 
                 builder.append("dexopt");
 
@@ -304,6 +280,7 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
                 encodeParameter(builder, volumeUuid);
                 encodeParameter(builder, sharedLibraries);
                 encodeParameter(builder, seInfo);
+                encodeParameter(builder, downgrade);
 
                 commands.add(builder.toString());
             }
@@ -338,11 +315,13 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
             libraryDependencies = NO_LIBRARIES;
         }
 
+
         optimizer.performDexOpt(pkg, libraryDependencies,
-                null /* ISAs */, false /* checkProfiles */,
-                getCompilerFilterForReason(compilationReason),
+                null /* ISAs */,
                 null /* CompilerStats.PackageStats */,
-                mPackageManagerService.getDexManager().isUsedByOtherApps(pkg.packageName));
+                mPackageManagerService.getDexManager().getPackageUseInfoOrDefault(pkg.packageName),
+                new DexoptOptions(pkg.packageName, compilationReason,
+                        DexoptOptions.DEXOPT_BOOT_COMPLETE));
 
         return commands;
     }

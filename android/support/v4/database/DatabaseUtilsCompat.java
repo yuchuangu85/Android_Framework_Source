@@ -19,9 +19,11 @@ package android.support.v4.database;
 import android.text.TextUtils;
 
 /**
- * Helper for accessing features in {@link android.database.DatabaseUtils}
- * introduced after API level 4 in a backwards compatible fashion.
+ * Helper for accessing features in {@link android.database.DatabaseUtils}.
+ *
+ * @deprecated Use {@link android.database.DatabaseUtils} directly.
  */
+@Deprecated
 public final class DatabaseUtilsCompat {
 
     private DatabaseUtilsCompat() {
@@ -30,7 +32,11 @@ public final class DatabaseUtilsCompat {
 
     /**
      * Concatenates two SQL WHERE clauses, handling empty or null values.
+     *
+     * @deprecated Use {@link android.database.DatabaseUtils#concatenateWhere(String, String)}
+     * directly.
      */
+    @Deprecated
     public static String concatenateWhere(String a, String b) {
         if (TextUtils.isEmpty(a)) {
             return b;
@@ -45,7 +51,11 @@ public final class DatabaseUtilsCompat {
     /**
      * Appends one set of selection args to another. This is useful when adding a selection
      * argument to a user provided set.
+     *
+     * @deprecated Use
+     * {@link android.database.DatabaseUtils#appendSelectionArgs(String[], String[])} directly.
      */
+    @Deprecated
     public static String[] appendSelectionArgs(String[] originalValues, String[] newValues) {
         if (originalValues == null || originalValues.length == 0) {
             return newValues;

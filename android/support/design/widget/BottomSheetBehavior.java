@@ -312,7 +312,9 @@ public class BottomSheetBehavior<V extends View> extends CoordinatorLayout.Behav
         if (mState == STATE_DRAGGING && action == MotionEvent.ACTION_DOWN) {
             return true;
         }
-        mViewDragHelper.processTouchEvent(event);
+        if (mViewDragHelper != null) {
+            mViewDragHelper.processTouchEvent(event);
+        }
         // Record the velocity
         if (action == MotionEvent.ACTION_DOWN) {
             reset();
@@ -359,7 +361,7 @@ public class BottomSheetBehavior<V extends View> extends CoordinatorLayout.Behav
                 setStateInternal(STATE_DRAGGING);
             }
         } else if (dy < 0) { // Downward
-            if (!ViewCompat.canScrollVertically(target, -1)) {
+            if (!target.canScrollVertically(-1)) {
                 if (newTop <= mMaxOffset || mHideable) {
                     consumed[1] = dy;
                     ViewCompat.offsetTopAndBottom(child, -dy);
@@ -648,7 +650,7 @@ public class BottomSheetBehavior<V extends View> extends CoordinatorLayout.Behav
             }
             if (mState == STATE_EXPANDED && mActivePointerId == pointerId) {
                 View scroll = mNestedScrollingChildRef.get();
-                if (scroll != null && ViewCompat.canScrollVertically(scroll, -1)) {
+                if (scroll != null && scroll.canScrollVertically(-1)) {
                     // Let the content scroll up
                     return false;
                 }

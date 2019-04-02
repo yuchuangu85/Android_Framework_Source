@@ -35,7 +35,7 @@ public class DozeLog {
     private static final int SIZE = Build.IS_DEBUGGABLE ? 400 : 50;
     static final SimpleDateFormat FORMAT = new SimpleDateFormat("MM-dd HH:mm:ss.SSS");
 
-    private static final int PULSE_REASONS = 5;
+    private static final int PULSE_REASONS = 6;
 
     public static final int PULSE_REASON_NONE = -1;
     public static final int PULSE_REASON_INTENT = 0;
@@ -43,6 +43,7 @@ public class DozeLog {
     public static final int PULSE_REASON_SENSOR_SIGMOTION = 2;
     public static final int PULSE_REASON_SENSOR_PICKUP = 3;
     public static final int PULSE_REASON_SENSOR_DOUBLE_TAP = 4;
+    public static final int PULSE_REASON_SENSOR_LONG_PRESS = 5;
 
     private static boolean sRegisterKeyguardCallback = true;
 
@@ -163,6 +164,11 @@ public class DozeLog {
         }
     }
 
+    public static void traceState(DozeMachine.State state) {
+        if (!ENABLED) return;
+        log("state " + state);
+    }
+
     public static void traceProximityResult(Context context, boolean near, long millis,
             int pulseReason) {
         if (!ENABLED) return;
@@ -179,6 +185,7 @@ public class DozeLog {
             case PULSE_REASON_SENSOR_SIGMOTION: return "sigmotion";
             case PULSE_REASON_SENSOR_PICKUP: return "pickup";
             case PULSE_REASON_SENSOR_DOUBLE_TAP: return "doubletap";
+            case PULSE_REASON_SENSOR_LONG_PRESS: return "longpress";
             default: throw new IllegalArgumentException("bad reason: " + pulseReason);
         }
     }
@@ -231,10 +238,10 @@ public class DozeLog {
                 + state + " blocked=" + blocked);
     }
 
-    public static void tracePulseCanceledByProx(Context context) {
+    public static void tracePulseTouchDisabledByProx(Context context, boolean disabled) {
         if (!ENABLED) return;
         init(context);
-        log("pulseCanceledByProx");
+        log("pulseTouchDisabledByProx " + disabled);
     }
 
     public static void setRegisterKeyguardCallback(boolean registerKeyguardCallback) {
@@ -246,6 +253,12 @@ public class DozeLog {
             }
             sRegisterKeyguardCallback = registerKeyguardCallback;
         }
+    }
+
+    public static void traceSensor(Context context, int pulseReason) {
+        if (!ENABLED) return;
+        init(context);
+        log("sensor type=" + pulseReasonToString(pulseReason));
     }
 
     private static class SummaryStats {

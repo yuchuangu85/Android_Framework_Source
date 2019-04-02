@@ -316,10 +316,13 @@ public class UsbManager {
      * @return HashMap containing all connected USB devices.
      */
     public HashMap<String,UsbDevice> getDeviceList() {
+        HashMap<String,UsbDevice> result = new HashMap<String,UsbDevice>();
+        if (mService == null) {
+            return result;
+        }
         Bundle bundle = new Bundle();
         try {
             mService.getDeviceList(bundle);
-            HashMap<String,UsbDevice> result = new HashMap<String,UsbDevice>();
             for (String name : bundle.keySet()) {
                 result.put(name, (UsbDevice)bundle.get(name));
             }
@@ -361,6 +364,9 @@ public class UsbManager {
      * @return list of USB accessories, or null if none are attached.
      */
     public UsbAccessory[] getAccessoryList() {
+        if (mService == null) {
+            return null;
+        }
         try {
             UsbAccessory accessory = mService.getCurrentAccessory();
             if (accessory == null) {
@@ -397,6 +403,9 @@ public class UsbManager {
      * @return true if caller has permission
      */
     public boolean hasPermission(UsbDevice device) {
+        if (mService == null) {
+            return false;
+        }
         try {
             return mService.hasDevicePermission(device);
         } catch (RemoteException e) {
@@ -414,6 +423,9 @@ public class UsbManager {
      * @return true if caller has permission
      */
     public boolean hasPermission(UsbAccessory accessory) {
+        if (mService == null) {
+            return false;
+        }
         try {
             return mService.hasAccessoryPermission(accessory);
         } catch (RemoteException e) {
@@ -531,6 +543,9 @@ public class UsbManager {
      * {@hide}
      */
     public boolean isFunctionEnabled(String function) {
+        if (mService == null) {
+            return false;
+        }
         try {
             return mService.isFunctionEnabled(function);
         } catch (RemoteException e) {
@@ -588,6 +603,9 @@ public class UsbManager {
      * @hide
      */
     public UsbPort[] getPorts() {
+        if (mService == null) {
+            return null;
+        }
         try {
             return mService.getPorts();
         } catch (RemoteException e) {
@@ -636,6 +654,7 @@ public class UsbManager {
         Preconditions.checkNotNull(port, "port must not be null");
         UsbPort.checkRoles(powerRole, dataRole);
 
+        Log.d(TAG, "setPortRoles Package:" + mContext.getPackageName());
         try {
             mService.setPortRoles(port.getId(), powerRole, dataRole);
         } catch (RemoteException e) {

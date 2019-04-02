@@ -937,7 +937,8 @@ public class SupplicantP2pIfaceHal {
                             String ssidString = null;
                             if (ssid != null) {
                                 try {
-                                    ssidString = NativeUtil.encodeSsid(ssid);
+                                    ssidString = NativeUtil.removeEnclosingQuotes(
+                                            NativeUtil.encodeSsid(ssid));
                                 } catch (Exception e) {
                                     Log.e(TAG, "Could not encode SSID.", e);
                                 }

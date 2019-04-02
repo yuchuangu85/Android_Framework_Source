@@ -17,7 +17,6 @@
 package com.android.internal.telephony.dataconnection;
 
 import android.app.PendingIntent;
-import android.content.res.Resources;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 import android.net.NetworkConfig;
@@ -536,8 +535,8 @@ public class ApnContext {
         return mConnectionGeneration.get();
     }
 
-    public long getInterApnDelay(boolean failFastEnabled) {
-        return mRetryManager.getInterApnDelay(failFastEnabled || isFastRetryReason());
+    long getRetryAfterDisconnectDelay() {
+        return mRetryManager.getRetryAfterDisconnectDelay();
     }
 
     public static int apnIdForType(int networkType) {
@@ -726,7 +725,7 @@ public class ApnContext {
                 l.dump(fd, pw, args);
             }
             pw.decreaseIndent();
-            pw.println("mRetryManager={" + mRetryManager.toString() + "}");
+            pw.println(mRetryManager);
         }
     }
 }

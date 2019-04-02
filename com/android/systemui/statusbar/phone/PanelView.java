@@ -16,6 +16,8 @@
 
 package com.android.systemui.statusbar.phone;
 
+import static com.android.systemui.statusbar.notification.NotificationUtils.isHapticFeedbackDisabled;
+
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
@@ -23,11 +25,17 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.os.AsyncTask;
 import android.os.SystemClock;
+import android.os.UserHandle;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.provider.Settings;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.InputDevice;
 import android.view.MotionEvent;
+import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewTreeObserver;
 import android.view.animation.Interpolator;
@@ -42,6 +50,7 @@ import com.android.systemui.classifier.FalsingManager;
 import com.android.systemui.doze.DozeLog;
 import com.android.systemui.statusbar.FlingAnimationUtils;
 import com.android.systemui.statusbar.StatusBarState;
+import com.android.systemui.statusbar.notification.NotificationUtils;
 import com.android.systemui.statusbar.policy.HeadsUpManager;
 
 import java.io.FileDescriptor;
@@ -56,6 +65,7 @@ public abstract class PanelView extends FrameLayout {
     private float mMinExpandHeight;
     private LockscreenGestureLogger mLockscreenGestureLogger = new LockscreenGestureLogger();
     private boolean mPanelUpdateWhenAnimatorEnds;
+    private boolean mVibrateOnOpening;
 
     private final void logf(String fmt, Object... args) {
         Log.v(TAG, (mViewName != null ? (mViewName + ": ") : "") + String.format(fmt, args));
@@ -97,6 +107,7 @@ public abstract class PanelView extends FrameLayout {
     private FlingAnimationUtils mFlingAnimationUtilsClosing;
     private FlingAnimationUtils mFlingAnimationUtilsDismissing;
     private FalsingManager mFalsingManager;
+    private final Vibrator mVibrator;
 
     /**
      * Whether an instant expand request is currently pending and we are just waiting for layout.
@@ -198,6 +209,9 @@ public abstract class PanelView extends FrameLayout {
         mFalsingManager = FalsingManager.getInstance(context);
         mNotificationsDragEnabled =
                 getResources().getBoolean(R.bool.config_enableNotificationShadeDrag);
+        mVibrator = mContext.getSystemService(Vibrator.class);
+        mVibrateOnOpening = mContext.getResources().getBoolean(
+                R.bool.config_vibrateOnIconAnimation);
     }
 
     protected void loadDimens() {
@@ -389,6 +403,10 @@ public abstract class PanelView extends FrameLayout {
         runPeekAnimation(INITIAL_OPENING_PEEK_DURATION, getOpeningHeight(),
                 false /* collapseWhenFinished */);
         notifyBarPanelExpansionChanged();
+        if (mVibrateOnOpening && !isHapticFeedbackDisabled(mContext)) {
+            AsyncTask.execute(() ->
+                    mVibrator.vibrate(VibrationEffect.get(VibrationEffect.EFFECT_TICK, false)));
+        }
     }
 
     protected abstract float getOpeningHeight();
@@ -1092,21 +1110,25 @@ public abstract class PanelView extends FrameLayout {
         });
         animator.start();
         setAnimator(animator);
-        mKeyguardBottomArea.getIndicationArea().animate()
-                .translationY(-mHintDistance)
-                .setDuration(250)
-                .setInterpolator(Interpolators.FAST_OUT_SLOW_IN)
-                .withEndAction(new Runnable() {
-                    @Override
-                    public void run() {
-                        mKeyguardBottomArea.getIndicationArea().animate()
-                                .translationY(0)
-                                .setDuration(450)
-                                .setInterpolator(mBounceInterpolator)
-                                .start();
-                    }
-                })
-                .start();
+
+        View[] viewsToAnimate = {
+                mKeyguardBottomArea.getIndicationArea(),
+                mStatusBar.getAmbientIndicationContainer()};
+        for (View v : viewsToAnimate) {
+            if (v == null) {
+                continue;
+            }
+            v.animate()
+                    .translationY(-mHintDistance)
+                    .setDuration(250)
+                    .setInterpolator(Interpolators.FAST_OUT_SLOW_IN)
+                    .withEndAction(() -> v.animate()
+                            .translationY(0)
+                            .setDuration(450)
+                            .setInterpolator(mBounceInterpolator)
+                            .start())
+                    .start();
+        }
     }
 
     private void setAnimator(ValueAnimator animator) {

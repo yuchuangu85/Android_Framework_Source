@@ -329,6 +329,7 @@ import java.nio.ReadOnlyBufferException;
  * is saved.  All future delegated tasks will be processed using this
  * context:  that is, all access control decisions will be made using the
  * context captured at engine creation.
+ *
  * <HR>
  *
  * <B>Concurrency Notes</B>:
@@ -1183,7 +1184,7 @@ public abstract class SSLEngine {
      * If this <code>SSLEngine</code> has not yet started its initial
      * handshake, this method will automatically start the handshake.
      * <P>
-     * This method will attempt to produce one SSL/TLS packet, and will
+     * This method will attempt to produce SSL/TLS records, and will
      * consume as much source data as possible, but will never consume
      * more than the sum of the bytes remaining in each buffer.  Each
      * <code>ByteBuffer</code>'s position is updated to reflect the
@@ -1572,6 +1573,7 @@ public abstract class SSLEngine {
     public abstract String [] getEnabledProtocols();
 
 
+    // Android-added: Added paragraph about contiguous protocols.
     /**
      * Set the protocol versions enabled for use on this engine.
      * <P>
@@ -1579,6 +1581,11 @@ public abstract class SSLEngine {
      * as being supported.  Following a successful call to this method,
      * only protocols listed in the <code>protocols</code> parameter
      * are enabled for use.
+     * <p>
+     * Because of the way the protocol version is negotiated, connections
+     * will only be able to use a member of the lowest set of contiguous
+     * enabled protocol versions.  For example, enabling TLSv1.2 and TLSv1
+     * will result in connections only being able to use TLSv1.
      *
      * @param   protocols Names of all the protocols to enable.
      * @throws  IllegalArgumentException when one or more of

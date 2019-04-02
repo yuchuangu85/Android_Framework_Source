@@ -16,6 +16,27 @@
 
 package com.android.internal.telephony.imsphone;
 
+import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAIC;
+import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAICr;
+import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAOC;
+import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAOIC;
+import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAOICxH;
+import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BA_ALL;
+import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BA_MO;
+import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BA_MT;
+import static com.android.internal.telephony.CommandsInterface.CF_ACTION_DISABLE;
+import static com.android.internal.telephony.CommandsInterface.CF_ACTION_ENABLE;
+import static com.android.internal.telephony.CommandsInterface.CF_ACTION_ERASURE;
+import static com.android.internal.telephony.CommandsInterface.CF_ACTION_REGISTRATION;
+import static com.android.internal.telephony.CommandsInterface.CF_REASON_ALL;
+import static com.android.internal.telephony.CommandsInterface.CF_REASON_ALL_CONDITIONAL;
+import static com.android.internal.telephony.CommandsInterface.CF_REASON_BUSY;
+import static com.android.internal.telephony.CommandsInterface.CF_REASON_NOT_REACHABLE;
+import static com.android.internal.telephony.CommandsInterface.CF_REASON_NO_REPLY;
+import static com.android.internal.telephony.CommandsInterface.CF_REASON_UNCONDITIONAL;
+import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_NONE;
+import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_VOICE;
+
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.Notification;
@@ -24,6 +45,7 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.net.NetworkStats;
 import android.net.Uri;
 import android.os.AsyncResult;
 import android.os.Bundle;
@@ -31,13 +53,12 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.PersistableBundle;
 import android.os.PowerManager;
+import android.os.PowerManager.WakeLock;
 import android.os.Registrant;
 import android.os.RegistrantList;
 import android.os.ResultReceiver;
-import android.os.PowerManager.WakeLock;
 import android.os.SystemProperties;
 import android.os.UserHandle;
-
 import android.telecom.VideoProfile;
 import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneNumberUtils;
@@ -57,29 +78,6 @@ import com.android.ims.ImsManager;
 import com.android.ims.ImsReasonInfo;
 import com.android.ims.ImsSsInfo;
 import com.android.ims.ImsUtInterface;
-
-import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAOC;
-import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAOIC;
-import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAOICxH;
-import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAIC;
-import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAICr;
-import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BA_ALL;
-import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BA_MO;
-import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BA_MT;
-
-import static com.android.internal.telephony.CommandsInterface.CF_ACTION_DISABLE;
-import static com.android.internal.telephony.CommandsInterface.CF_ACTION_ENABLE;
-import static com.android.internal.telephony.CommandsInterface.CF_ACTION_ERASURE;
-import static com.android.internal.telephony.CommandsInterface.CF_ACTION_REGISTRATION;
-import static com.android.internal.telephony.CommandsInterface.CF_REASON_ALL;
-import static com.android.internal.telephony.CommandsInterface.CF_REASON_ALL_CONDITIONAL;
-import static com.android.internal.telephony.CommandsInterface.CF_REASON_NO_REPLY;
-import static com.android.internal.telephony.CommandsInterface.CF_REASON_NOT_REACHABLE;
-import static com.android.internal.telephony.CommandsInterface.CF_REASON_BUSY;
-import static com.android.internal.telephony.CommandsInterface.CF_REASON_UNCONDITIONAL;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_VOICE;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_NONE;
-
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Call;
 import com.android.internal.telephony.CallForwardInfo;
@@ -103,9 +101,7 @@ import com.android.internal.telephony.util.NotificationChannelController;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.List;
 
 /**
@@ -226,7 +222,10 @@ public class ImsPhone extends ImsPhoneBase {
                     .registerForDataRegStateOrRatChanged(this,
                             EVENT_DEFAULT_PHONE_DATA_STATE_CHANGED, null);
         }
-        updateDataServiceState();
+        // Sets the Voice reg state to STATE_OUT_OF_SERVICE and also queries the data service
+        // state. We don't ever need the voice reg state to be anything other than in or out of
+        // service.
+        setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
 
         mDefaultPhone.registerForServiceStateChanged(this, EVENT_SERVICE_STATE_CHANGED, null);
         // Force initial roaming state update later, on EVENT_CARRIER_CONFIG_CHANGED.
@@ -254,14 +253,24 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     @Override
-    public ServiceState
-    getServiceState() {
+    public ServiceState getServiceState() {
         return mSS;
     }
 
-    /* package */ void setServiceState(int state) {
-        mSS.setVoiceRegState(state);
+    @VisibleForTesting
+    public void setServiceState(int state) {
+        boolean isVoiceRegStateChanged = false;
+        synchronized (this) {
+            isVoiceRegStateChanged = mSS.getVoiceRegState() != state;
+            mSS.setVoiceRegState(state);
+        }
         updateDataServiceState();
+
+        // Notifies the service state to the listeners. The service state combined from ImsPhone
+        // and GsmCdmaPhone, it may be changed when the service state in ImsPhone is changed.
+        if (isVoiceRegStateChanged) {
+            mNotifier.notifyServiceState(mDefaultPhone);
+        }
     }
 
     @Override
@@ -342,6 +351,11 @@ public class ImsPhone extends ImsPhoneBase {
     public ImsPhoneCall
     getRingingCall() {
         return mCT.mRingingCall;
+    }
+
+    @Override
+    public boolean isImsAvailable() {
+        return mCT.isImsServiceReady();
     }
 
     private boolean handleCallDeflectionIncallSupplementaryService(
@@ -695,6 +709,11 @@ public class ImsPhone extends ImsPhoneBase {
     @Override
     public void setMute(boolean muted) {
         mCT.setMute(muted);
+    }
+
+    @Override
+    public void setTTYMode(int ttyMode, Message onComplete) {
+        mCT.setTtyMode(ttyMode);
     }
 
     @Override
@@ -1380,7 +1399,7 @@ public class ImsPhone extends ImsPhoneBase {
         intent.putExtra(PhoneConstants.PHONE_IN_ECM_STATE, isInEcm());
         SubscriptionManager.putPhoneIdAndSubIdExtra(intent, getPhoneId());
         ActivityManager.broadcastStickyIntent(intent, UserHandle.USER_ALL);
-        if (DBG) Rlog.d(LOG_TAG, "sendEmergencyCallbackModeChange");
+        if (DBG) Rlog.d(LOG_TAG, "sendEmergencyCallbackModeChange: isInEcm=" + isInEcm());
     }
 
     @Override
@@ -1421,7 +1440,8 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
-    private void handleExitEmergencyCallbackMode() {
+    @Override
+    protected void handleExitEmergencyCallbackMode() {
         if (DBG) {
             Rlog.d(LOG_TAG, "handleExitEmergencyCallbackMode: mIsPhoneInEcmState = "
                     + isInEcm());
@@ -1571,95 +1591,107 @@ public class ImsPhone extends ImsPhoneBase {
     public void processDisconnectReason(ImsReasonInfo imsReasonInfo) {
         if (imsReasonInfo.mCode == imsReasonInfo.CODE_REGISTRATION_ERROR
                 && imsReasonInfo.mExtraMessage != null) {
-
-            CarrierConfigManager configManager =
-                    (CarrierConfigManager)mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
-            if (configManager == null) {
-                Rlog.e(LOG_TAG, "processDisconnectReason: CarrierConfigManager is not ready");
-                return;
+            // Suppress WFC Registration notifications if WFC is not enabled by the user.
+            if (ImsManager.isWfcEnabledByUser(mContext)) {
+                processWfcDisconnectForNotification(imsReasonInfo);
             }
-            PersistableBundle pb = configManager.getConfigForSubId(getSubId());
-            if (pb == null) {
-                Rlog.e(LOG_TAG, "processDisconnectReason: no config for subId " + getSubId());
-                return;
+        }
+    }
+
+    // Processes an IMS disconnect cause for possible WFC registration errors and optionally
+    // disable WFC.
+    private void processWfcDisconnectForNotification(ImsReasonInfo imsReasonInfo) {
+        CarrierConfigManager configManager =
+                (CarrierConfigManager) mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        if (configManager == null) {
+            Rlog.e(LOG_TAG, "processDisconnectReason: CarrierConfigManager is not ready");
+            return;
+        }
+        PersistableBundle pb = configManager.getConfigForSubId(getSubId());
+        if (pb == null) {
+            Rlog.e(LOG_TAG, "processDisconnectReason: no config for subId " + getSubId());
+            return;
+        }
+        final String[] wfcOperatorErrorCodes =
+                pb.getStringArray(
+                        CarrierConfigManager.KEY_WFC_OPERATOR_ERROR_CODES_STRING_ARRAY);
+        if (wfcOperatorErrorCodes == null) {
+            // no operator-specific error codes
+            return;
+        }
+
+        final String[] wfcOperatorErrorAlertMessages =
+                mContext.getResources().getStringArray(
+                        com.android.internal.R.array.wfcOperatorErrorAlertMessages);
+        final String[] wfcOperatorErrorNotificationMessages =
+                mContext.getResources().getStringArray(
+                        com.android.internal.R.array.wfcOperatorErrorNotificationMessages);
+
+        for (int i = 0; i < wfcOperatorErrorCodes.length; i++) {
+            String[] codes = wfcOperatorErrorCodes[i].split("\\|");
+            if (codes.length != 2) {
+                Rlog.e(LOG_TAG, "Invalid carrier config: " + wfcOperatorErrorCodes[i]);
+                continue;
             }
-            final String[] wfcOperatorErrorCodes =
-                    pb.getStringArray(
-                            CarrierConfigManager.KEY_WFC_OPERATOR_ERROR_CODES_STRING_ARRAY);
-            if (wfcOperatorErrorCodes == null) {
-                // no operator-specific error codes
-                return;
+
+            // Match error code.
+            if (!imsReasonInfo.mExtraMessage.startsWith(
+                    codes[0])) {
+                continue;
             }
-
-            final String[] wfcOperatorErrorAlertMessages =
-                    mContext.getResources().getStringArray(
-                            com.android.internal.R.array.wfcOperatorErrorAlertMessages);
-            final String[] wfcOperatorErrorNotificationMessages =
-                    mContext.getResources().getStringArray(
-                            com.android.internal.R.array.wfcOperatorErrorNotificationMessages);
-
-            for (int i = 0; i < wfcOperatorErrorCodes.length; i++) {
-                String[] codes = wfcOperatorErrorCodes[i].split("\\|");
-                if (codes.length != 2) {
-                    Rlog.e(LOG_TAG, "Invalid carrier config: " + wfcOperatorErrorCodes[i]);
-                    continue;
-                }
-
-                // Match error code.
-                if (!imsReasonInfo.mExtraMessage.startsWith(
-                        codes[0])) {
-                    continue;
-                }
-                // If there is no delimiter at the end of error code string
-                // then we need to verify that we are not matching partial code.
-                // EXAMPLE: "REG9" must not match "REG99".
-                // NOTE: Error code must not be empty.
-                int codeStringLength = codes[0].length();
-                char lastChar = codes[0].charAt(codeStringLength - 1);
-                if (Character.isLetterOrDigit(lastChar)) {
-                    if (imsReasonInfo.mExtraMessage.length() > codeStringLength) {
-                        char nextChar = imsReasonInfo.mExtraMessage.charAt(codeStringLength);
-                        if (Character.isLetterOrDigit(nextChar)) {
-                            continue;
-                        }
+            // If there is no delimiter at the end of error code string
+            // then we need to verify that we are not matching partial code.
+            // EXAMPLE: "REG9" must not match "REG99".
+            // NOTE: Error code must not be empty.
+            int codeStringLength = codes[0].length();
+            char lastChar = codes[0].charAt(codeStringLength - 1);
+            if (Character.isLetterOrDigit(lastChar)) {
+                if (imsReasonInfo.mExtraMessage.length() > codeStringLength) {
+                    char nextChar = imsReasonInfo.mExtraMessage.charAt(codeStringLength);
+                    if (Character.isLetterOrDigit(nextChar)) {
+                        continue;
                     }
                 }
-
-                final CharSequence title = mContext.getText(
-                        com.android.internal.R.string.wfcRegErrorTitle);
-
-                int idx = Integer.parseInt(codes[1]);
-                if (idx < 0 ||
-                        idx >= wfcOperatorErrorAlertMessages.length ||
-                        idx >= wfcOperatorErrorNotificationMessages.length) {
-                    Rlog.e(LOG_TAG, "Invalid index: " + wfcOperatorErrorCodes[i]);
-                    continue;
-                }
-                CharSequence messageAlert = imsReasonInfo.mExtraMessage;
-                CharSequence messageNotification = imsReasonInfo.mExtraMessage;
-                if (!wfcOperatorErrorAlertMessages[idx].isEmpty()) {
-                    messageAlert = wfcOperatorErrorAlertMessages[idx];
-                }
-                if (!wfcOperatorErrorNotificationMessages[idx].isEmpty()) {
-                    messageNotification = wfcOperatorErrorNotificationMessages[idx];
-                }
-
-                // UX requirement is to disable WFC in case of "permanent" registration failures.
-                ImsManager.setWfcSetting(mContext, false);
-
-                // If WfcSettings are active then alert will be shown
-                // otherwise notification will be added.
-                Intent intent = new Intent(ImsManager.ACTION_IMS_REGISTRATION_ERROR);
-                intent.putExtra(EXTRA_KEY_ALERT_TITLE, title);
-                intent.putExtra(EXTRA_KEY_ALERT_MESSAGE, messageAlert);
-                intent.putExtra(EXTRA_KEY_NOTIFICATION_MESSAGE, messageNotification);
-                mContext.sendOrderedBroadcast(intent, null, mResultReceiver,
-                        null, Activity.RESULT_OK, null, null);
-
-                // We can only match a single error code
-                // so should break the loop after a successful match.
-                break;
             }
+
+            final CharSequence title = mContext.getText(
+                    com.android.internal.R.string.wfcRegErrorTitle);
+
+            int idx = Integer.parseInt(codes[1]);
+            if (idx < 0
+                    || idx >= wfcOperatorErrorAlertMessages.length
+                    || idx >= wfcOperatorErrorNotificationMessages.length) {
+                Rlog.e(LOG_TAG, "Invalid index: " + wfcOperatorErrorCodes[i]);
+                continue;
+            }
+            String messageAlert = imsReasonInfo.mExtraMessage;
+            String messageNotification = imsReasonInfo.mExtraMessage;
+            if (!wfcOperatorErrorAlertMessages[idx].isEmpty()) {
+                messageAlert = String.format(
+                        wfcOperatorErrorAlertMessages[idx],
+                        imsReasonInfo.mExtraMessage); // Fill IMS error code into alert message
+            }
+            if (!wfcOperatorErrorNotificationMessages[idx].isEmpty()) {
+                messageNotification = String.format(
+                        wfcOperatorErrorNotificationMessages[idx],
+                        imsReasonInfo.mExtraMessage); // Fill IMS error code into notification
+            }
+
+            // UX requirement is to disable WFC in case of "permanent" registration failures.
+            ImsManager.setWfcSetting(mContext, false);
+
+            // If WfcSettings are active then alert will be shown
+            // otherwise notification will be added.
+            Intent intent = new Intent(ImsManager.ACTION_IMS_REGISTRATION_ERROR);
+            intent.putExtra(EXTRA_KEY_ALERT_TITLE, title);
+            intent.putExtra(EXTRA_KEY_ALERT_MESSAGE, messageAlert);
+            intent.putExtra(EXTRA_KEY_NOTIFICATION_MESSAGE, messageNotification);
+            mContext.sendOrderedBroadcast(intent, null, mResultReceiver,
+                    null, Activity.RESULT_OK, null, null);
+
+            // We can only match a single error code
+            // so should break the loop after a successful match.
+            break;
         }
     }
 
@@ -1684,8 +1716,8 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     @Override
-    public long getVtDataUsage() {
-        return mCT.getVtDataUsage();
+    public NetworkStats getVtDataUsage(boolean perUidStats) {
+        return mCT.getVtDataUsage(perUidStats);
     }
 
     private void updateRoamingState(boolean newRoaming) {

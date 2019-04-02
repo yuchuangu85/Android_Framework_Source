@@ -843,7 +843,7 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
         // Assumes forward playing from here on.
         for (int i = 0; i < mEvents.size(); i++) {
             AnimationEvent event = mEvents.get(i);
-            if (event.getTime() > currentPlayTime) {
+            if (event.getTime() > currentPlayTime || event.getTime() == DURATION_INFINITE) {
                 break;
             }
 
@@ -1264,7 +1264,8 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
         } else {
             for (int i = mLastEventId + 1; i < size; i++) {
                 AnimationEvent event = mEvents.get(i);
-                if (event.getTime() <= currentPlayTime) {
+                // TODO: need a function that accounts for infinite duration to compare time
+                if (event.getTime() != DURATION_INFINITE && event.getTime() <= currentPlayTime) {
                     latestId = i;
                 }
             }
@@ -1667,6 +1668,8 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
         int childrenSize = parent.mChildNodes.size();
         for (int i = 0; i < childrenSize; i++) {
             Node child = parent.mChildNodes.get(i);
+            child.mTotalDuration = child.mAnimation.getTotalDuration();  // Update cached duration.
+
             int index = visited.indexOf(child);
             if (index >= 0) {
                 // Child has been visited, cycle found. Mark all the nodes in the cycle.
@@ -1693,9 +1696,8 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
                         child.mStartTime = parent.mEndTime;
                     }
 
-                    long duration = child.mAnimation.getTotalDuration();
-                    child.mEndTime = duration == DURATION_INFINITE ?
-                            DURATION_INFINITE : child.mStartTime + duration;
+                    child.mEndTime = child.mTotalDuration == DURATION_INFINITE
+                            ? DURATION_INFINITE : child.mStartTime + child.mTotalDuration;
                 }
             }
             updatePlayTime(child, visited);

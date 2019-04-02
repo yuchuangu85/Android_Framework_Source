@@ -17,6 +17,7 @@
 package com.android.systemui.doze;
 
 import android.annotation.MainThread;
+import android.os.Trace;
 import android.os.UserHandle;
 import android.util.Log;
 import android.view.Display;
@@ -60,13 +61,16 @@ public class DozeMachine {
         /** Doze is done. DozeService is finished. */
         FINISH,
         /** AOD, but the display is temporarily off. */
-        DOZE_AOD_PAUSED;
+        DOZE_AOD_PAUSED,
+        /** AOD, prox is near, transitions to DOZE_AOD_PAUSED after a timeout. */
+        DOZE_AOD_PAUSING;
 
         boolean canPulse() {
             switch (this) {
                 case DOZE:
                 case DOZE_AOD:
                 case DOZE_AOD_PAUSED:
+                case DOZE_AOD_PAUSING:
                     return true;
                 default:
                     return false;
@@ -88,11 +92,14 @@ public class DozeMachine {
                 case UNINITIALIZED:
                 case INITIALIZED:
                 case DOZE:
+                case DOZE_REQUEST_PULSE:
                 case DOZE_AOD_PAUSED:
                     return Display.STATE_OFF;
                 case DOZE_PULSING:
+                    return Display.STATE_ON;
                 case DOZE_AOD:
-                    return Display.STATE_DOZE; // TODO: use STATE_ON if appropriate.
+                case DOZE_AOD_PAUSING:
+                    return Display.STATE_DOZE_SUSPEND;
                 default:
                     return Display.STATE_UNKNOWN;
             }
@@ -219,9 +226,11 @@ public class DozeMachine {
         State oldState = mState;
         mState = newState;
 
+        DozeLog.traceState(newState);
+        Trace.traceCounter(Trace.TRACE_TAG_APP, "doze_machine_state", newState.ordinal());
+
         updatePulseReason(newState, oldState, pulseReason);
         performTransitionOnComponents(oldState, newState);
-        updateScreenState(newState);
         updateWakeLockState(newState);
 
         resolveIntermediateState(newState);
@@ -283,7 +292,8 @@ public class DozeMachine {
         if (mState == State.FINISH) {
             return State.FINISH;
         }
-        if ((mState == State.DOZE_AOD_PAUSED || mState == State.DOZE_AOD || mState == State.DOZE)
+        if ((mState == State.DOZE_AOD_PAUSED || mState == State.DOZE_AOD_PAUSING
+                || mState == State.DOZE_AOD || mState == State.DOZE)
                 && requestedState == State.DOZE_PULSE_DONE) {
             Log.i(TAG, "Dropping pulse done because current state is already done: " + mState);
             return mState;
@@ -303,13 +313,6 @@ public class DozeMachine {
         } else if (!mWakeLockHeldForCurrentState && staysAwake) {
             mWakeLock.acquire();
             mWakeLockHeldForCurrentState = true;
-        }
-    }
-
-    private void updateScreenState(State newState) {
-        int state = newState.screenState();
-        if (state != Display.STATE_UNKNOWN) {
-            mDozeService.setDozeScreenState(state);
         }
     }
 
@@ -359,5 +362,36 @@ public class DozeMachine {
 
         /** Request waking up. */
         void requestWakeUp();
+
+        /** Set screen brightness */
+        void setDozeScreenBrightness(int brightness);
+
+        class Delegate implements Service {
+            private final Service mDelegate;
+
+            public Delegate(Service delegate) {
+                mDelegate = delegate;
+            }
+
+            @Override
+            public void finish() {
+                mDelegate.finish();
+            }
+
+            @Override
+            public void setDozeScreenState(int state) {
+                mDelegate.setDozeScreenState(state);
+            }
+
+            @Override
+            public void requestWakeUp() {
+                mDelegate.requestWakeUp();
+            }
+
+            @Override
+            public void setDozeScreenBrightness(int brightness) {
+                mDelegate.setDozeScreenBrightness(brightness);
+            }
+        }
     }
 }

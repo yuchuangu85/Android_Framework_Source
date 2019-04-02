@@ -123,8 +123,12 @@ public class VideoPauseTracker {
             } else {
                 Log.i(this, "shouldResumeVideoFor: source=%s, pendingRequests=%s - not paused",
                         sourceToString(source), sourcesToString(mPauseRequests));
-                // Video wasn't paused, so don't resume.
-                return false;
+                // Although there are no pending pause requests, it is possible that we cleared the
+                // pause tracker because the video state reported we're un-paused.  In this case it
+                // is benign to just allow the resume request to be sent since it'll have no effect.
+                // Re-writing it to squelch the resume would end up causing it to be a pause
+                // request, which is bad.
+                return true;
             }
         }
     }

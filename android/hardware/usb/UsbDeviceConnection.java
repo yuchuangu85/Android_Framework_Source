@@ -18,6 +18,7 @@ package android.hardware.usb;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.content.Context;
 import android.os.Build;
@@ -257,6 +258,7 @@ public class UsbDeviceConnection {
      * @hide
      */
     @SystemApi
+    @SuppressLint("Doclava125")
     public boolean resetDevice() {
         return native_reset_device();
     }
@@ -349,7 +351,9 @@ public class UsbDeviceConnection {
     @Override
     protected void finalize() throws Throwable {
         try {
-            mCloseGuard.warnIfOpen();
+            if (mCloseGuard != null) {
+                mCloseGuard.warnIfOpen();
+            }
         } finally {
             super.finalize();
         }

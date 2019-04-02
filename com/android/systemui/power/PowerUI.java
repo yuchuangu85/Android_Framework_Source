@@ -16,12 +16,13 @@
 
 package com.android.systemui.power;
 
-import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ActivityInfo;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.database.ContentObserver;
 import android.os.BatteryManager;
@@ -31,14 +32,17 @@ import android.os.PowerManager;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.provider.Settings;
-import android.text.TextUtils;
 import android.text.format.DateUtils;
 import android.util.Log;
 import android.util.Slog;
+
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.logging.MetricsLogger;
+import com.android.systemui.Dependency;
 import com.android.systemui.R;
 import com.android.systemui.SystemUI;
 import com.android.systemui.statusbar.phone.StatusBar;
+
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.Arrays;
@@ -56,6 +60,7 @@ public class PowerUI extends SystemUI {
     private PowerManager mPowerManager;
     private HardwarePropertiesManager mHardwarePropertiesManager;
     private WarningsUI mWarnings;
+    private final Configuration mLastConfiguration = new Configuration();
     private int mBatteryLevel = 100;
     private int mBatteryStatus = BatteryManager.BATTERY_STATUS_UNKNOWN;
     private int mPlugType = 0;
@@ -71,15 +76,18 @@ public class PowerUI extends SystemUI {
     private int mNumTemps;
     private long mNextLogTime;
 
+    // We create a method reference here so that we are guaranteed that we can remove a callback
+    // by using the same instance (method references are not guaranteed to be the same object
+    // each time they are created).
+    private final Runnable mUpdateTempCallback = this::updateTemperatureWarning;
+
     public void start() {
         mPowerManager = (PowerManager) mContext.getSystemService(Context.POWER_SERVICE);
         mHardwarePropertiesManager = (HardwarePropertiesManager)
                 mContext.getSystemService(Context.HARDWARE_PROPERTIES_SERVICE);
         mScreenOffTime = mPowerManager.isScreenOn() ? -1 : SystemClock.elapsedRealtime();
-        mWarnings = new PowerNotificationWarnings(
-                mContext,
-                (NotificationManager) mContext.getSystemService(Context.NOTIFICATION_SERVICE),
-                getComponent(StatusBar.class));
+        mWarnings = Dependency.get(WarningsUI.class);
+        mLastConfiguration.setTo(mContext.getResources().getConfiguration());
 
         ContentObserver obs = new ContentObserver(mHandler) {
             @Override
@@ -99,6 +107,16 @@ public class PowerUI extends SystemUI {
         showThermalShutdownDialog();
 
         initTemperatureWarning();
+    }
+
+    @Override
+    protected void onConfigurationChanged(Configuration newConfig) {
+        final int mask = ActivityInfo.CONFIG_MCC | ActivityInfo.CONFIG_MNC;
+
+        // Safe to modify mLastConfiguration here as it's only updated by the main thread (here).
+        if ((mLastConfiguration.updateFrom(newConfig) & mask) != 0) {
+            mHandler.post(this::initTemperatureWarning);
+        }
     }
 
     void updateBatteryWarningLevels() {
@@ -212,6 +230,7 @@ public class PowerUI extends SystemUI {
                         && (bucket < oldBucket || oldPlugged)
                         && mBatteryStatus != BatteryManager.BATTERY_STATUS_UNKNOWN
                         && bucket < 0) {
+
                     // only play SFX when the dialog comes up or the bucket changes
                     final boolean playSound = bucket != oldBucket || oldPlugged;
                     mWarnings.showLowBatteryWarning(playSound);
@@ -247,15 +266,22 @@ public class PowerUI extends SystemUI {
             // Get the throttling temperature. No need to check if we're not throttling.
             float[] throttlingTemps = mHardwarePropertiesManager.getDeviceTemperatures(
                     HardwarePropertiesManager.DEVICE_TEMPERATURE_SKIN,
-                    HardwarePropertiesManager.TEMPERATURE_THROTTLING);
+                    HardwarePropertiesManager.TEMPERATURE_SHUTDOWN);
             if (throttlingTemps == null
                     || throttlingTemps.length == 0
                     || throttlingTemps[0] == HardwarePropertiesManager.UNDEFINED_TEMPERATURE) {
                 return;
             }
-            mThresholdTemp = throttlingTemps[0];
+            mThresholdTemp = throttlingTemps[0] -
+                    resources.getInteger(R.integer.config_warningTemperatureTolerance);
         }
+
         setNextLogTime();
+
+        // This initialization method may be called on a configuration change. Only one set of
+        // ongoing callbacks should be occurring, so remove any now. updateTemperatureWarning will
+        // schedule an ongoing callback.
+        mHandler.removeCallbacks(mUpdateTempCallback);
 
         // We have passed all of the checks, start checking the temp
         updateTemperatureWarning();
@@ -268,7 +294,8 @@ public class PowerUI extends SystemUI {
         }
     }
 
-    private void updateTemperatureWarning() {
+    @VisibleForTesting
+    protected void updateTemperatureWarning() {
         float[] temps = mHardwarePropertiesManager.getDeviceTemperatures(
                 HardwarePropertiesManager.DEVICE_TEMPERATURE_SKIN,
                 HardwarePropertiesManager.TEMPERATURE_CURRENT);
@@ -288,7 +315,7 @@ public class PowerUI extends SystemUI {
 
         logTemperatureStats();
 
-        mHandler.postDelayed(this::updateTemperatureWarning, TEMPERATURE_INTERVAL);
+        mHandler.postDelayed(mUpdateTempCallback, TEMPERATURE_INTERVAL);
     }
 
     private void logAtTemperatureThreshold(float temp) {

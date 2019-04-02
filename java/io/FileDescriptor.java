@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -50,17 +50,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 // the file descriptor.
 public final class FileDescriptor {
 
+    // Android-changed: Renamed fd to descriptor to avoid issues with JNI/reflection
+    // fetching the descriptor value.
     private int descriptor;
 
     /**
      * Constructs an (invalid) FileDescriptor
      * object.
      */
-    public FileDescriptor() {
+    public /**/ FileDescriptor() {
         descriptor = -1;
     }
 
-    private FileDescriptor(int descriptor) {
+    private /* */ FileDescriptor(int descriptor) {
         this.descriptor = descriptor;
     }
 
@@ -71,6 +73,7 @@ public final class FileDescriptor {
      *
      * @see     java.lang.System#in
      */
+    // Android-changed: Duplicates of FDs needed for RuntimeInit#redirectLogStreams
     public static final FileDescriptor in = dupFd(0);
 
     /**
@@ -79,6 +82,7 @@ public final class FileDescriptor {
      * known as <code>System.out</code>.
      * @see     java.lang.System#out
      */
+    // Android-changed: Duplicates of FDs needed for RuntimeInit#redirectLogStreams
     public static final FileDescriptor out = dupFd(1);
 
     /**
@@ -88,6 +92,7 @@ public final class FileDescriptor {
      *
      * @see     java.lang.System#err
      */
+    // Android-changed: Duplicates of FDs needed for RuntimeInit#redirectLogStreams
     public static final FileDescriptor err = dupFd(2);
 
     /**
@@ -131,12 +136,16 @@ public final class FileDescriptor {
      */
     public native void sync() throws SyncFailedException;
 
+    // Android-removed: initIDs not used to allow compile-time intialization
+    /* This routine initializes JNI field offsets for the class */
+    //private static native void initIDs();
+
     /**
      * Returns the int descriptor. It's highly unlikely you should be calling this. Please discuss
      * your needs with a libcore maintainer before using this method.
      * @hide internal use only
      */
-    // Android-added.
+    // Android-added: Needed for framework to access descriptor value
     public final int getInt$() {
         return descriptor;
     }
@@ -146,7 +155,7 @@ public final class FileDescriptor {
      * your needs with a libcore maintainer before using this method.
      * @hide internal use only
      */
-    // Android-added.
+    // Android-added: Needed for framework to access descriptor value
     public final void setInt$(int fd) {
         this.descriptor = fd;
     }
@@ -154,12 +163,12 @@ public final class FileDescriptor {
     /**
      * @hide internal use only
      */
-    // Android-added.
+    // Android-added: Needed for framework to test if it's a socket
     public boolean isSocket$() {
         return isSocket(descriptor);
     }
 
-    // Android-added.
+    // Android-added: Needed for RuntimeInit#redirectLogStreams.
     private static FileDescriptor dupFd(int fd) {
         try {
             return new FileDescriptor(Os.fcntlInt(new FileDescriptor(fd), F_DUPFD_CLOEXEC, 0));
@@ -172,25 +181,24 @@ public final class FileDescriptor {
     // Set up JavaIOFileDescriptorAccess in SharedSecrets
     static {
         sun.misc.SharedSecrets.setJavaIOFileDescriptorAccess(
-                new sun.misc.JavaIOFileDescriptorAccess() {
-                    public void set(FileDescriptor obj, int fd) {
-                        obj.descriptor = fd;
-                    }
-
-                    public int get(FileDescriptor obj) {
-                        return obj.descriptor;
-                    }
-
-                    public void setHandle(FileDescriptor obj, long handle) {
-                        throw new UnsupportedOperationException();
-                    }
-
-                    public long getHandle(FileDescriptor obj) {
-                        throw new UnsupportedOperationException();
-                    }
+            new sun.misc.JavaIOFileDescriptorAccess() {
+                public void set(FileDescriptor obj, int fd) {
+                    obj.descriptor = fd;
                 }
+
+                public int get(FileDescriptor obj) {
+                    return obj.descriptor;
+                }
+
+                public void setHandle(FileDescriptor obj, long handle) {
+                    throw new UnsupportedOperationException();
+                }
+
+                public long getHandle(FileDescriptor obj) {
+                    throw new UnsupportedOperationException();
+                }
+            }
         );
     }
-
-
+// Android-removed: Removed method required for parents reference counting
 }

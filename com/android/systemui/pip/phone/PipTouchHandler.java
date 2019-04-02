@@ -25,7 +25,9 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.animation.ValueAnimator.AnimatorUpdateListener;
 import android.app.IActivityManager;
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.res.Resources;
 import android.graphics.Point;
 import android.graphics.PointF;
 import android.graphics.Rect;
@@ -39,14 +41,13 @@ import android.view.ViewConfiguration;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.internal.policy.PipSnapAlgorithm;
-import com.android.systemui.Dependency;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.FlingAnimationUtils;
-import com.android.systemui.tuner.TunerService;
 
 import java.io.PrintWriter;
 
@@ -86,6 +87,8 @@ public class PipTouchHandler {
     // The current movement bounds
     private Rect mMovementBounds = new Rect();
 
+    // The reference inset bounds, used to determine the dismiss fraction
+    private Rect mInsetBounds = new Rect();
     // The reference bounds used to calculate the normal/expanded target bounds
     private Rect mNormalBounds = new Rect();
     private Rect mNormalMovementBounds = new Rect();
@@ -116,10 +119,11 @@ public class PipTouchHandler {
             };
 
     // Behaviour states
-    private int mMenuState;
+    private int mMenuState = MENU_STATE_NONE;
     private boolean mIsMinimized;
     private boolean mIsImeShowing;
     private int mImeHeight;
+    private int mImeOffset;
     private float mSavedSnapFraction = -1f;
     private boolean mSendingHoverAccessibilityEvents;
     private boolean mMovementWithinMinimize;
@@ -166,7 +170,7 @@ public class PipTouchHandler {
         @Override
         public void onPipShowMenu() {
             mMenuController.showMenu(MENU_STATE_FULL, mMotionHelper.getBounds(),
-                    mMovementBounds, true /* allowMenuTimeout */);
+                    mMovementBounds, true /* allowMenuTimeout */, willResizeMenu());
         }
     }
 
@@ -183,15 +187,20 @@ public class PipTouchHandler {
         mMenuController.addListener(mMenuListener);
         mDismissViewController = new PipDismissViewController(context);
         mSnapAlgorithm = new PipSnapAlgorithm(mContext);
-        mTouchState = new PipTouchState(mViewConfig);
-        mFlingAnimationUtils = new FlingAnimationUtils(context, 2f);
+        mFlingAnimationUtils = new FlingAnimationUtils(context, 2.5f);
         mGestures = new PipTouchGesture[] {
                 mDefaultMovementGesture
         };
         mMotionHelper = new PipMotionHelper(mContext, mActivityManager, mMenuController,
                 mSnapAlgorithm, mFlingAnimationUtils);
-        mExpandedShortestEdgeSize = context.getResources().getDimensionPixelSize(
+        mTouchState = new PipTouchState(mViewConfig, mHandler,
+                () -> mMenuController.showMenu(MENU_STATE_FULL, mMotionHelper.getBounds(),
+                        mMovementBounds, true /* allowMenuTimeout */, willResizeMenu()));
+
+        Resources res = context.getResources();
+        mExpandedShortestEdgeSize = res.getDimensionPixelSize(
                 R.dimen.pip_expanded_shortest_edge_size);
+        mImeOffset = res.getDimensionPixelSize(R.dimen.pip_ime_offset);
 
         // Register the listener for input consumer touch events
         inputConsumerController.setTouchListener(this::handleTouchEvent);
@@ -207,19 +216,20 @@ public class PipTouchHandler {
         // Only show the menu if the user isn't currently interacting with the PiP
         if (!mTouchState.isUserInteracting()) {
             mMenuController.showMenu(MENU_STATE_FULL, mMotionHelper.getBounds(),
-                    mMovementBounds, false /* allowMenuTimeout */);
+                    mMovementBounds, false /* allowMenuTimeout */, willResizeMenu());
         }
     }
 
     public void onActivityPinned() {
-        // Reset some states once we are pinned
-        mMenuState = MENU_STATE_NONE;
-
-        if (mIsMinimized) {
-            setMinimizedStateInternal(false);
-        }
-        cleanUpDismissTarget();
+        cleanUp();
         mShowPipMenuOnAnimationEnd = true;
+    }
+
+    public void onActivityUnpinned(ComponentName topPipActivity) {
+        if (topPipActivity == null) {
+            // Clean up state after the last PiP activity is removed
+            cleanUp();
+        }
     }
 
     public void onPinnedStackAnimationEnded() {
@@ -228,7 +238,7 @@ public class PipTouchHandler {
 
         if (mShowPipMenuOnAnimationEnd) {
             mMenuController.showMenu(MENU_STATE_CLOSE, mMotionHelper.getBounds(),
-                    mMovementBounds, true /* allowMenuTimeout */);
+                    mMovementBounds, true /* allowMenuTimeout */, false /* willResizeMenu */);
             mShowPipMenuOnAnimationEnd = false;
         }
     }
@@ -262,7 +272,6 @@ public class PipTouchHandler {
         mSnapAlgorithm.getMovementBounds(mExpandedBounds, insetBounds, expandedMovementBounds,
                 mIsImeShowing ? mImeHeight : 0);
 
-
         // If this is from an IME adjustment, then we should move the PiP so that it is not occluded
         // by the IME
         if (fromImeAdjustement) {
@@ -275,18 +284,22 @@ public class PipTouchHandler {
                         ? expandedMovementBounds
                         : normalMovementBounds;
                 if (mIsImeShowing) {
-                    // IME visible
+                    // IME visible, apply the IME offset if the space allows for it
+                    final int imeOffset = toMovementBounds.bottom - Math.max(toMovementBounds.top,
+                            toMovementBounds.bottom - mImeOffset);
                     if (bounds.top == mMovementBounds.bottom) {
                         // If the PIP is currently resting on top of the IME, then adjust it with
-                        // the hiding IME
-                        bounds.offsetTo(bounds.left, toMovementBounds.bottom);
+                        // the showing IME
+                        bounds.offsetTo(bounds.left, toMovementBounds.bottom - imeOffset);
                     } else {
-                        bounds.offset(0, Math.min(0, toMovementBounds.bottom - bounds.top));
+                        bounds.offset(0, Math.min(0, toMovementBounds.bottom - imeOffset
+                                - bounds.top));
                     }
                 } else {
                     // IME hidden
-                    if (bounds.top == mMovementBounds.bottom) {
-                        // If the PIP is resting on top of the IME, then adjust it with the hiding IME
+                    if (bounds.top >= (mMovementBounds.bottom - mImeOffset)) {
+                        // If the PIP is resting on top of the IME, then adjust it with the hiding
+                        // IME
                         bounds.offsetTo(bounds.left, toMovementBounds.bottom);
                     }
                 }
@@ -299,6 +312,7 @@ public class PipTouchHandler {
         mNormalMovementBounds = normalMovementBounds;
         mExpandedMovementBounds = expandedMovementBounds;
         mDisplayRotation = displayRotation;
+        mInsetBounds.set(insetBounds);
         updateMovementBounds(mMenuState);
 
         // If we have a deferred resize, apply it now
@@ -325,7 +339,7 @@ public class PipTouchHandler {
 
     private void onAccessibilityShowMenu() {
         mMenuController.showMenu(MENU_STATE_FULL, mMotionHelper.getBounds(),
-                mMovementBounds, false /* allowMenuTimeout */);
+                mMovementBounds, false /* allowMenuTimeout */, willResizeMenu());
     }
 
     private boolean handleTouchEvent(MotionEvent ev) {
@@ -373,26 +387,26 @@ public class PipTouchHandler {
             }
             case MotionEvent.ACTION_HOVER_ENTER:
             case MotionEvent.ACTION_HOVER_MOVE: {
-                if (!mSendingHoverAccessibilityEvents) {
+                if (mAccessibilityManager.isEnabled() && !mSendingHoverAccessibilityEvents) {
                     AccessibilityEvent event = AccessibilityEvent.obtain(
                             AccessibilityEvent.TYPE_VIEW_HOVER_ENTER);
-                    AccessibilityNodeInfo info =
-                            PipAccessibilityInteractionConnection.obtainRootAccessibilityNodeInfo();
-                    event.setSource(info);
-                    info.recycle();
+                    event.setImportantForAccessibility(true);
+                    event.setSourceNodeId(AccessibilityNodeInfo.ROOT_NODE_ID);
+                    event.setWindowId(
+                            AccessibilityWindowInfo.PICTURE_IN_PICTURE_ACTION_REPLACER_WINDOW_ID);
                     mAccessibilityManager.sendAccessibilityEvent(event);
                     mSendingHoverAccessibilityEvents = true;
                 }
                 break;
             }
             case MotionEvent.ACTION_HOVER_EXIT: {
-                if (mSendingHoverAccessibilityEvents) {
+                if (mAccessibilityManager.isEnabled() && mSendingHoverAccessibilityEvents) {
                     AccessibilityEvent event = AccessibilityEvent.obtain(
                             AccessibilityEvent.TYPE_VIEW_HOVER_EXIT);
-                    AccessibilityNodeInfo info =
-                            PipAccessibilityInteractionConnection.obtainRootAccessibilityNodeInfo();
-                    event.setSource(info);
-                    info.recycle();
+                    event.setImportantForAccessibility(true);
+                    event.setSourceNodeId(AccessibilityNodeInfo.ROOT_NODE_ID);
+                    event.setWindowId(
+                            AccessibilityWindowInfo.PICTURE_IN_PICTURE_ACTION_REPLACER_WINDOW_ID);
                     mAccessibilityManager.sendAccessibilityEvent(event);
                     mSendingHoverAccessibilityEvents = false;
                 }
@@ -405,16 +419,19 @@ public class PipTouchHandler {
     /**
      * Updates the appearance of the menu and scrim on top of the PiP while dismissing.
      */
-    void updateDismissFraction() {
-        if (mMenuController != null) {
+    private void updateDismissFraction() {
+        // Skip updating the dismiss fraction when the IME is showing. This is to work around an
+        // issue where starting the menu activity for the dismiss overlay will steal the window
+        // focus, which closes the IME.
+        if (mMenuController != null && !mIsImeShowing) {
             Rect bounds = mMotionHelper.getBounds();
-            final float target = mMovementBounds.bottom + bounds.height();
+            final float target = mInsetBounds.bottom;
             float fraction = 0f;
             if (bounds.bottom > target) {
                 final float distance = bounds.bottom - target;
                 fraction = Math.min(distance / bounds.height(), 1f);
             }
-            if (Float.compare(fraction, 0f) != 0 || mMenuState != MENU_STATE_NONE) {
+            if (Float.compare(fraction, 0f) != 0 || mMenuController.isMenuActivityVisible()) {
                 // Update if the fraction > 0, or if fraction == 0 and the menu was already visible
                 mMenuController.setDismissFraction(fraction);
             }
@@ -431,7 +448,7 @@ public class PipTouchHandler {
     /**
      * Sets the minimized state.
      */
-    void setMinimizedStateInternal(boolean isMinimized) {
+    private void setMinimizedStateInternal(boolean isMinimized) {
         if (!ENABLE_MINIMIZE) {
             return;
         }
@@ -470,7 +487,7 @@ public class PipTouchHandler {
     /**
      * Sets the menu visibility.
      */
-    void setMenuState(int menuState, boolean resize) {
+    private void setMenuState(int menuState, boolean resize) {
         if (menuState == MENU_STATE_FULL) {
             // Save the current snap fraction and if we do not drag or move the PiP, then
             // we store back to this snap fraction.  Otherwise, we'll reset the snap
@@ -538,6 +555,8 @@ public class PipTouchHandler {
     private PipTouchGesture mDefaultMovementGesture = new PipTouchGesture() {
         // Whether the PiP was on the left side of the screen at the start of the gesture
         private boolean mStartedOnLeft;
+        private final Point mStartPosition = new Point();
+        private final PointF mDelta = new PointF();
 
         @Override
         public void onDown(PipTouchState touchState) {
@@ -545,7 +564,10 @@ public class PipTouchHandler {
                 return;
             }
 
-            mStartedOnLeft = mMotionHelper.getBounds().left < mMovementBounds.centerX();
+            Rect bounds = mMotionHelper.getBounds();
+            mDelta.set(0f, 0f);
+            mStartPosition.set(bounds.left, bounds.top);
+            mStartedOnLeft = bounds.left < mMovementBounds.centerX();
             mMovementWithinMinimize = true;
             mMovementWithinDismiss = touchState.getDownTouchPosition().y >= mMovementBounds.bottom;
 
@@ -578,10 +600,11 @@ public class PipTouchHandler {
 
             if (touchState.isDragging()) {
                 // Move the pinned stack freely
-                mTmpBounds.set(mMotionHelper.getBounds());
                 final PointF lastDelta = touchState.getLastTouchDelta();
-                float left = mTmpBounds.left + lastDelta.x;
-                float top = mTmpBounds.top + lastDelta.y;
+                float lastX = mStartPosition.x + mDelta.x;
+                float lastY = mStartPosition.y + mDelta.y;
+                float left = lastX + lastDelta.x;
+                float top = lastY + lastDelta.y;
                 if (!touchState.allowDraggingOffscreen() || !ENABLE_MINIMIZE) {
                     left = Math.max(mMovementBounds.left, Math.min(mMovementBounds.right, left));
                 }
@@ -591,6 +614,12 @@ public class PipTouchHandler {
                 } else {
                     top = Math.max(mMovementBounds.top, Math.min(mMovementBounds.bottom, top));
                 }
+
+                // Add to the cumulative delta after bounding the position
+                mDelta.x += left - lastX;
+                mDelta.y += top - lastY;
+
+                mTmpBounds.set(mMotionHelper.getBounds());
                 mTmpBounds.offsetTo((int) left, (int) top);
                 mMotionHelper.movePip(mTmpBounds);
 
@@ -677,7 +706,7 @@ public class PipTouchHandler {
                     // If the menu is still visible, and we aren't minimized, then just poke the
                     // menu so that it will timeout after the user stops touching it
                     mMenuController.showMenu(mMenuState, mMotionHelper.getBounds(),
-                            mMovementBounds, true /* allowMenuTimeout */);
+                            mMovementBounds, true /* allowMenuTimeout */, willResizeMenu());
                 } else {
                     // If the menu is not visible, then we can still be showing the activity for the
                     // dismiss overlay, so just finish it after the animation completes
@@ -691,7 +720,8 @@ public class PipTouchHandler {
 
                 if (isFling) {
                     mMotionHelper.flingToSnapTarget(velocity, vel.x, vel.y, mMovementBounds,
-                            mUpdateScrimListener, postAnimationCallback);
+                            mUpdateScrimListener, postAnimationCallback,
+                            mStartPosition);
                 } else {
                     mMotionHelper.animateToClosestSnapTarget(mMovementBounds, mUpdateScrimListener,
                             postAnimationCallback);
@@ -702,8 +732,20 @@ public class PipTouchHandler {
                         null /* animatorListener */);
                 setMinimizedStateInternal(false);
             } else if (mMenuState != MENU_STATE_FULL) {
-                mMenuController.showMenu(MENU_STATE_FULL, mMotionHelper.getBounds(),
-                        mMovementBounds, true /* allowMenuTimeout */);
+                if (mTouchState.isDoubleTap()) {
+                    // Expand to fullscreen if this is a double tap
+                    mMotionHelper.expandPip();
+                } else if (!mTouchState.isWaitingForDoubleTap()) {
+                    // User has stalled long enough for this not to be a drag or a double tap, just
+                    // expand the menu
+                    mMenuController.showMenu(MENU_STATE_FULL, mMotionHelper.getBounds(),
+                            mMovementBounds, true /* allowMenuTimeout */, willResizeMenu());
+                } else {
+                    // Next touch event _may_ be the second tap for the double-tap, schedule a
+                    // fallback runnable to trigger the menu if no touch event occurs before the
+                    // next tap
+                    mTouchState.scheduleDoubleTapTimeoutCallback();
+                }
             } else {
                 mMenuController.hideMenu();
                 mMotionHelper.expandPip();
@@ -733,6 +775,24 @@ public class PipTouchHandler {
     private void cleanUpDismissTarget() {
         mHandler.removeCallbacks(mShowDismissAffordance);
         mDismissViewController.destroyDismissTarget();
+    }
+
+    /**
+     * Resets some states related to the touch handling.
+     */
+    private void cleanUp() {
+        if (mIsMinimized) {
+            setMinimizedStateInternal(false);
+        }
+        cleanUpDismissTarget();
+    }
+
+    /**
+     * @return whether the menu will resize as a part of showing the full menu.
+     */
+    private boolean willResizeMenu() {
+        return mExpandedBounds.width() != mNormalBounds.width() ||
+                mExpandedBounds.height() != mNormalBounds.height();
     }
 
     public void dump(PrintWriter pw, String prefix) {

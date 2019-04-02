@@ -18,11 +18,13 @@ package com.android.server.policy;
 
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.ActivityManager;
+import android.app.ActivityThread;
 import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.pm.PackageManager;
 import android.database.ContentObserver;
 import android.media.AudioAttributes;
 import android.media.Ringtone;
@@ -78,6 +80,7 @@ public class AccessibilityShortcutController {
 
     public AccessibilityShortcutController(Context context, Handler handler, int initialUserId) {
         mContext = context;
+        mUserId = initialUserId;
 
         // Keep track of state of shortcut settings
         final ContentObserver co = new ContentObserver(handler) {
@@ -136,13 +139,18 @@ public class AccessibilityShortcutController {
         final int userId = ActivityManager.getCurrentUser();
         final int dialogAlreadyShown = Settings.Secure.getIntForUser(
                 cr, Settings.Secure.ACCESSIBILITY_SHORTCUT_DIALOG_SHOWN, 0, userId);
+        // Use USAGE_ASSISTANCE_ACCESSIBILITY for TVs to ensure that TVs play the ringtone as they
+        // have less ways of providing feedback like vibration.
+        final int audioAttributesUsage = hasFeatureLeanback()
+                ? AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY
+                : AudioAttributes.USAGE_NOTIFICATION_EVENT;
 
         // Play a notification tone
         final Ringtone tone =
                 RingtoneManager.getRingtone(mContext, Settings.System.DEFAULT_NOTIFICATION_URI);
         if (tone != null) {
             tone.setAudioAttributes(new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                .setUsage(audioAttributesUsage)
                 .build());
             tone.play();
         }
@@ -153,7 +161,7 @@ public class AccessibilityShortcutController {
             // Don't check if haptics are disabled, as we need to alert the user that their
             // way of interacting with the phone may change if they activate the shortcut
             long[] vibePattern = PhoneWindowManager.getLongIntArray(mContext.getResources(),
-                    R.array.config_safeModeDisabledVibePattern);
+                    R.array.config_longPressVibePattern);
             vibrator.vibrate(vibePattern, -1, VIBRATION_ATTRIBUTES);
         }
 
@@ -211,7 +219,9 @@ public class AccessibilityShortcutController {
         final String warningMessage = String.format(
                 mContext.getString(R.string.accessibility_shortcut_toogle_warning),
                 serviceInfo.getResolveInfo().loadLabel(mContext.getPackageManager()).toString());
-        final AlertDialog alertDialog = mFrameworkObjectProvider.getAlertDialogBuilder(mContext)
+        final AlertDialog alertDialog = mFrameworkObjectProvider.getAlertDialogBuilder(
+                // Use SystemUI context so we pick up any theme set in a vendor overlay
+                ActivityThread.currentActivityThread().getSystemUiContext())
                 .setTitle(R.string.accessibility_shortcut_warning_dialog_title)
                 .setMessage(warningMessage)
                 .setCancelable(false)
@@ -248,6 +258,10 @@ public class AccessibilityShortcutController {
                 mFrameworkObjectProvider.getAccessibilityManagerInstance(mContext);
         return accessibilityManager.getEnabledAccessibilityServiceList(
                 AccessibilityServiceInfo.FEEDBACK_ALL_MASK).contains(serviceInfo);
+    }
+
+    private boolean hasFeatureLeanback() {
+        return mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK);
     }
 
     // Class to allow mocking of static framework calls

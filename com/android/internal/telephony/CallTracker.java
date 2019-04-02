@@ -296,6 +296,14 @@ public abstract class CallTracker extends Handler {
     public abstract PhoneConstants.State getState();
     protected abstract void log(String msg);
 
+    /**
+     * Called when the call tracker should attempt to reconcile its calls against its underlying
+     * phone implementation and cleanup any stale calls.
+     */
+    public void cleanupCalls() {
+        // no base implementation
+    }
+
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("CallTracker:");
         pw.println(" mPendingOperations=" + mPendingOperations);

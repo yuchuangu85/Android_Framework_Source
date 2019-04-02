@@ -125,7 +125,7 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
                 continue;
             }
             final WifiConfiguration configuredNetwork =
-                    mWifiConfigManager.getSavedNetworkForScanDetailAndCache(scanDetail);
+                    mWifiConfigManager.getConfiguredNetworkForScanDetailAndCache(scanDetail);
             boolean untrustedScanResult = configuredNetwork == null || configuredNetwork.ephemeral;
 
             if (!untrustedNetworkAllowed && untrustedScanResult) {

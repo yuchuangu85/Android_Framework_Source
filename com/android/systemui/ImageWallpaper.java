@@ -199,7 +199,7 @@ public class ImageWallpaper extends WallpaperService {
             // Load background image dimensions, if we haven't saved them yet
             if (mBackgroundWidth <= 0 || mBackgroundHeight <= 0) {
                 // Need to load the image to get dimensions
-                loadWallpaper(forDraw, true /* needsReset */);
+                loadWallpaper(forDraw, false /* needsReset */);
                 if (DEBUG) {
                     Log.d(TAG, "Reloading, redoing updateSurfaceSize later.");
                 }
@@ -405,17 +405,17 @@ public class ImageWallpaper extends WallpaperService {
                     }
                 } else {
                     drawWallpaperWithCanvas(sh, availw, availh, xPixels, yPixels);
+                    if (FIXED_SIZED_SURFACE) {
+                        // If the surface is fixed-size, we should only need to
+                        // draw it once and then we'll let the window manager
+                        // position it appropriately.  As such, we no longer needed
+                        // the loaded bitmap.  Yay!
+                        // hw-accelerated renderer retains bitmap for faster rotation
+                        unloadWallpaper(false /* forgetSize */);
+                    }
                 }
             } finally {
                 Trace.traceEnd(Trace.TRACE_TAG_VIEW);
-                if (FIXED_SIZED_SURFACE && !mIsHwAccelerated) {
-                    // If the surface is fixed-size, we should only need to
-                    // draw it once and then we'll let the window manager
-                    // position it appropriately.  As such, we no longer needed
-                    // the loaded bitmap.  Yay!
-                    // hw-accelerated renderer retains bitmap for faster rotation
-                    unloadWallpaper(false /* forgetSize */);
-                }
             }
         }
 

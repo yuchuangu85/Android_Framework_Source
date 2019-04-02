@@ -42,7 +42,6 @@ import android.util.AndroidRuntimeException;
 import android.util.ArrayMap;
 import android.util.AttributeSet;
 import android.util.DebugUtils;
-import android.util.Log;
 import android.util.SparseArray;
 import android.util.SuperNotCalledException;
 import android.view.ContextMenu;
@@ -59,114 +58,6 @@ import android.widget.AdapterView;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.lang.reflect.InvocationTargetException;
-
-final class FragmentState implements Parcelable {
-    final String mClassName;
-    final int mIndex;
-    final boolean mFromLayout;
-    final int mFragmentId;
-    final int mContainerId;
-    final String mTag;
-    final boolean mRetainInstance;
-    final boolean mDetached;
-    final Bundle mArguments;
-    final boolean mHidden;
-
-    Bundle mSavedFragmentState;
-
-    Fragment mInstance;
-
-    public FragmentState(Fragment frag) {
-        mClassName = frag.getClass().getName();
-        mIndex = frag.mIndex;
-        mFromLayout = frag.mFromLayout;
-        mFragmentId = frag.mFragmentId;
-        mContainerId = frag.mContainerId;
-        mTag = frag.mTag;
-        mRetainInstance = frag.mRetainInstance;
-        mDetached = frag.mDetached;
-        mArguments = frag.mArguments;
-        mHidden = frag.mHidden;
-    }
-
-    public FragmentState(Parcel in) {
-        mClassName = in.readString();
-        mIndex = in.readInt();
-        mFromLayout = in.readInt() != 0;
-        mFragmentId = in.readInt();
-        mContainerId = in.readInt();
-        mTag = in.readString();
-        mRetainInstance = in.readInt() != 0;
-        mDetached = in.readInt() != 0;
-        mArguments = in.readBundle();
-        mHidden = in.readInt() != 0;
-        mSavedFragmentState = in.readBundle();
-    }
-
-    public Fragment instantiate(FragmentHostCallback host, FragmentContainer container,
-            Fragment parent, FragmentManagerNonConfig childNonConfig) {
-        if (mInstance == null) {
-            final Context context = host.getContext();
-            if (mArguments != null) {
-                mArguments.setClassLoader(context.getClassLoader());
-            }
-
-            if (container != null) {
-                mInstance = container.instantiate(context, mClassName, mArguments);
-            } else {
-                mInstance = Fragment.instantiate(context, mClassName, mArguments);
-            }
-
-            if (mSavedFragmentState != null) {
-                mSavedFragmentState.setClassLoader(context.getClassLoader());
-                mInstance.mSavedFragmentState = mSavedFragmentState;
-            }
-            mInstance.setIndex(mIndex, parent);
-            mInstance.mFromLayout = mFromLayout;
-            mInstance.mRestored = true;
-            mInstance.mFragmentId = mFragmentId;
-            mInstance.mContainerId = mContainerId;
-            mInstance.mTag = mTag;
-            mInstance.mRetainInstance = mRetainInstance;
-            mInstance.mDetached = mDetached;
-            mInstance.mHidden = mHidden;
-            mInstance.mFragmentManager = host.mFragmentManager;
-            if (FragmentManagerImpl.DEBUG) Log.v(FragmentManagerImpl.TAG,
-                    "Instantiated fragment " + mInstance);
-        }
-        mInstance.mChildNonConfig = childNonConfig;
-        return mInstance;
-    }
-
-    public int describeContents() {
-        return 0;
-    }
-
-    public void writeToParcel(Parcel dest, int flags) {
-        dest.writeString(mClassName);
-        dest.writeInt(mIndex);
-        dest.writeInt(mFromLayout ? 1 : 0);
-        dest.writeInt(mFragmentId);
-        dest.writeInt(mContainerId);
-        dest.writeString(mTag);
-        dest.writeInt(mRetainInstance ? 1 : 0);
-        dest.writeInt(mDetached ? 1 : 0);
-        dest.writeBundle(mArguments);
-        dest.writeInt(mHidden ? 1 : 0);
-        dest.writeBundle(mSavedFragmentState);
-    }
-
-    public static final Parcelable.Creator<FragmentState> CREATOR
-            = new Parcelable.Creator<FragmentState>() {
-        public FragmentState createFromParcel(Parcel in) {
-            return new FragmentState(in);
-        }
-
-        public FragmentState[] newArray(int size) {
-            return new FragmentState[size];
-        }
-    };
-}
 
 /**
  * A Fragment is a piece of an application's user interface or behavior
@@ -513,6 +404,11 @@ public class Fragment implements ComponentCallbacks2, OnCreateContextMenuListene
     // The cached value from onGetLayoutInflater(Bundle) that will be returned from
     // getLayoutInflater()
     LayoutInflater mLayoutInflater;
+
+    // Keep track of whether or not this Fragment has run performCreate(). Retained instance
+    // fragments can have mRetaining set to true without going through creation, so we must
+    // track it separately.
+    boolean mIsCreated;
 
     /**
      * State information that has been retrieved from a fragment instance
@@ -984,7 +880,7 @@ public class Fragment implements ComponentCallbacks2, OnCreateContextMenuListene
 
     /**
      * Return true if the fragment is currently visible to the user.  This means
-     * it: (1) has been added, (2) has its view attached to the window, and 
+     * it: (1) has been added, (2) has its view attached to the window, and
      * (3) is not hidden.
      */
     final public boolean isVisible() {
@@ -1463,7 +1359,7 @@ public class Fragment implements ComponentCallbacks2, OnCreateContextMenuListene
      * declaration for the styleable used here is:</p>
      *
      * {@sample development/samples/ApiDemos/res/values/attrs.xml fragment_arguments}
-     * 
+     *
      * <p>The fragment can then be declared within its activity's content layout
      * through a tag like this:</p>
      *
@@ -2591,6 +2487,7 @@ public class Fragment implements ComponentCallbacks2, OnCreateContextMenuListene
         mState = CREATED;
         mCalled = false;
         onCreate(savedInstanceState);
+        mIsCreated = true;
         if (!mCalled) {
             throw new SuperNotCalledException("Fragment " + this
                     + " did not call through to super.onCreate()");
@@ -2867,6 +2764,7 @@ public class Fragment implements ComponentCallbacks2, OnCreateContextMenuListene
         }
         mState = INITIALIZING;
         mCalled = false;
+        mIsCreated = false;
         onDestroy();
         if (!mCalled) {
             throw new SuperNotCalledException("Fragment " + this

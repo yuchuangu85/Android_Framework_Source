@@ -21,7 +21,6 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.graphics.Color;
-import android.graphics.drawable.Animatable;
 import android.graphics.drawable.Animatable2;
 import android.graphics.drawable.Animatable2.AnimationCallback;
 import android.graphics.drawable.Drawable;
@@ -34,9 +33,12 @@ import com.android.systemui.plugins.qs.QSIconView;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.plugins.qs.QSTile.State;
 
+import com.android.systemui.qs.AlphaControlledSignalTileView.AlphaControlledSlashImageView;
 import java.util.Objects;
 
 public class QSIconViewImpl extends QSIconView {
+
+    public static final long QS_ANIM_LENGTH = 350;
 
     protected final View mIcon;
     protected final int mIconSizePx;
@@ -85,7 +87,8 @@ public class QSIconViewImpl extends QSIconView {
     }
 
     protected void updateIcon(ImageView iv, State state) {
-        if (!Objects.equals(state.icon, iv.getTag(R.id.qs_icon_tag))) {
+        if (!Objects.equals(state.icon, iv.getTag(R.id.qs_icon_tag))
+                || !Objects.equals(state.slash, iv.getTag(R.id.qs_slash_tag))) {
             boolean shouldAnimate = iv.isShown() && mAnimationEnabled
                     && iv.getDrawable() != null;
             Drawable d = state.icon != null
@@ -94,9 +97,18 @@ public class QSIconViewImpl extends QSIconView {
             int padding = state.icon != null ? state.icon.getPadding() : 0;
             if (d != null) {
                 d.setAutoMirrored(false);
+                d.setLayoutDirection(getLayoutDirection());
             }
-            iv.setImageDrawable(d);
+
+            if (iv instanceof SlashImageView) {
+                ((SlashImageView) iv).setAnimationEnabled(shouldAnimate);
+                ((SlashImageView) iv).setState(state.slash, d);
+            } else {
+                iv.setImageDrawable(d);
+            }
+
             iv.setTag(R.id.qs_icon_tag, state.icon);
+            iv.setTag(R.id.qs_slash_tag, state.slash);
             iv.setPadding(0, padding, 0, padding);
             if (d instanceof Animatable2) {
                 Animatable2 a = (Animatable2) d;
@@ -127,7 +139,12 @@ public class QSIconViewImpl extends QSIconView {
                 animateGrayScale(mTint, color, iv);
                 mTint = color;
             } else {
-                setTint(iv, color);
+                if (iv instanceof AlphaControlledSlashImageView) {
+                    ((AlphaControlledSlashImageView)iv)
+                            .setFinalImageTintList(ColorStateList.valueOf(color));
+                } else {
+                    setTint(iv, color);
+                }
                 mTint = color;
             }
         }
@@ -138,22 +155,30 @@ public class QSIconViewImpl extends QSIconView {
     }
 
     public static void animateGrayScale(int fromColor, int toColor, ImageView iv) {
-        final float fromAlpha = Color.alpha(fromColor);
-        final float toAlpha = Color.alpha(toColor);
-        final float fromChannel = Color.red(fromColor);
-        final float toChannel = Color.red(toColor);
+        if (iv instanceof AlphaControlledSlashImageView) {
+            ((AlphaControlledSlashImageView)iv)
+                    .setFinalImageTintList(ColorStateList.valueOf(toColor));
+        }
+        if (ValueAnimator.areAnimatorsEnabled()) {
+            final float fromAlpha = Color.alpha(fromColor);
+            final float toAlpha = Color.alpha(toColor);
+            final float fromChannel = Color.red(fromColor);
+            final float toChannel = Color.red(toColor);
 
-        ValueAnimator anim = ValueAnimator.ofFloat(0, 1);
-        anim.setDuration(350);
+            ValueAnimator anim = ValueAnimator.ofFloat(0, 1);
+            anim.setDuration(QS_ANIM_LENGTH);
+            anim.addUpdateListener(animation -> {
+                float fraction = animation.getAnimatedFraction();
+                int alpha = (int) (fromAlpha + (toAlpha - fromAlpha) * fraction);
+                int channel = (int) (fromChannel + (toChannel - fromChannel) * fraction);
 
-        anim.addUpdateListener(animation -> {
-            float fraction = animation.getAnimatedFraction();
-            int alpha = (int) (fromAlpha + (toAlpha - fromAlpha) * fraction);
-            int channel = (int) (fromChannel + (toChannel - fromChannel) * fraction);
+                setTint(iv, Color.argb(alpha, channel, channel, channel));
+            });
 
-            setTint(iv, Color.argb(alpha, channel, channel, channel));
-        });
-        anim.start();
+            anim.start();
+        } else {
+            setTint(iv, toColor);
+        }
     }
 
     public static void setTint(ImageView iv, int color) {
@@ -166,7 +191,7 @@ public class QSIconViewImpl extends QSIconView {
     }
 
     protected View createIcon() {
-        final ImageView icon = new ImageView(mContext);
+        final ImageView icon = new SlashImageView(mContext);
         icon.setId(android.R.id.icon);
         icon.setScaleType(ScaleType.FIT_CENTER);
         return icon;

@@ -46,13 +46,18 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.annotation.concurrent.ThreadSafe;
+
 
 /**
  * Wrapper class for ISupplicantStaNetwork HAL calls. Gets and sets supplicant sta network variables
  * and interacts with networks.
  * Public fields should be treated as invalid until their 'get' method is called, which will set the
  * value if it returns true
+ * To maintain thread-safety, the locking protocol is that every non-static method (regardless of
+ * access level) acquires mLock.
  */
+@ThreadSafe
 public class SupplicantStaNetworkHal {
     private static final String TAG = "SupplicantStaNetworkHal";
     @VisibleForTesting
@@ -137,7 +142,9 @@ public class SupplicantStaNetworkHal {
      * @param enable true to enable, false to disable.
      */
     void enableVerboseLogging(boolean enable) {
-        mVerboseLoggingEnabled = enable;
+        synchronized (mLock) {
+            mVerboseLoggingEnabled = enable;
+        }
     }
 
     /**
@@ -150,90 +157,92 @@ public class SupplicantStaNetworkHal {
      */
     public boolean loadWifiConfiguration(WifiConfiguration config,
                                          Map<String, String> networkExtras) {
-        if (config == null) return false;
-        /** SSID */
-        config.SSID = null;
-        if (getSsid() && !ArrayUtils.isEmpty(mSsid)) {
-            config.SSID = NativeUtil.encodeSsid(mSsid);
-        } else {
-            Log.e(TAG, "failed to read ssid");
-            return false;
-        }
-        /** Network Id */
-        config.networkId = -1;
-        if (getId()) {
-            config.networkId = mNetworkId;
-        } else {
-            Log.e(TAG, "getId failed");
-            return false;
-        }
-        /** BSSID */
-        config.getNetworkSelectionStatus().setNetworkSelectionBSSID(null);
-        if (getBssid() && !ArrayUtils.isEmpty(mBssid)) {
-            config.getNetworkSelectionStatus().setNetworkSelectionBSSID(
-                    NativeUtil.macAddressFromByteArray(mBssid));
-        }
-        /** Scan SSID (Is Hidden Network?) */
-        config.hiddenSSID = false;
-        if (getScanSsid()) {
-            config.hiddenSSID = mScanSsid;
-        }
-        /** Require PMF*/
-        config.requirePMF = false;
-        if (getRequirePmf()) {
-            config.requirePMF = mRequirePmf;
-        }
-        /** WEP keys **/
-        config.wepTxKeyIndex = -1;
-        if (getWepTxKeyIdx()) {
-            config.wepTxKeyIndex = mWepTxKeyIdx;
-        }
-        for (int i = 0; i < 4; i++) {
-            config.wepKeys[i] = null;
-            if (getWepKey(i) && !ArrayUtils.isEmpty(mWepKey)) {
-                config.wepKeys[i] = NativeUtil.bytesToHexOrQuotedAsciiString(mWepKey);
+        synchronized (mLock) {
+            if (config == null) return false;
+            /** SSID */
+            config.SSID = null;
+            if (getSsid() && !ArrayUtils.isEmpty(mSsid)) {
+                config.SSID = NativeUtil.encodeSsid(mSsid);
+            } else {
+                Log.e(TAG, "failed to read ssid");
+                return false;
             }
+            /** Network Id */
+            config.networkId = -1;
+            if (getId()) {
+                config.networkId = mNetworkId;
+            } else {
+                Log.e(TAG, "getId failed");
+                return false;
+            }
+            /** BSSID */
+            config.getNetworkSelectionStatus().setNetworkSelectionBSSID(null);
+            if (getBssid() && !ArrayUtils.isEmpty(mBssid)) {
+                config.getNetworkSelectionStatus().setNetworkSelectionBSSID(
+                        NativeUtil.macAddressFromByteArray(mBssid));
+            }
+            /** Scan SSID (Is Hidden Network?) */
+            config.hiddenSSID = false;
+            if (getScanSsid()) {
+                config.hiddenSSID = mScanSsid;
+            }
+            /** Require PMF*/
+            config.requirePMF = false;
+            if (getRequirePmf()) {
+                config.requirePMF = mRequirePmf;
+            }
+            /** WEP keys **/
+            config.wepTxKeyIndex = -1;
+            if (getWepTxKeyIdx()) {
+                config.wepTxKeyIndex = mWepTxKeyIdx;
+            }
+            for (int i = 0; i < 4; i++) {
+                config.wepKeys[i] = null;
+                if (getWepKey(i) && !ArrayUtils.isEmpty(mWepKey)) {
+                    config.wepKeys[i] = NativeUtil.bytesToHexOrQuotedString(mWepKey);
+                }
+            }
+            /** PSK pass phrase */
+            config.preSharedKey = null;
+            if (getPskPassphrase() && !TextUtils.isEmpty(mPskPassphrase)) {
+                config.preSharedKey = NativeUtil.addEnclosingQuotes(mPskPassphrase);
+            } else if (getPsk() && !ArrayUtils.isEmpty(mPsk)) {
+                config.preSharedKey = NativeUtil.hexStringFromByteArray(mPsk);
+            }
+            /** allowedKeyManagement */
+            if (getKeyMgmt()) {
+                BitSet keyMgmtMask = supplicantToWifiConfigurationKeyMgmtMask(mKeyMgmtMask);
+                config.allowedKeyManagement = removeFastTransitionFlags(keyMgmtMask);
+            }
+            /** allowedProtocols */
+            if (getProto()) {
+                config.allowedProtocols =
+                        supplicantToWifiConfigurationProtoMask(mProtoMask);
+            }
+            /** allowedAuthAlgorithms */
+            if (getAuthAlg()) {
+                config.allowedAuthAlgorithms =
+                        supplicantToWifiConfigurationAuthAlgMask(mAuthAlgMask);
+            }
+            /** allowedGroupCiphers */
+            if (getGroupCipher()) {
+                config.allowedGroupCiphers =
+                        supplicantToWifiConfigurationGroupCipherMask(mGroupCipherMask);
+            }
+            /** allowedPairwiseCiphers */
+            if (getPairwiseCipher()) {
+                config.allowedPairwiseCiphers =
+                        supplicantToWifiConfigurationPairwiseCipherMask(mPairwiseCipherMask);
+            }
+            /** metadata: idstr */
+            if (getIdStr() && !TextUtils.isEmpty(mIdStr)) {
+                Map<String, String> metadata = parseNetworkExtra(mIdStr);
+                networkExtras.putAll(metadata);
+            } else {
+                Log.w(TAG, "getIdStr failed or empty");
+            }
+            return loadWifiEnterpriseConfig(config.SSID, config.enterpriseConfig);
         }
-        /** PSK pass phrase */
-        config.preSharedKey = null;
-        if (getPskPassphrase() && !TextUtils.isEmpty(mPskPassphrase)) {
-            config.preSharedKey = NativeUtil.addEnclosingQuotes(mPskPassphrase);
-        } else if (getPsk() && !ArrayUtils.isEmpty(mPsk)) {
-            config.preSharedKey = NativeUtil.hexStringFromByteArray(mPsk);
-        }
-        /** allowedKeyManagement */
-        if (getKeyMgmt()) {
-            BitSet keyMgmtMask = supplicantToWifiConfigurationKeyMgmtMask(mKeyMgmtMask);
-            config.allowedKeyManagement = removeFastTransitionFlags(keyMgmtMask);
-        }
-        /** allowedProtocols */
-        if (getProto()) {
-            config.allowedProtocols =
-                    supplicantToWifiConfigurationProtoMask(mProtoMask);
-        }
-        /** allowedAuthAlgorithms */
-        if (getAuthAlg()) {
-            config.allowedAuthAlgorithms =
-                    supplicantToWifiConfigurationAuthAlgMask(mAuthAlgMask);
-        }
-        /** allowedGroupCiphers */
-        if (getGroupCipher()) {
-            config.allowedGroupCiphers =
-                    supplicantToWifiConfigurationGroupCipherMask(mGroupCipherMask);
-        }
-        /** allowedPairwiseCiphers */
-        if (getPairwiseCipher()) {
-            config.allowedPairwiseCiphers =
-                    supplicantToWifiConfigurationPairwiseCipherMask(mPairwiseCipherMask);
-        }
-        /** metadata: idstr */
-        if (getIdStr() && !TextUtils.isEmpty(mIdStr)) {
-            Map<String, String> metadata = parseNetworkExtra(mIdStr);
-            networkExtras.putAll(metadata);
-        } else {
-            Log.w(TAG, "getIdStr failed or empty");
-        }
-        return loadWifiEnterpriseConfig(config.SSID, config.enterpriseConfig);
     }
 
     /**
@@ -244,138 +253,141 @@ public class SupplicantStaNetworkHal {
      * @throws IllegalArgumentException on malformed configuration params.
      */
     public boolean saveWifiConfiguration(WifiConfiguration config) {
-        if (config == null) return false;
-        /** SSID */
-        if (config.SSID != null) {
-            if (!setSsid(NativeUtil.decodeSsid(config.SSID))) {
-                Log.e(TAG, "failed to set SSID: " + config.SSID);
-                return false;
-            }
-        }
-        /** BSSID */
-        String bssidStr = config.getNetworkSelectionStatus().getNetworkSelectionBSSID();
-        if (bssidStr != null) {
-            byte[] bssid = NativeUtil.macAddressToByteArray(bssidStr);
-            if (!setBssid(bssid)) {
-                Log.e(TAG, "failed to set BSSID: " + bssidStr);
-                return false;
-            }
-        }
-        /** Pre Shared Key. This can either be quoted ASCII passphrase or hex string for raw psk */
-        if (config.preSharedKey != null) {
-            if (config.preSharedKey.startsWith("\"")) {
-                if (!setPskPassphrase(NativeUtil.removeEnclosingQuotes(config.preSharedKey))) {
-                    Log.e(TAG, "failed to set psk passphrase");
-                    return false;
-                }
-            } else {
-                if (!setPsk(NativeUtil.hexStringToByteArray(config.preSharedKey))) {
-                    Log.e(TAG, "failed to set psk");
+        synchronized (mLock) {
+            if (config == null) return false;
+            /** SSID */
+            if (config.SSID != null) {
+                if (!setSsid(NativeUtil.decodeSsid(config.SSID))) {
+                    Log.e(TAG, "failed to set SSID: " + config.SSID);
                     return false;
                 }
             }
-        }
-
-        /** Wep Keys */
-        boolean hasSetKey = false;
-        if (config.wepKeys != null) {
-            for (int i = 0; i < config.wepKeys.length; i++) {
-                if (config.wepKeys[i] != null) {
-                    if (!setWepKey(
-                            i, NativeUtil.hexOrQuotedAsciiStringToBytes(config.wepKeys[i]))) {
-                        Log.e(TAG, "failed to set wep_key " + i);
+            /** BSSID */
+            String bssidStr = config.getNetworkSelectionStatus().getNetworkSelectionBSSID();
+            if (bssidStr != null) {
+                byte[] bssid = NativeUtil.macAddressToByteArray(bssidStr);
+                if (!setBssid(bssid)) {
+                    Log.e(TAG, "failed to set BSSID: " + bssidStr);
+                    return false;
+                }
+            }
+            /** Pre Shared Key */
+            // This can either be quoted ASCII passphrase or hex string for raw psk.
+            if (config.preSharedKey != null) {
+                if (config.preSharedKey.startsWith("\"")) {
+                    if (!setPskPassphrase(NativeUtil.removeEnclosingQuotes(config.preSharedKey))) {
+                        Log.e(TAG, "failed to set psk passphrase");
                         return false;
                     }
-                    hasSetKey = true;
+                } else {
+                    if (!setPsk(NativeUtil.hexStringToByteArray(config.preSharedKey))) {
+                        Log.e(TAG, "failed to set psk");
+                        return false;
+                    }
                 }
             }
-        }
-        /** Wep Tx Key Idx */
-        if (hasSetKey) {
-            if (!setWepTxKeyIdx(config.wepTxKeyIndex)) {
-                Log.e(TAG, "failed to set wep_tx_keyidx: " + config.wepTxKeyIndex);
-                return false;
-            }
-        }
-        /** HiddenSSID */
-        if (!setScanSsid(config.hiddenSSID)) {
-            Log.e(TAG, config.SSID + ": failed to set hiddenSSID: " + config.hiddenSSID);
-            return false;
-        }
-        /** RequirePMF */
-        if (!setRequirePmf(config.requirePMF)) {
-            Log.e(TAG, config.SSID + ": failed to set requirePMF: " + config.requirePMF);
-            return false;
-        }
-        /** Key Management Scheme */
-        if (config.allowedKeyManagement.cardinality() != 0) {
-            // Add FT flags if supported.
-            BitSet keyMgmtMask = addFastTransitionFlags(config.allowedKeyManagement);
-            if (!setKeyMgmt(wifiConfigurationToSupplicantKeyMgmtMask(keyMgmtMask))) {
-                Log.e(TAG, "failed to set Key Management");
-                return false;
-            }
-        }
-        /** Security Protocol */
-        if (config.allowedProtocols.cardinality() != 0
-                && !setProto(wifiConfigurationToSupplicantProtoMask(config.allowedProtocols))) {
-            Log.e(TAG, "failed to set Security Protocol");
-            return false;
-        }
-        /** Auth Algorithm */
-        if (config.allowedAuthAlgorithms.cardinality() != 0
-                && !setAuthAlg(wifiConfigurationToSupplicantAuthAlgMask(
-                config.allowedAuthAlgorithms))) {
-            Log.e(TAG, "failed to set AuthAlgorithm");
-            return false;
-        }
-        /** Group Cipher */
-        if (config.allowedGroupCiphers.cardinality() != 0
-                && !setGroupCipher(wifiConfigurationToSupplicantGroupCipherMask(
-                config.allowedGroupCiphers))) {
-            Log.e(TAG, "failed to set Group Cipher");
-            return false;
-        }
-        /** Pairwise Cipher*/
-        if (config.allowedPairwiseCiphers.cardinality() != 0
-                && !setPairwiseCipher(wifiConfigurationToSupplicantPairwiseCipherMask(
-                        config.allowedPairwiseCiphers))) {
-            Log.e(TAG, "failed to set PairwiseCipher");
-            return false;
-        }
-        /** metadata: FQDN + ConfigKey + CreatorUid */
-        final Map<String, String> metadata = new HashMap<String, String>();
-        if (config.isPasspoint()) {
-            metadata.put(ID_STRING_KEY_FQDN, config.FQDN);
-        }
-        metadata.put(ID_STRING_KEY_CONFIG_KEY, config.configKey());
-        metadata.put(ID_STRING_KEY_CREATOR_UID, Integer.toString(config.creatorUid));
-        if (!setIdStr(createNetworkExtra(metadata))) {
-            Log.e(TAG, "failed to set id string");
-            return false;
-        }
-        /** UpdateIdentifier */
-        if (config.updateIdentifier != null
-                && !setUpdateIdentifier(Integer.parseInt(config.updateIdentifier))) {
-            Log.e(TAG, "failed to set update identifier");
-            return false;
-        }
-        // Finish here if no EAP config to set
-        if (config.enterpriseConfig != null
-                && config.enterpriseConfig.getEapMethod() != WifiEnterpriseConfig.Eap.NONE) {
-            if (!saveWifiEnterpriseConfig(config.SSID, config.enterpriseConfig)) {
-                return false;
-            }
-        }
 
-        // Now that the network is configured fully, start listening for callback events.
-        mISupplicantStaNetworkCallback =
-                new SupplicantStaNetworkHalCallback(config.networkId, config.SSID);
-        if (!registerCallback(mISupplicantStaNetworkCallback)) {
-            Log.e(TAG, "Failed to register callback");
-            return false;
+            /** Wep Keys */
+            boolean hasSetKey = false;
+            if (config.wepKeys != null) {
+                for (int i = 0; i < config.wepKeys.length; i++) {
+                    if (config.wepKeys[i] != null) {
+                        if (!setWepKey(
+                                i, NativeUtil.hexOrQuotedStringToBytes(config.wepKeys[i]))) {
+                            Log.e(TAG, "failed to set wep_key " + i);
+                            return false;
+                        }
+                        hasSetKey = true;
+                    }
+                }
+            }
+            /** Wep Tx Key Idx */
+            if (hasSetKey) {
+                if (!setWepTxKeyIdx(config.wepTxKeyIndex)) {
+                    Log.e(TAG, "failed to set wep_tx_keyidx: " + config.wepTxKeyIndex);
+                    return false;
+                }
+            }
+            /** HiddenSSID */
+            if (!setScanSsid(config.hiddenSSID)) {
+                Log.e(TAG, config.SSID + ": failed to set hiddenSSID: " + config.hiddenSSID);
+                return false;
+            }
+            /** RequirePMF */
+            if (!setRequirePmf(config.requirePMF)) {
+                Log.e(TAG, config.SSID + ": failed to set requirePMF: " + config.requirePMF);
+                return false;
+            }
+            /** Key Management Scheme */
+            if (config.allowedKeyManagement.cardinality() != 0) {
+                // Add FT flags if supported.
+                BitSet keyMgmtMask = addFastTransitionFlags(config.allowedKeyManagement);
+                if (!setKeyMgmt(wifiConfigurationToSupplicantKeyMgmtMask(keyMgmtMask))) {
+                    Log.e(TAG, "failed to set Key Management");
+                    return false;
+                }
+            }
+            /** Security Protocol */
+            if (config.allowedProtocols.cardinality() != 0
+                    && !setProto(wifiConfigurationToSupplicantProtoMask(config.allowedProtocols))) {
+                Log.e(TAG, "failed to set Security Protocol");
+                return false;
+            }
+            /** Auth Algorithm */
+            if (config.allowedAuthAlgorithms.cardinality() != 0
+                    && !setAuthAlg(wifiConfigurationToSupplicantAuthAlgMask(
+                    config.allowedAuthAlgorithms))) {
+                Log.e(TAG, "failed to set AuthAlgorithm");
+                return false;
+            }
+            /** Group Cipher */
+            if (config.allowedGroupCiphers.cardinality() != 0
+                    && !setGroupCipher(wifiConfigurationToSupplicantGroupCipherMask(
+                    config.allowedGroupCiphers))) {
+                Log.e(TAG, "failed to set Group Cipher");
+                return false;
+            }
+            /** Pairwise Cipher*/
+            if (config.allowedPairwiseCiphers.cardinality() != 0
+                    && !setPairwiseCipher(wifiConfigurationToSupplicantPairwiseCipherMask(
+                    config.allowedPairwiseCiphers))) {
+                Log.e(TAG, "failed to set PairwiseCipher");
+                return false;
+            }
+            /** metadata: FQDN + ConfigKey + CreatorUid */
+            final Map<String, String> metadata = new HashMap<String, String>();
+            if (config.isPasspoint()) {
+                metadata.put(ID_STRING_KEY_FQDN, config.FQDN);
+            }
+            metadata.put(ID_STRING_KEY_CONFIG_KEY, config.configKey());
+            metadata.put(ID_STRING_KEY_CREATOR_UID, Integer.toString(config.creatorUid));
+            if (!setIdStr(createNetworkExtra(metadata))) {
+                Log.e(TAG, "failed to set id string");
+                return false;
+            }
+            /** UpdateIdentifier */
+            if (config.updateIdentifier != null
+                    && !setUpdateIdentifier(Integer.parseInt(config.updateIdentifier))) {
+                Log.e(TAG, "failed to set update identifier");
+                return false;
+            }
+            // Finish here if no EAP config to set
+            if (config.enterpriseConfig != null
+                    && config.enterpriseConfig.getEapMethod() != WifiEnterpriseConfig.Eap.NONE) {
+                if (!saveWifiEnterpriseConfig(config.SSID, config.enterpriseConfig)) {
+                    return false;
+                }
+            }
+
+            // Now that the network is configured fully, start listening for callback events.
+            mISupplicantStaNetworkCallback =
+                    new SupplicantStaNetworkHalCallback(config.networkId, config.SSID);
+            if (!registerCallback(mISupplicantStaNetworkCallback)) {
+                Log.e(TAG, "Failed to register callback");
+                return false;
+            }
+            return true;
         }
-        return true;
     }
 
     /**
@@ -386,84 +398,87 @@ public class SupplicantStaNetworkHal {
      * @return true if succeeds, false otherwise.
      */
     private boolean loadWifiEnterpriseConfig(String ssid, WifiEnterpriseConfig eapConfig) {
-        if (eapConfig == null) return false;
-        /** EAP method */
-        if (getEapMethod()) {
-            eapConfig.setEapMethod(supplicantToWifiConfigurationEapMethod(mEapMethod));
-        } else {
-            // Invalid eap method could be because it's not an enterprise config.
-            Log.e(TAG, "failed to get eap method. Assumimg not an enterprise network");
+        synchronized (mLock) {
+            if (eapConfig == null) return false;
+            /** EAP method */
+            if (getEapMethod()) {
+                eapConfig.setEapMethod(supplicantToWifiConfigurationEapMethod(mEapMethod));
+            } else {
+                // Invalid eap method could be because it's not an enterprise config.
+                Log.e(TAG, "failed to get eap method. Assumimg not an enterprise network");
+                return true;
+            }
+            /** EAP Phase 2 method */
+            if (getEapPhase2Method()) {
+                eapConfig.setPhase2Method(
+                        supplicantToWifiConfigurationEapPhase2Method(mEapPhase2Method));
+            } else {
+                // We cannot have an invalid eap phase 2 method. Return failure.
+                Log.e(TAG, "failed to get eap phase2 method");
+                return false;
+            }
+            /** EAP Identity */
+            if (getEapIdentity() && !ArrayUtils.isEmpty(mEapIdentity)) {
+                eapConfig.setFieldValue(
+                        WifiEnterpriseConfig.IDENTITY_KEY,
+                        NativeUtil.stringFromByteArrayList(mEapIdentity));
+            }
+            /** EAP Anonymous Identity */
+            if (getEapAnonymousIdentity() && !ArrayUtils.isEmpty(mEapAnonymousIdentity)) {
+                eapConfig.setFieldValue(
+                        WifiEnterpriseConfig.ANON_IDENTITY_KEY,
+                        NativeUtil.stringFromByteArrayList(mEapAnonymousIdentity));
+            }
+            /** EAP Password */
+            if (getEapPassword() && !ArrayUtils.isEmpty(mEapPassword)) {
+                eapConfig.setFieldValue(
+                        WifiEnterpriseConfig.PASSWORD_KEY,
+                        NativeUtil.stringFromByteArrayList(mEapPassword));
+            }
+            /** EAP Client Cert */
+            if (getEapClientCert() && !TextUtils.isEmpty(mEapClientCert)) {
+                eapConfig.setFieldValue(WifiEnterpriseConfig.CLIENT_CERT_KEY, mEapClientCert);
+            }
+            /** EAP CA Cert */
+            if (getEapCACert() && !TextUtils.isEmpty(mEapCACert)) {
+                eapConfig.setFieldValue(WifiEnterpriseConfig.CA_CERT_KEY, mEapCACert);
+            }
+            /** EAP Subject Match */
+            if (getEapSubjectMatch() && !TextUtils.isEmpty(mEapSubjectMatch)) {
+                eapConfig.setFieldValue(WifiEnterpriseConfig.SUBJECT_MATCH_KEY, mEapSubjectMatch);
+            }
+            /** EAP Engine ID */
+            if (getEapEngineID() && !TextUtils.isEmpty(mEapEngineID)) {
+                eapConfig.setFieldValue(WifiEnterpriseConfig.ENGINE_ID_KEY, mEapEngineID);
+            }
+            /** EAP Engine. Set this only if the engine id is non null. */
+            if (getEapEngine() && !TextUtils.isEmpty(mEapEngineID)) {
+                eapConfig.setFieldValue(
+                        WifiEnterpriseConfig.ENGINE_KEY,
+                        mEapEngine
+                                ? WifiEnterpriseConfig.ENGINE_ENABLE
+                                : WifiEnterpriseConfig.ENGINE_DISABLE);
+            }
+            /** EAP Private Key */
+            if (getEapPrivateKeyId() && !TextUtils.isEmpty(mEapPrivateKeyId)) {
+                eapConfig.setFieldValue(WifiEnterpriseConfig.PRIVATE_KEY_ID_KEY, mEapPrivateKeyId);
+            }
+            /** EAP Alt Subject Match */
+            if (getEapAltSubjectMatch() && !TextUtils.isEmpty(mEapAltSubjectMatch)) {
+                eapConfig.setFieldValue(
+                        WifiEnterpriseConfig.ALTSUBJECT_MATCH_KEY, mEapAltSubjectMatch);
+            }
+            /** EAP Domain Suffix Match */
+            if (getEapDomainSuffixMatch() && !TextUtils.isEmpty(mEapDomainSuffixMatch)) {
+                eapConfig.setFieldValue(
+                        WifiEnterpriseConfig.DOM_SUFFIX_MATCH_KEY, mEapDomainSuffixMatch);
+            }
+            /** EAP CA Path*/
+            if (getEapCAPath() && !TextUtils.isEmpty(mEapCAPath)) {
+                eapConfig.setFieldValue(WifiEnterpriseConfig.CA_PATH_KEY, mEapCAPath);
+            }
             return true;
         }
-        /** EAP Phase 2 method */
-        if (getEapPhase2Method()) {
-            eapConfig.setPhase2Method(
-                    supplicantToWifiConfigurationEapPhase2Method(mEapPhase2Method));
-        } else {
-            // We cannot have an invalid eap phase 2 method. Return failure.
-            Log.e(TAG, "failed to get eap phase2 method");
-            return false;
-        }
-        /** EAP Identity */
-        if (getEapIdentity() && !ArrayUtils.isEmpty(mEapIdentity)) {
-            eapConfig.setFieldValue(
-                    WifiEnterpriseConfig.IDENTITY_KEY,
-                    NativeUtil.stringFromByteArrayList(mEapIdentity));
-        }
-        /** EAP Anonymous Identity */
-        if (getEapAnonymousIdentity() && !ArrayUtils.isEmpty(mEapAnonymousIdentity)) {
-            eapConfig.setFieldValue(
-                    WifiEnterpriseConfig.ANON_IDENTITY_KEY,
-                    NativeUtil.stringFromByteArrayList(mEapAnonymousIdentity));
-        }
-        /** EAP Password */
-        if (getEapPassword() && !ArrayUtils.isEmpty(mEapPassword)) {
-            eapConfig.setFieldValue(
-                    WifiEnterpriseConfig.PASSWORD_KEY,
-                    NativeUtil.stringFromByteArrayList(mEapPassword));
-        }
-        /** EAP Client Cert */
-        if (getEapClientCert() && !TextUtils.isEmpty(mEapClientCert)) {
-            eapConfig.setFieldValue(WifiEnterpriseConfig.CLIENT_CERT_KEY, mEapClientCert);
-        }
-        /** EAP CA Cert */
-        if (getEapCACert() && !TextUtils.isEmpty(mEapCACert)) {
-            eapConfig.setFieldValue(WifiEnterpriseConfig.CA_CERT_KEY, mEapCACert);
-        }
-        /** EAP Subject Match */
-        if (getEapSubjectMatch() && !TextUtils.isEmpty(mEapSubjectMatch)) {
-            eapConfig.setFieldValue(WifiEnterpriseConfig.SUBJECT_MATCH_KEY, mEapSubjectMatch);
-        }
-        /** EAP Engine ID */
-        if (getEapEngineID() && !TextUtils.isEmpty(mEapEngineID)) {
-            eapConfig.setFieldValue(WifiEnterpriseConfig.ENGINE_ID_KEY, mEapEngineID);
-        }
-        /** EAP Engine. Set this only if the engine id is non null. */
-        if (getEapEngine() && !TextUtils.isEmpty(mEapEngineID)) {
-            eapConfig.setFieldValue(
-                    WifiEnterpriseConfig.ENGINE_KEY,
-                    mEapEngine
-                            ? WifiEnterpriseConfig.ENGINE_ENABLE
-                            : WifiEnterpriseConfig.ENGINE_DISABLE);
-        }
-        /** EAP Private Key */
-        if (getEapPrivateKeyId() && !TextUtils.isEmpty(mEapPrivateKeyId)) {
-            eapConfig.setFieldValue(WifiEnterpriseConfig.PRIVATE_KEY_ID_KEY, mEapPrivateKeyId);
-        }
-        /** EAP Alt Subject Match */
-        if (getEapAltSubjectMatch() && !TextUtils.isEmpty(mEapAltSubjectMatch)) {
-            eapConfig.setFieldValue(WifiEnterpriseConfig.ALTSUBJECT_MATCH_KEY, mEapAltSubjectMatch);
-        }
-        /** EAP Domain Suffix Match */
-        if (getEapDomainSuffixMatch() && !TextUtils.isEmpty(mEapDomainSuffixMatch)) {
-            eapConfig.setFieldValue(
-                    WifiEnterpriseConfig.DOM_SUFFIX_MATCH_KEY, mEapDomainSuffixMatch);
-        }
-        /** EAP CA Path*/
-        if (getEapCAPath() && !TextUtils.isEmpty(mEapCAPath)) {
-            eapConfig.setFieldValue(WifiEnterpriseConfig.CA_PATH_KEY, mEapCAPath);
-        }
-        return true;
     }
 
     /**
@@ -474,104 +489,107 @@ public class SupplicantStaNetworkHal {
      * @return true if succeeds, false otherwise.
      */
     private boolean saveWifiEnterpriseConfig(String ssid, WifiEnterpriseConfig eapConfig) {
-        if (eapConfig == null) return false;
-        /** EAP method */
-        if (!setEapMethod(wifiConfigurationToSupplicantEapMethod(eapConfig.getEapMethod()))) {
-            Log.e(TAG, ssid + ": failed to set eap method: " + eapConfig.getEapMethod());
-            return false;
-        }
-        /** EAP Phase 2 method */
-        if (!setEapPhase2Method(wifiConfigurationToSupplicantEapPhase2Method(
-                eapConfig.getPhase2Method()))) {
-            Log.e(TAG, ssid + ": failed to set eap phase 2 method: " + eapConfig.getPhase2Method());
-            return false;
-        }
-        String eapParam = null;
-        /** EAP Identity */
-        eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.IDENTITY_KEY);
-        if (!TextUtils.isEmpty(eapParam)
-                && !setEapIdentity(NativeUtil.stringToByteArrayList(eapParam))) {
-            Log.e(TAG, ssid + ": failed to set eap identity: " + eapParam);
-            return false;
-        }
-        /** EAP Anonymous Identity */
-        eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.ANON_IDENTITY_KEY);
-        if (!TextUtils.isEmpty(eapParam)
-                && !setEapAnonymousIdentity(NativeUtil.stringToByteArrayList(eapParam))) {
-            Log.e(TAG, ssid + ": failed to set eap anonymous identity: " + eapParam);
-            return false;
-        }
-        /** EAP Password */
-        eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.PASSWORD_KEY);
-        if (!TextUtils.isEmpty(eapParam)
-                && !setEapPassword(NativeUtil.stringToByteArrayList(eapParam))) {
-            Log.e(TAG, ssid + ": failed to set eap password");
-            return false;
-        }
-        /** EAP Client Cert */
-        eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.CLIENT_CERT_KEY);
-        if (!TextUtils.isEmpty(eapParam) && !setEapClientCert(eapParam)) {
-            Log.e(TAG, ssid + ": failed to set eap client cert: " + eapParam);
-            return false;
-        }
-        /** EAP CA Cert */
-        eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.CA_CERT_KEY);
-        if (!TextUtils.isEmpty(eapParam) && !setEapCACert(eapParam)) {
-            Log.e(TAG, ssid + ": failed to set eap ca cert: " + eapParam);
-            return false;
-        }
-        /** EAP Subject Match */
-        eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.SUBJECT_MATCH_KEY);
-        if (!TextUtils.isEmpty(eapParam) && !setEapSubjectMatch(eapParam)) {
-            Log.e(TAG, ssid + ": failed to set eap subject match: " + eapParam);
-            return false;
-        }
-        /** EAP Engine ID */
-        eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.ENGINE_ID_KEY);
-        if (!TextUtils.isEmpty(eapParam) && !setEapEngineID(eapParam)) {
-            Log.e(TAG, ssid + ": failed to set eap engine id: " + eapParam);
-            return false;
-        }
-        /** EAP Engine */
-        eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.ENGINE_KEY);
-        if (!TextUtils.isEmpty(eapParam) && !setEapEngine(
-                eapParam.equals(WifiEnterpriseConfig.ENGINE_ENABLE) ? true : false)) {
-            Log.e(TAG, ssid + ": failed to set eap engine: " + eapParam);
-            return false;
-        }
-        /** EAP Private Key */
-        eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.PRIVATE_KEY_ID_KEY);
-        if (!TextUtils.isEmpty(eapParam) && !setEapPrivateKeyId(eapParam)) {
-            Log.e(TAG, ssid + ": failed to set eap private key: " + eapParam);
-            return false;
-        }
-        /** EAP Alt Subject Match */
-        eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.ALTSUBJECT_MATCH_KEY);
-        if (!TextUtils.isEmpty(eapParam) && !setEapAltSubjectMatch(eapParam)) {
-            Log.e(TAG, ssid + ": failed to set eap alt subject match: " + eapParam);
-            return false;
-        }
-        /** EAP Domain Suffix Match */
-        eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.DOM_SUFFIX_MATCH_KEY);
-        if (!TextUtils.isEmpty(eapParam) && !setEapDomainSuffixMatch(eapParam)) {
-            Log.e(TAG, ssid + ": failed to set eap domain suffix match: " + eapParam);
-            return false;
-        }
-        /** EAP CA Path*/
-        eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.CA_PATH_KEY);
-        if (!TextUtils.isEmpty(eapParam) && !setEapCAPath(eapParam)) {
-            Log.e(TAG, ssid + ": failed to set eap ca path: " + eapParam);
-            return false;
-        }
+        synchronized (mLock) {
+            if (eapConfig == null) return false;
+            /** EAP method */
+            if (!setEapMethod(wifiConfigurationToSupplicantEapMethod(eapConfig.getEapMethod()))) {
+                Log.e(TAG, ssid + ": failed to set eap method: " + eapConfig.getEapMethod());
+                return false;
+            }
+            /** EAP Phase 2 method */
+            if (!setEapPhase2Method(wifiConfigurationToSupplicantEapPhase2Method(
+                    eapConfig.getPhase2Method()))) {
+                Log.e(TAG, ssid + ": failed to set eap phase 2 method: "
+                        + eapConfig.getPhase2Method());
+                return false;
+            }
+            String eapParam = null;
+            /** EAP Identity */
+            eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.IDENTITY_KEY);
+            if (!TextUtils.isEmpty(eapParam)
+                    && !setEapIdentity(NativeUtil.stringToByteArrayList(eapParam))) {
+                Log.e(TAG, ssid + ": failed to set eap identity: " + eapParam);
+                return false;
+            }
+            /** EAP Anonymous Identity */
+            eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.ANON_IDENTITY_KEY);
+            if (!TextUtils.isEmpty(eapParam)
+                    && !setEapAnonymousIdentity(NativeUtil.stringToByteArrayList(eapParam))) {
+                Log.e(TAG, ssid + ": failed to set eap anonymous identity: " + eapParam);
+                return false;
+            }
+            /** EAP Password */
+            eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.PASSWORD_KEY);
+            if (!TextUtils.isEmpty(eapParam)
+                    && !setEapPassword(NativeUtil.stringToByteArrayList(eapParam))) {
+                Log.e(TAG, ssid + ": failed to set eap password");
+                return false;
+            }
+            /** EAP Client Cert */
+            eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.CLIENT_CERT_KEY);
+            if (!TextUtils.isEmpty(eapParam) && !setEapClientCert(eapParam)) {
+                Log.e(TAG, ssid + ": failed to set eap client cert: " + eapParam);
+                return false;
+            }
+            /** EAP CA Cert */
+            eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.CA_CERT_KEY);
+            if (!TextUtils.isEmpty(eapParam) && !setEapCACert(eapParam)) {
+                Log.e(TAG, ssid + ": failed to set eap ca cert: " + eapParam);
+                return false;
+            }
+            /** EAP Subject Match */
+            eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.SUBJECT_MATCH_KEY);
+            if (!TextUtils.isEmpty(eapParam) && !setEapSubjectMatch(eapParam)) {
+                Log.e(TAG, ssid + ": failed to set eap subject match: " + eapParam);
+                return false;
+            }
+            /** EAP Engine ID */
+            eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.ENGINE_ID_KEY);
+            if (!TextUtils.isEmpty(eapParam) && !setEapEngineID(eapParam)) {
+                Log.e(TAG, ssid + ": failed to set eap engine id: " + eapParam);
+                return false;
+            }
+            /** EAP Engine */
+            eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.ENGINE_KEY);
+            if (!TextUtils.isEmpty(eapParam) && !setEapEngine(
+                    eapParam.equals(WifiEnterpriseConfig.ENGINE_ENABLE) ? true : false)) {
+                Log.e(TAG, ssid + ": failed to set eap engine: " + eapParam);
+                return false;
+            }
+            /** EAP Private Key */
+            eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.PRIVATE_KEY_ID_KEY);
+            if (!TextUtils.isEmpty(eapParam) && !setEapPrivateKeyId(eapParam)) {
+                Log.e(TAG, ssid + ": failed to set eap private key: " + eapParam);
+                return false;
+            }
+            /** EAP Alt Subject Match */
+            eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.ALTSUBJECT_MATCH_KEY);
+            if (!TextUtils.isEmpty(eapParam) && !setEapAltSubjectMatch(eapParam)) {
+                Log.e(TAG, ssid + ": failed to set eap alt subject match: " + eapParam);
+                return false;
+            }
+            /** EAP Domain Suffix Match */
+            eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.DOM_SUFFIX_MATCH_KEY);
+            if (!TextUtils.isEmpty(eapParam) && !setEapDomainSuffixMatch(eapParam)) {
+                Log.e(TAG, ssid + ": failed to set eap domain suffix match: " + eapParam);
+                return false;
+            }
+            /** EAP CA Path*/
+            eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.CA_PATH_KEY);
+            if (!TextUtils.isEmpty(eapParam) && !setEapCAPath(eapParam)) {
+                Log.e(TAG, ssid + ": failed to set eap ca path: " + eapParam);
+                return false;
+            }
 
-        /** EAP Proactive Key Caching */
-        eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.OPP_KEY_CACHING);
-        if (!TextUtils.isEmpty(eapParam)
-                && !setEapProactiveKeyCaching(eapParam.equals("1") ? true : false)) {
-            Log.e(TAG, ssid + ": failed to set proactive key caching: " + eapParam);
-            return false;
+            /** EAP Proactive Key Caching */
+            eapParam = eapConfig.getFieldValue(WifiEnterpriseConfig.OPP_KEY_CACHING);
+            if (!TextUtils.isEmpty(eapParam)
+                    && !setEapProactiveKeyCaching(eapParam.equals("1") ? true : false)) {
+                Log.e(TAG, ssid + ": failed to set proactive key caching: " + eapParam);
+                return false;
+            }
+            return true;
         }
-        return true;
     }
 
     /**
@@ -981,11 +999,13 @@ public class SupplicantStaNetworkHal {
      * @return true if it succeeds, false otherwise.
      */
     public boolean setBssid(String bssidStr) {
-        try {
-            return setBssid(NativeUtil.macAddressToByteArray(bssidStr));
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + bssidStr, e);
-            return false;
+        synchronized (mLock) {
+            try {
+                return setBssid(NativeUtil.macAddressToByteArray(bssidStr));
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + bssidStr, e);
+                return false;
+            }
         }
     }
 
@@ -1793,10 +1813,12 @@ public class SupplicantStaNetworkHal {
      * @return anonymous identity string if succeeds, null otherwise.
      */
     public String fetchEapAnonymousIdentity() {
-        if (!getEapAnonymousIdentity()) {
-            return null;
+        synchronized (mLock) {
+            if (!getEapAnonymousIdentity()) {
+                return null;
+            }
+            return NativeUtil.stringFromByteArrayList(mEapAnonymousIdentity);
         }
-        return NativeUtil.stringFromByteArrayList(mEapAnonymousIdentity);
     }
 
     /** See ISupplicantStaNetwork.hal for documentation */
@@ -2103,40 +2125,42 @@ public class SupplicantStaNetworkHal {
      * @return true if succeeds, false otherwise.
      */
     public boolean sendNetworkEapSimGsmAuthResponse(String paramsStr) {
-        try {
-            Matcher match = GSM_AUTH_RESPONSE_PARAMS_PATTERN.matcher(paramsStr);
-            ArrayList<ISupplicantStaNetwork.NetworkResponseEapSimGsmAuthParams> params =
-                    new ArrayList<>();
-            while (match.find()) {
-                if (match.groupCount() != 2) {
+        synchronized (mLock) {
+            try {
+                Matcher match = GSM_AUTH_RESPONSE_PARAMS_PATTERN.matcher(paramsStr);
+                ArrayList<ISupplicantStaNetwork.NetworkResponseEapSimGsmAuthParams> params =
+                        new ArrayList<>();
+                while (match.find()) {
+                    if (match.groupCount() != 2) {
+                        Log.e(TAG, "Malformed gsm auth response params: " + paramsStr);
+                        return false;
+                    }
+                    ISupplicantStaNetwork.NetworkResponseEapSimGsmAuthParams param =
+                            new ISupplicantStaNetwork.NetworkResponseEapSimGsmAuthParams();
+                    byte[] kc = NativeUtil.hexStringToByteArray(match.group(1));
+                    if (kc == null || kc.length != param.kc.length) {
+                        Log.e(TAG, "Invalid kc value: " + match.group(1));
+                        return false;
+                    }
+                    byte[] sres = NativeUtil.hexStringToByteArray(match.group(2));
+                    if (sres == null || sres.length != param.sres.length) {
+                        Log.e(TAG, "Invalid sres value: " + match.group(2));
+                        return false;
+                    }
+                    System.arraycopy(kc, 0, param.kc, 0, param.kc.length);
+                    System.arraycopy(sres, 0, param.sres, 0, param.sres.length);
+                    params.add(param);
+                }
+                // The number of kc/sres pairs can either be 2 or 3 depending on the request.
+                if (params.size() > 3 || params.size() < 2) {
                     Log.e(TAG, "Malformed gsm auth response params: " + paramsStr);
                     return false;
                 }
-                ISupplicantStaNetwork.NetworkResponseEapSimGsmAuthParams param =
-                        new ISupplicantStaNetwork.NetworkResponseEapSimGsmAuthParams();
-                byte[] kc = NativeUtil.hexStringToByteArray(match.group(1));
-                if (kc == null || kc.length != param.kc.length) {
-                    Log.e(TAG, "Invalid kc value: " + match.group(1));
-                    return false;
-                }
-                byte[] sres = NativeUtil.hexStringToByteArray(match.group(2));
-                if (sres == null || sres.length != param.sres.length) {
-                    Log.e(TAG, "Invalid sres value: " + match.group(2));
-                    return false;
-                }
-                System.arraycopy(kc, 0, param.kc, 0, param.kc.length);
-                System.arraycopy(sres, 0, param.sres, 0, param.sres.length);
-                params.add(param);
-            }
-            // The number of kc/sres pairs can either be 2 or 3 depending on the request.
-            if (params.size() > 3 || params.size() < 2) {
-                Log.e(TAG, "Malformed gsm auth response params: " + paramsStr);
+                return sendNetworkEapSimGsmAuthResponse(params);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + paramsStr, e);
                 return false;
             }
-            return sendNetworkEapSimGsmAuthResponse(params);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + paramsStr, e);
-            return false;
         }
     }
 
@@ -2177,38 +2201,40 @@ public class SupplicantStaNetworkHal {
      * @return true if succeeds, false otherwise.
      */
     public boolean sendNetworkEapSimUmtsAuthResponse(String paramsStr) {
-        try {
-            Matcher match = UMTS_AUTH_RESPONSE_PARAMS_PATTERN.matcher(paramsStr);
-            if (!match.find() || match.groupCount() != 3) {
-                Log.e(TAG, "Malformed umts auth response params: " + paramsStr);
+        synchronized (mLock) {
+            try {
+                Matcher match = UMTS_AUTH_RESPONSE_PARAMS_PATTERN.matcher(paramsStr);
+                if (!match.find() || match.groupCount() != 3) {
+                    Log.e(TAG, "Malformed umts auth response params: " + paramsStr);
+                    return false;
+                }
+                ISupplicantStaNetwork.NetworkResponseEapSimUmtsAuthParams params =
+                        new ISupplicantStaNetwork.NetworkResponseEapSimUmtsAuthParams();
+                byte[] ik = NativeUtil.hexStringToByteArray(match.group(1));
+                if (ik == null || ik.length != params.ik.length) {
+                    Log.e(TAG, "Invalid ik value: " + match.group(1));
+                    return false;
+                }
+                byte[] ck = NativeUtil.hexStringToByteArray(match.group(2));
+                if (ck == null || ck.length != params.ck.length) {
+                    Log.e(TAG, "Invalid ck value: " + match.group(2));
+                    return false;
+                }
+                byte[] res = NativeUtil.hexStringToByteArray(match.group(3));
+                if (res == null || res.length == 0) {
+                    Log.e(TAG, "Invalid res value: " + match.group(3));
+                    return false;
+                }
+                System.arraycopy(ik, 0, params.ik, 0, params.ik.length);
+                System.arraycopy(ck, 0, params.ck, 0, params.ck.length);
+                for (byte b : res) {
+                    params.res.add(b);
+                }
+                return sendNetworkEapSimUmtsAuthResponse(params);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + paramsStr, e);
                 return false;
             }
-            ISupplicantStaNetwork.NetworkResponseEapSimUmtsAuthParams params =
-                    new ISupplicantStaNetwork.NetworkResponseEapSimUmtsAuthParams();
-            byte[] ik = NativeUtil.hexStringToByteArray(match.group(1));
-            if (ik == null || ik.length != params.ik.length) {
-                Log.e(TAG, "Invalid ik value: " + match.group(1));
-                return false;
-            }
-            byte[] ck = NativeUtil.hexStringToByteArray(match.group(2));
-            if (ck == null || ck.length != params.ck.length) {
-                Log.e(TAG, "Invalid ck value: " + match.group(2));
-                return false;
-            }
-            byte[] res = NativeUtil.hexStringToByteArray(match.group(3));
-            if (res == null || res.length == 0) {
-                Log.e(TAG, "Invalid res value: " + match.group(3));
-                return false;
-            }
-            System.arraycopy(ik, 0, params.ik, 0, params.ik.length);
-            System.arraycopy(ck, 0, params.ck, 0, params.ck.length);
-            for (byte b : res) {
-                params.res.add(b);
-            }
-            return sendNetworkEapSimUmtsAuthResponse(params);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + paramsStr, e);
-            return false;
         }
     }
 
@@ -2235,21 +2261,23 @@ public class SupplicantStaNetworkHal {
      * @return true if succeeds, false otherwise.
      */
     public boolean sendNetworkEapSimUmtsAutsResponse(String paramsStr) {
-        try {
-            Matcher match = UMTS_AUTS_RESPONSE_PARAMS_PATTERN.matcher(paramsStr);
-            if (!match.find() || match.groupCount() != 1) {
-                Log.e(TAG, "Malformed umts auts response params: " + paramsStr);
+        synchronized (mLock) {
+            try {
+                Matcher match = UMTS_AUTS_RESPONSE_PARAMS_PATTERN.matcher(paramsStr);
+                if (!match.find() || match.groupCount() != 1) {
+                    Log.e(TAG, "Malformed umts auts response params: " + paramsStr);
+                    return false;
+                }
+                byte[] auts = NativeUtil.hexStringToByteArray(match.group(1));
+                if (auts == null || auts.length != 14) {
+                    Log.e(TAG, "Invalid auts value: " + match.group(1));
+                    return false;
+                }
+                return sendNetworkEapSimUmtsAutsResponse(auts);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + paramsStr, e);
                 return false;
             }
-            byte[] auts = NativeUtil.hexStringToByteArray(match.group(1));
-            if (auts == null || auts.length != 14) {
-                Log.e(TAG, "Invalid auts value: " + match.group(1));
-                return false;
-            }
-            return sendNetworkEapSimUmtsAutsResponse(auts);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + paramsStr, e);
-            return false;
         }
     }
     /** See ISupplicantStaNetwork.hal for documentation */
@@ -2288,12 +2316,14 @@ public class SupplicantStaNetworkHal {
      * @return true if succeeds, false otherwise.
      */
     public boolean sendNetworkEapIdentityResponse(String identityStr) {
-        try {
-            ArrayList<Byte> identity = NativeUtil.stringToByteArrayList(identityStr);
-            return sendNetworkEapIdentityResponse(identity);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + identityStr, e);
-            return false;
+        synchronized (mLock) {
+            try {
+                ArrayList<Byte> identity = NativeUtil.stringToByteArrayList(identityStr);
+                return sendNetworkEapIdentityResponse(identity);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + identityStr, e);
+                return false;
+            }
         }
     }
     /** See ISupplicantStaNetwork.hal for documentation */
@@ -2318,11 +2348,13 @@ public class SupplicantStaNetworkHal {
      * @return Hex string corresponding to the NFC token or null for failure.
      */
     public String getWpsNfcConfigurationToken() {
-        ArrayList<Byte> token = getWpsNfcConfigurationTokenInternal();
-        if (token == null) {
-            return null;
+        synchronized (mLock) {
+            ArrayList<Byte> token = getWpsNfcConfigurationTokenInternal();
+            if (token == null) {
+                return null;
+            }
+            return NativeUtil.hexStringFromByteArray(NativeUtil.byteArrayFromArrayList(token));
         }
-        return NativeUtil.hexStringFromByteArray(NativeUtil.byteArrayFromArrayList(token));
     }
 
     /** See ISupplicantStaNetwork.hal for documentation */
@@ -2350,16 +2382,18 @@ public class SupplicantStaNetworkHal {
      * otherwise
      */
     private boolean checkStatusAndLogFailure(SupplicantStatus status, final String methodStr) {
-        if (status.code != SupplicantStatusCode.SUCCESS) {
-            Log.e(TAG, "ISupplicantStaNetwork." + methodStr + " failed: "
-                    + SupplicantStaIfaceHal.supplicantStatusCodeToString(status.code) + ", "
-                    + status.debugMessage);
-            return false;
-        } else {
-            if (mVerboseLoggingEnabled) {
-                Log.d(TAG, "ISupplicantStaNetwork." + methodStr + " succeeded");
+        synchronized (mLock) {
+            if (status.code != SupplicantStatusCode.SUCCESS) {
+                Log.e(TAG, "ISupplicantStaNetwork." + methodStr + " failed: "
+                        + SupplicantStaIfaceHal.supplicantStatusCodeToString(status.code) + ", "
+                        + status.debugMessage);
+                return false;
+            } else {
+                if (mVerboseLoggingEnabled) {
+                    Log.d(TAG, "ISupplicantStaNetwork." + methodStr + " succeeded");
+                }
+                return true;
             }
-            return true;
         }
     }
 
@@ -2367,8 +2401,10 @@ public class SupplicantStaNetworkHal {
      * Helper function to log callbacks.
      */
     private void logCallback(final String methodStr) {
-        if (mVerboseLoggingEnabled) {
-            Log.d(TAG, "ISupplicantStaNetworkCallback." + methodStr + " received");
+        synchronized (mLock) {
+            if (mVerboseLoggingEnabled) {
+                Log.d(TAG, "ISupplicantStaNetworkCallback." + methodStr + " received");
+            }
         }
     }
 
@@ -2376,43 +2412,51 @@ public class SupplicantStaNetworkHal {
      * Returns false if ISupplicantStaNetwork is null, and logs failure of methodStr
      */
     private boolean checkISupplicantStaNetworkAndLogFailure(final String methodStr) {
-        if (mISupplicantStaNetwork == null) {
-            Log.e(TAG, "Can't call " + methodStr + ", ISupplicantStaNetwork is null");
-            return false;
+        synchronized (mLock) {
+            if (mISupplicantStaNetwork == null) {
+                Log.e(TAG, "Can't call " + methodStr + ", ISupplicantStaNetwork is null");
+                return false;
+            }
+            return true;
         }
-        return true;
     }
 
     private void handleRemoteException(RemoteException e, String methodStr) {
-        mISupplicantStaNetwork = null;
-        Log.e(TAG, "ISupplicantStaNetwork." + methodStr + " failed with exception", e);
+        synchronized (mLock) {
+            mISupplicantStaNetwork = null;
+            Log.e(TAG, "ISupplicantStaNetwork." + methodStr + " failed with exception", e);
+        }
     }
 
     /**
      * Adds FT flags for networks if the device supports it.
      */
     private BitSet addFastTransitionFlags(BitSet keyManagementFlags) {
-        if (!mSystemSupportsFastBssTransition) {
-            return keyManagementFlags;
+        synchronized (mLock) {
+            if (!mSystemSupportsFastBssTransition) {
+                return keyManagementFlags;
+            }
+            BitSet modifiedFlags = (BitSet) keyManagementFlags.clone();
+            if (keyManagementFlags.get(WifiConfiguration.KeyMgmt.WPA_PSK)) {
+                modifiedFlags.set(WifiConfiguration.KeyMgmt.FT_PSK);
+            }
+            if (keyManagementFlags.get(WifiConfiguration.KeyMgmt.WPA_EAP)) {
+                modifiedFlags.set(WifiConfiguration.KeyMgmt.FT_EAP);
+            }
+            return modifiedFlags;
         }
-        BitSet modifiedFlags = (BitSet) keyManagementFlags.clone();
-        if (keyManagementFlags.get(WifiConfiguration.KeyMgmt.WPA_PSK)) {
-            modifiedFlags.set(WifiConfiguration.KeyMgmt.FT_PSK);
-        }
-        if (keyManagementFlags.get(WifiConfiguration.KeyMgmt.WPA_EAP)) {
-            modifiedFlags.set(WifiConfiguration.KeyMgmt.FT_EAP);
-        }
-        return modifiedFlags;
     }
 
     /**
      * Removes FT flags for networks if the device supports it.
      */
     private BitSet removeFastTransitionFlags(BitSet keyManagementFlags) {
-        BitSet modifiedFlags = (BitSet) keyManagementFlags.clone();
-        modifiedFlags.clear(WifiConfiguration.KeyMgmt.FT_PSK);
-        modifiedFlags.clear(WifiConfiguration.KeyMgmt.FT_EAP);
-        return modifiedFlags;
+        synchronized (mLock) {
+            BitSet modifiedFlags = (BitSet) keyManagementFlags.clone();
+            modifiedFlags.clear(WifiConfiguration.KeyMgmt.FT_PSK);
+            modifiedFlags.clear(WifiConfiguration.KeyMgmt.FT_EAP);
+            return modifiedFlags;
+        }
     }
 
     /**
@@ -2496,8 +2540,8 @@ public class SupplicantStaNetworkHal {
         @Override
         public void onNetworkEapSimGsmAuthRequest(
                 ISupplicantStaNetworkCallback.NetworkRequestEapSimGsmAuthParams params) {
-            logCallback("onNetworkEapSimGsmAuthRequest");
             synchronized (mLock) {
+                logCallback("onNetworkEapSimGsmAuthRequest");
                 String[] data = new String[params.rands.size()];
                 int i = 0;
                 for (byte[] rand : params.rands) {
@@ -2511,8 +2555,8 @@ public class SupplicantStaNetworkHal {
         @Override
         public void onNetworkEapSimUmtsAuthRequest(
                 ISupplicantStaNetworkCallback.NetworkRequestEapSimUmtsAuthParams params) {
-            logCallback("onNetworkEapSimUmtsAuthRequest");
             synchronized (mLock) {
+                logCallback("onNetworkEapSimUmtsAuthRequest");
                 String randHex = NativeUtil.hexStringFromByteArray(params.rand);
                 String autnHex = NativeUtil.hexStringFromByteArray(params.autn);
                 String[] data = {randHex, autnHex};
@@ -2523,8 +2567,8 @@ public class SupplicantStaNetworkHal {
 
         @Override
         public void onNetworkEapIdentityRequest() {
-            logCallback("onNetworkEapIdentityRequest");
             synchronized (mLock) {
+                logCallback("onNetworkEapIdentityRequest");
                 mWifiMonitor.broadcastNetworkIdentityRequestEvent(
                         mIfaceName, mFramewokNetworkId, mSsid);
             }

@@ -29,6 +29,7 @@ import android.net.wifi.WifiScanner;
 import android.net.wifi.WifiWakeReasonAndCounts;
 import android.os.SystemClock;
 import android.util.Log;
+import android.util.Pair;
 import android.util.SparseArray;
 
 import com.android.internal.annotations.Immutable;
@@ -90,6 +91,9 @@ public class WifiNative {
    /********************************************************
     * Native Initialization/Deinitialization
     ********************************************************/
+    public static final int SETUP_SUCCESS = 0;
+    public static final int SETUP_FAILURE_HAL = 1;
+    public static final int SETUP_FAILURE_WIFICOND = 2;
 
    /**
     * Setup wifi native for Client mode operations.
@@ -98,15 +102,19 @@ public class WifiNative {
     * 2. Setup Wificond to operate in client mode and retrieve the handle to use for client
     * operations.
     *
-    * @return An IClientInterface as wificond client interface binder handler.
-    * Returns null on failure.
+    * @return Pair of <Integer, IClientInterface> to indicate the status and the associated wificond
+    * client interface binder handler (will be null on failure).
     */
-    public IClientInterface setupForClientMode() {
+    public Pair<Integer, IClientInterface> setupForClientMode() {
         if (!startHalIfNecessary(true)) {
             Log.e(mTAG, "Failed to start HAL for client mode");
-            return null;
+            return Pair.create(SETUP_FAILURE_HAL, null);
         }
-        return mWificondControl.setupDriverForClientMode();
+        IClientInterface iClientInterface = mWificondControl.setupDriverForClientMode();
+        if (iClientInterface == null) {
+            return Pair.create(SETUP_FAILURE_WIFICOND, null);
+        }
+        return Pair.create(SETUP_SUCCESS, iClientInterface);
     }
 
     /**
@@ -115,33 +123,33 @@ public class WifiNative {
      * 1. Starts the Wifi HAL and configures it in AP mode.
      * 2. Setup Wificond to operate in AP mode and retrieve the handle to use for ap operations.
      *
-     * @return An IApInterface as wificond Ap interface binder handler.
-     * Returns null on failure.
+     * @return Pair of <Integer, IApInterface> to indicate the status and the associated wificond
+     * AP interface binder handler (will be null on failure).
      */
-    public IApInterface setupForSoftApMode() {
+    public Pair<Integer, IApInterface> setupForSoftApMode() {
         if (!startHalIfNecessary(false)) {
             Log.e(mTAG, "Failed to start HAL for AP mode");
-            return null;
+            return Pair.create(SETUP_FAILURE_HAL, null);
         }
-        return mWificondControl.setupDriverForSoftApMode();
+        IApInterface iApInterface = mWificondControl.setupDriverForSoftApMode();
+        if (iApInterface == null) {
+            return Pair.create(SETUP_FAILURE_WIFICOND, null);
+        }
+        return Pair.create(SETUP_SUCCESS, iApInterface);
     }
 
     /**
      * Teardown all mode configurations in wifi native.
      *
-     * 1. Tears down all the interfaces from Wificond.
-     * 2. Stops the Wifi HAL.
-     *
-     * @return Returns true on success.
+     * 1. Stops the Wifi HAL.
+     * 2. Tears down all the interfaces from Wificond.
      */
-    public boolean tearDown() {
+    public void tearDown() {
+        stopHalIfNecessary();
         if (!mWificondControl.tearDownInterfaces()) {
             // TODO(b/34859006): Handle failures.
             Log.e(mTAG, "Failed to teardown interfaces from Wificond");
-            return false;
         }
-        stopHalIfNecessary();
-        return true;
     }
 
     /********************************************************
@@ -219,7 +227,16 @@ public class WifiNative {
      * Returns an empty ArrayList on failure.
      */
     public ArrayList<ScanDetail> getScanResults() {
-        return mWificondControl.getScanResults();
+        return mWificondControl.getScanResults(WificondControl.SCAN_TYPE_SINGLE_SCAN);
+    }
+
+    /**
+     * Fetch the latest scan result from kernel via wificond.
+     * @return Returns an ArrayList of ScanDetail.
+     * Returns an empty ArrayList on failure.
+     */
+    public ArrayList<ScanDetail> getPnoScanResults() {
+        return mWificondControl.getScanResults(WificondControl.SCAN_TYPE_PNO_SCAN);
     }
 
     /**
@@ -1528,26 +1545,6 @@ public class WifiNative {
     }
 
     /**
-     * Set the PNO settings & the network list in HAL to start PNO.
-     * @param settings PNO settings and network list.
-     * @param eventHandler Handler to receive notifications back during PNO scan.
-     * @return true if success, false otherwise
-     */
-    public boolean setPnoList(PnoSettings settings, PnoEventHandler eventHandler) {
-        Log.e(mTAG, "setPnoList not supported");
-        return false;
-    }
-
-    /**
-     * Reset the PNO settings in HAL to stop PNO.
-     * @return true if success, false otherwise
-     */
-    public boolean resetPnoList() {
-        Log.e(mTAG, "resetPnoList not supported");
-        return false;
-    }
-
-    /**
      * Start sending the specified keep alive packets periodically.
      *
      * @param slot Integer used to identify each request.
@@ -1673,6 +1670,24 @@ public class WifiNative {
         // Pass in an empty RoamingConfig object which translates to zero size
         // blacklist and whitelist to reset the firmware roaming configuration.
         return mWifiVendorHal.configureRoaming(new RoamingConfig());
+    }
+
+    /**
+     * Tx power level scenarios that can be selected.
+     */
+    public static final int TX_POWER_SCENARIO_NORMAL = 0;
+    public static final int TX_POWER_SCENARIO_VOICE_CALL = 1;
+
+    /**
+     * Select one of the pre-configured TX power level scenarios or reset it back to normal.
+     * Primarily used for meeting SAR requirements during voice calls.
+     *
+     * @param scenario Should be one {@link #TX_POWER_SCENARIO_NORMAL} or
+     *        {@link #TX_POWER_SCENARIO_VOICE_CALL}.
+     * @return true for success; false for failure or if the HAL version does not support this API.
+     */
+    public boolean selectTxPowerScenario(int scenario) {
+        return mWifiVendorHal.selectTxPowerScenario(scenario);
     }
 
     /********************************************************

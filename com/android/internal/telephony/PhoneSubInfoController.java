@@ -24,6 +24,7 @@ import android.content.pm.PackageManager;
 import android.os.Binder;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.telephony.ImsiEncryptionInfo;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.SubscriptionManager;
 import android.telephony.Rlog;
@@ -103,6 +104,35 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
             return null;
         }
     }
+
+    public ImsiEncryptionInfo getCarrierInfoForImsiEncryption(int subId, int keyType,
+            String callingPackage) {
+        Phone phone = getPhone(subId);
+        if (phone != null) {
+            if (!checkReadPhoneState(callingPackage, "getCarrierInfoForImsiEncryption")) {
+                return null;
+            }
+            return phone.getCarrierInfoForImsiEncryption(keyType);
+        } else {
+            loge("getCarrierInfoForImsiEncryption phone is null for Subscription:" + subId);
+            return null;
+        }
+    }
+
+    public void setCarrierInfoForImsiEncryption(int subId, String callingPackage,
+                                                ImsiEncryptionInfo imsiEncryptionInfo) {
+        Phone phone = getPhone(subId);
+        if (phone != null) {
+            if (!checkReadPhoneState(callingPackage, "setCarrierInfoForImsiEncryption")) {
+                return;
+            }
+            phone.setCarrierInfoForImsiEncryption(imsiEncryptionInfo);
+        } else {
+            loge("setCarrierInfoForImsiEncryption phone is null for Subscription:" + subId);
+            return;
+        }
+    }
+
 
     public String getDeviceSvn(String callingPackage) {
         return getDeviceSvnUsingSubId(getDefaultSubscription(), callingPackage);

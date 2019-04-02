@@ -248,9 +248,9 @@ public class WifiController extends StateMachine {
     }
 
     private void readWifiSleepPolicy() {
-        mSleepPolicy = mFacade.getIntegerSetting(mContext,
-                Settings.Global.WIFI_SLEEP_POLICY,
-                Settings.Global.WIFI_SLEEP_POLICY_NEVER);
+        // This should always set to default value because the settings menu to toggle this
+        // has been removed now.
+        mSleepPolicy = Settings.Global.WIFI_SLEEP_POLICY_NEVER;
     }
 
     private void readWifiReEnableDelay() {

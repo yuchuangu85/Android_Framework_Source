@@ -20,6 +20,7 @@ import com.android.internal.R;
 
 import android.content.Context;
 import android.os.Build;
+import android.os.SystemProperties;
 import android.provider.Settings;
 import android.text.TextUtils;
 
@@ -35,6 +36,7 @@ public class AmbientDisplayConfiguration {
         return pulseOnNotificationEnabled(user)
                 || pulseOnPickupEnabled(user)
                 || pulseOnDoubleTapEnabled(user)
+                || pulseOnLongPressEnabled(user)
                 || alwaysOnEnabled(user);
     }
 
@@ -52,13 +54,17 @@ public class AmbientDisplayConfiguration {
     }
 
     public boolean pulseOnPickupEnabled(int user) {
-        return boolSettingDefaultOn(Settings.Secure.DOZE_PULSE_ON_PICK_UP, user)
-                && pulseOnPickupAvailable();
+        boolean settingEnabled = boolSettingDefaultOn(Settings.Secure.DOZE_PULSE_ON_PICK_UP, user);
+        return (settingEnabled || alwaysOnEnabled(user)) && pulseOnPickupAvailable();
     }
 
     public boolean pulseOnPickupAvailable() {
         return mContext.getResources().getBoolean(R.bool.config_dozePulsePickup)
                 && ambientDisplayAvailable();
+    }
+
+    public boolean pulseOnPickupCanBeModified(int user) {
+        return !alwaysOnEnabled(user);
     }
 
     public boolean pulseOnDoubleTapEnabled(int user) {
@@ -74,23 +80,53 @@ public class AmbientDisplayConfiguration {
         return mContext.getResources().getString(R.string.config_dozeDoubleTapSensorType);
     }
 
+    public String longPressSensorType() {
+        return mContext.getResources().getString(R.string.config_dozeLongPressSensorType);
+    }
+
+    public boolean pulseOnLongPressEnabled(int user) {
+        return pulseOnLongPressAvailable() && boolSettingDefaultOff(
+                Settings.Secure.DOZE_PULSE_ON_LONG_PRESS, user);
+    }
+
+    private boolean pulseOnLongPressAvailable() {
+        return !TextUtils.isEmpty(longPressSensorType());
+    }
+
     public boolean alwaysOnEnabled(int user) {
-        return boolSettingDefaultOff(Settings.Secure.DOZE_ALWAYS_ON, user)
-                && alwaysOnAvailable();
+        return boolSettingDefaultOn(Settings.Secure.DOZE_ALWAYS_ON, user) && alwaysOnAvailable()
+                && !accessibilityInversionEnabled(user);
     }
 
     public boolean alwaysOnAvailable() {
-        // Does not work properly yet.
-        return false;
+        return (alwaysOnDisplayDebuggingEnabled() || alwaysOnDisplayAvailable())
+                && ambientDisplayAvailable();
+    }
+
+    public boolean alwaysOnAvailableForUser(int user) {
+        return alwaysOnAvailable() && !accessibilityInversionEnabled(user);
     }
 
     public String ambientDisplayComponent() {
         return mContext.getResources().getString(R.string.config_dozeComponent);
     }
 
+    public boolean accessibilityInversionEnabled(int user) {
+        return boolSettingDefaultOff(Settings.Secure.ACCESSIBILITY_DISPLAY_INVERSION_ENABLED, user);
+    }
+
     private boolean ambientDisplayAvailable() {
         return !TextUtils.isEmpty(ambientDisplayComponent());
     }
+
+    private boolean alwaysOnDisplayAvailable() {
+        return mContext.getResources().getBoolean(R.bool.config_dozeAlwaysOnDisplayAvailable);
+    }
+
+    private boolean alwaysOnDisplayDebuggingEnabled() {
+        return SystemProperties.getBoolean("debug.doze.aod", false) && Build.IS_DEBUGGABLE;
+    }
+
 
     private boolean boolSettingDefaultOn(String name, int user) {
         return boolSetting(name, user, 1);

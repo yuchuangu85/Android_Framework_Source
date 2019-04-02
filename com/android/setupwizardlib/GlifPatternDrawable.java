@@ -228,7 +228,7 @@ public class GlifPatternDrawable extends Drawable {
             p.close();
 
             p = sPatternPaths[5] = new Path();
-            p.moveTo(178.44286f, 766.85714f);
+            p.moveTo(178.44286f, 766.8571f);
             p.lineTo(308.7f, 768f);
             p.cubicTo(381.7f, 604.6f, 481.6f, 344.3f, 562.2f, 0f);
             p.lineTo(0f, 0f);

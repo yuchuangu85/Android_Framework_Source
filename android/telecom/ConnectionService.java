@@ -92,6 +92,24 @@ public abstract class ConnectionService extends Service {
     @SdkConstant(SdkConstant.SdkConstantType.SERVICE_ACTION)
     public static final String SERVICE_INTERFACE = "android.telecom.ConnectionService";
 
+    /**
+     * Boolean extra used by Telecom to inform a {@link ConnectionService} that the purpose of it
+     * being asked to create a new outgoing {@link Connection} is to perform a handover of an
+     * ongoing call on the device from another {@link PhoneAccount}/{@link ConnectionService}.  Will
+     * be specified in the {@link ConnectionRequest#getExtras()} passed by Telecom when
+     * {@link #onCreateOutgoingConnection(PhoneAccountHandle, ConnectionRequest)} is called.
+     * <p>
+     * When your {@link ConnectionService} receives this extra, it should communicate the fact that
+     * this is a handover to the other device's matching {@link ConnectionService}.  That
+     * {@link ConnectionService} will continue the handover using
+     * {@link TelecomManager#addNewIncomingCall(PhoneAccountHandle, Bundle)}, specifying
+     * {@link TelecomManager#EXTRA_IS_HANDOVER}.  Telecom will match the phone numbers of the
+     * handover call on the other device with ongoing calls for {@link ConnectionService}s which
+     * support {@link PhoneAccount#EXTRA_SUPPORTS_HANDOVER_FROM}.
+     * @hide
+     */
+    public static final String EXTRA_IS_HANDOVER = TelecomManager.EXTRA_IS_HANDOVER;
+
     // Flag controlling whether PII is emitted into the logs
     private static final boolean PII_DEBUG = Log.isLoggable(android.util.Log.DEBUG);
 
@@ -1387,6 +1405,7 @@ public abstract class ConnectionService extends Service {
                         connection.isRingbackRequested(),
                         connection.getAudioModeIsVoip(),
                         connection.getConnectTimeMillis(),
+                        connection.getConnectElapsedTimeMillis(),
                         connection.getStatusHints(),
                         connection.getDisconnectCause(),
                         createIdList(connection.getConferenceables()),
@@ -1422,6 +1441,12 @@ public abstract class ConnectionService extends Service {
      */
     private void notifyCreateConnectionComplete(final String callId) {
         Log.i(this, "notifyCreateConnectionComplete %s", callId);
+        if (callId == null) {
+            // This could happen if the connection fails quickly and is removed from the
+            // ConnectionService before Telecom sends the create connection complete callback.
+            Log.w(this, "notifyCreateConnectionComplete: callId is null.");
+            return;
+        }
         onCreateConnectionComplete(findConnectionForAction(callId,
                 "notifyCreateConnectionComplete"));
     }
@@ -1656,6 +1681,7 @@ public abstract class ConnectionService extends Service {
         Log.d(this, "stopRtt(%s)", callId);
         if (mConnectionById.containsKey(callId)) {
             findConnectionForAction(callId, "stopRtt").onStopRtt();
+            findConnectionForAction(callId, "stopRtt").unsetRttProperty();
         } else if (mConferenceById.containsKey(callId)) {
             Log.w(this, "stopRtt called on a conference.");
         }
@@ -1797,6 +1823,7 @@ public abstract class ConnectionService extends Service {
                             null : conference.getVideoProvider().getInterface(),
                     conference.getVideoState(),
                     conference.getConnectTimeMillis(),
+                    conference.getConnectElapsedTime(),
                     conference.getStatusHints(),
                     conference.getExtras());
 
@@ -1862,6 +1889,7 @@ public abstract class ConnectionService extends Service {
                     connection.isRingbackRequested(),
                     connection.getAudioModeIsVoip(),
                     connection.getConnectTimeMillis(),
+                    connection.getConnectElapsedTimeMillis(),
                     connection.getStatusHints(),
                     connection.getDisconnectCause(),
                     emptyList,
@@ -2147,7 +2175,7 @@ public abstract class ConnectionService extends Service {
     }
 
     private Connection findConnectionForAction(String callId, String action) {
-        if (mConnectionById.containsKey(callId)) {
+        if (callId != null && mConnectionById.containsKey(callId)) {
             return mConnectionById.get(callId);
         }
         Log.w(this, "%s - Cannot find Connection %s", action, callId);

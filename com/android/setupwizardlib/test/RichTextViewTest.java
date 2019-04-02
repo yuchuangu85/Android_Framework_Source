@@ -18,9 +18,16 @@ package com.android.setupwizardlib.test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import android.annotation.SuppressLint;
+import android.content.Context;
+import android.content.ContextWrapper;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
@@ -30,6 +37,7 @@ import android.text.Spanned;
 import android.text.style.TextAppearanceSpan;
 
 import com.android.setupwizardlib.span.LinkSpan;
+import com.android.setupwizardlib.span.LinkSpan.OnLinkClickListener;
 import com.android.setupwizardlib.view.RichTextView;
 
 import org.junit.Test;
@@ -64,6 +72,45 @@ public class RichTextViewTest {
     }
 
     @Test
+    public void testOnLinkClickListener() {
+        Annotation link = new Annotation("link", "foobar");
+        SpannableStringBuilder ssb = new SpannableStringBuilder("Hello world");
+        ssb.setSpan(link, 1, 2, 0 /* flags */);
+
+        RichTextView textView = new RichTextView(InstrumentationRegistry.getContext());
+        textView.setText(ssb);
+
+        OnLinkClickListener listener = mock(OnLinkClickListener.class);
+        textView.setOnLinkClickListener(listener);
+
+        assertSame(listener, textView.getOnLinkClickListener());
+
+        CharSequence text = textView.getText();
+        LinkSpan[] spans = ((Spanned) text).getSpans(0, text.length(), LinkSpan.class);
+        spans[0].onClick(textView);
+
+        verify(listener).onLinkClick(eq(spans[0]));
+    }
+
+    @Test
+    public void testLegacyContextOnClickListener() {
+        // Click listener implemented by context should still be invoked for compatibility.
+        Annotation link = new Annotation("link", "foobar");
+        SpannableStringBuilder ssb = new SpannableStringBuilder("Hello world");
+        ssb.setSpan(link, 1, 2, 0 /* flags */);
+
+        TestContext context = spy(new TestContext(InstrumentationRegistry.getTargetContext()));
+        RichTextView textView = new RichTextView(context);
+        textView.setText(ssb);
+
+        CharSequence text = textView.getText();
+        LinkSpan[] spans = ((Spanned) text).getSpans(0, text.length(), LinkSpan.class);
+        spans[0].onClick(textView);
+
+        verify(context).onClick(eq(spans[0]));
+    }
+
+    @Test
     public void testTextStyle() {
         Annotation link = new Annotation("textAppearance", "foobar");
         SpannableStringBuilder ssb = new SpannableStringBuilder("Hello world");
@@ -85,7 +132,7 @@ public class RichTextViewTest {
     }
 
     @Test
-    public void testTextContaininingLinksAreFocusable() {
+    public void testTextContainingLinksAreFocusable() {
         Annotation testLink = new Annotation("link", "value");
         SpannableStringBuilder spannableStringBuilder = new SpannableStringBuilder("Linked");
         spannableStringBuilder.setSpan(testLink, 0, 3, 0);
@@ -112,7 +159,7 @@ public class RichTextViewTest {
     // should also be automatically changed.
     @SuppressLint("SetTextI18n")  // It's OK. This is just a test.
     @Test
-    public void testRichTxtViewFocusChangesWithTextChange() {
+    public void testRichTextViewFocusChangesWithTextChange() {
         RichTextView textView = new RichTextView(InstrumentationRegistry.getContext());
         textView.setText("Thou shall not be focusable!");
 
@@ -123,5 +170,17 @@ public class RichTextViewTest {
         spannableStringBuilder.setSpan(new Annotation("link", "focus:on_me"), 0, 1, 0);
         textView.setText(spannableStringBuilder);
         assertTrue(textView.isFocusable());
+    }
+
+    public static class TestContext extends ContextWrapper implements LinkSpan.OnClickListener {
+
+        public TestContext(Context base) {
+            super(base);
+        }
+
+        @Override
+        public void onClick(LinkSpan span) {
+            // Ignore. Can be verified using Mockito
+        }
     }
 }

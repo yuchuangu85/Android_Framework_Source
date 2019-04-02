@@ -87,6 +87,8 @@ class IdentityScope extends Identity {
         } else {
 
             try {
+                // Android-changed: Actually set the system scope after initializing it
+                // Class.forName(classname);
                 scope = (IdentityScope) Class.forName(classname).newInstance();
             } catch (Exception e) {
                 //Security.error("unable to establish a system scope from " +

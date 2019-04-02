@@ -18,6 +18,7 @@ package com.android.systemui.doze;
 
 import android.annotation.AnyThread;
 import android.app.ActivityManager;
+import android.app.AlarmManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.database.ContentObserver;
@@ -29,6 +30,7 @@ import android.hardware.TriggerEvent;
 import android.hardware.TriggerEventListener;
 import android.net.Uri;
 import android.os.Handler;
+import android.os.SystemClock;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.TextUtils;
@@ -38,6 +40,7 @@ import com.android.internal.hardware.AmbientDisplayConfiguration;
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto;
 import com.android.systemui.statusbar.phone.DozeParameters;
+import com.android.systemui.util.AlarmTimeout;
 import com.android.systemui.util.wakelock.WakeLock;
 
 import java.io.PrintWriter;
@@ -51,6 +54,7 @@ public class DozeSensors {
     private static final String TAG = "DozeSensors";
 
     private final Context mContext;
+    private final AlarmManager mAlarmManager;
     private final SensorManager mSensorManager;
     private final TriggerSensor[] mSensors;
     private final ContentResolver mResolver;
@@ -65,10 +69,12 @@ public class DozeSensors {
     private final ProxSensor mProxSensor;
 
 
-    public DozeSensors(Context context, SensorManager sensorManager, DozeParameters dozeParameters,
+    public DozeSensors(Context context, AlarmManager alarmManager, SensorManager sensorManager,
+            DozeParameters dozeParameters,
             AmbientDisplayConfiguration config, WakeLock wakeLock, Callback callback,
-            Consumer<Boolean> proxCallback) {
+            Consumer<Boolean> proxCallback, AlwaysOnDisplayPolicy policy) {
         mContext = context;
+        mAlarmManager = alarmManager;
         mSensorManager = sensorManager;
         mDozeParameters = dozeParameters;
         mConfig = config;
@@ -81,28 +87,44 @@ public class DozeSensors {
                         mSensorManager.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION),
                         null /* setting */,
                         dozeParameters.getPulseOnSigMotion(),
-                        DozeLog.PULSE_REASON_SENSOR_SIGMOTION),
+                        DozeLog.PULSE_REASON_SENSOR_SIGMOTION, false /* touchCoords */,
+                        false /* touchscreen */),
                 mPickupSensor = new TriggerSensor(
                         mSensorManager.getDefaultSensor(Sensor.TYPE_PICK_UP_GESTURE),
                         Settings.Secure.DOZE_PULSE_ON_PICK_UP,
                         config.pulseOnPickupAvailable(),
-                        DozeLog.PULSE_REASON_SENSOR_PICKUP),
+                        DozeLog.PULSE_REASON_SENSOR_PICKUP, false /* touchCoords */,
+                        false /* touchscreen */),
                 new TriggerSensor(
                         findSensorWithType(config.doubleTapSensorType()),
                         Settings.Secure.DOZE_PULSE_ON_DOUBLE_TAP,
                         true /* configured */,
-                        DozeLog.PULSE_REASON_SENSOR_DOUBLE_TAP)
+                        DozeLog.PULSE_REASON_SENSOR_DOUBLE_TAP,
+                        dozeParameters.doubleTapReportsTouchCoordinates(),
+                        true /* touchscreen */),
+                new TriggerSensor(
+                        findSensorWithType(config.longPressSensorType()),
+                        Settings.Secure.DOZE_PULSE_ON_LONG_PRESS,
+                        false /* settingDef */,
+                        true /* configured */,
+                        DozeLog.PULSE_REASON_SENSOR_LONG_PRESS,
+                        true /* reports touch coordinates */,
+                        true /* touchscreen */),
         };
 
-        mProxSensor = new ProxSensor();
+        mProxSensor = new ProxSensor(policy);
         mCallback = callback;
     }
 
     private Sensor findSensorWithType(String type) {
+        return findSensorWithType(mSensorManager, type);
+    }
+
+    static Sensor findSensorWithType(SensorManager sensorManager, String type) {
         if (TextUtils.isEmpty(type)) {
             return null;
         }
-        List<Sensor> sensorList = mSensorManager.getSensorList(Sensor.TYPE_ALL);
+        List<Sensor> sensorList = sensorManager.getSensorList(Sensor.TYPE_ALL);
         for (Sensor s : sensorList) {
             if (type.equals(s.getStringType())) {
                 return s;
@@ -123,6 +145,15 @@ public class DozeSensors {
         }
     }
 
+    /** Set the listening state of only the sensors that require the touchscreen. */
+    public void setTouchscreenSensorsListening(boolean listening) {
+        for (TriggerSensor sensor : mSensors) {
+            if (sensor.mRequiresTouchscreen) {
+                sensor.setListening(listening);
+            }
+        }
+    }
+
     public void reregisterAllSensors() {
         for (TriggerSensor s : mSensors) {
             s.setListening(false);
@@ -139,7 +170,7 @@ public class DozeSensors {
     }
 
     public void setProxListening(boolean listen) {
-        mProxSensor.setRegistered(listen);
+        mProxSensor.setRequested(listen);
     }
 
     private final ContentObserver mSettingsObserver = new ContentObserver(mHandler) {
@@ -163,21 +194,52 @@ public class DozeSensors {
         for (TriggerSensor s : mSensors) {
             pw.print("Sensor: "); pw.println(s.toString());
         }
+        pw.print("ProxSensor: "); pw.println(mProxSensor.toString());
+    }
+
+    /**
+     * @return true if prox is currently far, false if near or null if unknown.
+     */
+    public Boolean isProximityCurrentlyFar() {
+        return mProxSensor.mCurrentlyFar;
     }
 
     private class ProxSensor implements SensorEventListener {
 
+        boolean mRequested;
         boolean mRegistered;
         Boolean mCurrentlyFar;
+        long mLastNear;
+        final AlarmTimeout mCooldownTimer;
+        final AlwaysOnDisplayPolicy mPolicy;
 
-        void setRegistered(boolean register) {
-            if (mRegistered == register) {
+
+        public ProxSensor(AlwaysOnDisplayPolicy policy) {
+            mPolicy = policy;
+            mCooldownTimer = new AlarmTimeout(mAlarmManager, this::updateRegistered,
+                    "prox_cooldown", mHandler);
+        }
+
+        void setRequested(boolean requested) {
+            if (mRequested == requested) {
                 // Send an update even if we don't re-register.
                 mHandler.post(() -> {
                     if (mCurrentlyFar != null) {
                         mProxCallback.accept(mCurrentlyFar);
                     }
                 });
+                return;
+            }
+            mRequested = requested;
+            updateRegistered();
+        }
+
+        private void updateRegistered() {
+            setRegistered(mRequested && !mCooldownTimer.isScheduled());
+        }
+
+        private void setRegistered(boolean register) {
+            if (mRegistered == register) {
                 return;
             }
             if (register) {
@@ -195,10 +257,30 @@ public class DozeSensors {
         public void onSensorChanged(SensorEvent event) {
             mCurrentlyFar = event.values[0] >= event.sensor.getMaximumRange();
             mProxCallback.accept(mCurrentlyFar);
+
+            long now = SystemClock.elapsedRealtime();
+            if (mCurrentlyFar == null) {
+                // Sensor has been unregistered by the proxCallback. Do nothing.
+            } else if (!mCurrentlyFar) {
+                mLastNear = now;
+            } else if (mCurrentlyFar && now - mLastNear < mPolicy.proxCooldownTriggerMs) {
+                // If the last near was very recent, we might be using more power for prox
+                // wakeups than we're saving from turning of the screen. Instead, turn it off
+                // for a while.
+                mCooldownTimer.schedule(mPolicy.proxCooldownPeriodMs,
+                        AlarmTimeout.MODE_IGNORE_IF_SCHEDULED);
+                updateRegistered();
+            }
         }
 
         @Override
         public void onAccuracyChanged(Sensor sensor, int accuracy) {
+        }
+
+        @Override
+        public String toString() {
+            return String.format("{registered=%s, requested=%s, coolingDown=%s, currentlyFar=%s}",
+                    mRegistered, mRequested, mCooldownTimer.isScheduled(), mCurrentlyFar);
         }
     }
 
@@ -207,16 +289,30 @@ public class DozeSensors {
         final boolean mConfigured;
         final int mPulseReason;
         final String mSetting;
+        final boolean mReportsTouchCoordinates;
+        final boolean mSettingDefault;
+        final boolean mRequiresTouchscreen;
 
         private boolean mRequested;
         private boolean mRegistered;
         private boolean mDisabled;
 
-        public TriggerSensor(Sensor sensor, String setting, boolean configured, int pulseReason) {
+        public TriggerSensor(Sensor sensor, String setting, boolean configured, int pulseReason,
+                boolean reportsTouchCoordinates, boolean requiresTouchscreen) {
+            this(sensor, setting, true /* settingDef */, configured, pulseReason,
+                    reportsTouchCoordinates, requiresTouchscreen);
+        }
+
+        public TriggerSensor(Sensor sensor, String setting, boolean settingDef,
+                boolean configured, int pulseReason, boolean reportsTouchCoordinates,
+                boolean requiresTouchscreen) {
             mSensor = sensor;
             mSetting = setting;
+            mSettingDefault = settingDef;
             mConfigured = configured;
             mPulseReason = pulseReason;
+            mReportsTouchCoordinates = reportsTouchCoordinates;
+            mRequiresTouchscreen = requiresTouchscreen;
         }
 
         public void setListening(boolean listen) {
@@ -247,7 +343,7 @@ public class DozeSensors {
             if (TextUtils.isEmpty(mSetting)) {
                 return true;
             }
-            return Settings.Secure.getIntForUser(mResolver, mSetting, 1,
+            return Settings.Secure.getIntForUser(mResolver, mSetting, mSettingDefault ? 1 : 0,
                     UserHandle.USER_CURRENT) != 0;
         }
 
@@ -263,6 +359,7 @@ public class DozeSensors {
         @Override
         @AnyThread
         public void onTrigger(TriggerEvent event) {
+            DozeLog.traceSensor(mContext, mPulseReason);
             mHandler.post(mWakeLock.wrap(() -> {
                 if (DEBUG) Log.d(TAG, "onTrigger: " + triggerEventToString(event));
                 boolean sensorPerformsProxCheck = false;
@@ -276,7 +373,13 @@ public class DozeSensors {
                 }
 
                 mRegistered = false;
-                mCallback.onSensorPulse(mPulseReason, sensorPerformsProxCheck);
+                float screenX = -1;
+                float screenY = -1;
+                if (mReportsTouchCoordinates && event.values.length >= 2) {
+                    screenX = event.values[0];
+                    screenY = event.values[1];
+                }
+                mCallback.onSensorPulse(mPulseReason, sensorPerformsProxCheck, screenX, screenY);
                 updateListener();  // reregister, this sensor only fires once
             }));
         }
@@ -309,7 +412,12 @@ public class DozeSensors {
          * Called when a sensor requests a pulse
          * @param pulseReason Requesting sensor, e.g. {@link DozeLog#PULSE_REASON_SENSOR_PICKUP}
          * @param sensorPerformedProxCheck true if the sensor already checked for FAR proximity.
+         * @param screenX the location on the screen where the sensor fired or -1
+         *                if the sensor doesn't support reporting screen locations.
+         * @param screenY the location on the screen where the sensor fired or -1
+         *                if the sensor doesn't support reporting screen locations.
          */
-        void onSensorPulse(int pulseReason, boolean sensorPerformedProxCheck);
+        void onSensorPulse(int pulseReason, boolean sensorPerformedProxCheck,
+                float screenX, float screenY);
     }
 }

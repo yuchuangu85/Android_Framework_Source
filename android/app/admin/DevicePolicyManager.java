@@ -55,7 +55,6 @@ import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.provider.ContactsContract.Directory;
-import android.provider.Settings;
 import android.security.Credentials;
 import android.service.restrictions.RestrictionsReceiver;
 import android.telephony.TelephonyManager;
@@ -170,8 +169,7 @@ public class DevicePolicyManager {
      *
      * <p>From version {@link android.os.Build.VERSION_CODES#O}, when managed provisioning has
      * completed, along with the above broadcast, activity intent
-     * {@link #ACTION_PROVISIONING_SUCCESSFUL} will also be sent to the application specified in
-     * the provisioning intent.
+     * {@link #ACTION_PROVISIONING_SUCCESSFUL} will also be sent to the profile owner.
      *
      * <p>If provisioning fails, the managedProfile is removed so the device returns to its
      * previous state.
@@ -262,6 +260,26 @@ public class DevicePolicyManager {
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_PROVISION_MANAGED_DEVICE
         = "android.app.action.PROVISION_MANAGED_DEVICE";
+
+    /**
+     * Activity action: launch when user provisioning completed, i.e.
+     * {@link #getUserProvisioningState()} returns one of the complete state.
+     *
+     * <p> Please note that the API behavior is not necessarily consistent across various releases,
+     * and devices, as it's contract between SetupWizard and ManagedProvisioning. The default
+     * implementation is that ManagedProvisioning launches SetupWizard in NFC provisioning only.
+     *
+     * <p> The activity must be protected by permission
+     * {@link android.Manifest.permission#BIND_DEVICE_ADMIN}, and the process must hold
+     * {@link android.Manifest.permission#DISPATCH_PROVISIONING_MESSAGE} to be launched.
+     * Only one {@link ComponentName} in the entire system should be enabled, and the rest of the
+     * components are not started by this intent.
+     * @hide
+     */
+    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
+    @SystemApi
+    public static final String ACTION_STATE_USER_SETUP_COMPLETE =
+            "android.app.action.STATE_USER_SETUP_COMPLETE";
 
     /**
      * Activity action: Starts the provisioning flow which sets up a managed device.
@@ -838,8 +856,7 @@ public class DevicePolicyManager {
      * {@link DeviceAdminReceiver#ACTION_PROFILE_PROVISIONING_COMPLETE} broadcast but this will be
      * delivered faster as it's an activity intent.
      *
-     * <p>The intent is only sent to the application on the profile that requested provisioning. In
-     * the device owner case the profile is the primary user.
+     * <p>The intent is only sent to the new device or profile owner.
      *
      * @see #ACTION_PROVISION_MANAGED_PROFILE
      * @see #ACTION_PROVISION_MANAGED_DEVICE
@@ -2514,7 +2531,7 @@ public class DevicePolicyManager {
      * @return Returns true if the password meets the current requirements, else false.
      * @throws SecurityException if the calling application does not own an active administrator
      *             that uses {@link DeviceAdminInfo#USES_POLICY_LIMIT_PASSWORD}
-     * @throws InvalidStateException if the user is not unlocked.
+     * @throws IllegalStateException if the user is not unlocked.
      */
     public boolean isActivePasswordSufficient() {
         if (mService != null) {
@@ -2690,13 +2707,14 @@ public class DevicePolicyManager {
     }
 
     /**
-     * Flag for {@link #resetPassword}: don't allow other admins to change
-     * the password again until the user has entered it.
+     * Flag for {@link #resetPasswordWithToken} and {@link #resetPassword}: don't allow other admins
+     * to change the password again until the user has entered it.
      */
     public static final int RESET_PASSWORD_REQUIRE_ENTRY = 0x0001;
 
     /**
-     * Flag for {@link #resetPassword}: don't ask for user credentials on device boot.
+     * Flag for {@link #resetPasswordWithToken} and {@link #resetPassword}: don't ask for user
+     * credentials on device boot.
      * If the flag is set, the device can be booted without asking for user password.
      * The absence of this flag does not change the current boot requirements. This flag
      * can be set by the device owner only. If the app is not the device owner, the flag
@@ -2706,8 +2724,8 @@ public class DevicePolicyManager {
     public static final int RESET_PASSWORD_DO_NOT_ASK_CREDENTIALS_ON_BOOT = 0x0002;
 
     /**
-     * Force a new device unlock password (the password needed to access the entire device, not for
-     * individual accounts) on the user. This takes effect immediately.
+     * Force a new password for device unlock (the password needed to access the entire device) or
+     * the work profile challenge on the current user. This takes effect immediately.
      * <p>
      * <em>For device owner and profile owners targeting SDK level
      * {@link android.os.Build.VERSION_CODES#O} or above, this API is no longer available and will
@@ -2745,7 +2763,6 @@ public class DevicePolicyManager {
      * @throws SecurityException if the calling application does not own an active administrator
      *             that uses {@link DeviceAdminInfo#USES_POLICY_RESET_PASSWORD}
      * @throws IllegalStateException if the calling user is locked or has a managed profile.
-     * @throws IllegalArgumentException if the password does not meet system requirements.
      */
     public boolean resetPassword(String password, int flags) {
         throwIfParentInstance("resetPassword");
@@ -2787,8 +2804,8 @@ public class DevicePolicyManager {
      * @param token a secure token a least 32-byte long, which must be generated by a
      *        cryptographically strong random number generator.
      * @return true if the operation is successful, false otherwise.
+     * @throws SecurityException if admin is not a device or profile owner.
      * @throws IllegalArgumentException if the supplied token is invalid.
-     * @throws SecurityException
      */
     public boolean setResetPasswordToken(ComponentName admin, byte[] token) {
         throwIfParentInstance("setResetPasswordToken");
@@ -2807,6 +2824,7 @@ public class DevicePolicyManager {
      *
      * @param admin Which {@link DeviceAdminReceiver} this request is associated with.
      * @return true if the operation is successful, false otherwise.
+     * @throws SecurityException if admin is not a device or profile owner.
      */
     public boolean clearResetPasswordToken(ComponentName admin) {
         throwIfParentInstance("clearResetPasswordToken");
@@ -2825,6 +2843,7 @@ public class DevicePolicyManager {
      *
      * @param admin Which {@link DeviceAdminReceiver} this request is associated with.
      * @return true if the token is active, false otherwise.
+     * @throws SecurityException if admin is not a device or profile owner.
      * @throws IllegalStateException if no token has been set.
      */
     public boolean isResetPasswordTokenActive(ComponentName admin) {
@@ -2850,24 +2869,23 @@ public class DevicePolicyManager {
      * The given password must be sufficient for the current password quality and length constraints
      * as returned by {@link #getPasswordQuality(ComponentName)} and
      * {@link #getPasswordMinimumLength(ComponentName)}; if it does not meet these constraints, then
-     * it will be rejected and false returned. Note that the password may be a stronger quality
-     * (containing alphanumeric characters when the requested quality is only numeric), in which
-     * case the currently active quality will be increased to match.
+     * it will be rejected and false returned. Note that the password may be a stronger quality, for
+     * example, a password containing alphanumeric characters when the requested quality is only
+     * numeric.
      * <p>
-     * Calling with a null or empty password will clear any existing PIN, pattern or password if the
-     * current password constraints allow it.
+     * Calling with a {@code null} or empty password will clear any existing PIN, pattern or
+     * password if the current password constraints allow it.
      *
      * @param admin Which {@link DeviceAdminReceiver} this request is associated with.
-     * @param password The new password for the user. Null or empty clears the password.
-     * @param token the password reset token previously provisioned by #setResetPasswordToken.
+     * @param password The new password for the user. {@code null} or empty clears the password.
+     * @param token the password reset token previously provisioned by
+     *        {@link #setResetPasswordToken}.
      * @param flags May be 0 or combination of {@link #RESET_PASSWORD_REQUIRE_ENTRY} and
-     *            {@link #RESET_PASSWORD_DO_NOT_ASK_CREDENTIALS_ON_BOOT}.
+     *        {@link #RESET_PASSWORD_DO_NOT_ASK_CREDENTIALS_ON_BOOT}.
      * @return Returns true if the password was applied, or false if it is not acceptable for the
      *         current constraints.
-     * @throws SecurityException if the calling application does not own an active administrator
-     *             that uses {@link DeviceAdminInfo#USES_POLICY_RESET_PASSWORD}
+     * @throws SecurityException if admin is not a device or profile owner.
      * @throws IllegalStateException if the provided token is not valid.
-     * @throws IllegalArgumentException if the password does not meet system requirements.
      */
     public boolean resetPasswordWithToken(@NonNull ComponentName admin, String password,
             byte[] token, int flags) {
@@ -3113,6 +3131,14 @@ public class DevicePolicyManager {
      * other admins a {@link SecurityException} will be thrown.
      */
     public static final int WIPE_RESET_PROTECTION_DATA = 0x0002;
+
+    /**
+     * Flag for {@link #wipeData(int)}: also erase the device's eUICC data.
+     *
+     * TODO(b/35851809): make this public.
+     * @hide
+     */
+    public static final int WIPE_EUICC = 0x0004;
 
     /**
      * Ask that all user data be wiped. If called as a secondary user, the user will be removed and
@@ -3904,26 +3930,18 @@ public class DevicePolicyManager {
 
     /**
      * Called by a device or profile owner to configure an always-on VPN connection through a
-     * specific application for the current user.
-     *
-     * @deprecated this version only exists for compability with previous developer preview builds.
-     *             TODO: delete once there are no longer any live references.
-     * @hide
-     */
-    @Deprecated
-    public void setAlwaysOnVpnPackage(@NonNull ComponentName admin, @Nullable String vpnPackage)
-            throws NameNotFoundException, UnsupportedOperationException {
-        setAlwaysOnVpnPackage(admin, vpnPackage, /* lockdownEnabled */ true);
-    }
-
-    /**
-     * Called by a device or profile owner to configure an always-on VPN connection through a
      * specific application for the current user. This connection is automatically granted and
      * persisted after a reboot.
      * <p>
-     * The designated package should declare a {@link android.net.VpnService} in its manifest
-     * guarded by {@link android.Manifest.permission#BIND_VPN_SERVICE}, otherwise the call will
-     * fail.
+     * To support the always-on feature, an app must
+     * <ul>
+     *     <li>declare a {@link android.net.VpnService} in its manifest, guarded by
+     *         {@link android.Manifest.permission#BIND_VPN_SERVICE};</li>
+     *     <li>target {@link android.os.Build.VERSION_CODES#N API 24} or above; and</li>
+     *     <li><i>not</i> explicitly opt out of the feature through
+     *         {@link android.net.VpnService#SERVICE_META_DATA_SUPPORTS_ALWAYS_ON}.</li>
+     * </ul>
+     * The call will fail if called with the package name of an unsupported VPN app.
      *
      * @param vpnPackage The package name for an installed VPN app on the device, or {@code null} to
      *        remove an existing always-on VPN configuration.
@@ -5956,6 +5974,13 @@ public class DevicePolicyManager {
     public static final int MAKE_USER_EPHEMERAL = 0x0002;
 
     /**
+     * Flag used by {@link #createAndManageUser} to specify that the user should be created as a
+     * demo user.
+     * @hide
+     */
+    public static final int MAKE_USER_DEMO = 0x0004;
+
+    /**
      * Called by a device owner to create a user with the specified name and a given component of
      * the calling package as profile owner. The UserHandle returned by this method should not be
      * persisted as user handles are recycled as users are removed and created. If you need to
@@ -6397,34 +6422,35 @@ public class DevicePolicyManager {
     }
 
     /**
-     * Called by device owners to update {@link Settings.Global} settings. Validation that the value
-     * of the setting is in the correct form for the setting type should be performed by the caller.
+     * Called by device owners to update {@link android.provider.Settings.Global} settings.
+     * Validation that the value of the setting is in the correct form for the setting type should
+     * be performed by the caller.
      * <p>
      * The settings that can be updated with this method are:
      * <ul>
-     * <li>{@link Settings.Global#ADB_ENABLED}</li>
-     * <li>{@link Settings.Global#AUTO_TIME}</li>
-     * <li>{@link Settings.Global#AUTO_TIME_ZONE}</li>
-     * <li>{@link Settings.Global#DATA_ROAMING}</li>
-     * <li>{@link Settings.Global#USB_MASS_STORAGE_ENABLED}</li>
-     * <li>{@link Settings.Global#WIFI_SLEEP_POLICY}</li>
-     * <li>{@link Settings.Global#STAY_ON_WHILE_PLUGGED_IN} This setting is only available from
-     * {@link android.os.Build.VERSION_CODES#M} onwards and can only be set if
+     * <li>{@link android.provider.Settings.Global#ADB_ENABLED}</li>
+     * <li>{@link android.provider.Settings.Global#AUTO_TIME}</li>
+     * <li>{@link android.provider.Settings.Global#AUTO_TIME_ZONE}</li>
+     * <li>{@link android.provider.Settings.Global#DATA_ROAMING}</li>
+     * <li>{@link android.provider.Settings.Global#USB_MASS_STORAGE_ENABLED}</li>
+     * <li>{@link android.provider.Settings.Global#WIFI_SLEEP_POLICY}</li>
+     * <li>{@link android.provider.Settings.Global#STAY_ON_WHILE_PLUGGED_IN} This setting is only
+     * available from {@link android.os.Build.VERSION_CODES#M} onwards and can only be set if
      * {@link #setMaximumTimeToLock} is not used to set a timeout.</li>
-     * <li>{@link Settings.Global#WIFI_DEVICE_OWNER_CONFIGS_LOCKDOWN}</li> This setting is only
-     * available from {@link android.os.Build.VERSION_CODES#M} onwards.</li>
+     * <li>{@link android.provider.Settings.Global#WIFI_DEVICE_OWNER_CONFIGS_LOCKDOWN}</li> This
+     * setting is only available from {@link android.os.Build.VERSION_CODES#M} onwards.</li>
      * </ul>
      * <p>
      * Changing the following settings has no effect as of {@link android.os.Build.VERSION_CODES#M}:
      * <ul>
-     * <li>{@link Settings.Global#BLUETOOTH_ON}. Use
+     * <li>{@link android.provider.Settings.Global#BLUETOOTH_ON}. Use
      * {@link android.bluetooth.BluetoothAdapter#enable()} and
      * {@link android.bluetooth.BluetoothAdapter#disable()} instead.</li>
-     * <li>{@link Settings.Global#DEVELOPMENT_SETTINGS_ENABLED}</li>
-     * <li>{@link Settings.Global#MODE_RINGER}. Use
+     * <li>{@link android.provider.Settings.Global#DEVELOPMENT_SETTINGS_ENABLED}</li>
+     * <li>{@link android.provider.Settings.Global#MODE_RINGER}. Use
      * {@link android.media.AudioManager#setRingerMode(int)} instead.</li>
-     * <li>{@link Settings.Global#NETWORK_PREFERENCE}</li>
-     * <li>{@link Settings.Global#WIFI_ON}. Use
+     * <li>{@link android.provider.Settings.Global#NETWORK_PREFERENCE}</li>
+     * <li>{@link android.provider.Settings.Global#WIFI_ON}. Use
      * {@link android.net.wifi.WifiManager#setWifiEnabled(boolean)} instead.</li>
      * </ul>
      *
@@ -6445,19 +6471,19 @@ public class DevicePolicyManager {
     }
 
     /**
-     * Called by profile or device owners to update {@link Settings.Secure} settings. Validation
-     * that the value of the setting is in the correct form for the setting type should be performed
-     * by the caller.
+     * Called by profile or device owners to update {@link android.provider.Settings.Secure}
+     * settings. Validation that the value of the setting is in the correct form for the setting
+     * type should be performed by the caller.
      * <p>
      * The settings that can be updated by a profile or device owner with this method are:
      * <ul>
-     * <li>{@link Settings.Secure#DEFAULT_INPUT_METHOD}</li>
-     * <li>{@link Settings.Secure#SKIP_FIRST_USE_HINTS}</li>
+     * <li>{@link android.provider.Settings.Secure#DEFAULT_INPUT_METHOD}</li>
+     * <li>{@link android.provider.Settings.Secure#SKIP_FIRST_USE_HINTS}</li>
      * </ul>
      * <p>
      * A device owner can additionally update the following settings:
      * <ul>
-     * <li>{@link Settings.Secure#LOCATION_MODE}</li>
+     * <li>{@link android.provider.Settings.Secure#LOCATION_MODE}</li>
      * </ul>
      *
      * <strong>Note: Starting from Android O, apps should no longer call this method with the

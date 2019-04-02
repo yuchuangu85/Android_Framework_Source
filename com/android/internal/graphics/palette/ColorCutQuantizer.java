@@ -61,7 +61,7 @@ import com.android.internal.graphics.palette.Palette.Swatch;
  * This means that the color space is divided into distinct colors, rather than representative
  * colors.
  */
-final class ColorCutQuantizer {
+final class ColorCutQuantizer implements Quantizer {
 
     private static final String LOG_TAG = "ColorCutQuantizer";
     private static final boolean LOG_TIMINGS = false;
@@ -73,22 +73,22 @@ final class ColorCutQuantizer {
     private static final int QUANTIZE_WORD_WIDTH = 5;
     private static final int QUANTIZE_WORD_MASK = (1 << QUANTIZE_WORD_WIDTH) - 1;
 
-    final int[] mColors;
-    final int[] mHistogram;
-    final List<Swatch> mQuantizedColors;
-    final TimingLogger mTimingLogger;
-    final Palette.Filter[] mFilters;
+    int[] mColors;
+    int[] mHistogram;
+    List<Swatch> mQuantizedColors;
+    TimingLogger mTimingLogger;
+    Palette.Filter[] mFilters;
 
     private final float[] mTempHsl = new float[3];
 
     /**
-     * Constructor.
+     * Execute color quantization.
      *
      * @param pixels histogram representing an image's pixel data
      * @param maxColors The maximum number of colors that should be in the result palette.
      * @param filters Set of filters to use in the quantization stage
      */
-    ColorCutQuantizer(final int[] pixels, final int maxColors, final Palette.Filter[] filters) {
+    public void quantize(final int[] pixels, final int maxColors, final Palette.Filter[] filters) {
         mTimingLogger = LOG_TIMINGS ? new TimingLogger(LOG_TAG, "Creation") : null;
         mFilters = filters;
 
@@ -160,7 +160,7 @@ final class ColorCutQuantizer {
     /**
      * @return the list of quantized colors
      */
-    List<Swatch> getQuantizedColors() {
+    public List<Swatch> getQuantizedColors() {
         return mQuantizedColors;
     }
 
@@ -376,7 +376,9 @@ final class ColorCutQuantizer {
             for (int i = mLowerIndex, count = 0; i <= mUpperIndex; i++)  {
                 count += hist[colors[i]];
                 if (count >= midPoint) {
-                    return i;
+                    // we never want to split on the upperIndex, as this will result in the same
+                    // box
+                    return Math.min(mUpperIndex - 1, i);
                 }
             }
 

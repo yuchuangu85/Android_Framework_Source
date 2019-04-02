@@ -31,7 +31,10 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
+import android.content.pm.PermissionInfo;
 import android.database.ContentObserver;
 import android.net.Uri;
 import android.os.Binder;
@@ -81,6 +84,7 @@ import static android.app.AlarmManager.RTC;
 import static android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP;
 import static android.app.AlarmManager.ELAPSED_REALTIME;
 
+import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.DumpUtils;
 import com.android.internal.util.LocalLog;
 
@@ -153,6 +157,20 @@ class AlarmManagerService extends SystemService {
     long mLastTimeChangeRealtime;
     long mAllowWhileIdleMinTime;
     int mNumTimeChanged;
+
+    // Bookkeeping about the identity of the "System UI" package, determined at runtime.
+
+    /**
+     * This permission must be defined by the canonical System UI package,
+     * with protection level "signature".
+     */
+    private static final String SYSTEM_UI_SELF_PERMISSION =
+            "android.permission.systemui.IDENTITY";
+
+    /**
+     * At boot we use SYSTEM_UI_SELF_PERMISSION to look up the definer's uid.
+     */
+    int mSystemUiUid;
 
     /**
      * The current set of user whitelisted apps for device idle mode, meaning these are allowed
@@ -832,6 +850,7 @@ class AlarmManagerService extends SystemService {
 
     static final class InFlight {
         final PendingIntent mPendingIntent;
+        final long mWhenElapsed;
         final IBinder mListener;
         final WorkSource mWorkSource;
         final int mUid;
@@ -844,6 +863,7 @@ class AlarmManagerService extends SystemService {
                 WorkSource workSource, int uid, String alarmPkg, int alarmType, String tag,
                 long nowELAPSED) {
             mPendingIntent = pendingIntent;
+            mWhenElapsed = nowELAPSED;
             mListener = listener != null ? listener.asBinder() : null;
             mWorkSource = workSource;
             mUid = uid;
@@ -865,6 +885,7 @@ class AlarmManagerService extends SystemService {
         public String toString() {
             return "InFlight{"
                     + "pendingIntent=" + mPendingIntent
+                    + ", when=" + mWhenElapsed
                     + ", workSource=" + mWorkSource
                     + ", uid=" + mUid
                     + ", tag=" + mTag
@@ -959,6 +980,25 @@ class AlarmManagerService extends SystemService {
                         + ", advancing to build time " + systemBuildTime);
                 setKernelTime(mNativeData, systemBuildTime);
             }
+        }
+
+        // Determine SysUI's uid
+        final PackageManager packMan = getContext().getPackageManager();
+        try {
+            PermissionInfo sysUiPerm = packMan.getPermissionInfo(SYSTEM_UI_SELF_PERMISSION, 0);
+            ApplicationInfo sysUi = packMan.getApplicationInfo(sysUiPerm.packageName, 0);
+            if ((sysUi.privateFlags&ApplicationInfo.PRIVATE_FLAG_PRIVILEGED) != 0) {
+                mSystemUiUid = sysUi.uid;
+            } else {
+                Slog.e(TAG, "SysUI permission " + SYSTEM_UI_SELF_PERMISSION
+                        + " defined by non-privileged app " + sysUi.packageName
+                        + " - ignoring");
+            }
+        } catch (NameNotFoundException e) {
+        }
+
+        if (mSystemUiUid <= 0) {
+            Slog.wtf(TAG, "SysUI package not found!");
         }
 
         PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
@@ -1335,6 +1375,7 @@ class AlarmManagerService extends SystemService {
             // This means we will allow these alarms to go off as normal even while idle, with no
             // timing restrictions.
             } else if (workSource == null && (callingUid < Process.FIRST_APPLICATION_UID
+                    || callingUid == mSystemUiUid
                     || Arrays.binarySearch(mDeviceIdleUserWhitelist,
                             UserHandle.getAppId(callingUid)) >= 0)) {
                 flags |= AlarmManager.FLAG_ALLOW_WHILE_IDLE_UNRESTRICTED;
@@ -1529,6 +1570,10 @@ class AlarmManagerService extends SystemService {
 
             pw.println();
             pw.print("  Broadcast ref count: "); pw.println(mBroadcastRefCount);
+            pw.print("  PendingIntent send count: "); pw.println(mSendCount);
+            pw.print("  PendingIntent finish count: "); pw.println(mSendFinishCount);
+            pw.print("  Listener send count: "); pw.println(mListenerCount);
+            pw.print("  Listener finish count: "); pw.println(mListenerFinishCount);
             pw.println();
 
             if (mInFlight.size() > 0) {
@@ -2855,11 +2900,10 @@ class AlarmManagerService extends SystemService {
     }
 
     final class UidObserver extends IUidObserver.Stub {
-        @Override public void onUidStateChanged(int uid, int procState,
-                long procStateSeq) throws RemoteException {
+        @Override public void onUidStateChanged(int uid, int procState, long procStateSeq) {
         }
 
-        @Override public void onUidGone(int uid, boolean disabled) throws RemoteException {
+        @Override public void onUidGone(int uid, boolean disabled) {
             if (disabled) {
                 synchronized (mLock) {
                     removeForStoppedLocked(uid);
@@ -2867,15 +2911,18 @@ class AlarmManagerService extends SystemService {
             }
         }
 
-        @Override public void onUidActive(int uid) throws RemoteException {
+        @Override public void onUidActive(int uid) {
         }
 
-        @Override public void onUidIdle(int uid, boolean disabled) throws RemoteException {
+        @Override public void onUidIdle(int uid, boolean disabled) {
             if (disabled) {
                 synchronized (mLock) {
                     removeForStoppedLocked(uid);
                 }
             }
+        }
+
+        @Override public void onUidCachedChanged(int uid, boolean cached) {
         }
     };
 
@@ -2899,7 +2946,22 @@ class AlarmManagerService extends SystemService {
         return bs;
     }
 
+    /**
+     * Canonical count of (operation.send() - onSendFinished()) and
+     * listener send/complete/timeout invocations.
+     * Guarded by the usual lock.
+     */
+    @GuardedBy("mLock")
+    private int mSendCount = 0;
+    @GuardedBy("mLock")
+    private int mSendFinishCount = 0;
+    @GuardedBy("mLock")
+    private int mListenerCount = 0;
+    @GuardedBy("mLock")
+    private int mListenerFinishCount = 0;
+
     class DeliveryTracker extends IAlarmCompleteListener.Stub implements PendingIntent.OnFinished {
+
         private InFlight removeLocked(PendingIntent pi, Intent intent) {
             for (int i = 0; i < mInFlight.size(); i++) {
                 if (mInFlight.get(i).mPendingIntent == pi) {
@@ -2986,7 +3048,7 @@ class AlarmManagerService extends SystemService {
         @Override
         public void alarmComplete(IBinder who) {
             if (who == null) {
-                Slog.w(TAG, "Invalid alarmComplete: uid=" + Binder.getCallingUid()
+                mLog.w("Invalid alarmComplete: uid=" + Binder.getCallingUid()
                         + " pid=" + Binder.getCallingPid());
                 return;
             }
@@ -3001,6 +3063,7 @@ class AlarmManagerService extends SystemService {
                             Slog.i(TAG, "alarmComplete() from " + who);
                         }
                         updateTrackingLocked(inflight);
+                        mListenerFinishCount++;
                     } else {
                         // Delivery timed out, and the timeout handling already took care of
                         // updating our tracking here, so we needn't do anything further.
@@ -3021,6 +3084,7 @@ class AlarmManagerService extends SystemService {
         public void onSendFinished(PendingIntent pi, Intent intent, int resultCode,
                 String resultData, Bundle resultExtras) {
             synchronized (mLock) {
+                mSendFinishCount++;
                 updateTrackingLocked(removeLocked(pi, intent));
             }
         }
@@ -3037,10 +3101,12 @@ class AlarmManagerService extends SystemService {
                         Slog.i(TAG, "Alarm listener " + who + " timed out in delivery");
                     }
                     updateTrackingLocked(inflight);
+                    mListenerFinishCount++;
                 } else {
                     if (DEBUG_LISTENER_CALLBACK) {
                         Slog.i(TAG, "Spurious timeout of listener " + who);
                     }
+                    mLog.w("Spurious timeout of listener " + who);
                 }
             }
         }
@@ -3051,6 +3117,7 @@ class AlarmManagerService extends SystemService {
         public void deliverLocked(Alarm alarm, long nowELAPSED, boolean allowWhileIdle) {
             if (alarm.operation != null) {
                 // PendingIntent alarm
+                mSendCount++;
                 try {
                     alarm.operation.send(getContext(), 0,
                             mBackgroundIntent.putExtra(
@@ -3067,10 +3134,12 @@ class AlarmManagerService extends SystemService {
                     // 'finished' callback won't be invoked.  We also don't need
                     // to do any wakelock or stats tracking, so we have nothing
                     // left to do here but go on to the next thing.
+                    mSendFinishCount++;
                     return;
                 }
             } else {
                 // Direct listener callback alarm
+                mListenerCount++;
                 try {
                     if (DEBUG_LISTENER_CALLBACK) {
                         Slog.v(TAG, "Alarm to uid=" + alarm.uid
@@ -3090,6 +3159,7 @@ class AlarmManagerService extends SystemService {
                     // alarm was not possible, so we have no wakelock or timeout or
                     // stats management to do.  It threw before we posted the delayed
                     // timeout message, so we're done here.
+                    mListenerFinishCount++;
                     return;
                 }
             }

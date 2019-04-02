@@ -16,11 +16,11 @@ package com.android.systemui.qs;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
-import android.annotation.Nullable;
 import android.app.Fragment;
 import android.content.res.Configuration;
 import android.graphics.Rect;
 import android.os.Bundle;
+import android.support.annotation.Nullable;
 import android.support.annotation.VisibleForTesting;
 import android.util.Log;
 import android.view.ContextThemeWrapper;
@@ -63,7 +63,6 @@ public class QSFragment extends Fragment implements QS {
     private QSContainerImpl mContainer;
     private int mLayoutDirection;
     private QSFooter mFooter;
-    private int mGutterHeight;
 
     @Override
     public View onCreateView(LayoutInflater inflater, @Nullable ViewGroup container,
@@ -80,22 +79,23 @@ public class QSFragment extends Fragment implements QS {
         mHeader = view.findViewById(R.id.header);
         mFooter = view.findViewById(R.id.qs_footer);
         mContainer = view.findViewById(id.quick_settings_container);
-        mGutterHeight = getContext().getResources().getDimensionPixelSize(R.dimen.qs_gutter_height);
 
-        mQSDetail.setQsPanel(mQSPanel, mHeader, mFooter);
-
-        // If the quick settings row is not shown, then there is no need for the animation from
-        // the row to the full QS panel.
-        if (getResources().getBoolean(R.bool.config_showQuickSettingsRow)) {
-            mQSAnimator = new QSAnimator(this,
-                    mHeader.findViewById(R.id.quick_qs_panel), mQSPanel);
-        }
+        mQSDetail.setQsPanel(mQSPanel, mHeader, (View) mFooter);
+        mQSAnimator = new QSAnimator(this,
+                mHeader.findViewById(R.id.quick_qs_panel), mQSPanel);
 
         mQSCustomizer = view.findViewById(R.id.qs_customize);
         mQSCustomizer.setQs(this);
         if (savedInstanceState != null) {
             setExpanded(savedInstanceState.getBoolean(EXTRA_EXPANDED));
             setListening(savedInstanceState.getBoolean(EXTRA_LISTENING));
+            int[] loc = new int[2];
+            View edit = view.findViewById(android.R.id.edit);
+            edit.getLocationInWindow(loc);
+            int x = loc[0] + edit.getWidth() / 2;
+            int y = loc[1] + edit.getHeight() / 2;
+            mQSCustomizer.setEditLocation(x, y);
+            mQSCustomizer.restoreInstanceState(savedInstanceState);
         }
     }
 
@@ -112,6 +112,7 @@ public class QSFragment extends Fragment implements QS {
         super.onSaveInstanceState(outState);
         outState.putBoolean(EXTRA_EXPANDED, mQsExpanded);
         outState.putBoolean(EXTRA_LISTENING, mListening);
+        mQSCustomizer.saveInstanceState(outState);
     }
 
     @VisibleForTesting
@@ -131,9 +132,9 @@ public class QSFragment extends Fragment implements QS {
 
     @Override
     public void setHasNotifications(boolean hasNotifications) {
-        mContainer.setGutterEnabled(hasNotifications);
     }
 
+    @Override
     public void setPanelView(HeightListener panelView) {
         mPanelView = panelView;
     }
@@ -157,6 +158,7 @@ public class QSFragment extends Fragment implements QS {
         }
     }
 
+    @Override
     public boolean isCustomizing() {
         return mQSCustomizer.isCustomizing();
     }
@@ -198,15 +200,22 @@ public class QSFragment extends Fragment implements QS {
         return mQSCustomizer;
     }
 
+    @Override
     public boolean isShowingDetail() {
         return mQSPanel.isShowingCustomize() || mQSDetail.isShowingDetail();
     }
 
+    @Override
     public void setHeaderClickable(boolean clickable) {
         if (DEBUG) Log.d(TAG, "setHeaderClickable " + clickable);
-        mFooter.getExpandView().setClickable(clickable);
+
+        View expandView = mFooter.getExpandView();
+        if (expandView != null) {
+            expandView.setClickable(clickable);
+        }
     }
 
+    @Override
     public void setExpanded(boolean expanded) {
         if (DEBUG) Log.d(TAG, "setExpanded " + expanded);
         mQsExpanded = expanded;
@@ -214,6 +223,7 @@ public class QSFragment extends Fragment implements QS {
         updateQsState();
     }
 
+    @Override
     public void setKeyguardShowing(boolean keyguardShowing) {
         if (DEBUG) Log.d(TAG, "setKeyguardShowing " + keyguardShowing);
         mKeyguardShowing = keyguardShowing;
@@ -226,12 +236,14 @@ public class QSFragment extends Fragment implements QS {
         updateQsState();
     }
 
+    @Override
     public void setOverscrolling(boolean stackScrollerOverscrolling) {
         if (DEBUG) Log.d(TAG, "setOverscrolling " + stackScrollerOverscrolling);
         mStackScrollerOverscrolling = stackScrollerOverscrolling;
         updateQsState();
     }
 
+    @Override
     public void setListening(boolean listening) {
         if (DEBUG) Log.d(TAG, "setListening " + listening);
         mListening = listening;
@@ -240,17 +252,19 @@ public class QSFragment extends Fragment implements QS {
         mQSPanel.setListening(mListening && mQsExpanded);
     }
 
+    @Override
     public void setHeaderListening(boolean listening) {
         mHeader.setListening(listening);
         mFooter.setListening(listening);
     }
 
+    @Override
     public void setQsExpansion(float expansion, float headerTranslation) {
         if (DEBUG) Log.d(TAG, "setQSExpansion " + expansion + " " + headerTranslation);
         mContainer.setExpansion(expansion);
         final float translationScaleY = expansion - 1;
         if (!mHeaderAnimating) {
-            int height = mHeader.getHeight() + mGutterHeight;
+            int height = mHeader.getHeight();
             getView().setTranslationY(mKeyguardShowing ? (translationScaleY * height)
                     : headerTranslation);
         }
@@ -272,6 +286,7 @@ public class QSFragment extends Fragment implements QS {
         mQSPanel.setClipBounds(mQsBounds);
     }
 
+    @Override
     public void animateHeaderSlidingIn(long delay) {
         if (DEBUG) Log.d(TAG, "animateHeaderSlidingIn");
         // If the QS is already expanded we don't need to slide in the header as it's already
@@ -283,6 +298,7 @@ public class QSFragment extends Fragment implements QS {
         }
     }
 
+    @Override
     public void animateHeaderSlidingOut() {
         if (DEBUG) Log.d(TAG, "animateHeaderSlidingOut");
         mHeaderAnimating = true;
@@ -303,7 +319,11 @@ public class QSFragment extends Fragment implements QS {
 
     @Override
     public void setExpandClickListener(OnClickListener onClickListener) {
-        mFooter.getExpandView().setOnClickListener(onClickListener);
+        View expandView = mFooter.getExpandView();
+
+        if (expandView != null) {
+            expandView.setOnClickListener(onClickListener);
+        }
     }
 
     @Override
@@ -326,6 +346,7 @@ public class QSFragment extends Fragment implements QS {
      * The height this view wants to be. This is different from {@link #getMeasuredHeight} such that
      * during closing the detail panel, this already returns the smaller height.
      */
+    @Override
     public int getDesiredHeight() {
         if (mQSCustomizer.isCustomizing()) {
             return getView().getHeight();
@@ -334,17 +355,18 @@ public class QSFragment extends Fragment implements QS {
             LayoutParams layoutParams = (LayoutParams) mQSPanel.getLayoutParams();
             int panelHeight = layoutParams.topMargin + layoutParams.bottomMargin +
                     + mQSPanel.getMeasuredHeight();
-            return panelHeight + getView().getPaddingBottom() + mGutterHeight;
+            return panelHeight + getView().getPaddingBottom();
         } else {
-            return getView().getMeasuredHeight() + mGutterHeight;
+            return getView().getMeasuredHeight();
         }
     }
 
     @Override
     public void setHeightOverride(int desiredHeight) {
-        mContainer.setHeightOverride(desiredHeight - mGutterHeight);
+        mContainer.setHeightOverride(desiredHeight);
     }
 
+    @Override
     public int getQsMinExpansionHeight() {
         return mHeader.getHeight();
     }

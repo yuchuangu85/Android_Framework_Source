@@ -16,11 +16,14 @@ package com.android.systemui;
 
 import android.content.Context;
 import android.content.res.Configuration;
+import android.hardware.SensorManager;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.Process;
 import android.util.ArrayMap;
+import android.view.IWindowManager;
+import android.view.WindowManagerGlobal;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.NightDisplayController;
@@ -28,19 +31,25 @@ import com.android.internal.logging.MetricsLogger;
 import com.android.internal.util.Preconditions;
 import com.android.settingslib.bluetooth.LocalBluetoothManager;
 import com.android.systemui.assist.AssistManager;
+import com.android.systemui.colorextraction.SysuiColorExtractor;
 import com.android.systemui.fragments.FragmentService;
+import com.android.systemui.keyguard.ScreenLifecycle;
+import com.android.systemui.keyguard.WakefulnessLifecycle;
 import com.android.systemui.plugins.ActivityStarter;
 import com.android.systemui.plugins.PluginDependencyProvider;
 import com.android.systemui.plugins.PluginManager;
 import com.android.systemui.plugins.PluginManagerImpl;
 import com.android.systemui.plugins.VolumeDialogController;
+import com.android.systemui.power.PowerNotificationWarnings;
+import com.android.systemui.power.PowerUI;
 import com.android.systemui.statusbar.phone.ConfigurationControllerImpl;
 import com.android.systemui.statusbar.phone.DarkIconDispatcherImpl;
+import com.android.systemui.statusbar.phone.LightBarController;
 import com.android.systemui.statusbar.phone.ManagedProfileController;
 import com.android.systemui.statusbar.phone.ManagedProfileControllerImpl;
-import com.android.systemui.statusbar.phone.StatusBarWindowManager;
 import com.android.systemui.statusbar.phone.StatusBarIconController;
 import com.android.systemui.statusbar.phone.StatusBarIconControllerImpl;
+import com.android.systemui.statusbar.phone.StatusBarWindowManager;
 import com.android.systemui.statusbar.policy.AccessibilityController;
 import com.android.systemui.statusbar.policy.AccessibilityManagerWrapper;
 import com.android.systemui.statusbar.policy.BatteryController;
@@ -60,6 +69,8 @@ import com.android.systemui.statusbar.policy.FlashlightController;
 import com.android.systemui.statusbar.policy.FlashlightControllerImpl;
 import com.android.systemui.statusbar.policy.HotspotController;
 import com.android.systemui.statusbar.policy.HotspotControllerImpl;
+import com.android.systemui.statusbar.policy.IconLogger;
+import com.android.systemui.statusbar.policy.IconLoggerImpl;
 import com.android.systemui.statusbar.policy.KeyguardMonitor;
 import com.android.systemui.statusbar.policy.KeyguardMonitorImpl;
 import com.android.systemui.statusbar.policy.LocationController;
@@ -77,8 +88,10 @@ import com.android.systemui.statusbar.policy.UserInfoControllerImpl;
 import com.android.systemui.statusbar.policy.UserSwitcherController;
 import com.android.systemui.statusbar.policy.ZenModeController;
 import com.android.systemui.statusbar.policy.ZenModeControllerImpl;
+import com.android.systemui.tuner.TunablePadding.TunablePaddingService;
 import com.android.systemui.tuner.TunerService;
 import com.android.systemui.tuner.TunerServiceImpl;
+import com.android.systemui.util.AsyncSensorManager;
 import com.android.systemui.util.leak.GarbageMonitor;
 import com.android.systemui.util.leak.LeakDetector;
 import com.android.systemui.util.leak.LeakReporter;
@@ -105,6 +118,7 @@ import java.util.function.Consumer;
  * services, registered receivers, etc.
  */
 public class Dependency extends SystemUI {
+    private static final String TAG = "Dependency";
 
     /**
      * Key for getting a background Looper for background work.
@@ -149,6 +163,9 @@ public class Dependency extends SystemUI {
         mProviders.put(ActivityStarter.class, () -> new ActivityStarterDelegate());
         mProviders.put(ActivityStarterDelegate.class, () ->
                 getDependency(ActivityStarter.class));
+
+        mProviders.put(AsyncSensorManager.class, () ->
+                new AsyncSensorManager(mContext.getSystemService(SensorManager.class)));
 
         mProviders.put(BluetoothController.class, () ->
                 new BluetoothControllerImpl(mContext, getDependency(BG_LOOPER)));
@@ -244,11 +261,17 @@ public class Dependency extends SystemUI {
         mProviders.put(StatusBarIconController.class, () ->
                 new StatusBarIconControllerImpl(mContext));
 
+        mProviders.put(ScreenLifecycle.class, () ->
+                new ScreenLifecycle());
+
+        mProviders.put(WakefulnessLifecycle.class, () ->
+                new WakefulnessLifecycle());
+
         mProviders.put(FragmentService.class, () ->
                 new FragmentService(mContext));
 
         mProviders.put(ExtensionController.class, () ->
-                new ExtensionControllerImpl());
+                new ExtensionControllerImpl(mContext));
 
         mProviders.put(PluginDependencyProvider.class, () ->
                 new PluginDependencyProvider(get(PluginManager.class)));
@@ -264,10 +287,26 @@ public class Dependency extends SystemUI {
         mProviders.put(AccessibilityManagerWrapper.class,
                 () -> new AccessibilityManagerWrapper(mContext));
 
+        // Creating a new instance will trigger color extraction.
+        // Thankfully this only happens once - during boot - and WallpaperManagerService
+        // loads colors from cache.
+        mProviders.put(SysuiColorExtractor.class, () -> new SysuiColorExtractor(mContext));
+
+        mProviders.put(TunablePaddingService.class, () -> new TunablePaddingService());
+
         mProviders.put(ForegroundServiceController.class,
                 () -> new ForegroundServiceControllerImpl(mContext));
 
         mProviders.put(UiOffloadThread.class, UiOffloadThread::new);
+
+        mProviders.put(PowerUI.WarningsUI.class, () -> new PowerNotificationWarnings(mContext));
+
+        mProviders.put(IconLogger.class, () -> new IconLoggerImpl(mContext,
+                getDependency(BG_LOOPER), getDependency(MetricsLogger.class)));
+
+        mProviders.put(LightBarController.class, () -> new LightBarController(mContext));
+
+        mProviders.put(IWindowManager.class, () -> WindowManagerGlobal.getWindowManagerService());
 
         // Put all dependencies above here so the factory can override them if it wants.
         SystemUIFactory.getInstance().injectDependencies(mProviders, mContext);

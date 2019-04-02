@@ -360,7 +360,8 @@ public abstract class ResourceBundle {
      */
     private volatile Set<String> keySet;
 
-    /* Android-changed: Removed used of ResourceBundleControlProvider.
+    // Android-changed: Removed use of ResourceBundleControlProvider.
+    /*
     private static final List<ResourceBundleControlProvider> providers;
 
     static {

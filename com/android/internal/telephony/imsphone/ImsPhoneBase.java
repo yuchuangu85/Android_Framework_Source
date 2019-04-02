@@ -26,14 +26,14 @@ import android.os.SystemProperties;
 import android.os.WorkSource;
 import android.telephony.CellInfo;
 import android.telephony.CellLocation;
+import android.telephony.NetworkScanRequest;
+import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
-import android.telephony.Rlog;
 import android.util.Pair;
 
 import com.android.internal.telephony.Call;
 import com.android.internal.telephony.Connection;
-import com.android.internal.telephony.dataconnection.DataConnection;
 import com.android.internal.telephony.IccCard;
 import com.android.internal.telephony.IccPhoneBookInterfaceManager;
 import com.android.internal.telephony.MmiCode;
@@ -42,6 +42,7 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneNotifier;
 import com.android.internal.telephony.TelephonyProperties;
+import com.android.internal.telephony.dataconnection.DataConnection;
 import com.android.internal.telephony.uicc.IccFileHandler;
 
 import java.util.ArrayList;
@@ -228,7 +229,7 @@ abstract class ImsPhoneBase extends Phone {
         mUnknownConnectionRegistrants.notifyResult(this);
     }
 
-    void notifySuppServiceFailed(SuppService code) {
+    public void notifySuppServiceFailed(SuppService code) {
         mSuppServiceFailedRegistrants.notifyResult(code);
     }
 
@@ -427,6 +428,14 @@ abstract class ImsPhoneBase extends Phone {
     }
 
     @Override
+    public void startNetworkScan(NetworkScanRequest nsr, Message response) {
+    }
+
+    @Override
+    public void stopNetworkScan(Message response) {
+    }
+
+    @Override
     public void setNetworkSelectionModeAutomatic(Message response) {
     }
 
@@ -483,7 +492,7 @@ abstract class ImsPhoneBase extends Phone {
     }
 
     @Override
-    public boolean isDataConnectivityPossible() {
+    public boolean isDataAllowed() {
         return false;
     }
 
