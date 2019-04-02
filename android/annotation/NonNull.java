@@ -28,8 +28,6 @@ import static java.lang.annotation.RetentionPolicy.SOURCE;
  * <p>
  * This is a marker annotation and it has no specific attributes.
  *
- * @paramDoc This value must never be {@code null}.
- * @returnDoc This value will never be {@code null}.
  * @hide
  */
 @Retention(SOURCE)

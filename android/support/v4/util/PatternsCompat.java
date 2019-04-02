@@ -16,11 +16,12 @@
 
 package android.support.v4.util;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.support.annotation.RestrictTo;
 
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Commonly used regular expression patterns.
@@ -299,7 +300,7 @@ public final class PatternsCompat {
      *
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public static final Pattern AUTOLINK_WEB_URL = Pattern.compile(
             "(" + WEB_URL_WITH_PROTOCOL + "|" + WEB_URL_WITHOUT_PROTOCOL + ")");
 
@@ -314,7 +315,7 @@ public final class PatternsCompat {
      * the local part to be at most 64 octets.
      */
     private static final String EMAIL_ADDRESS_LOCAL_PART =
-            "[" + EMAIL_CHAR + "]" + "(?:[" + EMAIL_CHAR + "\\.]{0,62}[" + EMAIL_CHAR + "])?";
+            "[" + EMAIL_CHAR + "]" + "(?:[" + EMAIL_CHAR + "\\.]{1,62}[" + EMAIL_CHAR + "])?";
 
     /**
      * Regular expression for the domain part of an email address. RFC5321 section 4.5.3.1.2 limits
@@ -328,7 +329,7 @@ public final class PatternsCompat {
      * and the special characters #&~!^`{}/=$*?| that are included in RFC5321.
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public static final Pattern AUTOLINK_EMAIL_ADDRESS = Pattern.compile("(" + WORD_BOUNDARY +
             "(?:" + EMAIL_ADDRESS_LOCAL_PART + "@" + EMAIL_ADDRESS_DOMAIN + ")" +
             WORD_BOUNDARY + ")"

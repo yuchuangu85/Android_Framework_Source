@@ -16,8 +16,6 @@
 
 package android.support.v17.preference;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.content.Context;
 import android.support.annotation.NonNull;
 import android.support.annotation.RestrictTo;
@@ -25,10 +23,12 @@ import android.util.AttributeSet;
 import android.view.KeyEvent;
 import android.widget.FrameLayout;
 
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+
 /**
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public class LeanbackSettingsRootView extends FrameLayout {
 
     private OnKeyListener mOnBackKeyListener;

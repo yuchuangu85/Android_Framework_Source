@@ -16,40 +16,30 @@
 
 package com.android.setupwizardlib.test;
 
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
-
 import android.content.Context;
 import android.graphics.drawable.ShapeDrawable;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
+import android.test.AndroidTestCase;
+import android.test.suitebuilder.annotation.SmallTest;
 
 import com.android.setupwizardlib.view.StatusBarBackgroundLayout;
 
-import org.junit.Test;
-import org.junit.runner.RunWith;
+public class StatusBarBackgroundLayoutTest extends AndroidTestCase {
 
-@RunWith(AndroidJUnit4.class)
-@SmallTest
-public class StatusBarBackgroundLayoutTest {
-
-    @Test
+    @SmallTest
     public void testSetStatusBarBackground() {
-        final StatusBarBackgroundLayout layout = new StatusBarBackgroundLayout(
-                InstrumentationRegistry.getContext());
+        final StatusBarBackgroundLayout layout = new StatusBarBackgroundLayout(getContext());
         final ShapeDrawable drawable = new ShapeDrawable();
         layout.setStatusBarBackground(drawable);
         assertSame("Status bar background drawable should be same as set",
                 drawable, layout.getStatusBarBackground());
     }
 
-    @Test
+    @SmallTest
     public void testAttachedToWindow() {
         // Attaching to window should request apply window inset
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
             final TestStatusBarBackgroundLayout layout =
-                    new TestStatusBarBackgroundLayout(InstrumentationRegistry.getContext());
+                    new TestStatusBarBackgroundLayout(getContext());
             layout.mRequestApplyInsets = false;
             layout.onAttachedToWindow();
 

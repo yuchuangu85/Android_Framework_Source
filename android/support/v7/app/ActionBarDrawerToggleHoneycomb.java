@@ -23,7 +23,6 @@ import android.app.Activity;
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
@@ -40,9 +39,8 @@ import java.lang.reflect.Method;
  *
  * Moved from Support-v4
  */
-@RequiresApi(11)
 class ActionBarDrawerToggleHoneycomb {
-    private static final String TAG = "ActionBarDrawerToggleHC";
+    private static final String TAG = "ActionBarDrawerToggleHoneycomb";
 
     private static final int[] THEME_ATTRS = new int[] {
             R.attr.homeAsUpIndicator

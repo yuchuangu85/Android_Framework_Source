@@ -343,12 +343,11 @@ public interface Cursor extends Closeable {
     boolean isNull(int columnIndex);
 
     /**
-     * Deactivates the Cursor, making all calls on it fail until {@link #requery} is called.
-     * Inactive Cursors use fewer resources than active Cursors.
+     * Deactivates(使失效) the Cursor, making all calls on it fail until {@link #requery} is called.
+     * Inactive(闲置的) Cursors use fewer resources than active(不活跃的) Cursors.
      * Calling {@link #requery} will make the cursor active again.
-     * @deprecated Since {@link #requery()} is deprecated, so too is this.
+     * @deprecated Since {@link #requery()} is deprecated(弃用), so too is this.
      */
-    @Deprecated
     void deactivate();
 
     /**

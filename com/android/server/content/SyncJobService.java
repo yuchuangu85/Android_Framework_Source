@@ -34,8 +34,6 @@ public class SyncJobService extends JobService {
     private Messenger mMessenger;
     private SparseArray<JobParameters> jobParamsMap = new SparseArray<JobParameters>();
 
-    private final SyncLogger mLogger = SyncLogger.getInstance();
-
     /**
      * This service is started by the SyncManager which passes a messenger object to
      * communicate back with it. It never stops while the device is running.
@@ -65,9 +63,6 @@ public class SyncJobService extends JobService {
 
     @Override
     public boolean onStartJob(JobParameters params) {
-
-        mLogger.purgeOldLogs();
-
         boolean isLoggable = Log.isLoggable(TAG, Log.VERBOSE);
         synchronized (jobParamsMap) {
             jobParamsMap.put(params.getJobId(), params);
@@ -75,9 +70,6 @@ public class SyncJobService extends JobService {
         Message m = Message.obtain();
         m.what = SyncManager.SyncHandler.MESSAGE_START_SYNC;
         SyncOperation op = SyncOperation.maybeCreateFromJobExtras(params.getExtras());
-
-        mLogger.log("onStartJob() jobid=", params.getJobId(), " op=", op);
-
         if (op == null) {
             Slog.e(TAG, "Got invalid job " + params.getJobId());
             return false;
@@ -96,7 +88,7 @@ public class SyncJobService extends JobService {
             Slog.v(TAG, "onStopJob called " + params.getJobId() + ", reason: "
                     + params.getStopReason());
         }
-        mLogger.log("onStopJob() ", mLogger.jobParametersToString(params));
+
         synchronized (jobParamsMap) {
             jobParamsMap.remove(params.getJobId());
         }
@@ -116,13 +108,9 @@ public class SyncJobService extends JobService {
         return false;
     }
 
-    public void callJobFinished(int jobId, boolean needsReschedule, String why) {
+    public void callJobFinished(int jobId, boolean needsReschedule) {
         synchronized (jobParamsMap) {
             JobParameters params = jobParamsMap.get(jobId);
-            mLogger.log("callJobFinished()",
-                    " needsReschedule=", needsReschedule,
-                    " ", mLogger.jobParametersToString(params),
-                    " why=", why);
             if (params != null) {
                 jobFinished(params, needsReschedule);
                 jobParamsMap.remove(jobId);

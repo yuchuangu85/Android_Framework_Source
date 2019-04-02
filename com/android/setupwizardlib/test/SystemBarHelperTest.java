@@ -16,8 +16,6 @@
 
 package com.android.setupwizardlib.test;
 
-import static org.junit.Assert.assertEquals;
-
 import android.annotation.SuppressLint;
 import android.app.Dialog;
 import android.content.Context;
@@ -26,11 +24,8 @@ import android.os.Build.VERSION_CODES;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.SystemClock;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.annotation.UiThreadTest;
-import android.support.test.filters.SmallTest;
-import android.support.test.rule.UiThreadTestRule;
-import android.support.test.runner.AndroidJUnit4;
+import android.test.AndroidTestCase;
+import android.test.suitebuilder.annotation.SmallTest;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -38,16 +33,7 @@ import android.view.WindowManager;
 import com.android.setupwizardlib.test.util.MockWindow;
 import com.android.setupwizardlib.util.SystemBarHelper;
 
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-
-@RunWith(AndroidJUnit4.class)
-@SmallTest
-public class SystemBarHelperTest {
-
-    @Rule
-    public UiThreadTestRule mUiThreadTestRule = new UiThreadTestRule();
+public class SystemBarHelperTest extends AndroidTestCase {
 
     private static final int STATUS_BAR_DISABLE_BACK = 0x00400000;
 
@@ -63,8 +49,7 @@ public class SystemBarHelperTest {
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                     | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testAddVisibilityFlagView() {
         final View view = createViewWithSystemUiVisibility(0x456);
         SystemBarHelper.addVisibilityFlag(view, 0x1400);
@@ -74,8 +59,7 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testRemoveVisibilityFlagView() {
         final View view = createViewWithSystemUiVisibility(0x456);
         SystemBarHelper.removeVisibilityFlag(view, 0x1400);
@@ -85,8 +69,7 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testAddVisibilityFlagWindow() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.addVisibilityFlag(window, 0x1400);
@@ -97,8 +80,7 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testRemoveVisibilityFlagWindow() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.removeVisibilityFlag(window, 0x1400);
@@ -109,8 +91,7 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testHideSystemBarsWindow() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.hideSystemBars(window);
@@ -127,11 +108,10 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testShowSystemBarsWindow() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
-        SystemBarHelper.showSystemBars(window, InstrumentationRegistry.getContext());
+        SystemBarHelper.showSystemBars(window, getContext());
         if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
             assertEquals(
                     "DEFAULT_IMMERSIVE_FLAGS should be removed from window's systemUiVisibility",
@@ -148,10 +128,9 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testHideSystemBarsNoInfiniteLoop() throws InterruptedException {
-        final TestWindow window = new TestWindow(InstrumentationRegistry.getContext(), null);
+        final TestWindow window = new TestWindow(getContext(), null);
         final HandlerThread thread = new HandlerThread("SystemBarHelperTest");
         thread.start();
         final Handler handler = new Handler(thread.getLooper());
@@ -170,10 +149,9 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testHideSystemBarsDialog() {
-        final Dialog dialog = new Dialog(InstrumentationRegistry.getContext());
+        final Dialog dialog = new Dialog(mContext);
         if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
             final WindowManager.LayoutParams attrs = dialog.getWindow().getAttributes();
             attrs.systemUiVisibility = 0x456;
@@ -188,8 +166,7 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testSetBackButtonVisibleTrue() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.setBackButtonVisible(window, true);
@@ -199,8 +176,7 @@ public class SystemBarHelperTest {
         }
     }
 
-    @UiThreadTest
-    @Test
+    @SmallTest
     public void testSetBackButtonVisibleFalse() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.setBackButtonVisible(window, false);
@@ -211,7 +187,7 @@ public class SystemBarHelperTest {
     }
 
     private View createViewWithSystemUiVisibility(int vis) {
-        final View view = new View(InstrumentationRegistry.getContext());
+        final View view = new View(getContext());
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
             view.setSystemUiVisibility(vis);
         }
@@ -219,8 +195,7 @@ public class SystemBarHelperTest {
     }
 
     private Window createWindowWithSystemUiVisibility(int vis) {
-        final Window window = new TestWindow(InstrumentationRegistry.getContext(),
-                createViewWithSystemUiVisibility(vis));
+        final Window window = new TestWindow(getContext(), createViewWithSystemUiVisibility(vis));
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
             WindowManager.LayoutParams attrs = window.getAttributes();
             attrs.systemUiVisibility = vis;
@@ -237,7 +212,7 @@ public class SystemBarHelperTest {
         private int mNavigationBarColor = -1;
         private int mStatusBarColor = -1;
 
-        TestWindow(Context context, View decorView) {
+        public TestWindow(Context context, View decorView) {
             super(context);
             mDecorView = decorView;
         }

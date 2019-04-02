@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,10 +24,9 @@
  */
 package java.net;
 
-import libcore.io.IoBridge;
-
 import java.io.FileDescriptor;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.util.Enumeration;
 import java.security.AccessController;
 
@@ -51,8 +50,13 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
     int timeout = 0;
     boolean connected = false;
     private int trafficClass = 0;
-    protected InetAddress connectedAddress = null;
+    private InetAddress connectedAddress = null;
     private int connectedPort = -1;
+
+    /* cached socket options */
+    private int multicastInterface = 0;
+    private boolean loopbackMode = true;
+    private int ttl = -1;
 
     private final CloseGuard guard = CloseGuard.get();
 
@@ -98,7 +102,7 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
     /**
      * Sends a datagram packet. The packet contains the data and the
      * destination address to send the packet to.
-     * @param p the packet to be sent.
+     * @param packet to be sent.
      */
     protected abstract void send(DatagramPacket p) throws IOException;
 
@@ -130,13 +134,13 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
 
     /**
      * Peek at the packet to see who it is from.
-     * @param i the address to populate with the sender address
+     * @return the address which the packet came from.
      */
     protected abstract int peek(InetAddress i) throws IOException;
     protected abstract int peekData(DatagramPacket p) throws IOException;
     /**
      * Receive the datagram packet.
-     * @param p the packet to receive into
+     * @param p Packet Received.
      */
     protected synchronized void receive(DatagramPacket p)
         throws IOException {
@@ -148,7 +152,7 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
 
     /**
      * Set the TTL (time-to-live) option.
-     * @param ttl TTL to be set.
+     * @param ttl the TTL to be set.
      */
     protected abstract void setTimeToLive(int ttl) throws IOException;
 
@@ -159,15 +163,13 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
 
     /**
      * Set the TTL (time-to-live) option.
-     * @param ttl TTL to be set.
+     * @param ttl the TTL to be set.
      */
-    @Deprecated
     protected abstract void setTTL(byte ttl) throws IOException;
 
     /**
      * Get the TTL (time-to-live) option.
      */
-    @Deprecated
     protected abstract byte getTTL() throws IOException;
 
     /**
@@ -388,14 +390,5 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
 
     protected boolean nativeConnectDisabled() {
         return connectDisabled;
-    }
-
-    // Android-changed: rewritten on the top of IoBridge
-    int dataAvailable() {
-        try {
-            return IoBridge.available(fd);
-        } catch (IOException e) {
-            return -1;
-        }
     }
 }

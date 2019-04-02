@@ -126,12 +126,9 @@ final public class XMLReaderFactory
             in = loader.getResourceAsStream (service);
 
         if (in != null) {
-            try {
-                reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
-                className = reader.readLine();
-            } finally {
-                in.close(); // may throw IOException
-            }
+            reader = new BufferedReader (new InputStreamReader (in, StandardCharsets.UTF_8));
+            className = reader.readLine ();
+            in.close ();
         }
         } catch (Exception e) {
         }

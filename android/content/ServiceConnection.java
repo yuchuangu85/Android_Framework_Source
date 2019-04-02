@@ -37,7 +37,7 @@ public interface ServiceConnection {
      * @param service The IBinder of the Service's communication channel,
      * which you can now make calls on.
      */
-    void onServiceConnected(ComponentName name, IBinder service);
+    public void onServiceConnected(ComponentName name, IBinder service);
 
     /**
      * Called when a connection to the Service has been lost.  This typically
@@ -49,18 +49,5 @@ public interface ServiceConnection {
      * @param name The concrete component name of the service whose
      * connection has been lost.
      */
-    void onServiceDisconnected(ComponentName name);
-
-    /**
-     * Called when the binding to this connection is dead.  This means the
-     * interface will never receive another connection.  The application will
-     * need to unbind and rebind the connection to activate it again.  This may
-     * happen, for example, if the application hosting the service it is bound to
-     * has been updated.
-     *
-     * @param name The concrete component name of the service whose
-     * connection is dead.
-     */
-    default void onBindingDied(ComponentName name) {
-    }
+    public void onServiceDisconnected(ComponentName name);
 }

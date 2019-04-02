@@ -17,7 +17,6 @@
 package com.android.server.hdmi;
 
 import android.hardware.hdmi.HdmiDeviceInfo;
-import android.hardware.tv.cec.V1_0.SendMessageResult;
 import android.util.Slog;
 
 /**
@@ -82,14 +81,14 @@ final class SetArcTransmissionStateAction extends HdmiCecFeatureAction {
             @Override
             public void onSendCompleted(int error) {
                 switch (error) {
-                    case SendMessageResult.SUCCESS:
-                    case SendMessageResult.BUSY:
-                    case SendMessageResult.FAIL:
+                    case Constants.SEND_RESULT_SUCCESS:
+                    case Constants.SEND_RESULT_BUSY:
+                    case Constants.SEND_RESULT_FAILURE:
                         // The result of the command transmission, unless it is an obvious
                         // failure indicated by the target device (or lack thereof), should
                         // not affect the ARC status. Ignores it silently.
                         break;
-                    case SendMessageResult.NACK:
+                    case Constants.SEND_RESULT_NAK:
                         // If <Report ARC Initiated> is negatively ack'ed, disable ARC and
                         // send <Report ARC Terminated> directly.
                         setArcStatus(false);

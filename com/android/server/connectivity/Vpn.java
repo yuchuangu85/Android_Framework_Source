@@ -27,16 +27,14 @@ import android.annotation.Nullable;
 import android.annotation.UserIdInt;
 import android.app.AppGlobals;
 import android.app.AppOpsManager;
-import android.app.Notification;
-import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
@@ -57,10 +55,7 @@ import android.net.NetworkMisc;
 import android.net.RouteInfo;
 import android.net.UidRange;
 import android.net.Uri;
-import android.net.VpnService;
 import android.os.Binder;
-import android.os.Build.VERSION_CODES;
-import android.os.Bundle;
 import android.os.FileUtils;
 import android.os.IBinder;
 import android.os.INetworkManagementService;
@@ -81,17 +76,12 @@ import android.text.TextUtils;
 import android.util.ArraySet;
 import android.util.Log;
 
-import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
 import com.android.internal.net.LegacyVpnInfo;
 import com.android.internal.net.VpnConfig;
 import com.android.internal.net.VpnInfo;
 import com.android.internal.net.VpnProfile;
-import com.android.internal.notification.SystemNotificationChannels;
-import com.android.server.DeviceIdleController;
-import com.android.server.LocalServices;
 import com.android.server.net.BaseNetworkObserver;
 
 import libcore.io.IoUtils;
@@ -122,10 +112,6 @@ public class Vpn {
     private static final String TAG = "Vpn";
     private static final boolean LOGD = true;
 
-    // Length of time (in milliseconds) that an app hosting an always-on VPN is placed on
-    // the device idle whitelist during service launch and VPN bootstrap.
-    private static final long VPN_LAUNCH_IDLE_WHITELIST_DURATION = 60 * 1000;
-
     // TODO: create separate trackers for each unique VPN to support
     // automated reconnection
 
@@ -143,7 +129,6 @@ public class Vpn {
     private NetworkAgent mNetworkAgent;
     private final Looper mLooper;
     private final NetworkCapabilities mNetworkCapabilities;
-    private final SystemServices mSystemServices;
 
     /**
      * Whether to keep the connection active after rebooting, or upgrading or reinstalling. This
@@ -211,7 +196,7 @@ public class Vpn {
                         final boolean isPackageRemoved = !intent.getBooleanExtra(
                                 Intent.EXTRA_REPLACING, false);
                         if (isPackageRemoved) {
-                            setAlwaysOnPackage(null, false);
+                            setAndSaveAlwaysOnPackage(null, false);
                         }
                         break;
                 }
@@ -222,18 +207,11 @@ public class Vpn {
     private boolean mIsPackageIntentReceiverRegistered = false;
 
     public Vpn(Looper looper, Context context, INetworkManagementService netService,
-            @UserIdInt int userHandle) {
-        this(looper, context, netService, userHandle, new SystemServices(context));
-    }
-
-    @VisibleForTesting
-    protected Vpn(Looper looper, Context context, INetworkManagementService netService,
-            int userHandle, SystemServices systemServices) {
+            int userHandle) {
         mContext = context;
         mNetd = netService;
         mUserHandle = userHandle;
         mLooper = looper;
-        mSystemServices = systemServices;
 
         mPackage = VpnConfig.LEGACY_VPN;
         mOwnerUID = getAppUid(mPackage, mUserHandle);
@@ -249,8 +227,6 @@ public class Vpn {
         mNetworkCapabilities = new NetworkCapabilities();
         mNetworkCapabilities.addTransportType(NetworkCapabilities.TRANSPORT_VPN);
         mNetworkCapabilities.removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN);
-
-        loadAlwaysOnPackage();
     }
 
     /**
@@ -265,88 +241,12 @@ public class Vpn {
     /**
      * Update current state, dispaching event to listeners.
      */
-    @VisibleForTesting
-    protected void updateState(DetailedState detailedState, String reason) {
+    private void updateState(DetailedState detailedState, String reason) {
         if (LOGD) Log.d(TAG, "setting state=" + detailedState + ", reason=" + reason);
         mNetworkInfo.setDetailedState(detailedState, reason, null);
         if (mNetworkAgent != null) {
             mNetworkAgent.sendNetworkInfo(mNetworkInfo);
         }
-        updateAlwaysOnNotification(detailedState);
-    }
-
-    /**
-     * Chooses whether to force all connections to go though VPN.
-     *
-     * Used to enable/disable legacy VPN lockdown.
-     *
-     * This uses the same ip rule mechanism as {@link #setAlwaysOnPackage(String, boolean)};
-     * previous settings from calling that function will be replaced and saved with the
-     * always-on state.
-     *
-     * @param lockdown whether to prevent all traffic outside of a VPN.
-     */
-    public synchronized void setLockdown(boolean lockdown) {
-        enforceControlPermissionOrInternalCaller();
-
-        setVpnForcedLocked(lockdown);
-        mLockdown = lockdown;
-
-        // Update app lockdown setting if it changed. Legacy VPN lockdown status is controlled by
-        // LockdownVpnTracker.isEnabled() which keeps track of its own state.
-        if (mAlwaysOn) {
-            saveAlwaysOnPackage();
-        }
-    }
-
-    /**
-     * Checks if a VPN app supports always-on mode.
-     *
-     * In order to support the always-on feature, an app has to
-     * <ul>
-     *     <li>target {@link VERSION_CODES#N API 24} or above, and
-     *     <li>not opt out through the {@link VpnService#SERVICE_META_DATA_SUPPORTS_ALWAYS_ON}
-     *         meta-data field.
-     * </ul>
-     *
-     * @param packageName the canonical package name of the VPN app
-     * @return {@code true} if and only if the VPN app exists and supports always-on mode
-     */
-    public boolean isAlwaysOnPackageSupported(String packageName) {
-        enforceSettingsPermission();
-
-        if (packageName == null) {
-            return false;
-        }
-
-        PackageManager pm = mContext.getPackageManager();
-        ApplicationInfo appInfo = null;
-        try {
-            appInfo = pm.getApplicationInfoAsUser(packageName, 0 /*flags*/, mUserHandle);
-        } catch (NameNotFoundException unused) {
-            Log.w(TAG, "Can't find \"" + packageName + "\" when checking always-on support");
-        }
-        if (appInfo == null || appInfo.targetSdkVersion < VERSION_CODES.N) {
-            return false;
-        }
-
-        final Intent intent = new Intent(VpnConfig.SERVICE_INTERFACE);
-        intent.setPackage(packageName);
-        List<ResolveInfo> services =
-                pm.queryIntentServicesAsUser(intent, PackageManager.GET_META_DATA, mUserHandle);
-        if (services == null || services.size() == 0) {
-            return false;
-        }
-
-        for (ResolveInfo rInfo : services) {
-            final Bundle metaData = rInfo.serviceInfo.metaData;
-            if (metaData != null &&
-                    !metaData.getBoolean(VpnService.SERVICE_META_DATA_SUPPORTS_ALWAYS_ON, true)) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     /**
@@ -357,36 +257,12 @@ public class Vpn {
      *    manifest guarded by {@link android.Manifest.permission.BIND_VPN_SERVICE},
      *    otherwise the call will fail.
      *
-     * <p>Note that this method does not check if the VPN app supports always-on mode. The check is
-     *    delayed to {@link #startAlwaysOnVpn()}, which is always called immediately after this
-     *    method in {@link android.net.IConnectivityManager#setAlwaysOnVpnPackage}.
-     *
      * @param packageName the package to designate as always-on VPN supplier.
      * @param lockdown whether to prevent traffic outside of a VPN, for example while connecting.
      * @return {@code true} if the package has been set as always-on, {@code false} otherwise.
      */
     public synchronized boolean setAlwaysOnPackage(String packageName, boolean lockdown) {
         enforceControlPermissionOrInternalCaller();
-
-        if (setAlwaysOnPackageInternal(packageName, lockdown)) {
-            saveAlwaysOnPackage();
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Configures an always-on VPN connection through a specific application, the same as
-     * {@link #setAlwaysOnPackage}.
-     *
-     * Does not perform permission checks. Does not persist any of the changes to storage.
-     *
-     * @param packageName the package to designate as always-on VPN supplier.
-     * @param lockdown whether to prevent traffic outside of a VPN, for example while connecting.
-     * @return {@code true} if the package has been set as always-on, {@code false} otherwise.
-     */
-    @GuardedBy("this")
-    private boolean setAlwaysOnPackageInternal(String packageName, boolean lockdown) {
         if (VpnConfig.LEGACY_VPN.equals(packageName)) {
             Log.w(TAG, "Not setting legacy VPN \"" + packageName + "\" as always-on.");
             return false;
@@ -404,10 +280,7 @@ public class Vpn {
         }
 
         mLockdown = (mAlwaysOn && lockdown);
-        if (isCurrentPreparedPackage(packageName)) {
-            updateAlwaysOnNotification(mNetworkInfo.getDetailedState());
-        } else {
-            // Prepare this app. The notification will update as a side-effect of updateState().
+        if (!isCurrentPreparedPackage(packageName)) {
             prepareInternal(packageName);
         }
         maybeRegisterPackageChangeReceiverLocked(packageName);
@@ -459,33 +332,32 @@ public class Vpn {
     /**
      * Save the always-on package and lockdown config into Settings.Secure
      */
-    @GuardedBy("this")
-    private void saveAlwaysOnPackage() {
+    public synchronized void saveAlwaysOnPackage() {
         final long token = Binder.clearCallingIdentity();
         try {
-            mSystemServices.settingsSecurePutStringForUser(Settings.Secure.ALWAYS_ON_VPN_APP,
+            final ContentResolver cr = mContext.getContentResolver();
+            Settings.Secure.putStringForUser(cr, Settings.Secure.ALWAYS_ON_VPN_APP,
                     getAlwaysOnPackage(), mUserHandle);
-            mSystemServices.settingsSecurePutIntForUser(Settings.Secure.ALWAYS_ON_VPN_LOCKDOWN,
-                    (mAlwaysOn && mLockdown ? 1 : 0), mUserHandle);
+            Settings.Secure.putIntForUser(cr, Settings.Secure.ALWAYS_ON_VPN_LOCKDOWN,
+                    (mLockdown ? 1 : 0), mUserHandle);
         } finally {
             Binder.restoreCallingIdentity(token);
         }
     }
 
     /**
-     * Load the always-on package and lockdown config from Settings.Secure
+     * Set and save always-on package and lockdown config
+     * @see Vpn#setAlwaysOnPackage(String, boolean)
+     * @see Vpn#saveAlwaysOnPackage()
+     *
+     * @return result of Vpn#setAndSaveAlwaysOnPackage(String, boolean)
      */
-    @GuardedBy("this")
-    private void loadAlwaysOnPackage() {
-        final long token = Binder.clearCallingIdentity();
-        try {
-            final String alwaysOnPackage = mSystemServices.settingsSecureGetStringForUser(
-                    Settings.Secure.ALWAYS_ON_VPN_APP, mUserHandle);
-            final boolean alwaysOnLockdown = mSystemServices.settingsSecureGetIntForUser(
-                    Settings.Secure.ALWAYS_ON_VPN_LOCKDOWN, 0 /*default*/, mUserHandle) != 0;
-            setAlwaysOnPackageInternal(alwaysOnPackage, alwaysOnLockdown);
-        } finally {
-            Binder.restoreCallingIdentity(token);
+    private synchronized boolean setAndSaveAlwaysOnPackage(String packageName, boolean lockdown) {
+        if (setAlwaysOnPackage(packageName, lockdown)) {
+            saveAlwaysOnPackage();
+            return true;
+        } else {
+            return false;
         }
     }
 
@@ -501,11 +373,6 @@ public class Vpn {
             if (alwaysOnPackage == null) {
                 return true;
             }
-            // Remove always-on VPN if it's not supported.
-            if (!isAlwaysOnPackageSupported(alwaysOnPackage)) {
-                setAlwaysOnPackage(null, false);
-                return false;
-            }
             // Skip if the service is already established. This isn't bulletproof: it's not bound
             // until after establish(), so if it's mid-setup onStartCommand will be sent twice,
             // which may restart the connection.
@@ -514,26 +381,14 @@ public class Vpn {
             }
         }
 
-        // Tell the OS that background services in this app need to be allowed for
-        // a short time, so we can bootstrap the VPN service.
-        final long oldId = Binder.clearCallingIdentity();
+        // Start the VPN service declared in the app's manifest.
+        Intent serviceIntent = new Intent(VpnConfig.SERVICE_INTERFACE);
+        serviceIntent.setPackage(alwaysOnPackage);
         try {
-            DeviceIdleController.LocalService idleController =
-                    LocalServices.getService(DeviceIdleController.LocalService.class);
-            idleController.addPowerSaveTempWhitelistApp(Process.myUid(), alwaysOnPackage,
-                    VPN_LAUNCH_IDLE_WHITELIST_DURATION, mUserHandle, false, "vpn");
-
-            // Start the VPN service declared in the app's manifest.
-            Intent serviceIntent = new Intent(VpnConfig.SERVICE_INTERFACE);
-            serviceIntent.setPackage(alwaysOnPackage);
-            try {
-                return mContext.startServiceAsUser(serviceIntent, UserHandle.of(mUserHandle)) != null;
-            } catch (RuntimeException e) {
-                Log.e(TAG, "VpnService " + serviceIntent + " failed to start", e);
-                return false;
-            }
-        } finally {
-            Binder.restoreCallingIdentity(oldId);
+            return mContext.startServiceAsUser(serviceIntent, UserHandle.of(mUserHandle)) != null;
+        } catch (RuntimeException e) {
+            Log.e(TAG, "VpnService " + serviceIntent + " failed to start", e);
+            return false;
         }
     }
 
@@ -664,7 +519,6 @@ public class Vpn {
             mConfig = null;
 
             updateState(DetailedState.IDLE, "prepare");
-            setVpnForcedLocked(mLockdown);
         } finally {
             Binder.restoreCallingIdentity(token);
         }
@@ -828,19 +682,22 @@ public class Vpn {
         }
     }
 
-    private void agentDisconnect(NetworkAgent networkAgent) {
+    private void agentDisconnect(NetworkInfo networkInfo, NetworkAgent networkAgent) {
+        networkInfo.setIsAvailable(false);
+        networkInfo.setDetailedState(DetailedState.DISCONNECTED, null, null);
         if (networkAgent != null) {
-            NetworkInfo networkInfo = new NetworkInfo(mNetworkInfo);
-            networkInfo.setIsAvailable(false);
-            networkInfo.setDetailedState(DetailedState.DISCONNECTED, null, null);
             networkAgent.sendNetworkInfo(networkInfo);
         }
     }
 
+    private void agentDisconnect(NetworkAgent networkAgent) {
+        NetworkInfo networkInfo = new NetworkInfo(mNetworkInfo);
+        agentDisconnect(networkInfo, networkAgent);
+    }
+
     private void agentDisconnect() {
         if (mNetworkInfo.isConnected()) {
-            mNetworkInfo.setIsAvailable(false);
-            updateState(DetailedState.DISCONNECTED, "agentDisconnect");
+            agentDisconnect(mNetworkInfo, mNetworkAgent);
             mNetworkAgent = null;
         }
     }
@@ -1111,7 +968,9 @@ public class Vpn {
                         Log.wtf(TAG, "Failed to add restricted user to owner", e);
                     }
                 }
-                setVpnForcedLocked(mLockdown);
+                if (mAlwaysOn) {
+                    setVpnForcedLocked(mLockdown);
+                }
             }
         }
     }
@@ -1128,7 +987,9 @@ public class Vpn {
                         Log.wtf(TAG, "Failed to remove restricted user to owner", e);
                     }
                 }
-                setVpnForcedLocked(mLockdown);
+                if (mAlwaysOn) {
+                    setVpnForcedLocked(mLockdown);
+                }
             }
         }
     }
@@ -1138,7 +999,7 @@ public class Vpn {
      */
     public synchronized void onUserStopped() {
         // Switch off networking lockdown (if it was enabled)
-        setLockdown(false);
+        setVpnForcedLocked(false);
         mAlwaysOn = false;
 
         unregisterPackageChangeReceiverLocked();
@@ -1165,31 +1026,20 @@ public class Vpn {
      */
     @GuardedBy("this")
     private void setVpnForcedLocked(boolean enforce) {
-        final List<String> exemptedPackages =
-                isNullOrLegacyVpn(mPackage) ? null : Collections.singletonList(mPackage);
-        setVpnForcedWithExemptionsLocked(enforce, exemptedPackages);
-    }
-
-    /**
-     * @see #setVpnForcedLocked
-     */
-    @GuardedBy("this")
-    private void setVpnForcedWithExemptionsLocked(boolean enforce,
-            @Nullable List<String> exemptedPackages) {
         final Set<UidRange> removedRanges = new ArraySet<>(mBlockedUsers);
-
-        Set<UidRange> addedRanges = Collections.emptySet();
         if (enforce) {
-            addedRanges = createUserAndRestrictedProfilesRanges(mUserHandle,
+            final Set<UidRange> addedRanges = createUserAndRestrictedProfilesRanges(mUserHandle,
                     /* allowedApplications */ null,
-                    /* disallowedApplications */ exemptedPackages);
+                    /* disallowedApplications */ Collections.singletonList(mPackage));
 
             removedRanges.removeAll(addedRanges);
             addedRanges.removeAll(mBlockedUsers);
-        }
 
-        setAllowOnlyVpnForUids(false, removedRanges);
-        setAllowOnlyVpnForUids(true, addedRanges);
+            setAllowOnlyVpnForUids(false, removedRanges);
+            setAllowOnlyVpnForUids(true, addedRanges);
+        } else {
+            setAllowOnlyVpnForUids(false, removedRanges);
+        }
     }
 
     /**
@@ -1279,11 +1129,6 @@ public class Vpn {
         // Require caller to be either an application with CONTROL_VPN permission or a process
         // in the system server.
         mContext.enforceCallingOrSelfPermission(Manifest.permission.CONTROL_VPN,
-                "Unauthorized Caller");
-    }
-
-    private void enforceSettingsPermission() {
-        mContext.enforceCallingOrSelfPermission(Manifest.permission.NETWORK_SETTINGS,
                 "Unauthorized Caller");
     }
 
@@ -1402,89 +1247,6 @@ public class Vpn {
                 }
             }
             return false;
-        }
-    }
-
-    private void updateAlwaysOnNotification(DetailedState networkState) {
-        final boolean visible = (mAlwaysOn && networkState != DetailedState.CONNECTED);
-
-        final UserHandle user = UserHandle.of(mUserHandle);
-        final long token = Binder.clearCallingIdentity();
-        try {
-            final NotificationManager notificationManager = NotificationManager.from(mContext);
-            if (!visible) {
-                notificationManager.cancelAsUser(TAG, SystemMessage.NOTE_VPN_DISCONNECTED, user);
-                return;
-            }
-            final Intent intent = new Intent(Settings.ACTION_VPN_SETTINGS);
-            final PendingIntent configIntent = mSystemServices.pendingIntentGetActivityAsUser(
-                    intent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT, user);
-            final Notification.Builder builder =
-                    new Notification.Builder(mContext, SystemNotificationChannels.VPN)
-                            .setSmallIcon(R.drawable.vpn_connected)
-                            .setContentTitle(mContext.getString(R.string.vpn_lockdown_disconnected))
-                            .setContentText(mContext.getString(R.string.vpn_lockdown_config))
-                            .setContentIntent(configIntent)
-                            .setCategory(Notification.CATEGORY_SYSTEM)
-                            .setVisibility(Notification.VISIBILITY_PUBLIC)
-                            .setOngoing(true)
-                            .setColor(mContext.getColor(R.color.system_notification_accent_color));
-            notificationManager.notifyAsUser(TAG, SystemMessage.NOTE_VPN_DISCONNECTED,
-                    builder.build(), user);
-        } finally {
-            Binder.restoreCallingIdentity(token);
-        }
-    }
-
-    /**
-     * Facade for system service calls that change, or depend on, state outside of
-     * {@link ConnectivityService} and have hard-to-mock interfaces.
-     *
-     * @see com.android.server.connectivity.VpnTest
-     */
-    @VisibleForTesting
-    public static class SystemServices {
-        private final Context mContext;
-
-        public SystemServices(@NonNull Context context) {
-            mContext = context;
-        }
-
-        /**
-         * @see PendingIntent#getActivityAsUser()
-         */
-        public PendingIntent pendingIntentGetActivityAsUser(
-                Intent intent, int flags, UserHandle user) {
-            return PendingIntent.getActivityAsUser(mContext, 0 /*request*/, intent, flags,
-                    null /*options*/, user);
-        }
-
-        /**
-         * @see Settings.Secure#putStringForUser
-         */
-        public void settingsSecurePutStringForUser(String key, String value, int userId) {
-            Settings.Secure.putStringForUser(mContext.getContentResolver(), key, value, userId);
-        }
-
-        /**
-         * @see Settings.Secure#putIntForUser
-         */
-        public void settingsSecurePutIntForUser(String key, int value, int userId) {
-            Settings.Secure.putIntForUser(mContext.getContentResolver(), key, value, userId);
-        }
-
-        /**
-         * @see Settings.Secure#getStringForUser
-         */
-        public String settingsSecureGetStringForUser(String key, int userId) {
-            return Settings.Secure.getStringForUser(mContext.getContentResolver(), key, userId);
-        }
-
-        /**
-         * @see Settings.Secure#getIntForUser
-         */
-        public int settingsSecureGetIntForUser(String key, int def, int userId) {
-            return Settings.Secure.getIntForUser(mContext.getContentResolver(), key, def, userId);
         }
     }
 
@@ -1782,6 +1544,9 @@ public class Vpn {
         public void exit() {
             // We assume that everything is reset after stopping the daemons.
             interrupt();
+            for (LocalSocket socket : mSockets) {
+                IoUtils.closeQuietly(socket);
+            }
             agentDisconnect();
             try {
                 mContext.unregisterReceiver(mBroadcastReceiver);
@@ -1794,26 +1559,8 @@ public class Vpn {
             Log.v(TAG, "Waiting");
             synchronized (TAG) {
                 Log.v(TAG, "Executing");
-                try {
-                    execute();
-                    monitorDaemons();
-                    interrupted(); // Clear interrupt flag if execute called exit.
-                } catch (InterruptedException e) {
-                } finally {
-                    for (LocalSocket socket : mSockets) {
-                        IoUtils.closeQuietly(socket);
-                    }
-                    // This sleep is necessary for racoon to successfully complete sending delete
-                    // message to server.
-                    try {
-                        Thread.sleep(50);
-                    } catch (InterruptedException e) {
-                    }
-                    for (String daemon : mDaemons) {
-                        SystemService.stop(daemon);
-                    }
-                }
-                agentDisconnect();
+                execute();
+                monitorDaemons();
             }
         }
 
@@ -2012,6 +1759,18 @@ public class Vpn {
                 Log.i(TAG, "Aborting", e);
                 updateState(DetailedState.FAILED, e.getMessage());
                 exit();
+            } finally {
+                // Kill the daemons if they fail to stop.
+                if (!initFinished) {
+                    for (String daemon : mDaemons) {
+                        SystemService.stop(daemon);
+                    }
+                }
+
+                // Do not leave an unstable state.
+                if (!initFinished || mNetworkInfo.getDetailedState() == DetailedState.CONNECTING) {
+                    agentDisconnect();
+                }
             }
         }
 
@@ -2019,17 +1778,28 @@ public class Vpn {
          * Monitor the daemons we started, moving to disconnected state if the
          * underlying services fail.
          */
-        private void monitorDaemons() throws InterruptedException{
+        private void monitorDaemons() {
             if (!mNetworkInfo.isConnected()) {
                 return;
             }
-            while (true) {
-                Thread.sleep(2000);
-                for (int i = 0; i < mDaemons.length; i++) {
-                    if (mArguments[i] != null && SystemService.isStopped(mDaemons[i])) {
-                        return;
+
+            try {
+                while (true) {
+                    Thread.sleep(2000);
+                    for (int i = 0; i < mDaemons.length; i++) {
+                        if (mArguments[i] != null && SystemService.isStopped(mDaemons[i])) {
+                            return;
+                        }
                     }
                 }
+            } catch (InterruptedException e) {
+                Log.d(TAG, "interrupted during monitorDaemons(); stopping services");
+            } finally {
+                for (String daemon : mDaemons) {
+                    SystemService.stop(daemon);
+                }
+
+                agentDisconnect();
             }
         }
     }

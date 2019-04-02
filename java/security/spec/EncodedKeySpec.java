@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2005, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,7 +49,7 @@ public abstract class EncodedKeySpec implements KeySpec {
      *
      * @param encodedKey the encoded key. The contents of the
      * array are copied to protect against subsequent modification.
-     * @exception NullPointerException if {@code encodedKey}
+     * @exception NullPointerException if <code>encodedKey</code>
      * is null.
      */
     public EncodedKeySpec(byte[] encodedKey) {
@@ -74,9 +74,9 @@ public abstract class EncodedKeySpec implements KeySpec {
      * (see {@link java.security.Key Key}) can be transformed
      * (see {@link java.security.KeyFactory KeyFactory})
      * into this key specification (or a subclass of it),
-     * {@code getFormat} called
+     * <code>getFormat</code> called
      * on the opaque key returns the same value as the
-     * {@code getFormat} method
+     * <code>getFormat</code> method
      * of this key specification.
      *
      * @return a string representation of the encoding format.

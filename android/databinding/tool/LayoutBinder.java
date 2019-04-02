@@ -30,7 +30,7 @@ import android.databinding.tool.util.Preconditions;
 import android.databinding.tool.writer.LayoutBinderWriter;
 import android.databinding.tool.writer.LayoutBinderWriterKt;
 
-import com.android.annotations.Nullable;
+import org.antlr.v4.runtime.misc.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -216,25 +216,17 @@ public class LayoutBinder implements FileScopeProvider {
             for (BindingTarget bindingTarget : mBindingTargets) {
                 try {
                     Scope.enter(bindingTarget.mBundle);
-                    final String className = getPackage() + "." + getClassName();
                     for (BindingTargetBundle.BindingBundle bindingBundle : bindingTarget.mBundle
                             .getBindingBundleList()) {
                         try {
                             Scope.enter(bindingBundle.getValueLocation());
-                            Expr expr = parse(bindingBundle.getExpr(),
-                                    bindingBundle.getValueLocation(),
-                                    bindingTarget);
-                            bindingTarget.addBinding(bindingBundle.getName(), expr);
-                            if (bindingBundle.isTwoWay()) {
-                                bindingTarget.addInverseBinding(bindingBundle.getName(), expr,
-                                        className);
-                            }
+                            bindingTarget.addBinding(bindingBundle.getName(),
+                                    parse(bindingBundle.getExpr(), bindingBundle.isTwoWay(),
+                                            bindingBundle.getValueLocation()));
                         } finally {
                             Scope.exit();
                         }
                     }
-                    // resolve callbacks first because they introduce local variables.
-                    bindingTarget.resolveCallbackParams();
                     bindingTarget.resolveTwoWayExpressions();
                     bindingTarget.resolveMultiSetters();
                     bindingTarget.resolveListeners();
@@ -253,7 +245,7 @@ public class LayoutBinder implements FileScopeProvider {
         List<Expr> used = new ArrayList<Expr>();
         for (BindingTarget target : mBindingTargets) {
             for (Binding binding : target.getBindings()) {
-                binding.getExpr().markAsUsed();
+                binding.getExpr().setIsUsed(true);
                 used.add(binding.getExpr());
             }
         }
@@ -262,7 +254,7 @@ public class LayoutBinder implements FileScopeProvider {
             for (Dependency dep : e.getDependencies()) {
                 if (!dep.getOther().isUsed()) {
                     used.add(dep.getOther());
-                    dep.getOther().markAsUsed();
+                    dep.getOther().setIsUsed(true);
                 }
             }
         }
@@ -296,9 +288,10 @@ public class LayoutBinder implements FileScopeProvider {
         return target;
     }
 
-    public Expr parse(String input, @Nullable Location locationInFile, BindingTarget target) {
-        final Expr parsed = mExpressionParser.parse(input, locationInFile, target);
+    public Expr parse(String input, boolean isTwoWay, @Nullable Location locationInFile) {
+        final Expr parsed = mExpressionParser.parse(input, locationInFile);
         parsed.setBindingExpression(true);
+        parsed.setTwoWay(isTwoWay);
         return parsed;
     }
 

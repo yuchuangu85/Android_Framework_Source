@@ -22,7 +22,6 @@ import android.graphics.drawable.shapes.RectShape;
 import android.graphics.drawable.shapes.Shape;
 import android.util.AttributeSet;
 import android.view.accessibility.AccessibilityNodeInfo;
-
 import com.android.internal.R;
 
 /**
@@ -150,11 +149,7 @@ public class RatingBar extends AbsSeekBar {
      */
     public void setIsIndicator(boolean isIndicator) {
         mIsUserSeekable = !isIndicator;
-        if (isIndicator) {
-            setFocusable(FOCUSABLE_AUTO);
-        } else {
-            setFocusable(FOCUSABLE);
-        }
+        setFocusable(!isIndicator);
     }
 
     /**

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -111,7 +111,7 @@ import dalvik.system.VMStack;
  *
  * <p>Serializable classes that require special handling during the
  * serialization and deserialization process should implement the following
- * methods:
+ * methods:<p>
  *
  * <pre>
  * private void writeObject(java.io.ObjectOutputStream stream)
@@ -316,7 +316,6 @@ public class ObjectInputStream
      * @throws  SecurityException if a security manager exists and its
      *          <code>checkPermission</code> method denies enabling
      *          subclassing.
-     * @throws  IOException if an I/O error occurs while creating this stream
      * @see SecurityManager#checkPermission
      * @see java.io.SerializablePermission
      */
@@ -494,12 +493,11 @@ public class ObjectInputStream
     public void defaultReadObject()
         throws IOException, ClassNotFoundException
     {
-        SerialCallbackContext ctx = curContext;
-        if (ctx == null) {
+        if (curContext == null) {
             throw new NotActiveException("not in call to readObject");
         }
-        Object curObj = ctx.getObj();
-        ObjectStreamClass curDesc = ctx.getDesc();
+        Object curObj = curContext.getObj();
+        ObjectStreamClass curDesc = curContext.getDesc();
         bin.setBlockDataMode(false);
         defaultReadFields(curObj, curDesc);
         bin.setBlockDataMode(true);
@@ -533,12 +531,11 @@ public class ObjectInputStream
     public ObjectInputStream.GetField readFields()
         throws IOException, ClassNotFoundException
     {
-        SerialCallbackContext ctx = curContext;
-        if (ctx == null) {
+        if (curContext == null) {
             throw new NotActiveException("not in call to readObject");
         }
-        Object curObj = ctx.getObj();
-        ObjectStreamClass curDesc = ctx.getDesc();
+        Object curObj = curContext.getObj();
+        ObjectStreamClass curDesc = curContext.getDesc();
         bin.setBlockDataMode(false);
         GetFieldImpl getField = new GetFieldImpl(curDesc);
         getField.readFields();
@@ -696,9 +693,9 @@ public class ObjectInputStream
         boolean hasNonPublicInterface = false;
 
         // define proxy in class loader of non-public interface(s), if any
-        Class<?>[] classObjs = new Class<?>[interfaces.length];
+        Class[] classObjs = new Class[interfaces.length];
         for (int i = 0; i < interfaces.length; i++) {
-            Class<?> cl = Class.forName(interfaces[i], false, latestLoader);
+            Class cl = Class.forName(interfaces[i], false, latestLoader);
             if ((cl.getModifiers() & Modifier.PUBLIC) == 0) {
                 if (hasNonPublicInterface) {
                     if (nonPublicLoader != cl.getClassLoader()) {
@@ -1236,7 +1233,7 @@ public class ObjectInputStream
      * "enableSubclassImplementation" SerializablePermission is checked.
      */
     private void verifySubclass() {
-        Class<?> cl = getClass();
+        Class cl = getClass();
         if (cl == ObjectInputStream.class) {
             return;
         }
@@ -1480,12 +1477,12 @@ public class ObjectInputStream
      * ClassNotFoundException will be associated with the class' handle in the
      * handle table).
      */
-    private Class<?> readClass(boolean unshared) throws IOException {
+    private Class readClass(boolean unshared) throws IOException {
         if (bin.readByte() != TC_CLASS) {
             throw new InternalError();
         }
         ObjectStreamClass desc = readClassDesc(false);
-        Class<?> cl = desc.forClass();
+        Class cl = desc.forClass();
         passHandle = handles.assign(unshared ? unsharedMarker : cl);
 
         ClassNotFoundException resolveEx = desc.getResolveException();
@@ -1555,7 +1552,7 @@ public class ObjectInputStream
             ifaces[i] = bin.readUTF();
         }
 
-        Class<?> cl = null;
+        Class cl = null;
         ClassNotFoundException resolveEx = null;
         bin.setBlockDataMode(true);
         try {
@@ -1608,7 +1605,7 @@ public class ObjectInputStream
                 "failed to read class descriptor").initCause(ex);
         }
 
-        Class<?> cl = null;
+        Class cl = null;
         ClassNotFoundException resolveEx = null;
         bin.setBlockDataMode(true);
         final boolean checksRequired = isCustomSubclass();
@@ -1668,7 +1665,7 @@ public class ObjectInputStream
         int len = bin.readInt();
 
         Object array = null;
-        Class<?> cl, ccl = null;
+        Class cl, ccl = null;
         if ((cl = desc.forClass()) != null) {
             ccl = cl.getComponentType();
             array = Array.newInstance(ccl, len);
@@ -1721,7 +1718,7 @@ public class ObjectInputStream
      * Reads in and returns enum constant, or null if enum type is
      * unresolvable.  Sets passHandle to enum constant's assigned handle.
      */
-    private Enum<?> readEnum(boolean unshared) throws IOException {
+    private Enum readEnum(boolean unshared) throws IOException {
         if (bin.readByte() != TC_ENUM) {
             throw new InternalError();
         }
@@ -1738,26 +1735,24 @@ public class ObjectInputStream
         }
 
         String name = readString(false);
-        Enum<?> result = null;
-        Class<?> cl = desc.forClass();
+        Enum en = null;
+        Class cl = desc.forClass();
         if (cl != null) {
             try {
-                @SuppressWarnings("unchecked")
-                Enum<?> en = Enum.valueOf((Class)cl, name);
-                result = en;
+                en = Enum.valueOf(cl, name);
             } catch (IllegalArgumentException ex) {
                 throw (IOException) new InvalidObjectException(
                     "enum constant " + name + " does not exist in " +
                     cl).initCause(ex);
             }
             if (!unshared) {
-                handles.setObject(enumHandle, result);
+                handles.setObject(enumHandle, en);
             }
         }
 
         handles.finish(enumHandle);
         passHandle = enumHandle;
-        return result;
+        return en;
     }
 
     /**
@@ -1832,8 +1827,6 @@ public class ObjectInputStream
         throws IOException
     {
         SerialCallbackContext oldContext = curContext;
-        if (oldContext != null)
-            oldContext.check();
         curContext = null;
         try {
             boolean blocked = desc.hasBlockExternalData();
@@ -1858,8 +1851,6 @@ public class ObjectInputStream
                 skipCustomData();
             }
         } finally {
-            if (oldContext != null)
-                oldContext.check();
             curContext = oldContext;
         }
         /*
@@ -1890,12 +1881,12 @@ public class ObjectInputStream
             ObjectStreamClass slotDesc = slots[i].desc;
 
             if (slots[i].hasData) {
-                if (obj == null || handles.lookupException(passHandle) != null) {
-                    defaultReadFields(null, slotDesc); // skip field values
-                } else if (slotDesc.hasReadObjectMethod()) {
+                if (obj != null &&
+                    slotDesc.hasReadObjectMethod() &&
+                    handles.lookupException(passHandle) == null)
+                {
                     SerialCallbackContext oldContext = curContext;
-                    if (oldContext != null)
-                        oldContext.check();
+
                     try {
                         curContext = new SerialCallbackContext(obj, slotDesc);
 
@@ -1912,8 +1903,6 @@ public class ObjectInputStream
                         handles.markException(passHandle, ex);
                     } finally {
                         curContext.setUsed();
-                        if (oldContext!= null)
-                            oldContext.check();
                         curContext = oldContext;
                     }
 
@@ -1926,7 +1915,6 @@ public class ObjectInputStream
                 } else {
                     defaultReadFields(obj, slotDesc);
                 }
-
                 if (slotDesc.hasWriteObjectData()) {
                     skipCustomData();
                 } else {
@@ -1980,7 +1968,8 @@ public class ObjectInputStream
     private void defaultReadFields(Object obj, ObjectStreamClass desc)
         throws IOException
     {
-        Class<?> cl = desc.forClass();
+        // REMIND: is isInstance check necessary?
+        Class cl = desc.forClass();
         if (cl != null && obj != null && !cl.isInstance(obj)) {
             throw new ClassCastException();
         }
@@ -2022,9 +2011,9 @@ public class ObjectInputStream
         }
         clear();
         IOException e = (IOException) readObject0(false);
-        // BEGIN Android-changed
+        // ----- BEGIN android -----
         clear();
-        // END Android-changed
+        // ----- END android -----
         return e;
     }
 
@@ -2183,7 +2172,7 @@ public class ObjectInputStream
          * class descriptor, returns -1.  Throws IllegalArgumentException if
          * neither incoming nor local class descriptor contains a match.
          */
-        private int getFieldOffset(String name, Class<?> type) {
+        private int getFieldOffset(String name, Class type) {
             ObjectStreamField field = desc.getField(name, type);
             if (field != null) {
                 return field.getOffset();
@@ -2881,7 +2870,6 @@ public class ObjectInputStream
             return readUTFBody(readUnsignedShort());
         }
 
-        @SuppressWarnings("deprecation")
         public String readLine() throws IOException {
             return din.readLine();      // deprecated, not worth optimizing
         }

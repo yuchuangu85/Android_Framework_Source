@@ -87,9 +87,9 @@ public class LocalServerSocket {
     {
         LocalSocketImpl acceptedImpl = new LocalSocketImpl();
 
-        impl.accept(acceptedImpl);
+        impl.accept (acceptedImpl);
 
-        return LocalSocket.createLocalSocketForAccept(acceptedImpl);
+        return new LocalSocket(acceptedImpl, LocalSocket.SOCKET_UNKNOWN);
     }
 
     /**

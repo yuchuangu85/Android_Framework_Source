@@ -10,35 +10,17 @@ import android.os.ParcelFileDescriptor;
 public class FullBackupDataOutput {
     // Currently a name-scoping shim around BackupDataOutput
     private final BackupDataOutput mData;
-    private final long mQuota;
     private long mSize;
 
-    /**
-     * Returns the quota in bytes for the application's current backup operation.  The
-     * value can vary for each operation.
-     *
-     * @see BackupDataOutput#getQuota()
-     */
-    public long getQuota() {
-        return mQuota;
-    }
-
     /** @hide - used only in measure operation */
-    public FullBackupDataOutput(long quota) {
+    public FullBackupDataOutput() {
         mData = null;
-        mQuota = quota;
         mSize = 0;
     }
 
     /** @hide */
-    public FullBackupDataOutput(ParcelFileDescriptor fd, long quota) {
-        mData = new BackupDataOutput(fd.getFileDescriptor(), quota);
-        mQuota = quota;
-    }
-
-    /** @hide - used only internally to the backup manager service's stream construction */
     public FullBackupDataOutput(ParcelFileDescriptor fd) {
-        this(fd, -1);
+        mData = new BackupDataOutput(fd.getFileDescriptor());
     }
 
     /** @hide */

@@ -16,37 +16,48 @@
 
 package android.databinding.tool.expr;
 
+import android.databinding.tool.ext.ExtKt;
 import android.databinding.tool.Binding;
 import android.databinding.tool.BindingTarget;
 import android.databinding.tool.InverseBinding;
-import android.databinding.tool.ext.ExtKt;
-import android.databinding.tool.processing.ErrorMessages;
 import android.databinding.tool.processing.Scope;
 import android.databinding.tool.reflection.Callable;
 import android.databinding.tool.reflection.Callable.Type;
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
+import android.databinding.tool.reflection.ModelMethod;
+import android.databinding.tool.util.BrNameUtil;
 import android.databinding.tool.store.SetterStore;
 import android.databinding.tool.store.SetterStore.BindingGetterCall;
-import android.databinding.tool.util.BrNameUtil;
 import android.databinding.tool.util.L;
 import android.databinding.tool.util.Preconditions;
 import android.databinding.tool.writer.KCode;
 
-import com.google.common.collect.Lists;
-
 import java.util.List;
 
-public class FieldAccessExpr extends MethodBaseExpr {
+public class FieldAccessExpr extends Expr {
+    String mName;
     // notification name for the field. Important when we map this to a method w/ different name
     String mBrName;
     Callable mGetter;
+    final boolean mIsObservableField;
     boolean mIsListener;
     boolean mIsViewAttributeAccess;
 
     FieldAccessExpr(Expr parent, String name) {
-        super(parent, name);
+        super(parent);
         mName = name;
+        mIsObservableField = false;
+    }
+
+    FieldAccessExpr(Expr parent, String name, boolean isObservableField) {
+        super(parent);
+        mName = name;
+        mIsObservableField = isObservableField;
+    }
+
+    public Expr getChild() {
+        return getChildren().get(0);
     }
 
     public Callable getGetter() {
@@ -58,10 +69,7 @@ public class FieldAccessExpr extends MethodBaseExpr {
 
     @Override
     public String getInvertibleError() {
-        if (getGetter() == null) {
-            return "Listeners do not support two-way binding";
-        }
-        if (mGetter.setterName == null) {
+        if (getGetter().setterName == null) {
             return "Two-way binding cannot resolve a setter for " + getResolvedType().toJavaCode() +
                     " property '" + mName + "'";
         }
@@ -73,7 +81,7 @@ public class FieldAccessExpr extends MethodBaseExpr {
     }
 
     public int getMinApi() {
-        return mGetter == null ? 0 : mGetter.getMinApi();
+        return mGetter.getMinApi();
     }
 
     @Override
@@ -85,7 +93,7 @@ public class FieldAccessExpr extends MethodBaseExpr {
             return true;
         }
         // if it is static final, gone
-        if (getTarget().isDynamic()) {
+        if (getChild().isDynamic()) {
             // if owner is dynamic, then we can be dynamic unless we are static final
             return !mGetter.isStatic() || mGetter.isDynamic();
         }
@@ -99,33 +107,111 @@ public class FieldAccessExpr extends MethodBaseExpr {
     }
 
     public boolean hasBindableAnnotations() {
-        return mGetter != null && mGetter.canBeInvalidated();
+        return mGetter.canBeInvalidated();
     }
 
     @Override
     public Expr resolveListeners(ModelClass listener, Expr parent) {
-        final ModelClass targetType = getTarget().getResolvedType();
-        if (getGetter() == null && (listener == null || !mIsListener)) {
-            L.e("Could not resolve %s.%s as an accessor or listener on the attribute.",
-                    targetType.getCanonicalName(), mName);
-            return this;
+        if (mName == null || mName.isEmpty()) {
+            return this; // ObservableFields aren't listeners
         }
-        try {
-            Expr listenerExpr = resolveListenersAsMethodReference(listener, parent);
-            L.w("Method references using '.' is deprecated. Instead of '%s', use '%s::%s'",
-                    toString(), getTarget(), getName());
-            return listenerExpr;
-        } catch (IllegalStateException e) {
-            if (getGetter() == null) {
-                L.e("%s", e.getMessage());
+        final ModelClass childType = getChild().getResolvedType();
+        if (getGetter() == null) {
+            if (listener == null || !mIsListener) {
+                L.e("Could not resolve %s.%s as an accessor or listener on the attribute.",
+                        childType.getCanonicalName(), mName);
+                return this;
+            }
+            getChild().getParents().remove(this);
+        } else if (listener == null) {
+            return this; // Not a listener, but we have a getter.
+        }
+        List<ModelMethod> abstractMethods = listener.getAbstractMethods();
+        int numberOfAbstractMethods = abstractMethods == null ? 0 : abstractMethods.size();
+        if (numberOfAbstractMethods != 1) {
+            if (mGetter == null) {
+                L.e("Could not find accessor %s.%s and %s has %d abstract methods, so is" +
+                                " not resolved as a listener",
+                        childType.getCanonicalName(), mName,
+                        listener.getCanonicalName(), numberOfAbstractMethods);
             }
             return this;
         }
+
+        // Look for a signature matching the abstract method
+        final ModelMethod listenerMethod = abstractMethods.get(0);
+        final ModelClass[] listenerParameters = listenerMethod.getParameterTypes();
+        boolean isStatic = getChild() instanceof StaticIdentifierExpr;
+        List<ModelMethod> methods = childType.findMethods(mName, isStatic);
+        if (methods == null) {
+            return this;
+        }
+        for (ModelMethod method : methods) {
+            if (acceptsParameters(method, listenerParameters) &&
+                    method.getReturnType(null).equals(listenerMethod.getReturnType(null))) {
+                resetResolvedType();
+                // replace this with ListenerExpr in parent
+                Expr listenerExpr = getModel().listenerExpr(getChild(), mName, listener,
+                        listenerMethod);
+                if (parent != null) {
+                    int index;
+                    while ((index = parent.getChildren().indexOf(this)) != -1) {
+                        parent.getChildren().set(index, listenerExpr);
+                    }
+                }
+                if (getModel().mBindingExpressions.contains(this)) {
+                    getModel().bindingExpr(listenerExpr);
+                }
+                getParents().remove(parent);
+                if (getParents().isEmpty()) {
+                    getModel().removeExpr(this);
+                }
+                return listenerExpr;
+            }
+        }
+
+        if (mGetter == null) {
+            L.e("Listener class %s with method %s did not match signature of any method %s.%s",
+                    listener.getCanonicalName(), listenerMethod.getName(),
+                    childType.getCanonicalName(), mName);
+        }
+        return this;
+    }
+
+    private boolean acceptsParameters(ModelMethod method, ModelClass[] listenerParameters) {
+        ModelClass[] parameters = method.getParameterTypes();
+        if (parameters.length != listenerParameters.length) {
+            return false;
+        }
+        for (int i = 0; i < parameters.length; i++) {
+            if (!parameters[i].isAssignableFrom(listenerParameters[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    protected List<Dependency> constructDependencies() {
+        final List<Dependency> dependencies = constructDynamicChildrenDependencies();
+        for (Dependency dependency : dependencies) {
+            if (dependency.getOther() == getChild()) {
+                dependency.setMandatory(true);
+            }
+        }
+        return dependencies;
     }
 
     @Override
     protected String computeUniqueKey() {
-        return join(mName, ".", getTarget().getUniqueKey());
+        if (mIsObservableField) {
+            return addTwoWay(join(mName, "..", super.computeUniqueKey()));
+        }
+        return addTwoWay(join(mName, ".", super.computeUniqueKey()));
+    }
+
+    public String getName() {
+        return mName;
     }
 
     public String getBrName() {
@@ -142,21 +228,32 @@ public class FieldAccessExpr extends MethodBaseExpr {
     }
 
     @Override
+    public void updateExpr(ModelAnalyzer modelAnalyzer) {
+        try {
+            Scope.enter(this);
+            resolveType(modelAnalyzer);
+            super.updateExpr(modelAnalyzer);
+        } finally {
+            Scope.exit();
+        }
+    }
+
+    @Override
     protected ModelClass resolveType(ModelAnalyzer modelAnalyzer) {
         if (mIsListener) {
             return modelAnalyzer.findClass(Object.class);
         }
         if (mGetter == null) {
-            Expr target = getTarget();
-            target.getResolvedType();
-            boolean isStatic = target instanceof StaticIdentifierExpr;
-            ModelClass resolvedType = target.getResolvedType();
+            Expr child = getChild();
+            child.getResolvedType();
+            boolean isStatic = child instanceof StaticIdentifierExpr;
+            ModelClass resolvedType = child.getResolvedType();
             L.d("resolving %s. Resolved class type: %s", this, resolvedType);
 
             mGetter = resolvedType.findGetterOrField(mName, isStatic);
 
             if (mGetter == null) {
-                mIsListener = !resolvedType.findMethods(mName, isStatic).isEmpty();
+                mIsListener = resolvedType.findMethods(mName, isStatic) != null;
                 if (!mIsListener) {
                     L.e("Could not find accessor %s.%s", resolvedType.getCanonicalName(), mName);
                 }
@@ -165,16 +262,22 @@ public class FieldAccessExpr extends MethodBaseExpr {
 
             if (mGetter.isStatic() && !isStatic) {
                 // found a static method on an instance. register a new one
-                replaceStaticIdentifier(resolvedType);
-                target = getTarget();
+                child.getParents().remove(this);
+                getChildren().remove(child);
+                StaticIdentifierExpr staticId = getModel().staticIdentifierFor(resolvedType);
+                getChildren().add(staticId);
+                staticId.getParents().add(this);
+                child = getChild(); // replace the child for the next if stmt
             }
 
             if (mGetter.resolvedType.isObservableField()) {
                 // Make this the ".get()" and add an extra field access for the observable field
-                target.getParents().remove(this);
-                getChildren().remove(target);
+                child.getParents().remove(this);
+                getChildren().remove(child);
 
-                FieldAccessExpr observableField = getModel().observableField(target, mName);
+                FieldAccessExpr observableField = getModel().observableField(child, mName);
+                observableField.mGetter = mGetter;
+
                 getChildren().add(observableField);
                 observableField.getParents().add(this);
                 mGetter = mGetter.resolvedType.findGetterOrField("", false);
@@ -187,17 +290,9 @@ public class FieldAccessExpr extends MethodBaseExpr {
         return mGetter.resolvedType;
     }
 
-    protected void replaceStaticIdentifier(ModelClass staticIdentifierType) {
-        getTarget().getParents().remove(this);
-        getChildren().remove(getTarget());
-        StaticIdentifierExpr staticId = getModel().staticIdentifierFor(staticIdentifierType);
-        getChildren().add(staticId);
-        staticId.getParents().add(this);
-    }
-
     @Override
     public Expr resolveTwoWayExpressions(Expr parent) {
-        final Expr child = getTarget();
+        final Expr child = getChild();
         if (!(child instanceof ViewFieldExpr)) {
             return this;
         }
@@ -270,17 +365,22 @@ public class FieldAccessExpr extends MethodBaseExpr {
 
     @Override
     protected String asPackage() {
-        String parentPackage = getTarget().asPackage();
+        String parentPackage = getChild().asPackage();
         return parentPackage == null ? null : parentPackage + "." + mName;
     }
 
     @Override
-    protected KCode generateCode() {
-        // once we can deprecate using Field.access for callbacks, we can get rid of this since
-        // it will be detected when resolve type is run.
-        Preconditions.checkNotNull(getGetter(), ErrorMessages.CANNOT_RESOLVE_TYPE, this);
-        KCode code = new KCode()
-                .app("", getTarget().toCode()).app(".");
+    protected KCode generateCode(boolean expand) {
+        KCode code = new KCode();
+        if (expand) {
+            String defaultValue = ModelAnalyzer.getInstance().getDefaultValue(
+                    getResolvedType().toJavaCode());
+            code.app("(", getChild().toCode(true))
+                    .app(" == null) ? ")
+                    .app(defaultValue)
+                    .app(" : ");
+        }
+        code.app("", getChild().toCode(expand)).app(".");
         if (getGetter().type == Callable.Type.FIELD) {
             return code.app(getGetter().name);
         } else {
@@ -289,27 +389,25 @@ public class FieldAccessExpr extends MethodBaseExpr {
     }
 
     @Override
-    public Expr generateInverse(ExprModel model, Expr value, String bindingClassName) {
-        Expr castExpr = model.castExpr(getResolvedType().toJavaCode(), value);
-        Expr target = getTarget().cloneToModel(model);
-        Expr result;
-        if (getGetter().type == Callable.Type.FIELD) {
-            result = model.assignment(target, mName, castExpr);
-        } else {
-            result = model.methodCall(target, mGetter.setterName, Lists.newArrayList(castExpr));
+    public KCode toInverseCode(KCode value) {
+        if (mGetter.setterName == null) {
+            throw new IllegalStateException("There is no inverse for " + toCode().generate());
         }
-        return result;
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        final Expr clonedTarget = getTarget().cloneToModel(model);
-        return model.field(clonedTarget, mName);
-    }
-
-    @Override
-    public String toString() {
-        String name = mName.isEmpty() ? "get()" : mName;
-        return getTarget().toString() + '.' + name;
+        KCode castValue = new KCode("(").app(getResolvedType().toJavaCode() + ")(", value).app(")");
+        String type = getChild().getResolvedType().toJavaCode();
+        KCode code = new KCode("targetObj_.");
+        if (getGetter().type == Callable.Type.FIELD) {
+            code.app(getGetter().setterName).app(" = ", castValue).app(";");
+        } else {
+            code.app(getGetter().setterName).app("(", castValue).app(")").app(";");
+        }
+        return new KCode()
+                .app("final ")
+                .app(type)
+                .app(" targetObj_ = ", getChild().toCode(true))
+                .app(";")
+                .nl(new KCode("if (targetObj_ != null) {"))
+                .tab(code)
+                .nl(new KCode("}"));
     }
 }

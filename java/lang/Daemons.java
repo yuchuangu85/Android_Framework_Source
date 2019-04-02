@@ -46,13 +46,6 @@ public final class Daemons {
         HeapTaskDaemon.INSTANCE.start();
     }
 
-    public static void startPostZygoteFork() {
-        ReferenceQueueDaemon.INSTANCE.startPostZygoteFork();
-        FinalizerDaemon.INSTANCE.startPostZygoteFork();
-        FinalizerWatchdogDaemon.INSTANCE.startPostZygoteFork();
-        HeapTaskDaemon.INSTANCE.startPostZygoteFork();
-    }
-
     public static void stop() {
         HeapTaskDaemon.INSTANCE.stop();
         ReferenceQueueDaemon.INSTANCE.stop();
@@ -68,22 +61,12 @@ public final class Daemons {
     private static abstract class Daemon implements Runnable {
         private Thread thread;
         private String name;
-        private boolean postZygoteFork;
 
         protected Daemon(String name) {
             this.name = name;
         }
 
         public synchronized void start() {
-            startInternal();
-        }
-
-        public synchronized void startPostZygoteFork() {
-            postZygoteFork = true;
-            startInternal();
-        }
-
-        public void startInternal() {
             if (thread != null) {
                 throw new IllegalStateException("already running");
             }
@@ -92,18 +75,7 @@ public final class Daemons {
             thread.start();
         }
 
-        public void run() {
-            if (postZygoteFork) {
-                // We don't set the priority before the Thread.start() call above because
-                // Thread.start() will call SetNativePriority and overwrite the desired native
-                // priority. We (may) use a native priority that doesn't have a corresponding
-                // java.lang.Thread-level priority (native priorities are more coarse-grained.)
-                VMRuntime.getRuntime().setSystemDaemonThreadPriority();
-            }
-            runInternal();
-        }
-
-        public abstract void runInternal();
+        public abstract void run();
 
         /**
          * Returns true while the current thread should continue to run; false
@@ -169,7 +141,7 @@ public final class Daemons {
             super("ReferenceQueueDaemon");
         }
 
-        @Override public void runInternal() {
+        @Override public void run() {
             while (isRunning()) {
                 Reference<?> list;
                 try {
@@ -201,7 +173,7 @@ public final class Daemons {
             super("FinalizerDaemon");
         }
 
-        @Override public void runInternal() {
+        @Override public void run() {
             // This loop may be performance critical, since we need to keep up with mutator
             // generation of finalizable objects.
             // We minimize the amount of work we do per finalizable object. For example, we avoid
@@ -272,7 +244,7 @@ public final class Daemons {
             super("FinalizerWatchdogDaemon");
         }
 
-        @Override public void runInternal() {
+        @Override public void run() {
             while (isRunning()) {
                 if (!sleepUntilNeeded()) {
                     // We have been interrupted, need to see if this daemon has been stopped.
@@ -447,7 +419,7 @@ public final class Daemons {
             VMRuntime.getRuntime().stopHeapTaskProcessor();
         }
 
-        @Override public void runInternal() {
+        @Override public void run() {
             synchronized (this) {
                 if (isRunning()) {
                   // Needs to be synchronized or else we there is a race condition where we start

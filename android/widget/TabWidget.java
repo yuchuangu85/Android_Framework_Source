@@ -16,6 +16,8 @@
 
 package android.widget;
 
+import com.android.internal.R;
+
 import android.annotation.DrawableRes;
 import android.annotation.Nullable;
 import android.content.Context;
@@ -25,14 +27,10 @@ import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.util.AttributeSet;
-import android.view.MotionEvent;
-import android.view.PointerIcon;
 import android.view.View;
 import android.view.View.OnFocusChangeListener;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
-
-import com.android.internal.R;
 
 /**
  *
@@ -61,10 +59,7 @@ public class TabWidget extends LinearLayout implements OnFocusChangeListener {
     // This value will be set to 0 as soon as the first tab is added to TabHost.
     private int mSelectedTab = -1;
 
-    @Nullable
     private Drawable mLeftStrip;
-
-    @Nullable
     private Drawable mRightStrip;
 
     private boolean mDrawBottomStrips = true;
@@ -377,36 +372,23 @@ public class TabWidget extends LinearLayout implements OnFocusChangeListener {
         final Drawable leftStrip = mLeftStrip;
         final Drawable rightStrip = mRightStrip;
 
-        if (leftStrip != null) {
-            leftStrip.setState(selectedChild.getDrawableState());
-        }
-        if (rightStrip != null) {
-            rightStrip.setState(selectedChild.getDrawableState());
-        }
+        leftStrip.setState(selectedChild.getDrawableState());
+        rightStrip.setState(selectedChild.getDrawableState());
 
         if (mStripMoved) {
             final Rect bounds = mBounds;
             bounds.left = selectedChild.getLeft();
             bounds.right = selectedChild.getRight();
             final int myHeight = getHeight();
-            if (leftStrip != null) {
-                leftStrip.setBounds(Math.min(0, bounds.left - leftStrip.getIntrinsicWidth()),
-                        myHeight - leftStrip.getIntrinsicHeight(), bounds.left, myHeight);
-            }
-            if (rightStrip != null) {
-                rightStrip.setBounds(bounds.right, myHeight - rightStrip.getIntrinsicHeight(),
-                        Math.max(getWidth(), bounds.right + rightStrip.getIntrinsicWidth()),
-                        myHeight);
-            }
+            leftStrip.setBounds(Math.min(0, bounds.left - leftStrip.getIntrinsicWidth()),
+                    myHeight - leftStrip.getIntrinsicHeight(), bounds.left, myHeight);
+            rightStrip.setBounds(bounds.right, myHeight - rightStrip.getIntrinsicHeight(),
+                    Math.max(getWidth(), bounds.right + rightStrip.getIntrinsicWidth()), myHeight);
             mStripMoved = false;
         }
 
-        if (leftStrip != null) {
-            leftStrip.draw(canvas);
-        }
-        if (rightStrip != null) {
-            rightStrip.draw(canvas);
-        }
+        leftStrip.draw(canvas);
+        rightStrip.draw(canvas);
     }
 
     /**
@@ -512,10 +494,6 @@ public class TabWidget extends LinearLayout implements OnFocusChangeListener {
         child.setFocusable(true);
         child.setClickable(true);
 
-        if (child.getPointerIcon() == null) {
-            child.setPointerIcon(PointerIcon.getSystemIcon(getContext(), PointerIcon.TYPE_HAND));
-        }
-
         super.addView(child);
 
         // TODO: detect this via geometry with a tabwidget listener rather
@@ -527,14 +505,6 @@ public class TabWidget extends LinearLayout implements OnFocusChangeListener {
     public void removeAllViews() {
         super.removeAllViews();
         mSelectedTab = -1;
-    }
-
-    @Override
-    public PointerIcon onResolvePointerIcon(MotionEvent event, int pointerIndex) {
-        if (!isEnabled()) {
-            return null;
-        }
-        return super.onResolvePointerIcon(event, pointerIndex);
     }
 
     /**

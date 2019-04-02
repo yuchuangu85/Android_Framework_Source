@@ -162,17 +162,6 @@ public final class PrinterInfo implements Parcelable {
     }
 
     /**
-     * Check if the printer has a custom printer icon.
-     *
-     * @return {@code true} iff the printer has a custom printer icon.
-     *
-     * @hide
-     */
-    public boolean getHasCustomPrinterIcon() {
-        return mHasCustomPrinterIcon;
-    }
-
-    /**
      * Get the printer name.
      *
      * @return The printer name.

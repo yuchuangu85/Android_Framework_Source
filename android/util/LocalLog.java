@@ -18,49 +18,46 @@ package android.util;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.time.LocalDateTime;
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.util.Calendar;
 import java.util.Iterator;
+import java.util.LinkedList;
 
 /**
  * @hide
  */
 public final class LocalLog {
 
-    private final Deque<String> mLog;
-    private final int mMaxLines;
+    private LinkedList<String> mLog;
+    private int mMaxLines;
+    private long mNow;
 
     public LocalLog(int maxLines) {
-        mMaxLines = Math.max(0, maxLines);
-        mLog = new ArrayDeque<>(mMaxLines);
+        mLog = new LinkedList<String>();
+        mMaxLines = maxLines;
     }
 
-    public void log(String msg) {
-        if (mMaxLines <= 0) {
-            return;
+    public synchronized void log(String msg) {
+        if (mMaxLines > 0) {
+            mNow = System.currentTimeMillis();
+            StringBuilder sb = new StringBuilder();
+            Calendar c = Calendar.getInstance();
+            c.setTimeInMillis(mNow);
+            sb.append(String.format("%tm-%td %tH:%tM:%tS.%tL", c, c, c, c, c, c));
+            mLog.add(sb.toString() + " - " + msg);
+            while (mLog.size() > mMaxLines) mLog.remove();
         }
-        append(String.format("%s - %s", LocalDateTime.now(), msg));
-    }
-
-    private synchronized void append(String logLine) {
-        while (mLog.size() >= mMaxLines) {
-            mLog.remove();
-        }
-        mLog.add(logLine);
     }
 
     public synchronized void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        Iterator<String> itr = mLog.iterator();
+        Iterator<String> itr = mLog.listIterator(0);
         while (itr.hasNext()) {
             pw.println(itr.next());
         }
     }
 
     public synchronized void reverseDump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        Iterator<String> itr = mLog.descendingIterator();
-        while (itr.hasNext()) {
-            pw.println(itr.next());
+        for (int i = mLog.size() - 1; i >= 0; i--) {
+            pw.println(mLog.get(i));
         }
     }
 
@@ -71,9 +68,6 @@ public final class LocalLog {
         }
         public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
             mLog.dump(fd, pw, args);
-        }
-        public void reverseDump(FileDescriptor fd, PrintWriter pw, String[] args) {
-            mLog.reverseDump(fd, pw, args);
         }
     }
 

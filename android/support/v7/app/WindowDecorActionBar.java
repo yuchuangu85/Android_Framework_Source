@@ -16,8 +16,6 @@
 
 package android.support.v7.app;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
@@ -25,6 +23,7 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.support.annotation.RestrictTo;
 import android.support.v4.app.FragmentActivity;
 import android.support.v4.app.FragmentTransaction;
@@ -50,8 +49,6 @@ import android.support.v7.widget.ScrollingTabContainerView;
 import android.support.v7.widget.Toolbar;
 import android.util.TypedValue;
 import android.view.ContextThemeWrapper;
-import android.view.KeyCharacterMap;
-import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -69,19 +66,26 @@ import android.widget.SpinnerAdapter;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+
 /**
  * WindowDecorActionBar is the ActionBar implementation used
  * by devices of all screen sizes as part of the window decor layout.
  *
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public class WindowDecorActionBar extends ActionBar implements
         ActionBarOverlayLayout.ActionBarVisibilityCallback {
     private static final String TAG = "WindowDecorActionBar";
 
     private static final Interpolator sHideInterpolator = new AccelerateInterpolator();
     private static final Interpolator sShowInterpolator = new DecelerateInterpolator();
+
+    /**
+     * Only allow show/hide animations on ICS+, as that is what ViewPropertyAnimatorCompat supports
+     */
+    private static final boolean ALLOW_SHOW_HIDE_ANIMATIONS = Build.VERSION.SDK_INT >= 14;
 
     Context mContext;
     private Context mThemedContext;
@@ -135,8 +139,8 @@ public class WindowDecorActionBar extends ActionBar implements
         @Override
         public void onAnimationEnd(View view) {
             if (mContentAnimations && mContentView != null) {
-                mContentView.setTranslationY(0f);
-                mContainerView.setTranslationY(0f);
+                ViewCompat.setTranslationY(mContentView, 0f);
+                ViewCompat.setTranslationY(mContainerView, 0f);
             }
             mContainerView.setVisibility(View.GONE);
             mContainerView.setTransitioning(false);
@@ -184,7 +188,7 @@ public class WindowDecorActionBar extends ActionBar implements
      * Only for edit mode.
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public WindowDecorActionBar(View layout) {
         assert layout.isInEditMode();
         init(layout);
@@ -253,7 +257,6 @@ public class WindowDecorActionBar extends ActionBar implements
         return ViewCompat.getElevation(mContainerView);
     }
 
-    @Override
     public void onConfigurationChanged(Configuration newConfig) {
         setHasEmbeddedTabs(ActionBarPolicy.get(mContext).hasEmbeddedTabs());
     }
@@ -315,7 +318,6 @@ public class WindowDecorActionBar extends ActionBar implements
         }
     }
 
-    @Override
     public void onWindowVisibilityChanged(int visibility) {
         mCurWindowVisibility = visibility;
     }
@@ -327,7 +329,6 @@ public class WindowDecorActionBar extends ActionBar implements
      *
      * @param enabled true to animate, false to not animate.
      */
-    @Override
     public void setShowHideAnimationEnabled(boolean enabled) {
         mShowHideAnimationEnabled = enabled;
         if (!enabled && mCurrentShowAnim != null) {
@@ -335,17 +336,14 @@ public class WindowDecorActionBar extends ActionBar implements
         }
     }
 
-    @Override
     public void addOnMenuVisibilityListener(OnMenuVisibilityListener listener) {
         mMenuVisibilityListeners.add(listener);
     }
 
-    @Override
     public void removeOnMenuVisibilityListener(OnMenuVisibilityListener listener) {
         mMenuVisibilityListeners.remove(listener);
     }
 
-    @Override
     public void dispatchMenuVisibilityChanged(boolean isVisible) {
         if (isVisible == mLastMenuVisibility) {
             return;
@@ -404,7 +402,6 @@ public class WindowDecorActionBar extends ActionBar implements
         setSubtitle(mContext.getString(resId));
     }
 
-    @Override
     public void setSelectedNavigationItem(int position) {
         switch (mDecorToolbar.getNavigationMode()) {
             case NAVIGATION_MODE_TABS:
@@ -419,7 +416,6 @@ public class WindowDecorActionBar extends ActionBar implements
         }
     }
 
-    @Override
     public void removeAllTabs() {
         cleanupTabs();
     }
@@ -435,7 +431,6 @@ public class WindowDecorActionBar extends ActionBar implements
         mSavedTabPosition = INVALID_POSITION;
     }
 
-    @Override
     public void setTitle(CharSequence title) {
         mDecorToolbar.setTitle(title);
     }
@@ -455,12 +450,10 @@ public class WindowDecorActionBar extends ActionBar implements
         return false;
     }
 
-    @Override
     public void setSubtitle(CharSequence subtitle) {
         mDecorToolbar.setSubtitle(subtitle);
     }
 
-    @Override
     public void setDisplayOptions(int options) {
         if ((options & DISPLAY_HOME_AS_UP) != 0) {
             mDisplayHomeAsUpSet = true;
@@ -468,7 +461,6 @@ public class WindowDecorActionBar extends ActionBar implements
         mDecorToolbar.setDisplayOptions(options);
     }
 
-    @Override
     public void setDisplayOptions(int options, int mask) {
         final int current = mDecorToolbar.getDisplayOptions();
         if ((mask & DISPLAY_HOME_AS_UP) != 0) {
@@ -477,47 +469,38 @@ public class WindowDecorActionBar extends ActionBar implements
         mDecorToolbar.setDisplayOptions((options & mask) | (current & ~mask));
     }
 
-    @Override
     public void setBackgroundDrawable(Drawable d) {
         mContainerView.setPrimaryBackground(d);
     }
 
-    @Override
     public void setStackedBackgroundDrawable(Drawable d) {
         mContainerView.setStackedBackground(d);
     }
 
-    @Override
     public void setSplitBackgroundDrawable(Drawable d) {
         // no-op. We don't support split action bars
     }
 
-    @Override
     public View getCustomView() {
         return mDecorToolbar.getCustomView();
     }
 
-    @Override
     public CharSequence getTitle() {
         return mDecorToolbar.getTitle();
     }
 
-    @Override
     public CharSequence getSubtitle() {
         return mDecorToolbar.getSubtitle();
     }
 
-    @Override
     public int getNavigationMode() {
         return mDecorToolbar.getNavigationMode();
     }
 
-    @Override
     public int getDisplayOptions() {
         return mDecorToolbar.getDisplayOptions();
     }
 
-    @Override
     public ActionMode startActionMode(ActionMode.Callback callback) {
         if (mActionMode != null) {
             mActionMode.finish();
@@ -668,7 +651,6 @@ public class WindowDecorActionBar extends ActionBar implements
         return mContainerView.getHeight();
     }
 
-    @Override
     public void enableContentAnimations(boolean enabled) {
         mContentAnimations = enabled;
     }
@@ -691,7 +673,6 @@ public class WindowDecorActionBar extends ActionBar implements
         }
     }
 
-    @Override
     public void showForSystem() {
         if (mHiddenBySystem) {
             mHiddenBySystem = false;
@@ -717,7 +698,6 @@ public class WindowDecorActionBar extends ActionBar implements
         }
     }
 
-    @Override
     public void hideForSystem() {
         if (!mHiddenBySystem) {
             mHiddenBySystem = true;
@@ -789,22 +769,23 @@ public class WindowDecorActionBar extends ActionBar implements
         }
         mContainerView.setVisibility(View.VISIBLE);
 
-        if (mCurWindowVisibility == View.VISIBLE && (mShowHideAnimationEnabled || fromSystem)) {
+        if (mCurWindowVisibility == View.VISIBLE && ALLOW_SHOW_HIDE_ANIMATIONS &&
+                (mShowHideAnimationEnabled || fromSystem)) {
             // because we're about to ask its window loc
-            mContainerView.setTranslationY(0f);
+            ViewCompat.setTranslationY(mContainerView, 0f);
             float startingY = -mContainerView.getHeight();
             if (fromSystem) {
                 int topLeft[] = {0, 0};
                 mContainerView.getLocationInWindow(topLeft);
                 startingY -= topLeft[1];
             }
-            mContainerView.setTranslationY(startingY);
+            ViewCompat.setTranslationY(mContainerView, startingY);
             ViewPropertyAnimatorCompatSet anim = new ViewPropertyAnimatorCompatSet();
             ViewPropertyAnimatorCompat a = ViewCompat.animate(mContainerView).translationY(0f);
             a.setUpdateListener(mUpdateListener);
             anim.play(a);
             if (mContentAnimations && mContentView != null) {
-                mContentView.setTranslationY(startingY);
+                ViewCompat.setTranslationY(mContentView, startingY);
                 anim.play(ViewCompat.animate(mContentView).translationY(0f));
             }
             anim.setInterpolator(sShowInterpolator);
@@ -820,10 +801,10 @@ public class WindowDecorActionBar extends ActionBar implements
             mCurrentShowAnim = anim;
             anim.start();
         } else {
-            mContainerView.setAlpha(1f);
-            mContainerView.setTranslationY(0);
+            ViewCompat.setAlpha(mContainerView, 1f);
+            ViewCompat.setTranslationY(mContainerView, 0);
             if (mContentAnimations && mContentView != null) {
-                mContentView.setTranslationY(0);
+                ViewCompat.setTranslationY(mContentView, 0);
             }
             mShowListener.onAnimationEnd(null);
         }
@@ -837,8 +818,9 @@ public class WindowDecorActionBar extends ActionBar implements
             mCurrentShowAnim.cancel();
         }
 
-        if (mCurWindowVisibility == View.VISIBLE && (mShowHideAnimationEnabled || fromSystem)) {
-            mContainerView.setAlpha(1f);
+        if (mCurWindowVisibility == View.VISIBLE && ALLOW_SHOW_HIDE_ANIMATIONS &&
+                (mShowHideAnimationEnabled || fromSystem)) {
+            ViewCompat.setAlpha(mContainerView, 1f);
             mContainerView.setTransitioning(true);
             ViewPropertyAnimatorCompatSet anim = new ViewPropertyAnimatorCompatSet();
             float endingY = -mContainerView.getHeight();
@@ -863,7 +845,6 @@ public class WindowDecorActionBar extends ActionBar implements
         }
     }
 
-    @Override
     public boolean isShowing() {
         final int height = getHeight();
         // Take into account the case where the bar has a 0 height due to not being measured yet.
@@ -915,7 +896,6 @@ public class WindowDecorActionBar extends ActionBar implements
         return ViewCompat.isLaidOut(mContainerView);
     }
 
-    @Override
     public Context getThemedContext() {
         if (mThemedContext == null) {
             TypedValue outValue = new TypedValue();
@@ -981,7 +961,7 @@ public class WindowDecorActionBar extends ActionBar implements
     /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public class ActionModeImpl extends ActionMode implements MenuBuilder.Callback {
         private final Context mActionModeContext;
         private final MenuBuilder mMenu;
@@ -1116,7 +1096,6 @@ public class WindowDecorActionBar extends ActionBar implements
             return mCustomView != null ? mCustomView.get() : null;
         }
 
-        @Override
         public boolean onMenuItemSelected(MenuBuilder menu, MenuItem item) {
             if (mCallback != null) {
                 return mCallback.onActionItemClicked(this, item);
@@ -1144,7 +1123,6 @@ public class WindowDecorActionBar extends ActionBar implements
         public void onCloseSubMenu(SubMenuBuilder menu) {
         }
 
-        @Override
         public void onMenuModeChange(MenuBuilder menu) {
             if (mCallback == null) {
                 return;
@@ -1157,7 +1135,7 @@ public class WindowDecorActionBar extends ActionBar implements
     /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public class TabImpl extends ActionBar.Tab {
         private ActionBar.TabListener mCallback;
         private Object mTag;
@@ -1389,25 +1367,9 @@ public class WindowDecorActionBar extends ActionBar implements
         return mDecorToolbar.hasLogo();
     }
 
-    @Override
     public void setDefaultDisplayHomeAsUpEnabled(boolean enable) {
         if (!mDisplayHomeAsUpSet) {
             setDisplayHomeAsUpEnabled(enable);
         }
-    }
-
-    @Override
-    public boolean onKeyShortcut(int keyCode, KeyEvent event) {
-        if (mActionMode == null) {
-            return false;
-        }
-        Menu menu = mActionMode.getMenu();
-        if (menu != null) {
-            final KeyCharacterMap kmap = KeyCharacterMap.load(
-                    event != null ? event.getDeviceId() : KeyCharacterMap.VIRTUAL_KEYBOARD);
-            menu.setQwertyMode(kmap.getKeyboardType() != KeyCharacterMap.NUMERIC);
-            return menu.performShortcut(keyCode, event, 0);
-        }
-        return false;
     }
 }

@@ -20,7 +20,8 @@ import android.view.View;
 import android.view.Window;
 
 /**
- * Helper for accessing features in {@link Window}.
+ * Helper for accessing features in {@link Window} introduced after API
+ * level 4 in a backwards compatible fashion.
  */
 public final class WindowCompat {
     /**

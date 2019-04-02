@@ -36,8 +36,6 @@ public abstract class BaseCommand {
     public static final String NO_SYSTEM_ERROR_CODE = "Error type 2";
     public static final String NO_CLASS_ERROR_CODE = "Error type 3";
 
-    private String[] mRawArgs;
-
     /**
      * Call to run the command.
      */
@@ -47,8 +45,7 @@ public abstract class BaseCommand {
             return;
         }
 
-        mRawArgs = args;
-        mArgs.init(null, null, null, null, args, null, 0);
+        mArgs.init(null, null, null, null, args, 0);
 
         try {
             onRun();
@@ -111,12 +108,5 @@ public abstract class BaseCommand {
      */
     public String nextArgRequired() {
         return mArgs.getNextArgRequired();
-    }
-
-    /**
-     * Return the original raw argument list supplied to the command.
-     */
-    public String[] getRawArgs() {
-        return mRawArgs;
     }
 }

@@ -18,14 +18,11 @@ package android.text;
 
 import android.text.Layout.Directions;
 
-import com.android.internal.annotations.VisibleForTesting;
-
 /**
  * Access the ICU bidi implementation.
  * @hide
  */
-@VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
-public class AndroidBidi {
+/* package */ class AndroidBidi {
 
     public static int bidi(int dir, char[] chs, byte[] chInfo, int n, boolean haveInfo) {
         if (chs == null || chInfo == null) {

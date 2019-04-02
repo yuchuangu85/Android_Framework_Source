@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -35,7 +6,7 @@
 
 package java.util.concurrent.atomic;
 
-import dalvik.system.VMStack; // Android-added
+import dalvik.system.VMStack; // android-added
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.security.AccessController;
@@ -107,7 +78,7 @@ public abstract class AtomicReferenceFieldUpdater<T,V> {
                                                                     Class<W> vclass,
                                                                     String fieldName) {
         return new AtomicReferenceFieldUpdaterImpl<U,W>
-            (tclass, vclass, fieldName, VMStack.getStackClass1()); // Android-changed
+            (tclass, vclass, fieldName, VMStack.getStackClass1()); // android-changed
     }
 
     /**
@@ -317,9 +288,9 @@ public abstract class AtomicReferenceFieldUpdater<T,V> {
             final Class<?> fieldClass;
             final int modifiers;
             try {
-                field = tclass.getDeclaredField(fieldName); // Android-changed
+                field = tclass.getDeclaredField(fieldName); // android-changed
                 modifiers = field.getModifiers();
-                // BEGIN Android-removed
+                // BEGIN android-removed
                 // sun.reflect.misc.ReflectUtil.ensureMemberAccess(
                 //     caller, tclass, null, modifiers);
                 // ClassLoader cl = tclass.getClassLoader();
@@ -328,12 +299,12 @@ public abstract class AtomicReferenceFieldUpdater<T,V> {
                 //     ((cl == null) || !isAncestor(cl, ccl))) {
                 //     sun.reflect.misc.ReflectUtil.checkPackageAccess(tclass);
                 // }
-                // END Android-removed
+                // END android-removed
                 fieldClass = field.getType();
-            // BEGIN Android-removed
+            // BEGIN android-removed
             // } catch (PrivilegedActionException pae) {
             //     throw new RuntimeException(pae.getException());
-            // END Android-removed
+            // END android-removed
             } catch (Exception ex) {
                 throw new RuntimeException(ex);
             }
@@ -352,7 +323,7 @@ public abstract class AtomicReferenceFieldUpdater<T,V> {
             this.offset = U.objectFieldOffset(field);
         }
 
-        // BEGIN Android-removed
+        // BEGIN android-removed
         // /**
         //  * Returns true if the second classloader can be found in the first
         //  * classloader's delegation chain.
@@ -368,7 +339,7 @@ public abstract class AtomicReferenceFieldUpdater<T,V> {
         //     } while (acl != null);
         //     return false;
         // }
-        // END Android-removed
+        // END android-removed
 
         /**
          * Checks that target argument is instance of cclass.  On

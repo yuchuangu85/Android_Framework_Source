@@ -48,7 +48,6 @@ final class BroadcastRecord extends Binder {
     final String callerPackage; // who sent this
     final int callingPid;   // the pid of who sent this
     final int callingUid;   // the uid of who sent this
-    final boolean callerInstantApp; // caller is an Instant App?
     final boolean ordered;  // serialize the send to receivers?
     final boolean sticky;   // originated from existing sticky data?
     final boolean initialSticky; // initial broadcast from register to sticky?
@@ -83,10 +82,10 @@ final class BroadcastRecord extends Binder {
     static final int CALL_DONE_RECEIVE = 3;
     static final int WAITING_SERVICES = 4;
 
-    static final int DELIVERY_PENDING = 0;
-    static final int DELIVERY_DELIVERED = 1;
-    static final int DELIVERY_SKIPPED = 2;
-    static final int DELIVERY_TIMEOUT = 3;
+    static final int DELIVERY_PENDING = 0;      // 等待
+    static final int DELIVERY_DELIVERED = 1;    // 已发送
+    static final int DELIVERY_SKIPPED = 2;      // 跳过
+    static final int DELIVERY_TIMEOUT = 3;      // 超时
 
     // The following are set when we are calling a receiver (one that
     // was found in our list of registered receivers).
@@ -215,10 +214,11 @@ final class BroadcastRecord extends Binder {
 
     BroadcastRecord(BroadcastQueue _queue,
             Intent _intent, ProcessRecord _callerApp, String _callerPackage,
-            int _callingPid, int _callingUid, boolean _callerInstantApp, String _resolvedType,
-            String[] _requiredPermissions, int _appOp, BroadcastOptions _options, List _receivers,
-            IIntentReceiver _resultTo, int _resultCode, String _resultData, Bundle _resultExtras,
-            boolean _serialized, boolean _sticky, boolean _initialSticky, int _userId) {
+            int _callingPid, int _callingUid, String _resolvedType, String[] _requiredPermissions,
+            int _appOp, BroadcastOptions _options, List _receivers, IIntentReceiver _resultTo,
+            int _resultCode, String _resultData, Bundle _resultExtras, boolean _serialized,
+            boolean _sticky, boolean _initialSticky,
+            int _userId) {
         if (_intent == null) {
             throw new NullPointerException("Can't construct with a null intent");
         }
@@ -229,7 +229,6 @@ final class BroadcastRecord extends Binder {
         callerPackage = _callerPackage;
         callingPid = _callingPid;
         callingUid = _callingUid;
-        callerInstantApp = _callerInstantApp;
         resolvedType = _resolvedType;
         requiredPermissions = _requiredPermissions;
         appOp = _appOp;
@@ -246,55 +245,6 @@ final class BroadcastRecord extends Binder {
         userId = _userId;
         nextReceiver = 0;
         state = IDLE;
-    }
-
-    /**
-     * Copy constructor which takes a different intent.
-     * Only used by {@link #maybeStripForHistory}.
-     */
-    private BroadcastRecord(BroadcastRecord from, Intent newIntent) {
-        intent = newIntent;
-        targetComp = newIntent.getComponent();
-
-        callerApp = from.callerApp;
-        callerPackage = from.callerPackage;
-        callingPid = from.callingPid;
-        callingUid = from.callingUid;
-        callerInstantApp = from.callerInstantApp;
-        ordered = from.ordered;
-        sticky = from.sticky;
-        initialSticky = from.initialSticky;
-        userId = from.userId;
-        resolvedType = from.resolvedType;
-        requiredPermissions = from.requiredPermissions;
-        appOp = from.appOp;
-        options = from.options;
-        receivers = from.receivers;
-        delivery = from.delivery;
-        resultTo = from.resultTo;
-        enqueueClockTime = from.enqueueClockTime;
-        dispatchTime = from.dispatchTime;
-        dispatchClockTime = from.dispatchClockTime;
-        receiverTime = from.receiverTime;
-        finishTime = from.finishTime;
-        resultCode = from.resultCode;
-        resultData = from.resultData;
-        resultExtras = from.resultExtras;
-        resultAbort = from.resultAbort;
-        nextReceiver = from.nextReceiver;
-        receiver = from.receiver;
-        state = from.state;
-        anrCount = from.anrCount;
-        manifestCount = from.manifestCount;
-        manifestSkipCount = from.manifestSkipCount;
-        queue = from.queue;
-    }
-
-    public BroadcastRecord maybeStripForHistory() {
-        if (!intent.canStripForHistory()) {
-            return this;
-        }
-        return new BroadcastRecord(this, intent.maybeStripForHistory());
     }
 
     boolean cleanupDisabledPackageReceiversLocked(

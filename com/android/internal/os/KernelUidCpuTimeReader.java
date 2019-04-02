@@ -50,12 +50,14 @@ public class KernelUidCpuTimeReader {
          * @param uid UID of the app
          * @param userTimeUs time spent executing in user space in microseconds
          * @param systemTimeUs time spent executing in kernel space in microseconds
+         * @param powerMaUs power consumed executing, in milli-ampere microseconds
          */
-        void onUidCpuTime(int uid, long userTimeUs, long systemTimeUs);
+        void onUidCpuTime(int uid, long userTimeUs, long systemTimeUs, long powerMaUs);
     }
 
     private SparseLongArray mLastUserTimeUs = new SparseLongArray();
     private SparseLongArray mLastSystemTimeUs = new SparseLongArray();
+    private SparseLongArray mLastPowerMaUs = new SparseLongArray();
     private long mLastTimeReadUs = 0;
 
     /**
@@ -75,18 +77,26 @@ public class KernelUidCpuTimeReader {
                 final int uid = Integer.parseInt(uidStr.substring(0, uidStr.length() - 1), 10);
                 final long userTimeUs = Long.parseLong(splitter.next(), 10);
                 final long systemTimeUs = Long.parseLong(splitter.next(), 10);
+                final long powerMaUs;
+                if (splitter.hasNext()) {
+                    powerMaUs = Long.parseLong(splitter.next(), 10) / 1000;
+                } else {
+                    powerMaUs = 0;
+                }
 
                 // Only report if there is a callback and if this is not the first read.
                 if (callback != null && mLastTimeReadUs != 0) {
                     long userTimeDeltaUs = userTimeUs;
                     long systemTimeDeltaUs = systemTimeUs;
+                    long powerDeltaMaUs = powerMaUs;
                     int index = mLastUserTimeUs.indexOfKey(uid);
                     if (index >= 0) {
                         userTimeDeltaUs -= mLastUserTimeUs.valueAt(index);
                         systemTimeDeltaUs -= mLastSystemTimeUs.valueAt(index);
+                        powerDeltaMaUs -= mLastPowerMaUs.valueAt(index);
 
                         final long timeDiffUs = nowUs - mLastTimeReadUs;
-                        if (userTimeDeltaUs < 0 || systemTimeDeltaUs < 0) {
+                        if (userTimeDeltaUs < 0 || systemTimeDeltaUs < 0 || powerDeltaMaUs < 0) {
                             StringBuilder sb = new StringBuilder("Malformed cpu data for UID=");
                             sb.append(uid).append("!\n");
                             sb.append("Time between reads: ");
@@ -96,28 +106,36 @@ public class KernelUidCpuTimeReader {
                             TimeUtils.formatDuration(mLastUserTimeUs.valueAt(index) / 1000, sb);
                             sb.append(" s=");
                             TimeUtils.formatDuration(mLastSystemTimeUs.valueAt(index) / 1000, sb);
+                            sb.append(" p=").append(mLastPowerMaUs.valueAt(index) / 1000);
+                            sb.append("mAms\n");
 
-                            sb.append("\nCurrent times: u=");
+                            sb.append("Current times: u=");
                             TimeUtils.formatDuration(userTimeUs / 1000, sb);
                             sb.append(" s=");
                             TimeUtils.formatDuration(systemTimeUs / 1000, sb);
-                            sb.append("\nDelta: u=");
+                            sb.append(" p=").append(powerMaUs / 1000);
+                            sb.append("mAms\n");
+                            sb.append("Delta: u=");
                             TimeUtils.formatDuration(userTimeDeltaUs / 1000, sb);
                             sb.append(" s=");
                             TimeUtils.formatDuration(systemTimeDeltaUs / 1000, sb);
+                            sb.append(" p=").append(powerDeltaMaUs / 1000).append("mAms");
                             Slog.e(TAG, sb.toString());
 
                             userTimeDeltaUs = 0;
                             systemTimeDeltaUs = 0;
+                            powerDeltaMaUs = 0;
                         }
                     }
 
-                    if (userTimeDeltaUs != 0 || systemTimeDeltaUs != 0) {
-                        callback.onUidCpuTime(uid, userTimeDeltaUs, systemTimeDeltaUs);
+                    if (userTimeDeltaUs != 0 || systemTimeDeltaUs != 0 || powerDeltaMaUs != 0) {
+                        callback.onUidCpuTime(uid, userTimeDeltaUs, systemTimeDeltaUs,
+                                powerDeltaMaUs);
                     }
                 }
                 mLastUserTimeUs.put(uid, userTimeUs);
                 mLastSystemTimeUs.put(uid, systemTimeUs);
+                mLastPowerMaUs.put(uid, powerMaUs);
             }
         } catch (IOException e) {
             Slog.e(TAG, "Failed to read uid_cputime: " + e.getMessage());
@@ -130,42 +148,18 @@ public class KernelUidCpuTimeReader {
      * @param uid The UID to remove.
      */
     public void removeUid(int uid) {
-        final int index = mLastSystemTimeUs.indexOfKey(uid);
+        int index = mLastUserTimeUs.indexOfKey(uid);
         if (index >= 0) {
-            mLastSystemTimeUs.removeAt(index);
             mLastUserTimeUs.removeAt(index);
+            mLastSystemTimeUs.removeAt(index);
+            mLastPowerMaUs.removeAt(index);
         }
-        removeUidsFromKernelModule(uid, uid);
-    }
 
-    /**
-     * Removes UIDs in a given range from the kernel module and internal accounting data.
-     * @param startUid the first uid to remove
-     * @param endUid the last uid to remove
-     */
-    public void removeUidsInRange(int startUid, int endUid) {
-        if (endUid < startUid) {
-            return;
-        }
-        mLastSystemTimeUs.put(startUid, 0);
-        mLastUserTimeUs.put(startUid, 0);
-        mLastSystemTimeUs.put(endUid, 0);
-        mLastUserTimeUs.put(endUid, 0);
-        final int startIndex = mLastSystemTimeUs.indexOfKey(startUid);
-        final int endIndex = mLastSystemTimeUs.indexOfKey(endUid);
-        mLastSystemTimeUs.removeAtRange(startIndex, endIndex - startIndex + 1);
-        mLastUserTimeUs.removeAtRange(startIndex, endIndex - startIndex + 1);
-        removeUidsFromKernelModule(startUid, endUid);
-    }
-
-    private void removeUidsFromKernelModule(int startUid, int endUid) {
-        Slog.d(TAG, "Removing uids " + startUid + "-" + endUid);
         try (FileWriter writer = new FileWriter(sRemoveUidProcFile)) {
-            writer.write(startUid + "-" + endUid);
+            writer.write(Integer.toString(uid) + "-" + Integer.toString(uid));
             writer.flush();
         } catch (IOException e) {
-            Slog.e(TAG, "failed to remove uids " + startUid + " - " + endUid
-                    + " from uid_cputime module", e);
+            Slog.e(TAG, "failed to remove uid from uid_cputime module", e);
         }
     }
 }

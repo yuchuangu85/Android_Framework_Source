@@ -123,9 +123,6 @@ public class TextViewBindingObject extends BindingAdapterBindingObject {
     @Bindable
     private float mTextSize = 10f;
 
-    @Bindable
-    private String mText;
-
     public TextView.BufferType getBufferType() {
         return mBufferType;
     }
@@ -253,15 +250,6 @@ public class TextViewBindingObject extends BindingAdapterBindingObject {
 
     public boolean isTextAllCaps() {
         return mTextAllCaps;
-    }
-
-    public String getText() {
-        return mText;
-    }
-
-    public void setText(String text) {
-        mText = text;
-        notifyPropertyChanged(BR.text);
     }
 
     public void changeValues() {

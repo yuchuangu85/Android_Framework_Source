@@ -18,9 +18,10 @@ package com.android.server.hdmi;
 import static android.hardware.hdmi.HdmiControlManager.POWER_STATUS_UNKNOWN;
 
 import android.hardware.hdmi.HdmiDeviceInfo;
-import android.hardware.tv.cec.V1_0.SendMessageResult;
 import android.util.SparseIntArray;
+
 import com.android.server.hdmi.HdmiControlService.SendMessageCallback;
+
 import java.util.List;
 
 /**
@@ -122,7 +123,7 @@ public class PowerStatusMonitorAction extends HdmiCecFeatureAction {
                         public void onSendCompleted(int error) {
                             // If fails to send <Give Device Power Status>,
                             // update power status into UNKNOWN.
-                            if (error != SendMessageResult.SUCCESS) {
+                            if (error != Constants.SEND_RESULT_SUCCESS) {
                                updatePowerStatus(logicalAddress, POWER_STATUS_UNKNOWN, true);
                             }
                         }

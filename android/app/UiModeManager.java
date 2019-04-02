@@ -17,13 +17,11 @@
 package android.app;
 
 import android.annotation.IntDef;
-import android.annotation.SystemService;
 import android.annotation.TestApi;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.os.ServiceManager.ServiceNotFoundException;
 import android.util.Log;
 
 import java.lang.annotation.Retention;
@@ -50,8 +48,11 @@ import java.lang.annotation.RetentionPolicy;
  * displayed allowing the user to exit dock mode.  Thus the dock mode
  * represented here may be different than the current state of the underlying
  * dock event broadcast.
+ *
+ * <p>You do not instantiate this class directly; instead, retrieve it through
+ * {@link android.content.Context#getSystemService
+ * Context.getSystemService(Context.UI_MODE_SERVICE)}.
  */
-@SystemService(Context.UI_MODE_SERVICE)
 public class UiModeManager {
     private static final String TAG = "UiModeManager";
 
@@ -122,9 +123,9 @@ public class UiModeManager {
 
     private IUiModeManager mService;
 
-    /*package*/ UiModeManager() throws ServiceNotFoundException {
+    /*package*/ UiModeManager() {
         mService = IUiModeManager.Stub.asInterface(
-                ServiceManager.getServiceOrThrow(Context.UI_MODE_SERVICE));
+                ServiceManager.getService(Context.UI_MODE_SERVICE));
     }
 
     /**
@@ -192,9 +193,8 @@ public class UiModeManager {
      * {@link Configuration#UI_MODE_TYPE_DESK Configuration.UI_MODE_TYPE_DESK},
      * {@link Configuration#UI_MODE_TYPE_CAR Configuration.UI_MODE_TYPE_CAR},
      * {@link Configuration#UI_MODE_TYPE_TELEVISION Configuration.UI_MODE_TYPE_TELEVISION},
-     * {@link Configuration#UI_MODE_TYPE_APPLIANCE Configuration.UI_MODE_TYPE_APPLIANCE},
-     * {@link Configuration#UI_MODE_TYPE_WATCH Configuration.UI_MODE_TYPE_WATCH}, or
-     * {@link Configuration#UI_MODE_TYPE_VR_HEADSET Configuration.UI_MODE_TYPE_VR_HEADSET}.
+     * {@link Configuration#UI_MODE_TYPE_APPLIANCE Configuration.UI_MODE_TYPE_APPLIANCE}, or
+     * {@link Configuration#UI_MODE_TYPE_WATCH Configuration.UI_MODE_TYPE_WATCH}.
      */
     public int getCurrentModeType() {
         if (mService != null) {

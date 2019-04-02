@@ -19,6 +19,8 @@ package android.transition;
 import android.animation.Animator;
 import android.animation.ObjectAnimator;
 import android.content.Context;
+import android.transition.Transition;
+import android.transition.TransitionValues;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewGroup;
@@ -31,11 +33,6 @@ public class ChangeScroll extends Transition {
 
     private static final String PROPNAME_SCROLL_X = "android:changeScroll:x";
     private static final String PROPNAME_SCROLL_Y = "android:changeScroll:y";
-
-    private static final String[] PROPERTIES = {
-            PROPNAME_SCROLL_X,
-            PROPNAME_SCROLL_Y,
-    };
 
     public ChangeScroll() {}
 
@@ -51,11 +48,6 @@ public class ChangeScroll extends Transition {
     @Override
     public void captureEndValues(TransitionValues transitionValues) {
         captureValues(transitionValues);
-    }
-
-    @Override
-    public String[] getTransitionProperties() {
-        return PROPERTIES;
     }
 
     private void captureValues(TransitionValues transitionValues) {

@@ -15,17 +15,14 @@
  */
 package com.android.keyguard;
 
-import android.R.style;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.admin.DevicePolicyManager;
 import android.content.Context;
 import android.os.UserHandle;
-import android.support.annotation.VisibleForTesting;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Slog;
-import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.WindowManager;
@@ -54,16 +51,15 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
 
     // Used to notify the container when something interesting happens.
     public interface SecurityCallback {
-        public boolean dismiss(boolean authenticated, int targetUserId);
+        public boolean dismiss(boolean authenticated);
         public void userActivity();
         public void onSecurityModeChanged(SecurityMode securityMode, boolean needsInput);
 
         /**
          * @param strongAuth wheher the user has authenticated with strong authentication like
          *                   pattern, password or PIN but not by trust agents or fingerprint
-         * @param targetUserId a user that needs to be the foreground user at the finish completion.
          */
-        public void finish(boolean strongAuth, int targetUserId);
+        public void finish(boolean strongAuth);
         public void reset();
     }
 
@@ -163,7 +159,7 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
     }
 
     protected void onFinishInflate() {
-        mSecurityViewFlipper = findViewById(R.id.view_flipper);
+        mSecurityViewFlipper = (KeyguardSecurityViewFlipper) findViewById(R.id.view_flipper);
         mSecurityViewFlipper.setLockPatternUtils(mLockPatternUtils);
     }
 
@@ -177,7 +173,6 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
         final AlertDialog dialog = new AlertDialog.Builder(mContext)
             .setTitle(title)
             .setMessage(message)
-            .setCancelable(false)
             .setNeutralButton(R.string.ok, null)
             .create();
         if (!(mContext instanceof Activity)) {
@@ -186,11 +181,11 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
         dialog.show();
     }
 
-    private void showTimeoutDialog(int userId, int timeoutMs) {
+    private void showTimeoutDialog(int timeoutMs) {
         int timeoutInSeconds = (int) timeoutMs / 1000;
         int messageId = 0;
 
-        switch (mSecurityModel.getSecurityMode(userId)) {
+        switch (mSecurityModel.getSecurityMode()) {
             case Pattern:
                 messageId = R.string.kg_too_many_failed_pattern_attempts_dialog_message;
                 break;
@@ -210,7 +205,8 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
 
         if (messageId != 0) {
             final String message = mContext.getString(messageId,
-                    KeyguardUpdateMonitor.getInstance(mContext).getFailedUnlockAttempts(userId),
+                    KeyguardUpdateMonitor.getInstance(mContext).getFailedUnlockAttempts(
+                            KeyguardUpdateMonitor.getCurrentUser()),
                     timeoutInSeconds);
             showDialog(null, message);
         }
@@ -293,8 +289,7 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
         monitor.reportFailedStrongAuthUnlockAttempt(userId);
         mLockPatternUtils.reportFailedPasswordAttempt(userId);
         if (timeoutMs > 0) {
-            mLockPatternUtils.reportPasswordLockout(timeoutMs, userId);
-            showTimeoutDialog(userId, timeoutMs);
+            showTimeoutDialog(timeoutMs);
         }
     }
 
@@ -304,8 +299,7 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
      * @param turningOff true if the device is being turned off
      */
     void showPrimarySecurityScreen(boolean turningOff) {
-        SecurityMode securityMode = mSecurityModel.getSecurityMode(
-                KeyguardUpdateMonitor.getCurrentUser());
+        SecurityMode securityMode = mSecurityModel.getSecurityMode();
         if (DEBUG) Log.v(TAG, "showPrimarySecurityScreen(turningOff=" + turningOff + ")");
         showSecurityScreen(securityMode);
     }
@@ -313,18 +307,17 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
     /**
      * Shows the next security screen if there is one.
      * @param authenticated true if the user entered the correct authentication
-     * @param targetUserId a user that needs to be the foreground user at the finish (if called)
-     *     completion.
      * @return true if keyguard is done
      */
-    boolean showNextSecurityScreenOrFinish(boolean authenticated, int targetUserId) {
+    boolean showNextSecurityScreenOrFinish(boolean authenticated) {
         if (DEBUG) Log.d(TAG, "showNextSecurityScreenOrFinish(" + authenticated + ")");
         boolean finish = false;
         boolean strongAuth = false;
-        if (mUpdateMonitor.getUserCanSkipBouncer(targetUserId)) {
+        if (mUpdateMonitor.getUserCanSkipBouncer(
+                KeyguardUpdateMonitor.getCurrentUser())) {
             finish = true;
         } else if (SecurityMode.None == mCurrentSecuritySelection) {
-            SecurityMode securityMode = mSecurityModel.getSecurityMode(targetUserId);
+            SecurityMode securityMode = mSecurityModel.getSecurityMode();
             if (SecurityMode.None == securityMode) {
                 finish = true; // no security required
             } else {
@@ -342,7 +335,7 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
                 case SimPin:
                 case SimPuk:
                     // Shortcut for SIM PIN/PUK to go to directly to user's security screen or home
-                    SecurityMode securityMode = mSecurityModel.getSecurityMode(targetUserId);
+                    SecurityMode securityMode = mSecurityModel.getSecurityMode();
                     if (securityMode != SecurityMode.None
                             || !mLockPatternUtils.isLockScreenDisabled(
                             KeyguardUpdateMonitor.getCurrentUser())) {
@@ -359,7 +352,7 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
             }
         }
         if (finish) {
-            mSecurityCallback.finish(strongAuth, targetUserId);
+            mSecurityCallback.finish(strongAuth);
         }
         return finish;
     }
@@ -421,8 +414,8 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
             }
         }
 
-        public void dismiss(boolean authenticated, int targetId) {
-            mSecurityCallback.dismiss(authenticated, targetId);
+        public void dismiss(boolean authenticated) {
+            mSecurityCallback.dismiss(authenticated);
         }
 
         public boolean isVerifyUnlockOnly() {
@@ -455,7 +448,7 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
         @Override
         public boolean isVerifyUnlockOnly() { return false; }
         @Override
-        public void dismiss(boolean securityVerified, int targetUserId) { }
+        public void dismiss(boolean securityVerified) { }
         @Override
         public void reset() {}
     };
@@ -471,8 +464,7 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
         return 0;
     }
 
-    @VisibleForTesting
-    public int getLayoutIdFor(SecurityMode securityMode) {
+    protected int getLayoutIdFor(SecurityMode securityMode) {
         switch (securityMode) {
             case Pattern: return R.layout.keyguard_pattern_view;
             case PIN: return R.layout.keyguard_pin_view;
@@ -485,7 +477,7 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
     }
 
     public SecurityMode getSecurityMode() {
-        return mSecurityModel.getSecurityMode(KeyguardUpdateMonitor.getCurrentUser());
+        return mSecurityModel.getSecurityMode();
     }
 
     public SecurityMode getCurrentSecurityMode() {
@@ -501,8 +493,8 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
         return mCurrentSecuritySelection;
     }
 
-    public void dismiss(boolean authenticated, int targetUserId) {
-        mCallback.dismiss(authenticated, targetUserId);
+    public void dismiss(boolean authenticated) {
+        mCallback.dismiss(authenticated);
     }
 
     public boolean needsInput() {

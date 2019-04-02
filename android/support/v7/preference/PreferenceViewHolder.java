@@ -17,7 +17,6 @@
 package android.support.v7.preference;
 
 import android.support.annotation.IdRes;
-import android.support.annotation.RestrictTo;
 import android.support.v7.widget.RecyclerView;
 import android.util.SparseArray;
 import android.view.View;
@@ -42,12 +41,6 @@ public class PreferenceViewHolder extends RecyclerView.ViewHolder {
         mCachedViews.put(R.id.icon_frame, itemView.findViewById(R.id.icon_frame));
         mCachedViews.put(AndroidResources.ANDROID_R_ICON_FRAME,
                 itemView.findViewById(AndroidResources.ANDROID_R_ICON_FRAME));
-    }
-
-    /** @hide */
-    @RestrictTo(RestrictTo.Scope.TESTS)
-    public static PreferenceViewHolder createInstanceForTests(View itemView) {
-        return new PreferenceViewHolder(itemView);
     }
 
     /**

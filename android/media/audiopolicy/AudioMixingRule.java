@@ -224,7 +224,7 @@ public class AudioMixingRule {
          *     {@link AudioMixingRule#RULE_MATCH_ATTRIBUTE_CAPTURE_PRESET}.
          * @return the same Builder instance.
          * @throws IllegalArgumentException
-         * @see #excludeRule(AudioAttributes, int)
+         * @see {@link #excludeRule(AudioAttributes, int)}
          */
         @SystemApi
         public Builder addRule(AudioAttributes attrToMatch, int rule)
@@ -253,7 +253,7 @@ public class AudioMixingRule {
          *     {@link AudioMixingRule#RULE_MATCH_ATTRIBUTE_CAPTURE_PRESET}.
          * @return the same Builder instance.
          * @throws IllegalArgumentException
-         * @see #addRule(AudioAttributes, int)
+         * @see {@link #addRule(AudioAttributes, int)}
          */
         @SystemApi
         public Builder excludeRule(AudioAttributes attrToMatch, int rule)
@@ -275,7 +275,7 @@ public class AudioMixingRule {
          *     {@link AudioAttributes} or an {@link java.lang.Integer}).
          * @return the same Builder instance.
          * @throws IllegalArgumentException
-         * @see #excludeMixRule(int, Object)
+         * @see {@link #excludeMixRule(int, Object)}
          */
         @SystemApi
         public Builder addMixRule(int rule, Object property) throws IllegalArgumentException {

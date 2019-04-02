@@ -18,7 +18,7 @@ package com.android.server;
 
 import android.annotation.NonNull;
 import android.annotation.UserIdInt;
-import android.app.ActivityManager;
+import android.app.ActivityManagerNative;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Binder;
@@ -64,7 +64,7 @@ final class InputContentUriTokenHandler extends IInputContentUriToken.Stub {
             }
 
             try {
-                mPermissionOwnerToken = ActivityManager.getService()
+                mPermissionOwnerToken = ActivityManagerNative.getDefault()
                         .newUriPermissionOwner("InputContentUriTokenHandler");
             } catch (RemoteException e) {
                 e.rethrowFromSystemServer();
@@ -78,7 +78,7 @@ final class InputContentUriTokenHandler extends IInputContentUriToken.Stub {
         long origId = Binder.clearCallingIdentity();
         try {
             try {
-                ActivityManager.getService().grantUriPermissionFromOwner(
+                ActivityManagerNative.getDefault().grantUriPermissionFromOwner(
                         permissionOwner, mSourceUid, mTargetPackage, mUri,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION, mSourceUserId, mTargetUserId);
             } catch (RemoteException e) {
@@ -96,7 +96,7 @@ final class InputContentUriTokenHandler extends IInputContentUriToken.Stub {
                 return;
             }
             try {
-                ActivityManager.getService().revokeUriPermissionFromOwner(
+                ActivityManagerNative.getDefault().revokeUriPermissionFromOwner(
                         mPermissionOwnerToken, mUri,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION, mSourceUserId);
             } catch (RemoteException e) {

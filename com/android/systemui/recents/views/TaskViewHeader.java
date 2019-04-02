@@ -91,9 +91,6 @@ public class TaskViewHeader extends FrameLayout
             if (mColor != color || Float.compare(mDimAlpha, dimAlpha) != 0) {
                 mColor = color;
                 mDimAlpha = dimAlpha;
-                if (mShouldDarkenBackgroundColor) {
-                    color = getSecondaryColor(color, false /* useLightOverlayColor */);
-                }
                 mBackgroundPaint.setColor(color);
 
                 ColorUtils.colorToHSL(color, mTmpHSL);
@@ -182,10 +179,6 @@ public class TaskViewHeader extends FrameLayout
     // Header dim, which is only used when task view hardware layers are not used
     private Paint mDimLayerPaint = new Paint();
 
-    // Whether the background color should be darkened to differentiate from the primary color.
-    // Used in grid layout.
-    private boolean mShouldDarkenBackgroundColor = false;
-
     private CountDownTimer mFocusTimerCountDown;
 
     public TaskViewHeader(Context context) {
@@ -208,9 +201,7 @@ public class TaskViewHeader extends FrameLayout
         Resources res = context.getResources();
         mLightDismissDrawable = context.getDrawable(R.drawable.recents_dismiss_light);
         mDarkDismissDrawable = context.getDrawable(R.drawable.recents_dismiss_dark);
-        mCornerRadius = Recents.getConfiguration().isGridEnabled ?
-                res.getDimensionPixelSize(R.dimen.recents_grid_task_view_rounded_corners_radius) :
-                res.getDimensionPixelSize(R.dimen.recents_task_view_rounded_corners_radius);
+        mCornerRadius = res.getDimensionPixelSize(R.dimen.recents_task_view_rounded_corners_radius);
         mHighlightHeight = res.getDimensionPixelSize(R.dimen.recents_task_view_highlight);
         mTaskBarViewLightTextColor = context.getColor(R.color.recents_task_bar_light_text_color);
         mTaskBarViewDarkTextColor = context.getColor(R.color.recents_task_bar_dark_text_color);
@@ -244,12 +235,12 @@ public class TaskViewHeader extends FrameLayout
         SystemServicesProxy ssp = Recents.getSystemServices();
 
         // Initialize the icon and description views
-        mIconView = findViewById(R.id.icon);
+        mIconView = (ImageView) findViewById(R.id.icon);
         mIconView.setOnLongClickListener(this);
-        mTitleView = findViewById(R.id.title);
-        mDismissButton = findViewById(R.id.dismiss_task);
+        mTitleView = (TextView) findViewById(R.id.title);
+        mDismissButton = (ImageView) findViewById(R.id.dismiss_task);
         if (ssp.hasFreeformWorkspaceSupport()) {
-            mMoveTaskButton = findViewById(R.id.move_task);
+            mMoveTaskButton = (ImageView) findViewById(R.id.move_task);
         }
 
         onConfigurationChanged();
@@ -299,16 +290,14 @@ public class TaskViewHeader extends FrameLayout
                 R.dimen.recents_task_view_header_height,
                 R.dimen.recents_task_view_header_height_tablet_land,
                 R.dimen.recents_task_view_header_height,
-                R.dimen.recents_task_view_header_height_tablet_land,
-                R.dimen.recents_grid_task_view_header_height);
+                R.dimen.recents_task_view_header_height_tablet_land);
         int headerButtonPadding = TaskStackLayoutAlgorithm.getDimensionForDevice(getContext(),
                 R.dimen.recents_task_view_header_button_padding,
                 R.dimen.recents_task_view_header_button_padding,
                 R.dimen.recents_task_view_header_button_padding,
                 R.dimen.recents_task_view_header_button_padding_tablet_land,
                 R.dimen.recents_task_view_header_button_padding,
-                R.dimen.recents_task_view_header_button_padding_tablet_land,
-                R.dimen.recents_grid_task_view_header_button_padding);
+                R.dimen.recents_task_view_header_button_padding_tablet_land);
         if (headerBarHeight != mHeaderBarHeight || headerButtonPadding != mHeaderButtonPadding) {
             mHeaderBarHeight = headerBarHeight;
             mHeaderButtonPadding = headerButtonPadding;
@@ -450,13 +439,6 @@ public class TaskViewHeader extends FrameLayout
     }
 
     /**
-     * Sets whether the background color should be darkened to differentiate from the primary color.
-     */
-    public void setShouldDarkenBackgroundColor(boolean flag) {
-        mShouldDarkenBackgroundColor = flag;
-    }
-
-    /**
      * Binds the bar view to the task.
      */
     public void bindToTask(Task t, boolean touchExplorationEnabled, boolean disabledInSafeMode) {
@@ -524,7 +506,7 @@ public class TaskViewHeader extends FrameLayout
      * changes.
      */
     public void onTaskDataLoaded() {
-        if (mTask != null && mTask.icon != null) {
+        if (mTask.icon != null) {
             mIconView.setImageDrawable(mTask.icon);
         }
     }
@@ -571,7 +553,7 @@ public class TaskViewHeader extends FrameLayout
      * Mark this task view that the user does has not interacted with the stack after a certain
      * time.
      */
-    public void setNoUserInteractionState() {
+    void setNoUserInteractionState() {
         mDismissButton.setVisibility(View.VISIBLE);
         mDismissButton.animate().cancel();
         mDismissButton.setAlpha(1f);
@@ -621,7 +603,10 @@ public class TaskViewHeader extends FrameLayout
                     Constants.Metrics.DismissSourceHeaderButton);
         } else if (v == mMoveTaskButton) {
             TaskView tv = Utilities.findParent(this, TaskView.class);
-            EventBus.getDefault().send(new LaunchTaskEvent(tv, mTask, null,
+            Rect bounds = mMoveTaskTargetStackId == FREEFORM_WORKSPACE_STACK_ID
+                    ? new Rect(mTaskViewRect)
+                    : new Rect();
+            EventBus.getDefault().send(new LaunchTaskEvent(tv, mTask, bounds,
                     mMoveTaskTargetStackId, false));
         } else if (v == mAppInfoView) {
             EventBus.getDefault().send(new ShowApplicationInfoEvent(mTask));

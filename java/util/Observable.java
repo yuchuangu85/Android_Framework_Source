@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2004, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,7 +44,7 @@ package java.util;
  * notifications on separate threads, or may guarantee that their
  * subclass follows this order, as they choose.
  * <p>
- * Note that this notification mechanism has nothing to do with threads
+ * Note that this notification mechanism is has nothing to do with threads
  * and is completely separate from the <tt>wait</tt> and <tt>notify</tt>
  * mechanism of class <tt>Object</tt>.
  * <p>
@@ -61,12 +61,12 @@ package java.util;
  */
 public class Observable {
     private boolean changed = false;
-    private Vector<Observer> obs;
+    private final ArrayList<Observer> observers;
 
     /** Construct an Observable with zero Observers. */
 
     public Observable() {
-        obs = new Vector<>();
+        observers = new ArrayList<>();
     }
 
     /**
@@ -81,8 +81,8 @@ public class Observable {
     public synchronized void addObserver(Observer o) {
         if (o == null)
             throw new NullPointerException();
-        if (!obs.contains(o)) {
-            obs.addElement(o);
+        if (!observers.contains(o)) {
+            observers.add(o);
         }
     }
 
@@ -92,7 +92,7 @@ public class Observable {
      * @param   o   the observer to be deleted.
      */
     public synchronized void deleteObserver(Observer o) {
-        obs.removeElement(o);
+        observers.remove(o);
     }
 
     /**
@@ -134,40 +134,38 @@ public class Observable {
          * a temporary array buffer, used as a snapshot of the state of
          * current Observers.
          */
-        Object[] arrLocal;
+        Observer[] arrLocal;
 
         synchronized (this) {
             /* We don't want the Observer doing callbacks into
-             * arbitrary code while holding its own Monitor.
+             * arbitrary Observables while holding its own Monitor.
              * The code where we extract each Observable from
-             * the Vector and store the state of the Observer
+             * the ArrayList and store the state of the Observer
              * needs synchronization, but notifying observers
              * does not (should not).  The worst result of any
              * potential race-condition here is that:
+             *
              * 1) a newly-added Observer will miss a
              *   notification in progress
              * 2) a recently unregistered Observer will be
              *   wrongly notified when it doesn't care
              */
-            // Android-changed: Call out to hasChanged() to figure out if something changes.
-            // Upstream code avoids calling the nonfinal hasChanged() from the synchronized block,
-            // but that would break compatibility for apps that override that method.
-            // if (!changed)
             if (!hasChanged())
                 return;
-            arrLocal = obs.toArray();
+
+            arrLocal = observers.toArray(new Observer[observers.size()]);
             clearChanged();
         }
 
         for (int i = arrLocal.length-1; i>=0; i--)
-            ((Observer)arrLocal[i]).update(this, arg);
+            arrLocal[i].update(this, arg);
     }
 
     /**
      * Clears the observer list so that this object no longer has any observers.
      */
     public synchronized void deleteObservers() {
-        obs.removeAllElements();
+        observers.clear();
     }
 
     /**
@@ -212,6 +210,6 @@ public class Observable {
      * @return  the number of observers of this object.
      */
     public synchronized int countObservers() {
-        return obs.size();
+        return observers.size();
     }
 }

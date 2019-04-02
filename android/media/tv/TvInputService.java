@@ -284,8 +284,8 @@ public abstract class TvInputService extends Service {
         private boolean mOverlayViewEnabled;
         private IBinder mWindowToken;
         private Rect mOverlayFrame;
-        private long mStartPositionMs = TvInputManager.TIME_SHIFT_INVALID_TIME;
-        private long mCurrentPositionMs = TvInputManager.TIME_SHIFT_INVALID_TIME;
+        private long mStartPositionMs;
+        private long mCurrentPositionMs;
         private final TimeShiftPositionTrackingRunnable
                 mTimeShiftPositionTrackingRunnable = new TimeShiftPositionTrackingRunnable();
 
@@ -304,6 +304,7 @@ public abstract class TvInputService extends Service {
             mContext = context;
             mWindowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
             mHandler = new Handler(context.getMainLooper());
+            mCurrentPositionMs = TvInputManager.TIME_SHIFT_INVALID_TIME;
         }
 
         /**
@@ -630,8 +631,6 @@ public abstract class TvInputService extends Service {
                 @MainThread
                 @Override
                 public void run() {
-                    timeShiftEnablePositionTracking(
-                            status == TvInputManager.TIME_SHIFT_STATUS_AVAILABLE);
                     try {
                         if (DEBUG) Log.d(TAG, "notifyTimeShiftStatusChanged");
                         if (mSessionCallback != null) {
@@ -745,7 +744,7 @@ public abstract class TvInputService extends Service {
          * Called when the application sets the surface.
          *
          * <p>The TV input service should render video onto the given surface. When called with
-         * {@code null}, the input service should immediately free any references to the
+         * {@code null}, the input service should immediately release any references to the
          * currently set surface and stop using it.
          *
          * @param surface The surface to be used for video rendering. Can be {@code null}.
@@ -974,7 +973,7 @@ public abstract class TvInputService extends Service {
          * seek to a position earlier than the start position.
          *
          * <p>For playback of a recorded program initiated by {@link #onTimeShiftPlay(Uri)}, the
-         * start position should be 0 and does not change.
+         * start position is the time when playback starts. It does not change.
          *
          * @see #onTimeShiftPlay(Uri)
          * @see #onTimeShiftResume()
@@ -994,9 +993,7 @@ public abstract class TvInputService extends Service {
          *
          * <p>The current position for time shifting is the same as the current position of
          * playback. It should be equal to or greater than the start position reported by
-         * {@link #onTimeShiftGetStartPosition()}. When playback is completed, the current position
-         * should stay where the playback ends, in other words, the returned value of this mehtod
-         * should be equal to the start position plus the duration of the program.
+         * {@link #onTimeShiftGetStartPosition()}.
          *
          * @see #onTimeShiftPlay(Uri)
          * @see #onTimeShiftResume()
@@ -1468,8 +1465,7 @@ public abstract class TvInputService extends Service {
             @Override
             public void run() {
                 long startPositionMs = onTimeShiftGetStartPosition();
-                if (mStartPositionMs == TvInputManager.TIME_SHIFT_INVALID_TIME
-                        || mStartPositionMs != startPositionMs) {
+                if (mStartPositionMs != startPositionMs) {
                     mStartPositionMs = startPositionMs;
                     notifyTimeShiftStartPositionChanged(startPositionMs);
                 }
@@ -1480,8 +1476,7 @@ public abstract class TvInputService extends Service {
                             + "position.");
                     currentPositionMs = mStartPositionMs;
                 }
-                if (mCurrentPositionMs == TvInputManager.TIME_SHIFT_INVALID_TIME
-                        || mCurrentPositionMs != currentPositionMs) {
+                if (mCurrentPositionMs != currentPositionMs) {
                     mCurrentPositionMs = currentPositionMs;
                     notifyTimeShiftCurrentPositionChanged(currentPositionMs);
                 }

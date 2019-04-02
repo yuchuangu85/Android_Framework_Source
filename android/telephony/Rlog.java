@@ -16,7 +16,6 @@
 
 package android.telephony;
 
-import android.os.Build;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -32,8 +31,6 @@ import java.security.NoSuchAlgorithmException;
  * @hide
  */
 public final class Rlog {
-
-    private static final boolean USER_BUILD = Build.IS_USER;
 
     private Rlog() {
     }
@@ -128,15 +125,10 @@ public final class Rlog {
     /**
      * Returns a secure hash (using the SHA1 algorithm) of the provided input.
      *
-     * @return "****" if the build type is user, otherwise the hash
+     * @return the hash
      * @param input the bytes for which the secure hash should be computed.
      */
     private static String secureHash(byte[] input) {
-        // Refrain from logging user personal information in user build.
-        if (USER_BUILD) {
-            return "****";
-        }
-
         MessageDigest messageDigest;
 
         try {

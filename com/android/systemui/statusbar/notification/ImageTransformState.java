@@ -48,13 +48,10 @@ public class ImageTransformState extends TransformState {
 
     @Override
     protected boolean sameAs(TransformState otherState) {
-        if (super.sameAs(otherState)) {
-            return true;
-        }
         if (otherState instanceof ImageTransformState) {
             return mIcon != null && mIcon.sameAs(((ImageTransformState) otherState).getIcon());
         }
-        return false;
+        return super.sameAs(otherState);
     }
 
     @Override
@@ -116,7 +113,7 @@ public class ImageTransformState extends TransformState {
     }
 
     @Override
-    protected boolean transformScale(TransformState otherState) {
+    protected boolean transformScale() {
         return true;
     }
 

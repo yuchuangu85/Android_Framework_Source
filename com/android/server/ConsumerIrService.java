@@ -29,13 +29,13 @@ public class ConsumerIrService extends IConsumerIrService.Stub {
 
     private static final int MAX_XMIT_TIME = 2000000; /* in microseconds */
 
-    private static native boolean halOpen();
-    private static native int halTransmit(int carrierFrequency, int[] pattern);
-    private static native int[] halGetCarrierFrequencies();
+    private static native long halOpen();
+    private static native int halTransmit(long halObject, int carrierFrequency, int[] pattern);
+    private static native int[] halGetCarrierFrequencies(long halObject);
 
     private final Context mContext;
     private final PowerManager.WakeLock mWakeLock;
-    private final boolean mHasNativeHal;
+    private final long mNativeHal;
     private final Object mHalLock = new Object();
 
     ConsumerIrService(Context context) {
@@ -45,23 +45,23 @@ public class ConsumerIrService extends IConsumerIrService.Stub {
         mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, TAG);
         mWakeLock.setReferenceCounted(true);
 
-        mHasNativeHal = halOpen();
+        mNativeHal = halOpen();
         if (mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_CONSUMER_IR)) {
-            if (!mHasNativeHal) {
+            if (mNativeHal == 0) {
                 throw new RuntimeException("FEATURE_CONSUMER_IR present, but no IR HAL loaded!");
             }
-        } else if (mHasNativeHal) {
+        } else if (mNativeHal != 0) {
             throw new RuntimeException("IR HAL present, but FEATURE_CONSUMER_IR is not set!");
         }
     }
 
     @Override
     public boolean hasIrEmitter() {
-        return mHasNativeHal;
+        return mNativeHal != 0;
     }
 
     private void throwIfNoIrEmitter() {
-        if (!mHasNativeHal) {
+        if (mNativeHal == 0) {
             throw new UnsupportedOperationException("IR emitter not available");
         }
     }
@@ -91,7 +91,7 @@ public class ConsumerIrService extends IConsumerIrService.Stub {
 
         // Right now there is no mechanism to ensure fair queing of IR requests
         synchronized (mHalLock) {
-            int err = halTransmit(carrierFrequency, pattern);
+            int err = halTransmit(mNativeHal, carrierFrequency, pattern);
 
             if (err < 0) {
                 Slog.e(TAG, "Error transmitting: " + err);
@@ -109,7 +109,7 @@ public class ConsumerIrService extends IConsumerIrService.Stub {
         throwIfNoIrEmitter();
 
         synchronized(mHalLock) {
-            return halGetCarrierFrequencies();
+            return halGetCarrierFrequencies(mNativeHal);
         }
     }
 }

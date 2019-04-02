@@ -17,12 +17,14 @@
 package com.android.server.audio;
 
 import android.content.Context;
-import android.hardware.display.DisplayManager;
 import android.media.AudioSystem;
 import android.os.Handler;
 import android.util.Log;
+import android.view.OrientationEventListener;
 import android.view.Surface;
 import android.view.WindowManager;
+
+import com.android.server.policy.WindowOrientationListener;
 
 /**
  * Class to handle device rotation events for AudioService, and forward device rotation
@@ -40,17 +42,18 @@ class RotationHelper {
 
     private static final String TAG = "AudioService.RotationHelper";
 
-    private static AudioDisplayListener sDisplayListener;
+    private static AudioOrientationListener sOrientationListener;
+    private static AudioWindowOrientationListener sWindowOrientationListener;
 
     private static final Object sRotationLock = new Object();
     private static int sDeviceRotation = Surface.ROTATION_0; // R/W synchronized on sRotationLock
 
     private static Context sContext;
-    private static Handler sHandler;
 
     /**
      * post conditions:
-     * - sDisplayListener != null
+     * - (sWindowOrientationListener != null) xor (sOrientationListener != null)
+     * - sWindowOrientationListener xor sOrientationListener is enabled
      * - sContext != null
      */
     static void init(Context context, Handler handler) {
@@ -58,20 +61,34 @@ class RotationHelper {
             throw new IllegalArgumentException("Invalid null context");
         }
         sContext = context;
-        sHandler = handler;
-        sDisplayListener = new AudioDisplayListener();
-        enable();
+        sWindowOrientationListener = new AudioWindowOrientationListener(context, handler);
+        sWindowOrientationListener.enable();
+        if (!sWindowOrientationListener.canDetectOrientation()) {
+            // cannot use com.android.server.policy.WindowOrientationListener, revert to public
+            // orientation API
+            Log.i(TAG, "Not using WindowOrientationListener, reverting to OrientationListener");
+            sWindowOrientationListener.disable();
+            sWindowOrientationListener = null;
+            sOrientationListener = new AudioOrientationListener(context);
+            sOrientationListener.enable();
+        }
     }
 
     static void enable() {
-        ((DisplayManager) sContext.getSystemService(Context.DISPLAY_SERVICE))
-                .registerDisplayListener(sDisplayListener, sHandler);
+        if (sWindowOrientationListener != null) {
+            sWindowOrientationListener.enable();
+        } else {
+            sOrientationListener.enable();
+        }
         updateOrientation();
     }
 
     static void disable() {
-        ((DisplayManager) sContext.getSystemService(Context.DISPLAY_SERVICE))
-                .unregisterDisplayListener(sDisplayListener);
+        if (sWindowOrientationListener != null) {
+            sWindowOrientationListener.disable();
+        } else {
+            sOrientationListener.disable();
+        }
     }
 
     /**
@@ -111,21 +128,84 @@ class RotationHelper {
     }
 
     /**
-     * Uses android.hardware.display.DisplayManager.DisplayListener
+     * Uses android.view.OrientationEventListener
      */
-    final static class AudioDisplayListener implements DisplayManager.DisplayListener {
-
-        @Override
-        public void onDisplayAdded(int displayId) {
+    final static class AudioOrientationListener extends OrientationEventListener {
+        AudioOrientationListener(Context context) {
+            super(context);
         }
 
         @Override
-        public void onDisplayRemoved(int displayId) {
-        }
-
-        @Override
-        public void onDisplayChanged(int displayId) {
+        public void onOrientationChanged(int orientation) {
             updateOrientation();
+        }
+    }
+
+    /**
+     * Uses com.android.server.policy.WindowOrientationListener
+     */
+    final static class AudioWindowOrientationListener extends WindowOrientationListener {
+        private static RotationCheckThread sRotationCheckThread;
+
+        AudioWindowOrientationListener(Context context, Handler handler) {
+            super(context, handler);
+        }
+
+        public void onProposedRotationChanged(int rotation) {
+            updateOrientation();
+            if (sRotationCheckThread != null) {
+                sRotationCheckThread.endCheck();
+            }
+            sRotationCheckThread = new RotationCheckThread();
+            sRotationCheckThread.beginCheck();
+        }
+    }
+
+    /**
+     * When com.android.server.policy.WindowOrientationListener report an orientation change,
+     * the UI may not have rotated yet. This thread polls with gradually increasing delays
+     * the new orientation.
+     */
+    final static class RotationCheckThread extends Thread {
+        // how long to wait between each rotation check
+        private final int[] WAIT_TIMES_MS = { 10, 20, 50, 100, 100, 200, 200, 500 };
+        private int mWaitCounter;
+        private final Object mCounterLock = new Object();
+
+        RotationCheckThread() {
+            super("RotationCheck");
+        }
+
+        void beginCheck() {
+            synchronized(mCounterLock) {
+                mWaitCounter = 0;
+            }
+            try {
+                start();
+            } catch (IllegalStateException e) { }
+        }
+
+        void endCheck() {
+            synchronized(mCounterLock) {
+                mWaitCounter = WAIT_TIMES_MS.length;
+            }
+        }
+
+        public void run() {
+            while (mWaitCounter < WAIT_TIMES_MS.length) {
+                int waitTimeMs;
+                synchronized(mCounterLock) {
+                    waitTimeMs = mWaitCounter < WAIT_TIMES_MS.length ?
+                            WAIT_TIMES_MS[mWaitCounter] : 0;
+                    mWaitCounter++;
+                }
+                try {
+                    if (waitTimeMs > 0) {
+                        sleep(waitTimeMs);
+                        updateOrientation();
+                    }
+                } catch (InterruptedException e) { }
+            }
         }
     }
 }

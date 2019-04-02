@@ -125,22 +125,13 @@ public final class Phone {
 
     private boolean mCanAddCall = true;
 
-    private final String mCallingPackage;
-
-    /**
-     * The Target SDK version of the InCallService implementation.
-     */
-    private final int mTargetSdkVersion;
-
-    Phone(InCallAdapter adapter, String callingPackage, int targetSdkVersion) {
+    Phone(InCallAdapter adapter) {
         mInCallAdapter = adapter;
-        mCallingPackage = callingPackage;
-        mTargetSdkVersion = targetSdkVersion;
     }
 
     final void internalAddCall(ParcelableCall parcelableCall) {
         Call call = new Call(this, parcelableCall.getId(), mInCallAdapter,
-                parcelableCall.getState(), mCallingPackage, mTargetSdkVersion);
+                parcelableCall.getState());
         mCallByTelecomCallId.put(parcelableCall.getId(), call);
         mCalls.add(call);
         checkCallTree(parcelableCall);
@@ -204,20 +195,6 @@ public final class Phone {
         Call call = mCallByTelecomCallId.get(telecomId);
         if (call != null) {
             call.internalOnConnectionEvent(event, extras);
-        }
-    }
-
-    final void internalOnRttUpgradeRequest(String callId, int requestId) {
-        Call call = mCallByTelecomCallId.get(callId);
-        if (call != null) {
-            call.internalOnRttUpgradeRequest(requestId);
-        }
-    }
-
-    final void internalOnRttInitiationFailure(String callId, int reason) {
-        Call call = mCallByTelecomCallId.get(callId);
-        if (call != null) {
-            call.internalOnRttInitiationFailure(reason);
         }
     }
 

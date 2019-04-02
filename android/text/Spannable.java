@@ -46,17 +46,15 @@ extends Spanned
     public void removeSpan(Object what);
 
     /**
-     * Factory used by TextView to create new {@link Spannable Spannables}. You can subclass
-     * it to provide something other than {@link SpannableString}.
-     *
-     * @see android.widget.TextView#setSpannableFactory(Factory)
+     * Factory used by TextView to create new Spannables.  You can subclass
+     * it to provide something other than SpannableString.
      */
     public static class Factory {
         private static Spannable.Factory sInstance = new Spannable.Factory();
 
         /**
          * Returns the standard Spannable Factory.
-         */
+         */ 
         public static Spannable.Factory getInstance() {
             return sInstance;
         }

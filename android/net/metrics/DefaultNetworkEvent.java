@@ -16,6 +16,7 @@
 
 package android.net.metrics;
 
+import android.annotation.SystemApi;
 import android.net.NetworkCapabilities;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -24,6 +25,7 @@ import android.os.Parcelable;
  * An event recorded by ConnectivityService when there is a change in the default network.
  * {@hide}
  */
+@SystemApi
 public final class DefaultNetworkEvent implements Parcelable {
     // The ID of the network that has become the new default or NETID_UNSET if none.
     public final int netId;
@@ -36,6 +38,7 @@ public final class DefaultNetworkEvent implements Parcelable {
     public final boolean prevIPv4;
     public final boolean prevIPv6;
 
+    /** {@hide} */
     public DefaultNetworkEvent(int netId, int[] transportTypes,
                 int prevNetId, boolean prevIPv4, boolean prevIPv6) {
         this.netId = netId;
@@ -103,4 +106,8 @@ public final class DefaultNetworkEvent implements Parcelable {
             return new DefaultNetworkEvent[size];
         }
     };
+
+    public static void logEvent(
+            int netId, int[] transports, int prevNetId, boolean hadIPv4, boolean hadIPv6) {
+    }
 }

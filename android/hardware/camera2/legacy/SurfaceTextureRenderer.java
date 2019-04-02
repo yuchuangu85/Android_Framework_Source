@@ -248,8 +248,7 @@ public class SurfaceTextureRenderer {
         return program;
     }
 
-    private void drawFrame(SurfaceTexture st, int width, int height, int flipType)
-            throws LegacyExceptionUtils.BufferQueueAbandonedException {
+    private void drawFrame(SurfaceTexture st, int width, int height, int flipType) {
         checkGlError("onDrawFrame start");
         st.getTransformMatrix(mSTMatrix);
 
@@ -344,7 +343,7 @@ public class SurfaceTextureRenderer {
                 /*offset*/ 0);
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, /*offset*/ 0, /*count*/ 4);
-        checkGlDrawError("glDrawArrays");
+        checkGlError("glDrawArrays");
     }
 
     /**
@@ -549,29 +548,7 @@ public class SurfaceTextureRenderer {
     private void checkGlError(String msg) {
         int error;
         while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR) {
-            throw new IllegalStateException(
-                    msg + ": GLES20 error: 0x" + Integer.toHexString(error));
-        }
-    }
-
-    private void checkGlDrawError(String msg)
-            throws LegacyExceptionUtils.BufferQueueAbandonedException {
-        int error;
-        boolean surfaceAbandoned = false;
-        boolean glError = false;
-        while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR) {
-            if (error == GLES20.GL_OUT_OF_MEMORY) {
-                surfaceAbandoned = true;
-            } else {
-                glError = true;
-            }
-        }
-        if (glError) {
-            throw new IllegalStateException(
-                    msg + ": GLES20 error: 0x" + Integer.toHexString(error));
-        }
-        if (surfaceAbandoned) {
-            throw new LegacyExceptionUtils.BufferQueueAbandonedException();
+            throw new IllegalStateException(msg + ": GLES20 error: 0x" + Integer.toHexString(error));
         }
     }
 
@@ -782,14 +759,9 @@ public class SurfaceTextureRenderer {
             if (LegacyCameraDevice.containsSurfaceId(holder.surface, targetSurfaceIds)) {
                 makeCurrent(holder.eglSurface);
                 // glReadPixels reads from the bottom of the buffer, so add an extra vertical flip
-                try {
-                    drawFrame(mSurfaceTexture, holder.width, holder.height,
-                            (mFacing == CameraCharacteristics.LENS_FACING_FRONT) ?
-                                    FLIP_TYPE_BOTH : FLIP_TYPE_VERTICAL);
-                } catch (LegacyExceptionUtils.BufferQueueAbandonedException e) {
-                    // Should never hit this.
-                    throw new IllegalStateException("Surface abandoned, skipping drawFrame...", e);
-                }
+                drawFrame(mSurfaceTexture, holder.width, holder.height,
+                        (mFacing == CameraCharacteristics.LENS_FACING_FRONT) ?
+                                FLIP_TYPE_BOTH : FLIP_TYPE_VERTICAL);
                 mPBufferPixels.clear();
                 GLES20.glReadPixels(/*x*/ 0, /*y*/ 0, holder.width, holder.height,
                         GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, mPBufferPixels);

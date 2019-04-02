@@ -55,9 +55,9 @@ import java.util.Set;
  */
 public class PermissionMonitor {
     private static final String TAG = "PermissionMonitor";
-    private static final boolean DBG = true;
-    private static final Boolean SYSTEM = Boolean.TRUE;
-    private static final Boolean NETWORK = Boolean.FALSE;
+    private static final boolean DBG = false;
+    private static final boolean SYSTEM = true;
+    private static final boolean NETWORK = false;
 
     private final Context mContext;
     private final PackageManager mPackageManager;
@@ -228,40 +228,30 @@ public class PermissionMonitor {
         update(users, mApps, false);
     }
 
-
-    private Boolean highestPermissionForUid(Boolean currentPermission, String name) {
-        if (currentPermission == SYSTEM) {
-            return currentPermission;
-        }
-        try {
-            final PackageInfo app = mPackageManager.getPackageInfo(name, GET_PERMISSIONS);
-            final boolean isNetwork = hasNetworkPermission(app);
-            final boolean hasRestrictedPermission = hasRestrictedNetworkPermission(app);
-            if (isNetwork || hasRestrictedPermission) {
-                currentPermission = hasRestrictedPermission;
-            }
-        } catch (NameNotFoundException e) {
-            // App not found.
-            loge("NameNotFoundException " + name);
-        }
-        return currentPermission;
-    }
-
     private synchronized void onAppAdded(String appName, int appUid) {
         if (TextUtils.isEmpty(appName) || appUid < 0) {
             loge("Invalid app in onAppAdded: " + appName + " | " + appUid);
             return;
         }
 
-        // If multiple packages share a UID (cf: android:sharedUserId) and ask for different
-        // permissions, don't downgrade (i.e., if it's already SYSTEM, leave it as is).
-        final Boolean permission = highestPermissionForUid(mApps.get(appUid), appName);
-        if (permission != mApps.get(appUid)) {
-            mApps.put(appUid, permission);
+        try {
+            PackageInfo app = mPackageManager.getPackageInfo(appName, GET_PERMISSIONS);
+            boolean isNetwork = hasNetworkPermission(app);
+            boolean hasRestrictedPermission = hasRestrictedNetworkPermission(app);
+            if (isNetwork || hasRestrictedPermission) {
+                Boolean permission = mApps.get(appUid);
+                // If multiple packages share a UID (cf: android:sharedUserId) and ask for different
+                // permissions, don't downgrade (i.e., if it's already SYSTEM, leave it as is).
+                if (permission == null || permission == NETWORK) {
+                    mApps.put(appUid, hasRestrictedPermission);
 
-            Map<Integer, Boolean> apps = new HashMap<>();
-            apps.put(appUid, permission);
-            update(mUsers, apps, true);
+                    Map<Integer, Boolean> apps = new HashMap<>();
+                    apps.put(appUid, hasRestrictedPermission);
+                    update(mUsers, apps, true);
+                }
+            }
+        } catch (NameNotFoundException e) {
+            loge("NameNotFoundException in onAppAdded: " + e);
         }
     }
 
@@ -270,33 +260,11 @@ public class PermissionMonitor {
             loge("Invalid app in onAppRemoved: " + appUid);
             return;
         }
-        Map<Integer, Boolean> apps = new HashMap<>();
+        mApps.remove(appUid);
 
-        Boolean permission = null;
-        String[] packages = mPackageManager.getPackagesForUid(appUid);
-        if (packages != null && packages.length > 0) {
-            for (String name : packages) {
-                permission = highestPermissionForUid(permission, name);
-                if (permission == SYSTEM) {
-                    // An app with this UID still has the SYSTEM permission.
-                    // Therefore, this UID must already have the SYSTEM permission.
-                    // Nothing to do.
-                    return;
-                }
-            }
-        }
-        if (permission == mApps.get(appUid)) {
-            // The permissions of this UID have not changed. Nothing to do.
-            return;
-        } else if (permission != null) {
-            mApps.put(appUid, permission);
-            apps.put(appUid, permission);
-            update(mUsers, apps, true);
-        } else {
-            mApps.remove(appUid);
-            apps.put(appUid, NETWORK);  // doesn't matter which permission we pick here
-            update(mUsers, apps, false);
-        }
+        Map<Integer, Boolean> apps = new HashMap<>();
+        apps.put(appUid, NETWORK);  // doesn't matter which permission we pick here
+        update(mUsers, apps, false);
     }
 
     private static void log(String s) {

@@ -79,6 +79,11 @@ public class SeekBarPreference extends Preference
     }
 
     @Override
+    public CharSequence getSummary() {
+        return null;
+    }
+
+    @Override
     protected void onSetInitialValue(boolean restoreValue, Object defaultValue) {
         setProgress(restoreValue ? getPersistedInt(mProgress)
                 : (Integer) defaultValue);

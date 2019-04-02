@@ -16,9 +16,10 @@
 
 package android.support.v7.widget;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 import static android.support.v7.widget.SuggestionsAdapter.getColumnString;
 
+import android.annotation.TargetApi;
 import android.app.PendingIntent;
 import android.app.SearchManager;
 import android.app.SearchableInfo;
@@ -34,13 +35,19 @@ import android.database.Cursor;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.ResultReceiver;
 import android.speech.RecognizerIntent;
 import android.support.annotation.Nullable;
 import android.support.annotation.RestrictTo;
+import android.support.v4.content.res.ConfigurationHelper;
+import android.support.v4.os.ParcelableCompat;
+import android.support.v4.os.ParcelableCompatCreatorCallbacks;
 import android.support.v4.view.AbsSavedState;
+import android.support.v4.view.KeyEventCompat;
 import android.support.v4.view.ViewCompat;
 import android.support.v4.widget.CursorAdapter;
 import android.support.v7.appcompat.R;
@@ -62,8 +69,8 @@ import android.view.MotionEvent;
 import android.view.TouchDelegate;
 import android.view.View;
 import android.view.ViewConfiguration;
+import android.view.ViewTreeObserver;
 import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
@@ -104,7 +111,7 @@ import java.util.WeakHashMap;
  * href="{@docRoot}guide/topics/ui/actionbar.html#ActionView">Action Bar</a> API guide</p>
  * </div>
  *
- * @see android.view.MenuItem#SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW
+ * @see android.support.v4.view.MenuItemCompat#SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW
  */
 public class SearchView extends LinearLayoutCompat implements CollapsibleActionView {
 
@@ -172,6 +179,22 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
     private Bundle mAppSearchData;
 
     static final AutoCompleteTextViewReflector HIDDEN_METHOD_INVOKER = new AutoCompleteTextViewReflector();
+
+    /*
+     * SearchView can be set expanded before the IME is ready to be shown during
+     * initial UI setup. The show operation is asynchronous to account for this.
+     */
+    private Runnable mShowImeRunnable = new Runnable() {
+        @Override
+        public void run() {
+            InputMethodManager imm = (InputMethodManager)
+                    getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+
+            if (imm != null) {
+                HIDDEN_METHOD_INVOKER.showSoftInputUnchecked(imm, SearchView.this, 0);
+            }
+        }
+    };
 
     private final Runnable mUpdateDrawableStateRunnable = new Runnable() {
         @Override
@@ -280,17 +303,17 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
                 R.styleable.SearchView_layout, R.layout.abc_search_view);
         inflater.inflate(layoutResId, this, true);
 
-        mSearchSrcTextView = findViewById(R.id.search_src_text);
+        mSearchSrcTextView = (SearchAutoComplete) findViewById(R.id.search_src_text);
         mSearchSrcTextView.setSearchView(this);
 
         mSearchEditFrame = findViewById(R.id.search_edit_frame);
         mSearchPlate = findViewById(R.id.search_plate);
         mSubmitArea = findViewById(R.id.submit_area);
-        mSearchButton = findViewById(R.id.search_button);
-        mGoButton = findViewById(R.id.search_go_btn);
-        mCloseButton = findViewById(R.id.search_close_btn);
-        mVoiceButton = findViewById(R.id.search_voice_btn);
-        mCollapsedIcon = findViewById(R.id.search_mag_icon);
+        mSearchButton = (ImageView) findViewById(R.id.search_button);
+        mGoButton = (ImageView) findViewById(R.id.search_go_btn);
+        mCloseButton = (ImageView) findViewById(R.id.search_close_btn);
+        mVoiceButton = (ImageView) findViewById(R.id.search_voice_btn);
+        mCollapsedIcon = (ImageView) findViewById(R.id.search_mag_icon);
 
         // Set up icons and backgrounds.
         ViewCompat.setBackground(mSearchPlate,
@@ -304,9 +327,6 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
         mCollapsedIcon.setImageDrawable(a.getDrawable(R.styleable.SearchView_searchIcon));
 
         mSearchHintIcon = a.getDrawable(R.styleable.SearchView_searchHintIcon);
-
-        TooltipCompat.setTooltipText(mSearchButton,
-                getResources().getString(R.string.abc_searchview_description_search));
 
         // Extract dropdown layout resource IDs for later use.
         mSuggestionRowLayout = a.getResourceId(R.styleable.SearchView_suggestionRowLayout,
@@ -371,17 +391,36 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
 
         mDropDownAnchor = findViewById(mSearchSrcTextView.getDropDownAnchor());
         if (mDropDownAnchor != null) {
-            mDropDownAnchor.addOnLayoutChangeListener(new OnLayoutChangeListener() {
-                @Override
-                public void onLayoutChange(View v, int left, int top, int right, int bottom,
-                        int oldLeft, int oldTop, int oldRight, int oldBottom) {
-                    adjustDropDownSizeAndPosition();
-                }
-            });
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
+                addOnLayoutChangeListenerToDropDownAnchorSDK11();
+            } else {
+                addOnLayoutChangeListenerToDropDownAnchorBase();
+            }
         }
 
         updateViewsVisibility(mIconifiedByDefault);
         updateQueryHint();
+    }
+
+    @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+    private void addOnLayoutChangeListenerToDropDownAnchorSDK11() {
+        mDropDownAnchor.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                    int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                adjustDropDownSizeAndPosition();
+            }
+        });
+    }
+
+    private void addOnLayoutChangeListenerToDropDownAnchorBase() {
+        mDropDownAnchor.getViewTreeObserver()
+                .addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+                    @Override
+                    public void onGlobalLayout() {
+                        adjustDropDownSizeAndPosition();
+                    }
+                });
     }
 
     int getSuggestionRowLayout() {
@@ -422,7 +461,7 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
      * @param appSearchData bundle provided by the app when launching the search dialog
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public void setAppSearchData(Bundle appSearchData) {
         mAppSearchData = appSearchData;
     }
@@ -472,6 +511,8 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
         return mSearchSrcTextView.getInputType();
     }
 
+    /** @hide */
+    @RestrictTo(GROUP_ID)
     @Override
     public boolean requestFocus(int direction, Rect previouslyFocusedRect) {
         // Don't accept focus if in the middle of clearing focus
@@ -490,12 +531,14 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
         }
     }
 
+    /** @hide */
+    @RestrictTo(GROUP_ID)
     @Override
     public void clearFocus() {
         mClearingFocus = true;
+        setImeVisibility(false);
         super.clearFocus();
         mSearchSrcTextView.clearFocus();
-        mSearchSrcTextView.setImeVisibility(false);
         mClearingFocus = false;
     }
 
@@ -964,6 +1007,20 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
         super.onDetachedFromWindow();
     }
 
+    void setImeVisibility(final boolean visible) {
+        if (visible) {
+            post(mShowImeRunnable);
+        } else {
+            removeCallbacks(mShowImeRunnable);
+            InputMethodManager imm = (InputMethodManager)
+                    getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+
+            if (imm != null) {
+                imm.hideSoftInputFromWindow(getWindowToken(), 0);
+            }
+        }
+    }
+
     /**
      * Called by the SuggestionsAdapter
      */
@@ -1015,7 +1072,7 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
 
             // If there is text in the query box, handle enter, and action keys
             // The search key is handled by the dialog's onKeyDown().
-            if (!mSearchSrcTextView.isEmpty() && event.hasNoModifiers()) {
+            if (!mSearchSrcTextView.isEmpty() && KeyEventCompat.hasNoModifiers(event)) {
                 if (event.getAction() == KeyEvent.ACTION_UP) {
                     if (keyCode == KeyEvent.KEYCODE_ENTER) {
                         v.cancelLongPress();
@@ -1044,7 +1101,7 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
         if (mSuggestionsAdapter == null) {
             return false;
         }
-        if (event.getAction() == KeyEvent.ACTION_DOWN && event.hasNoModifiers()) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN && KeyEventCompat.hasNoModifiers(event)) {
             // First, check for enter or search (both of which we'll treat as a
             // "click")
             if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_SEARCH
@@ -1190,7 +1247,7 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
                 if (mSearchable != null) {
                     launchQuerySearch(KeyEvent.KEYCODE_UNKNOWN, null, query.toString());
                 }
-                mSearchSrcTextView.setImeVisibility(false);
+                setImeVisibility(false);
                 dismissSuggestions();
             }
         }
@@ -1215,7 +1272,7 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
         } else {
             mSearchSrcTextView.setText("");
             mSearchSrcTextView.requestFocus();
-            mSearchSrcTextView.setImeVisibility(true);
+            setImeVisibility(true);
         }
 
     }
@@ -1223,7 +1280,7 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
     void onSearchClicked() {
         updateViewsVisibility(false);
         mSearchSrcTextView.requestFocus();
-        mSearchSrcTextView.setImeVisibility(true);
+        setImeVisibility(true);
         if (mOnSearchClickListener != null) {
             mOnSearchClickListener.onClick(this);
         }
@@ -1320,22 +1377,18 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
                     + " isIconified=" + isIconified + "}";
         }
 
-        public static final Creator<SavedState> CREATOR = new ClassLoaderCreator<SavedState>() {
-            @Override
-            public SavedState createFromParcel(Parcel in, ClassLoader loader) {
-                return new SavedState(in, loader);
-            }
+        public static final Parcelable.Creator<SavedState> CREATOR = ParcelableCompat.newCreator(
+                new ParcelableCompatCreatorCallbacks<SavedState>() {
+                    @Override
+                    public SavedState createFromParcel(Parcel in, ClassLoader loader) {
+                        return new SavedState(in, loader);
+                    }
 
-            @Override
-            public SavedState createFromParcel(Parcel in) {
-                return new SavedState(in, null);
-            }
-
-            @Override
-            public SavedState[] newArray(int size) {
-                return new SavedState[size];
-            }
-        };
+                    @Override
+                    public SavedState[] newArray(int size) {
+                        return new SavedState[size];
+                    }
+                });
     }
 
     @Override
@@ -1386,7 +1439,7 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
         if (mOnSuggestionListener == null
                 || !mOnSuggestionListener.onSuggestionClick(position)) {
             launchSuggestion(position, KeyEvent.KEYCODE_UNKNOWN, null);
-            mSearchSrcTextView.setImeVisibility(false);
+            setImeVisibility(false);
             dismissSuggestions();
             return true;
         }
@@ -1818,19 +1871,11 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
      * Local subclass for AutoCompleteTextView.
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public static class SearchAutoComplete extends AppCompatAutoCompleteTextView {
 
         private int mThreshold;
         private SearchView mSearchView;
-
-        private boolean mHasPendingShowSoftInputRequest;
-        final Runnable mRunShowSoftInputIfNecessary = new Runnable() {
-            @Override
-            public void run() {
-                showSoftInputIfNecessary();
-            }
-        };
 
         public SearchAutoComplete(Context context) {
             this(context, null);
@@ -1897,13 +1942,11 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
             super.onWindowFocusChanged(hasWindowFocus);
 
             if (hasWindowFocus && mSearchView.hasFocus() && getVisibility() == VISIBLE) {
-                // Since InputMethodManager#onPostWindowFocus() will be called after this callback,
-                // it is a bit too early to call InputMethodManager#showSoftInput() here. We still
-                // need to wait until the system calls back onCreateInputConnection() to call
-                // InputMethodManager#showSoftInput().
-                mHasPendingShowSoftInputRequest = true;
-
-                // If in landscape mode, then make sure that the ime is in front of the dropdown.
+                InputMethodManager inputManager = (InputMethodManager) getContext()
+                        .getSystemService(Context.INPUT_METHOD_SERVICE);
+                inputManager.showSoftInput(this, 0);
+                // If in landscape mode, then make sure that
+                // the ime is in front of the dropdown.
                 if (isLandscapeMode(getContext())) {
                     HIDDEN_METHOD_INVOKER.ensureImeVisible(this, true);
                 }
@@ -1943,7 +1986,7 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
                     }
                     if (event.isTracking() && !event.isCanceled()) {
                         mSearchView.clearFocus();
-                        setImeVisibility(false);
+                        mSearchView.setImeVisibility(false);
                         return true;
                     }
                 }
@@ -1956,8 +1999,8 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
          */
         private int getSearchViewTextMinWidthDp() {
             final Configuration config = getResources().getConfiguration();
-            final int widthDp = config.screenWidthDp;
-            final int heightDp = config.screenHeightDp;
+            final int widthDp = ConfigurationHelper.getScreenWidthDp(getResources());
+            final int heightDp = ConfigurationHelper.getScreenHeightDp(getResources());
 
             if (widthDp >= 960 && heightDp >= 720
                     && config.orientation == Configuration.ORIENTATION_LANDSCAPE) {
@@ -1966,53 +2009,6 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
                 return 192;
             }
             return 160;
-        }
-
-        /**
-         * We override {@link View#onCreateInputConnection(EditorInfo)} as a signal to schedule a
-         * pending {@link InputMethodManager#showSoftInput(View, int)} request (if any).
-         */
-        @Override
-        public InputConnection onCreateInputConnection(EditorInfo editorInfo) {
-            final InputConnection ic = super.onCreateInputConnection(editorInfo);
-            if (mHasPendingShowSoftInputRequest) {
-                removeCallbacks(mRunShowSoftInputIfNecessary);
-                post(mRunShowSoftInputIfNecessary);
-            }
-            return ic;
-        }
-
-        private void showSoftInputIfNecessary() {
-            if (mHasPendingShowSoftInputRequest) {
-                final InputMethodManager imm = (InputMethodManager)
-                        getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
-                imm.showSoftInput(this, 0);
-                mHasPendingShowSoftInputRequest = false;
-            }
-        }
-
-        private void setImeVisibility(final boolean visible) {
-            final InputMethodManager imm = (InputMethodManager)
-                        getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
-            if (!visible) {
-                mHasPendingShowSoftInputRequest = false;
-                removeCallbacks(mRunShowSoftInputIfNecessary);
-                imm.hideSoftInputFromWindow(getWindowToken(), 0);
-                return;
-            }
-
-            if (imm.isActive(this)) {
-                // This means that SearchAutoComplete is already connected to the IME.
-                // InputMethodManager#showSoftInput() is guaranteed to pass client-side focus check.
-                mHasPendingShowSoftInputRequest = false;
-                removeCallbacks(mRunShowSoftInputIfNecessary);
-                imm.showSoftInput(this, 0);
-                return;
-            }
-
-            // Otherwise, InputMethodManager#showSoftInput() should be deferred after
-            // onCreateInputConnection().
-            mHasPendingShowSoftInputRequest = true;
         }
     }
 
@@ -2043,6 +2039,13 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
             } catch (NoSuchMethodException e) {
                 // Ah well.
             }
+            try {
+                showSoftInputUnchecked = InputMethodManager.class.getMethod(
+                        "showSoftInputUnchecked", int.class, ResultReceiver.class);
+                showSoftInputUnchecked.setAccessible(true);
+            } catch (NoSuchMethodException e) {
+                // Ah well.
+            }
         }
 
         void doBeforeTextChanged(AutoCompleteTextView view) {
@@ -2070,6 +2073,19 @@ public class SearchView extends LinearLayoutCompat implements CollapsibleActionV
                 } catch (Exception e) {
                 }
             }
+        }
+
+        void showSoftInputUnchecked(InputMethodManager imm, View view, int flags) {
+            if (showSoftInputUnchecked != null) {
+                try {
+                    showSoftInputUnchecked.invoke(imm, flags, null);
+                    return;
+                } catch (Exception e) {
+                }
+            }
+
+            // Hidden method failed, call public version instead
+            imm.showSoftInput(view, flags);
         }
     }
 }

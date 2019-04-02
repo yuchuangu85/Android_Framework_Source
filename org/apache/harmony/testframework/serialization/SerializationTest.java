@@ -266,7 +266,7 @@ public abstract class SerializationTest extends TestCase {
      * @param object - object to be compared
      * @return object's comparator
      */
-    public static SerializableAssert defineComparator(Object test, Object object)
+    public static SerializableAssert defineComparator(TestCase test, Object object)
             throws Exception {
 
         if (test instanceof SerializableAssert) {
@@ -300,7 +300,7 @@ public abstract class SerializationTest extends TestCase {
      * @param test - test case
      * @param object - to be compared
      */
-    public static void verifyGolden(Object test, Object object) throws Exception {
+    public static void verifyGolden(TestCase test, Object object) throws Exception {
         verifyGolden(test, object, defineComparator(test, object));
     }
 
@@ -316,7 +316,7 @@ public abstract class SerializationTest extends TestCase {
      * @param object - to be compared
      * @param comparator - for comparing (de)serialized objects
      */
-    public static void verifyGolden(Object test, Object object, SerializableAssert comparator)
+    public static void verifyGolden(TestCase test, Object object, SerializableAssert comparator)
             throws Exception {
         assertNotNull("Null comparator", comparator);
         Serializable deserialized = getObject(test, ".golden.ser");
@@ -333,7 +333,7 @@ public abstract class SerializationTest extends TestCase {
      * @param test - test case
      * @param objects - array of objects to be compared
      */
-    public static void verifyGolden(Object test, Object[] objects) throws Exception {
+    public static void verifyGolden(TestCase test, Object[] objects) throws Exception {
         assertFalse("Empty array", objects.length == 0);
         verifyGolden(test, objects, defineComparator(test, objects[0]));
     }
@@ -353,7 +353,7 @@ public abstract class SerializationTest extends TestCase {
      * @param objects - array of objects to be compared
      * @param comparator - for comparing (de)serialized objects
      */
-    public static void verifyGolden(Object test, Object[] objects, SerializableAssert comparator)
+    public static void verifyGolden(TestCase test, Object[] objects, SerializableAssert comparator)
             throws Exception {
         assertFalse("Empty array", objects.length == 0);
         for (int i = 0; i < objects.length; i++) {
@@ -420,7 +420,7 @@ public abstract class SerializationTest extends TestCase {
         }
     }
 
-    private static Serializable getObject(Object test, String toAppend) throws Exception {
+    private static Serializable getObject(TestCase test, String toAppend) throws Exception {
         StringBuilder path = new StringBuilder("/serialization");
         path.append(File.separatorChar);
         path.append(test.getClass().getName().replace('.', File.separatorChar));

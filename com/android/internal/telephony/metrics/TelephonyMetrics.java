@@ -16,75 +16,64 @@
 
 package com.android.internal.telephony.metrics;
 
-import static android.text.format.DateUtils.MINUTE_IN_MILLIS;
-
-import static com.android.internal.telephony.RILConstants.RIL_REQUEST_ANSWER;
-import static com.android.internal.telephony.RILConstants.RIL_REQUEST_CDMA_SEND_SMS;
-import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DEACTIVATE_DATA_CALL;
-import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DIAL;
-import static com.android.internal.telephony.RILConstants.RIL_REQUEST_HANGUP;
-import static com.android.internal.telephony.RILConstants
-        .RIL_REQUEST_HANGUP_FOREGROUND_RESUME_BACKGROUND;
-import static com.android.internal.telephony.RILConstants.RIL_REQUEST_HANGUP_WAITING_OR_BACKGROUND;
-import static com.android.internal.telephony.RILConstants.RIL_REQUEST_IMS_SEND_SMS;
-import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SEND_SMS;
-import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SEND_SMS_EXPECT_MORE;
-import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SETUP_DATA_CALL;
-import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_IP;
-import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_IPV4V6;
-import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_IPV6;
-import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_PPP;
-import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_UNKNOWN;
-
-import android.os.Build;
 import android.os.SystemClock;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyHistogram;
-import android.text.TextUtils;
 import android.util.Base64;
 import android.util.SparseArray;
 
 import com.android.ims.ImsConfig;
 import com.android.ims.ImsReasonInfo;
 import com.android.ims.internal.ImsCallSession;
-import com.android.internal.telephony.GsmCdmaConnection;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.RIL;
 import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.SmsResponse;
+import com.android.internal.telephony.TelephonyProto;
+import com.android.internal.telephony.TelephonyProto.ImsCapabilities;
+import com.android.internal.telephony.TelephonyProto.ImsConnectionState;
+import com.android.internal.telephony.TelephonyProto.RilDataCall;
+import com.android.internal.telephony.TelephonyProto.SmsSession;
+import com.android.internal.telephony.TelephonyProto.TelephonyCallSession;
+import com.android.internal.telephony.TelephonyProto.TelephonyEvent;
+import com.android.internal.telephony.TelephonyProto.TelephonyEvent.RilDeactivateDataCall;
+import com.android.internal.telephony.TelephonyProto.TelephonyEvent.RilSetupDataCall;
+import com.android.internal.telephony.TelephonyProto.TelephonyEvent.RilSetupDataCallResponse;
+import com.android.internal.telephony.TelephonyProto.TelephonyEvent.RilSetupDataCallResponse.RilDataCallFailCause;
+import com.android.internal.telephony.TelephonyProto.TelephonyLog;
+import com.android.internal.telephony.TelephonyProto.TelephonyServiceState;
+import com.android.internal.telephony.TelephonyProto.TelephonySettings;
+import com.android.internal.telephony.TelephonyProto.TimeInterval;
 import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.dataconnection.DataCallResponse;
 import com.android.internal.telephony.imsphone.ImsPhoneCall;
-import com.android.internal.telephony.nano.TelephonyProto;
-import com.android.internal.telephony.nano.TelephonyProto.ImsCapabilities;
-import com.android.internal.telephony.nano.TelephonyProto.ImsConnectionState;
-import com.android.internal.telephony.nano.TelephonyProto.RilDataCall;
-import com.android.internal.telephony.nano.TelephonyProto.SmsSession;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession.Event.CallState;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession.Event.RilCall;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession.Event.RilCall.Type;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.ModemRestart;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilDeactivateDataCall;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCall;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCallResponse;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCallResponse
-        .RilDataCallFailCause;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyLog;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyServiceState;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonySettings;
-import com.android.internal.telephony.nano.TelephonyProto.TimeInterval;
 import com.android.internal.util.IndentingPrintWriter;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
+
+import static android.text.format.DateUtils.MINUTE_IN_MILLIS;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_ANSWER;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_CDMA_SEND_SMS;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DEACTIVATE_DATA_CALL;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DIAL;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_HANGUP;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_HANGUP_FOREGROUND_RESUME_BACKGROUND;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_HANGUP_WAITING_OR_BACKGROUND;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_IMS_SEND_SMS;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SEND_SMS;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SEND_SMS_EXPECT_MORE;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SETUP_DATA_CALL;
+import static com.android.internal.telephony.TelephonyProto.PdpType.PDP_TYPE_IP;
+import static com.android.internal.telephony.TelephonyProto.PdpType.PDP_TYPE_IPV4V6;
+import static com.android.internal.telephony.TelephonyProto.PdpType.PDP_TYPE_IPV6;
+import static com.android.internal.telephony.TelephonyProto.PdpType.PDP_TYPE_PPP;
+import static com.android.internal.telephony.TelephonyProto.PdpType.PDP_UNKNOWN;
 
 /**
  * Telephony metrics holds all metrics events and convert it into telephony proto buf.
@@ -145,11 +134,6 @@ public class TelephonyMetrics {
      * session
      */
     private final SparseArray<ImsConnectionState> mLastImsConnectionState = new SparseArray<>();
-
-    /**
-     * Last settings state. This is for deduping same settings event logged.
-     */
-    private final SparseArray<TelephonySettings> mLastSettings = new SparseArray<>();
 
     /** The start system time of the TelephonyLog in milliseconds*/
     private long mStartSystemTimeMs;
@@ -335,20 +319,23 @@ public class TelephonyMetrics {
         pw.println("Telephony events:");
         pw.increaseIndent();
         for (TelephonyEvent event : mTelephonyEvents) {
-            pw.print(event.timestampMillis);
-            pw.print(" [");
-            pw.print(event.phoneId);
-            pw.print("] ");
+            if (event.hasTimestampMillis()) {
+                pw.print(event.getTimestampMillis());
+                pw.print(" [");
+                if (event.hasPhoneId()) pw.print(event.getPhoneId());
+                pw.print("] ");
 
-            pw.print("T=");
-            if (event.type == TelephonyEvent.Type.RIL_SERVICE_STATE_CHANGED) {
-                pw.print(telephonyEventToString(event.type)
-                        + "(" + event.serviceState.dataRat + ")");
-            } else {
-                pw.print(telephonyEventToString(event.type));
+                if (event.hasType()) {
+                    pw.print("T=");
+                    if (event.getType() == TelephonyEvent.Type.RIL_SERVICE_STATE_CHANGED) {
+                        pw.print(telephonyEventToString(event.getType())
+                                + "(" + event.serviceState.getDataRat() + ")");
+                    } else {
+                        pw.print(telephonyEventToString(event.getType()));
+                    }
+                }
+                pw.println("");
             }
-
-            pw.println("");
         }
 
         pw.decreaseIndent();
@@ -356,28 +343,22 @@ public class TelephonyMetrics {
         pw.increaseIndent();
 
         for (TelephonyCallSession callSession : mCompletedCallSessions) {
-            pw.println("Start time in minutes: " + callSession.startTimeMinutes);
-            pw.println("Events dropped: " + callSession.eventsDropped);
-
+            if (callSession.hasStartTimeMinutes()) {
+                pw.println("Start time in minutes: " + callSession.getStartTimeMinutes());
+            }
+            if (callSession.hasEventsDropped()) {
+                pw.println("Events dropped: " + callSession.getEventsDropped());
+            }
             pw.println("Events: ");
             pw.increaseIndent();
             for (TelephonyCallSession.Event event : callSession.events) {
-                pw.print(event.delay);
+                pw.print(event.getDelay());
                 pw.print(" T=");
-                if (event.type == TelephonyCallSession.Event.Type.RIL_SERVICE_STATE_CHANGED) {
-                    pw.println(callSessionEventToString(event.type)
-                            + "(" + event.serviceState.dataRat + ")");
-                } else if (event.type == TelephonyCallSession.Event.Type.RIL_CALL_LIST_CHANGED) {
-                    pw.println(callSessionEventToString(event.type));
-                    pw.increaseIndent();
-                    for (RilCall call : event.calls) {
-                        pw.println(call.index + ". Type = " + call.type + " State = "
-                                + call.state + " End Reason " + call.callEndReason
-                                + " isMultiparty = " + call.isMultiparty);
-                    }
-                    pw.decreaseIndent();
+                if (event.getType() == TelephonyCallSession.Event.Type.RIL_SERVICE_STATE_CHANGED) {
+                    pw.println(callSessionEventToString(event.getType())
+                            + "(" + event.serviceState.getDataRat() + ")");
                 } else {
-                    pw.println(callSessionEventToString(event.type));
+                    pw.println(callSessionEventToString(event.getType()));
                 }
             }
             pw.decreaseIndent();
@@ -390,18 +371,19 @@ public class TelephonyMetrics {
         int count = 0;
         for (SmsSession smsSession : mCompletedSmsSessions) {
             count++;
-            pw.print("[" + count + "] Start time in minutes: "
-                    + smsSession.startTimeMinutes);
-
-            if (smsSession.eventsDropped) {
-                pw.println(", events dropped: " + smsSession.eventsDropped);
+            if (smsSession.hasStartTimeMinutes()) {
+                pw.print("[" + count + "] Start time in minutes: "
+                        + smsSession.getStartTimeMinutes());
+            }
+            if (smsSession.hasEventsDropped()) {
+                pw.println(", events dropped: " + smsSession.getEventsDropped());
             }
             pw.println("Events: ");
             pw.increaseIndent();
             for (SmsSession.Event event : smsSession.events) {
-                pw.print(event.delay);
+                pw.print(event.getDelay());
                 pw.print(" T=");
-                pw.println(smsSessionEventToString(event.type));
+                pw.println(smsSessionEventToString(event.getType()));
             }
             pw.decreaseIndent();
         }
@@ -471,7 +453,7 @@ public class TelephonyMetrics {
         // Build telephony events
         log.events = new TelephonyEvent[mTelephonyEvents.size()];
         mTelephonyEvents.toArray(log.events);
-        log.eventsDropped = mTelephonyEventsDropped;
+        log.setEventsDropped(mTelephonyEventsDropped);
 
         // Build call sessions
         log.callSessions = new TelephonyCallSession[mCompletedCallSessions.size()];
@@ -489,25 +471,25 @@ public class TelephonyMetrics {
             TelephonyHistogram rilHistogram = rilHistograms.get(i);
             TelephonyProto.TelephonyHistogram histogramProto = log.histograms[i];
 
-            histogramProto.category = rilHistogram.getCategory();
-            histogramProto.id = rilHistogram.getId();
-            histogramProto.minTimeMillis = rilHistogram.getMinTime();
-            histogramProto.maxTimeMillis = rilHistogram.getMaxTime();
-            histogramProto.avgTimeMillis = rilHistogram.getAverageTime();
-            histogramProto.count = rilHistogram.getSampleCount();
-            histogramProto.bucketCount = rilHistogram.getBucketCount();
+            histogramProto.setCategory(rilHistogram.getCategory());
+            histogramProto.setId(rilHistogram.getId());
+            histogramProto.setMinTimeMillis(rilHistogram.getMinTime());
+            histogramProto.setMaxTimeMillis(rilHistogram.getMaxTime());
+            histogramProto.setAvgTimeMillis(rilHistogram.getAverageTime());
+            histogramProto.setCount(rilHistogram.getSampleCount());
+            histogramProto.setBucketCount(rilHistogram.getBucketCount());
             histogramProto.bucketEndPoints = rilHistogram.getBucketEndPoints();
             histogramProto.bucketCounters = rilHistogram.getBucketCounters();
         }
 
         // Log the starting system time
         log.startTime = new TelephonyProto.Time();
-        log.startTime.systemTimestampMillis = mStartSystemTimeMs;
-        log.startTime.elapsedTimestampMillis = mStartElapsedTimeMs;
+        log.startTime.setSystemTimestampMillis(mStartSystemTimeMs);
+        log.startTime.setElapsedTimestampMillis(mStartElapsedTimeMs);
 
         log.endTime = new TelephonyProto.Time();
-        log.endTime.systemTimestampMillis = System.currentTimeMillis();
-        log.endTime.elapsedTimestampMillis = SystemClock.elapsedRealtime();
+        log.endTime.setSystemTimestampMillis(System.currentTimeMillis());
+        log.endTime.setElapsedTimestampMillis(SystemClock.elapsedRealtime());
 
         return log;
     }
@@ -584,39 +566,39 @@ public class TelephonyMetrics {
     private TelephonyServiceState toServiceStateProto(ServiceState serviceState) {
         TelephonyServiceState ssProto = new TelephonyServiceState();
 
-        ssProto.voiceRoamingType = serviceState.getVoiceRoamingType();
-        ssProto.dataRoamingType = serviceState.getDataRoamingType();
+        ssProto.setVoiceRoamingType(serviceState.getVoiceRoamingType());
+        ssProto.setDataRoamingType(serviceState.getDataRoamingType());
 
         ssProto.voiceOperator = new TelephonyServiceState.TelephonyOperator();
 
         if (serviceState.getVoiceOperatorAlphaLong() != null) {
-            ssProto.voiceOperator.alphaLong = serviceState.getVoiceOperatorAlphaLong();
+            ssProto.voiceOperator.setAlphaLong(serviceState.getVoiceOperatorAlphaLong());
         }
 
         if (serviceState.getVoiceOperatorAlphaShort() != null) {
-            ssProto.voiceOperator.alphaShort = serviceState.getVoiceOperatorAlphaShort();
+            ssProto.voiceOperator.setAlphaShort(serviceState.getVoiceOperatorAlphaShort());
         }
 
         if (serviceState.getVoiceOperatorNumeric() != null) {
-            ssProto.voiceOperator.numeric = serviceState.getVoiceOperatorNumeric();
+            ssProto.voiceOperator.setNumeric(serviceState.getVoiceOperatorNumeric());
         }
 
         ssProto.dataOperator = new TelephonyServiceState.TelephonyOperator();
 
         if (serviceState.getDataOperatorAlphaLong() != null) {
-            ssProto.dataOperator.alphaLong = serviceState.getDataOperatorAlphaLong();
+            ssProto.dataOperator.setAlphaLong(serviceState.getDataOperatorAlphaLong());
         }
 
         if (serviceState.getDataOperatorAlphaShort() != null) {
-            ssProto.dataOperator.alphaShort = serviceState.getDataOperatorAlphaShort();
+            ssProto.dataOperator.setAlphaShort(serviceState.getDataOperatorAlphaShort());
         }
 
         if (serviceState.getDataOperatorNumeric() != null) {
-            ssProto.dataOperator.numeric = serviceState.getDataOperatorNumeric();
+            ssProto.dataOperator.setNumeric(serviceState.getDataOperatorNumeric());
         }
 
-        ssProto.voiceRat = serviceState.getRilVoiceRadioTechnology();
-        ssProto.dataRat = serviceState.getRilDataRadioTechnology();
+        ssProto.setVoiceRat(serviceState.getRilVoiceRadioTechnology());
+        ssProto.setDataRat(serviceState.getRilDataRadioTechnology());
         return ssProto;
     }
 
@@ -737,9 +719,9 @@ public class TelephonyMetrics {
         TelephonyCallSession callSession = new TelephonyCallSession();
         callSession.events = new TelephonyCallSession.Event[inProgressCallSession.events.size()];
         inProgressCallSession.events.toArray(callSession.events);
-        callSession.startTimeMinutes = inProgressCallSession.startSystemTimeMin;
-        callSession.phoneId = inProgressCallSession.phoneId;
-        callSession.eventsDropped = inProgressCallSession.isEventsDropped();
+        callSession.setStartTimeMinutes(inProgressCallSession.startSystemTimeMin);
+        callSession.setPhoneId(inProgressCallSession.phoneId);
+        callSession.setEventsDropped(inProgressCallSession.isEventsDropped());
         if (mCompletedCallSessions.size() >= MAX_COMPLETED_CALL_SESSIONS) {
             mCompletedCallSessions.removeFirst();
         }
@@ -758,9 +740,9 @@ public class TelephonyMetrics {
             SmsSession smsSession = new SmsSession();
             smsSession.events = new SmsSession.Event[inProgressSmsSession.events.size()];
             inProgressSmsSession.events.toArray(smsSession.events);
-            smsSession.startTimeMinutes = inProgressSmsSession.startSystemTimeMin;
-            smsSession.phoneId = inProgressSmsSession.phoneId;
-            smsSession.eventsDropped = inProgressSmsSession.isEventsDropped();
+            smsSession.setStartTimeMinutes(inProgressSmsSession.startSystemTimeMin);
+            smsSession.setPhoneId(inProgressSmsSession.phoneId);
+            smsSession.setEventsDropped(inProgressSmsSession.isEventsDropped());
             if (mCompletedSmsSessions.size() >= MAX_COMPLETED_SMS_SESSIONS) {
                 mCompletedSmsSessions.removeFirst();
             }
@@ -794,21 +776,14 @@ public class TelephonyMetrics {
         TelephonyEvent event = new TelephonyEventBuilder(phoneId)
                 .setServiceState(toServiceStateProto(serviceState)).build();
 
-        // If service state doesn't change, we don't log the event.
-        if (mLastServiceState.get(phoneId) != null &&
-                Arrays.equals(TelephonyServiceState.toByteArray(mLastServiceState.get(phoneId)),
-                        TelephonyServiceState.toByteArray(event.serviceState))) {
-            return;
-        }
-
         mLastServiceState.put(phoneId, event.serviceState);
         addTelephonyEvent(event);
 
-        annotateInProgressCallSession(event.timestampMillis, phoneId,
+        annotateInProgressCallSession(event.getTimestampMillis(), phoneId,
                 new CallSessionEventBuilder(
                         TelephonyCallSession.Event.Type.RIL_SERVICE_STATE_CHANGED)
                         .setServiceState(event.serviceState));
-        annotateInProgressSmsSession(event.timestampMillis, phoneId,
+        annotateInProgressSmsSession(event.getTimestampMillis(), phoneId,
                 new SmsSessionEventBuilder(
                         SmsSession.Event.Type.RIL_SERVICE_STATE_CHANGED)
                         .setServiceState(event.serviceState));
@@ -839,35 +814,26 @@ public class TelephonyMetrics {
         TelephonySettings s = new TelephonySettings();
         switch (feature) {
             case ImsConfig.FeatureConstants.FEATURE_TYPE_VOICE_OVER_LTE:
-                s.isEnhanced4GLteModeEnabled = (value != 0);
+                s.setIsEnhanced4GLteModeEnabled(value != 0);
                 break;
             case ImsConfig.FeatureConstants.FEATURE_TYPE_VOICE_OVER_WIFI:
-                s.isWifiCallingEnabled = (value != 0);
+                s.setIsWifiCallingEnabled(value != 0);
                 break;
             case ImsConfig.FeatureConstants.FEATURE_TYPE_VIDEO_OVER_LTE:
-                s.isVtOverLteEnabled = (value != 0);
+                s.setIsVtOverLteEnabled(value != 0);
                 break;
             case ImsConfig.FeatureConstants.FEATURE_TYPE_VIDEO_OVER_WIFI:
-                s.isVtOverWifiEnabled = (value != 0);
+                s.setIsVtOverWifiEnabled(value != 0);
                 break;
         }
-
-        // If the settings don't change, we don't log the event.
-        if (mLastSettings.get(phoneId) != null &&
-                Arrays.equals(TelephonySettings.toByteArray(mLastSettings.get(phoneId)),
-                        TelephonySettings.toByteArray(s))) {
-            return;
-        }
-
-        mLastSettings.put(phoneId, s);
 
         TelephonyEvent event = new TelephonyEventBuilder(phoneId).setSettings(s).build();
         addTelephonyEvent(event);
 
-        annotateInProgressCallSession(event.timestampMillis, phoneId,
+        annotateInProgressCallSession(event.getTimestampMillis(), phoneId,
                 new CallSessionEventBuilder(TelephonyCallSession.Event.Type.SETTINGS_CHANGED)
                         .setSettings(s));
-        annotateInProgressSmsSession(event.timestampMillis, phoneId,
+        annotateInProgressSmsSession(event.getTimestampMillis(), phoneId,
                 new SmsSessionEventBuilder(SmsSession.Event.Type.SETTINGS_CHANGED)
                         .setSettings(s));
     }
@@ -880,17 +846,7 @@ public class TelephonyMetrics {
      */
     public void writeSetPreferredNetworkType(int phoneId, int networkType) {
         TelephonySettings s = new TelephonySettings();
-        s.preferredNetworkMode = networkType + 1;
-
-        // If the settings don't change, we don't log the event.
-        if (mLastSettings.get(phoneId) != null &&
-                Arrays.equals(TelephonySettings.toByteArray(mLastSettings.get(phoneId)),
-                        TelephonySettings.toByteArray(s))) {
-            return;
-        }
-
-        mLastSettings.put(phoneId, s);
-
+        s.setPreferredNetworkMode(networkType);
         addTelephonyEvent(new TelephonyEventBuilder(phoneId).setSettings(s).build());
     }
 
@@ -904,39 +860,31 @@ public class TelephonyMetrics {
     public synchronized void writeOnImsConnectionState(int phoneId, int state,
                                                        ImsReasonInfo reasonInfo) {
         ImsConnectionState imsState = new ImsConnectionState();
-        imsState.state = state;
+        imsState.setState(state);
+        mLastImsConnectionState.put(phoneId, imsState);
 
         if (reasonInfo != null) {
             TelephonyProto.ImsReasonInfo ri = new TelephonyProto.ImsReasonInfo();
 
-            ri.reasonCode = reasonInfo.getCode();
-            ri.extraCode = reasonInfo.getExtraCode();
+            ri.setReasonCode(reasonInfo.getCode());
+            ri.setExtraCode(reasonInfo.getExtraCode());
             String extraMessage = reasonInfo.getExtraMessage();
             if (extraMessage != null) {
-                ri.extraMessage = extraMessage;
+                ri.setExtraMessage(extraMessage);
             }
 
             imsState.reasonInfo = ri;
         }
 
-        // If the connection state does not change, do not log it.
-        if (mLastImsConnectionState.get(phoneId) != null &&
-                Arrays.equals(ImsConnectionState.toByteArray(mLastImsConnectionState.get(phoneId)),
-                        ImsConnectionState.toByteArray(imsState))) {
-            return;
-        }
-
-        mLastImsConnectionState.put(phoneId, imsState);
-
         TelephonyEvent event = new TelephonyEventBuilder(phoneId)
                 .setImsConnectionState(imsState).build();
         addTelephonyEvent(event);
 
-        annotateInProgressCallSession(event.timestampMillis, phoneId,
+        annotateInProgressCallSession(event.getTimestampMillis(), phoneId,
                 new CallSessionEventBuilder(
                         TelephonyCallSession.Event.Type.IMS_CONNECTION_STATE_CHANGED)
                         .setImsConnectionState(event.imsConnectionState));
-        annotateInProgressSmsSession(event.timestampMillis, phoneId,
+        annotateInProgressSmsSession(event.getTimestampMillis(), phoneId,
                 new SmsSessionEventBuilder(
                         SmsSession.Event.Type.IMS_CONNECTION_STATE_CHANGED)
                         .setImsConnectionState(event.imsConnectionState));
@@ -951,30 +899,22 @@ public class TelephonyMetrics {
     public synchronized void writeOnImsCapabilities(int phoneId, boolean[] capabilities) {
         ImsCapabilities cap = new ImsCapabilities();
 
-        cap.voiceOverLte = capabilities[0];
-        cap.videoOverLte = capabilities[1];
-        cap.voiceOverWifi = capabilities[2];
-        cap.videoOverWifi = capabilities[3];
-        cap.utOverLte = capabilities[4];
-        cap.utOverWifi = capabilities[5];
+        cap.setVoiceOverLte(capabilities[0]);
+        cap.setVideoOverLte(capabilities[1]);
+        cap.setVoiceOverWifi(capabilities[2]);
+        cap.setVideoOverWifi(capabilities[3]);
+        cap.setUtOverLte(capabilities[4]);
+        cap.setUtOverWifi(capabilities[5]);
 
         TelephonyEvent event = new TelephonyEventBuilder(phoneId).setImsCapabilities(cap).build();
-
-        // If the capabilities don't change, we don't log the event.
-        if (mLastImsCapabilities.get(phoneId) != null &&
-                Arrays.equals(ImsCapabilities.toByteArray(mLastImsCapabilities.get(phoneId)),
-                ImsCapabilities.toByteArray(cap))) {
-            return;
-        }
-
         mLastImsCapabilities.put(phoneId, cap);
         addTelephonyEvent(event);
 
-        annotateInProgressCallSession(event.timestampMillis, phoneId,
+        annotateInProgressCallSession(event.getTimestampMillis(), phoneId,
                 new CallSessionEventBuilder(
                         TelephonyCallSession.Event.Type.IMS_CAPABILITIES_CHANGED)
                         .setImsCapabilities(event.imsCapabilities));
-        annotateInProgressSmsSession(event.timestampMillis, phoneId,
+        annotateInProgressSmsSession(event.getTimestampMillis(), phoneId,
                 new SmsSessionEventBuilder(
                         SmsSession.Event.Type.IMS_CAPABILITIES_CHANGED)
                         .setImsCapabilities(event.imsCapabilities));
@@ -1016,13 +956,13 @@ public class TelephonyMetrics {
                                       String apn, int authType, String protocol) {
 
         RilSetupDataCall setupDataCall = new RilSetupDataCall();
-        setupDataCall.rat = radioTechnology;
-        setupDataCall.dataProfile = profile + 1;  // off by 1 between proto and RIL constants.
+        setupDataCall.setRat(radioTechnology);
+        setupDataCall.setDataProfile(profile + 1);  // off by 1 between proto and RIL constants.
         if (apn != null) {
-            setupDataCall.apn = apn;
+            setupDataCall.setApn(apn);
         }
         if (protocol != null) {
-            setupDataCall.type = toPdpType(protocol);
+            setupDataCall.setType(toPdpType(protocol));
         }
 
         addTelephonyEvent(new TelephonyEventBuilder(phoneId).setSetupDataCall(
@@ -1040,8 +980,8 @@ public class TelephonyMetrics {
     public void writeRilDeactivateDataCall(int phoneId, int rilSerial, int cid, int reason) {
 
         RilDeactivateDataCall deactivateDataCall = new RilDeactivateDataCall();
-        deactivateDataCall.cid = cid;
-        deactivateDataCall.reason = reason + 1;
+        deactivateDataCall.setCid(cid);
+        deactivateDataCall.setReason(reason + 1);
 
         addTelephonyEvent(new TelephonyEventBuilder(phoneId).setDeactivateDataCall(
                 deactivateDataCall).build());
@@ -1059,12 +999,12 @@ public class TelephonyMetrics {
 
         for (int i = 0; i < dcsList.size(); i++) {
             dataCalls[i] = new RilDataCall();
-            dataCalls[i].cid = dcsList.get(i).cid;
-            if (!TextUtils.isEmpty(dcsList.get(i).ifname)) {
-                dataCalls[i].iframe = dcsList.get(i).ifname;
+            dataCalls[i].setCid(dcsList.get(i).cid);
+            if (dcsList.get(i).ifname != null) {
+                dataCalls[i].setIframe(dcsList.get(i).ifname);
             }
-            if (!TextUtils.isEmpty(dcsList.get(i).type)) {
-                dataCalls[i].type = toPdpType(dcsList.get(i).type);
+            if (dcsList.get(i).type != null) {
+                dataCalls[i].setType(toPdpType(dcsList.get(i).type));
             }
         }
 
@@ -1072,116 +1012,22 @@ public class TelephonyMetrics {
     }
 
     /**
-     * Write CS call list event
-     *
-     * @param phoneId    Phone id
-     * @param connections Array of GsmCdmaConnection objects
-     */
-    public void writeRilCallList(int phoneId, ArrayList<GsmCdmaConnection> connections) {
-        if (VDBG) {
-            Rlog.v(TAG, "Logging CallList Changed Connections Size = " + connections.size());
-        }
-        InProgressCallSession callSession = startNewCallSessionIfNeeded(phoneId);
-        if (callSession == null) {
-            Rlog.e(TAG, "writeRilCallList: Call session is missing");
-        } else {
-            RilCall[] calls = convertConnectionsToRilCalls(connections);
-            callSession.addEvent(
-                    new CallSessionEventBuilder(
-                            TelephonyCallSession.Event.Type.RIL_CALL_LIST_CHANGED)
-                            .setRilCalls(calls)
-            );
-            if (VDBG) Rlog.v(TAG, "Logged Call list changed");
-            if (callSession.isPhoneIdle() && disconnectReasonsKnown(calls)) {
-                finishCallSession(callSession);
-            }
-        }
-    }
-
-    private boolean disconnectReasonsKnown(RilCall[] calls) {
-        for (RilCall call : calls) {
-            if (call.callEndReason == 0) return false;
-        }
-        return true;
-    }
-
-    private RilCall[] convertConnectionsToRilCalls(ArrayList<GsmCdmaConnection> mConnections) {
-        RilCall[] calls = new RilCall[mConnections.size()];
-        for (int i = 0; i < mConnections.size(); i++) {
-            calls[i] = new RilCall();
-            calls[i].index = i;
-            convertConnectionToRilCall(mConnections.get(i), calls[i]);
-        }
-        return calls;
-    }
-
-    private void convertConnectionToRilCall(GsmCdmaConnection conn, RilCall call) {
-        if (conn.isIncoming()) {
-            call.type = Type.MT;
-        } else {
-            call.type = Type.MO;
-        }
-        switch (conn.getState()) {
-            case IDLE:
-                call.state = CallState.CALL_IDLE;
-                break;
-            case ACTIVE:
-                call.state = CallState.CALL_ACTIVE;
-                break;
-            case HOLDING:
-                call.state = CallState.CALL_HOLDING;
-                break;
-            case DIALING:
-                call.state = CallState.CALL_DIALING;
-                break;
-            case ALERTING:
-                call.state = CallState.CALL_ALERTING;
-                break;
-            case INCOMING:
-                call.state = CallState.CALL_INCOMING;
-                break;
-            case WAITING:
-                call.state = CallState.CALL_WAITING;
-                break;
-            case DISCONNECTED:
-                call.state = CallState.CALL_DISCONNECTED;
-                break;
-            case DISCONNECTING:
-                call.state = CallState.CALL_DISCONNECTING;
-                break;
-            default:
-                call.state = CallState.CALL_UNKNOWN;
-                break;
-        }
-        call.callEndReason = conn.getDisconnectCause();
-        call.isMultiparty = conn.isMultiparty();
-    }
-
-    /**
      * Write dial event
      *
      * @param phoneId Phone id
-     * @param conn Connection object created to track this call
+     * @param rilSerial RIL request serial number
      * @param clirMode CLIR (Calling Line Identification Restriction) mode
      * @param uusInfo User-to-User signaling Info
      */
-    public void writeRilDial(int phoneId, GsmCdmaConnection conn, int clirMode, UUSInfo uusInfo) {
+    public void writeRilDial(int phoneId, int rilSerial, int clirMode, UUSInfo uusInfo) {
 
         InProgressCallSession callSession = startNewCallSessionIfNeeded(phoneId);
-        if (VDBG) Rlog.v(TAG, "Logging Dial Connection = " + conn);
-        if (callSession == null) {
-            Rlog.e(TAG, "writeRilDial: Call session is missing");
-        } else {
-            RilCall[] calls = new RilCall[1];
-            calls[0] = new RilCall();
-            calls[0].index = -1;
-            convertConnectionToRilCall(conn, calls[0]);
-            callSession.addEvent(callSession.startElapsedTimeMs,
-                    new CallSessionEventBuilder(TelephonyCallSession.Event.Type.RIL_REQUEST)
-                            .setRilRequest(TelephonyCallSession.Event.RilRequest.RIL_REQUEST_DIAL)
-                            .setRilCalls(calls));
-            if (VDBG) Rlog.v(TAG, "Logged Dial event");
-        }
+
+        callSession.addEvent(callSession.startElapsedTimeMs,
+                new CallSessionEventBuilder(TelephonyCallSession.Event.Type.RIL_REQUEST)
+                        .setRilRequest(TelephonyCallSession.Event.RilRequest.RIL_REQUEST_DIAL)
+                        .setRilRequestId(rilSerial)
+        );
     }
 
     /**
@@ -1201,23 +1047,19 @@ public class TelephonyMetrics {
      * Write call hangup event
      *
      * @param phoneId Phone id
-     * @param conn Connection object associated with the call that is being hung-up
+     * @param rilSerial RIL request serial number
      * @param callId Call id
      */
-    public void writeRilHangup(int phoneId, GsmCdmaConnection conn, int callId) {
+    public void writeRilHangup(int phoneId, int rilSerial, int callId) {
         InProgressCallSession callSession = mInProgressCallSessions.get(phoneId);
         if (callSession == null) {
-            Rlog.e(TAG, "writeRilHangup: Call session is missing");
+            Rlog.e(TAG, "Call session is missing");
         } else {
-            RilCall[] calls = new RilCall[1];
-            calls[0] = new RilCall();
-            calls[0].index = callId;
-            convertConnectionToRilCall(conn, calls[0]);
             callSession.addEvent(
                     new CallSessionEventBuilder(TelephonyCallSession.Event.Type.RIL_REQUEST)
                             .setRilRequest(TelephonyCallSession.Event.RilRequest.RIL_REQUEST_HANGUP)
-                            .setRilCalls(calls));
-            if (VDBG) Rlog.v(TAG, "Logged Hangup event");
+                            .setRilRequestId(rilSerial)
+                            .setCallIndex(callId));
         }
     }
 
@@ -1230,7 +1072,7 @@ public class TelephonyMetrics {
     public void writeRilAnswer(int phoneId, int rilSerial) {
         InProgressCallSession callSession = mInProgressCallSessions.get(phoneId);
         if (callSession == null) {
-            Rlog.e(TAG, "writeRilAnswer: Call session is missing");
+            Rlog.e(TAG, "Call session is missing");
         } else {
             callSession.addEvent(
                     new CallSessionEventBuilder(TelephonyCallSession.Event.Type.RIL_REQUEST)
@@ -1248,7 +1090,7 @@ public class TelephonyMetrics {
     public void writeRilSrvcc(int phoneId, int rilSrvccState) {
         InProgressCallSession callSession =  mInProgressCallSessions.get(phoneId);
         if (callSession == null) {
-            Rlog.e(TAG, "writeRilSrvcc: Call session is missing");
+            Rlog.e(TAG, "Call session is missing");
         } else {
             callSession.addEvent(
                     new CallSessionEventBuilder(TelephonyCallSession.Event.Type.RIL_CALL_SRVCC)
@@ -1307,17 +1149,17 @@ public class TelephonyMetrics {
         RilDataCall dataCall = new RilDataCall();
 
         if (response != null) {
-            setupDataCallResponse.status =
-                    (response.status == 0 ? RilDataCallFailCause.PDP_FAIL_NONE : response.status);
-            setupDataCallResponse.suggestedRetryTimeMillis = response.suggestedRetryTime;
+            setupDataCallResponse.setStatus(
+                    response.status == 0 ? RilDataCallFailCause.PDP_FAIL_NONE : response.status);
+            setupDataCallResponse.setSuggestedRetryTimeMillis(response.suggestedRetryTime);
 
-            dataCall.cid = response.cid;
-            if (!TextUtils.isEmpty(response.type)) {
-                dataCall.type = toPdpType(response.type);
+            dataCall.setCid(response.cid);
+            if (response.type != null) {
+                dataCall.setType(toPdpType(response.type));
             }
 
-            if (!TextUtils.isEmpty(response.ifname)) {
-                dataCall.iframe = response.ifname;
+            if (response.ifname != null) {
+                dataCall.setIframe(response.ifname);
             }
         }
         setupDataCallResponse.call = dataCall;
@@ -1338,13 +1180,13 @@ public class TelephonyMetrics {
                                               int rilRequest) {
         InProgressCallSession callSession = mInProgressCallSessions.get(phoneId);
         if (callSession == null) {
-            Rlog.e(TAG, "writeOnCallSolicitedResponse: Call session is missing");
+            Rlog.e(TAG, "Call session is missing");
         } else {
             callSession.addEvent(new CallSessionEventBuilder(
                     TelephonyCallSession.Event.Type.RIL_RESPONSE)
                     .setRilRequest(toCallSessionRilRequest(rilRequest))
                     .setRilRequestId(rilSerial)
-                    .setRilError(rilError + 1));
+                    .setRilError(rilError));
         }
     }
 
@@ -1372,7 +1214,7 @@ public class TelephonyMetrics {
             smsSession.addEvent(new SmsSessionEventBuilder(
                     SmsSession.Event.Type.SMS_SEND_RESULT)
                     .setErrorCode(errorCode)
-                    .setRilErrno(rilError + 1)
+                    .setRilErrno(rilError)
                     .setRilRequestId(rilSerial)
             );
 
@@ -1453,14 +1295,9 @@ public class TelephonyMetrics {
 
         InProgressCallSession callSession = mInProgressCallSessions.get(phoneId);
         if (callSession == null) {
-            Rlog.e(TAG, "writePhoneState: Call session is missing");
+            Rlog.e(TAG, "Call session is missing");
         } else {
-            // For CS Calls Finish the Call Session after Receiving the Last Call Fail Cause
-            // For IMS calls we receive the Disconnect Cause along with Call End event.
-            // So we can finish the call session here.
-            callSession.setLastKnownPhoneState(state);
-            if ((state == TelephonyCallSession.Event.PhoneState.STATE_IDLE)
-                    && (!callSession.containsCsCalls())) {
+            if (state == TelephonyCallSession.Event.PhoneState.STATE_IDLE) {
                 finishCallSession(callSession);
             }
             callSession.addEvent(new CallSessionEventBuilder(
@@ -1553,11 +1390,7 @@ public class TelephonyMetrics {
      * @param session IMS call session
      */
     public void writeOnImsCallReceive(int phoneId, ImsCallSession session) {
-        InProgressCallSession callSession = startNewCallSessionIfNeeded(phoneId);
-
-        callSession.addEvent(
-                new CallSessionEventBuilder(TelephonyCallSession.Event.Type.IMS_CALL_RECEIVE)
-                        .setCallIndex(getCallId(session)));
+        writeOnImsCallStart(phoneId, session);
     }
 
     /**
@@ -1589,11 +1422,11 @@ public class TelephonyMetrics {
     private TelephonyProto.ImsReasonInfo toImsReasonInfoProto(ImsReasonInfo reasonInfo) {
         TelephonyProto.ImsReasonInfo ri = new TelephonyProto.ImsReasonInfo();
         if (reasonInfo != null) {
-            ri.reasonCode = reasonInfo.getCode();
-            ri.extraCode = reasonInfo.getExtraCode();
+            ri.setReasonCode(reasonInfo.getCode());
+            ri.setExtraCode(reasonInfo.getExtraCode());
             String extraMessage = reasonInfo.getExtraMessage();
             if (extraMessage != null) {
-                ri.extraMessage = extraMessage;
+                ri.setExtraMessage(extraMessage);
             }
         }
         return ri;
@@ -1693,26 +1526,10 @@ public class TelephonyMetrics {
         TelephonyEvent event = new TelephonyEventBuilder(phoneId).setNITZ(timestamp).build();
         addTelephonyEvent(event);
 
-        annotateInProgressCallSession(event.timestampMillis, phoneId,
+        annotateInProgressCallSession(event.getTimestampMillis(), phoneId,
                 new CallSessionEventBuilder(
                         TelephonyCallSession.Event.Type.NITZ_TIME)
                         .setNITZ(timestamp));
-    }
-
-    /**
-     * Write Modem Restart event
-     *
-     * @param phoneId Phone id
-     * @param reason Reason for the modem reset.
-     */
-    public void writeModemRestartEvent(int phoneId, String reason) {
-        final ModemRestart modemRestart = new ModemRestart();
-        String basebandVersion = Build.getRadioVersion();
-        if (basebandVersion != null) modemRestart.basebandVersion = basebandVersion;
-        if (reason != null) modemRestart.reason = reason;
-        TelephonyEvent event = new TelephonyEventBuilder(phoneId).setModemRestart(
-                modemRestart).build();
-        addTelephonyEvent(event);
     }
 
     //TODO: Expand the proto in the future

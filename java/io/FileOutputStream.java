@@ -31,8 +31,8 @@ import java.nio.channels.FileChannel;
 import dalvik.system.BlockGuard;
 import dalvik.system.CloseGuard;
 import sun.nio.ch.FileChannelImpl;
+import sun.misc.IoTrace;
 import libcore.io.IoBridge;
-import libcore.io.IoTracker;
 
 /**
  * A file output stream is an output stream for writing data to a
@@ -63,27 +63,25 @@ class FileOutputStream extends OutputStream
     private final FileDescriptor fd;
 
     /**
+     * The path of the referenced file (null if the stream is created with a file descriptor)
+     */
+    private final String path;
+
+    /**
      * True if the file is opened for append.
      */
     private final boolean append;
 
     /**
-     * The associated channel, initialized lazily.
+     * The associated channel, initalized lazily.
      */
     private FileChannel channel;
 
     private final Object closeLock = new Object();
     private volatile boolean closed = false;
 
-    /**
-     * The path of the referenced file
-     * (null if the stream is created with a file descriptor)
-     */
-    private final String path;
-
     private final CloseGuard guard = CloseGuard.get();
     private final boolean isFdOwner;
-    private final IoTracker tracker = new IoTracker();
 
     /**
      * Creates a file output stream to write to the file with the
@@ -273,19 +271,8 @@ class FileOutputStream extends OutputStream
      * @param name name of file to be opened
      * @param append whether the file is to be opened in append mode
      */
-    private native void open0(String name, boolean append)
+    private native void open(String name, boolean append)
         throws FileNotFoundException;
-
-    // wrap native call to allow instrumentation
-    /**
-     * Opens a file, with the specified name, for overwriting or appending.
-     * @param name name of file to be opened
-     * @param append whether the file is to be opened in append mode
-     */
-    private void open(String name, boolean append)
-        throws FileNotFoundException {
-        open0(name, append);
-    }
 
     /**
      * Writes the specified byte to this file output stream. Implements
@@ -322,8 +309,15 @@ class FileOutputStream extends OutputStream
         if (closed && len > 0) {
             throw new IOException("Stream Closed");
         }
-        tracker.trackIo(len);
-        IoBridge.write(fd, b, off, len);
+
+        Object traceContext = IoTrace.fileWriteBegin(path);
+        int bytesWritten = 0;
+        try {
+            IoBridge.write(fd, b, off, len);
+            bytesWritten = len;
+        } finally {
+            IoTrace.fileWriteEnd(traceContext, bytesWritten);
+        }
     }
 
     /**
@@ -375,18 +369,16 @@ class FileOutputStream extends OutputStream
      * @see        java.io.FileDescriptor
      */
      public final FileDescriptor getFD()  throws IOException {
-        if (fd != null) {
-            return fd;
-        }
+        if (fd != null) return fd;
         throw new IOException();
      }
 
     /**
      * Returns the unique {@link java.nio.channels.FileChannel FileChannel}
-     * object associated with this file output stream.
+     * object associated with this file output stream. </p>
      *
      * <p> The initial {@link java.nio.channels.FileChannel#position()
-     * position} of the returned channel will be equal to the
+     * </code>position<code>} of the returned channel will be equal to the
      * number of bytes written to the file so far unless this stream is in
      * append mode, in which case it will be equal to the size of the file.
      * Writing bytes to this stream will increment the channel's position

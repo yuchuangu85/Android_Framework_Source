@@ -15,25 +15,19 @@
  */
 package com.android.server.notification;
 
-import android.util.Slog;
-
 import java.util.Comparator;
 
 /**
  * Sorts notifications by their global sort key.
  */
 public class GlobalSortKeyComparator implements Comparator<NotificationRecord> {
-    private final static String TAG = "GlobalSortComp";
-
     @Override
     public int compare(NotificationRecord left, NotificationRecord right) {
         if (left.getGlobalSortKey() == null) {
-            Slog.wtf(TAG, "Missing left global sort key: " + left);
-            return 1;
+            throw new IllegalStateException("Missing left global sort key: " + left);
         }
         if (right.getGlobalSortKey() == null) {
-            Slog.wtf(TAG, "Missing right global sort key: " + right);
-            return  -1;
+            throw new IllegalStateException("Missing right global sort key: " + right);
         }
         return left.getGlobalSortKey().compareTo(right.getGlobalSortKey());
     }

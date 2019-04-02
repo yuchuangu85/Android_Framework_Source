@@ -26,42 +26,21 @@ import android.widget.CompoundButton;
 import com.android.setupwizardlib.R;
 
 /**
- * An item that is displayed with a switch, with methods to manipulate and listen to the checked
- * state of the switch. Note that by default, only click on the switch will change the on-off state.
- * To change the switch state when tapping on the text, use the click handlers of list view or
- * RecyclerItemAdapter with {@link #toggle(View)}.
+ * An Item with a switch, which the user can
  */
 public class SwitchItem extends Item implements CompoundButton.OnCheckedChangeListener {
 
-    /**
-     * Listener for check state changes of this switch item.
-     */
     public interface OnCheckedChangeListener {
-
-        /**
-         * Callback when checked state of a {@link SwitchItem} is changed.
-         *
-         * @see #setOnCheckedChangeListener(OnCheckedChangeListener)
-         */
         void onCheckedChange(SwitchItem item, boolean isChecked);
     }
 
     private boolean mChecked = false;
     private OnCheckedChangeListener mListener;
 
-    /**
-     * Creates a default switch item.
-     */
     public SwitchItem() {
         super();
     }
 
-    /**
-     * Creates a switch item. This constructor is used for inflation from XML.
-     *
-     * @param context The context which this item is inflated in.
-     * @param attrs The XML attributes defined on the item.
-     */
     public SwitchItem(Context context, AttributeSet attrs) {
         super(context, attrs);
         final TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.SuwSwitchItem);
@@ -69,22 +48,16 @@ public class SwitchItem extends Item implements CompoundButton.OnCheckedChangeLi
         a.recycle();
     }
 
-    /**
-     * Sets whether this item should be checked.
-     */
     public void setChecked(boolean checked) {
         if (mChecked != checked) {
             mChecked = checked;
-            notifyItemChanged();
+            notifyChanged();
             if (mListener != null) {
                 mListener.onCheckedChange(this, checked);
             }
         }
     }
 
-    /**
-     * @return True if this switch item is currently checked.
-     */
     public boolean isChecked() {
         return mChecked;
     }
@@ -115,10 +88,6 @@ public class SwitchItem extends Item implements CompoundButton.OnCheckedChangeLi
         switchView.setEnabled(isEnabled());
     }
 
-    /**
-     * Sets a listener to listen for changes in checked state. This listener is invoked in both
-     * user toggling the switch and calls to {@link #setChecked(boolean)}.
-     */
     public void setOnCheckedChangeListener(OnCheckedChangeListener listener) {
         mListener = listener;
     }

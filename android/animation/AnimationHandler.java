@@ -135,8 +135,8 @@ public class AnimationHandler {
     }
 
     private void doAnimationFrame(long frameTime) {
+        int size = mAnimationCallbacks.size();
         long currentTime = SystemClock.uptimeMillis();
-        final int size = mAnimationCallbacks.size();
         for (int i = 0; i < size; i++) {
             final AnimationFrameCallback callback = mAnimationCallbacks.get(i);
             if (callback == null) {
@@ -277,9 +277,8 @@ public class AnimationHandler {
          * Run animation based on the frame time.
          * @param frameTime The frame start time, in the {@link SystemClock#uptimeMillis()} time
          *                  base.
-         * @return if the animation has finished.
          */
-        boolean doAnimationFrame(long frameTime);
+        void doAnimationFrame(long frameTime);
 
         /**
          * This notifies the callback of frame commit time. Frame commit time is the time after

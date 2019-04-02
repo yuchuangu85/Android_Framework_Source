@@ -16,7 +16,6 @@
 
 package android.net;
 
-import android.annotation.SystemService;
 import android.content.Context;
 import android.net.IEthernetManager;
 import android.net.IEthernetServiceListener;
@@ -32,7 +31,6 @@ import java.util.ArrayList;
  *
  * @hide
  */
-@SystemService(Context.ETHERNET_SERVICE)
 public class EthernetManager {
     private static final String TAG = "EthernetManager";
     private static final int MSG_AVAILABILITY_CHANGED = 1000;

@@ -36,3 +36,6 @@ public @interface RemotableViewMethod {
      */
     String asyncImpl() default "";
 }
+
+
+

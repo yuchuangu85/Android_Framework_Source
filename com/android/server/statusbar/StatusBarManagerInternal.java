@@ -23,6 +23,9 @@ import com.android.server.notification.NotificationDelegate;
 
 public interface StatusBarManagerInternal {
     void setNotificationDelegate(NotificationDelegate delegate);
+    void buzzBeepBlinked();
+    void notificationLightPulse(int argb, int onMillis, int offMillis);
+    void notificationLightOff();
     void showScreenPinningRequest(int taskId);
     void showAssistDisclosure();
 
@@ -38,9 +41,9 @@ public interface StatusBarManagerInternal {
     void toggleKeyboardShortcutsMenu(int deviceId);
 
     /**
-     * Show picture-in-picture menu.
+     * Show TV picture-in-picture menu.
      */
-    void showPictureInPictureMenu();
+    void showTvPictureInPictureMenu();
 
     void setWindowState(int window, int state);
 
@@ -76,35 +79,4 @@ public interface StatusBarManagerInternal {
     void toggleRecentApps();
 
     void setCurrentUser(int newUserId);
-
-    void setGlobalActionsListener(GlobalActionsListener listener);
-    void showGlobalActions();
-
-    /**
-     * Set whether the top app currently hides the statusbar.
-     *
-     * @param hidesStatusBar whether it is being hidden
-     */
-    void setTopAppHidesStatusBar(boolean hidesStatusBar);
-
-    boolean showShutdownUi(boolean isReboot, String requestString);
-
-    public interface GlobalActionsListener {
-        /**
-         * Called when sysui starts and connects its status bar, or when the status bar binder
-         * dies indicating sysui is no longer alive.
-         */
-        void onStatusBarConnectedChanged(boolean connected);
-
-        /**
-         * Callback from sysui to notify system that global actions has been successfully shown.
-         */
-        void onGlobalActionsShown();
-
-        /**
-         * Callback from sysui to notify system that the user has dismissed global actions and
-         * it no longer needs to be displayed (even if sysui dies).
-         */
-        void onGlobalActionsDismissed();
-    }
 }

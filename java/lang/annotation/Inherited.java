@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2004, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,9 +42,10 @@ package java.lang.annotation;
  * from superclasses; annotations on implemented interfaces have no
  * effect.
  *
+ * 允许子类继承父类中的注解
+ *
  * @author  Joshua Bloch
  * @since 1.5
- * @jls 9.6.3.3 @Inherited
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)

@@ -26,7 +26,6 @@ import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.res.Resources;
 import android.graphics.Canvas;
-import android.os.RemoteException;
 import android.os.SystemProperties;
 import android.os.Trace;
 import android.util.SparseArray;
@@ -205,17 +204,6 @@ public final class WebViewDelegate {
             // Update existing Resources with the WebView library.
             ResourcesManager.getInstance().appendLibAssetForMainAssetPath(
                     appInfo.getBaseResourcePath(), newAssetPath);
-        }
-    }
-
-    /**
-     * Returns whether WebView should run in multiprocess mode.
-     */
-    public boolean isMultiProcessEnabled() {
-        try {
-            return WebViewFactory.getUpdateService().isMultiProcessEnabled();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
         }
     }
 }

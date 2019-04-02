@@ -351,9 +351,6 @@ public class AndroidKeyStoreSpi extends KeyStoreSpi {
             }
         } else if (param instanceof KeyProtection) {
             spec = (KeyProtection) param;
-            if (spec.isCriticalToDeviceEncryption()) {
-                flags |= KeyStore.FLAG_CRITICAL_TO_DEVICE_ENCRYPTION;
-            }
         } else {
             throw new KeyStoreException(
                     "Unsupported protection parameter class:" + param.getClass().getName()
@@ -503,8 +500,7 @@ public class AndroidKeyStoreSpi extends KeyStoreSpi {
                         spec.isUserAuthenticationRequired(),
                         spec.getUserAuthenticationValidityDurationSeconds(),
                         spec.isUserAuthenticationValidWhileOnBody(),
-                        spec.isInvalidatedByBiometricEnrollment(),
-                        spec.getBoundToSpecificSecureUserId());
+                        spec.isInvalidatedByBiometricEnrollment());
                 importArgs.addDateIfNotNull(KeymasterDefs.KM_TAG_ACTIVE_DATETIME,
                         spec.getKeyValidityStart());
                 importArgs.addDateIfNotNull(KeymasterDefs.KM_TAG_ORIGINATION_EXPIRE_DATETIME,
@@ -700,8 +696,7 @@ public class AndroidKeyStoreSpi extends KeyStoreSpi {
                     params.isUserAuthenticationRequired(),
                     params.getUserAuthenticationValidityDurationSeconds(),
                     params.isUserAuthenticationValidWhileOnBody(),
-                    params.isInvalidatedByBiometricEnrollment(),
-                    params.getBoundToSpecificSecureUserId());
+                    params.isInvalidatedByBiometricEnrollment());
             KeymasterUtils.addMinMacLengthAuthorizationIfNecessary(
                     args,
                     keymasterAlgorithm,
@@ -722,10 +717,6 @@ public class AndroidKeyStoreSpi extends KeyStoreSpi {
         } catch (IllegalArgumentException | IllegalStateException e) {
             throw new KeyStoreException(e);
         }
-        int flags = 0;
-        if (params.isCriticalToDeviceEncryption()) {
-            flags |= KeyStore.FLAG_CRITICAL_TO_DEVICE_ENCRYPTION;
-        }
 
         Credentials.deleteAllTypesForAlias(mKeyStore, entryAlias, mUid);
         String keyAliasInKeystore = Credentials.USER_SECRET_KEY + entryAlias;
@@ -735,7 +726,7 @@ public class AndroidKeyStoreSpi extends KeyStoreSpi {
                 KeymasterDefs.KM_KEY_FORMAT_RAW,
                 keyMaterial,
                 mUid,
-                flags,
+                0, // flags
                 new KeyCharacteristics());
         if (errorCode != KeyStore.NO_ERROR) {
             throw new KeyStoreException("Failed to import secret key. Keystore error code: "

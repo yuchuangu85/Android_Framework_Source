@@ -16,8 +16,6 @@
 
 package android.support.v7.widget;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
@@ -28,13 +26,15 @@ import android.support.v7.app.AppCompatDelegate;
 
 import java.lang.ref.WeakReference;
 
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+
 /**
  * This class allows us to intercept calls so that we can tint resources (if applicable), and
  * inflate vector resources from within drawable containers pre-L.
  *
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public class VectorEnabledTintResources extends Resources {
 
     public static boolean shouldBeUsed() {

@@ -799,10 +799,8 @@ public abstract class Transition implements Cloneable {
      * targetId list. If the target parameter is null, then the target list
      * is not checked (this is in the case of ListView items, where the
      * views are ignored and only the ids are used).
-     *
-     * @hide
      */
-    public boolean isValidTarget(View target) {
+    boolean isValidTarget(View target) {
         if (target == null) {
             return false;
         }
@@ -2341,6 +2339,34 @@ public abstract class Transition implements Cloneable {
          * @param transition The transition which was resumed.
          */
         void onTransitionResume(Transition transition);
+    }
+
+    /**
+     * Utility adapter class to avoid having to override all three methods
+     * whenever someone just wants to listen for a single event.
+     *
+     * @hide
+     * */
+    public static class TransitionListenerAdapter implements TransitionListener {
+        @Override
+        public void onTransitionStart(Transition transition) {
+        }
+
+        @Override
+        public void onTransitionEnd(Transition transition) {
+        }
+
+        @Override
+        public void onTransitionCancel(Transition transition) {
+        }
+
+        @Override
+        public void onTransitionPause(Transition transition) {
+        }
+
+        @Override
+        public void onTransitionResume(Transition transition) {
+        }
     }
 
     /**

@@ -17,7 +17,6 @@
 package com.android.systemui.doze;
 
 import android.annotation.NonNull;
-import android.app.PendingIntent;
 
 /**
  * Interface the doze service uses to communicate with the rest of system UI.
@@ -25,34 +24,21 @@ import android.app.PendingIntent;
 public interface DozeHost {
     void addCallback(@NonNull Callback callback);
     void removeCallback(@NonNull Callback callback);
-    void startDozing();
+    void startDozing(@NonNull Runnable ready);
     void pulseWhileDozing(@NonNull PulseCallback callback, int reason);
     void stopDozing();
-    void dozeTimeTick();
     boolean isPowerSaveActive();
+    boolean isNotificationLightOn();
     boolean isPulsingBlocked();
-    boolean isProvisioned();
-    boolean isBlockingDoze();
 
-    void startPendingIntentDismissingKeyguard(PendingIntent intent);
-    void abortPulsing();
-    void extendPulse();
-
-    void setAnimateWakeup(boolean animateWakeup);
-
-    void onDoubleTap(float x, float y);
-
-    default void setAodDimmingScrim(float scrimOpacity) {}
-    void setDozeScreenBrightness(int value);
-
-    void onIgnoreTouchWhilePulsing(boolean ignore);
-
-    interface Callback {
-        default void onNotificationHeadsUp() {}
-        default void onPowerSaveChanged(boolean active) {}
+    public interface Callback {
+        void onNewNotifications();
+        void onBuzzBeepBlinked();
+        void onNotificationLight(boolean on);
+        void onPowerSaveChanged(boolean active);
     }
 
-    interface PulseCallback {
+    public interface PulseCallback {
         void onPulseStarted();
         void onPulseFinished();
     }

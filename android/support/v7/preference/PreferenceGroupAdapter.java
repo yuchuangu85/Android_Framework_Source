@@ -16,15 +16,11 @@
 
 package android.support.v7.preference;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.support.annotation.RestrictTo;
-import android.support.v4.content.ContextCompat;
 import android.support.v4.view.ViewCompat;
-import android.support.v7.util.DiffUtil;
 import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
@@ -34,13 +30,15 @@ import android.view.ViewGroup;
 import java.util.ArrayList;
 import java.util.List;
 
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+
 /**
  * An adapter that connects a RecyclerView to the {@link Preference} objects contained in the
  * associated {@link PreferenceGroup}.
  *
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public class PreferenceGroupAdapter extends RecyclerView.Adapter<PreferenceViewHolder>
         implements Preference.OnPreferenceChangeInternalListener,
         PreferenceGroup.PreferencePositionCallback {
@@ -151,49 +149,10 @@ public class PreferenceGroupAdapter extends RecyclerView.Adapter<PreferenceViewH
             }
         }
 
-        final List<Preference> oldVisibleList = mPreferenceList;
         mPreferenceList = visiblePreferenceList;
         mPreferenceListInternal = fullPreferenceList;
 
-        final PreferenceManager preferenceManager = mPreferenceGroup.getPreferenceManager();
-        if (preferenceManager != null
-                && preferenceManager.getPreferenceComparisonCallback() != null) {
-            final PreferenceManager.PreferenceComparisonCallback comparisonCallback =
-                    preferenceManager.getPreferenceComparisonCallback();
-            final DiffUtil.DiffResult result = DiffUtil.calculateDiff(new DiffUtil.Callback() {
-                @Override
-                public int getOldListSize() {
-                    return oldVisibleList.size();
-                }
-
-                @Override
-                public int getNewListSize() {
-                    return visiblePreferenceList.size();
-                }
-
-                @Override
-                public boolean areItemsTheSame(int oldItemPosition, int newItemPosition) {
-                    return comparisonCallback.arePreferenceItemsTheSame(
-                            oldVisibleList.get(oldItemPosition),
-                            visiblePreferenceList.get(newItemPosition));
-                }
-
-                @Override
-                public boolean areContentsTheSame(int oldItemPosition, int newItemPosition) {
-                    return comparisonCallback.arePreferenceContentsTheSame(
-                            oldVisibleList.get(oldItemPosition),
-                            visiblePreferenceList.get(newItemPosition));
-                }
-            });
-
-            result.dispatchUpdatesTo(this);
-        } else {
-            notifyDataSetChanged();
-        }
-
-        for (final Preference preference : fullPreferenceList) {
-            preference.clearWasDetached();
-        }
+        notifyDataSetChanged();
     }
 
     private void flattenPreferenceGroup(List<Preference> preferences, PreferenceGroup group) {
@@ -334,8 +293,8 @@ public class PreferenceGroupAdapter extends RecyclerView.Adapter<PreferenceViewH
         Drawable background
                 = a.getDrawable(R.styleable.BackgroundStyle_android_selectableItemBackground);
         if (background == null) {
-            background = ContextCompat.getDrawable(parent.getContext(),
-                    android.R.drawable.list_selector_background);
+            background = parent.getContext().getResources()
+                    .getDrawable(android.R.drawable.list_selector_background);
         }
         a.recycle();
 

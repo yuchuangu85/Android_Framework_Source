@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -39,42 +39,42 @@ import sun.security.jca.GetInstance;
  *
  * <p> Android provides the following <code>SSLContext</code> protocols:
  * <table>
- *   <thead>
- *     <tr>
- *       <th>Algorithm</th>
- *       <th>Supported API Levels</th>
- *     </tr>
- *   </thead>
- *   <tbody>
- *     <tr>
- *       <td>Default</td>
- *       <td>10+</td>
- *     </tr>
- *     <tr>
- *       <td>SSL</td>
- *       <td>10+</td>
- *     </tr>
- *     <tr class="deprecated">
- *       <td>SSLv3</td>
- *       <td>10-25</td>
- *     </tr>
- *     <tr>
- *       <td>TLS</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>TLSv1</td>
- *       <td>10+</td>
- *     </tr>
- *     <tr>
- *       <td>TLSv1.1</td>
- *       <td>16+</td>
- *     </tr>
- *     <tr>
- *       <td>TLSv1.2</td>
- *       <td>16+</td>
- *     </tr>
- *   </tbody>
+ *     <thead>
+ *         <tr>
+ *             <th>Name</th>
+ *             <th>Supported (API Levels)</th>
+ *         </tr>
+ *     </thead>
+ *     <tbody>
+ *         <tr>
+ *             <td>Default</td>
+ *             <td>10+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>SSL</td>
+ *             <td>10+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>SSLv3</td>
+ *             <td>10+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>TLS</td>
+ *             <td>1+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>TLSv1</td>
+ *             <td>10+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>TLSv1.1</td>
+ *             <td>16+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>TLSv1.2</td>
+ *             <td>16+</td>
+ *         </tr>
+ *     </tbody>
  * </table>
  *
  * This protocol is described in the <a href=
@@ -178,7 +178,7 @@ public class SSLContext {
      * @return the new <code>SSLContext</code> object.
      *
      * @exception NoSuchAlgorithmException if no Provider supports a
-     *          SSLContextSpi implementation for the
+     *          TrustManagerFactorySpi implementation for the
      *          specified protocol.
      * @exception NullPointerException if protocol is null.
      *
@@ -255,11 +255,11 @@ public class SSLContext {
      *
      * @return the new <code>SSLContext</code> object.
      *
-     * @throws NoSuchAlgorithmException if a SSLContextSpi
+     * @throws NoSuchAlgorithmException if a KeyManagerFactorySpi
      *          implementation for the specified protocol is not available
      *          from the specified Provider object.
      *
-     * @throws IllegalArgumentException if the provider is null.
+     * @throws IllegalArgumentException if the provider name is null.
      * @throws NullPointerException if protocol is null.
      *
      * @see java.security.Provider

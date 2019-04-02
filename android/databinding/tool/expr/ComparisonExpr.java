@@ -62,27 +62,14 @@ public class ComparisonExpr extends Expr {
     }
 
     @Override
-    protected KCode generateCode() {
-        return new KCode()
-                .app("(", getLeft().toCode())
-                .app(") ")
-                .app(getOp())
-                .app(" (", getRight().toCode())
-                .app(")");
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.comparison(mOp, getLeft().cloneToModel(model), getRight().cloneToModel(model));
+    protected KCode generateCode(boolean expand) {
+        return new KCode().app("", getLeft().toCode(expand))
+        .app(" ").app(getOp()).app(" ")
+        .app("", getRight().toCode(expand));
     }
 
     @Override
     public String getInvertibleError() {
         return "Comparison operators are not valid as targets of two-way binding";
-    }
-
-    @Override
-    public String toString() {
-        return getLeft().toString() + ' ' + mOp + ' ' + getRight();
     }
 }

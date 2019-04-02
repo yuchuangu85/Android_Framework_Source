@@ -16,18 +16,13 @@
 
 package com.android.setupwizardlib.test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.os.Build;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
 import android.support.v7.widget.RecyclerView;
+import android.test.InstrumentationTestCase;
+import android.test.suitebuilder.annotation.SmallTest;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -35,47 +30,42 @@ import android.view.ViewGroup;
 
 import com.android.setupwizardlib.GlifPreferenceLayout;
 
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-
-@RunWith(AndroidJUnit4.class)
-@SmallTest
-public class GlifPreferenceLayoutTest {
+public class GlifPreferenceLayoutTest extends InstrumentationTestCase {
 
     private Context mContext;
 
-    @Before
-    public void setUp() throws Exception {
-        mContext = new ContextThemeWrapper(InstrumentationRegistry.getContext(),
+    @Override
+    protected void setUp() throws Exception {
+        super.setUp();
+        mContext = new ContextThemeWrapper(getInstrumentation().getContext(),
                 R.style.SuwThemeGlif_Light);
     }
 
-    @Test
+    @SmallTest
     public void testDefaultTemplate() {
-        GlifPreferenceLayout layout = new GlifPreferenceLayout(mContext);
+        GlifPreferenceLayout layout = new TestLayout(mContext);
         assertPreferenceTemplateInflated(layout);
     }
 
-    @Test
+    @SmallTest
     public void testGetRecyclerView() {
-        GlifPreferenceLayout layout = new GlifPreferenceLayout(mContext);
+        GlifPreferenceLayout layout = new TestLayout(mContext);
         assertPreferenceTemplateInflated(layout);
         assertNotNull("getRecyclerView should not be null", layout.getRecyclerView());
     }
 
-    @Test
+    @SmallTest
     public void testOnCreateRecyclerView() {
-        GlifPreferenceLayout layout = new GlifPreferenceLayout(mContext);
+        GlifPreferenceLayout layout = new TestLayout(mContext);
         assertPreferenceTemplateInflated(layout);
         final RecyclerView recyclerView = layout.onCreateRecyclerView(LayoutInflater.from(mContext),
                 layout, null /* savedInstanceState */);
         assertNotNull("RecyclerView created should not be null", recyclerView);
     }
 
-    @Test
+    @SmallTest
     public void testDividerInset() {
-        GlifPreferenceLayout layout = new GlifPreferenceLayout(mContext);
+        GlifPreferenceLayout layout = new TestLayout(mContext);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
         }
@@ -96,9 +86,24 @@ public class GlifPreferenceLayoutTest {
         assertTrue("@id/suw_layout_content should be a ViewGroup",
                 contentContainer instanceof ViewGroup);
 
-        assertNotNull("Header text view should not be null",
-                layout.findManagedViewById(R.id.suw_layout_title));
-        assertNotNull("Icon view should not be null",
-                layout.findManagedViewById(R.id.suw_layout_icon));
+        if (layout instanceof TestLayout) {
+            assertNotNull("Header text view should not be null",
+                    ((TestLayout) layout).findManagedViewById(R.id.suw_layout_title));
+            assertNotNull("Icon view should not be null",
+                    ((TestLayout) layout).findManagedViewById(R.id.suw_layout_icon));
+        }
+    }
+
+    // Make some methods public for testing
+    public static class TestLayout extends GlifPreferenceLayout {
+
+        public TestLayout(Context context) {
+            super(context);
+        }
+
+        @Override
+        public View findManagedViewById(int id) {
+            return super.findManagedViewById(id);
+        }
     }
 }

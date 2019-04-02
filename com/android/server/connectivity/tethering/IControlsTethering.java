@@ -16,51 +16,24 @@
 
 package com.android.server.connectivity.tethering;
 
-import android.net.LinkProperties;
-
 /**
  * @hide
  *
  * Interface with methods necessary to notify that a given interface is ready for tethering.
- *
- * Rename to something more representative, e.g. IpServingControlCallback.
- *
- * All methods MUST be called on the TetherMasterSM main Looper's thread.
  */
-public class IControlsTethering {
-    public static final int STATE_UNAVAILABLE = 0;
-    public static final int STATE_AVAILABLE   = 1;
-    public static final int STATE_TETHERED    = 2;
-    public static final int STATE_LOCAL_ONLY  = 3;
-
-    public static String getStateString(int state) {
-        switch (state) {
-            case STATE_UNAVAILABLE: return "UNAVAILABLE";
-            case STATE_AVAILABLE:   return "AVAILABLE";
-            case STATE_TETHERED:    return "TETHERED";
-            case STATE_LOCAL_ONLY:  return "LOCAL_ONLY";
-        }
-        return "UNKNOWN: " + state;
-    }
+public interface IControlsTethering {
+    public final int STATE_UNAVAILABLE = 0;
+    public final int STATE_AVAILABLE = 1;
+    public final int STATE_TETHERED = 2;
 
     /**
-     * Notify that |who| has changed its tethering state.
+     * Notify that |who| has changed its tethering state.  This may be called from any thread.
      *
-     * TODO: Remove the need for the |who| argument.
-     *
+     * @param iface a network interface (e.g. "wlan0")
      * @param who corresponding instance of a TetherInterfaceStateMachine
      * @param state one of IControlsTethering.STATE_*
      * @param lastError one of ConnectivityManager.TETHER_ERROR_*
      */
-    public void updateInterfaceState(TetherInterfaceStateMachine who, int state, int lastError) {}
-
-    /**
-     * Notify that |who| has new LinkProperties.
-     *
-     * TODO: Remove the need for the |who| argument.
-     *
-     * @param who corresponding instance of a TetherInterfaceStateMachine
-     * @param newLp the new LinkProperties to report
-     */
-    public void updateLinkProperties(TetherInterfaceStateMachine who, LinkProperties newLp) {}
+    void notifyInterfaceStateChange(String iface, TetherInterfaceStateMachine who,
+                                    int state, int lastError);
 }

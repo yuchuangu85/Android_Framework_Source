@@ -30,8 +30,11 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.io.Serializable;
 
-// Android-changed: removed docs for removed OpenJDK 9 Immutable Map static methods
-// Android-changed: removed link to collections framework docs
+// BEGIN android-note
+// removed link to collections framework docs
+// removed java 9 methods
+// END android-note
+
 /**
  * An object that maps keys to values.  A map cannot contain duplicate keys;
  * each key can map to at most one value.
@@ -124,7 +127,6 @@ import java.io.Serializable;
  * @see Set
  * @since 1.2
  */
-// Android-changed: fix doc links to Collection#optional-restrictions
 public interface Map<K, V> {
     // Query Operations
 
@@ -1244,6 +1246,4 @@ public interface Map<K, V> {
         }
         return newValue;
     }
-
-    // Android-removed: OpenJDK 9 Immutable Map static methods
 }

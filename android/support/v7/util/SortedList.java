@@ -126,9 +126,9 @@ public class SortedList<T> {
      * @param item The item to be added into the list.
      *
      * @return The index of the newly added item.
-     * @see Callback#compare(Object, Object)
-     * @see Callback#areItemsTheSame(Object, Object)
-     * @see Callback#areContentsTheSame(Object, Object)}
+     * @see {@link Callback#compare(Object, Object)}
+     * @see {@link Callback#areItemsTheSame(Object, Object)}
+     * @see {@link Callback#areContentsTheSame(Object, Object)}}
      */
     public int add(T item) {
         throwIfMerging();
@@ -145,7 +145,7 @@ public class SortedList<T> {
      * </p>
      * @param items Array of items to be added into the list.
      * @param mayModifyInput If true, SortedList is allowed to modify the input.
-     * @see SortedList#addAll(Object[] items)
+     * @see {@link SortedList#addAll(Object[] items)}.
      */
     public void addAll(T[] items, boolean mayModifyInput) {
         throwIfMerging();
@@ -165,7 +165,7 @@ public class SortedList<T> {
     /**
      * Adds the given items to the list. Does not modify the input.
      *
-     * @see SortedList#addAll(T[] items, boolean mayModifyInput)
+     * @see {@link SortedList#addAll(T[] items, boolean mayModifyInput)}
      *
      * @param items Array of items to be added into the list.
      */
@@ -176,7 +176,7 @@ public class SortedList<T> {
     /**
      * Adds the given items to the list. Does not modify the input.
      *
-     * @see SortedList#addAll(T[] items, boolean mayModifyInput)
+     * @see {@link SortedList#addAll(T[] items, boolean mayModifyInput)}
      *
      * @param items Collection of items to be added into the list.
      */
@@ -361,7 +361,7 @@ public class SortedList<T> {
      * {@link BatchedCallback#dispatchLastEvent()} right after you complete your data changes.
      * Failing to do so may create data inconsistencies with the Callback.
      * <p>
-     * If the current Callback is an instance of {@link BatchedCallback}, calling this method
+     * If the current Callback in an instance of {@link BatchedCallback}, calling this method
      * has no effect.
      */
     public void beginBatchedUpdates() {

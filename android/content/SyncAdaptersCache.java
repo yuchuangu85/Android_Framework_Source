@@ -20,7 +20,6 @@ import android.content.pm.RegisteredServicesCache;
 import android.content.pm.XmlSerializerAndParser;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
-import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.AttributeSet;
 import android.util.SparseArray;
@@ -64,7 +63,7 @@ public class SyncAdaptersCache extends RegisteredServicesCache<SyncAdapterType> 
                     sa.getString(com.android.internal.R.styleable.SyncAdapter_contentAuthority);
             final String accountType =
                     sa.getString(com.android.internal.R.styleable.SyncAdapter_accountType);
-            if (TextUtils.isEmpty(authority) || TextUtils.isEmpty(accountType)) {
+            if (authority == null || accountType == null) {
                 return null;
             }
             final boolean userVisible =

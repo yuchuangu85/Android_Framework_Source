@@ -17,6 +17,7 @@
 package com.android.systemui.statusbar.notification;
 
 import android.content.Context;
+import android.service.notification.StatusBarNotification;
 import android.view.View;
 
 import com.android.systemui.statusbar.ExpandableNotificationRow;
@@ -34,16 +35,16 @@ public class NotificationMediaTemplateViewWrapper extends NotificationTemplateVi
 
     View mActions;
 
-    private void resolveViews() {
+    private void resolveViews(StatusBarNotification notification) {
         mActions = mView.findViewById(com.android.internal.R.id.media_actions);
     }
 
     @Override
-    public void onContentUpdated(ExpandableNotificationRow row) {
+    public void notifyContentUpdated(StatusBarNotification notification) {
         // Reinspect the notification. Before the super call, because the super call also updates
         // the transformation types and we need to have our values set by then.
-        resolveViews();
-        super.onContentUpdated(row);
+        resolveViews(notification);
+        super.notifyContentUpdated(notification);
     }
 
     @Override
@@ -54,10 +55,5 @@ public class NotificationMediaTemplateViewWrapper extends NotificationTemplateVi
             mTransformationHelper.addTransformedView(TransformableView.TRANSFORMING_VIEW_ACTIONS,
                     mActions);
         }
-    }
-
-    @Override
-    public boolean isDimmable() {
-        return false;
     }
 }

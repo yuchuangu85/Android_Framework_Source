@@ -270,10 +270,7 @@ public final class PdfEditor {
     @Override
     protected void finalize() throws Throwable {
         try {
-            if (mCloseGuard != null) {
-                mCloseGuard.warnIfOpen();
-            }
-
+            mCloseGuard.warnIfOpen();
             if (mInput != null) {
                 doClose();
             }

@@ -29,7 +29,6 @@ import java.util.HashMap;
  * connection requests, auto-join
  * and WiFi usage.
  * @hide
- * @removed
  */
 @SystemApi
 public class WifiConnectionStatistics implements Parcelable {

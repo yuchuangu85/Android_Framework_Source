@@ -16,7 +16,6 @@
 package android.view;
 
 import android.animation.TimeInterpolator;
-
 import com.android.internal.view.animation.FallbackLUTInterpolator;
 import com.android.internal.view.animation.NativeInterpolatorFactory;
 import com.android.internal.view.animation.NativeInterpolatorFactoryHelper;

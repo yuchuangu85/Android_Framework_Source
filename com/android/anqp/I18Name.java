@@ -1,7 +1,5 @@
 package com.android.anqp;
 
-import android.os.Parcel;
-
 import java.io.IOException;
 import java.net.ProtocolException;
 import java.nio.ByteBuffer;
@@ -78,16 +76,5 @@ public class I18Name {
     @Override
     public String toString() {
         return mText + ':' + mLocale.getLanguage();
-    }
-
-    public I18Name(Parcel in) throws IOException {
-        mLanguage = in.readString();
-        mText = in.readString();
-        mLocale = Locale.forLanguageTag(mLanguage);
-    }
-
-    public void writeParcel(Parcel out) {
-        out.writeString(mLanguage);
-        out.writeString(mText);
     }
 }

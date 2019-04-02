@@ -34,7 +34,7 @@ import android.view.ViewParent;
 import android.view.animation.Interpolator;
 
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.internal.logging.MetricsProto.MetricsEvent;
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
 import com.android.systemui.SwipeHelper;
@@ -168,7 +168,7 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
     /** Touch preprocessing for handling below */
     public boolean onInterceptTouchEvent(MotionEvent ev) {
         // Pass through to swipe helper if we are swiping
-        mInterceptedBySwipeHelper = isSwipingEnabled() && mSwipeHelper.onInterceptTouchEvent(ev);
+        mInterceptedBySwipeHelper = mSwipeHelper.onInterceptTouchEvent(ev);
         if (mInterceptedBySwipeHelper) {
             return true;
         }
@@ -279,7 +279,6 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
                         }
 
                         MetricsLogger.action(mSv.getContext(), MetricsEvent.OVERVIEW_SCROLL);
-                        mLastY = mDownY = y;
                     }
                 }
                 if (mIsScrolling) {
@@ -294,13 +293,10 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
                     if (curScrollP < minScrollP || curScrollP > maxScrollP) {
                         float clampedScrollP = Utilities.clamp(curScrollP, minScrollP, maxScrollP);
                         float overscrollP = (curScrollP - clampedScrollP);
-                        float maxOverscroll = Recents.getConfiguration().isLowRamDevice
-                                ? layoutAlgorithm.mTaskStackLowRamLayoutAlgorithm.getMaxOverscroll()
-                                : MAX_OVERSCROLL;
-                        float overscrollX = Math.abs(overscrollP) / maxOverscroll;
+                        float overscrollX = Math.abs(overscrollP) / MAX_OVERSCROLL;
                         float interpX = OVERSCROLL_INTERP.getInterpolation(overscrollX);
                         curScrollP = clampedScrollP + Math.signum(overscrollP) *
-                                (interpX * maxOverscroll);
+                                (interpX * MAX_OVERSCROLL);
                     }
                     mDownScrollP += mScroller.setDeltaStackScroll(mDownScrollP,
                             curScrollP - mDownScrollP);
@@ -336,8 +332,7 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
                 if (mIsScrolling) {
                     if (mScroller.isScrollOutOfBounds()) {
                         mScroller.animateBoundScroll();
-                    } else if (Math.abs(velocity) > mMinimumVelocity &&
-                            !Recents.getConfiguration().isLowRamDevice) {
+                    } else if (Math.abs(velocity) > mMinimumVelocity) {
                         float minY = mDownY + layoutAlgorithm.getYForDeltaP(mDownScrollP,
                                 layoutAlgorithm.mMaxScrollP);
                         float maxY = mDownY + layoutAlgorithm.getYForDeltaP(mDownScrollP,
@@ -347,14 +342,9 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
                         mSv.invalidate();
                     }
 
-                    // Reset the focused task after the user has scrolled, but we have no scrolling
-                    // in grid layout and therefore we don't want to reset the focus there.
-                    if (!mSv.mTouchExplorationEnabled && !mSv.useGridLayout()) {
-                        if (Recents.getConfiguration().isLowRamDevice) {
-                            mScroller.scrollToClosestTask(velocity);
-                        } else {
-                            mSv.resetFocusedTask(mSv.getFocusedTask());
-                        }
+                    // Reset the focused task after the user has scrolled
+                    if (!mSv.mTouchExplorationEnabled) {
+                        mSv.resetFocusedTask(mSv.getFocusedTask());
                     }
                 } else if (mActiveTaskView == null) {
                     // This tap didn't start on a task.
@@ -503,13 +493,7 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
             float prevAnchorTaskScroll = 0;
             boolean pullStackForward = mCurrentTasks.size() > 0;
             if (pullStackForward) {
-                if (Recents.getConfiguration().isLowRamDevice) {
-                    float index = layoutAlgorithm.getStackScrollForTask(anchorTask);
-                    prevAnchorTaskScroll = mSv.getStackAlgorithm().mTaskStackLowRamLayoutAlgorithm
-                            .getScrollPForTask((int) index);
-                } else {
-                    prevAnchorTaskScroll = layoutAlgorithm.getStackScrollForTask(anchorTask);
-                }
+                prevAnchorTaskScroll = layoutAlgorithm.getStackScrollForTask(anchorTask);
             }
 
             // Calculate where the views would be without the deleting tasks
@@ -523,14 +507,8 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
                 // Otherwise, offset the scroll by the movement of the anchor task
                 float anchorTaskScroll =
                         layoutAlgorithm.getStackScrollForTaskIgnoreOverrides(anchorTask);
-                if (Recents.getConfiguration().isLowRamDevice) {
-                    float index = layoutAlgorithm.getStackScrollForTask(anchorTask);
-                    anchorTaskScroll = mSv.getStackAlgorithm().mTaskStackLowRamLayoutAlgorithm
-                            .getScrollPForTask((int) index);
-                }
                 float stackScrollOffset = (anchorTaskScroll - prevAnchorTaskScroll);
-                if (layoutAlgorithm.getFocusState() != TaskStackLayoutAlgorithm.STATE_FOCUSED
-                        && !Recents.getConfiguration().isLowRamDevice) {
+                if (layoutAlgorithm.getFocusState() != TaskStackLayoutAlgorithm.STATE_FOCUSED) {
                     // If we are focused, we don't want the front task to move, but otherwise, we
                     // allow the back task to move up, and the front task to move back
                     stackScrollOffset *= 0.75f;
@@ -563,8 +541,7 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
     public boolean updateSwipeProgress(View v, boolean dismissable, float swipeProgress) {
         // Only update the swipe progress for the surrounding tasks if the dismiss animation was not
         // preempted from a call to cancelNonDismissTaskAnimations
-        if ((mActiveTaskView == v || mSwipeHelperAnimations.containsKey(v)) &&
-                !Recents.getConfiguration().isLowRamDevice) {
+        if (mActiveTaskView == v || mSwipeHelperAnimations.containsKey(v)) {
             updateTaskViewTransforms(
                     Interpolators.FAST_OUT_SLOW_IN.getInterpolation(swipeProgress));
         }
@@ -582,10 +559,6 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
         tv.setClipViewInStack(true);
         // Re-enable touch events from this task view
         tv.setTouchEnabled(true);
-        // Update the scroll to the final scroll position before laying out the tasks during dismiss
-        if (mSwipeHelperAnimations.containsKey(v)) {
-            mSv.getScroller().setStackScroll(mTargetStackScroll, null);
-        }
         // Remove the task view from the stack, ignoring the animation if we've started dragging
         // again
         EventBus.getDefault().send(new TaskViewDismissedEvent(tv.getTask(), tv,
@@ -596,6 +569,8 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
         // Only update the final scroll and layout state (set in onBeginDrag()) if the dismiss
         // animation was not preempted from a call to cancelNonDismissTaskAnimations
         if (mSwipeHelperAnimations.containsKey(v)) {
+            // Update the scroll to the final scroll position
+            mSv.getScroller().setStackScroll(mTargetStackScroll, null);
             // Update the focus state to the final focus state
             mSv.getStackAlgorithm().setFocusState(TaskStackLayoutAlgorithm.STATE_UNFOCUSED);
             mSv.getStackAlgorithm().clearUnfocusedTaskOverrides();
@@ -704,12 +679,5 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
      */
     public float getScaledDismissSize() {
         return 1.5f * Math.max(mSv.getWidth(), mSv.getHeight());
-    }
-
-    /**
-     * Returns whether swiping is enabled.
-     */
-    private boolean isSwipingEnabled() {
-        return !mSv.useGridLayout();
     }
 }

@@ -20,11 +20,9 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 /**
- * Helper for accessing features in {@link android.os.Parcelable}.
- *
- * @deprecated Use {@link android.os.Parcelable.ClassLoaderCreator} directly.
+ * Helper for accessing features in {@link android.os.Parcelable}
+ * introduced after API level 4 in a backwards compatible fashion.
  */
-@Deprecated
 public final class ParcelableCompat {
 
     /**
@@ -32,31 +30,25 @@ public final class ParcelableCompat {
      *
      * @param callbacks Creator callbacks implementation.
      * @return New creator.
-     *
-     * @deprecated Use {@link android.os.Parcelable.ClassLoaderCreator} directly.
      */
-    @Deprecated
     public static <T> Parcelable.Creator<T> newCreator(
             ParcelableCompatCreatorCallbacks<T> callbacks) {
-        return new ParcelableCompatCreatorHoneycombMR2<T>(callbacks);
+        if (android.os.Build.VERSION.SDK_INT >= 13) {
+            return ParcelableCompatCreatorHoneycombMR2Stub.instantiate(callbacks);
+        }
+        return new CompatCreator<T>(callbacks);
     }
 
-    static class ParcelableCompatCreatorHoneycombMR2<T>
-            implements Parcelable.ClassLoaderCreator<T> {
-        private final ParcelableCompatCreatorCallbacks<T> mCallbacks;
+    static class CompatCreator<T> implements Parcelable.Creator<T> {
+        final ParcelableCompatCreatorCallbacks<T> mCallbacks;
 
-        ParcelableCompatCreatorHoneycombMR2(ParcelableCompatCreatorCallbacks<T> callbacks) {
+        public CompatCreator(ParcelableCompatCreatorCallbacks<T> callbacks) {
             mCallbacks = callbacks;
         }
 
         @Override
-        public T createFromParcel(Parcel in) {
-            return mCallbacks.createFromParcel(in, null);
-        }
-
-        @Override
-        public T createFromParcel(Parcel in, ClassLoader loader) {
-            return mCallbacks.createFromParcel(in, loader);
+        public T createFromParcel(Parcel source) {
+            return mCallbacks.createFromParcel(source, null);
         }
 
         @Override

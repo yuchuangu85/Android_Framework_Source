@@ -301,7 +301,7 @@ public class IccProvider extends ContentProvider {
             String param = tokens[n];
             if (DBG) log("parsing '" + param + "'");
 
-            String[] pair = param.split("=", 2);
+            String[] pair = param.split("=");
 
             if (pair.length != 2) {
                 Rlog.e(TAG, "resolve: bad whereClause parameter: " + param);

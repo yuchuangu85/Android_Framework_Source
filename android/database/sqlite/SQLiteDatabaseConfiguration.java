@@ -90,27 +90,6 @@ public final class SQLiteDatabaseConfiguration {
             new ArrayList<SQLiteCustomFunction>();
 
     /**
-     * The size in bytes of each lookaside slot
-     *
-     * <p>If negative, the default lookaside configuration will be used
-     */
-    public int lookasideSlotSize = -1;
-
-    /**
-     * The total number of lookaside memory slots per database connection
-     *
-     * <p>If negative, the default lookaside configuration will be used
-     */
-    public int lookasideSlotCount = -1;
-
-    /**
-     * The number of milliseconds that SQLite connection is allowed to be idle before it
-     * is closed and removed from the pool.
-     * <p>By default, idle connections are not closed
-     */
-    public long idleConnectionTimeoutMs = Long.MAX_VALUE;
-
-    /**
      * Creates a database configuration with the required parameters for opening a
      * database and default values for all other parameters.
      *
@@ -167,9 +146,6 @@ public final class SQLiteDatabaseConfiguration {
         foreignKeyConstraintsEnabled = other.foreignKeyConstraintsEnabled;
         customFunctions.clear();
         customFunctions.addAll(other.customFunctions);
-        lookasideSlotSize = other.lookasideSlotSize;
-        lookasideSlotCount = other.lookasideSlotCount;
-        idleConnectionTimeoutMs = other.idleConnectionTimeoutMs;
     }
 
     /**
@@ -185,9 +161,5 @@ public final class SQLiteDatabaseConfiguration {
             return path;
         }
         return EMAIL_IN_DB_PATTERN.matcher(path).replaceAll("XX@YY");
-    }
-
-    boolean isLookasideConfigSet() {
-        return lookasideSlotCount >= 0 && lookasideSlotSize >= 0;
     }
 }

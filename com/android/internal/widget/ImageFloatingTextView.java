@@ -22,7 +22,6 @@ import android.text.BoringLayout;
 import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextUtils;
-import android.text.method.TransformationMethod;
 import android.util.AttributeSet;
 import android.view.RemotableViewMethod;
 import android.widget.RemoteViews;
@@ -43,10 +42,6 @@ public class ImageFloatingTextView extends TextView {
 
     /** Resolved layout direction */
     private int mResolvedDirection = LAYOUT_DIRECTION_UNDEFINED;
-    private int mMaxLinesForHeight = -1;
-    private boolean mFirstMeasure = true;
-    private int mLayoutMaxLines = -1;
-    private boolean mBlockLayouts;
 
     public ImageFloatingTextView(Context context) {
         this(context, null);
@@ -69,33 +64,17 @@ public class ImageFloatingTextView extends TextView {
     protected Layout makeSingleLayout(int wantWidth, BoringLayout.Metrics boring, int ellipsisWidth,
             Layout.Alignment alignment, boolean shouldEllipsize,
             TextUtils.TruncateAt effectiveEllipsize, boolean useSaved) {
-        TransformationMethod transformationMethod = getTransformationMethod();
-        CharSequence text = getText();
-        if (transformationMethod != null) {
-            text = transformationMethod.getTransformation(text, this);
-        }
-        text = text == null ? "" : text;
+        CharSequence text = getText() == null ? "" : getText();
         StaticLayout.Builder builder = StaticLayout.Builder.obtain(text, 0, text.length(),
                 getPaint(), wantWidth)
                 .setAlignment(alignment)
                 .setTextDirection(getTextDirectionHeuristic())
                 .setLineSpacing(getLineSpacingExtra(), getLineSpacingMultiplier())
                 .setIncludePad(getIncludeFontPadding())
+                .setEllipsize(shouldEllipsize ? effectiveEllipsize : null)
+                .setEllipsizedWidth(ellipsisWidth)
                 .setBreakStrategy(Layout.BREAK_STRATEGY_HIGH_QUALITY)
                 .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_FULL);
-        int maxLines;
-        if (mMaxLinesForHeight > 0) {
-            maxLines = mMaxLinesForHeight;
-        } else {
-            maxLines = getMaxLines() >= 0 ? getMaxLines() : Integer.MAX_VALUE;
-        }
-        builder.setMaxLines(maxLines);
-        mLayoutMaxLines = maxLines;
-        if (shouldEllipsize) {
-            builder.setEllipsize(effectiveEllipsize)
-                    .setEllipsizedWidth(ellipsisWidth);
-        }
-
         // we set the endmargin on the requested number of lines.
         int endMargin = getContext().getResources().getDimensionPixelSize(
                 R.dimen.notification_content_picture_margin);
@@ -113,35 +92,6 @@ public class ImageFloatingTextView extends TextView {
         }
 
         return builder.build();
-    }
-
-    @Override
-    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        int height = MeasureSpec.getSize(heightMeasureSpec);
-        // Lets calculate how many lines the given measurement allows us.
-        int availableHeight = height - mPaddingTop - mPaddingBottom;
-        int maxLines = availableHeight / getLineHeight();
-        maxLines = Math.max(1, maxLines);
-        if (getMaxLines() > 0) {
-            maxLines = Math.min(getMaxLines(), maxLines);
-        }
-        if (maxLines != mMaxLinesForHeight) {
-            mMaxLinesForHeight = maxLines;
-            if (getLayout() != null && mMaxLinesForHeight != mLayoutMaxLines) {
-                // Invalidate layout.
-                mBlockLayouts = true;
-                setHint(getHint());
-                mBlockLayouts = false;
-            }
-        }
-        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-    }
-
-    @Override
-    public void requestLayout() {
-        if (!mBlockLayouts) {
-            super.requestLayout();
-        }
     }
 
     @Override
@@ -174,9 +124,5 @@ public class ImageFloatingTextView extends TextView {
             return true;
         }
         return false;
-    }
-
-    public int getLayoutHeight() {
-        return getLayout().getHeight();
     }
 }

@@ -20,6 +20,10 @@ import static android.hardware.hdmi.HdmiControlManager.DEVICE_EVENT_ADD_DEVICE;
 import static android.hardware.hdmi.HdmiControlManager.DEVICE_EVENT_REMOVE_DEVICE;
 import static com.android.server.hdmi.Constants.DISABLED;
 import static com.android.server.hdmi.Constants.ENABLED;
+import static com.android.server.hdmi.Constants.OPTION_CEC_AUTO_WAKEUP;
+import static com.android.server.hdmi.Constants.OPTION_CEC_ENABLE;
+import static com.android.server.hdmi.Constants.OPTION_CEC_SERVICE_CONTROL;
+import static com.android.server.hdmi.Constants.OPTION_CEC_SET_LANGUAGE;
 import static com.android.server.hdmi.Constants.OPTION_MHL_ENABLE;
 import static com.android.server.hdmi.Constants.OPTION_MHL_INPUT_SWITCHING;
 import static com.android.server.hdmi.Constants.OPTION_MHL_POWER_CHARGE;
@@ -45,8 +49,6 @@ import android.hardware.hdmi.IHdmiMhlVendorCommandListener;
 import android.hardware.hdmi.IHdmiRecordListener;
 import android.hardware.hdmi.IHdmiSystemAudioModeChangeListener;
 import android.hardware.hdmi.IHdmiVendorCommandListener;
-import android.hardware.tv.cec.V1_0.OptionKey;
-import android.hardware.tv.cec.V1_0.SendMessageResult;
 import android.media.AudioManager;
 import android.media.tv.TvInputManager;
 import android.media.tv.TvInputManager.TvInputCallback;
@@ -67,14 +69,19 @@ import android.util.ArraySet;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
+
 import com.android.internal.annotations.GuardedBy;
-import com.android.internal.util.DumpUtils;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.SystemService;
 import com.android.server.hdmi.HdmiAnnotations.ServiceThreadOnly;
 import com.android.server.hdmi.HdmiCecController.AllocateAddressCallback;
 import com.android.server.hdmi.HdmiCecLocalDevice.ActiveSource;
 import com.android.server.hdmi.HdmiCecLocalDevice.PendingActionClearedCallback;
+import com.android.server.hdmi.SelectRequestBuffer.DeviceSelectRequest;
+import com.android.server.hdmi.SelectRequestBuffer.PortSelectRequest;
+
+import libcore.util.EmptyArray;
+
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -82,7 +89,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import libcore.util.EmptyArray;
 
 /**
  * Provides a service for sending and processing HDMI control messages,
@@ -117,10 +123,9 @@ public final class HdmiControlService extends SystemService {
          *
          * @param error result of send request.
          * <ul>
-         * <li>{@link SendMessageResult#SUCCESS}
-         * <li>{@link SendMessageResult#NACK}
-         * <li>{@link SendMessageResult#BUSY}
-         * <li>{@link SendMessageResult#FAIL}
+         * <li>{@link Constants#SEND_RESULT_SUCCESS}
+         * <li>{@link Constants#SEND_RESULT_NAK}
+         * <li>{@link Constants#SEND_RESULT_FAILURE}
          * </ul>
          */
         void onSendCompleted(int error);
@@ -461,7 +466,7 @@ public final class HdmiControlService extends SystemService {
         mWakeUpMessageReceived = false;
 
         if (isTvDeviceEnabled()) {
-            mCecController.setOption(OptionKey.WAKEUP, tv().getAutoWakeup());
+            mCecController.setOption(OPTION_CEC_AUTO_WAKEUP, toInt(tv().getAutoWakeup()));
         }
         int reason = -1;
         switch (initiatedBy) {
@@ -487,7 +492,6 @@ public final class HdmiControlService extends SystemService {
                 Global.HDMI_CONTROL_ENABLED,
                 Global.HDMI_CONTROL_AUTO_WAKEUP_ENABLED,
                 Global.HDMI_CONTROL_AUTO_DEVICE_OFF_ENABLED,
-                Global.HDMI_SYSTEM_AUDIO_CONTROL_ENABLED,
                 Global.MHL_INPUT_SWITCHING_ENABLED,
                 Global.MHL_POWER_CHARGE_ENABLED
         };
@@ -515,7 +519,7 @@ public final class HdmiControlService extends SystemService {
                     if (isTvDeviceEnabled()) {
                         tv().setAutoWakeup(enabled);
                     }
-                    setCecOption(OptionKey.WAKEUP, enabled);
+                    setCecOption(OPTION_CEC_AUTO_WAKEUP, toInt(enabled));
                     break;
                 case Global.HDMI_CONTROL_AUTO_DEVICE_OFF_ENABLED:
                     for (int type : mLocalDevices) {
@@ -525,11 +529,6 @@ public final class HdmiControlService extends SystemService {
                         }
                     }
                     // No need to propagate to HAL.
-                    break;
-                case Global.HDMI_SYSTEM_AUDIO_CONTROL_ENABLED:
-                    if (isTvDeviceEnabled()) {
-                        tv().setSystemAudioControlFeatureEnabled(enabled);
-                    }
                     break;
                 case Global.MHL_INPUT_SWITCHING_ENABLED:
                     setMhlInputChangeEnabled(enabled);
@@ -557,8 +556,8 @@ public final class HdmiControlService extends SystemService {
 
     private void initializeCec(int initiatedBy) {
         mAddressAllocated = false;
-        mCecController.setOption(OptionKey.SYSTEM_CEC_CONTROL, true);
-        mCecController.setLanguage(mLanguage);
+        mCecController.setOption(OPTION_CEC_SERVICE_CONTROL, ENABLED);
+        mCecController.setOption(OPTION_CEC_SET_LANGUAGE, HdmiUtils.languageToInt(mLanguage));
         initializeLocalDevices(initiatedBy);
     }
 
@@ -843,7 +842,7 @@ public final class HdmiControlService extends SystemService {
         } else {
             HdmiLogger.error("Invalid message type:" + command);
             if (callback != null) {
-                callback.onSendCompleted(SendMessageResult.FAIL);
+                callback.onSendCompleted(Constants.SEND_RESULT_FAILURE);
             }
         }
     }
@@ -885,8 +884,8 @@ public final class HdmiControlService extends SystemService {
         return dispatchMessageToLocalDevice(message);
     }
 
-    void enableAudioReturnChannel(int portId, boolean enabled) {
-        mCecController.enableAudioReturnChannel(portId, enabled);
+    void setAudioReturnChannel(int portId, boolean enabled) {
+        mCecController.setAudioReturnChannel(portId, enabled);
     }
 
     @ServiceThreadOnly
@@ -974,9 +973,6 @@ public final class HdmiControlService extends SystemService {
     }
 
     void setAudioStatus(boolean mute, int volume) {
-        if (!isTvDeviceEnabled() || !tv().isSystemAudioActivated()) {
-            return;
-        }
         AudioManager audioManager = getAudioManager();
         boolean muted = audioManager.isStreamMute(AudioManager.STREAM_MUSIC);
         if (mute) {
@@ -1666,19 +1662,8 @@ public final class HdmiControlService extends SystemService {
         }
 
         @Override
-        public void setStandbyMode(final boolean isStandbyModeOn) {
-            enforceAccessPermission();
-            runOnServiceThread(new Runnable() {
-                @Override
-                public void run() {
-                    HdmiControlService.this.setStandbyMode(isStandbyModeOn);
-                }
-            });
-        }
-
-        @Override
         protected void dump(FileDescriptor fd, final PrintWriter writer, String[] args) {
-            if (!DumpUtils.checkDumpPermission(getContext(), TAG, writer)) return;
+            getContext().enforceCallingOrSelfPermission(android.Manifest.permission.DUMP, TAG);
             final IndentingPrintWriter pw = new IndentingPrintWriter(writer, "  ");
 
             pw.println("mHdmiControlEnabled: " + mHdmiControlEnabled);
@@ -2035,10 +2020,6 @@ public final class HdmiControlService extends SystemService {
         // the intent, the sequence will continue at onStandby().
     }
 
-    boolean isWakeUpMessageReceived() {
-        return mWakeUpMessageReceived;
-    }
-
     @ServiceThreadOnly
     private void onWakeUp() {
         assertRunOnServiceThread();
@@ -2098,7 +2079,7 @@ public final class HdmiControlService extends SystemService {
 
         if (isTvDeviceEnabled()) {
             tv().broadcastMenuLanguage(language);
-            mCecController.setLanguage(language);
+            mCecController.setOption(OPTION_CEC_SET_LANGUAGE, HdmiUtils.languageToInt(language));
         }
     }
 
@@ -2141,7 +2122,8 @@ public final class HdmiControlService extends SystemService {
             device.onStandby(mStandbyMessageReceived, standbyAction);
         }
         mStandbyMessageReceived = false;
-        mCecController.setOption(OptionKey.SYSTEM_CEC_CONTROL, false);
+        mAddressAllocated = false;
+        mCecController.setOption(OPTION_CEC_SERVICE_CONTROL, DISABLED);
         mMhlController.setOption(OPTION_MHL_SERVICE_CONTROL, DISABLED);
     }
 
@@ -2221,29 +2203,6 @@ public final class HdmiControlService extends SystemService {
         }
     }
 
-    void setStandbyMode(boolean isStandbyModeOn) {
-        assertRunOnServiceThread();
-        if (isPowerOnOrTransient() && isStandbyModeOn) {
-            mPowerManager.goToSleep(SystemClock.uptimeMillis(),
-                    PowerManager.GO_TO_SLEEP_REASON_HDMI, 0);
-            if (playback() != null) {
-                playback().sendStandby(0 /* unused */);
-            }
-        } else if (isPowerStandbyOrTransient() && !isStandbyModeOn) {
-            mPowerManager.wakeUp(SystemClock.uptimeMillis(), "android.server.hdmi:WAKE");
-            if (playback() != null) {
-                oneTouchPlay(new IHdmiControlCallback.Stub() {
-                    @Override
-                    public void onComplete(int result) {
-                        if (result != HdmiControlManager.RESULT_SUCCESS) {
-                            Slog.w(TAG, "Failed to complete 'one touch play'. result=" + result);
-                        }
-                    }
-                });
-            }
-        }
-    }
-
     boolean isProhibitMode() {
         synchronized (mLock) {
             return mProhibitMode;
@@ -2257,7 +2216,7 @@ public final class HdmiControlService extends SystemService {
     }
 
     @ServiceThreadOnly
-    void setCecOption(int key, boolean value) {
+    void setCecOption(int key, int value) {
         assertRunOnServiceThread();
         mCecController.setOption(key, value);
     }
@@ -2290,7 +2249,7 @@ public final class HdmiControlService extends SystemService {
 
     @ServiceThreadOnly
     private void enableHdmiControlService() {
-        mCecController.setOption(OptionKey.SYSTEM_CEC_CONTROL, true);
+        mCecController.setOption(OPTION_CEC_ENABLE, ENABLED);
         mMhlController.setOption(OPTION_MHL_ENABLE, ENABLED);
 
         initializeCec(INITIATED_BY_ENABLE_CEC);
@@ -2305,7 +2264,7 @@ public final class HdmiControlService extends SystemService {
                 mCecController.flush(new Runnable() {
                     @Override
                     public void run() {
-                        mCecController.setOption(OptionKey.ENABLE_CEC, false);
+                        mCecController.setOption(OPTION_CEC_ENABLE, DISABLED);
                         mMhlController.setOption(OPTION_MHL_ENABLE, DISABLED);
                         clearLocalDevices();
                     }

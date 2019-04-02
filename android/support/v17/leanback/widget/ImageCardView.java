@@ -13,7 +13,6 @@
  */
 package android.support.v17.leanback.widget;
 
-import android.animation.ObjectAnimator;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
@@ -123,15 +122,12 @@ public class ImageCardView extends BaseCardView {
     public static final int CARD_TYPE_FLAG_ICON_RIGHT = 4;
     public static final int CARD_TYPE_FLAG_ICON_LEFT = 8;
 
-    private static final String ALPHA = "alpha";
-
     private ImageView mImageView;
     private ViewGroup mInfoArea;
     private TextView mTitleView;
     private TextView mContentView;
     private ImageView mBadgeImage;
     private boolean mAttachedToWindow;
-    ObjectAnimator mFadeInAnimator;
 
     /**
      * Create an ImageCardView using a given theme for customization.
@@ -179,16 +175,12 @@ public class ImageCardView extends BaseCardView {
         boolean hasIconLeft =
                 !hasIconRight && (cardType & CARD_TYPE_FLAG_ICON_LEFT) == CARD_TYPE_FLAG_ICON_LEFT;
 
-        mImageView = findViewById(R.id.main_image);
+        mImageView = (ImageView) findViewById(R.id.main_image);
         if (mImageView.getDrawable() == null) {
             mImageView.setVisibility(View.INVISIBLE);
         }
-        // Set Object Animator for image view.
-        mFadeInAnimator = ObjectAnimator.ofFloat(mImageView, ALPHA, 1f);
-        mFadeInAnimator.setDuration(
-                mImageView.getResources().getInteger(android.R.integer.config_shortAnimTime));
 
-        mInfoArea = findViewById(R.id.info_field);
+        mInfoArea = (ViewGroup) findViewById(R.id.info_field);
         if (hasImageOnly) {
             removeView(mInfoArea);
             cardAttrs.recycle();
@@ -267,7 +259,7 @@ public class ImageCardView extends BaseCardView {
             setInfoAreaBackground(background);
         }
         // Backward compatibility: There has to be an icon in the default
-        // version. If there is one, we have to set its visibility to 'GONE'.
+        // version. If there is one, we have to set it's visibility to 'GONE'.
         // Disabling 'adjustIconVisibility' allows the user to set the icon's
         // visibility state in XML rather than code.
         if (mBadgeImage != null && mBadgeImage.getDrawable() == null) {
@@ -332,7 +324,7 @@ public class ImageCardView extends BaseCardView {
 
         mImageView.setImageDrawable(drawable);
         if (drawable == null) {
-            mFadeInAnimator.cancel();
+            mImageView.animate().cancel();
             mImageView.setAlpha(1f);
             mImageView.setVisibility(View.INVISIBLE);
         } else {
@@ -340,7 +332,7 @@ public class ImageCardView extends BaseCardView {
             if (fade) {
                 fadeIn();
             } else {
-                mFadeInAnimator.cancel();
+                mImageView.animate().cancel();
                 mImageView.setAlpha(1f);
             }
         }
@@ -466,7 +458,8 @@ public class ImageCardView extends BaseCardView {
     private void fadeIn() {
         mImageView.setAlpha(0f);
         if (mAttachedToWindow) {
-            mFadeInAnimator.start();
+            mImageView.animate().alpha(1f).setDuration(
+                    mImageView.getResources().getInteger(android.R.integer.config_shortAnimTime));
         }
     }
 
@@ -487,8 +480,9 @@ public class ImageCardView extends BaseCardView {
     @Override
     protected void onDetachedFromWindow() {
         mAttachedToWindow = false;
-        mFadeInAnimator.cancel();
+        mImageView.animate().cancel();
         mImageView.setAlpha(1f);
         super.onDetachedFromWindow();
     }
+
 }

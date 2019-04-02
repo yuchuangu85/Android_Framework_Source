@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2005, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,23 +27,19 @@ package java.lang;
 
 import java.security.*;
 
-// Android-changed: Stubbed the implementation.  Android doesn't support SecurityManager.
-// See comments in java.lang.SecurityManager for details.
 /**
  * Legacy security code; do not use.
  */
 
 public final class RuntimePermission extends BasicPermission {
 
-    private static final long serialVersionUID = 7399184964622342223L;
-
     public RuntimePermission(String name)
     {
-        super(name);
+        super("");
     }
 
     public RuntimePermission(String name, String actions)
     {
-        super(name, actions);
+        super("", "");
     }
 }

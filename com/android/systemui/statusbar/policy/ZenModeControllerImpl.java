@@ -36,20 +36,17 @@ import android.service.notification.Condition;
 import android.service.notification.IConditionListener;
 import android.service.notification.ZenModeConfig;
 import android.service.notification.ZenModeConfig.ZenRule;
-import android.support.annotation.VisibleForTesting;
 import android.util.Log;
 import android.util.Slog;
 
 import com.android.systemui.qs.GlobalSetting;
-import com.android.systemui.settings.CurrentUserTracker;
-import com.android.systemui.util.Utils;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Objects;
 
 /** Platform implementation of the zen mode controller. **/
-public class ZenModeControllerImpl extends CurrentUserTracker implements ZenModeController {
+public class ZenModeControllerImpl implements ZenModeController {
     private static final String TAG = "ZenModeController";
     private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
@@ -69,7 +66,6 @@ public class ZenModeControllerImpl extends CurrentUserTracker implements ZenMode
     private ZenModeConfig mConfig;
 
     public ZenModeControllerImpl(Context context, Handler handler) {
-        super(context);
         mContext = context;
         mModeSetting = new GlobalSetting(mContext, handler, Global.ZEN_MODE) {
             @Override
@@ -91,7 +87,6 @@ public class ZenModeControllerImpl extends CurrentUserTracker implements ZenMode
         mSetupObserver = new SetupObserver(handler);
         mSetupObserver.register();
         mUserManager = context.getSystemService(UserManager.class);
-        startTracking();
     }
 
     @Override
@@ -142,7 +137,7 @@ public class ZenModeControllerImpl extends CurrentUserTracker implements ZenMode
     }
 
     @Override
-    public void onUserSwitched(int userId) {
+    public void setUserId(int userId) {
         mUserId = userId;
         if (mRegistered) {
             mContext.unregisterReceiver(mReceiver);
@@ -171,32 +166,45 @@ public class ZenModeControllerImpl extends CurrentUserTracker implements ZenMode
     }
 
     private void fireNextAlarmChanged() {
-        Utils.safeForeach(mCallbacks, c -> c.onNextAlarmChanged());
+        for (Callback cb : mCallbacks) {
+            cb.onNextAlarmChanged();
+        }
     }
 
     private void fireEffectsSuppressorChanged() {
-        Utils.safeForeach(mCallbacks, c -> c.onEffectsSupressorChanged());
+        for (Callback cb : mCallbacks) {
+            cb.onEffectsSupressorChanged();
+        }
     }
 
     private void fireZenChanged(int zen) {
-        Utils.safeForeach(mCallbacks, c -> c.onZenChanged(zen));
+        for (Callback cb : mCallbacks) {
+            cb.onZenChanged(zen);
+        }
     }
 
     private void fireZenAvailableChanged(boolean available) {
-        Utils.safeForeach(mCallbacks, c -> c.onZenAvailableChanged(available));
+        for (Callback cb : mCallbacks) {
+            cb.onZenAvailableChanged(available);
+        }
     }
 
     private void fireConditionsChanged(Condition[] conditions) {
-        Utils.safeForeach(mCallbacks, c -> c.onConditionsChanged(conditions));
+        for (Callback cb : mCallbacks) {
+            cb.onConditionsChanged(conditions);
+        }
     }
 
     private void fireManualRuleChanged(ZenRule rule) {
-        Utils.safeForeach(mCallbacks, c -> c.onManualRuleChanged(rule));
+        for (Callback cb : mCallbacks) {
+            cb.onManualRuleChanged(rule);
+        }
     }
 
-    @VisibleForTesting
-    protected void fireConfigChanged(ZenModeConfig config) {
-        Utils.safeForeach(mCallbacks, c -> c.onConfigChanged(config));
+    private void fireConfigChanged(ZenModeConfig config) {
+        for (Callback cb : mCallbacks) {
+            cb.onConfigChanged(config);
+        }
     }
 
     private void updateConditions(Condition[] conditions) {

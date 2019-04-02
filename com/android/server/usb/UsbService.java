@@ -16,12 +16,9 @@
 
 package com.android.server.usb;
 
-import android.annotation.NonNull;
-import android.annotation.UserIdInt;
 import android.app.PendingIntent;
 import android.app.admin.DevicePolicyManager;
 import android.content.BroadcastReceiver;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -38,9 +35,9 @@ import android.os.ParcelFileDescriptor;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.util.Slog;
+import android.util.SparseArray;
 
 import com.android.internal.annotations.GuardedBy;
-import com.android.internal.util.DumpUtils;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.internal.util.Preconditions;
 import com.android.server.SystemService;
@@ -77,112 +74,89 @@ public class UsbService extends IUsbManager.Stub {
                 mUsbService.bootCompleted();
             }
         }
-
-        @Override
-        public void onSwitchUser(int newUserId) {
-            mUsbService.onSwitchUser(newUserId);
-        }
-
-        @Override
-        public void onStopUser(int userHandle) {
-            mUsbService.onStopUser(UserHandle.of(userHandle));
-        }
     }
 
     private static final String TAG = "UsbService";
 
     private final Context mContext;
-    private final UserManager mUserManager;
 
     private UsbDeviceManager mDeviceManager;
     private UsbHostManager mHostManager;
     private UsbPortManager mPortManager;
     private final UsbAlsaManager mAlsaManager;
 
-    private final UsbSettingsManager mSettingsManager;
-
-    /**
-     * The user id of the current user. There might be several profiles (with separate user ids)
-     * per user.
-     */
-    @GuardedBy("mLock")
-    private @UserIdInt int mCurrentUserId;
-
     private final Object mLock = new Object();
 
-    private UsbUserSettingsManager getSettingsForUser(@UserIdInt int userIdInt) {
-        return mSettingsManager.getSettingsForUser(userIdInt);
+    /** Map from {@link UserHandle} to {@link UsbSettingsManager} */
+    @GuardedBy("mLock")
+    private final SparseArray<UsbSettingsManager>
+            mSettingsByUser = new SparseArray<UsbSettingsManager>();
+
+    private UsbSettingsManager getSettingsForUser(int userId) {
+        synchronized (mLock) {
+            UsbSettingsManager settings = mSettingsByUser.get(userId);
+            if (settings == null) {
+                settings = new UsbSettingsManager(mContext, new UserHandle(userId));
+                mSettingsByUser.put(userId, settings);
+            }
+            return settings;
+        }
     }
 
     public UsbService(Context context) {
         mContext = context;
 
-        mUserManager = context.getSystemService(UserManager.class);
-        mSettingsManager = new UsbSettingsManager(context);
         mAlsaManager = new UsbAlsaManager(context);
 
         final PackageManager pm = mContext.getPackageManager();
         if (pm.hasSystemFeature(PackageManager.FEATURE_USB_HOST)) {
-            mHostManager = new UsbHostManager(context, mAlsaManager, mSettingsManager);
+            mHostManager = new UsbHostManager(context, mAlsaManager);
         }
         if (new File("/sys/class/android_usb").exists()) {
-            mDeviceManager = new UsbDeviceManager(context, mAlsaManager, mSettingsManager);
+            mDeviceManager = new UsbDeviceManager(context, mAlsaManager);
         }
         if (mHostManager != null || mDeviceManager != null) {
             mPortManager = new UsbPortManager(context);
         }
 
-        onSwitchUser(UserHandle.USER_SYSTEM);
-
-        BroadcastReceiver receiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                final String action = intent.getAction();
-                if (DevicePolicyManager.ACTION_DEVICE_POLICY_MANAGER_STATE_CHANGED
-                        .equals(action)) {
-                    if (mDeviceManager != null) {
-                        mDeviceManager.updateUserRestrictions();
-                    }
-                }
-            }
-        };
+        setCurrentUser(UserHandle.USER_SYSTEM);
 
         final IntentFilter filter = new IntentFilter();
         filter.setPriority(IntentFilter.SYSTEM_HIGH_PRIORITY);
+        filter.addAction(Intent.ACTION_USER_SWITCHED);
+        filter.addAction(Intent.ACTION_USER_STOPPED);
         filter.addAction(DevicePolicyManager.ACTION_DEVICE_POLICY_MANAGER_STATE_CHANGED);
-        mContext.registerReceiver(receiver, filter, null, null);
+        mContext.registerReceiver(mReceiver, filter, null, null);
     }
 
-    /**
-     * Set new {@link #mCurrentUserId} and propagate it to other modules.
-     *
-     * @param newUserId The user id of the new current user.
-     */
-    private void onSwitchUser(@UserIdInt int newUserId) {
-        synchronized (mLock) {
-            mCurrentUserId = newUserId;
-
-            // The following two modules need to know about the current profile group. If they need
-            // to distinguish by profile of the user, the id has to be passed in the call to the
-            // module.
-            UsbProfileGroupSettingsManager settings =
-                    mSettingsManager.getSettingsForProfileGroup(UserHandle.of(newUserId));
-            if (mHostManager != null) {
-                mHostManager.setCurrentUserSettings(settings);
-            }
-            if (mDeviceManager != null) {
-                mDeviceManager.setCurrentUser(newUserId, settings);
+    private BroadcastReceiver mReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            final int userId = intent.getIntExtra(Intent.EXTRA_USER_HANDLE, -1);
+            final String action = intent.getAction();
+            if (Intent.ACTION_USER_SWITCHED.equals(action)) {
+                setCurrentUser(userId);
+            } else if (Intent.ACTION_USER_STOPPED.equals(action)) {
+                synchronized (mLock) {
+                    mSettingsByUser.remove(userId);
+                }
+            } else if (DevicePolicyManager.ACTION_DEVICE_POLICY_MANAGER_STATE_CHANGED
+                    .equals(action)) {
+                if (mDeviceManager != null) {
+                    mDeviceManager.updateUserRestrictions();
+                }
             }
         }
-    }
+    };
 
-    /**
-     * Execute operations when a user is stopped.
-     *
-     * @param stoppedUser The user that is stopped
-     */
-    private void onStopUser(@NonNull UserHandle stoppedUser) {
-        mSettingsManager.remove(stoppedUser);
+    private void setCurrentUser(int userId) {
+        final UsbSettingsManager userSettings = getSettingsForUser(userId);
+        if (mHostManager != null) {
+            mHostManager.setCurrentSettings(userSettings);
+        }
+        if (mDeviceManager != null) {
+            mDeviceManager.setCurrentUser(userId, userSettings);
+        }
     }
 
     public void systemReady() {
@@ -213,45 +187,14 @@ public class UsbService extends IUsbManager.Stub {
         }
     }
 
-    /**
-     * Check if the calling user is in the same profile group as the {@link #mCurrentUserId
-     * current user}.
-     *
-     * @return Iff the caller is in the current user's profile group
-     */
-    private boolean isCallerInCurrentUserProfileGroupLocked() {
-        int userIdInt = UserHandle.getCallingUserId();
-
-        long ident = clearCallingIdentity();
-        try {
-            return mUserManager.isSameProfileGroup(userIdInt, mCurrentUserId);
-        } finally {
-            restoreCallingIdentity(ident);
-        }
-    }
-
     /* Opens the specified USB device (host mode) */
     @Override
     public ParcelFileDescriptor openDevice(String deviceName) {
-        ParcelFileDescriptor fd = null;
-
         if (mHostManager != null) {
-            synchronized (mLock) {
-                if (deviceName != null) {
-                    int userIdInt = UserHandle.getCallingUserId();
-                    boolean isCurrentUser = isCallerInCurrentUserProfileGroupLocked();
-
-                    if (isCurrentUser) {
-                        fd = mHostManager.openDevice(deviceName, getSettingsForUser(userIdInt));
-                    } else {
-                        Slog.w(TAG, "Cannot open " + deviceName + " for user " + userIdInt +
-                               " as user is not active.");
-                    }
-                }
-            }
+            return mHostManager.openDevice(deviceName);
+        } else {
+            return null;
         }
-
-        return fd;
     }
 
     /* returns the currently attached USB accessory (device mode) */
@@ -268,43 +211,22 @@ public class UsbService extends IUsbManager.Stub {
     @Override
     public ParcelFileDescriptor openAccessory(UsbAccessory accessory) {
         if (mDeviceManager != null) {
-            int userIdInt = UserHandle.getCallingUserId();
-
-            synchronized (mLock) {
-                boolean isCurrentUser = isCallerInCurrentUserProfileGroupLocked();
-
-                if (isCurrentUser) {
-                    return mDeviceManager.openAccessory(accessory, getSettingsForUser(userIdInt));
-                } else {
-                    Slog.w(TAG, "Cannot open " + accessory + " for user " + userIdInt +
-                            " as user is not active.");
-                }
-            }
+            return mDeviceManager.openAccessory(accessory);
+        } else {
+            return null;
         }
-
-        return null;
     }
 
     @Override
     public void setDevicePackage(UsbDevice device, String packageName, int userId) {
-        device = Preconditions.checkNotNull(device);
-
         mContext.enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_USB, null);
-
-        UserHandle user = UserHandle.of(userId);
-        mSettingsManager.getSettingsForProfileGroup(user).setDevicePackage(device, packageName,
-                user);
+        getSettingsForUser(userId).setDevicePackage(device, packageName);
     }
 
     @Override
     public void setAccessoryPackage(UsbAccessory accessory, String packageName, int userId) {
-        accessory = Preconditions.checkNotNull(accessory);
-
         mContext.enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_USB, null);
-
-        UserHandle user = UserHandle.of(userId);
-        mSettingsManager.getSettingsForProfileGroup(user).setAccessoryPackage(accessory,
-                packageName, user);
+        getSettingsForUser(userId).setAccessoryPackage(accessory, packageName);
     }
 
     @Override
@@ -348,22 +270,14 @@ public class UsbService extends IUsbManager.Stub {
 
     @Override
     public boolean hasDefaults(String packageName, int userId) {
-        packageName = Preconditions.checkStringNotEmpty(packageName);
-
         mContext.enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_USB, null);
-
-        UserHandle user = UserHandle.of(userId);
-        return mSettingsManager.getSettingsForProfileGroup(user).hasDefaults(packageName, user);
+        return getSettingsForUser(userId).hasDefaults(packageName);
     }
 
     @Override
     public void clearDefaults(String packageName, int userId) {
-        packageName = Preconditions.checkStringNotEmpty(packageName);
-
         mContext.enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_USB, null);
-
-        UserHandle user = UserHandle.of(userId);
-        mSettingsManager.getSettingsForProfileGroup(user).clearDefaults(packageName, user);
+        getSettingsForUser(userId).clearDefaults(packageName);
     }
 
     @Override
@@ -373,7 +287,7 @@ public class UsbService extends IUsbManager.Stub {
     }
 
     @Override
-    public void setCurrentFunction(String function, boolean usbDataUnlocked) {
+    public void setCurrentFunction(String function) {
         mContext.enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_USB, null);
 
         if (!isSupportedCurrentFunction(function)) {
@@ -383,7 +297,7 @@ public class UsbService extends IUsbManager.Stub {
         }
 
         if (mDeviceManager != null) {
-            mDeviceManager.setCurrentFunctions(function, usbDataUnlocked);
+            mDeviceManager.setCurrentFunctions(function);
         } else {
             throw new IllegalStateException("USB device mode not supported");
         }
@@ -403,6 +317,12 @@ public class UsbService extends IUsbManager.Stub {
         }
 
         return false;
+    }
+
+    @Override
+    public void setUsbDataUnlocked(boolean unlocked) {
+        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_USB, null);
+        mDeviceManager.setUsbDataUnlocked(unlocked);
     }
 
     @Override
@@ -465,23 +385,8 @@ public class UsbService extends IUsbManager.Stub {
     }
 
     @Override
-    public void setUsbDeviceConnectionHandler(ComponentName usbDeviceConnectionHandler) {
-        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_USB, null);
-        synchronized (mLock) {
-            if (mCurrentUserId == UserHandle.getCallingUserId()) {
-                if (mHostManager != null) {
-                    mHostManager.setUsbDeviceConnectionHandler(usbDeviceConnectionHandler);
-                }
-            } else {
-                throw new IllegalArgumentException("Only the current user can register a usb " +
-                        "connection handler");
-            }
-        }
-    }
-
-    @Override
     public void dump(FileDescriptor fd, PrintWriter writer, String[] args) {
-        if (!DumpUtils.checkDumpPermission(mContext, TAG, writer)) return;
+        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.DUMP, TAG);
 
         final IndentingPrintWriter pw = new IndentingPrintWriter(writer, "  ");
         final long ident = Binder.clearCallingIdentity();
@@ -500,7 +405,16 @@ public class UsbService extends IUsbManager.Stub {
                 }
                 mAlsaManager.dump(pw);
 
-                mSettingsManager.dump(pw);
+                synchronized (mLock) {
+                    for (int i = 0; i < mSettingsByUser.size(); i++) {
+                        final int userId = mSettingsByUser.keyAt(i);
+                        final UsbSettingsManager settings = mSettingsByUser.valueAt(i);
+                        pw.println("Settings for user " + userId + ":");
+                        pw.increaseIndent();
+                        settings.dump(pw);
+                        pw.decreaseIndent();
+                    }
+                }
             } else if (args.length == 4 && "set-port-roles".equals(args[0])) {
                 final String portId = args[1];
                 final int powerRole;
@@ -681,7 +595,7 @@ public class UsbService extends IUsbManager.Stub {
         }
     }
 
-    private static String removeLastChar(String value) {
+    private static final String removeLastChar(String value) {
         return value.substring(0, value.length() - 1);
     }
 }

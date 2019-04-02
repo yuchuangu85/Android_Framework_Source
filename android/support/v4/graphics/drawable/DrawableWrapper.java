@@ -16,10 +16,10 @@
 
 package android.support.v4.graphics.drawable;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.graphics.drawable.Drawable;
 import android.support.annotation.RestrictTo;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Interface which allows a {@link android.graphics.drawable.Drawable} to get/set wrapped
@@ -27,7 +27,7 @@ import android.support.annotation.RestrictTo;
  *
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public interface DrawableWrapper {
     Drawable getWrappedDrawable();
     void setWrappedDrawable(Drawable drawable);

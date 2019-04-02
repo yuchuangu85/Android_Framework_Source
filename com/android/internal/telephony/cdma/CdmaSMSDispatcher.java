@@ -217,7 +217,7 @@ public class CdmaSMSDispatcher extends SMSDispatcher {
 
     @Override
     protected void sendSubmitPdu(SmsTracker tracker) {
-        if (mPhone.isInEcm()) {
+        if (SystemProperties.getBoolean(TelephonyProperties.PROPERTY_INECM_MODE, false)) {
             if (VDBG) {
                 Rlog.d(TAG, "Block SMS in Emergency Callback mode");
             }

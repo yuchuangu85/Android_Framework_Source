@@ -29,6 +29,7 @@ import android.widget.FrameLayout;
 
 import com.android.setupwizardlib.DividerItemDecoration;
 import com.android.setupwizardlib.R;
+import com.android.setupwizardlib.annotations.VisibleForTesting;
 
 /**
  * A RecyclerView that can display a header item at the start of the list. The header can be set by
@@ -40,7 +41,7 @@ public class HeaderRecyclerView extends RecyclerView {
     private static class HeaderViewHolder extends ViewHolder
             implements DividerItemDecoration.DividedViewHolder {
 
-        HeaderViewHolder(View itemView) {
+        public HeaderViewHolder(View itemView) {
             super(itemView);
         }
 
@@ -57,15 +58,12 @@ public class HeaderRecyclerView extends RecyclerView {
 
     /**
      * An adapter that can optionally add one header item to the RecyclerView.
-     *
-     * @param <CVH> Type of the content view holder. i.e. view holder type of the wrapped adapter.
      */
-    public static class HeaderAdapter<CVH extends ViewHolder>
-            extends RecyclerView.Adapter<ViewHolder> {
+    public static class HeaderAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         private static final int HEADER_VIEW_TYPE = Integer.MAX_VALUE;
 
-        private RecyclerView.Adapter<CVH> mAdapter;
+        private RecyclerView.Adapter mAdapter;
         private View mHeader;
 
         private final AdapterDataObserver mObserver = new AdapterDataObserver() {
@@ -77,42 +75,27 @@ public class HeaderRecyclerView extends RecyclerView {
 
             @Override
             public void onItemRangeChanged(int positionStart, int itemCount) {
-                if (mHeader != null) {
-                    positionStart++;
-                }
                 notifyItemRangeChanged(positionStart, itemCount);
             }
 
             @Override
             public void onItemRangeInserted(int positionStart, int itemCount) {
-                if (mHeader != null) {
-                    positionStart++;
-                }
                 notifyItemRangeInserted(positionStart, itemCount);
             }
 
             @Override
             public void onItemRangeMoved(int fromPosition, int toPosition, int itemCount) {
-                if (mHeader != null) {
-                    fromPosition++;
-                    toPosition++;
-                }
                 // Why is there no notifyItemRangeMoved?
-                for (int i = 0; i < itemCount; i++) {
-                    notifyItemMoved(fromPosition + i, toPosition + i);
-                }
+                notifyDataSetChanged();
             }
 
             @Override
             public void onItemRangeRemoved(int positionStart, int itemCount) {
-                if (mHeader != null) {
-                    positionStart++;
-                }
                 notifyItemRangeRemoved(positionStart, itemCount);
             }
         };
 
-        public HeaderAdapter(RecyclerView.Adapter<CVH> adapter) {
+        public HeaderAdapter(RecyclerView.Adapter adapter) {
             mAdapter = adapter;
             mAdapter.registerAdapterDataObserver(mObserver);
             setHasStableIds(mAdapter.hasStableIds());
@@ -120,16 +103,19 @@ public class HeaderRecyclerView extends RecyclerView {
 
         @Override
         public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            // Returning the same view (mHeader) results in crash ".. but view is not a real child."
-            // The framework creates more than one instance of header because of "disappear"
-            // animations applied on the header and this necessitates creation of another header
-            // view to use after the animation. We work around this restriction by returning an
-            // empty FrameLayout to which the header is attached using #onBindViewHolder method.
+            /*
+             * Returning the same view (mHeader) results in crash ".. but view is not a real child."
+             * The framework creates more than one instance of header because of "disappear"
+             * animations applied on the header and this necessitates creation of another headerview
+             * to use after the animation. We work around this restriction by returning an empty
+             * framelayout to which the header is attached using #onBindViewHolder method.
+             */
             if (viewType == HEADER_VIEW_TYPE) {
                 FrameLayout frameLayout = new FrameLayout(parent.getContext());
                 FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.WRAP_CONTENT);
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                );
                 frameLayout.setLayoutParams(params);
                 return new HeaderViewHolder(frameLayout);
             } else {
@@ -138,23 +124,20 @@ public class HeaderRecyclerView extends RecyclerView {
         }
 
         @Override
-        @SuppressWarnings("unchecked") // Non-header position always return type CVH
+        @SuppressWarnings("unchecked")
         public void onBindViewHolder(ViewHolder holder, int position) {
             if (mHeader != null) {
                 position--;
             }
 
             if (holder instanceof HeaderViewHolder) {
-                if (mHeader == null) {
-                    throw new IllegalStateException("HeaderViewHolder cannot find mHeader");
-                }
                 if (mHeader.getParent() != null) {
                     ((ViewGroup) mHeader.getParent()).removeView(mHeader);
                 }
                 FrameLayout mHeaderParent = (FrameLayout) holder.itemView;
                 mHeaderParent.addView(mHeader);
             } else {
-                mAdapter.onBindViewHolder((CVH) holder, position);
+                mAdapter.onBindViewHolder(holder, position);
             }
         }
 
@@ -193,7 +176,8 @@ public class HeaderRecyclerView extends RecyclerView {
             mHeader = header;
         }
 
-        public RecyclerView.Adapter<CVH> getWrappedAdapter() {
+        @VisibleForTesting
+        public RecyclerView.Adapter getWrappedAdapter() {
             return mAdapter;
         }
     }
@@ -264,7 +248,6 @@ public class HeaderRecyclerView extends RecyclerView {
     }
 
     @Override
-    @SuppressWarnings("rawtypes,unchecked") // RecyclerView.setAdapter uses raw type :(
     public void setAdapter(Adapter adapter) {
         if (mHeader != null && adapter != null) {
             final HeaderAdapter headerAdapter = new HeaderAdapter(adapter);

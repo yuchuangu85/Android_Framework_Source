@@ -16,8 +16,6 @@
 
 package android.support.v17.preference;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.app.Fragment;
 import android.app.FragmentTransaction;
 import android.os.Build;
@@ -35,6 +33,8 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Space;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * This fragment provides a container for displaying a {@link LeanbackPreferenceFragment}
@@ -98,11 +98,7 @@ public abstract class LeanbackSettingsFragment extends Fragment
     }
 
     @Override
-    public boolean onPreferenceDisplayDialog(@NonNull PreferenceFragment caller, Preference pref) {
-        if (caller == null) {
-            throw new IllegalArgumentException("Cannot display dialog for preference " + pref
-                    + ", Caller must not be null!");
-        }
+    public boolean onPreferenceDisplayDialog(PreferenceFragment caller, Preference pref) {
         final Fragment f;
         if (pref instanceof ListPreference) {
             final ListPreference listPreference = (ListPreference) pref;
@@ -192,7 +188,7 @@ public abstract class LeanbackSettingsFragment extends Fragment
     /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public static class DummyFragment extends Fragment {
 
         @Override

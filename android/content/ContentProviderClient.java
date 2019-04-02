@@ -128,20 +128,11 @@ public class ContentProviderClient implements AutoCloseable {
     }
 
     /** See {@link ContentProvider#query ContentProvider.query} */
-    public @Nullable Cursor query(@NonNull Uri uri, @Nullable String[] projection,
+    public @Nullable Cursor query(@NonNull Uri url, @Nullable String[] projection,
             @Nullable String selection, @Nullable String[] selectionArgs,
             @Nullable String sortOrder, @Nullable CancellationSignal cancellationSignal)
                     throws RemoteException {
-        Bundle queryArgs =
-                ContentResolver.createSqlQueryBundle(selection, selectionArgs, sortOrder);
-        return query(uri, projection, queryArgs, cancellationSignal);
-    }
-
-    /** See {@link ContentProvider#query ContentProvider.query} */
-    public @Nullable Cursor query(@NonNull Uri uri, @Nullable String[] projection,
-            Bundle queryArgs, @Nullable CancellationSignal cancellationSignal)
-                    throws RemoteException {
-        Preconditions.checkNotNull(uri, "url");
+        Preconditions.checkNotNull(url, "url");
 
         beforeRemote();
         try {
@@ -151,12 +142,18 @@ public class ContentProviderClient implements AutoCloseable {
                 remoteCancellationSignal = mContentProvider.createCancellationSignal();
                 cancellationSignal.setRemote(remoteCancellationSignal);
             }
-            final Cursor cursor = mContentProvider.query(
-                    mPackageName, uri, projection, queryArgs, remoteCancellationSignal);
+            final Cursor cursor = mContentProvider.query(mPackageName, url, projection, selection,
+                    selectionArgs, sortOrder, remoteCancellationSignal);
             if (cursor == null) {
                 return null;
             }
-            return new CursorWrapperInner(cursor);
+
+            if ("com.google.android.gms".equals(mPackageName)) {
+                // They're casting to a concrete subclass, sigh
+                return cursor;
+            } else {
+                return new CursorWrapperInner(cursor);
+            }
         } catch (DeadObjectException e) {
             if (!mStable) {
                 mContentResolver.unstableProviderDied(mContentProvider);
@@ -227,30 +224,6 @@ public class ContentProviderClient implements AutoCloseable {
         beforeRemote();
         try {
             return mContentProvider.uncanonicalize(mPackageName, url);
-        } catch (DeadObjectException e) {
-            if (!mStable) {
-                mContentResolver.unstableProviderDied(mContentProvider);
-            }
-            throw e;
-        } finally {
-            afterRemote();
-        }
-    }
-
-    /** See {@link ContentProvider#refresh} */
-    public boolean refresh(Uri url, @Nullable Bundle args,
-            @Nullable CancellationSignal cancellationSignal) throws RemoteException {
-        Preconditions.checkNotNull(url, "url");
-
-        beforeRemote();
-        try {
-            ICancellationSignal remoteCancellationSignal = null;
-            if (cancellationSignal != null) {
-                cancellationSignal.throwIfCanceled();
-                remoteCancellationSignal = mContentProvider.createCancellationSignal();
-                cancellationSignal.setRemote(remoteCancellationSignal);
-            }
-            return mContentProvider.refresh(mPackageName, url, args, remoteCancellationSignal);
         } catch (DeadObjectException e) {
             if (!mStable) {
                 mContentResolver.unstableProviderDied(mContentProvider);
@@ -524,10 +497,7 @@ public class ContentProviderClient implements AutoCloseable {
     @Override
     protected void finalize() throws Throwable {
         try {
-            if (mCloseGuard != null) {
-                mCloseGuard.warnIfOpen();
-            }
-
+            mCloseGuard.warnIfOpen();
             close();
         } finally {
             super.finalize();
@@ -582,10 +552,7 @@ public class ContentProviderClient implements AutoCloseable {
         @Override
         protected void finalize() throws Throwable {
             try {
-                if (mCloseGuard != null) {
-                    mCloseGuard.warnIfOpen();
-                }
-
+                mCloseGuard.warnIfOpen();
                 close();
             } finally {
                 super.finalize();

@@ -29,7 +29,6 @@ import com.android.ex.chips.RecipientEntry;
  */
 public class InvisibleRecipientChip extends ReplacementSpan implements DrawableRecipientChip {
     private final SimpleRecipientChip mDelegate;
-    private static final Rect NULL_RECTANGLE = new Rect(0, 0, 0, 0);
 
     public InvisibleRecipientChip(final RecipientEntry entry) {
         super();
@@ -106,12 +105,7 @@ public class InvisibleRecipientChip extends ReplacementSpan implements DrawableR
 
     @Override
     public Rect getBounds() {
-        return NULL_RECTANGLE;
-    }
-
-    @Override
-    public Rect getWarningIconBounds() {
-        return NULL_RECTANGLE;
+        return new Rect(0, 0, 0, 0);
     }
 
     @Override

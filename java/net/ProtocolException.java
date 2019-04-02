@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2008, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,7 +40,7 @@ class ProtocolException extends IOException {
     private static final long serialVersionUID = -6098449442062388080L;
 
     /**
-     * Constructs a new {@code ProtocolException} with the
+     * Constructs a new <code>ProtocolException</code> with the
      * specified detail message.
      *
      * @param   host   the detail message.
@@ -50,7 +50,7 @@ class ProtocolException extends IOException {
     }
 
     /**
-     * Constructs a new {@code ProtocolException} with no detail message.
+     * Constructs a new <code>ProtocolException</code> with no detail message.
      */
     public ProtocolException() {
     }

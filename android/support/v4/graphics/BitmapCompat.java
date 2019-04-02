@@ -16,58 +16,77 @@
 package android.support.v4.graphics;
 
 import android.graphics.Bitmap;
-import android.os.Build;
-import android.support.annotation.RequiresApi;
 
 /**
- * Helper for accessing features in {@link android.graphics.Bitmap}.
+ * Helper for accessing features in {@link android.graphics.Bitmap}
+ * introduced after API level 4 in a backwards compatible fashion.
  */
 public final class BitmapCompat {
-    static class BitmapCompatBaseImpl {
+    /**
+     * Interface for the full API.
+     */
+    interface BitmapImpl {
+        public boolean hasMipMap(Bitmap bitmap);
+        public void setHasMipMap(Bitmap bitmap, boolean hasMipMap);
+        public int getAllocationByteCount(Bitmap bitmap);
+    }
+
+    static class BaseBitmapImpl implements BitmapImpl {
+        @Override
         public boolean hasMipMap(Bitmap bitmap) {
             return false;
         }
 
+        @Override
         public void setHasMipMap(Bitmap bitmap, boolean hasMipMap) {
         }
 
+        @Override
         public int getAllocationByteCount(Bitmap bitmap) {
-            return bitmap.getByteCount();
+            return bitmap.getRowBytes() * bitmap.getHeight();
         }
     }
 
-    @RequiresApi(18)
-    static class BitmapCompatApi18Impl extends BitmapCompatBaseImpl {
+    static class HcMr1BitmapCompatImpl extends BaseBitmapImpl {
+        @Override
+        public int getAllocationByteCount(Bitmap bitmap) {
+            return BitmapCompatHoneycombMr1.getAllocationByteCount(bitmap);
+        }
+    }
+
+    static class JbMr2BitmapCompatImpl extends HcMr1BitmapCompatImpl {
         @Override
         public boolean hasMipMap(Bitmap bitmap){
-            return bitmap.hasMipMap();
+            return BitmapCompatJellybeanMR2.hasMipMap(bitmap);
         }
 
         @Override
         public void setHasMipMap(Bitmap bitmap, boolean hasMipMap) {
-            bitmap.setHasMipMap(hasMipMap);
+            BitmapCompatJellybeanMR2.setHasMipMap(bitmap, hasMipMap);
         }
     }
 
-    @RequiresApi(19)
-    static class BitmapCompatApi19Impl extends BitmapCompatApi18Impl {
+    static class KitKatBitmapCompatImpl extends JbMr2BitmapCompatImpl {
         @Override
         public int getAllocationByteCount(Bitmap bitmap) {
-            return bitmap.getAllocationByteCount();
+            return BitmapCompatKitKat.getAllocationByteCount(bitmap);
         }
     }
 
     /**
      * Select the correct implementation to use for the current platform.
      */
-    static final BitmapCompatBaseImpl IMPL;
+    static final BitmapImpl IMPL;
     static {
-        if (Build.VERSION.SDK_INT >= 19) {
-            IMPL = new BitmapCompatApi19Impl();
-        } else if (Build.VERSION.SDK_INT >= 18) {
-            IMPL = new BitmapCompatApi18Impl();
+        final int version = android.os.Build.VERSION.SDK_INT;
+        if (version >= 19) {
+            IMPL = new KitKatBitmapCompatImpl();
+        } else if (version >= 18) {
+            IMPL = new JbMr2BitmapCompatImpl();
+        } else if (version >= 12) {
+            IMPL = new HcMr1BitmapCompatImpl();
         } else {
-            IMPL = new BitmapCompatBaseImpl();
+            IMPL = new BaseBitmapImpl();
         }
     }
 
@@ -83,7 +102,7 @@ public final class BitmapCompat {
      * Returns the size of the allocated memory used to store this bitmap's pixels in a backwards
      * compatible way.
      *
-     * @param bitmap the bitmap in which to return its allocation size
+     * @param bitmap the bitmap in which to return it's allocation size
      * @return the allocation size in bytes
      */
     public static int getAllocationByteCount(Bitmap bitmap) {

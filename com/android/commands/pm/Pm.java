@@ -24,6 +24,7 @@ import static android.content.pm.PackageManager.INTENT_FILTER_DOMAIN_VERIFICATIO
 
 import android.accounts.IAccountManager;
 import android.app.ActivityManager;
+import android.app.ActivityManagerNative;
 import android.app.PackageInstallObserver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -51,23 +52,16 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.IBinder;
 import android.os.IUserManager;
-import android.os.ParcelFileDescriptor;
-import android.os.Process;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
-import android.os.SELinux;
 import android.os.ServiceManager;
-import android.os.ShellCallback;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.os.storage.StorageManager;
 import android.text.TextUtils;
 import android.text.format.DateUtils;
 import android.util.Log;
-import android.util.Pair;
 
 import com.android.internal.content.PackageHelper;
 import com.android.internal.util.ArrayUtils;
@@ -78,7 +72,6 @@ import libcore.io.IoUtils;
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -87,7 +80,6 @@ import java.util.concurrent.TimeUnit;
 
 public final class Pm {
     private static final String TAG = "Pm";
-    private static final String STDIN_PATH = "-";
 
     IPackageManager mPm;
     IPackageInstaller mInstaller;
@@ -296,45 +288,13 @@ public final class Pm {
         }
     }
 
-    static final class MyShellCallback extends ShellCallback {
-        @Override public ParcelFileDescriptor onOpenOutputFile(String path, String seLinuxContext) {
-            File file = new File(path);
-            final ParcelFileDescriptor fd;
-            try {
-                fd = ParcelFileDescriptor.open(file,
-                            ParcelFileDescriptor.MODE_CREATE |
-                            ParcelFileDescriptor.MODE_TRUNCATE |
-                            ParcelFileDescriptor.MODE_WRITE_ONLY);
-            } catch (FileNotFoundException e) {
-                String msg = "Unable to open file " + path + ": " + e;
-                System.err.println(msg);
-                throw new IllegalArgumentException(msg);
-            }
-            if (seLinuxContext != null) {
-                final String tcon = SELinux.getFileContext(file.getAbsolutePath());
-                if (!SELinux.checkSELinuxAccess(seLinuxContext, tcon, "file", "write")) {
-                    try {
-                        fd.close();
-                    } catch (IOException e) {
-                    }
-                    String msg = "System server has no access to file context " + tcon;
-                    System.err.println(msg + " (from path " + file.getAbsolutePath()
-                            + ", context " + seLinuxContext + ")");
-                    throw new IllegalArgumentException(msg);
-                }
-            }
-            return fd;
-        }
-    }
-
     private int runShellCommand(String serviceName, String[] args) {
         final HandlerThread handlerThread = new HandlerThread("results");
         handlerThread.start();
         try {
             ServiceManager.getService(serviceName).shellCommand(
                     FileDescriptor.in, FileDescriptor.out, FileDescriptor.err,
-                    args, new MyShellCallback(),
-                    new ResultReceiver(new Handler(handlerThread.getLooper())));
+                    args, new ResultReceiver(new Handler(handlerThread.getLooper())));
             return 0;
         } catch (RemoteException e) {
             e.printStackTrace();
@@ -349,7 +309,7 @@ public final class Pm {
 
         private IIntentSender.Stub mLocalSender = new IIntentSender.Stub() {
             @Override
-            public void send(int code, Intent intent, String resolvedType, IBinder whitelistToken,
+            public void send(int code, Intent intent, String resolvedType,
                     IIntentReceiver finishedReceiver, String requiredPermission, Bundle options) {
                 try {
                     mResult.offer(intent, 5, TimeUnit.SECONDS);
@@ -405,26 +365,27 @@ public final class Pm {
      * The use of "adb install" or "cmd package install" over "pm install" is highly encouraged.
      */
     private int runInstall() throws RemoteException {
-        long startedTime = SystemClock.elapsedRealtime();
         final InstallParams params = makeInstallParams();
         final String inPath = nextArg();
-        if (params.sessionParams.sizeBytes == -1 && !STDIN_PATH.equals(inPath)) {
+        boolean installExternal =
+                (params.sessionParams.installFlags & PackageManager.INSTALL_EXTERNAL) != 0;
+        if (params.sessionParams.sizeBytes < 0 && inPath != null) {
             File file = new File(inPath);
             if (file.isFile()) {
-                try {
-                    ApkLite baseApk = PackageParser.parseApkLite(file, 0);
-                    PackageLite pkgLite = new PackageLite(null, baseApk, null, null, null, null,
-                            null, null);
-                    params.sessionParams.setSize(
-                            PackageHelper.calculateInstalledSize(pkgLite, false,
-                            params.sessionParams.abiOverride));
-                } catch (PackageParserException | IOException e) {
-                    System.err.println("Error: Failed to parse APK file: " + e);
-                    return 1;
+                if (installExternal) {
+                    try {
+                        ApkLite baseApk = PackageParser.parseApkLite(file, 0);
+                        PackageLite pkgLite = new PackageLite(null, baseApk, null, null, null);
+                        params.sessionParams.setSize(
+                                PackageHelper.calculateInstalledSize(pkgLite, false,
+                                        params.sessionParams.abiOverride));
+                    } catch (PackageParserException | IOException e) {
+                        System.err.println("Error: Failed to parse APK file : " + e);
+                        return 1;
+                    }
+                } else {
+                    params.sessionParams.setSize(file.length());
                 }
-            } else {
-                System.err.println("Error: Can't open non-file: " + inPath);
-                return 1;
             }
         }
 
@@ -432,7 +393,7 @@ public final class Pm {
                 params.installerPackageName, params.userId);
 
         try {
-            if (inPath == null && params.sessionParams.sizeBytes == -1) {
+            if (inPath == null && params.sessionParams.sizeBytes == 0) {
                 System.err.println("Error: must either specify a package size or an APK file");
                 return 1;
             }
@@ -440,12 +401,10 @@ public final class Pm {
                     false /*logSuccess*/) != PackageInstaller.STATUS_SUCCESS) {
                 return 1;
             }
-            Pair<String, Integer> status = doCommitSession(sessionId, false /*logSuccess*/);
-            if (status.second != PackageInstaller.STATUS_SUCCESS) {
+            if (doCommitSession(sessionId, false /*logSuccess*/)
+                    != PackageInstaller.STATUS_SUCCESS) {
                 return 1;
             }
-            Log.i(TAG, "Package " + status.first + " installed in " + (SystemClock.elapsedRealtime()
-                    - startedTime) + " ms");
             System.out.println("Success");
             return 0;
         } finally {
@@ -463,7 +422,7 @@ public final class Pm {
 
     private int runInstallCommit() throws RemoteException {
         final int sessionId = Integer.parseInt(nextArg());
-        return doCommitSession(sessionId, true /*logSuccess*/).second;
+        return doCommitSession(sessionId, true /*logSuccess*/);
     }
 
     private int runInstallCreate() throws RemoteException {
@@ -550,28 +509,14 @@ public final class Pm {
                         throw new IllegalArgumentException("Missing inherit package name");
                     }
                     break;
-                case "--pkg":
-                    sessionParams.appPackageName = nextOptionData();
-                    if (sessionParams.appPackageName == null) {
-                        throw new IllegalArgumentException("Missing package name");
-                    }
-                    break;
                 case "-S":
-                    final long sizeBytes = Long.parseLong(nextOptionData());
-                    if (sizeBytes <= 0) {
-                        throw new IllegalArgumentException("Size must be positive");
-                    }
-                    sessionParams.setSize(sizeBytes);
+                    sessionParams.setSize(Long.parseLong(nextOptionData()));
                     break;
                 case "--abi":
                     sessionParams.abiOverride = checkAbiArgument(nextOptionData());
                     break;
                 case "--ephemeral":
-                case "--instant":
-                    sessionParams.setInstallAsInstantApp(true /*isInstantApp*/);
-                    break;
-                case "--full":
-                    sessionParams.setInstallAsInstantApp(false /*isInstantApp*/);
+                    sessionParams.installFlags |= PackageManager.INSTALL_EPHEMERAL;
                     break;
                 case "--user":
                     params.userId = UserHandle.parseUserArg(nextOptionData());
@@ -610,7 +555,7 @@ public final class Pm {
 
     private int doWriteSession(int sessionId, String inPath, long sizeBytes, String splitName,
             boolean logSuccess) throws RemoteException {
-        if (STDIN_PATH.equals(inPath)) {
+        if ("-".equals(inPath)) {
             inPath = null;
         } else if (inPath != null) {
             final File file = new File(inPath);
@@ -663,8 +608,7 @@ public final class Pm {
         }
     }
 
-    private Pair<String, Integer> doCommitSession(int sessionId, boolean logSuccess)
-            throws RemoteException {
+    private int doCommitSession(int sessionId, boolean logSuccess) throws RemoteException {
         PackageInstaller.Session session = null;
         try {
             session = new PackageInstaller.Session(
@@ -684,7 +628,7 @@ public final class Pm {
                 System.err.println("Failure ["
                         + result.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) + "]");
             }
-            return new Pair<>(result.getStringExtra(PackageInstaller.EXTRA_PACKAGE_NAME), status);
+            return status;
         } finally {
             IoUtils.closeQuietly(session);
         }
@@ -1023,17 +967,16 @@ public final class Pm {
                 // In non-split user mode, userId can only be SYSTEM
                 int parentUserId = userId >= 0 ? userId : UserHandle.USER_SYSTEM;
                 info = mUm.createRestrictedProfile(name, parentUserId);
-                mAm.addSharedAccountsFromParentUser(parentUserId, userId,
-                        (Process.myUid() == Process.ROOT_UID) ? "root" : "com.android.shell");
+                mAm.addSharedAccountsFromParentUser(parentUserId, userId);
             } else if (userId < 0) {
                 info = mUm.createUser(name, flags);
             } else {
-                info = mUm.createProfileForUser(name, flags, userId, null);
+                info = mUm.createProfileForUser(name, flags, userId);
             }
 
             if (info != null) {
                 System.out.println("Success: created user id " + info.id);
-                return 0;
+                return 1;
             } else {
                 System.err.println("Error: couldn't create User.");
                 return 1;
@@ -1210,7 +1153,7 @@ public final class Pm {
 
         ClearDataObserver obs = new ClearDataObserver();
         try {
-            ActivityManager.getService().clearApplicationUserData(pkg, obs, userId);
+            ActivityManagerNative.getDefault().clearApplicationUserData(pkg, obs, userId);
             synchronized (obs) {
                 while (!obs.finished) {
                     try {
@@ -1443,10 +1386,10 @@ public final class Pm {
             System.err.println("Error: no size specified");
             return showUsage();
         }
-        long multiplier = 1;
         int len = size.length();
-        char c = size.charAt(len - 1);
-        if (c < '0' || c > '9') {
+        long multiplier = 1;
+        if (len > 1) {
+            char c = size.charAt(len-1);
             if (c == 'K' || c == 'k') {
                 multiplier = 1024L;
             } else if (c == 'M' || c == 'm') {
@@ -1472,8 +1415,7 @@ public final class Pm {
         }
         ClearDataObserver obs = new ClearDataObserver();
         try {
-            mPm.freeStorageAndNotify(volumeUuid, sizeVal,
-                    StorageManager.FLAG_ALLOCATE_DEFY_ALL_RESERVED, obs);
+            mPm.freeStorageAndNotify(volumeUuid, sizeVal, obs);
             synchronized (obs) {
                 while (!obs.finished) {
                     try {
@@ -1577,7 +1519,7 @@ public final class Pm {
         System.err.println("       pm install-write [-S BYTES] SESSION_ID SPLIT_NAME [PATH]");
         System.err.println("       pm install-commit SESSION_ID");
         System.err.println("       pm install-abandon SESSION_ID");
-        System.err.println("       pm uninstall [-k] [--user USER_ID] [--versionCode VERSION_CODE] PACKAGE");
+        System.err.println("       pm uninstall [-k] [--user USER_ID] PACKAGE");
         System.err.println("       pm set-installer PACKAGE INSTALLER");
         System.err.println("       pm move-package PACKAGE [internal|UUID]");
         System.err.println("       pm move-primary-storage [internal|UUID]");
@@ -1587,7 +1529,6 @@ public final class Pm {
         System.err.println("       pm disable-user [--user USER_ID] PACKAGE_OR_COMPONENT");
         System.err.println("       pm disable-until-used [--user USER_ID] PACKAGE_OR_COMPONENT");
         System.err.println("       pm default-state [--user USER_ID] PACKAGE_OR_COMPONENT");
-        System.err.println("       pm set-user-restriction [--user USER_ID] RESTRICTION VALUE");
         System.err.println("       pm hide [--user USER_ID] PACKAGE_OR_COMPONENT");
         System.err.println("       pm unhide [--user USER_ID] PACKAGE_OR_COMPONENT");
         System.err.println("       pm grant [--user USER_ID] PACKAGE PERMISSION");

@@ -25,7 +25,6 @@ import android.os.IBinder;
 import android.os.RemoteException;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.customtabs.CustomTabsService.Result;
 import android.view.View;
 import android.widget.RemoteViews;
 
@@ -37,7 +36,6 @@ import java.util.List;
  */
 public final class CustomTabsSession {
     private static final String TAG = "CustomTabsSession";
-    private final Object mLock = new Object();
     private final ICustomTabsService mService;
     private final ICustomTabsCallback mCallback;
     private final ComponentName mComponentName;
@@ -80,7 +78,7 @@ public final class CustomTabsSession {
      * @param icon          The new icon of the action button.
      * @param description   Content description of the action button.
      *
-     * @see CustomTabsSession#setToolbarItem(int, Bitmap, String)
+     * @see {@link CustomTabsSession#setToolbarItem(int, Bitmap, String)}
      */
     public boolean setActionButton(@NonNull Bitmap icon, @NonNull String description) {
         Bundle bundle = new Bundle();
@@ -141,47 +139,6 @@ public final class CustomTabsSession {
             return mService.updateVisuals(mCallback, metaBundle);
         } catch (RemoteException e) {
             return false;
-        }
-    }
-
-    /**
-     * Sends a request to create a two way postMessage channel between the client and the browser.
-     *
-     * @param postMessageOrigin      A origin that the client is requesting to be identified as
-     *                               during the postMessage communication.
-     * @return Whether the implementation accepted the request. Note that returning true
-     *         here doesn't mean an origin has already been assigned as the validation is
-     *         asynchronous.
-     */
-    public boolean requestPostMessageChannel(Uri postMessageOrigin) {
-        try {
-            return mService.requestPostMessageChannel(
-                    mCallback, postMessageOrigin);
-        } catch (RemoteException e) {
-            return false;
-        }
-    }
-
-    /**
-     * Sends a postMessage request using the origin communicated via
-     * {@link CustomTabsService#requestPostMessageChannel(
-     * CustomTabsSessionToken, Uri)}. Fails when called before
-     * {@link PostMessageServiceConnection#notifyMessageChannelReady(Bundle)} is received on
-     * the client side.
-     *
-     * @param message The message that is being sent.
-     * @param extras Reserved for future use.
-     * @return An integer constant about the postMessage request result. Will return
-      *        {@link CustomTabsService#RESULT_SUCCESS} if successful.
-     */
-    @Result
-    public int postMessage(String message, Bundle extras) {
-        synchronized (mLock) {
-            try {
-                return mService.postMessage(mCallback, message, extras);
-            } catch (RemoteException e) {
-                return CustomTabsService.RESULT_FAILURE_REMOTE_ERROR;
-            }
         }
     }
 

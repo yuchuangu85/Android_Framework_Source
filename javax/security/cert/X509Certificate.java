@@ -73,7 +73,7 @@ import java.util.Date;
  * CA certificates are either signed by themselves, or by some other
  * CA such as a "root" CA.
  * <p>
- * The ASN.1 definition of {@code tbsCertificate} is:
+ * The ASN.1 definition of <code>tbsCertificate</code> is:
  * <pre>
  * TBSCertificate  ::=  SEQUENCE  {
  *     version         [0]  EXPLICIT Version DEFAULT v1,
@@ -99,34 +99,37 @@ import java.util.Date;
  * </pre>
  * <p>
  * In either case, the code that instantiates an X.509 certificate
- * consults the value of the {@code cert.provider.x509v1} security property
- * to locate the actual implementation or instantiates a default implementation.
+ * consults the Java security properties file to locate the actual
+ * implementation or instantiates a default implementation.
  * <p>
- * The {@code cert.provider.x509v1} property is set to a default
- * implementation for X.509 such as:
+ * The Java security properties file is located in the file named
+ * &lt;JAVA_HOME&gt;/lib/security/java.security.
+ * &lt;JAVA_HOME&gt; refers to the value of the java.home system property,
+ * and specifies the directory where the JRE is installed.
+ * In the Security properties file, a default implementation
+ * for X.509 v1 may be given such as:
  * <pre>
  * cert.provider.x509v1=com.sun.security.cert.internal.x509.X509V1CertImpl
  * </pre>
  * <p>
- * The value of this {@code cert.provider.x509v1} property has to be
- * changed to instantiate another implementation. If this security
+ * The value of this <code>cert.provider.x509v1</code> property has to be
+ * changed to instatiate another implementation. If this security
  * property is not set, a default implementation will be used.
  * Currently, due to possible security restrictions on access to
  * Security properties, this value is looked up and cached at class
  * initialization time and will fallback on a default implementation if
  * the Security property is not accessible.
  *
- * <p><em>Note: The classes in the package {@code javax.security.cert}
+ * <p><em>Note: The classes in the package <code>javax.security.cert</code>
  * exist for compatibility with earlier versions of the
  * Java Secure Sockets Extension (JSSE). New applications should instead
  * use the standard Java SE certificate classes located in
- * {@code java.security.cert}.</em></p>
+ * <code>java.security.cert</code>.</em></p>
  *
  * @author Hemma Prafullchandra
  * @since 1.4
  * @see Certificate
  * @see java.security.cert.X509Extension
- * @see java.security.Security security properties
  */
 public abstract class X509Certificate extends Certificate {
 
@@ -156,18 +159,19 @@ public abstract class X509Certificate extends Certificate {
 
     /**
      * Instantiates an X509Certificate object, and initializes it with
-     * the data read from the input stream {@code inStream}.
+     * the data read from the input stream <code>inStream</code>.
      * The implementation (X509Certificate is an abstract class) is
      * provided by the class specified as the value of the
-     * {@code cert.provider.x509v1} security property.
+     * <code>cert.provider.x509v1</code>
+     * property in the security properties file.
      *
      * <p>Note: Only one DER-encoded
      * certificate is expected to be in the input stream.
      * Also, all X509Certificate
      * subclasses must provide a constructor of the form:
-     * <pre>{@code
-     * public <subClass>(InputStream inStream) ...
-     * }</pre>
+     * <code><pre>
+     * public &lt;subClass&gt;(InputStream inStream) ...
+     * </pre></code>
      *
      * @param inStream an input stream with the data to be read to
      *        initialize the certificate.
@@ -186,18 +190,19 @@ public abstract class X509Certificate extends Certificate {
      * the specified byte array.
      * The implementation (X509Certificate is an abstract class) is
      * provided by the class specified as the value of the
-     * {@code cert.provider.x509v1} security property.
+     * <code>cert.provider.x509v1</code>
+     * property in the security properties file.
      *
      * <p>Note: All X509Certificate
      * subclasses must provide a constructor of the form:
-     * <pre>{@code
-     * public <subClass>(InputStream inStream) ...
-     * }</pre>
+     * <code><pre>
+     * public &lt;subClass&gt;(InputStream inStream) ...
+     * </pre></code>
      *
      * @param certData a byte array containing the DER-encoded
      *        certificate.
      * @return an X509Certificate object initialized with the data
-     *         from {@code certData}.
+     *         from <code>certData</code>.
      * @exception CertificateException if a class initialization
      *            or certificate parsing error occurs.
      */
@@ -222,11 +227,11 @@ public abstract class X509Certificate extends Certificate {
             className = DEFAULT_X509_CERT_CLASS;
         }
         try {
-            Class<?>[] params = null;
+            Class[] params = null;
             if (value instanceof InputStream) {
-                params = new Class<?>[] { InputStream.class };
+                params = new Class[] { InputStream.class };
             } else if (value instanceof byte[]) {
-                params = new Class<?>[] { value.getClass() };
+                params = new Class[] { value.getClass() };
             } else
                 throw new CertificateException("Unsupported argument type");
             Class<?> certClass = Class.forName(className);
@@ -263,12 +268,10 @@ public abstract class X509Certificate extends Certificate {
      * is valid. It is defined in
      * ASN.1 as:
      * <pre>
-     * validity             Validity
-     *
+     * validity             Validity<p>
      * Validity ::= SEQUENCE {
      *     notBefore      CertificateValidityDate,
-     *     notAfter       CertificateValidityDate }
-     *
+     *     notAfter       CertificateValidityDate }<p>
      * CertificateValidityDate ::= CHOICE {
      *     utcTime        UTCTime,
      *     generalTime    GeneralizedTime }
@@ -289,20 +292,19 @@ public abstract class X509Certificate extends Certificate {
      * @param date the Date to check against to see if this certificate
      *        is valid at that date/time.
      * @exception CertificateExpiredException if the certificate has expired
-     *            with respect to the {@code date} supplied.
+     *            with respect to the <code>date</code> supplied.
      * @exception CertificateNotYetValidException if the certificate is not
-     *            yet valid with respect to the {@code date} supplied.
+     *            yet valid with respect to the <code>date</code> supplied.
      * @see #checkValidity()
      */
     public abstract void checkValidity(Date date)
         throws CertificateExpiredException, CertificateNotYetValidException;
 
     /**
-     * Gets the {@code version} (version number) value from the
+     * Gets the <code>version</code> (version number) value from the
      * certificate. The ASN.1 definition for this is:
      * <pre>
-     * version         [0]  EXPLICIT Version DEFAULT v1
-     *
+     * version         [0]  EXPLICIT Version DEFAULT v1<p>
      * Version  ::=  INTEGER  {  v1(0), v2(1), v3(2)  }
      * </pre>
      *
@@ -311,14 +313,14 @@ public abstract class X509Certificate extends Certificate {
     public abstract int getVersion();
 
     /**
-     * Gets the {@code serialNumber} value from the certificate.
+     * Gets the <code>serialNumber</code> value from the certificate.
      * The serial number is an integer assigned by the certification
      * authority to each certificate. It must be unique for each
      * certificate issued by a given CA (i.e., the issuer name and
      * serial number identify a unique certificate).
      * The ASN.1 definition for this is:
      * <pre>
-     * serialNumber     CertificateSerialNumber
+     * serialNumber     CertificateSerialNumber<p>
      *
      * CertificateSerialNumber  ::=  INTEGER
      * </pre>
@@ -328,7 +330,7 @@ public abstract class X509Certificate extends Certificate {
     public abstract BigInteger getSerialNumber();
 
     /**
-     * Gets the {@code issuer} (issuer distinguished name) value from
+     * Gets the <code>issuer</code> (issuer distinguished name) value from
      * the certificate. The issuer name identifies the entity that signed (and
      * issued) the certificate.
      *
@@ -336,7 +338,7 @@ public abstract class X509Certificate extends Certificate {
      * X.500 distinguished name (DN).
      * The ASN.1 definition for this is:
      * <pre>
-     * issuer    Name
+     * issuer    Name<p>
      *
      * Name ::= CHOICE { RDNSequence }
      * RDNSequence ::= SEQUENCE OF RelativeDistinguishedName
@@ -349,27 +351,27 @@ public abstract class X509Certificate extends Certificate {
      * AttributeType ::= OBJECT IDENTIFIER
      * AttributeValue ::= ANY
      * </pre>
-     * The {@code Name} describes a hierarchical name composed of
+     * The <code>Name</code> describes a hierarchical name composed of
      * attributes, such as country name, and corresponding values, such as US.
-     * The type of the {@code AttributeValue} component is determined by
-     * the {@code AttributeType}; in general it will be a
-     * {@code directoryString}. A {@code directoryString} is usually
-     * one of {@code PrintableString},
-     * {@code TeletexString} or {@code UniversalString}.
+     * The type of the <code>AttributeValue</code> component is determined by
+     * the <code>AttributeType</code>; in general it will be a
+     * <code>directoryString</code>. A <code>directoryString</code> is usually
+     * one of <code>PrintableString</code>,
+     * <code>TeletexString</code> or <code>UniversalString</code>.
      *
      * @return a Principal whose name is the issuer distinguished name.
      */
     public abstract Principal getIssuerDN();
 
     /**
-     * Gets the {@code subject} (subject distinguished name) value
+     * Gets the <code>subject</code> (subject distinguished name) value
      * from the certificate.
      * The ASN.1 definition for this is:
      * <pre>
      * subject    Name
      * </pre>
      *
-     * <p>See {@link #getIssuerDN() getIssuerDN} for {@code Name}
+     * <p>See {@link #getIssuerDN() getIssuerDN} for <code>Name</code>
      * and other relevant definitions.
      *
      * @return a Principal whose name is the subject name.
@@ -378,16 +380,15 @@ public abstract class X509Certificate extends Certificate {
     public abstract Principal getSubjectDN();
 
     /**
-     * Gets the {@code notBefore} date from the validity period of
+     * Gets the <code>notBefore</code> date from the validity period of
      * the certificate.
      * The relevant ASN.1 definitions are:
      * <pre>
-     * validity             Validity
+     * validity             Validity<p>
      *
      * Validity ::= SEQUENCE {
      *     notBefore      CertificateValidityDate,
-     *     notAfter       CertificateValidityDate }
-     *
+     *     notAfter       CertificateValidityDate }<p>
      * CertificateValidityDate ::= CHOICE {
      *     utcTime        UTCTime,
      *     generalTime    GeneralizedTime }
@@ -399,7 +400,7 @@ public abstract class X509Certificate extends Certificate {
     public abstract Date getNotBefore();
 
     /**
-     * Gets the {@code notAfter} date from the validity period of
+     * Gets the <code>notAfter</code> date from the validity period of
      * the certificate. See {@link #getNotBefore() getNotBefore}
      * for relevant ASN.1 definitions.
      *
@@ -413,8 +414,7 @@ public abstract class X509Certificate extends Certificate {
      * signature algorithm. An example is the string "SHA-1/DSA".
      * The ASN.1 definition for this is:
      * <pre>
-     * signatureAlgorithm   AlgorithmIdentifier
-     *
+     * signatureAlgorithm   AlgorithmIdentifier<p>
      * AlgorithmIdentifier  ::=  SEQUENCE  {
      *     algorithm               OBJECT IDENTIFIER,
      *     parameters              ANY DEFINED BY algorithm OPTIONAL  }
@@ -423,7 +423,7 @@ public abstract class X509Certificate extends Certificate {
      *                             -- algorithm object identifier value
      * </pre>
      *
-     * <p>The algorithm name is determined from the {@code algorithm}
+     * <p>The algorithm name is determined from the <code>algorithm</code>
      * OID string.
      *
      * @return the signature algorithm name.

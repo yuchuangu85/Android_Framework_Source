@@ -19,27 +19,23 @@ package android.widget;
 import android.annotation.DrawableRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.graphics.PorterDuff;
+import android.view.ViewHierarchyEncoder;
+import com.android.internal.R;
+
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
-import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.view.Gravity;
 import android.view.SoundEffectConstants;
 import android.view.ViewDebug;
-import android.view.ViewHierarchyEncoder;
-import android.view.ViewStructure;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
-import android.view.autofill.AutofillManager;
-import android.view.autofill.AutofillValue;
-
-import com.android.internal.R;
 
 /**
  * <p>
@@ -56,8 +52,6 @@ import com.android.internal.R;
  * </p>
  */
 public abstract class CompoundButton extends Button implements Checkable {
-    private static final String LOG_TAG = CompoundButton.class.getSimpleName();
-
     private boolean mChecked;
     private boolean mBroadcasting;
 
@@ -69,10 +63,6 @@ public abstract class CompoundButton extends Button implements Checkable {
 
     private OnCheckedChangeListener mOnCheckedChangeListener;
     private OnCheckedChangeListener mOnCheckedChangeWidgetListener;
-
-    // Indicates whether the toggle state was set from resources or dynamically, so it can be used
-    // to sanitize autofill requests.
-    private boolean mCheckedFromResource = false;
 
     private static final int[] CHECKED_STATE_SET = {
         R.attr.state_checked
@@ -115,14 +105,12 @@ public abstract class CompoundButton extends Button implements Checkable {
         final boolean checked = a.getBoolean(
                 com.android.internal.R.styleable.CompoundButton_checked, false);
         setChecked(checked);
-        mCheckedFromResource = true;
 
         a.recycle();
 
         applyButtonTint();
     }
 
-    @Override
     public void toggle() {
         setChecked(!mChecked);
     }
@@ -142,7 +130,6 @@ public abstract class CompoundButton extends Button implements Checkable {
     }
 
     @ViewDebug.ExportedProperty
-    @Override
     public boolean isChecked() {
         return mChecked;
     }
@@ -152,10 +139,8 @@ public abstract class CompoundButton extends Button implements Checkable {
      *
      * @param checked true to check the button, false to uncheck it
      */
-    @Override
     public void setChecked(boolean checked) {
         if (mChecked != checked) {
-            mCheckedFromResource = false;
             mChecked = checked;
             refreshDrawableState();
             notifyViewAccessibilityStateChangedIfNeeded(
@@ -173,12 +158,8 @@ public abstract class CompoundButton extends Button implements Checkable {
             if (mOnCheckedChangeWidgetListener != null) {
                 mOnCheckedChangeWidgetListener.onCheckedChanged(this, mChecked);
             }
-            final AutofillManager afm = mContext.getSystemService(AutofillManager.class);
-            if (afm != null) {
-                afm.notifyValueChanged(this);
-            }
 
-            mBroadcasting = false;
+            mBroadcasting = false;            
         }
     }
 
@@ -188,7 +169,7 @@ public abstract class CompoundButton extends Button implements Checkable {
      *
      * @param listener the callback to call on checked state change
      */
-    public void setOnCheckedChangeListener(@Nullable OnCheckedChangeListener listener) {
+    public void setOnCheckedChangeListener(OnCheckedChangeListener listener) {
         mOnCheckedChangeListener = listener;
     }
 
@@ -240,6 +221,7 @@ public abstract class CompoundButton extends Button implements Checkable {
      * @param drawable the drawable to set
      * @attr ref android.R.styleable#CompoundButton_button
      */
+    @Nullable
     public void setButtonDrawable(@Nullable Drawable drawable) {
         if (mButtonDrawable != drawable) {
             if (mButtonDrawable != null) {
@@ -511,7 +493,7 @@ public abstract class CompoundButton extends Button implements Checkable {
         SavedState(Parcelable superState) {
             super(superState);
         }
-
+        
         /**
          * Constructor called from {@link #CREATOR}
          */
@@ -533,15 +515,12 @@ public abstract class CompoundButton extends Button implements Checkable {
                     + " checked=" + checked + "}";
         }
 
-        @SuppressWarnings("hiding")
-        public static final Parcelable.Creator<SavedState> CREATOR =
-                new Parcelable.Creator<SavedState>() {
-            @Override
+        public static final Parcelable.Creator<SavedState> CREATOR
+                = new Parcelable.Creator<SavedState>() {
             public SavedState createFromParcel(Parcel in) {
                 return new SavedState(in);
             }
 
-            @Override
             public SavedState[] newArray(int size) {
                 return new SavedState[size];
             }
@@ -572,34 +551,5 @@ public abstract class CompoundButton extends Button implements Checkable {
     protected void encodeProperties(@NonNull ViewHierarchyEncoder stream) {
         super.encodeProperties(stream);
         stream.addProperty("checked", isChecked());
-    }
-
-    @Override
-    public void onProvideAutofillStructure(ViewStructure structure, int flags) {
-        super.onProvideAutofillStructure(structure, flags);
-
-        structure.setDataIsSensitive(!mCheckedFromResource);
-    }
-
-    @Override
-    public void autofill(AutofillValue value) {
-        if (!isEnabled()) return;
-
-        if (!value.isToggle()) {
-            Log.w(LOG_TAG, value + " could not be autofilled into " + this);
-            return;
-        }
-
-        setChecked(value.getToggleValue());
-    }
-
-    @Override
-    public @AutofillType int getAutofillType() {
-        return isEnabled() ? AUTOFILL_TYPE_TOGGLE : AUTOFILL_TYPE_NONE;
-    }
-
-    @Override
-    public AutofillValue getAutofillValue() {
-        return isEnabled() ? AutofillValue.forToggle(isChecked()) : null;
     }
 }

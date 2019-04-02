@@ -18,7 +18,6 @@ package com.android.server.accessibility;
 
 import android.content.ContentResolver;
 import android.content.Context;
-import android.os.Binder;
 import android.provider.Settings.Secure;
 import android.view.accessibility.AccessibilityManager;
 
@@ -61,15 +60,10 @@ class DisplayAdjustmentUtils {
         final DisplayTransformManager dtm = LocalServices.getService(DisplayTransformManager.class);
 
         int daltonizerMode = AccessibilityManager.DALTONIZER_DISABLED;
-        long identity = Binder.clearCallingIdentity();
-        try {
-            if (Secure.getIntForUser(cr,
-                    Secure.ACCESSIBILITY_DISPLAY_DALTONIZER_ENABLED, 0, userId) != 0) {
-                daltonizerMode = Secure.getIntForUser(cr,
-                        Secure.ACCESSIBILITY_DISPLAY_DALTONIZER, DEFAULT_DISPLAY_DALTONIZER, userId);
-            }
-        } finally {
-            Binder.restoreCallingIdentity(identity);
+        if (Secure.getIntForUser(cr,
+                Secure.ACCESSIBILITY_DISPLAY_DALTONIZER_ENABLED, 0, userId) != 0) {
+            daltonizerMode = Secure.getIntForUser(cr,
+                    Secure.ACCESSIBILITY_DISPLAY_DALTONIZER, DEFAULT_DISPLAY_DALTONIZER, userId);
         }
 
         float[] grayscaleMatrix = null;
@@ -89,14 +83,9 @@ class DisplayAdjustmentUtils {
         final ContentResolver cr = context.getContentResolver();
         final DisplayTransformManager dtm = LocalServices.getService(DisplayTransformManager.class);
 
-        long identity = Binder.clearCallingIdentity();
-        try {
-            final boolean invertColors = Secure.getIntForUser(cr,
-                    Secure.ACCESSIBILITY_DISPLAY_INVERSION_ENABLED, 0, userId) != 0;
-            dtm.setColorMatrix(DisplayTransformManager.LEVEL_COLOR_MATRIX_INVERT_COLOR,
-                    invertColors ? MATRIX_INVERT_COLOR : null);
-        } finally {
-            Binder.restoreCallingIdentity(identity);
-        }
+        final boolean invertColors = Secure.getIntForUser(cr,
+                Secure.ACCESSIBILITY_DISPLAY_INVERSION_ENABLED, 0, userId) != 0;
+        dtm.setColorMatrix(DisplayTransformManager.LEVEL_COLOR_MATRIX_INVERT_COLOR,
+                invertColors ? MATRIX_INVERT_COLOR : null);
     }
 }

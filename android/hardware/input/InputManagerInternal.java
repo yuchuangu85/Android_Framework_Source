@@ -22,8 +22,6 @@ import android.view.InputEvent;
 import android.view.inputmethod.InputMethodInfo;
 import android.view.inputmethod.InputMethodSubtype;
 
-import java.util.List;
-
 /**
  * Input manager local system service interface.
  *
@@ -37,7 +35,7 @@ public abstract class InputManagerInternal {
      * by the input system.  The input system must copy this information to retain it.
      */
     public abstract void setDisplayViewports(DisplayViewport defaultViewport,
-            DisplayViewport externalTouchViewport, List<DisplayViewport> virtualTouchViewports);
+            DisplayViewport externalTouchViewport);
 
     /**
      * Called by the power manager to tell the input manager whether it should start

@@ -86,7 +86,7 @@ public abstract class BaseSurfaceHolder implements SurfaceHolder {
             mCallbacks.remove(callback);
         }
     }
-
+    
     public SurfaceHolder.Callback[] getCallbacks() {
         if (mHaveGottenCallbacks) {
             return mGottenCallbacks;
@@ -153,22 +153,15 @@ public abstract class BaseSurfaceHolder implements SurfaceHolder {
         }
     }
 
-    @Override
     public Canvas lockCanvas() {
-        return internalLockCanvas(null, false);
+        return internalLockCanvas(null);
     }
 
-    @Override
     public Canvas lockCanvas(Rect dirty) {
-        return internalLockCanvas(dirty, false);
+        return internalLockCanvas(dirty);
     }
 
-    @Override
-    public Canvas lockHardwareCanvas() {
-        return internalLockCanvas(null, true);
-    }
-
-    private final Canvas internalLockCanvas(Rect dirty, boolean hardware) {
+    private final Canvas internalLockCanvas(Rect dirty) {
         if (mType == SURFACE_TYPE_PUSH_BUFFERS) {
             throw new BadSurfaceTypeException(
                     "Surface type is SURFACE_TYPE_PUSH_BUFFERS");
@@ -188,11 +181,7 @@ public abstract class BaseSurfaceHolder implements SurfaceHolder {
             }
 
             try {
-                if (hardware) {
-                    c = mSurface.lockHardwareCanvas();
-                } else {
-                    c = mSurface.lockCanvas(dirty);
-                }
+                c = mSurface.lockCanvas(dirty);
             } catch (Exception e) {
                 Log.e(TAG, "Exception locking surface", e);
             }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,7 +51,7 @@ public class Manifest implements Cloneable {
     private Attributes attr = new Attributes();
 
     // manifest entries
-    private Map<String, Attributes> entries = new HashMap<>();
+    private Map entries = new HashMap();
 
     /**
      * Constructs a new, empty Manifest.
@@ -63,7 +63,7 @@ public class Manifest implements Cloneable {
      * Constructs a new Manifest from the specified input stream.
      *
      * @param is the input stream containing manifest data
-     * @throws IOException if an I/O error has occurred
+     * @throws IOException if an I/O error has occured
      */
     public Manifest(InputStream is) throws IOException {
         read(is);
@@ -148,11 +148,11 @@ public class Manifest implements Cloneable {
         // Write out the main attributes for the manifest
         attr.writeMain(dos);
         // Now write out the pre-entry attributes
-        Iterator<Map.Entry<String, Attributes>> it = entries.entrySet().iterator();
+        Iterator it = entries.entrySet().iterator();
         while (it.hasNext()) {
-            Map.Entry<String, Attributes> e = it.next();
+            Map.Entry e = (Map.Entry)it.next();
             StringBuffer buffer = new StringBuffer("Name: ");
-            String value = e.getKey();
+            String value = (String)e.getKey();
             if (value != null) {
                 byte[] vb = value.getBytes("UTF8");
                 value = new String(vb, 0, 0, vb.length);
@@ -161,7 +161,7 @@ public class Manifest implements Cloneable {
             buffer.append("\r\n");
             make72Safe(buffer);
             dos.writeBytes(buffer.toString());
-            e.getValue().write(dos);
+            ((Attributes)e.getValue()).write(dos);
         }
         dos.flush();
     }
@@ -339,7 +339,7 @@ public class Manifest implements Cloneable {
                     return -1;
                 }
             }
-            return Byte.toUnsignedInt(buf[pos++]);
+            return buf[pos++] & 0xff;
         }
 
         public int read(byte[] b, int off, int len) throws IOException {

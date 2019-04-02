@@ -16,6 +16,8 @@
 
 package android.widget;
 
+import com.android.internal.R;
+
 import android.app.Service;
 import android.content.Context;
 import android.content.res.Configuration;
@@ -36,11 +38,9 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
-import com.android.internal.R;
+import java.util.Locale;
 
 import libcore.icu.LocaleData;
-
-import java.util.Locale;
 
 /**
  * A delegate implementing the legacy CalendarView
@@ -103,7 +103,7 @@ class CalendarViewLegacyDelegate extends CalendarView.AbstractCalendarViewDelega
 
     private static final int DEFAULT_WEEK_DAY_TEXT_APPEARANCE_RES_ID = -1;
 
-    private final int mWeekSeparatorLineWidth;
+    private final int mWeekSeperatorLineWidth;
 
     private int mDateTextSize;
 
@@ -308,7 +308,7 @@ class CalendarViewLegacyDelegate extends CalendarView.AbstractCalendarViewDelega
                 UNSCALED_BOTTOM_BUFFER, displayMetrics);
         mSelectedDateVerticalBarWidth = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP,
                 UNSCALED_SELECTED_DATE_VERTICAL_BAR_WIDTH, displayMetrics);
-        mWeekSeparatorLineWidth = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP,
+        mWeekSeperatorLineWidth = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP,
                 UNSCALED_WEEK_SEPARATOR_LINE_WIDTH, displayMetrics);
 
         LayoutInflater layoutInflater = (LayoutInflater) mContext
@@ -316,9 +316,9 @@ class CalendarViewLegacyDelegate extends CalendarView.AbstractCalendarViewDelega
         View content = layoutInflater.inflate(R.layout.calendar_view, null, false);
         mDelegator.addView(content);
 
-        mListView = mDelegator.findViewById(R.id.list);
-        mDayNamesHeader = content.findViewById(R.id.day_names);
-        mMonthName = content.findViewById(R.id.month_name);
+        mListView = (ListView) mDelegator.findViewById(R.id.list);
+        mDayNamesHeader = (ViewGroup) content.findViewById(R.id.day_names);
+        mMonthName = (TextView) content.findViewById(R.id.month_name);
 
         setUpHeader();
         setUpListView();
@@ -602,30 +602,6 @@ class CalendarViewLegacyDelegate extends CalendarView.AbstractCalendarViewDelega
     }
 
     @Override
-    public boolean getBoundsForDate(long date, Rect outBounds) {
-        Calendar calendarDate = Calendar.getInstance();
-        calendarDate.setTimeInMillis(date);
-        int listViewEntryCount = mListView.getCount();
-        for (int i = 0; i < listViewEntryCount; i++) {
-            WeekView currWeekView = (WeekView) mListView.getChildAt(i);
-            if (currWeekView.getBoundsForDate(calendarDate, outBounds)) {
-                // Found the date in this week. Now need to offset vertically to return correct
-                // bounds in the coordinate system of the entire layout
-                final int[] weekViewPositionOnScreen = new int[2];
-                final int[] delegatorPositionOnScreen = new int[2];
-                currWeekView.getLocationOnScreen(weekViewPositionOnScreen);
-                mDelegator.getLocationOnScreen(delegatorPositionOnScreen);
-                final int extraVerticalOffset =
-                        weekViewPositionOnScreen[1] - delegatorPositionOnScreen[1];
-                outBounds.top += extraVerticalOffset;
-                outBounds.bottom += extraVerticalOffset;
-                return true;
-            }
-        }
-        return false;
-    }
-
-    @Override
     public void onConfigurationChanged(Configuration newConfig) {
         setCurrentLocale(newConfig.locale);
     }
@@ -789,14 +765,14 @@ class CalendarViewLegacyDelegate extends CalendarView.AbstractCalendarViewDelega
      * @param forceScroll Whether to recenter even if the time is already
      *            visible.
      *
-     * @throws IllegalArgumentException if the provided date is before the
-     *         range start or after the range end.
+     * @throws IllegalArgumentException of the provided date is before the
+     *        range start of after the range end.
      */
     private void goTo(Calendar date, boolean animate, boolean setSelected,
             boolean forceScroll) {
         if (date.before(mMinDate) || date.after(mMaxDate)) {
-            throw new IllegalArgumentException("timeInMillis must be between the values of "
-                    + "getMinDate() and getMaxDate()");
+            throw new IllegalArgumentException("Time not between " + mMinDate.getTime()
+                    + " and " + mMaxDate.getTime());
         }
         // Find the first and last entirely visible weeks
         int firstFullyVisiblePosition = mListView.getFirstVisiblePosition();
@@ -1223,7 +1199,7 @@ class CalendarViewLegacyDelegate extends CalendarView.AbstractCalendarViewDelega
             super(context);
 
             // Sets up any standard paints that will be used
-            initializePaints();
+            initilaizePaints();
         }
 
         /**
@@ -1294,7 +1270,7 @@ class CalendarViewLegacyDelegate extends CalendarView.AbstractCalendarViewDelega
         /**
          * Initialize the paint instances.
          */
-        private void initializePaints() {
+        private void initilaizePaints() {
             mDrawPaint.setFakeBoldText(false);
             mDrawPaint.setAntiAlias(true);
             mDrawPaint.setStyle(Paint.Style.FILL);
@@ -1372,34 +1348,6 @@ class CalendarViewLegacyDelegate extends CalendarView.AbstractCalendarViewDelega
             return true;
         }
 
-        public boolean getBoundsForDate(Calendar date, Rect outBounds) {
-            Calendar currDay = Calendar.getInstance();
-            currDay.setTime(mFirstDay.getTime());
-            for (int i = 0; i < mDaysPerWeek; i++) {
-                if ((date.get(Calendar.YEAR) == currDay.get(Calendar.YEAR))
-                    && (date.get(Calendar.MONTH) == currDay.get(Calendar.MONTH))
-                    && (date.get(Calendar.DAY_OF_MONTH) == currDay.get(Calendar.DAY_OF_MONTH))) {
-                    // We found the matching date. Follow the logic in the draw pass that divides
-                    // the available horizontal space equally between all the entries in this week.
-                    // Note that if we're showing week number, the start entry will be that number.
-                    int cellSize = mWidth / mNumCells;
-                    if (isLayoutRtl()) {
-                        outBounds.left = cellSize *
-                                (mShowWeekNumber ? (mNumCells - i - 2) : (mNumCells - i - 1));
-                    } else {
-                        outBounds.left = cellSize * (mShowWeekNumber ? i + 1 : i);
-                    }
-                    outBounds.top = 0;
-                    outBounds.right = outBounds.left + cellSize;
-                    outBounds.bottom = getHeight();
-                    return true;
-                }
-                // Add one day
-                currDay.add(Calendar.DAY_OF_MONTH, 1);
-            }
-            return false;
-        }
-
         @Override
         protected void onDraw(Canvas canvas) {
             drawBackground(canvas);
@@ -1419,7 +1367,7 @@ class CalendarViewLegacyDelegate extends CalendarView.AbstractCalendarViewDelega
             }
             mDrawPaint.setColor(mSelectedWeekBackgroundColor);
 
-            mTempRect.top = mWeekSeparatorLineWidth;
+            mTempRect.top = mWeekSeperatorLineWidth;
             mTempRect.bottom = mHeight;
 
             final boolean isLayoutRtl = isLayoutRtl();
@@ -1450,7 +1398,7 @@ class CalendarViewLegacyDelegate extends CalendarView.AbstractCalendarViewDelega
          */
         private void drawWeekNumbersAndDates(Canvas canvas) {
             final float textHeight = mDrawPaint.getTextSize();
-            final int y = (int) ((mHeight + textHeight) / 2) - mWeekSeparatorLineWidth;
+            final int y = (int) ((mHeight + textHeight) / 2) - mWeekSeperatorLineWidth;
             final int nDays = mNumCells;
             final int divisor = 2 * nDays;
 
@@ -1502,7 +1450,7 @@ class CalendarViewLegacyDelegate extends CalendarView.AbstractCalendarViewDelega
                 return;
             }
             mDrawPaint.setColor(mWeekSeparatorLineColor);
-            mDrawPaint.setStrokeWidth(mWeekSeparatorLineWidth);
+            mDrawPaint.setStrokeWidth(mWeekSeperatorLineWidth);
             float startX;
             float stopX;
             if (isLayoutRtl()) {
@@ -1526,13 +1474,13 @@ class CalendarViewLegacyDelegate extends CalendarView.AbstractCalendarViewDelega
             }
             mSelectedDateVerticalBar.setBounds(
                     mSelectedLeft - mSelectedDateVerticalBarWidth / 2,
-                    mWeekSeparatorLineWidth,
+                    mWeekSeperatorLineWidth,
                     mSelectedLeft + mSelectedDateVerticalBarWidth / 2,
                     mHeight);
             mSelectedDateVerticalBar.draw(canvas);
             mSelectedDateVerticalBar.setBounds(
                     mSelectedRight - mSelectedDateVerticalBarWidth / 2,
-                    mWeekSeparatorLineWidth,
+                    mWeekSeperatorLineWidth,
                     mSelectedRight + mSelectedDateVerticalBarWidth / 2,
                     mHeight);
             mSelectedDateVerticalBar.draw(canvas);

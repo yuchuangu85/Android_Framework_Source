@@ -19,24 +19,17 @@ package android.text.util;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.content.Context;
 import android.telephony.PhoneNumberUtils;
-import android.telephony.TelephonyManager;
-import android.text.Spannable;
-import android.text.SpannableString;
-import android.text.Spanned;
 import android.text.method.LinkMovementMethod;
 import android.text.method.MovementMethod;
 import android.text.style.URLSpan;
+import android.text.Spannable;
+import android.text.SpannableString;
+import android.text.Spanned;
 import android.util.Patterns;
 import android.webkit.WebView;
 import android.widget.TextView;
 
-import com.android.i18n.phonenumbers.PhoneNumberMatch;
-import com.android.i18n.phonenumbers.PhoneNumberUtil;
-import com.android.i18n.phonenumbers.PhoneNumberUtil.Leniency;
-
-import libcore.util.EmptyArray;
 
 import java.io.UnsupportedEncodingException;
 import java.lang.annotation.Retention;
@@ -48,6 +41,12 @@ import java.util.Comparator;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import com.android.i18n.phonenumbers.PhoneNumberMatch;
+import com.android.i18n.phonenumbers.PhoneNumberUtil;
+import com.android.i18n.phonenumbers.PhoneNumberUtil.Leniency;
+
+import libcore.util.EmptyArray;
 
 /**
  *  Linkify take a piece of text and a regular expression and turns all of the
@@ -223,11 +222,6 @@ public class Linkify {
      *  @return True if at least one link is found and applied.
      */
     public static final boolean addLinks(@NonNull Spannable text, @LinkifyMask int mask) {
-        return addLinks(text, mask, null);
-    }
-
-    private static boolean addLinks(@NonNull Spannable text, @LinkifyMask int mask,
-            @Nullable Context context) {
         if (mask == 0) {
             return false;
         }
@@ -253,7 +247,7 @@ public class Linkify {
         }
 
         if ((mask & PHONE_NUMBERS) != 0) {
-            gatherTelLinks(links, text, context);
+            gatherTelLinks(links, text);
         }
 
         if ((mask & MAP_ADDRESSES) != 0) {
@@ -289,10 +283,10 @@ public class Linkify {
             return false;
         }
 
-        final Context context = text.getContext();
-        final CharSequence t = text.getText();
+        CharSequence t = text.getText();
+
         if (t instanceof Spannable) {
-            if (addLinks((Spannable) t, mask, context)) {
+            if (addLinks((Spannable) t, mask)) {
                 addLinkMovementMethod(text);
                 return true;
             }
@@ -301,7 +295,7 @@ public class Linkify {
         } else {
             SpannableString s = SpannableString.valueOf(t);
 
-            if (addLinks(s, mask, context)) {
+            if (addLinks(s, mask)) {
                 addLinkMovementMethod(text);
                 text.setText(s);
 
@@ -535,15 +529,10 @@ public class Linkify {
         }
     }
 
-    private static void gatherTelLinks(ArrayList<LinkSpec> links, Spannable s,
-            @Nullable Context context) {
+    private static final void gatherTelLinks(ArrayList<LinkSpec> links, Spannable s) {
         PhoneNumberUtil phoneUtil = PhoneNumberUtil.getInstance();
-        final TelephonyManager tm = (context == null)
-                ? TelephonyManager.getDefault()
-                : TelephonyManager.from(context);
         Iterable<PhoneNumberMatch> matches = phoneUtil.findNumbers(s.toString(),
-                tm.getSimCountryIso().toUpperCase(Locale.US),
-                Leniency.POSSIBLE, Long.MAX_VALUE);
+                Locale.getDefault().getCountry(), Leniency.POSSIBLE, Long.MAX_VALUE);
         for (PhoneNumberMatch match : matches) {
             LinkSpec spec = new LinkSpec();
             spec.url = "tel:" + PhoneNumberUtils.normalizeNumber(match.rawString());

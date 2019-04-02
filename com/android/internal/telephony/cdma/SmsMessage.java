@@ -29,7 +29,6 @@ import android.text.TextUtils;
 import android.content.res.Resources;
 
 import com.android.internal.telephony.GsmAlphabet.TextEncodingDetails;
-import com.android.internal.telephony.SmsAddress;
 import com.android.internal.telephony.SmsConstants;
 import com.android.internal.telephony.SmsHeader;
 import com.android.internal.telephony.SmsMessageBase;
@@ -102,15 +101,6 @@ public class SmsMessage extends SmsMessageBase {
     private SmsEnvelope mEnvelope;
     private BearerData mBearerData;
 
-    /** @hide */
-    public SmsMessage(SmsAddress addr, SmsEnvelope env) {
-        mOriginatingAddress = addr;
-        mEnvelope = env;
-        createPdu();
-    }
-
-    public SmsMessage() {}
-
     public static class SubmitPdu extends SubmitPduBase {
     }
 
@@ -131,6 +121,108 @@ public class SmsMessage extends SmsMessageBase {
             Log.e(LOG_TAG, "SMS PDU parsing failed with out of memory: ", e);
             return null;
         }
+    }
+
+    /**
+     *  Create a "raw" CDMA SmsMessage from a Parcel that was forged in ril.cpp.
+     *  Note: Only primitive fields are set.
+     */
+    public static SmsMessage newFromParcel(Parcel p) {
+        // Note: Parcel.readByte actually reads one Int and masks to byte
+        SmsMessage msg = new SmsMessage();
+        SmsEnvelope env = new SmsEnvelope();
+        CdmaSmsAddress addr = new CdmaSmsAddress();
+        CdmaSmsSubaddress subaddr = new CdmaSmsSubaddress();
+        byte[] data;
+        byte count;
+        int countInt;
+        int addressDigitMode;
+
+        //currently not supported by the modem-lib: env.mMessageType
+        env.teleService = p.readInt(); //p_cur->uTeleserviceID
+
+        if (0 != p.readByte()) { //p_cur->bIsServicePresent
+            env.messageType = SmsEnvelope.MESSAGE_TYPE_BROADCAST;
+        }
+        else {
+            if (SmsEnvelope.TELESERVICE_NOT_SET == env.teleService) {
+                // assume type ACK
+                env.messageType = SmsEnvelope.MESSAGE_TYPE_ACKNOWLEDGE;
+            } else {
+                env.messageType = SmsEnvelope.MESSAGE_TYPE_POINT_TO_POINT;
+            }
+        }
+        env.serviceCategory = p.readInt(); //p_cur->uServicecategory
+
+        // address
+        addressDigitMode = p.readInt();
+        addr.digitMode = (byte) (0xFF & addressDigitMode); //p_cur->sAddress.digit_mode
+        addr.numberMode = (byte) (0xFF & p.readInt()); //p_cur->sAddress.number_mode
+        addr.ton = p.readInt(); //p_cur->sAddress.number_type
+        addr.numberPlan = (byte) (0xFF & p.readInt()); //p_cur->sAddress.number_plan
+        count = p.readByte(); //p_cur->sAddress.number_of_digits
+        addr.numberOfDigits = count;
+        data = new byte[count];
+        //p_cur->sAddress.digits[digitCount]
+        for (int index=0; index < count; index++) {
+            data[index] = p.readByte();
+
+            // convert the value if it is 4-bit DTMF to 8 bit
+            if (addressDigitMode == CdmaSmsAddress.DIGIT_MODE_4BIT_DTMF) {
+                data[index] = msg.convertDtmfToAscii(data[index]);
+            }
+        }
+
+        addr.origBytes = data;
+
+        subaddr.type = p.readInt(); // p_cur->sSubAddress.subaddressType
+        subaddr.odd = p.readByte();     // p_cur->sSubAddress.odd
+        count = p.readByte();           // p_cur->sSubAddress.number_of_digits
+
+        if (count < 0) {
+            count = 0;
+        }
+
+        // p_cur->sSubAddress.digits[digitCount] :
+
+        data = new byte[count];
+
+        for (int index = 0; index < count; ++index) {
+            data[index] = p.readByte();
+        }
+
+        subaddr.origBytes = data;
+
+        /* currently not supported by the modem-lib:
+            env.bearerReply
+            env.replySeqNo
+            env.errorClass
+            env.causeCode
+        */
+
+        // bearer data
+        countInt = p.readInt(); //p_cur->uBearerDataLen
+        if (countInt < 0) {
+            countInt = 0;
+        }
+
+        data = new byte[countInt];
+        for (int index=0; index < countInt; index++) {
+            data[index] = p.readByte();
+        }
+        // BD gets further decoded when accessed in SMSDispatcher
+        env.bearerData = data;
+
+        // link the the filled objects to the SMS
+        env.origAddress = addr;
+        env.origSubaddress = subaddr;
+        msg.mOriginatingAddress = addr;
+        msg.mEnvelope = env;
+
+        // create byte stream representation for transportation through the layers.
+        msg.createPdu();
+
+        return msg;
     }
 
     /**
@@ -854,9 +946,8 @@ public class SmsMessage extends SmsMessageBase {
     /**
      * Creates byte array (pseudo pdu) from SMS object.
      * Note: Do not call this method more than once per object!
-     * @hide
      */
-    public void createPdu() {
+    private void createPdu() {
         SmsEnvelope env = mEnvelope;
         CdmaSmsAddress addr = env.origAddress;
         ByteArrayOutputStream baos = new ByteArrayOutputStream(100);
@@ -900,9 +991,8 @@ public class SmsMessage extends SmsMessageBase {
 
     /**
      * Converts a 4-Bit DTMF encoded symbol from the calling address number to ASCII character
-     * @hide
      */
-    public static byte convertDtmfToAscii(byte dtmfDigit) {
+    private byte convertDtmfToAscii(byte dtmfDigit) {
         byte asciiDigit;
 
         switch (dtmfDigit) {

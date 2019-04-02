@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2004, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,7 @@
 
 package javax.net.ssl;
 
+import java.security.KeyManagementException;
 import java.security.PrivateKey;
 import java.security.Principal;
 import java.security.cert.X509Certificate;
@@ -40,7 +41,7 @@ import java.net.Socket;
  * <UL>
  * <LI> determine the set of aliases that are available for negotiations
  *      based on the criteria presented,
- * <LI> select the <i> best alias</i> based on
+ * <LI> select the <ITALIC> best alias </ITALIC> based on
  *      the criteria presented, and
  * <LI> obtain the corresponding key material for given aliases.
  * </UL>

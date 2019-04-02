@@ -16,10 +16,6 @@
 
 package android.widget;
 
-import static android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO;
-import static android.view.View.IMPORTANT_FOR_ACCESSIBILITY_YES;
-
-import android.annotation.TestApi;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.os.Parcelable;
@@ -32,12 +28,14 @@ import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
-
 import com.android.internal.R;
+
+import java.util.Calendar;
 
 import libcore.icu.LocaleData;
 
-import java.util.Calendar;
+import static android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO;
+import static android.view.View.IMPORTANT_FOR_ACCESSIBILITY_YES;
 
 /**
  * A delegate implementing the basic spinner-based TimePicker.
@@ -83,11 +81,10 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
         a.recycle();
 
         final LayoutInflater inflater = LayoutInflater.from(mContext);
-        final View view = inflater.inflate(layoutResourceId, mDelegator, true);
-        view.setSaveFromParentEnabled(false);
+        inflater.inflate(layoutResourceId, mDelegator, true);
 
         // hour
-        mHourSpinner = delegator.findViewById(R.id.hour);
+        mHourSpinner = (NumberPicker) delegator.findViewById(R.id.hour);
         mHourSpinner.setOnValueChangedListener(new NumberPicker.OnValueChangeListener() {
             public void onValueChange(NumberPicker spinner, int oldVal, int newVal) {
                 updateInputState();
@@ -101,17 +98,17 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
                 onTimeChanged();
             }
         });
-        mHourSpinnerInput = mHourSpinner.findViewById(R.id.numberpicker_input);
+        mHourSpinnerInput = (EditText) mHourSpinner.findViewById(R.id.numberpicker_input);
         mHourSpinnerInput.setImeOptions(EditorInfo.IME_ACTION_NEXT);
 
         // divider (only for the new widget style)
-        mDivider = mDelegator.findViewById(R.id.divider);
+        mDivider = (TextView) mDelegator.findViewById(R.id.divider);
         if (mDivider != null) {
             setDividerText();
         }
 
         // minute
-        mMinuteSpinner = mDelegator.findViewById(R.id.minute);
+        mMinuteSpinner = (NumberPicker) mDelegator.findViewById(R.id.minute);
         mMinuteSpinner.setMinValue(0);
         mMinuteSpinner.setMaxValue(59);
         mMinuteSpinner.setOnLongPressUpdateInterval(100);
@@ -139,7 +136,7 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
                 onTimeChanged();
             }
         });
-        mMinuteSpinnerInput = mMinuteSpinner.findViewById(R.id.numberpicker_input);
+        mMinuteSpinnerInput = (EditText) mMinuteSpinner.findViewById(R.id.numberpicker_input);
         mMinuteSpinnerInput.setImeOptions(EditorInfo.IME_ACTION_NEXT);
 
         // Get the localized am/pm strings and use them in the spinner.
@@ -174,13 +171,13 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
                     onTimeChanged();
                 }
             });
-            mAmPmSpinnerInput = mAmPmSpinner.findViewById(R.id.numberpicker_input);
+            mAmPmSpinnerInput = (EditText) mAmPmSpinner.findViewById(R.id.numberpicker_input);
             mAmPmSpinnerInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
         }
 
         if (isAmPmAtStart()) {
             // Move the am/pm view to the beginning
-            ViewGroup amPmParent = delegator.findViewById(R.id.timePickerLayout);
+            ViewGroup amPmParent = (ViewGroup) delegator.findViewById(R.id.timePickerLayout);
             amPmParent.removeView(amPmView);
             amPmParent.addView(amPmView, 0);
             // Swap layout margins if needed. They may be not symmetrical (Old Standard Theme
@@ -218,11 +215,6 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
         if (mDelegator.getImportantForAccessibility() == IMPORTANT_FOR_ACCESSIBILITY_AUTO) {
             mDelegator.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
         }
-    }
-
-    @Override
-    public boolean validateInput() {
-        return true;
     }
 
     private void getHourFormatData() {
@@ -284,14 +276,6 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
     }
 
     @Override
-    public void setDate(int hour, int minute) {
-        setCurrentHour(hour, false);
-        setCurrentMinute(minute, false);
-
-        onTimeChanged();
-    }
-
-    @Override
     public void setHour(int hour) {
         setCurrentHour(hour, true);
     }
@@ -301,7 +285,6 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
         if (currentHour == getHour()) {
             return;
         }
-        resetAutofilledValue();
         if (!is24Hour()) {
             // convert [0,23] ordinal to wall clock display
             if (currentHour >= HOURS_IN_HALF_DAY) {
@@ -337,18 +320,11 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
 
     @Override
     public void setMinute(int minute) {
-        setCurrentMinute(minute, true);
-    }
-
-    private void setCurrentMinute(int minute, boolean notifyTimeChanged) {
         if (minute == getMinute()) {
             return;
         }
-        resetAutofilledValue();
         mMinuteSpinner.setValue(minute);
-        if (notifyTimeChanged) {
-            onTimeChanged();
-        }
+        onTimeChanged();
     }
 
     @Override
@@ -375,6 +351,11 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
     @Override
     public boolean is24Hour() {
         return mIs24HourView;
+    }
+
+    @Override
+    public void setOnTimeChangedListener(TimePicker.OnTimeChangedListener onTimeChangedListener) {
+        mOnTimeChangedListener = onTimeChangedListener;
     }
 
     @Override
@@ -437,34 +418,6 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
         event.getText().add(selectedDateUtterance);
     }
 
-    /** @hide */
-    @Override
-    @TestApi
-    public View getHourView() {
-        return mHourSpinnerInput;
-    }
-
-    /** @hide */
-    @Override
-    @TestApi
-    public View getMinuteView() {
-        return mMinuteSpinnerInput;
-    }
-
-    /** @hide */
-    @Override
-    @TestApi
-    public View getAmView() {
-        return mAmPmSpinnerInput;
-    }
-
-    /** @hide */
-    @Override
-    @TestApi
-    public View getPmView() {
-        return mAmPmSpinnerInput;
-    }
-
     private void updateInputState() {
         // Make sure that if the user changes the value and the IME is active
         // for one of the inputs if this widget, the IME is closed. If the user
@@ -511,9 +464,6 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
         if (mOnTimeChangedListener != null) {
             mOnTimeChangedListener.onTimeChanged(mDelegator, getHour(),
                     getMinute());
-        }
-        if (mAutoFillChangeListener != null) {
-            mAutoFillChangeListener.onTimeChanged(mDelegator, getHour(), getMinute());
         }
     }
 

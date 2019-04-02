@@ -16,11 +16,11 @@
 
 package android.text;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Paint.FontMetricsInt;
+import android.graphics.RectF;
 import android.text.Layout.Directions;
 import android.text.Layout.TabStops;
 import android.text.style.CharacterStyle;
@@ -29,8 +29,6 @@ import android.text.style.ReplacementSpan;
 import android.util.Log;
 
 import com.android.internal.util.ArrayUtils;
-
-import java.util.ArrayList;
 
 /**
  * Represents a line of styled text, for measuring in visual order and
@@ -58,22 +56,13 @@ class TextLine {
     private char[] mChars;
     private boolean mCharsValid;
     private Spanned mSpanned;
-
-    // Additional width of whitespace for justification. This value is per whitespace, thus
-    // the line width will increase by mAddedWidth x (number of stretchable whitespaces).
-    private float mAddedWidth;
-
     private final TextPaint mWorkPaint = new TextPaint();
-    private final TextPaint mActivePaint = new TextPaint();
     private final SpanSet<MetricAffectingSpan> mMetricAffectingSpanSpanSet =
             new SpanSet<MetricAffectingSpan>(MetricAffectingSpan.class);
     private final SpanSet<CharacterStyle> mCharacterStyleSpanSet =
             new SpanSet<CharacterStyle>(CharacterStyle.class);
     private final SpanSet<ReplacementSpan> mReplacementSpanSpanSet =
             new SpanSet<ReplacementSpan>(ReplacementSpan.class);
-
-    private final DecorationInfo mDecorationInfo = new DecorationInfo();
-    private final ArrayList<DecorationInfo> mDecorations = new ArrayList();
 
     private static final TextLine[] sCached = new TextLine[3];
 
@@ -190,25 +179,6 @@ class TextLine {
             }
         }
         mTabs = tabStops;
-        mAddedWidth = 0;
-    }
-
-    /**
-     * Justify the line to the given width.
-     */
-    void justify(float justifyWidth) {
-        int end = mLen;
-        while (end > 0 && isLineEndSpace(mText.charAt(mStart + end - 1))) {
-            end--;
-        }
-        final int spaces = countStretchableSpaces(0, end);
-        if (spaces == 0) {
-            // There are no stretchable spaces, so we can't help the justification by adding any
-            // width.
-            return;
-        }
-        final float width = Math.abs(measure(end, false, null));
-        mAddedWidth = (justifyWidth - width) / spaces;
     }
 
     /**
@@ -627,7 +597,6 @@ class TextLine {
 
         TextPaint wp = mWorkPaint;
         wp.set(mPaint);
-        wp.setWordSpacing(mAddedWidth);
 
         int spanStart = runStart;
         int spanLimit;
@@ -704,36 +673,6 @@ class TextLine {
         fmi.leading = Math.max(fmi.leading, previousLeading);
     }
 
-    private static void drawStroke(TextPaint wp, Canvas c, int color, float position,
-            float thickness, float xleft, float xright, float baseline) {
-        final float strokeTop = baseline + wp.baselineShift + position;
-
-        final int previousColor = wp.getColor();
-        final Paint.Style previousStyle = wp.getStyle();
-        final boolean previousAntiAlias = wp.isAntiAlias();
-
-        wp.setStyle(Paint.Style.FILL);
-        wp.setAntiAlias(true);
-
-        wp.setColor(color);
-        c.drawRect(xleft, strokeTop, xright, strokeTop + thickness, wp);
-
-        wp.setStyle(previousStyle);
-        wp.setColor(previousColor);
-        wp.setAntiAlias(previousAntiAlias);
-    }
-
-    private float getRunAdvance(TextPaint wp, int start, int end, int contextStart, int contextEnd,
-            boolean runIsRtl, int offset) {
-        if (mCharsValid) {
-            return wp.getRunAdvance(mChars, start, end, contextStart, contextEnd, runIsRtl, offset);
-        } else {
-            final int delta = mStart;
-            return wp.getRunAdvance(mText, delta + start, delta + end,
-                    delta + contextStart, delta + contextEnd, runIsRtl, delta + offset);
-        }
-    }
-
     /**
      * Utility function for measuring and rendering text.  The text must
      * not include a tab.
@@ -750,42 +689,41 @@ class TextLine {
      * @param fmi receives metrics information, can be null
      * @param needWidth true if the width of the run is needed
      * @param offset the offset for the purpose of measuring
-     * @param decorations the list of locations and paremeters for drawing decorations
      * @return the signed width of the run based on the run direction; only
      * valid if needWidth is true
      */
     private float handleText(TextPaint wp, int start, int end,
             int contextStart, int contextEnd, boolean runIsRtl,
             Canvas c, float x, int top, int y, int bottom,
-            FontMetricsInt fmi, boolean needWidth, int offset,
-            @Nullable ArrayList<DecorationInfo> decorations) {
+            FontMetricsInt fmi, boolean needWidth, int offset) {
 
-        wp.setWordSpacing(mAddedWidth);
         // Get metrics first (even for empty strings or "0" width runs)
         if (fmi != null) {
             expandMetricsFromPaint(fmi, wp);
         }
 
+        int runLen = end - start;
         // No need to do anything if the run width is "0"
-        if (end == start) {
+        if (runLen == 0) {
             return 0f;
         }
 
-        float totalWidth = 0;
+        float ret = 0;
 
-        final int numDecorations = decorations == null ? 0 : decorations.size();
-        if (needWidth || (c != null && (wp.bgColor != 0 || numDecorations != 0 || runIsRtl))) {
-            totalWidth = getRunAdvance(wp, start, end, contextStart, contextEnd, runIsRtl, offset);
+        if (needWidth || (c != null && (wp.bgColor != 0 || wp.underlineColor != 0 || runIsRtl))) {
+            if (mCharsValid) {
+                ret = wp.getRunAdvance(mChars, start, end, contextStart, contextEnd,
+                        runIsRtl, offset);
+            } else {
+                int delta = mStart;
+                ret = wp.getRunAdvance(mText, delta + start, delta + end,
+                        delta + contextStart, delta + contextEnd, runIsRtl, delta + offset);
+            }
         }
 
         if (c != null) {
-            final float leftX, rightX;
             if (runIsRtl) {
-                leftX = x - totalWidth;
-                rightX = x;
-            } else {
-                leftX = x;
-                rightX = x + totalWidth;
+                x -= ret;
             }
 
             if (wp.bgColor != 0) {
@@ -794,59 +732,36 @@ class TextLine {
 
                 wp.setColor(wp.bgColor);
                 wp.setStyle(Paint.Style.FILL);
-                c.drawRect(leftX, top, rightX, bottom, wp);
+                c.drawRect(x, top, x + ret, bottom, wp);
 
                 wp.setStyle(previousStyle);
                 wp.setColor(previousColor);
             }
 
-            if (numDecorations != 0) {
-                for (int i = 0; i < numDecorations; i++) {
-                    final DecorationInfo info = decorations.get(i);
+            if (wp.underlineColor != 0) {
+                // kStdUnderline_Offset = 1/9, defined in SkTextFormatParams.h
+                float underlineTop = y + wp.baselineShift + (1.0f / 9.0f) * wp.getTextSize();
 
-                    final int decorationStart = Math.max(info.start, start);
-                    final int decorationEnd = Math.min(info.end, offset);
-                    float decorationStartAdvance = getRunAdvance(
-                            wp, start, end, contextStart, contextEnd, runIsRtl, decorationStart);
-                    float decorationEndAdvance = getRunAdvance(
-                            wp, start, end, contextStart, contextEnd, runIsRtl, decorationEnd);
-                    final float decorationXLeft, decorationXRight;
-                    if (runIsRtl) {
-                        decorationXLeft = rightX - decorationEndAdvance;
-                        decorationXRight = rightX - decorationStartAdvance;
-                    } else {
-                        decorationXLeft = leftX + decorationStartAdvance;
-                        decorationXRight = leftX + decorationEndAdvance;
-                    }
+                int previousColor = wp.getColor();
+                Paint.Style previousStyle = wp.getStyle();
+                boolean previousAntiAlias = wp.isAntiAlias();
 
-                    // Theoretically, there could be cases where both Paint's and TextPaint's
-                    // setUnderLineText() are called. For backward compatibility, we need to draw
-                    // both underlines, the one with custom color first.
-                    if (info.underlineColor != 0) {
-                        drawStroke(wp, c, info.underlineColor, wp.getUnderlinePosition(),
-                                info.underlineThickness, decorationXLeft, decorationXRight, y);
-                    }
-                    if (info.isUnderlineText) {
-                        final float thickness =
-                                Math.max(((Paint) wp).getUnderlineThickness(), 1.0f);
-                        drawStroke(wp, c, wp.getColor(), wp.getUnderlinePosition(), thickness,
-                                decorationXLeft, decorationXRight, y);
-                    }
+                wp.setStyle(Paint.Style.FILL);
+                wp.setAntiAlias(true);
 
-                    if (info.isStrikeThruText) {
-                        final float thickness =
-                                Math.max(((Paint) wp).getStrikeThruThickness(), 1.0f);
-                        drawStroke(wp, c, wp.getColor(), wp.getStrikeThruPosition(), thickness,
-                                decorationXLeft, decorationXRight, y);
-                    }
-                }
+                wp.setColor(wp.underlineColor);
+                c.drawRect(x, underlineTop, x + ret, underlineTop + wp.underlineThickness, wp);
+
+                wp.setStyle(previousStyle);
+                wp.setColor(previousColor);
+                wp.setAntiAlias(previousAntiAlias);
             }
 
             drawTextRun(c, wp, start, end, contextStart, contextEnd, runIsRtl,
-                    leftX, y + wp.baselineShift);
+                    x, y + wp.baselineShift);
         }
 
-        return runIsRtl ? -totalWidth : totalWidth;
+        return runIsRtl ? -ret : ret;
     }
 
     /**
@@ -914,55 +829,6 @@ class TextLine {
         return runIsRtl ? -ret : ret;
     }
 
-    private int adjustHyphenEdit(int start, int limit, int hyphenEdit) {
-        int result = hyphenEdit;
-        // Only draw hyphens on first or last run in line. Disable them otherwise.
-        if (start > 0) { // not the first run
-            result &= ~Paint.HYPHENEDIT_MASK_START_OF_LINE;
-        }
-        if (limit < mLen) { // not the last run
-            result &= ~Paint.HYPHENEDIT_MASK_END_OF_LINE;
-        }
-        return result;
-    }
-
-    private static final class DecorationInfo {
-        public boolean isStrikeThruText;
-        public boolean isUnderlineText;
-        public int underlineColor;
-        public float underlineThickness;
-        public int start = -1;
-        public int end = -1;
-
-        public boolean hasDecoration() {
-            return isStrikeThruText || isUnderlineText || underlineColor != 0;
-        }
-
-        // Copies the info, but not the start and end range.
-        public DecorationInfo copyInfo() {
-            final DecorationInfo copy = new DecorationInfo();
-            copy.isStrikeThruText = isStrikeThruText;
-            copy.isUnderlineText = isUnderlineText;
-            copy.underlineColor = underlineColor;
-            copy.underlineThickness = underlineThickness;
-            return copy;
-        }
-    }
-
-    private void extractDecorationInfo(@NonNull TextPaint paint, @NonNull DecorationInfo info) {
-        info.isStrikeThruText = paint.isStrikeThruText();
-        if (info.isStrikeThruText) {
-            paint.setStrikeThruText(false);
-        }
-        info.isUnderlineText = paint.isUnderlineText();
-        if (info.isUnderlineText) {
-            paint.setUnderlineText(false);
-        }
-        info.underlineColor = paint.underlineColor;
-        info.underlineThickness = paint.underlineThickness;
-        paint.setUnderlineText(0, 0.0f);
-    }
-
     /**
      * Utility function for handling a unidirectional run.  The run must not
      * contain tabs but can contain styles.
@@ -986,14 +852,9 @@ class TextLine {
             int limit, boolean runIsRtl, Canvas c, float x, int top, int y,
             int bottom, FontMetricsInt fmi, boolean needWidth) {
 
-        if (measureLimit < start || measureLimit > limit) {
-            throw new IndexOutOfBoundsException("measureLimit (" + measureLimit + ") is out of "
-                    + "start (" + start + ") and limit (" + limit + ") bounds");
-        }
-
         // Case of an empty line, make sure we update fmi according to mPaint
         if (start == measureLimit) {
-            final TextPaint wp = mWorkPaint;
+            TextPaint wp = mWorkPaint;
             wp.set(mPaint);
             if (fmi != null) {
                 expandMetricsFromPaint(fmi, wp);
@@ -1001,23 +862,16 @@ class TextLine {
             return 0f;
         }
 
-        final boolean needsSpanMeasurement;
         if (mSpanned == null) {
-            needsSpanMeasurement = false;
-        } else {
-            mMetricAffectingSpanSpanSet.init(mSpanned, mStart + start, mStart + limit);
-            mCharacterStyleSpanSet.init(mSpanned, mStart + start, mStart + limit);
-            needsSpanMeasurement = mMetricAffectingSpanSpanSet.numberOfSpans != 0
-                    || mCharacterStyleSpanSet.numberOfSpans != 0;
+            TextPaint wp = mWorkPaint;
+            wp.set(mPaint);
+            final int mlimit = measureLimit;
+            return handleText(wp, start, limit, start, limit, runIsRtl, c, x, top,
+                    y, bottom, fmi, needWidth || mlimit < measureLimit, mlimit);
         }
 
-        if (!needsSpanMeasurement) {
-            final TextPaint wp = mWorkPaint;
-            wp.set(mPaint);
-            wp.setHyphenEdit(adjustHyphenEdit(start, limit, wp.getHyphenEdit()));
-            return handleText(wp, start, limit, start, limit, runIsRtl, c, x, top,
-                    y, bottom, fmi, needWidth, measureLimit, null);
-        }
+        mMetricAffectingSpanSpanSet.init(mSpanned, mStart + start, mStart + limit);
+        mCharacterStyleSpanSet.init(mSpanned, mStart + start, mStart + limit);
 
         // Shaping needs to take into account context up to metric boundaries,
         // but rendering needs to take into account character style boundaries.
@@ -1026,7 +880,7 @@ class TextLine {
         // for the run bounds.
         final float originalX = x;
         for (int i = start, inext; i < measureLimit; i = inext) {
-            final TextPaint wp = mWorkPaint;
+            TextPaint wp = mWorkPaint;
             wp.set(mPaint);
 
             inext = mMetricAffectingSpanSpanSet.getNextTransition(mStart + i, mStart + limit) -
@@ -1040,7 +894,7 @@ class TextLine {
                 // empty by construction. This special case in getSpans() explains the >= & <= tests
                 if ((mMetricAffectingSpanSpanSet.spanStarts[j] >= mStart + mlimit) ||
                         (mMetricAffectingSpanSpanSet.spanEnds[j] <= mStart + i)) continue;
-                final MetricAffectingSpan span = mMetricAffectingSpanSpanSet.spans[j];
+                MetricAffectingSpan span = mMetricAffectingSpanSpanSet.spans[j];
                 if (span instanceof ReplacementSpan) {
                     replacement = (ReplacementSpan)span;
                 } else {
@@ -1056,68 +910,28 @@ class TextLine {
                 continue;
             }
 
-            final TextPaint activePaint = mActivePaint;
-            activePaint.set(mPaint);
-            int activeStart = i;
-            int activeEnd = mlimit;
-            final DecorationInfo decorationInfo = mDecorationInfo;
-            mDecorations.clear();
             for (int j = i, jnext; j < mlimit; j = jnext) {
                 jnext = mCharacterStyleSpanSet.getNextTransition(mStart + j, mStart + inext) -
                         mStart;
+                int offset = Math.min(jnext, mlimit);
 
-                final int offset = Math.min(jnext, mlimit);
                 wp.set(mPaint);
                 for (int k = 0; k < mCharacterStyleSpanSet.numberOfSpans; k++) {
                     // Intentionally using >= and <= as explained above
                     if ((mCharacterStyleSpanSet.spanStarts[k] >= mStart + offset) ||
                             (mCharacterStyleSpanSet.spanEnds[k] <= mStart + j)) continue;
 
-                    final CharacterStyle span = mCharacterStyleSpanSet.spans[k];
+                    CharacterStyle span = mCharacterStyleSpanSet.spans[k];
                     span.updateDrawState(wp);
                 }
 
-                extractDecorationInfo(wp, decorationInfo);
-
-                if (j == i) {
-                    // First chunk of text. We can't handle it yet, since we may need to merge it
-                    // with the next chunk. So we just save the TextPaint for future comparisons
-                    // and use.
-                    activePaint.set(wp);
-                } else if (!wp.hasEqualAttributes(activePaint)) {
-                    // The style of the present chunk of text is substantially different from the
-                    // style of the previous chunk. We need to handle the active piece of text
-                    // and restart with the present chunk.
-                    activePaint.setHyphenEdit(adjustHyphenEdit(
-                            activeStart, activeEnd, mPaint.getHyphenEdit()));
-                    x += handleText(activePaint, activeStart, activeEnd, i, inext, runIsRtl, c, x,
-                            top, y, bottom, fmi, needWidth || activeEnd < measureLimit,
-                            Math.min(activeEnd, mlimit), mDecorations);
-
-                    activeStart = j;
-                    activePaint.set(wp);
-                    mDecorations.clear();
-                } else {
-                    // The present TextPaint is substantially equal to the last TextPaint except
-                    // perhaps for decorations. We just need to expand the active piece of text to
-                    // include the present chunk, which we always do anyway. We don't need to save
-                    // wp to activePaint, since they are already equal.
+                // Only draw hyphen on last run in line
+                if (jnext < mLen) {
+                    wp.setHyphenEdit(0);
                 }
-
-                activeEnd = jnext;
-                if (decorationInfo.hasDecoration()) {
-                    final DecorationInfo copy = decorationInfo.copyInfo();
-                    copy.start = j;
-                    copy.end = jnext;
-                    mDecorations.add(copy);
-                }
+                x += handleText(wp, j, jnext, i, inext, runIsRtl, c, x,
+                        top, y, bottom, fmi, needWidth || jnext < measureLimit, offset);
             }
-            // Handle the final piece of text.
-            activePaint.setHyphenEdit(adjustHyphenEdit(
-                    activeStart, activeEnd, mPaint.getHyphenEdit()));
-            x += handleText(activePaint, activeStart, activeEnd, i, inext, runIsRtl, c, x,
-                    top, y, bottom, fmi, needWidth || activeEnd < measureLimit,
-                    Math.min(activeEnd, mlimit), mDecorations);
         }
 
         return x - originalX;
@@ -1162,35 +976,6 @@ class TextLine {
             return mTabs.nextTab(h);
         }
         return TabStops.nextDefaultStop(h, TAB_INCREMENT);
-    }
-
-    private boolean isStretchableWhitespace(int ch) {
-        // TODO: Support other stretchable whitespace. (Bug: 34013491)
-        return ch == 0x0020 || ch == 0x00A0;
-    }
-
-    private int nextStretchableSpace(int start, int end) {
-        for (int i = start; i < end; i++) {
-            final char c = mCharsValid ? mChars[i] : mText.charAt(i + mStart);
-            if (isStretchableWhitespace(c)) return i;
-        }
-        return end;
-    }
-
-    /* Return the number of spaces in the text line, for the purpose of justification */
-    private int countStretchableSpaces(int start, int end) {
-        int count = 0;
-        for (int i = start; i < end; i = nextStretchableSpace(i + 1, end)) {
-            count++;
-        }
-        return count;
-    }
-
-    // Note: keep this in sync with Minikin LineBreaker::isLineEndSpace()
-    public static boolean isLineEndSpace(char ch) {
-        return ch == ' ' || ch == '\t' || ch == 0x1680
-                || (0x2000 <= ch && ch <= 0x200A && ch != 0x2007)
-                || ch == 0x205F || ch == 0x3000;
     }
 
     private static final int TAB_INCREMENT = 20;

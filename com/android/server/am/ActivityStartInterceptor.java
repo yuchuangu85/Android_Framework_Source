@@ -151,7 +151,8 @@ class ActivityStartInterceptor {
         if (devicePolicyManager == null) {
             return false;
         }
-        mIntent = devicePolicyManager.createShowAdminSupportIntent(mUserId, true);
+        mIntent = devicePolicyManager.createPackageSuspendedDialogIntent(
+                mAInfo.packageName, mUserId);
         mCallingPid = mRealCallingPid;
         mCallingUid = mRealCallingUid;
         mResolvedType = null;
@@ -188,10 +189,10 @@ class ActivityStartInterceptor {
         }
 
         ActivityRecord homeActivityRecord = mSupervisor.getHomeActivity();
-        if (homeActivityRecord != null && homeActivityRecord.getTask() != null) {
+        if (homeActivityRecord != null && homeActivityRecord.task != null) {
             // Showing credential confirmation activity in home task to avoid stopping multi-windowed
             // mode after showing the full-screen credential confirmation activity.
-            mActivityOptions.setLaunchTaskId(homeActivityRecord.getTask().taskId);
+            mActivityOptions.setLaunchTaskId(homeActivityRecord.task.taskId);
         }
 
         final UserInfo parent = mUserManager.getProfileParent(mUserId);
@@ -210,7 +211,11 @@ class ActivityStartInterceptor {
         if (!mService.mUserController.shouldConfirmCredentials(userId)) {
             return null;
         }
-        // TODO(b/28935539): should allow certain activities to bypass work challenge
+        // Allow direct boot aware activity to be displayed before the user is unlocked.
+        if (aInfo.directBootAware && mService.mUserController.isUserRunningLocked(userId,
+                ActivityManager.FLAG_AND_LOCKED)) {
+            return null;
+        }
         final IIntentSender target = mService.getIntentSenderLocked(
                 INTENT_SENDER_ACTIVITY, callingPackage,
                 Binder.getCallingUid(), userId, null, null, 0, new Intent[]{ intent },

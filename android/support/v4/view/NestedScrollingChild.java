@@ -17,8 +17,6 @@
 
 package android.support.v4.view;
 
-import android.support.annotation.Nullable;
-import android.support.v4.view.ViewCompat.ScrollAxis;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
@@ -27,7 +25,7 @@ import android.view.ViewParent;
 
 /**
  * This interface should be implemented by {@link android.view.View View} subclasses that wish
- * to support dispatching nested scrolling operations to a cooperating parent
+ * to support dispatching(分配) nested(嵌套的) scrolling operations to a cooperating(合作) parent
  * {@link android.view.ViewGroup ViewGroup}.
  *
  * <p>Classes implementing this interface should create a final instance of a
@@ -53,7 +51,7 @@ public interface NestedScrollingChild {
      *
      * @see #isNestedScrollingEnabled()
      */
-    void setNestedScrollingEnabled(boolean enabled);
+    public void setNestedScrollingEnabled(boolean enabled);
 
     /**
      * Returns true if nested scrolling is enabled for this view.
@@ -67,10 +65,10 @@ public interface NestedScrollingChild {
      *
      * @see #setNestedScrollingEnabled(boolean)
      */
-    boolean isNestedScrollingEnabled();
+    public boolean isNestedScrollingEnabled();
 
     /**
-     * Begin a nestable scroll operation along the given axes.
+     * Begin a nestable scroll operation along the given axes(轴).
      *
      * <p>A view starting a nested scroll promises to abide by the following contract:</p>
      *
@@ -98,16 +96,16 @@ public interface NestedScrollingChild {
      * {@link NestedScrollingParent#onNestedScroll(View, int, int, int, int)}.
      * </p>
      *
-     * @param axes Flags consisting of a combination of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL}
+     * @param axes Flags consisting(组成) of a combination(组合) of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL}
      *             and/or {@link ViewCompat#SCROLL_AXIS_VERTICAL}.
-     * @return true if a cooperative parent was found and nested scrolling has been enabled for
+     * @return true if a cooperative(合作) parent was found and nested scrolling has been enabled for
      *         the current gesture.
      *
      * @see #stopNestedScroll()
      * @see #dispatchNestedPreScroll(int, int, int[], int[])
      * @see #dispatchNestedScroll(int, int, int, int, int[])
      */
-    boolean startNestedScroll(@ScrollAxis int axes);
+    public boolean startNestedScroll(int axes);
 
     /**
      * Stop a nested scroll in progress.
@@ -116,20 +114,20 @@ public interface NestedScrollingChild {
      *
      * @see #startNestedScroll(int)
      */
-    void stopNestedScroll();
+    public void stopNestedScroll();
 
     /**
      * Returns true if this view has a nested scrolling parent.
      *
      * <p>The presence of a nested scrolling parent indicates that this view has initiated
-     * a nested scroll and it was accepted by an ancestor view further up the view hierarchy.</p>
+     * a nested scroll and it was accepted by an ancestor(父) view further up(进一步) the view hierarchy.</p>
      *
      * @return whether this view has a nested scrolling parent
      */
-    boolean hasNestedScrollingParent();
+    public boolean hasNestedScrollingParent();
 
     /**
-     * Dispatch one step of a nested scroll in progress.
+     * Dispatch(调度) one step of a nested scroll in progress.
      *
      * <p>Implementations of views that support nested scrolling should call this to report
      * info about a scroll in progress to the current nested scrolling parent. If a nested scroll
@@ -151,8 +149,8 @@ public interface NestedScrollingChild {
      * @return true if the event was dispatched, false if it could not be dispatched.
      * @see #dispatchNestedPreScroll(int, int, int[], int[])
      */
-    boolean dispatchNestedScroll(int dxConsumed, int dyConsumed,
-            int dxUnconsumed, int dyUnconsumed, @Nullable int[] offsetInWindow);
+    public boolean dispatchNestedScroll(int dxConsumed, int dyConsumed,
+            int dxUnconsumed, int dyUnconsumed, int[] offsetInWindow);
 
     /**
      * Dispatch one step of a nested scroll in progress before this view consumes any portion of it.
@@ -173,8 +171,7 @@ public interface NestedScrollingChild {
      * @return true if the parent consumed some or all of the scroll delta
      * @see #dispatchNestedScroll(int, int, int, int, int[])
      */
-    boolean dispatchNestedPreScroll(int dx, int dy, @Nullable int[] consumed,
-            @Nullable int[] offsetInWindow);
+    public boolean dispatchNestedPreScroll(int dx, int dy, int[] consumed, int[] offsetInWindow);
 
     /**
      * Dispatch a fling to a nested scrolling parent.
@@ -194,7 +191,7 @@ public interface NestedScrollingChild {
      * @param consumed true if the child consumed the fling, false otherwise
      * @return true if the nested scrolling parent consumed or otherwise reacted to the fling
      */
-    boolean dispatchNestedFling(float velocityX, float velocityY, boolean consumed);
+    public boolean dispatchNestedFling(float velocityX, float velocityY, boolean consumed);
 
     /**
      * Dispatch a fling to a nested scrolling parent before it is processed by this view.
@@ -226,5 +223,5 @@ public interface NestedScrollingChild {
      * @param velocityY Vertical fling velocity in pixels per second
      * @return true if a nested scrolling parent consumed the fling
      */
-    boolean dispatchNestedPreFling(float velocityX, float velocityY);
+    public boolean dispatchNestedPreFling(float velocityX, float velocityY);
 }

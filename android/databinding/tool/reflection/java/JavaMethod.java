@@ -68,11 +68,6 @@ public class JavaMethod extends ModelMethod {
     }
 
     @Override
-    public boolean isProtected() {
-        return Modifier.isProtected(mMethod.getModifiers());
-    }
-
-    @Override
     public boolean isStatic() {
         return Modifier.isStatic(mMethod.getModifiers());
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2007, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -80,7 +80,7 @@ public class EncryptedPrivateKeyInfo {
             throw new NullPointerException("the encoded parameter " +
                                            "must be non-null");
         }
-        this.encoded = encoded.clone();
+        this.encoded = (byte[])encoded.clone();
         DerValue val = new DerValue(this.encoded);
 
         DerValue[] seq = new DerValue[2];
@@ -143,7 +143,7 @@ public class EncryptedPrivateKeyInfo {
             throw new IllegalArgumentException("the encryptedData " +
                                                 "parameter must not be empty");
         } else {
-            this.encryptedData = encryptedData.clone();
+            this.encryptedData = (byte[])encryptedData.clone();
         }
         // delay the generation of ASN.1 encoding until
         // getEncoded() is called
@@ -183,7 +183,7 @@ public class EncryptedPrivateKeyInfo {
             throw new IllegalArgumentException("the encryptedData " +
                                                 "parameter must not be empty");
         } else {
-            this.encryptedData = encryptedData.clone();
+            this.encryptedData = (byte[])encryptedData.clone();
         }
 
         // delay the generation of ASN.1 encoding until
@@ -222,7 +222,7 @@ public class EncryptedPrivateKeyInfo {
      * each time this method is called.
      */
     public byte[] getEncryptedData() {
-        return this.encryptedData.clone();
+        return (byte[])this.encryptedData.clone();
     }
 
     /**
@@ -247,13 +247,26 @@ public class EncryptedPrivateKeyInfo {
         throws InvalidKeySpecException {
         byte[] encoded = null;
         try {
-            encoded = cipher.doFinal(encryptedData);
+            encoded = cipher.doFinal((byte[])encryptedData);
             checkPKCS8Encoding(encoded);
-        } catch (GeneralSecurityException |
-                 IOException |
-                 IllegalStateException ex) {
-            throw new InvalidKeySpecException(
-                    "Cannot retrieve the PKCS8EncodedKeySpec", ex);
+        } catch (GeneralSecurityException gse) {
+            InvalidKeySpecException ikse = new
+                InvalidKeySpecException(
+                    "Cannot retrieve the PKCS8EncodedKeySpec");
+            ikse.initCause(gse);
+            throw ikse;
+        } catch (IOException ioe) {
+            InvalidKeySpecException ikse = new
+                InvalidKeySpecException(
+                    "Cannot retrieve the PKCS8EncodedKeySpec");
+            ikse.initCause(ioe);
+            throw ikse;
+        } catch (IllegalStateException ise) {
+            InvalidKeySpecException ikse = new
+                InvalidKeySpecException(
+                    "Cannot retrieve the PKCS8EncodedKeySpec");
+            ikse.initCause(ise);
+            throw ikse;
         }
         return new PKCS8EncodedKeySpec(encoded);
     }
@@ -276,9 +289,16 @@ public class EncryptedPrivateKeyInfo {
         } catch (NoSuchAlgorithmException nsae) {
             // rethrow
             throw nsae;
-        } catch (GeneralSecurityException | IOException ex) {
-            throw new InvalidKeyException(
-                    "Cannot retrieve the PKCS8EncodedKeySpec", ex);
+        } catch (GeneralSecurityException gse) {
+            InvalidKeyException ike = new InvalidKeyException
+                ("Cannot retrieve the PKCS8EncodedKeySpec");
+            ike.initCause(gse);
+            throw ike;
+        } catch (IOException ioe) {
+            InvalidKeyException ike = new InvalidKeyException
+                ("Cannot retrieve the PKCS8EncodedKeySpec");
+            ike.initCause(ioe);
+            throw ike;
         }
         return new PKCS8EncodedKeySpec(encoded);
     }
@@ -393,7 +413,7 @@ public class EncryptedPrivateKeyInfo {
             out.write(DerValue.tag_Sequence, tmp);
             this.encoded = out.toByteArray();
         }
-        return this.encoded.clone();
+        return (byte[])this.encoded.clone();
     }
 
     private static void checkTag(DerValue val, byte tag, String valName)
@@ -404,7 +424,6 @@ public class EncryptedPrivateKeyInfo {
         }
     }
 
-    @SuppressWarnings("fallthrough")
     private static void checkPKCS8Encoding(byte[] encodedKey)
         throws IOException {
         DerInputStream in = new DerInputStream(encodedKey);
@@ -413,7 +432,6 @@ public class EncryptedPrivateKeyInfo {
         switch (values.length) {
         case 4:
             checkTag(values[3], DerValue.TAG_CONTEXT, "attributes");
-            /* fall through */
         case 3:
             checkTag(values[0], DerValue.tag_Integer, "version");
             DerInputStream algid = values[1].toDerInputStream();

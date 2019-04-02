@@ -47,7 +47,7 @@ public class CallbackHandler extends Handler implements EmergencyListener, Signa
     private final ArrayList<SignalCallback> mSignalCallbacks = new ArrayList<>();
 
     public CallbackHandler() {
-        super(Looper.getMainLooper());
+        super();
     }
 
     @VisibleForTesting
@@ -71,7 +71,7 @@ public class CallbackHandler extends Handler implements EmergencyListener, Signa
                 break;
             case MSG_NO_SIM_VISIBLE_CHANGED:
                 for (SignalCallback signalCluster : mSignalCallbacks) {
-                    signalCluster.setNoSims(msg.arg1 != 0, msg.arg2 != 0);
+                    signalCluster.setNoSims(msg.arg1 != 0);
                 }
                 break;
             case MSG_ETHERNET_CHANGED:
@@ -109,13 +109,13 @@ public class CallbackHandler extends Handler implements EmergencyListener, Signa
     @Override
     public void setWifiIndicators(final boolean enabled, final IconState statusIcon,
             final IconState qsIcon, final boolean activityIn, final boolean activityOut,
-            final String description, boolean isTransient) {
+            final String description) {
         post(new Runnable() {
             @Override
             public void run() {
                 for (SignalCallback callback : mSignalCallbacks) {
                     callback.setWifiIndicators(enabled, statusIcon, qsIcon, activityIn, activityOut,
-                            description, isTransient);
+                            description);
                 }
             }
         });
@@ -125,14 +125,14 @@ public class CallbackHandler extends Handler implements EmergencyListener, Signa
     public void setMobileDataIndicators(final IconState statusIcon, final IconState qsIcon,
             final int statusType, final int qsType,final boolean activityIn,
             final boolean activityOut, final String typeContentDescription,
-            final String description, final boolean isWide, final int subId, boolean roaming) {
+            final String description, final boolean isWide, final int subId) {
         post(new Runnable() {
             @Override
             public void run() {
                 for (SignalCallback signalCluster : mSignalCallbacks) {
                     signalCluster.setMobileDataIndicators(statusIcon, qsIcon, statusType, qsType,
                             activityIn, activityOut, typeContentDescription, description, isWide,
-                            subId, roaming);
+                            subId);
                 }
             }
         });
@@ -144,8 +144,8 @@ public class CallbackHandler extends Handler implements EmergencyListener, Signa
     }
 
     @Override
-    public void setNoSims(boolean show, boolean simDetected) {
-        obtainMessage(MSG_NO_SIM_VISIBLE_CHANGED, show ? 1 : 0, simDetected ? 1 : 0).sendToTarget();
+    public void setNoSims(boolean show) {
+        obtainMessage(MSG_NO_SIM_VISIBLE_CHANGED, show ? 1 : 0, 0).sendToTarget();
     }
 
     @Override

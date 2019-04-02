@@ -16,29 +16,25 @@
 
 package android.support.v7.view.menu;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.ColorStateList;
-import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
-import android.support.annotation.Nullable;
 import android.support.annotation.RestrictTo;
 import android.support.v4.content.ContextCompat;
-import android.support.v4.graphics.drawable.DrawableCompat;
 import android.support.v4.internal.view.SupportMenuItem;
 import android.support.v4.view.ActionProvider;
+import android.support.v4.view.MenuItemCompat;
 import android.view.ContextMenu.ContextMenuInfo;
-import android.view.KeyEvent;
 import android.view.MenuItem;
 import android.view.SubMenu;
 import android.view.View;
 
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+
 /**
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public class ActionMenuItem implements SupportMenuItem {
 
     private final int mId;
@@ -50,9 +46,7 @@ public class ActionMenuItem implements SupportMenuItem {
     private CharSequence mTitleCondensed;
     private Intent mIntent;
     private char mShortcutNumericChar;
-    private int mShortcutNumericModifiers = KeyEvent.META_CTRL_ON;
     private char mShortcutAlphabeticChar;
-    private int mShortcutAlphabeticModifiers = KeyEvent.META_CTRL_ON;
 
     private Drawable mIconDrawable;
     private int mIconResId = NO_ICON;
@@ -60,14 +54,6 @@ public class ActionMenuItem implements SupportMenuItem {
     private Context mContext;
 
     private SupportMenuItem.OnMenuItemClickListener mClickListener;
-
-    private CharSequence mContentDescription;
-    private CharSequence mTooltipText;
-
-    private ColorStateList mIconTintList = null;
-    private PorterDuff.Mode mIconTintMode = null;
-    private boolean mHasIconTint = false;
-    private boolean mHasIconTintMode = false;
 
     private static final int NO_ICON = 0;
 
@@ -88,110 +74,75 @@ public class ActionMenuItem implements SupportMenuItem {
         mTitle = title;
     }
 
-    @Override
     public char getAlphabeticShortcut() {
         return mShortcutAlphabeticChar;
     }
 
-    @Override
-    public int getAlphabeticModifiers() {
-        return mShortcutAlphabeticModifiers;
-    }
-
-    @Override
     public int getGroupId() {
         return mGroup;
     }
 
-    @Override
     public Drawable getIcon() {
         return mIconDrawable;
     }
 
-    @Override
     public Intent getIntent() {
         return mIntent;
     }
 
-    @Override
     public int getItemId() {
         return mId;
     }
 
-    @Override
     public ContextMenuInfo getMenuInfo() {
         return null;
     }
 
-    @Override
     public char getNumericShortcut() {
         return mShortcutNumericChar;
     }
 
-    @Override
-    public int getNumericModifiers() {
-        return mShortcutNumericModifiers;
-    }
-
-    @Override
     public int getOrder() {
         return mOrdering;
     }
 
-    @Override
     public SubMenu getSubMenu() {
         return null;
     }
 
-    @Override
     public CharSequence getTitle() {
         return mTitle;
     }
 
-    @Override
     public CharSequence getTitleCondensed() {
         return mTitleCondensed != null ? mTitleCondensed : mTitle;
     }
 
-    @Override
     public boolean hasSubMenu() {
         return false;
     }
 
-    @Override
     public boolean isCheckable() {
         return (mFlags & CHECKABLE) != 0;
     }
 
-    @Override
     public boolean isChecked() {
         return (mFlags & CHECKED) != 0;
     }
 
-    @Override
     public boolean isEnabled() {
         return (mFlags & ENABLED) != 0;
     }
 
-    @Override
     public boolean isVisible() {
         return (mFlags & HIDDEN) == 0;
     }
 
-    @Override
     public MenuItem setAlphabeticShortcut(char alphaChar) {
-        mShortcutAlphabeticChar = Character.toLowerCase(alphaChar);
+        mShortcutAlphabeticChar = alphaChar;
         return this;
     }
 
-    @Override
-    public MenuItem setAlphabeticShortcut(char alphaChar, int alphaModifiers) {
-        mShortcutAlphabeticChar = Character.toLowerCase(alphaChar);
-        mShortcutAlphabeticModifiers = KeyEvent.normalizeMetaState(alphaModifiers);
-        return this;
-    }
-
-    @Override
     public MenuItem setCheckable(boolean checkable) {
         mFlags = (mFlags & ~CHECKABLE) | (checkable ? CHECKABLE : 0);
         return this;
@@ -202,97 +153,64 @@ public class ActionMenuItem implements SupportMenuItem {
         return this;
     }
 
-    @Override
     public MenuItem setChecked(boolean checked) {
         mFlags = (mFlags & ~CHECKED) | (checked ? CHECKED : 0);
         return this;
     }
 
-    @Override
     public MenuItem setEnabled(boolean enabled) {
         mFlags = (mFlags & ~ENABLED) | (enabled ? ENABLED : 0);
         return this;
     }
 
-    @Override
     public MenuItem setIcon(Drawable icon) {
         mIconDrawable = icon;
         mIconResId = NO_ICON;
-
-        applyIconTint();
         return this;
     }
 
-    @Override
     public MenuItem setIcon(int iconRes) {
         mIconResId = iconRes;
         mIconDrawable = ContextCompat.getDrawable(mContext, iconRes);
-
-        applyIconTint();
         return this;
     }
 
-    @Override
     public MenuItem setIntent(Intent intent) {
         mIntent = intent;
         return this;
     }
 
-    @Override
     public MenuItem setNumericShortcut(char numericChar) {
         mShortcutNumericChar = numericChar;
         return this;
     }
 
-    @Override
-    public MenuItem setNumericShortcut(char numericChar, int numericModifiers) {
-        mShortcutNumericChar = numericChar;
-        mShortcutNumericModifiers = KeyEvent.normalizeMetaState(numericModifiers);
-        return this;
-    }
-
-    @Override
     public MenuItem setOnMenuItemClickListener(OnMenuItemClickListener menuItemClickListener) {
         mClickListener = menuItemClickListener;
         return this;
     }
 
-    @Override
     public MenuItem setShortcut(char numericChar, char alphaChar) {
         mShortcutNumericChar = numericChar;
-        mShortcutAlphabeticChar = Character.toLowerCase(alphaChar);
+        mShortcutAlphabeticChar = alphaChar;
         return this;
     }
 
-    @Override
-    public MenuItem setShortcut(char numericChar, char alphaChar, int numericModifiers,
-            int alphaModifiers) {
-        mShortcutNumericChar = numericChar;
-        mShortcutNumericModifiers = KeyEvent.normalizeMetaState(numericModifiers);
-        mShortcutAlphabeticChar = Character.toLowerCase(alphaChar);
-        mShortcutAlphabeticModifiers = KeyEvent.normalizeMetaState(alphaModifiers);
-        return this;
-    }
-
-    @Override
     public MenuItem setTitle(CharSequence title) {
         mTitle = title;
         return this;
     }
 
-    @Override
     public MenuItem setTitle(int title) {
         mTitle = mContext.getResources().getString(title);
         return this;
     }
 
-    @Override
     public MenuItem setTitleCondensed(CharSequence title) {
         mTitleCondensed = title;
         return this;
     }
 
-    @Override
     public MenuItem setVisible(boolean visible) {
         mFlags = (mFlags & HIDDEN) | (visible ? 0 : HIDDEN);
         return this;
@@ -311,17 +229,14 @@ public class ActionMenuItem implements SupportMenuItem {
         return false;
     }
 
-    @Override
     public void setShowAsAction(int show) {
         // Do nothing. ActionMenuItems always show as action buttons.
     }
 
-    @Override
     public SupportMenuItem setActionView(View actionView) {
         throw new UnsupportedOperationException();
     }
 
-    @Override
     public View getActionView() {
         return null;
     }
@@ -378,69 +293,8 @@ public class ActionMenuItem implements SupportMenuItem {
     }
 
     @Override
-    public SupportMenuItem setContentDescription(CharSequence contentDescription) {
-        mContentDescription = contentDescription;
+    public SupportMenuItem setSupportOnActionExpandListener(MenuItemCompat.OnActionExpandListener listener) {
+        // No need to save the listener; ActionMenuItem does not support collapsing items.
         return this;
-    }
-
-    @Override
-    public CharSequence getContentDescription() {
-        return mContentDescription;
-    }
-
-    @Override
-    public SupportMenuItem setTooltipText(CharSequence tooltipText) {
-        mTooltipText = tooltipText;
-        return this;
-    }
-
-    @Override
-    public CharSequence getTooltipText() {
-        return mTooltipText;
-    }
-
-    @Override
-    public MenuItem setIconTintList(@Nullable ColorStateList iconTintList) {
-        mIconTintList = iconTintList;
-        mHasIconTint = true;
-
-        applyIconTint();
-
-        return this;
-    }
-
-    @Override
-    public ColorStateList getIconTintList() {
-        return mIconTintList;
-    }
-
-    @Override
-    public MenuItem setIconTintMode(PorterDuff.Mode iconTintMode) {
-        mIconTintMode = iconTintMode;
-        mHasIconTintMode = true;
-
-        applyIconTint();
-
-        return this;
-    }
-
-    @Override
-    public PorterDuff.Mode getIconTintMode() {
-        return mIconTintMode;
-    }
-
-    private void applyIconTint() {
-        if (mIconDrawable != null && (mHasIconTint || mHasIconTintMode)) {
-            mIconDrawable = DrawableCompat.wrap(mIconDrawable);
-            mIconDrawable = mIconDrawable.mutate();
-
-            if (mHasIconTint) {
-                DrawableCompat.setTintList(mIconDrawable, mIconTintList);
-            }
-
-            if (mHasIconTintMode) {
-                DrawableCompat.setTintMode(mIconDrawable, mIconTintMode);
-            }
-        }
     }
 }

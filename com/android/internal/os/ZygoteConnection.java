@@ -18,33 +18,29 @@ package com.android.internal.os;
 
 import static android.system.OsConstants.F_SETFD;
 import static android.system.OsConstants.O_CLOEXEC;
-import static android.system.OsConstants.POLLIN;
 import static android.system.OsConstants.STDERR_FILENO;
 import static android.system.OsConstants.STDIN_FILENO;
 import static android.system.OsConstants.STDOUT_FILENO;
-import static com.android.internal.os.ZygoteConnectionConstants.CONNECTION_TIMEOUT_MILLIS;
-import static com.android.internal.os.ZygoteConnectionConstants.MAX_ZYGOTE_ARGC;
-import static com.android.internal.os.ZygoteConnectionConstants.WRAPPED_PID_TIMEOUT_MILLIS;
 
 import android.net.Credentials;
 import android.net.LocalSocket;
-import android.os.FactoryTest;
 import android.os.Process;
+import android.os.SELinux;
 import android.os.SystemProperties;
 import android.os.Trace;
 import android.system.ErrnoException;
 import android.system.Os;
-import android.system.StructPollfd;
 import android.util.Log;
 import dalvik.system.VMRuntime;
 import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.EOFException;
 import java.io.FileDescriptor;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import libcore.io.IoUtils;
@@ -59,6 +55,18 @@ class ZygoteConnection {
     private static final int[][] intArray2d = new int[0][0];
 
     /**
+     * {@link android.net.LocalSocket#setSoTimeout} value for connections.
+     * Effectively, the amount of time a requestor has between the start of
+     * the request and the completed request. The select-loop mode Zygote
+     * doesn't have the logic to return to the select loop in the middle of
+     * a request, so we need to time out here to avoid being denial-of-serviced.
+     */
+    private static final int CONNECTION_TIMEOUT_MILLIS = 1000;
+
+    /** max number of arguments that a connection can specify */
+    private static final int MAX_ZYGOTE_ARGC = 1024;
+
+    /**
      * The command socket.
      *
      * mSocket is retained in the child process in "peer wait" mode, so
@@ -70,7 +78,6 @@ class ZygoteConnection {
     private final BufferedReader mSocketReader;
     private final Credentials peer;
     private final String abiList;
-    private boolean isEof;
 
     /**
      * Constructs instance from connected socket.
@@ -97,8 +104,6 @@ class ZygoteConnection {
             Log.e(TAG, "Cannot read peer credentials", ex);
             throw ex;
         }
-
-        isEof = false;
     }
 
     /**
@@ -111,136 +116,144 @@ class ZygoteConnection {
     }
 
     /**
-     * Reads one start command from the command socket. If successful, a child is forked and a
-     * {@code Runnable} that calls the childs main method (or equivalent) is returned in the child
-     * process. {@code null} is always returned in the parent process (the zygote).
+     * Reads one start command from the command socket. If successful,
+     * a child is forked and a {@link ZygoteInit.MethodAndArgsCaller}
+     * exception is thrown in that child while in the parent process,
+     * the method returns normally. On failure, the child is not
+     * spawned and messages are printed to the log and stderr. Returns
+     * a boolean status value indicating whether an end-of-file on the command
+     * socket has been encountered.
      *
-     * If the client closes the socket, an {@code EOF} condition is set, which callers can test
-     * for by calling {@code ZygoteConnection.isClosedByPeer}.
+     * @return false if command socket should continue to be read from, or
+     * true if an end-of-file has been encountered.
+     * @throws ZygoteInit.MethodAndArgsCaller trampoline to invoke main()
+     * method in child process
      */
-    Runnable processOneCommand(ZygoteServer zygoteServer) {
+    boolean runOnce() throws ZygoteInit.MethodAndArgsCaller {
+
         String args[];
         Arguments parsedArgs = null;
         FileDescriptor[] descriptors;
 
         try {
+            // 获得创建应用程序进程需要的启动参数，并且保存在一个Arguments对象parsedArgs中
             args = readArgumentList();
             descriptors = mSocket.getAncillaryFileDescriptors();
         } catch (IOException ex) {
-            throw new IllegalStateException("IOException on command socket", ex);
+            Log.w(TAG, "IOException on command socket " + ex.getMessage());
+            closeSocket();
+            return true;
         }
 
-        // readArgumentList returns null only when it has reached EOF with no available
-        // data to read. This will only happen when the remote socket has disconnected.
         if (args == null) {
-            isEof = true;
-            return null;
+            // EOF reached.
+            closeSocket();
+            return true;
+        }
+
+        /** the stderr of the most recent request, if avail */
+        PrintStream newStderr = null;
+
+        if (descriptors != null && descriptors.length >= 3) {
+            newStderr = new PrintStream(
+                    new FileOutputStream(descriptors[2]));
         }
 
         int pid = -1;
         FileDescriptor childPipeFd = null;
         FileDescriptor serverPipeFd = null;
 
-        parsedArgs = new Arguments(args);
+        try {
+            parsedArgs = new Arguments(args);
 
-        if (parsedArgs.abiListQuery) {
-            handleAbiListQuery();
-            return null;
-        }
+            if (parsedArgs.abiListQuery) {
+                return handleAbiListQuery();
+            }
 
-        if (parsedArgs.preloadDefault) {
-            handlePreload();
-            return null;
-        }
+            if (parsedArgs.permittedCapabilities != 0 || parsedArgs.effectiveCapabilities != 0) {
+                throw new ZygoteSecurityException("Client may not specify capabilities: " +
+                        "permitted=0x" + Long.toHexString(parsedArgs.permittedCapabilities) +
+                        ", effective=0x" + Long.toHexString(parsedArgs.effectiveCapabilities));
+            }
 
-        if (parsedArgs.preloadPackage != null) {
-            handlePreloadPackage(parsedArgs.preloadPackage, parsedArgs.preloadPackageLibs,
-                    parsedArgs.preloadPackageCacheKey);
-            return null;
-        }
+            applyUidSecurityPolicy(parsedArgs, peer);
+            applyInvokeWithSecurityPolicy(parsedArgs, peer);
 
-        if (parsedArgs.permittedCapabilities != 0 || parsedArgs.effectiveCapabilities != 0) {
-            throw new ZygoteSecurityException("Client may not specify capabilities: " +
-                    "permitted=0x" + Long.toHexString(parsedArgs.permittedCapabilities) +
-                    ", effective=0x" + Long.toHexString(parsedArgs.effectiveCapabilities));
-        }
+            applyDebuggerSystemProperty(parsedArgs);
+            applyInvokeWithSystemProperty(parsedArgs);
 
-        applyUidSecurityPolicy(parsedArgs, peer);
-        applyInvokeWithSecurityPolicy(parsedArgs, peer);
+            int[][] rlimits = null;
 
-        applyDebuggerSystemProperty(parsedArgs);
-        applyInvokeWithSystemProperty(parsedArgs);
+            if (parsedArgs.rlimits != null) {
+                rlimits = parsedArgs.rlimits.toArray(intArray2d);
+            }
 
-        int[][] rlimits = null;
-
-        if (parsedArgs.rlimits != null) {
-            rlimits = parsedArgs.rlimits.toArray(intArray2d);
-        }
-
-        int[] fdsToIgnore = null;
-
-        if (parsedArgs.invokeWith != null) {
-            try {
+            if (parsedArgs.invokeWith != null) {
                 FileDescriptor[] pipeFds = Os.pipe2(O_CLOEXEC);
                 childPipeFd = pipeFds[1];
                 serverPipeFd = pipeFds[0];
                 Os.fcntlInt(childPipeFd, F_SETFD, 0);
-                fdsToIgnore = new int[]{childPipeFd.getInt$(), serverPipeFd.getInt$()};
-            } catch (ErrnoException errnoEx) {
-                throw new IllegalStateException("Unable to set up pipe for invoke-with", errnoEx);
             }
+
+            /**
+             * In order to avoid leaking descriptors to the Zygote child,
+             * the native code must close the two Zygote socket descriptors
+             * in the child process before it switches from Zygote-root to
+             * the UID and privileges of the application being launched.
+             *
+             * In order to avoid "bad file descriptor" errors when the
+             * two LocalSocket objects are closed, the Posix file
+             * descriptors are released via a dup2() call which closes
+             * the socket and substitutes an open descriptor to /dev/null.
+             */
+
+            int [] fdsToClose = { -1, -1 };
+
+            FileDescriptor fd = mSocket.getFileDescriptor();
+
+            if (fd != null) {
+                fdsToClose[0] = fd.getInt$();
+            }
+
+            fd = ZygoteInit.getServerSocketFileDescriptor();
+
+            if (fd != null) {
+                fdsToClose[1] = fd.getInt$();
+            }
+
+            fd = null;
+
+            // 调用forkAndSpecialize方法来创建这个应用程序进程，最终通过函数fork在当前进程中创建一个子进程，
+            // 因此，当它的返回值等于0时，就表示是在新创建的子进程中执行的，这时候ZygoteConnection类就会调用
+            // 成员函数handleChildProc来启动这个子进程
+            pid = Zygote.forkAndSpecialize(parsedArgs.uid, parsedArgs.gid, parsedArgs.gids,
+                    parsedArgs.debugFlags, rlimits, parsedArgs.mountExternal, parsedArgs.seInfo,
+                    parsedArgs.niceName, fdsToClose, parsedArgs.instructionSet,
+                    parsedArgs.appDataDir);
+        } catch (ErrnoException ex) {
+            logAndPrintError(newStderr, "Exception creating pipe", ex);
+        } catch (IllegalArgumentException ex) {
+            logAndPrintError(newStderr, "Invalid zygote arguments", ex);
+        } catch (ZygoteSecurityException ex) {
+            logAndPrintError(newStderr,
+                    "Zygote security policy prevents request: ", ex);
         }
-
-        /**
-         * In order to avoid leaking descriptors to the Zygote child,
-         * the native code must close the two Zygote socket descriptors
-         * in the child process before it switches from Zygote-root to
-         * the UID and privileges of the application being launched.
-         *
-         * In order to avoid "bad file descriptor" errors when the
-         * two LocalSocket objects are closed, the Posix file
-         * descriptors are released via a dup2() call which closes
-         * the socket and substitutes an open descriptor to /dev/null.
-         */
-
-        int [] fdsToClose = { -1, -1 };
-
-        FileDescriptor fd = mSocket.getFileDescriptor();
-
-        if (fd != null) {
-            fdsToClose[0] = fd.getInt$();
-        }
-
-        fd = zygoteServer.getServerSocketFileDescriptor();
-
-        if (fd != null) {
-            fdsToClose[1] = fd.getInt$();
-        }
-
-        fd = null;
-
-        pid = Zygote.forkAndSpecialize(parsedArgs.uid, parsedArgs.gid, parsedArgs.gids,
-                parsedArgs.debugFlags, rlimits, parsedArgs.mountExternal, parsedArgs.seInfo,
-                parsedArgs.niceName, fdsToClose, fdsToIgnore, parsedArgs.instructionSet,
-                parsedArgs.appDataDir);
 
         try {
             if (pid == 0) {
                 // in child
-                zygoteServer.setForkChild();
-
-                zygoteServer.closeServerSocket();
                 IoUtils.closeQuietly(serverPipeFd);
                 serverPipeFd = null;
+                handleChildProc(parsedArgs, descriptors, childPipeFd, newStderr);
 
-                return handleChildProc(parsedArgs, descriptors, childPipeFd);
+                // should never get here, the child is expected to either
+                // throw ZygoteInit.MethodAndArgsCaller or exec().
+                return true;
             } else {
-                // In the parent. A pid < 0 indicates a failure and will be handled in
-                // handleParentProc.
+                // in parent...pid of < 0 means failure
                 IoUtils.closeQuietly(childPipeFd);
                 childPipeFd = null;
-                handleParentProc(pid, descriptors, serverPipeFd);
-                return null;
+                return handleParentProc(pid, descriptors, serverPipeFd, parsedArgs);
             }
         } finally {
             IoUtils.closeQuietly(childPipeFd);
@@ -248,49 +261,16 @@ class ZygoteConnection {
         }
     }
 
-    private void handleAbiListQuery() {
+    private boolean handleAbiListQuery() {
         try {
             final byte[] abiListBytes = abiList.getBytes(StandardCharsets.US_ASCII);
             mSocketOutStream.writeInt(abiListBytes.length);
             mSocketOutStream.write(abiListBytes);
+            return false;
         } catch (IOException ioe) {
-            throw new IllegalStateException("Error writing to command socket", ioe);
+            Log.e(TAG, "Error writing to command socket", ioe);
+            return true;
         }
-    }
-
-    /**
-     * Preloads resources if the zygote is in lazily preload mode. Writes the result of the
-     * preload operation; {@code 0} when a preload was initiated due to this request and {@code 1}
-     * if no preload was initiated. The latter implies that the zygote is not configured to load
-     * resources lazy or that the zygote has already handled a previous request to handlePreload.
-     */
-    private void handlePreload() {
-        try {
-            if (isPreloadComplete()) {
-                mSocketOutStream.writeInt(1);
-            } else {
-                preload();
-                mSocketOutStream.writeInt(0);
-            }
-        } catch (IOException ioe) {
-            throw new IllegalStateException("Error writing to command socket", ioe);
-        }
-    }
-
-    protected void preload() {
-        ZygoteInit.lazyPreload();
-    }
-
-    protected boolean isPreloadComplete() {
-        return ZygoteInit.isPreloadComplete();
-    }
-
-    protected DataOutputStream getSocketOutputStream() {
-        return mSocketOutStream;
-    }
-
-    protected void handlePreloadPackage(String packagePath, String libsPath, String cacheKey) {
-        throw new RuntimeException("Zyogte does not support package preloading");
     }
 
     /**
@@ -303,10 +283,6 @@ class ZygoteConnection {
             Log.e(TAG, "Exception while closing command "
                     + "socket in parent", ex);
         }
-    }
-
-    boolean isClosedByPeer() {
-        return isEof;
     }
 
     /**
@@ -349,9 +325,8 @@ class ZygoteConnection {
         int[] gids;
 
         /**
-         * From --enable-jdwp, --enable-checkjni, --enable-assert,
-         * --enable-safemode, --generate-debug-info, --enable-jni-logging,
-         * --java-debuggable, and --native-debuggable.
+         * From --enable-debugger, --enable-checkjni, --enable-assert,
+         * --enable-safemode, --generate-debug-info and --enable-jni-logging.
          */
         int debugFlags;
 
@@ -401,20 +376,6 @@ class ZygoteConnection {
          * not be reliable in the case of process-sharing apps.
          */
         String appDataDir;
-
-        /**
-         * Whether to preload a package, with the package path in the remainingArgs.
-         */
-        String preloadPackage;
-        String preloadPackageLibs;
-        String preloadPackageCacheKey;
-
-        /**
-         * Whether this is a request to start preloading the default resources and classes.
-         * This argument only makes sense when the zygote is in lazy preload mode (i.e, when
-         * it's started with --enable-lazy-preload).
-         */
-        boolean preloadDefault;
 
         /**
          * Constructs instance and parses args
@@ -469,8 +430,8 @@ class ZygoteConnection {
                     targetSdkVersionSpecified = true;
                     targetSdkVersion = Integer.parseInt(
                             arg.substring(arg.indexOf('=') + 1));
-                } else if (arg.equals("--enable-jdwp")) {
-                    debugFlags |= Zygote.DEBUG_ENABLE_JDWP;
+                } else if (arg.equals("--enable-debugger")) {
+                    debugFlags |= Zygote.DEBUG_ENABLE_DEBUGGER;
                 } else if (arg.equals("--enable-safemode")) {
                     debugFlags |= Zygote.DEBUG_ENABLE_SAFEMODE;
                 } else if (arg.equals("--enable-checkjni")) {
@@ -481,8 +442,6 @@ class ZygoteConnection {
                     debugFlags |= Zygote.DEBUG_ALWAYS_JIT;
                 } else if (arg.equals("--native-debuggable")) {
                     debugFlags |= Zygote.DEBUG_NATIVE_DEBUGGABLE;
-                } else if (arg.equals("--java-debuggable")) {
-                    debugFlags |= Zygote.DEBUG_JAVA_DEBUGGABLE;
                 } else if (arg.equals("--enable-jni-logging")) {
                     debugFlags |= Zygote.DEBUG_ENABLE_JNI_LOGGING;
                 } else if (arg.equals("--enable-assert")) {
@@ -576,12 +535,6 @@ class ZygoteConnection {
                     instructionSet = arg.substring(arg.indexOf('=') + 1);
                 } else if (arg.startsWith("--app-data-dir=")) {
                     appDataDir = arg.substring(arg.indexOf('=') + 1);
-                } else if (arg.equals("--preload-package")) {
-                    preloadPackage = args[++curArg];
-                    preloadPackageLibs = args[++curArg];
-                    preloadPackageCacheKey = args[++curArg];
-                } else if (arg.equals("--preload-default")) {
-                    preloadDefault = true;
                 } else {
                     break;
                 }
@@ -591,12 +544,7 @@ class ZygoteConnection {
                 if (args.length - curArg > 0) {
                     throw new IllegalArgumentException("Unexpected arguments after --query-abi-list.");
                 }
-            } else if (preloadPackage != null) {
-                if (args.length - curArg > 0) {
-                    throw new IllegalArgumentException(
-                            "Unexpected arguments after --preload-package.");
-                }
-            } else if (!preloadDefault) {
+            } else {
                 if (!seenRuntimeArgs) {
                     throw new IllegalArgumentException("Unexpected argument : " + args[curArg]);
                 }
@@ -670,10 +618,13 @@ class ZygoteConnection {
             throws ZygoteSecurityException {
 
         if (peer.getUid() == Process.SYSTEM_UID) {
+            String factoryTest = SystemProperties.get("ro.factorytest");
+            boolean uidRestricted;
+
             /* In normal operation, SYSTEM_UID can only specify a restricted
              * set of UIDs. In factory test mode, SYSTEM_UID may specify any uid.
              */
-            boolean uidRestricted = FactoryTest.getMode() == FactoryTest.FACTORY_TEST_OFF;
+            uidRestricted = !(factoryTest.equals("1") || factoryTest.equals("2"));
 
             if (uidRestricted && args.uidSpecified && (args.uid < Process.SYSTEM_UID)) {
                 throw new ZygoteSecurityException(
@@ -697,14 +648,14 @@ class ZygoteConnection {
      * Applies debugger system properties to the zygote arguments.
      *
      * If "ro.debuggable" is "1", all apps are debuggable. Otherwise,
-     * the debugger state is specified via the "--enable-jdwp" flag
+     * the debugger state is specified via the "--enable-debugger" flag
      * in the spawn request.
      *
      * @param args non-null; zygote spawner args
      */
     public static void applyDebuggerSystemProperty(Arguments args) {
-        if (RoSystemProperties.DEBUGGABLE) {
-            args.debugFlags |= Zygote.DEBUG_ENABLE_JDWP;
+        if ("1".equals(SystemProperties.get("ro.debuggable"))) {
+            args.debugFlags |= Zygote.DEBUG_ENABLE_DEBUGGER;
         }
     }
 
@@ -725,11 +676,9 @@ class ZygoteConnection {
             throws ZygoteSecurityException {
         int peerUid = peer.getUid();
 
-        if (args.invokeWith != null && peerUid != 0 &&
-            (args.debugFlags & Zygote.DEBUG_ENABLE_JDWP) == 0) {
-            throw new ZygoteSecurityException("Peer is permitted to specify an"
-                    + "explicit invoke-with wrapper command only for debuggable"
-                    + "applications.");
+        if (args.invokeWith != null && peerUid != 0) {
+            throw new ZygoteSecurityException("Peer is not permitted to specify "
+                    + "an explicit invoke-with wrapper command");
         }
     }
 
@@ -741,6 +690,14 @@ class ZygoteConnection {
     public static void applyInvokeWithSystemProperty(Arguments args) {
         if (args.invokeWith == null && args.niceName != null) {
             String property = "wrap." + args.niceName;
+            if (property.length() > 31) {
+                // Properties with a trailing "." are illegal.
+                if (property.charAt(30) != '.') {
+                    property = property.substring(0, 31);
+                } else {
+                    property = property.substring(0, 30);
+                }
+            }
             args.invokeWith = SystemProperties.get(property);
             if (args.invokeWith != null && args.invokeWith.length() == 0) {
                 args.invokeWith = null;
@@ -756,9 +713,15 @@ class ZygoteConnection {
      * @param parsedArgs non-null; zygote args
      * @param descriptors null-ok; new file descriptors for stdio if available.
      * @param pipeFd null-ok; pipe for communication back to Zygote.
+     * @param newStderr null-ok; stream to use for stderr until stdio
+     * is reopened.
+     *
+     * @throws ZygoteInit.MethodAndArgsCaller on success to
+     * trampoline to code that invokes static main.
      */
-    private Runnable handleChildProc(Arguments parsedArgs, FileDescriptor[] descriptors,
-            FileDescriptor pipeFd) {
+    private void handleChildProc(Arguments parsedArgs,
+            FileDescriptor[] descriptors, FileDescriptor pipeFd, PrintStream newStderr)
+            throws ZygoteInit.MethodAndArgsCaller {
         /**
          * By the time we get here, the native code has closed the two actual Zygote
          * socket connections, and substituted /dev/null in their place.  The LocalSocket
@@ -766,6 +729,8 @@ class ZygoteConnection {
          */
 
         closeSocket();
+        ZygoteInit.closeServerSocket();
+
         if (descriptors != null) {
             try {
                 Os.dup2(descriptors[0], STDIN_FILENO);
@@ -775,6 +740,7 @@ class ZygoteConnection {
                 for (FileDescriptor fd: descriptors) {
                     IoUtils.closeQuietly(fd);
                 }
+                newStderr = System.err;
             } catch (ErrnoException ex) {
                 Log.e(TAG, "Error reopening stdio", ex);
             }
@@ -791,12 +757,10 @@ class ZygoteConnection {
                     parsedArgs.niceName, parsedArgs.targetSdkVersion,
                     VMRuntime.getCurrentInstructionSet(),
                     pipeFd, parsedArgs.remainingArgs);
-
-            // Should not get here.
-            throw new IllegalStateException("WrapperInit.execApplication unexpectedly returned");
         } else {
-            return ZygoteInit.zygoteInit(parsedArgs.targetSdkVersion, parsedArgs.remainingArgs,
-                    null /* classLoader */);
+            // 初始化运行库以及启动一个Binder线程池
+            RuntimeInit.zygoteInit(parsedArgs.targetSdkVersion,
+                    parsedArgs.remainingArgs, null /* classLoader */);
         }
     }
 
@@ -808,8 +772,13 @@ class ZygoteConnection {
      * @param descriptors null-ok; file descriptors for child's new stdio if
      * specified.
      * @param pipeFd null-ok; pipe for communication with child.
+     * @param parsedArgs non-null; zygote args
+     * @return true for "exit command loop" and false for "continue command
+     * loop"
      */
-    private void handleParentProc(int pid, FileDescriptor[] descriptors, FileDescriptor pipeFd) {
+    private boolean handleParentProc(int pid,
+            FileDescriptor[] descriptors, FileDescriptor pipeFd, Arguments parsedArgs) {
+
         if (pid > 0) {
             setChildPgid(pid);
         }
@@ -822,60 +791,17 @@ class ZygoteConnection {
 
         boolean usingWrapper = false;
         if (pipeFd != null && pid > 0) {
+            DataInputStream is = new DataInputStream(new FileInputStream(pipeFd));
             int innerPid = -1;
             try {
-                // Do a busy loop here. We can't guarantee that a failure (and thus an exception
-                // bail) happens in a timely manner.
-                final int BYTES_REQUIRED = 4;  // Bytes in an int.
-
-                StructPollfd fds[] = new StructPollfd[] {
-                        new StructPollfd()
-                };
-
-                byte data[] = new byte[BYTES_REQUIRED];
-
-                int remainingSleepTime = WRAPPED_PID_TIMEOUT_MILLIS;
-                int dataIndex = 0;
-                long startTime = System.nanoTime();
-
-                while (dataIndex < data.length && remainingSleepTime > 0) {
-                    fds[0].fd = pipeFd;
-                    fds[0].events = (short) POLLIN;
-                    fds[0].revents = 0;
-                    fds[0].userData = null;
-
-                    int res = android.system.Os.poll(fds, remainingSleepTime);
-                    long endTime = System.nanoTime();
-                    int elapsedTimeMs = (int)((endTime - startTime) / 1000000l);
-                    remainingSleepTime = WRAPPED_PID_TIMEOUT_MILLIS - elapsedTimeMs;
-
-                    if (res > 0) {
-                        if ((fds[0].revents & POLLIN) != 0) {
-                            // Only read one byte, so as not to block.
-                            int readBytes = android.system.Os.read(pipeFd, data, dataIndex, 1);
-                            if (readBytes < 0) {
-                                throw new RuntimeException("Some error");
-                            }
-                            dataIndex += readBytes;
-                        } else {
-                            // Error case. revents should contain one of the error bits.
-                            break;
-                        }
-                    } else if (res == 0) {
-                        Log.w(TAG, "Timed out waiting for child.");
-                    }
-                }
-
-                if (dataIndex == data.length) {
-                    DataInputStream is = new DataInputStream(new ByteArrayInputStream(data));
-                    innerPid = is.readInt();
-                }
-
-                if (innerPid == -1) {
-                    Log.w(TAG, "Error reading pid from wrapped process, child may have died");
-                }
-            } catch (Exception ex) {
+                innerPid = is.readInt();
+            } catch (IOException ex) {
                 Log.w(TAG, "Error reading pid from wrapped process, child may have died", ex);
+            } finally {
+                try {
+                    is.close();
+                } catch (IOException ex) {
+                }
             }
 
             // Ensure that the pid reported by the wrapped process is either the
@@ -901,8 +827,11 @@ class ZygoteConnection {
             mSocketOutStream.writeInt(pid);
             mSocketOutStream.writeBoolean(usingWrapper);
         } catch (IOException ex) {
-            throw new IllegalStateException("Error writing to command socket", ex);
+            Log.e(TAG, "Error writing to command socket", ex);
+            return true;
         }
+
+        return false;
     }
 
     private void setChildPgid(int pid) {
@@ -916,6 +845,22 @@ class ZygoteConnection {
             // getsid(0) != getsid(peer.getPid())
             Log.i(TAG, "Zygote: setpgid failed. This is "
                 + "normal if peer is not in our session");
+        }
+    }
+
+    /**
+     * Logs an error message and prints it to the specified stream, if
+     * provided
+     *
+     * @param newStderr null-ok; a standard error stream
+     * @param message non-null; error message
+     * @param ex null-ok an exception
+     */
+    private static void logAndPrintError (PrintStream newStderr,
+            String message, Throwable ex) {
+        Log.e(TAG, message, ex);
+        if (newStderr != null) {
+            newStderr.println(message + (ex == null ? "" : ex));
         }
     }
 }

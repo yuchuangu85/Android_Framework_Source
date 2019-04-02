@@ -16,8 +16,6 @@
 
 package android.support.v7.view.menu;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.content.Context;
 import android.os.Bundle;
 import android.os.Parcelable;
@@ -34,12 +32,14 @@ import android.widget.ListAdapter;
 
 import java.util.ArrayList;
 
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+
 /**
  * MenuPresenter for list-style menus.
  *
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public class ListMenuPresenter implements MenuPresenter, AdapterView.OnItemClickListener {
     private static final String TAG = "ListMenuPresenter";
 
@@ -177,12 +177,10 @@ public class ListMenuPresenter implements MenuPresenter, AdapterView.OnItemClick
         return false;
     }
 
-    @Override
     public boolean expandItemActionView(MenuBuilder menu, MenuItemImpl item) {
         return false;
     }
 
-    @Override
     public boolean collapseItemActionView(MenuBuilder menu, MenuItemImpl item) {
         return false;
     }
@@ -234,7 +232,6 @@ public class ListMenuPresenter implements MenuPresenter, AdapterView.OnItemClick
             findExpandedIndex();
         }
 
-        @Override
         public int getCount() {
             ArrayList<MenuItemImpl> items = mMenu.getNonActionItems();
             int count = items.size() - mItemIndexOffset;
@@ -244,7 +241,6 @@ public class ListMenuPresenter implements MenuPresenter, AdapterView.OnItemClick
             return count - 1;
         }
 
-        @Override
         public MenuItemImpl getItem(int position) {
             ArrayList<MenuItemImpl> items = mMenu.getNonActionItems();
             position += mItemIndexOffset;
@@ -254,14 +250,12 @@ public class ListMenuPresenter implements MenuPresenter, AdapterView.OnItemClick
             return items.get(position);
         }
 
-        @Override
         public long getItemId(int position) {
             // Since a menu item's ID is optional, we'll use the position as an
             // ID for the item in the AdapterView
             return position;
         }
 
-        @Override
         public View getView(int position, View convertView, ViewGroup parent) {
             if (convertView == null) {
                 convertView = mInflater.inflate(mItemLayoutRes, parent, false);

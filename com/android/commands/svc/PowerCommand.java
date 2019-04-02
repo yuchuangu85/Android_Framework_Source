@@ -22,7 +22,6 @@ import android.os.IPowerManager;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
-import android.os.SystemProperties;
 
 public class PowerCommand extends Svc.Command {
     public PowerCommand() {
@@ -88,7 +87,7 @@ public class PowerCommand extends Svc.Command {
                         // no confirm, wait till device is rebooted
                         pm.reboot(false, mode, true);
                     } catch (RemoteException e) {
-                        maybeLogRemoteException("Failed to reboot.");
+                        System.err.println("Failed to reboot.");
                     }
                     return;
                 } else if ("shutdown".equals(args[1])) {
@@ -96,22 +95,12 @@ public class PowerCommand extends Svc.Command {
                         // no confirm, wait till device is off
                         pm.shutdown(false, null, true);
                     } catch (RemoteException e) {
-                        maybeLogRemoteException("Failed to shutdown.");
+                        System.err.println("Failed to shutdown.");
                     }
                     return;
                 }
             }
         }
         System.err.println(longHelp());
-    }
-
-    // Check if remote exception is benign during shutdown. Pm can be killed
-    // before system server during shutdown, so remote exception can be ignored
-    // if it is already in shutdown flow.
-    private void maybeLogRemoteException(String msg) {
-        String powerProp = SystemProperties.get("sys.powerctl");
-        if (powerProp.isEmpty()) {
-            System.err.println(msg);
-        }
     }
 }

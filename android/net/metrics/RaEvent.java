@@ -16,6 +16,7 @@
 
 package android.net.metrics;
 
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -23,8 +24,10 @@ import android.os.Parcelable;
  * An event logged when the APF packet socket receives an RA packet.
  * {@hide}
  */
+@SystemApi
 public final class RaEvent implements Parcelable {
 
+    /** {@hide} */
     public static final long NO_LIFETIME = -1L;
 
     // Lifetime in seconds of options found in a single RA packet.
@@ -36,6 +39,7 @@ public final class RaEvent implements Parcelable {
     public final long rdnssLifetime;
     public final long dnsslLifetime;
 
+    /** {@hide} */
     public RaEvent(long routerLifetime, long prefixValidLifetime, long prefixPreferredLifetime,
             long routeInfoLifetime, long rdnssLifetime, long dnsslLifetime) {
         this.routerLifetime = routerLifetime;
@@ -92,6 +96,7 @@ public final class RaEvent implements Parcelable {
         }
     };
 
+    /** {@hide} */
     public static class Builder {
 
         long routerLifetime          = NO_LIFETIME;

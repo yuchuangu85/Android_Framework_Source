@@ -28,8 +28,6 @@ import android.util.AtomicFile;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.util.TimeUtils;
-
-import com.android.internal.annotations.GuardedBy;
 import com.android.internal.app.procstats.DumpUtils;
 import com.android.internal.app.procstats.IProcessStats;
 import com.android.internal.app.procstats.ProcessState;
@@ -79,10 +77,6 @@ public final class ProcessStatsService extends IProcessStats.Stub {
     Parcel mPendingWrite;
     boolean mPendingWriteCommitted;
     long mLastWriteTime;
-
-    /** For CTS to inject the screen state. */
-    @GuardedBy("mAm")
-    Boolean mInjectedScreenState;
 
     public ProcessStatsService(ActivityManagerService am, File file) {
         mAm = am;
@@ -134,9 +128,6 @@ public final class ProcessStatsService extends IProcessStats.Stub {
     public boolean setMemFactorLocked(int memFactor, boolean screenOn, long now) {
         mMemFactorLowered = memFactor < mLastMemOnlyState;
         mLastMemOnlyState = memFactor;
-        if (mInjectedScreenState != null) {
-            screenOn = mInjectedScreenState;
-        }
         if (screenOn) {
             memFactor += ProcessStats.ADJ_SCREEN_ON;
         }
@@ -233,8 +224,7 @@ public final class ProcessStatsService extends IProcessStats.Stub {
                 updateFile();
             }
             mLastWriteTime = SystemClock.uptimeMillis();
-            if (DEBUG) Slog.d(TAG, "Prepared write state in "
-                    + (SystemClock.uptimeMillis()-now) + "ms");
+            Slog.i(TAG, "Prepared write state in " + (SystemClock.uptimeMillis()-now) + "ms");
             if (!sync) {
                 BackgroundThread.getHandler().post(new Runnable() {
                     @Override public void run() {
@@ -583,9 +573,7 @@ public final class ProcessStatsService extends IProcessStats.Stub {
         pw.println("    [--checkin|-c|--csv] [--csv-screen] [--csv-proc] [--csv-mem]");
         pw.println("    [--details] [--full-details] [--current] [--hours N] [--last N]");
         pw.println("    [--max N] --active] [--commit] [--reset] [--clear] [--write] [-h]");
-        pw.println("    [--start-testing] [--stop-testing] ");
-        pw.println("    [--pretend-screen-on] [--pretend-screen-off] [--stop-pretend-screen]");
-        pw.println("    [<package.name>]");
+        pw.println("    [--start-testing] [--stop-testing] [<package.name>]");
         pw.println("  --checkin: perform a checkin: print and delete old committed states.");
         pw.println("  -c: print only state in checkin format.");
         pw.println("  --csv: output data suitable for putting in a spreadsheet.");
@@ -607,9 +595,6 @@ public final class ProcessStatsService extends IProcessStats.Stub {
         pw.println("  --read: replace current stats with last-written stats.");
         pw.println("  --start-testing: clear all stats and starting high frequency pss sampling.");
         pw.println("  --stop-testing: stop high frequency pss sampling.");
-        pw.println("  --pretend-screen-on: pretend screen is on.");
-        pw.println("  --pretend-screen-off: pretend screen is off.");
-        pw.println("  --stop-pretend-screen: forget \"pretend screen\" and use the real state.");
         pw.println("  -a: print everything.");
         pw.println("  -h: print this help text.");
         pw.println("  <package.name>: optional name of package to filter output by.");
@@ -617,8 +602,13 @@ public final class ProcessStatsService extends IProcessStats.Stub {
 
     @Override
     protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        if (!com.android.internal.util.DumpUtils.checkDumpAndUsageStatsPermission(mAm.mContext,
-                TAG, pw)) return;
+        if (mAm.checkCallingPermission(android.Manifest.permission.DUMP)
+                != PackageManager.PERMISSION_GRANTED) {
+            pw.println("Permission Denial: can't dump procstats from from pid="
+                    + Binder.getCallingPid() + ", uid=" + Binder.getCallingUid()
+                    + " without permission " + android.Manifest.permission.DUMP);
+            return;
+        }
 
         long ident = Binder.clearCallingIdentity();
         try {
@@ -810,21 +800,6 @@ public final class ProcessStatsService extends IProcessStats.Stub {
                         pw.println("Stopped high frequency sampling.");
                         quit = true;
                     }
-                } else if ("--pretend-screen-on".equals(arg)) {
-                    synchronized (mAm) {
-                        mInjectedScreenState = true;
-                    }
-                    quit = true;
-                } else if ("--pretend-screen-off".equals(arg)) {
-                    synchronized (mAm) {
-                        mInjectedScreenState = false;
-                    }
-                    quit = true;
-                } else if ("--stop-pretend-screen".equals(arg)) {
-                    synchronized (mAm) {
-                        mInjectedScreenState = null;
-                    }
-                    quit = true;
                 } else if ("-h".equals(arg)) {
                     dumpHelp(pw);
                     return;

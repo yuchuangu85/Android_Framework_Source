@@ -714,7 +714,7 @@ public class SetterStore {
         if (viewType == null) {
             return null;
         } else if (viewType.isViewDataBinding()) {
-            return new ViewDataBindingGetterCall(viewType, attribute);
+            return new ViewDataBindingGetterCall(attribute);
         }
 
         attribute = stripNamespace(attribute);
@@ -758,11 +758,11 @@ public class SetterStore {
                                                 viewType.getCanonicalName());
                                     } else {
                                         bestMethod.call = new AdapterGetter(inverseDescription,
-                                                setters.get(0), key.valueType);
+                                                setters.get(0));
                                     }
                                 } else {
                                     bestMethod.call = new AdapterGetter(inverseDescription,
-                                            eventCall, key.valueType);
+                                            eventCall);
                                 }
                             }
 
@@ -1271,7 +1271,6 @@ public class SetterStore {
     }
 
     private static class IntermediateV2 extends IntermediateV1 {
-        private static final long serialVersionUID = 0xA45C2EB637E35C07L;
         public final HashMap<String, HashMap<AccessorKey, InverseDescription>> inverseAdapters =
                 new HashMap<String, HashMap<AccessorKey, InverseDescription>>();
         public final HashMap<String, HashMap<String, InverseDescription>> inverseMethods =
@@ -1636,8 +1635,6 @@ public class SetterStore {
     public interface BindingGetterCall {
         String toJava(String componentExpression, String viewExpression);
 
-        String getGetterType();
-
         int getMinApi();
 
         String getBindingAdapterInstanceClass();
@@ -1653,24 +1650,17 @@ public class SetterStore {
         private final String mGetter;
         private final BindingSetterCall mEventSetter;
         private final String mAttribute;
-        private final ModelClass mBindingClass;
 
-        public ViewDataBindingGetterCall(ModelClass bindingClass, String attribute) {
+        public ViewDataBindingGetterCall(String attribute) {
             final int colonIndex = attribute.indexOf(':');
             mAttribute = attribute.substring(colonIndex + 1);
             mGetter = "get" + StringUtils.capitalize(mAttribute);
             mEventSetter = new ViewDataBindingEventSetter();
-            mBindingClass = bindingClass;
         }
 
         @Override
         public String toJava(String componentExpression, String viewExpression) {
             return viewExpression + "." + mGetter + "()";
-        }
-
-        @Override
-        public String getGetterType() {
-            return mBindingClass.findInstanceGetter(mGetter).getReturnType().toJavaCode();
         }
 
         @Override
@@ -1726,11 +1716,6 @@ public class SetterStore {
         }
 
         @Override
-        public String getGetterType() {
-            return mMethod.getReturnType().toJavaCode();
-        }
-
-        @Override
         public int getMinApi() {
             return mMethod.getMinApi();
         }
@@ -1749,18 +1734,10 @@ public class SetterStore {
         private final InverseDescription mInverseDescription;
         private String mBindingAdapterCall;
         private final BindingSetterCall mEventCall;
-        private final String mGetterType;
 
-        public AdapterGetter(InverseDescription description, BindingSetterCall eventCall,
-                String getterType) {
+        public AdapterGetter(InverseDescription description, BindingSetterCall eventCall) {
             mInverseDescription = description;
             mEventCall = eventCall;
-            mGetterType = getterType;
-        }
-
-        @Override
-        public String getGetterType() {
-            return mGetterType;
         }
 
         @Override

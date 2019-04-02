@@ -16,11 +16,11 @@
 
 package android.text.style;
 
-import android.graphics.Canvas;
-import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
-import android.text.Layout;
+import android.graphics.Paint;
+import android.graphics.Canvas;
 import android.text.Spanned;
+import android.text.Layout;
 
 public class DrawableMarginSpan
 implements LeadingMarginSpan, LineHeightSpan

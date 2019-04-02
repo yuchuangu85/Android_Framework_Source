@@ -41,7 +41,6 @@ public final class ParcelableConference implements Parcelable {
     private final int mVideoState;
     private StatusHints mStatusHints;
     private Bundle mExtras;
-    private long mConnectElapsedTimeMillis = Conference.CONNECT_TIME_NOT_SPECIFIED;
 
     public ParcelableConference(
             PhoneAccountHandle phoneAccount,
@@ -52,7 +51,6 @@ public final class ParcelableConference implements Parcelable {
             IVideoProvider videoProvider,
             int videoState,
             long connectTimeMillis,
-            long connectElapsedTimeMillis,
             StatusHints statusHints,
             Bundle extras) {
         mPhoneAccount = phoneAccount;
@@ -60,12 +58,12 @@ public final class ParcelableConference implements Parcelable {
         mConnectionCapabilities = connectionCapabilities;
         mConnectionProperties = connectionProperties;
         mConnectionIds = connectionIds;
+        mConnectTimeMillis = Conference.CONNECT_TIME_NOT_SPECIFIED;
         mVideoProvider = videoProvider;
         mVideoState = videoState;
         mConnectTimeMillis = connectTimeMillis;
         mStatusHints = statusHints;
         mExtras = extras;
-        mConnectElapsedTimeMillis = connectElapsedTimeMillis;
     }
 
     @Override
@@ -113,11 +111,6 @@ public final class ParcelableConference implements Parcelable {
     public long getConnectTimeMillis() {
         return mConnectTimeMillis;
     }
-
-    public long getConnectElapsedTimeMillis() {
-        return mConnectElapsedTimeMillis;
-    }
-
     public IVideoProvider getVideoProvider() {
         return mVideoProvider;
     }
@@ -151,11 +144,10 @@ public final class ParcelableConference implements Parcelable {
             StatusHints statusHints = source.readParcelable(classLoader);
             Bundle extras = source.readBundle(classLoader);
             int properties = source.readInt();
-            long connectElapsedTimeMillis = source.readLong();
 
             return new ParcelableConference(phoneAccount, state, capabilities, properties,
-                    connectionIds, videoCallProvider, videoState, connectTimeMillis,
-                    connectElapsedTimeMillis, statusHints, extras);
+                    connectionIds, videoCallProvider, videoState, connectTimeMillis, statusHints,
+                    extras);
         }
 
         @Override
@@ -184,6 +176,5 @@ public final class ParcelableConference implements Parcelable {
         destination.writeParcelable(mStatusHints, 0);
         destination.writeBundle(mExtras);
         destination.writeInt(mConnectionProperties);
-        destination.writeLong(mConnectElapsedTimeMillis);
     }
 }

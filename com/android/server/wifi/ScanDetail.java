@@ -20,13 +20,15 @@ import android.net.wifi.AnqpInformationElement;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiSsid;
 
-import com.android.server.wifi.hotspot2.anqp.ANQPElement;
-import com.android.server.wifi.hotspot2.anqp.Constants;
-import com.android.server.wifi.hotspot2.anqp.HSFriendlyNameElement;
-import com.android.server.wifi.hotspot2.anqp.RawByteElement;
-import com.android.server.wifi.hotspot2.anqp.VenueNameElement;
+import com.android.server.wifi.anqp.ANQPElement;
+import com.android.server.wifi.anqp.Constants;
+import com.android.server.wifi.anqp.HSFriendlyNameElement;
+import com.android.server.wifi.anqp.RawByteElement;
+import com.android.server.wifi.anqp.VenueNameElement;
 import com.android.server.wifi.hotspot2.NetworkDetail;
+import com.android.server.wifi.hotspot2.PasspointMatch;
 import com.android.server.wifi.hotspot2.Utils;
+import com.android.server.wifi.hotspot2.pps.HomeSP;
 
 import java.util.List;
 import java.util.Map;
@@ -37,6 +39,7 @@ import java.util.Map;
 public class ScanDetail {
     private final ScanResult mScanResult;
     private volatile NetworkDetail mNetworkDetail;
+    private final Map<HomeSP, PasspointMatch> mMatches;
     private long mSeen = 0;
 
     public ScanDetail(NetworkDetail networkDetail, WifiSsid wifiSsid, String bssid,
@@ -47,7 +50,7 @@ public class ScanDetail {
                 networkDetail.getAnqpDomainID(), networkDetail.getOsuProviders(),
                 caps, level, frequency, tsf);
         mSeen = System.currentTimeMillis();
-        mScanResult.seen = mSeen;
+        //mScanResult.seen = mSeen;
         mScanResult.channelWidth = networkDetail.getChannelWidth();
         mScanResult.centerFreq0 = networkDetail.getCenterfreq0();
         mScanResult.centerFreq1 = networkDetail.getCenterfreq1();
@@ -59,6 +62,7 @@ public class ScanDetail {
         if (networkDetail.isInterworking()) {
             mScanResult.setFlag(ScanResult.FLAG_PASSPOINT_NETWORK);
         }
+        mMatches = null;
     }
 
     public ScanDetail(WifiSsid wifiSsid, String bssid, String caps, int level, int frequency,
@@ -66,19 +70,53 @@ public class ScanDetail {
         mNetworkDetail = null;
         mScanResult = new ScanResult(wifiSsid, bssid, 0L, -1, null, caps, level, frequency, tsf);
         mSeen = seen;
-        mScanResult.seen = mSeen;
+        //mScanResult.seen = mSeen;
         mScanResult.channelWidth = 0;
         mScanResult.centerFreq0 = 0;
         mScanResult.centerFreq1 = 0;
         mScanResult.flags = 0;
+        mMatches = null;
     }
 
-    public ScanDetail(ScanResult scanResult, NetworkDetail networkDetail) {
+    public ScanDetail(ScanResult scanResult, NetworkDetail networkDetail,
+                       Map<HomeSP, PasspointMatch> matches) {
         mScanResult = scanResult;
         mNetworkDetail = networkDetail;
-        // Only inherit |mScanResult.seen| if it was previously set. This ensures that |mSeen|
-        // will always contain a valid timestamp.
-        mSeen = (mScanResult.seen == 0) ? System.currentTimeMillis() : mScanResult.seen;
+        mMatches = matches;
+        mSeen = mScanResult.seen;
+    }
+
+    /**
+     * Update the data stored in the scan result with the provided information.
+     *
+     * @param networkDetail NetworkDetail
+     * @param level int
+     * @param wssid WifiSsid
+     * @param ssid String
+     * @param flags String
+     * @param freq int
+     * @param tsf long
+     */
+    public void updateResults(NetworkDetail networkDetail, int level, WifiSsid wssid, String ssid,
+                              String flags, int freq, long tsf) {
+        mScanResult.level = level;
+        mScanResult.wifiSsid = wssid;
+        // Keep existing API
+        mScanResult.SSID = ssid;
+        mScanResult.capabilities = flags;
+        mScanResult.frequency = freq;
+        mScanResult.timestamp = tsf;
+        mSeen = System.currentTimeMillis();
+        //mScanResult.seen = mSeen;
+        mScanResult.channelWidth = networkDetail.getChannelWidth();
+        mScanResult.centerFreq0 = networkDetail.getCenterfreq0();
+        mScanResult.centerFreq1 = networkDetail.getCenterfreq1();
+        if (networkDetail.is80211McResponderSupport()) {
+            mScanResult.setFlag(ScanResult.FLAG_80211mc_RESPONDER);
+        }
+        if (networkDetail.isInterworking()) {
+            mScanResult.setFlag(ScanResult.FLAG_PASSPOINT_NETWORK);
+        }
     }
 
     /**

@@ -41,17 +41,11 @@ public class StaticIdentifierExpr extends IdentifierExpr {
     }
 
     @Override
-    public Expr generateInverse(ExprModel model, Expr value, String bindingClassName) {
+    public KCode toInverseCode(KCode value) {
         throw new IllegalStateException("StaticIdentifierExpr is not invertible.");
     }
-
     @Override
-    protected KCode generateCode() {
+    protected KCode generateCode(boolean expand) {
         return new KCode(getResolvedType().toJavaCode());
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.staticIdentifier(mName);
     }
 }

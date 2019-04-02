@@ -17,6 +17,7 @@
 package android.net.metrics;
 
 import android.annotation.IntDef;
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.SparseArray;
@@ -30,37 +31,45 @@ import java.lang.annotation.RetentionPolicy;
  * An event recorded by NetworkMonitor when sending a probe for finding captive portals.
  * {@hide}
  */
+@SystemApi
 public final class ValidationProbeEvent implements Parcelable {
 
     public static final int PROBE_DNS       = 0;
     public static final int PROBE_HTTP      = 1;
     public static final int PROBE_HTTPS     = 2;
     public static final int PROBE_PAC       = 3;
+    /** {@hide} */
     public static final int PROBE_FALLBACK  = 4;
 
     public static final int DNS_FAILURE = 0;
     public static final int DNS_SUCCESS = 1;
 
-    private static final int FIRST_VALIDATION  = 1 << 8;
-    private static final int REVALIDATION      = 2 << 8;
+    /** {@hide} */
+    @IntDef(value = {PROBE_DNS, PROBE_HTTP, PROBE_HTTPS, PROBE_PAC})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface ProbeType {}
 
+    /** {@hide} */
     @IntDef(value = {DNS_FAILURE, DNS_SUCCESS})
     @Retention(RetentionPolicy.SOURCE)
     public @interface ReturnCode {}
 
-    public long durationMs;
-    // probeType byte format (MSB to LSB):
-    // byte 0: unused
-    // byte 1: unused
-    // byte 2: 0 = UNKNOWN, 1 = FIRST_VALIDATION, 2 = REVALIDATION
-    // byte 3: PROBE_* constant
-    public int probeType;
-    public @ReturnCode int returnCode;
+    public final int netId;
+    public final long durationMs;
+    public final @ProbeType int probeType;
+    public final @ReturnCode int returnCode;
 
-    public ValidationProbeEvent() {
+    /** {@hide} */
+    public ValidationProbeEvent(
+            int netId, long durationMs, @ProbeType int probeType, @ReturnCode int returnCode) {
+        this.netId = netId;
+        this.durationMs = durationMs;
+        this.probeType = probeType;
+        this.returnCode = returnCode;
     }
 
     private ValidationProbeEvent(Parcel in) {
+        netId = in.readInt();
         durationMs = in.readLong();
         probeType = in.readInt();
         returnCode = in.readInt();
@@ -68,6 +77,7 @@ public final class ValidationProbeEvent implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
+        out.writeInt(netId);
         out.writeLong(durationMs);
         out.writeInt(probeType);
         out.writeInt(returnCode);
@@ -89,27 +99,22 @@ public final class ValidationProbeEvent implements Parcelable {
         }
     };
 
-    public static int makeProbeType(int probeType, boolean firstValidation) {
-        return (probeType & 0xff) | (firstValidation ? FIRST_VALIDATION : REVALIDATION);
-    }
-
+    /** @hide */
     public static String getProbeName(int probeType) {
-        return Decoder.constants.get(probeType & 0xff, "PROBE_???");
+        return Decoder.constants.get(probeType, "PROBE_???");
     }
 
-    public static String getValidationStage(int probeType) {
-        return Decoder.constants.get(probeType & 0xff00, "UNKNOWN");
+    public static void logEvent(int netId, long durationMs, int probeType, int returnCode) {
     }
 
     @Override
     public String toString() {
-        return String.format("ValidationProbeEvent(%s:%d %s, %dms)",
-                getProbeName(probeType), returnCode, getValidationStage(probeType), durationMs);
+        return String.format("ValidationProbeEvent(%d, %s:%d, %dms)",
+                netId, getProbeName(probeType), returnCode, durationMs);
     }
 
     final static class Decoder {
         static final SparseArray<String> constants = MessageUtils.findMessageNames(
-                new Class[]{ValidationProbeEvent.class},
-                new String[]{"PROBE_", "FIRST_", "REVALIDATION"});
+                new Class[]{ValidationProbeEvent.class}, new String[]{"PROBE_"});
     }
 }

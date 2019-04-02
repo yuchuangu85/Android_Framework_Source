@@ -19,7 +19,6 @@ package android.support.v7.view.menu;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.support.annotation.RequiresApi;
 import android.support.v4.internal.view.SupportMenu;
 import android.view.KeyEvent;
 import android.view.Menu;
@@ -29,7 +28,6 @@ import android.view.SubMenu;
 /**
  * Wraps a support {@link SupportMenu} as a framework {@link android.view.Menu}
  */
-@RequiresApi(14)
 class MenuWrapperICS extends BaseMenuWrapper<SupportMenu> implements Menu {
 
     MenuWrapperICS(Context context, SupportMenu object) {

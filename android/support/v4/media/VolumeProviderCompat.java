@@ -16,8 +16,6 @@
 
 package android.support.v4.media;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.os.Build;
 import android.support.annotation.IntDef;
 import android.support.annotation.RestrictTo;
@@ -25,6 +23,8 @@ import android.support.v4.media.session.MediaSessionCompat;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Handles requests to adjust or set the volume on a session. This is also used
@@ -37,7 +37,7 @@ public abstract class VolumeProviderCompat {
     /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     @IntDef({VOLUME_CONTROL_FIXED, VOLUME_CONTROL_RELATIVE, VOLUME_CONTROL_ABSOLUTE})
     @Retention(RetentionPolicy.SOURCE)
     public @interface ControlType {}
@@ -121,7 +121,7 @@ public abstract class VolumeProviderCompat {
     public final void setCurrentVolume(int currentVolume) {
         mCurrentVolume = currentVolume;
         Object volumeProviderObj = getVolumeProvider();
-        if (volumeProviderObj != null && Build.VERSION.SDK_INT >= 21) {
+        if (volumeProviderObj != null) {
             VolumeProviderCompatApi21.setCurrentVolume(volumeProviderObj, currentVolume);
         }
         if (mCallback != null) {
@@ -164,22 +164,23 @@ public abstract class VolumeProviderCompat {
      * @return An equivalent {@link android.media.VolumeProvider} object, or null if none.
      */
     public Object getVolumeProvider() {
-        if (mVolumeProviderObj == null && Build.VERSION.SDK_INT >= 21) {
-            mVolumeProviderObj = VolumeProviderCompatApi21.createVolumeProvider(
-                    mControlType, mMaxVolume, mCurrentVolume,
-                    new VolumeProviderCompatApi21.Delegate() {
-
-                        @Override
-                        public void onSetVolumeTo(int volume) {
-                            VolumeProviderCompat.this.onSetVolumeTo(volume);
-                        }
-
-                        @Override
-                        public void onAdjustVolume(int direction) {
-                            VolumeProviderCompat.this.onAdjustVolume(direction);
-                        }
-                    });
+        if (mVolumeProviderObj != null || Build.VERSION.SDK_INT < 21) {
+            return mVolumeProviderObj;
         }
+
+        mVolumeProviderObj = VolumeProviderCompatApi21.createVolumeProvider(
+                mControlType, mMaxVolume, mCurrentVolume, new VolumeProviderCompatApi21.Delegate() {
+
+            @Override
+            public void onSetVolumeTo(int volume) {
+                VolumeProviderCompat.this.onSetVolumeTo(volume);
+            }
+
+            @Override
+            public void onAdjustVolume(int direction) {
+                VolumeProviderCompat.this.onAdjustVolume(direction);
+            }
+        });
         return mVolumeProviderObj;
     }
 

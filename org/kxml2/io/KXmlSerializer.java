@@ -152,7 +152,7 @@ public class KXmlSerializer implements XmlSerializer {
                         append(c == '"' ? "&quot;" : "&apos;");
                         break;
                     }
-                    // BEGIN Android-changed: refuse to output invalid characters
+                    // BEGIN android-changed: refuse to output invalid characters
                     // See http://www.w3.org/TR/REC-xml/#charsets for definition.
                     // No other Java XML writer we know of does this, but no Java
                     // XML reader we know of is able to parse the bad output we'd
@@ -172,16 +172,16 @@ public class KXmlSerializer implements XmlSerializer {
                     } else {
                         reportInvalidCharacter(c);
                     }
-                    // END Android-changed
+                    // END android-changed
             }
         }
     }
 
-    // BEGIN Android-added
+    // BEGIN android-added
     private static void reportInvalidCharacter(char ch) {
         throw new IllegalArgumentException("Illegal character (U+" + Integer.toHexString((int) ch) + ")");
     }
-    // END Android-added
+    // END android-added
 
     /*
         private final void writeIndent() throws IOException {
@@ -575,7 +575,7 @@ public class KXmlSerializer implements XmlSerializer {
 
     public void cdsect(String data) throws IOException {
         check(false);
-        // BEGIN Android-changed: ]]> is not allowed within a CDATA,
+        // BEGIN android-changed: ]]> is not allowed within a CDATA,
         // so break and start a new one when necessary.
         data = data.replace("]]>", "]]]]><![CDATA[>");
         append("<![CDATA[");
@@ -596,10 +596,10 @@ public class KXmlSerializer implements XmlSerializer {
             }
         }
         append("]]>");
-        // END Android-changed
+        // END android-changed
     }
 
-    // BEGIN Android-added
+    // BEGIN android-added
     private void writeSurrogate(char high, char low) throws IOException {
         if (!Character.isLowSurrogate(low)) {
             throw new IllegalArgumentException("Bad surrogate pair (U+" + Integer.toHexString((int) high) +
@@ -611,7 +611,7 @@ public class KXmlSerializer implements XmlSerializer {
         int codePoint = Character.toCodePoint(high, low);
         append("&#" + codePoint + ";");
     }
-    // END Android-added
+    // END android-added
 
     public void comment(String comment) throws IOException {
         check(false);

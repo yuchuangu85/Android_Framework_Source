@@ -41,9 +41,7 @@ import java.util.Arrays;
  * hands-off.
  *
  * @hide
- * @deprecated replaced by {@link RevocableFileDescriptor}
  */
-@Deprecated
 public class FileBridge extends Thread {
     private static final String TAG = "FileBridge";
 

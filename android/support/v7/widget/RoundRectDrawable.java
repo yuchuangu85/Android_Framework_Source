@@ -15,9 +15,6 @@
  */
 package android.support.v7.widget;
 
-import static android.support.v7.widget.RoundRectDrawableWithShadow.calculateHorizontalPadding;
-import static android.support.v7.widget.RoundRectDrawableWithShadow.calculateVerticalPadding;
-
 import android.content.res.ColorStateList;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -31,7 +28,9 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.support.annotation.Nullable;
-import android.support.annotation.RequiresApi;
+
+import static android.support.v7.widget.RoundRectDrawableWithShadow.calculateVerticalPadding;
+import static android.support.v7.widget.RoundRectDrawableWithShadow.calculateHorizontalPadding;
 
 /**
  * Very simple drawable that draws a rounded rectangle background with arbitrary corners and also
@@ -39,7 +38,6 @@ import android.support.annotation.RequiresApi;
  * <p>
  * Simpler and uses less resources compared to GradientDrawable or ShapeDrawable.
  */
-@RequiresApi(21)
 class RoundRectDrawable extends Drawable {
     private float mRadius;
     private final Paint mPaint;
@@ -54,7 +52,7 @@ class RoundRectDrawable extends Drawable {
     private ColorStateList mTint;
     private PorterDuff.Mode mTintMode = PorterDuff.Mode.SRC_IN;
 
-    RoundRectDrawable(ColorStateList backgroundColor, float radius) {
+    public RoundRectDrawable(ColorStateList backgroundColor, float radius) {
         mRadius = radius;
         mPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
         setBackground(backgroundColor);
@@ -69,8 +67,8 @@ class RoundRectDrawable extends Drawable {
     }
 
     void setPadding(float padding, boolean insetForPadding, boolean insetForRadius) {
-        if (padding == mPadding && mInsetForPadding == insetForPadding
-                && mInsetForRadius == insetForRadius) {
+        if (padding == mPadding && mInsetForPadding == insetForPadding &&
+                mInsetForRadius == insetForRadius) {
             return;
         }
         mPadding = padding;

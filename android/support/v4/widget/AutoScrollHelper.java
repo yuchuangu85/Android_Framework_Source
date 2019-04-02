@@ -18,6 +18,7 @@ package android.support.v4.widget;
 
 import android.content.res.Resources;
 import android.os.SystemClock;
+import android.support.v4.view.MotionEventCompat;
 import android.support.v4.view.ViewCompat;
 import android.util.DisplayMetrics;
 import android.view.MotionEvent;
@@ -456,7 +457,7 @@ public abstract class AutoScrollHelper implements View.OnTouchListener {
             return false;
         }
 
-        final int action = event.getActionMasked();
+        final int action = MotionEventCompat.getActionMasked(event);
         switch (action) {
             case MotionEvent.ACTION_DOWN:
                 mNeedsCancel = true;
@@ -492,8 +493,8 @@ public abstract class AutoScrollHelper implements View.OnTouchListener {
         final int verticalDirection = scroller.getVerticalDirection();
         final int horizontalDirection = scroller.getHorizontalDirection();
 
-        return (verticalDirection != 0 && canTargetScrollVertically(verticalDirection))
-                || (horizontalDirection != 0 && canTargetScrollHorizontally(horizontalDirection));
+        return verticalDirection != 0 && canTargetScrollVertically(verticalDirection)
+                || horizontalDirection != 0 && canTargetScrollHorizontally(horizontalDirection);
     }
 
     /**

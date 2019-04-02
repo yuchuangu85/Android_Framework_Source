@@ -31,7 +31,7 @@ package java.util.zip;
 
 class ZStreamRef {
 
-    private volatile long address;
+    private long address;
     ZStreamRef (long address) {
         this.address = address;
     }

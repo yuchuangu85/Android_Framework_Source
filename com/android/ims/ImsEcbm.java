@@ -78,10 +78,6 @@ public class ImsEcbm {
         }
     }
 
-    public boolean isBinderAlive() {
-        return miEcbm.asBinder().isBinderAlive();
-    }
-
     /**
      * Adapter class for {@link IImsEcbmListener}.
      */

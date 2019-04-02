@@ -164,8 +164,7 @@ public final class NetworkSecurityConfig {
      * <p>
      * The default configuration has the following properties:
      * <ol>
-     * <li>Cleartext traffic is permitted for non-ephemeral apps.</li>
-     * <li>Cleartext traffic is not permitted for ephemeral apps.</li>
+     * <li>Cleartext traffic is permitted.</li>
      * <li>HSTS is not enforced.</li>
      * <li>No certificate pinning is used.</li>
      * <li>The system certificate store is trusted for connections.</li>
@@ -175,14 +174,13 @@ public final class NetworkSecurityConfig {
      *
      * @hide
      */
-    public static final Builder getDefaultBuilder(int targetSdkVersion, int targetSandboxVesrsion) {
+    public static final Builder getDefaultBuilder(int targetSdkVersion) {
         Builder builder = new Builder()
+                .setCleartextTrafficPermitted(DEFAULT_CLEARTEXT_TRAFFIC_PERMITTED)
                 .setHstsEnforced(DEFAULT_HSTS_ENFORCED)
                 // System certificate store, does not bypass static pins.
                 .addCertificatesEntryRef(
                         new CertificatesEntryRef(SystemCertificateSource.getInstance(), false));
-        final boolean cleartextTrafficPermitted = targetSandboxVesrsion < 2;
-        builder.setCleartextTrafficPermitted(cleartextTrafficPermitted);
         // Applications targeting N and above must opt in into trusting the user added certificate
         // store.
         if (targetSdkVersion <= Build.VERSION_CODES.M) {

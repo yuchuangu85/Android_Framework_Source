@@ -16,7 +16,7 @@
 
 package com.android.server.am;
 
-import android.app.ContentProviderHolder;
+import android.app.IActivityManager.ContentProviderHolder;
 import android.content.ComponentName;
 import android.content.IContentProvider;
 import android.content.pm.ApplicationInfo;
@@ -55,7 +55,7 @@ final class ContentProviderRecord {
     String shortStringName;
 
     public ContentProviderRecord(ActivityManagerService _service, ProviderInfo _info,
-            ApplicationInfo ai, ComponentName _name, boolean _singleton) {
+                                 ApplicationInfo ai, ComponentName _name, boolean _singleton) {
         service = _service;
         info = _info;
         uid = ai.uid;
@@ -83,6 +83,14 @@ final class ContentProviderRecord {
         return holder;
     }
 
+    /**
+     * 条件1：ContentProvider在AndroidManifest.xml文件配置multiprocess=true；或调用者进程与ContentProvider在同一个进程。
+     * 条件2：ContentProvider进程跟调用者所在进程是同一个uid。
+     *
+     * @param app 进程描述对象
+     *
+     * @return
+     */
     public boolean canRunHere(ProcessRecord app) {
         return (info.multiprocess || info.processName.equals(app.processName))
                 && uid == app.info.uid;
@@ -145,32 +153,50 @@ final class ContentProviderRecord {
 
     void dump(PrintWriter pw, String prefix, boolean full) {
         if (full) {
-            pw.print(prefix); pw.print("package=");
-                    pw.print(info.applicationInfo.packageName);
-                    pw.print(" process="); pw.println(info.processName);
+            pw.print(prefix);
+            pw.print("package=");
+            pw.print(info.applicationInfo.packageName);
+            pw.print(" process=");
+            pw.println(info.processName);
         }
-        pw.print(prefix); pw.print("proc="); pw.println(proc);
+        pw.print(prefix);
+        pw.print("proc=");
+        pw.println(proc);
         if (launchingApp != null) {
-            pw.print(prefix); pw.print("launchingApp="); pw.println(launchingApp);
+            pw.print(prefix);
+            pw.print("launchingApp=");
+            pw.println(launchingApp);
         }
         if (full) {
-            pw.print(prefix); pw.print("uid="); pw.print(uid);
-                    pw.print(" provider="); pw.println(provider);
+            pw.print(prefix);
+            pw.print("uid=");
+            pw.print(uid);
+            pw.print(" provider=");
+            pw.println(provider);
         }
         if (singleton) {
-            pw.print(prefix); pw.print("singleton="); pw.println(singleton);
+            pw.print(prefix);
+            pw.print("singleton=");
+            pw.println(singleton);
         }
-        pw.print(prefix); pw.print("authority="); pw.println(info.authority);
+        pw.print(prefix);
+        pw.print("authority=");
+        pw.println(info.authority);
         if (full) {
             if (info.isSyncable || info.multiprocess || info.initOrder != 0) {
-                pw.print(prefix); pw.print("isSyncable="); pw.print(info.isSyncable);
-                        pw.print(" multiprocess="); pw.print(info.multiprocess);
-                        pw.print(" initOrder="); pw.println(info.initOrder);
+                pw.print(prefix);
+                pw.print("isSyncable=");
+                pw.print(info.isSyncable);
+                pw.print(" multiprocess=");
+                pw.print(info.multiprocess);
+                pw.print(" initOrder=");
+                pw.println(info.initOrder);
             }
         }
         if (full) {
             if (hasExternalProcessHandles()) {
-                pw.print(prefix); pw.print("externals:");
+                pw.print(prefix);
+                pw.print("externals:");
                 if (externalProcessTokenToHandle != null) {
                     pw.print(" w/token=");
                     pw.print(externalProcessTokenToHandle.size());
@@ -183,21 +209,27 @@ final class ContentProviderRecord {
             }
         } else {
             if (connections.size() > 0 || externalProcessNoHandleCount > 0) {
-                pw.print(prefix); pw.print(connections.size());
-                        pw.print(" connections, "); pw.print(externalProcessNoHandleCount);
-                        pw.println(" external handles");
+                pw.print(prefix);
+                pw.print(connections.size());
+                pw.print(" connections, ");
+                pw.print(externalProcessNoHandleCount);
+                pw.println(" external handles");
             }
         }
         if (connections.size() > 0) {
             if (full) {
-                pw.print(prefix); pw.println("Connections:");
+                pw.print(prefix);
+                pw.println("Connections:");
             }
-            for (int i=0; i<connections.size(); i++) {
+            for (int i = 0; i < connections.size(); i++) {
                 ContentProviderConnection conn = connections.get(i);
-                pw.print(prefix); pw.print("  -> "); pw.println(conn.toClientString());
+                pw.print(prefix);
+                pw.print("  -> ");
+                pw.println(conn.toClientString());
                 if (conn.provider != this) {
-                    pw.print(prefix); pw.print("    *** WRONG PROVIDER: ");
-                            pw.println(conn.provider);
+                    pw.print(prefix);
+                    pw.print("    *** WRONG PROVIDER: ");
+                    pw.println(conn.provider);
                 }
             }
         }
@@ -256,7 +288,7 @@ final class ContentProviderRecord {
                 if (hasExternalProcessHandles() &&
                         externalProcessTokenToHandle.get(mToken) != null) {
                     removeExternalProcessHandleInternalLocked(mToken);
-                }                        
+                }
             }
         }
     }

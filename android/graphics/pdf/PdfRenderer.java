@@ -27,7 +27,6 @@ import android.graphics.Rect;
 import android.os.ParcelFileDescriptor;
 import android.system.ErrnoException;
 import android.system.OsConstants;
-import com.android.internal.util.Preconditions;
 import dalvik.system.CloseGuard;
 import libcore.io.Libcore;
 
@@ -164,12 +163,7 @@ public final class PdfRenderer implements AutoCloseable {
 
         synchronized (sPdfiumLock) {
             mNativeDocument = nativeCreate(mInput.getFd(), size);
-            try {
-                mPageCount = nativeGetPageCount(mNativeDocument);
-            } catch (Throwable t) {
-                nativeClose(mNativeDocument);
-                throw t;
-            }
+            mPageCount = nativeGetPageCount(mNativeDocument);
         }
 
         mCloseGuard.open("close");
@@ -230,10 +224,7 @@ public final class PdfRenderer implements AutoCloseable {
     @Override
     protected void finalize() throws Throwable {
         try {
-            if (mCloseGuard != null) {
-                mCloseGuard.warnIfOpen();
-            }
-
+            mCloseGuard.warnIfOpen();
             if (mInput != null) {
                 doClose();
             }
@@ -377,12 +368,6 @@ public final class PdfRenderer implements AutoCloseable {
          */
         public void render(@NonNull Bitmap destination, @Nullable Rect destClip,
                            @Nullable Matrix transform, @RenderMode int renderMode) {
-            if (mNativePage == 0) {
-                throw new NullPointerException();
-            }
-
-            destination = Preconditions.checkNotNull(destination, "bitmap null");
-
             if (destination.getConfig() != Config.ARGB_8888) {
                 throw new IllegalArgumentException("Unsupported pixel format");
             }
@@ -414,18 +399,7 @@ public final class PdfRenderer implements AutoCloseable {
             final int contentBottom = (destClip != null) ? destClip.bottom
                     : destination.getHeight();
 
-            // If transform is not set, stretch page to whole clipped area
-            if (transform == null) {
-                int clipWidth = contentRight - contentLeft;
-                int clipHeight = contentBottom - contentTop;
-
-                transform = new Matrix();
-                transform.postScale((float)clipWidth / getWidth(),
-                        (float)clipHeight / getHeight());
-                transform.postTranslate(contentLeft, contentTop);
-            }
-
-            final long transformPtr = transform.native_instance;
+            final long transformPtr = (transform != null) ? transform.native_instance : 0;
 
             synchronized (sPdfiumLock) {
                 nativeRenderPage(mNativeDocument, mNativePage, destination, contentLeft,
@@ -447,10 +421,7 @@ public final class PdfRenderer implements AutoCloseable {
         @Override
         protected void finalize() throws Throwable {
             try {
-                if (mCloseGuard != null) {
-                    mCloseGuard.warnIfOpen();
-                }
-
+                mCloseGuard.warnIfOpen();
                 if (mNativePage != 0) {
                     doClose();
                 }
@@ -480,8 +451,7 @@ public final class PdfRenderer implements AutoCloseable {
     private static native int nativeGetPageCount(long documentPtr);
     private static native boolean nativeScaleForPrinting(long documentPtr);
     private static native void nativeRenderPage(long documentPtr, long pagePtr, Bitmap dest,
-            int clipLeft, int clipTop, int clipRight, int clipBottom, long transformPtr,
-            int renderMode);
+            int destLeft, int destTop, int destRight, int destBottom, long matrixPtr, int renderMode);
     private static native long nativeOpenPageAndGetSize(long documentPtr, int pageIndex,
             Point outSize);
     private static native void nativeClosePage(long pagePtr);

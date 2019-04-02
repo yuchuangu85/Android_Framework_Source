@@ -21,7 +21,7 @@ import android.os.Parcelable;
 import android.util.Printer;
 
 /**
- * Information you can retrieve about a particular application
+ * Information you can retrieve（检索） about a particular application
  * service. This corresponds to information collected from the
  * AndroidManifest.xml's &lt;service&gt; tags.
  */
@@ -56,12 +56,6 @@ public class ServiceInfo extends ComponentInfo
     public static final int FLAG_EXTERNAL_SERVICE = 0x0004;
 
     /**
-     * Bit in {@link #flags} indicating if the service is visible to ephemeral applications.
-     * @hide
-     */
-    public static final int FLAG_VISIBLE_TO_INSTANT_APP = 0x100000;
-
-    /**
      * Bit in {@link #flags}: If set, a single instance of the service will
      * run for all users on the device.  Set from the
      * {@link android.R.attr#singleUser} attribute.
@@ -91,13 +85,13 @@ public class ServiceInfo extends ComponentInfo
     }
 
     /** @hide */
-    void dump(Printer pw, String prefix, int dumpFlags) {
+    void dump(Printer pw, String prefix, int flags) {
         super.dumpFront(pw, prefix);
         pw.println(prefix + "permission=" + permission);
         pw.println(prefix + "flags=0x" + Integer.toHexString(flags));
-        super.dumpBack(pw, prefix, dumpFlags);
+        super.dumpBack(pw, prefix, flags);
     }
-
+    
     public String toString() {
         return "ServiceInfo{"
             + Integer.toHexString(System.identityHashCode(this))

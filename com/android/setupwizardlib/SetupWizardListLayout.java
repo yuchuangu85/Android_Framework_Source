@@ -18,24 +18,29 @@ package com.android.setupwizardlib;
 
 import android.annotation.TargetApi;
 import android.content.Context;
+import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.os.Build.VERSION_CODES;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ListAdapter;
 import android.widget.ListView;
 
-import com.android.setupwizardlib.template.ListMixin;
-import com.android.setupwizardlib.template.ListViewScrollHandlingDelegate;
-import com.android.setupwizardlib.template.RequireScrollMixin;
+import com.android.setupwizardlib.util.DrawableLayoutDirectionHelper;
+import com.android.setupwizardlib.util.ListViewRequireScrollHelper;
+import com.android.setupwizardlib.view.NavigationBar;
 
 public class SetupWizardListLayout extends SetupWizardLayout {
 
     private static final String TAG = "SetupWizardListLayout";
-
-    private ListMixin mListMixin;
+    private ListView mListView;
+    private Drawable mDivider;
+    private Drawable mDefaultDivider;
+    private int mDividerInset;
 
     public SetupWizardListLayout(Context context) {
         this(context, 0, 0);
@@ -62,12 +67,12 @@ public class SetupWizardListLayout extends SetupWizardLayout {
     }
 
     private void init(Context context, AttributeSet attrs, int defStyleAttr) {
-        mListMixin = new ListMixin(this, attrs, defStyleAttr);
-        registerMixin(ListMixin.class, mListMixin);
-
-        final RequireScrollMixin requireScrollMixin = getMixin(RequireScrollMixin.class);
-        requireScrollMixin.setScrollHandlingDelegate(
-                new ListViewScrollHandlingDelegate(requireScrollMixin, getListView()));
+        final TypedArray a = context.obtainStyledAttributes(attrs,
+                R.styleable.SuwSetupWizardListLayout, defStyleAttr, 0);
+        int dividerInset =
+                a.getDimensionPixelSize(R.styleable.SuwSetupWizardListLayout_suwDividerInset, 0);
+        setDividerInset(dividerInset);
+        a.recycle();
     }
 
     @Override
@@ -89,19 +94,35 @@ public class SetupWizardListLayout extends SetupWizardLayout {
     @Override
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         super.onLayout(changed, left, top, right, bottom);
-        mListMixin.onLayout();
+        if (mDivider == null) {
+            // Update divider in case layout direction has just been resolved
+            updateDivider();
+        }
+    }
+
+    @Override
+    protected void onTemplateInflated() {
+        mListView = (ListView) findViewById(android.R.id.list);
     }
 
     public ListView getListView() {
-        return mListMixin.getListView();
+        return mListView;
     }
 
     public void setAdapter(ListAdapter adapter) {
-        mListMixin.setAdapter(adapter);
+        getListView().setAdapter(adapter);
     }
 
-    public ListAdapter getAdapter() {
-        return mListMixin.getAdapter();
+    @Override
+    public void requireScrollToBottom() {
+        final NavigationBar navigationBar = getNavigationBar();
+        final ListView listView = getListView();
+        if (navigationBar != null && listView != null) {
+            ListViewRequireScrollHelper.requireScroll(navigationBar, listView);
+        } else {
+            Log.e(TAG, "Both suw_layout_navigation_bar and list must exist in"
+                    + " the template to require scrolling.");
+        }
     }
 
     /**
@@ -111,56 +132,33 @@ public class SetupWizardListLayout extends SetupWizardLayout {
      * @param inset The number of pixels to inset on the "start" side of the list divider. Typically
      *              this will be either {@code @dimen/suw_items_icon_divider_inset} or
      *              {@code @dimen/suw_items_text_divider_inset}.
-     *
-     * @see ListMixin#setDividerInset(int)
-     * @deprecated Use {@link #setDividerInsets(int, int)} instead.
      */
-    @Deprecated
     public void setDividerInset(int inset) {
-        mListMixin.setDividerInset(inset);
+        mDividerInset = inset;
+        updateDivider();
     }
 
-    /**
-     * Sets the start inset of the divider. This will use the default divider drawable set in the
-     * theme and apply insets to it.
-     *
-     * @param start The number of pixels to inset on the "start" side of the list divider. Typically
-     *              this will be either {@code @dimen/suw_items_icon_divider_inset} or
-     *              {@code @dimen/suw_items_text_divider_inset}.
-     * @param end The number of pixels to inset on the "end" side of the list divider.
-     *
-     * @see ListMixin#setDividerInsets(int, int)
-     */
-    public void setDividerInsets(int start, int end) {
-        mListMixin.setDividerInsets(start, end);
-    }
-
-    /**
-     * @deprecated Use {@link #getDividerInsetStart()} instead.
-     */
-    @Deprecated
     public int getDividerInset() {
-        return mListMixin.getDividerInset();
+        return mDividerInset;
     }
 
-    /**
-     * @see ListMixin#getDividerInsetStart()
-     */
-    public int getDividerInsetStart() {
-        return mListMixin.getDividerInsetStart();
+    private void updateDivider() {
+        boolean shouldUpdate = true;
+        if (Build.VERSION.SDK_INT >= VERSION_CODES.KITKAT) {
+            shouldUpdate = isLayoutDirectionResolved();
+        }
+        if (shouldUpdate) {
+            final ListView listView = getListView();
+            if (mDefaultDivider == null) {
+                mDefaultDivider = listView.getDivider();
+            }
+            mDivider = DrawableLayoutDirectionHelper.createRelativeInsetDrawable(mDefaultDivider,
+                    mDividerInset /* start */, 0 /* top */, 0 /* end */, 0 /* bottom */, this);
+            listView.setDivider(mDivider);
+        }
     }
 
-    /**
-     * @see ListMixin#getDividerInsetEnd()
-     */
-    public int getDividerInsetEnd() {
-        return mListMixin.getDividerInsetEnd();
-    }
-
-    /**
-     * @see ListMixin#getDivider()
-     */
     public Drawable getDivider() {
-        return mListMixin.getDivider();
+        return mDivider;
     }
 }

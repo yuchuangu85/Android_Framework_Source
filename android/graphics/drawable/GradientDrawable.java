@@ -282,11 +282,10 @@ public class GradientDrawable extends Drawable {
     }
 
     /**
-     * Returns the radius for the corners of the gradient, that was previously set with
-     * {@link #setCornerRadius(float)}.
+     * Returns the radius for the corners of the gradient.
      * <p>
-     * If the radius was previously cleared via passing {@code null}
-     * to {@link #setCornerRadii(float[])}, this method will return 0.
+     * If the radius was previously set with {@link #setCornerRadii(float[])},
+     * or if the corners are not rounded, this method will return {@code null}.
      *
      * @return the radius in pixels of the corners of the rectangle shape, or 0
      * @see #setCornerRadius
@@ -985,15 +984,6 @@ public class GradientDrawable extends Drawable {
                 || (s.mSolidColors != null && s.mSolidColors.isStateful())
                 || (s.mStrokeColors != null && s.mStrokeColors.isStateful())
                 || (s.mTint != null && s.mTint.isStateful());
-    }
-
-    /** @hide */
-    @Override
-    public boolean hasFocusStateSpecified() {
-        final GradientState s = mGradientState;
-        return (s.mSolidColors != null && s.mSolidColors.hasFocusStateSpecified())
-                || (s.mStrokeColors != null && s.mStrokeColors.hasFocusStateSpecified())
-                || (s.mTint != null && s.mTint.hasFocusStateSpecified());
     }
 
     @Override

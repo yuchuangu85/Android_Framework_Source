@@ -57,25 +57,15 @@ public class BitShiftExpr extends Expr {
     }
 
     @Override
-    protected KCode generateCode() {
+    protected KCode generateCode(boolean expand) {
         return new KCode()
-                .app("", getLeft().toCode())
+                .app("", getLeft().toCode(expand))
                 .app(getOp())
-                .app("", getRight().toCode());
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.bitshift(getLeft().cloneToModel(model), mOp, getRight().cloneToModel(model));
+                .app("", getRight().toCode(expand));
     }
 
     @Override
     public String getInvertibleError() {
         return "Bit shift operators cannot be inverted in two-way binding";
-    }
-
-    @Override
-    public String toString() {
-        return getLeft().toString() + ' ' + mOp + ' ' + getRight().toString();
     }
 }

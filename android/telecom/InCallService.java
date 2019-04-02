@@ -76,8 +76,6 @@ public abstract class InCallService extends Service {
     private static final int MSG_ON_CAN_ADD_CALL_CHANGED = 7;
     private static final int MSG_SILENCE_RINGER = 8;
     private static final int MSG_ON_CONNECTION_EVENT = 9;
-    private static final int MSG_ON_RTT_UPGRADE_REQUEST = 10;
-    private static final int MSG_ON_RTT_INITIATION_FAILURE = 11;
 
     /** Default Handler used to consolidate binder method calls onto a single thread. */
     private final Handler mHandler = new Handler(Looper.getMainLooper()) {
@@ -89,9 +87,7 @@ public abstract class InCallService extends Service {
 
             switch (msg.what) {
                 case MSG_SET_IN_CALL_ADAPTER:
-                    String callingPackage = getApplicationContext().getOpPackageName();
-                    mPhone = new Phone(new InCallAdapter((IInCallAdapter) msg.obj), callingPackage,
-                            getApplicationContext().getApplicationInfo().targetSdkVersion);
+                    mPhone = new Phone(new InCallAdapter((IInCallAdapter) msg.obj));
                     mPhone.addListener(mPhoneListener);
                     onPhoneCreated(mPhone);
                     break;
@@ -134,18 +130,6 @@ public abstract class InCallService extends Service {
                     } finally {
                         args.recycle();
                     }
-                    break;
-                }
-                case MSG_ON_RTT_UPGRADE_REQUEST: {
-                    String callId = (String) msg.obj;
-                    int requestId = msg.arg1;
-                    mPhone.internalOnRttUpgradeRequest(callId, requestId);
-                    break;
-                }
-                case MSG_ON_RTT_INITIATION_FAILURE: {
-                    String callId = (String) msg.obj;
-                    int reason = msg.arg1;
-                    mPhone.internalOnRttInitiationFailure(callId, reason);
                     break;
                 }
                 default:
@@ -212,16 +196,6 @@ public abstract class InCallService extends Service {
             args.arg2 = event;
             args.arg3 = extras;
             mHandler.obtainMessage(MSG_ON_CONNECTION_EVENT, args).sendToTarget();
-        }
-
-        @Override
-        public void onRttUpgradeRequest(String callId, int id) {
-            mHandler.obtainMessage(MSG_ON_RTT_UPGRADE_REQUEST, id, 0, callId).sendToTarget();
-        }
-
-        @Override
-        public void onRttInitiationFailure(String callId, int reason) {
-            mHandler.obtainMessage(MSG_ON_RTT_INITIATION_FAILURE, reason, 0, callId).sendToTarget();
         }
     }
 
@@ -690,8 +664,7 @@ public abstract class InCallService extends Service {
              *      {@link Connection.VideoProvider#SESSION_EVENT_TX_START},
              *      {@link Connection.VideoProvider#SESSION_EVENT_TX_STOP},
              *      {@link Connection.VideoProvider#SESSION_EVENT_CAMERA_FAILURE},
-             *      {@link Connection.VideoProvider#SESSION_EVENT_CAMERA_READY},
-             *      {@link Connection.VideoProvider#SESSION_EVENT_CAMERA_PERMISSION_ERROR}.
+             *      {@link Connection.VideoProvider#SESSION_EVENT_CAMERA_READY}.
              */
             public abstract void onCallSessionEvent(int event);
 

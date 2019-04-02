@@ -13,23 +13,31 @@
  */
 package android.support.v17.leanback.widget;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
+import android.content.Context;
+import android.database.DataSetObserver;
+import android.media.AudioManager;
 import android.support.annotation.RestrictTo;
+import android.support.v17.leanback.R;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.RecyclerView.ViewHolder;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.AdapterView.OnItemSelectedListener;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.TextView.OnEditorActionListener;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * GuidedActionAdapter instantiates views for guided actions, and manages their interactions.
@@ -38,7 +46,7 @@ import java.util.List;
  * {@link GuidedActionAdapter.ClickListener} and {@link GuidedActionAdapter.FocusListener}.
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public class GuidedActionAdapter extends RecyclerView.Adapter {
     static final String TAG = "GuidedActionAdapter";
     static final boolean DEBUG = false;
@@ -54,7 +62,7 @@ public class GuidedActionAdapter extends RecyclerView.Adapter {
         /**
          * Called when the user clicks on an action.
          */
-        void onGuidedActionClicked(GuidedAction action);
+        public void onGuidedActionClicked(GuidedAction action);
 
     }
 
@@ -66,7 +74,7 @@ public class GuidedActionAdapter extends RecyclerView.Adapter {
         /**
          * Called when the user focuses on an action.
          */
-        void onGuidedActionFocused(GuidedAction action);
+        public void onGuidedActionFocused(GuidedAction action);
     }
 
     /**
@@ -77,22 +85,22 @@ public class GuidedActionAdapter extends RecyclerView.Adapter {
         /**
          * Called when the user exits edit mode on an action.
          */
-        void onGuidedActionEditCanceled(GuidedAction action);
+        public void onGuidedActionEditCanceled(GuidedAction action);
 
         /**
          * Called when the user exits edit mode on an action and process confirm button in IME.
          */
-        long onGuidedActionEditedAndProceed(GuidedAction action);
+        public long onGuidedActionEditedAndProceed(GuidedAction action);
 
         /**
          * Called when Ime Open
          */
-        void onImeOpen();
+        public void onImeOpen();
 
         /**
          * Called when Ime Close
          */
-        void onImeClose();
+        public void onImeClose();
     }
 
     private final boolean mIsSubAdapter;
@@ -102,8 +110,6 @@ public class GuidedActionAdapter extends RecyclerView.Adapter {
     private final List<GuidedAction> mActions;
     private ClickListener mClickListener;
     final GuidedActionsStylist mStylist;
-    GuidedActionAdapterGroup mGroup;
-
     private final View.OnClickListener mOnClickListener = new View.OnClickListener() {
         @Override
         public void onClick(View v) {
@@ -116,7 +122,8 @@ public class GuidedActionAdapter extends RecyclerView.Adapter {
                     mGroup.openIme(GuidedActionAdapter.this, avh);
                 } else if (action.hasEditableActivatorView()) {
                     if (DEBUG_EDIT) Log.v(TAG_EDIT, "toggle editing mode by click");
-                    performOnActionClick(avh);
+                    getGuidedActionsStylist().setEditingMode(avh, avh.getAction(),
+                            !avh.isInEditingActivatorView());
                 } else {
                     handleCheckedActions(avh);
                     if (action.isEnabled() && !action.infoOnly()) {
@@ -126,6 +133,7 @@ public class GuidedActionAdapter extends RecyclerView.Adapter {
             }
         }
     };
+    GuidedActionAdapterGroup mGroup;
 
     /**
      * Constructs a GuidedActionAdapter with the given list of guided actions, the given click and
@@ -152,9 +160,6 @@ public class GuidedActionAdapter extends RecyclerView.Adapter {
      * @param actions The list of actions to be managed.
      */
     public void setActions(List<GuidedAction> actions) {
-        if (!mIsSubAdapter) {
-            mStylist.collapseAction(false);
-        }
         mActionOnFocusListener.unFocus();
         mActions.clear();
         mActions.addAll(actions);
@@ -214,7 +219,7 @@ public class GuidedActionAdapter extends RecyclerView.Adapter {
      * Used for serialization only.
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public List<GuidedAction> getActions() {
         return new ArrayList<GuidedAction>(mActions);
     }
@@ -464,8 +469,8 @@ public class GuidedActionAdapter extends RecyclerView.Adapter {
         public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
             if (DEBUG_EDIT) Log.v(TAG_EDIT, "IME action: " + actionId);
             boolean handled = false;
-            if (actionId == EditorInfo.IME_ACTION_NEXT
-                    || actionId == EditorInfo.IME_ACTION_DONE) {
+            if (actionId == EditorInfo.IME_ACTION_NEXT ||
+                actionId == EditorInfo.IME_ACTION_DONE) {
                 mGroup.fillAndGoNext(GuidedActionAdapter.this, v);
                 handled = true;
             } else if (actionId == EditorInfo.IME_ACTION_NONE) {
@@ -483,8 +488,8 @@ public class GuidedActionAdapter extends RecyclerView.Adapter {
             if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
                 mGroup.fillAndStay(GuidedActionAdapter.this, editText);
                 return true;
-            } else if (keyCode == KeyEvent.KEYCODE_ENTER
-                    && event.getAction() == KeyEvent.ACTION_UP) {
+            } else if (keyCode == KeyEvent.KEYCODE_ENTER && event.getAction() ==
+                    KeyEvent.ACTION_UP) {
                 mGroup.fillAndGoNext(GuidedActionAdapter.this, editText);
                 return true;
             }

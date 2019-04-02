@@ -22,6 +22,8 @@ import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Rect;
+import android.os.Handler;
+import android.os.Message;
 import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
@@ -473,19 +475,19 @@ public class SlidingDrawer extends ViewGroup {
                                 playSoundEffect(SoundEffectConstants.CLICK);
 
                                 if (mExpanded) {
-                                    animateClose(vertical ? top : left, true);
+                                    animateClose(vertical ? top : left);
                                 } else {
-                                    animateOpen(vertical ? top : left, true);
+                                    animateOpen(vertical ? top : left);
                                 }
                             } else {
-                                performFling(vertical ? top : left, velocity, false, true);
+                                performFling(vertical ? top : left, velocity, false);
                             }
 
                         } else {
-                            performFling(vertical ? top : left, velocity, false, true);
+                            performFling(vertical ? top : left, velocity, false);
                         }
                     } else {
-                        performFling(vertical ? top : left, velocity, false, true);
+                        performFling(vertical ? top : left, velocity, false);
                     }
                 }
                 break;
@@ -495,18 +497,17 @@ public class SlidingDrawer extends ViewGroup {
         return mTracking || mAnimating || super.onTouchEvent(event);
     }
 
-    private void animateClose(int position, boolean notifyScrollListener) {
+    private void animateClose(int position) {
         prepareTracking(position);
-        performFling(position, mMaximumAcceleration, true, notifyScrollListener);
+        performFling(position, mMaximumAcceleration, true);
     }
 
-    private void animateOpen(int position, boolean notifyScrollListener) {
+    private void animateOpen(int position) {
         prepareTracking(position);
-        performFling(position, -mMaximumAcceleration, true, notifyScrollListener);
+        performFling(position, -mMaximumAcceleration, true);
     }
 
-    private void performFling(int position, float velocity, boolean always,
-            boolean notifyScrollListener) {
+    private void performFling(int position, float velocity, boolean always) {
         mAnimationPosition = position;
         mAnimatedVelocity = velocity;
 
@@ -552,7 +553,7 @@ public class SlidingDrawer extends ViewGroup {
         mAnimating = true;
         removeCallbacks(mSlidingRunnable);
         postDelayed(mSlidingRunnable, ANIMATION_FRAME_DURATION);
-        stopTracking(notifyScrollListener);
+        stopTracking();
     }
 
     private void prepareTracking(int position) {
@@ -680,11 +681,11 @@ public class SlidingDrawer extends ViewGroup {
         content.setVisibility(View.GONE);        
     }
 
-    private void stopTracking(boolean notifyScrollListener) {
+    private void stopTracking() {
         mHandle.setPressed(false);
         mTracking = false;
 
-        if (notifyScrollListener && mOnDrawerScrollListener != null) {
+        if (mOnDrawerScrollListener != null) {
             mOnDrawerScrollListener.onScrollEnded();
         }
 
@@ -801,7 +802,7 @@ public class SlidingDrawer extends ViewGroup {
         if (scrollListener != null) {
             scrollListener.onScrollStarted();
         }
-        animateClose(mVertical ? mHandle.getTop() : mHandle.getLeft(), false);
+        animateClose(mVertical ? mHandle.getTop() : mHandle.getLeft());
 
         if (scrollListener != null) {
             scrollListener.onScrollEnded();
@@ -823,7 +824,7 @@ public class SlidingDrawer extends ViewGroup {
         if (scrollListener != null) {
             scrollListener.onScrollStarted();
         }
-        animateOpen(mVertical ? mHandle.getTop() : mHandle.getLeft(), false);
+        animateOpen(mVertical ? mHandle.getTop() : mHandle.getLeft());
 
         sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
 

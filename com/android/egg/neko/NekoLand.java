@@ -31,7 +31,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore.Images;
-import android.support.v4.content.FileProvider;
 import android.support.v7.widget.GridLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
@@ -57,8 +56,6 @@ import java.util.Comparator;
 import java.util.List;
 
 public class NekoLand extends Activity implements PrefsListener {
-    public static String CHAN_ID = "EGG";
-
     public static boolean DEBUG = false;
     public static boolean DEBUG_NOTIFICATIONS = false;
 
@@ -85,7 +82,7 @@ public class NekoLand extends Activity implements PrefsListener {
 
         mPrefs = new PrefState(this);
         mPrefs.setListener(this);
-        final RecyclerView recyclerView = findViewById(R.id.holder);
+        final RecyclerView recyclerView = (RecyclerView) findViewById(R.id.holder);
         mAdapter = new CatAdapter();
         recyclerView.setAdapter(mAdapter);
         recyclerView.setLayoutManager(new GridLayoutManager(this, 3));
@@ -292,13 +289,10 @@ public class NekoLand extends Activity implements PrefsListener {
                         new String[] {png.toString()},
                         new String[] {"image/png"},
                         null);
-                Log.v("Neko", "cat file: " + png);
-                Uri uri = FileProvider.getUriForFile(this, "com.android.egg.fileprovider", png);
-                Log.v("Neko", "cat uri: " + uri);
+                Uri uri = Uri.fromFile(png);
                 Intent intent = new Intent(Intent.ACTION_SEND);
                 intent.putExtra(Intent.EXTRA_STREAM, uri);
                 intent.putExtra(Intent.EXTRA_SUBJECT, cat.getName());
-                intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
                 intent.setType("image/png");
                 startActivity(Intent.createChooser(intent, null));
                 cat.logShare(this);

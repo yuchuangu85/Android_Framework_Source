@@ -17,11 +17,9 @@
 package android.support.v4.content.pm;
 
 /**
- * Helper for accessing features in {@link android.content.pm.ActivityInfo}.
- *
- * @deprecated Use {@link android.content.pm.ActivityInfo} directly.
+ * Helper for accessing features in {@link android.content.pm.ActivityInfo}
+ * introduced after API level 4 in a backwards compatible fashion.
  */
-@Deprecated
 public final class ActivityInfoCompat {
 
     private ActivityInfoCompat() {
@@ -32,9 +30,6 @@ public final class ActivityInfoCompat {
      * Bit in ActivityInfo#configChanges that indicates that the
      * activity can itself handle the ui mode. Set from the
      * {@link android.R.attr#configChanges} attribute.
-     *
-     * @deprecated Use {@link android.content.pm.ActivityInfo#CONFIG_UI_MODE} directly.
      */
-    @Deprecated
     public static final int CONFIG_UI_MODE = 0x0200;
 }

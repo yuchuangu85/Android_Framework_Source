@@ -16,14 +16,12 @@
 
 package android.support.design.widget;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 import static android.support.v4.view.ViewPager.SCROLL_STATE_DRAGGING;
 import static android.support.v4.view.ViewPager.SCROLL_STATE_IDLE;
 import static android.support.v4.view.ViewPager.SCROLL_STATE_SETTLING;
 
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
-import android.animation.ValueAnimator;
+import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
@@ -31,6 +29,7 @@ import android.content.res.TypedArray;
 import android.database.DataSetObserver;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.support.annotation.ColorInt;
@@ -45,13 +44,11 @@ import android.support.design.R;
 import android.support.v4.util.Pools;
 import android.support.v4.view.GravityCompat;
 import android.support.v4.view.PagerAdapter;
-import android.support.v4.view.PointerIconCompat;
 import android.support.v4.view.ViewCompat;
 import android.support.v4.view.ViewPager;
 import android.support.v4.widget.TextViewCompat;
 import android.support.v7.app.ActionBar;
 import android.support.v7.content.res.AppCompatResources;
-import android.support.v7.widget.TooltipCompat;
 import android.text.Layout;
 import android.text.TextUtils;
 import android.util.AttributeSet;
@@ -68,6 +65,7 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -183,7 +181,7 @@ public class TabLayout extends HorizontalScrollView {
     /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     @IntDef(value = {MODE_SCROLLABLE, MODE_FIXED})
     @Retention(RetentionPolicy.SOURCE)
     public @interface Mode {}
@@ -208,7 +206,7 @@ public class TabLayout extends HorizontalScrollView {
     /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     @IntDef(flag = true, value = {GRAVITY_FILL, GRAVITY_CENTER})
     @Retention(RetentionPolicy.SOURCE)
     public @interface TabGravity {}
@@ -272,7 +270,7 @@ public class TabLayout extends HorizontalScrollView {
     private final ArrayList<OnTabSelectedListener> mSelectedListeners = new ArrayList<>();
     private OnTabSelectedListener mCurrentVpSelectedListener;
 
-    private ValueAnimator mScrollAnimator;
+    private ValueAnimatorCompat mScrollAnimator;
 
     ViewPager mViewPager;
     private PagerAdapter mPagerAdapter;
@@ -1085,7 +1083,17 @@ public class TabLayout extends HorizontalScrollView {
         final int targetScrollX = calculateScrollXForTab(newPosition, 0);
 
         if (startScrollX != targetScrollX) {
-            ensureScrollAnimator();
+            if (mScrollAnimator == null) {
+                mScrollAnimator = ViewUtils.createAnimator();
+                mScrollAnimator.setInterpolator(AnimationUtils.FAST_OUT_SLOW_IN_INTERPOLATOR);
+                mScrollAnimator.setDuration(ANIMATION_DURATION);
+                mScrollAnimator.addUpdateListener(new ValueAnimatorCompat.AnimatorUpdateListener() {
+                    @Override
+                    public void onAnimationUpdate(ValueAnimatorCompat animator) {
+                        scrollTo(animator.getAnimatedIntValue(), 0);
+                    }
+                });
+            }
 
             mScrollAnimator.setIntValues(startScrollX, targetScrollX);
             mScrollAnimator.start();
@@ -1093,25 +1101,6 @@ public class TabLayout extends HorizontalScrollView {
 
         // Now animate the indicator
         mTabStrip.animateIndicatorToPosition(newPosition, ANIMATION_DURATION);
-    }
-
-    private void ensureScrollAnimator() {
-        if (mScrollAnimator == null) {
-            mScrollAnimator = new ValueAnimator();
-            mScrollAnimator.setInterpolator(AnimationUtils.FAST_OUT_SLOW_IN_INTERPOLATOR);
-            mScrollAnimator.setDuration(ANIMATION_DURATION);
-            mScrollAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-                @Override
-                public void onAnimationUpdate(ValueAnimator animator) {
-                    scrollTo((int) animator.getAnimatedValue(), 0);
-                }
-            });
-        }
-    }
-
-    void setScrollAnimatorListener(Animator.AnimatorListener listener) {
-        ensureScrollAnimator();
-        mScrollAnimator.addListener(listener);
     }
 
     private void setSelectedTabView(int position) {
@@ -1187,14 +1176,10 @@ public class TabLayout extends HorizontalScrollView {
             final int selectedWidth = selectedChild != null ? selectedChild.getWidth() : 0;
             final int nextWidth = nextChild != null ? nextChild.getWidth() : 0;
 
-            // base scroll amount: places center of tab in center of parent
-            int scrollBase = selectedChild.getLeft() + (selectedWidth / 2) - (getWidth() / 2);
-            // offset amount: fraction of the distance between centers of tabs
-            int scrollOffset = (int) ((selectedWidth + nextWidth) * 0.5f * positionOffset);
-
-            return (ViewCompat.getLayoutDirection(this) == ViewCompat.LAYOUT_DIRECTION_LTR)
-                    ? scrollBase + scrollOffset
-                    : scrollBase - scrollOffset;
+            return selectedChild.getLeft()
+                    + ((int) ((selectedWidth + nextWidth) * positionOffset * 0.5f))
+                    + (selectedChild.getWidth() / 2)
+                    - (getWidth() / 2);
         }
         return 0;
     }
@@ -1500,7 +1485,7 @@ public class TabLayout extends HorizontalScrollView {
         }
     }
 
-    class TabView extends LinearLayout {
+    class TabView extends LinearLayout implements OnLongClickListener {
         private Tab mTab;
         private TextView mTextView;
         private ImageView mIconView;
@@ -1522,8 +1507,6 @@ public class TabLayout extends HorizontalScrollView {
             setGravity(Gravity.CENTER);
             setOrientation(VERTICAL);
             setClickable(true);
-            ViewCompat.setPointerIcon(this,
-                    PointerIconCompat.getSystemIcon(getContext(), PointerIconCompat.TYPE_HAND));
         }
 
         @Override
@@ -1565,6 +1548,7 @@ public class TabLayout extends HorizontalScrollView {
             }
         }
 
+        @TargetApi(Build.VERSION_CODES.ICE_CREAM_SANDWICH)
         @Override
         public void onInitializeAccessibilityEvent(AccessibilityEvent event) {
             super.onInitializeAccessibilityEvent(event);
@@ -1572,6 +1556,7 @@ public class TabLayout extends HorizontalScrollView {
             event.setClassName(ActionBar.Tab.class.getName());
         }
 
+        @TargetApi(Build.VERSION_CODES.ICE_CREAM_SANDWICH)
         @Override
         public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
             super.onInitializeAccessibilityNodeInfo(info);
@@ -1766,7 +1751,44 @@ public class TabLayout extends HorizontalScrollView {
                     iconView.requestLayout();
                 }
             }
-            TooltipCompat.setTooltipText(this, hasText ? null : contentDesc);
+
+            if (!hasText && !TextUtils.isEmpty(contentDesc)) {
+                setOnLongClickListener(this);
+            } else {
+                setOnLongClickListener(null);
+                setLongClickable(false);
+            }
+        }
+
+        @Override
+        public boolean onLongClick(final View v) {
+            final int[] screenPos = new int[2];
+            final Rect displayFrame = new Rect();
+            getLocationOnScreen(screenPos);
+            getWindowVisibleDisplayFrame(displayFrame);
+
+            final Context context = getContext();
+            final int width = getWidth();
+            final int height = getHeight();
+            final int midy = screenPos[1] + height / 2;
+            int referenceX = screenPos[0] + width / 2;
+            if (ViewCompat.getLayoutDirection(v) == ViewCompat.LAYOUT_DIRECTION_LTR) {
+                final int screenWidth = context.getResources().getDisplayMetrics().widthPixels;
+                referenceX = screenWidth - referenceX; // mirror
+            }
+
+            Toast cheatSheet = Toast.makeText(context, mTab.getContentDescription(),
+                    Toast.LENGTH_SHORT);
+            if (midy < displayFrame.height()) {
+                // Show below the tab view
+                cheatSheet.setGravity(Gravity.TOP | GravityCompat.END, referenceX,
+                        screenPos[1] + height - displayFrame.top);
+            } else {
+                // Show along the bottom center
+                cheatSheet.setGravity(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, height);
+            }
+            cheatSheet.show();
+            return true;
         }
 
         public Tab getTab() {
@@ -1788,12 +1810,10 @@ public class TabLayout extends HorizontalScrollView {
         int mSelectedPosition = -1;
         float mSelectionOffset;
 
-        private int mLayoutDirection = -1;
-
         private int mIndicatorLeft = -1;
         private int mIndicatorRight = -1;
 
-        private ValueAnimator mIndicatorAnimator;
+        private ValueAnimatorCompat mIndicatorAnimator;
 
         SlidingTabStrip(Context context) {
             super(context);
@@ -1837,21 +1857,6 @@ public class TabLayout extends HorizontalScrollView {
 
         float getIndicatorPosition() {
             return mSelectedPosition + mSelectionOffset;
-        }
-
-        @Override
-        public void onRtlPropertiesChanged(int layoutDirection) {
-            super.onRtlPropertiesChanged(layoutDirection);
-
-            // Workaround for a bug before Android M where LinearLayout did not relayout itself when
-            // layout direction changed.
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-                //noinspection WrongConstant
-                if (mLayoutDirection != layoutDirection) {
-                    requestLayout();
-                    mLayoutDirection = layoutDirection;
-                }
-            }
         }
 
         @Override
@@ -2005,22 +2010,22 @@ public class TabLayout extends HorizontalScrollView {
             }
 
             if (startLeft != targetLeft || startRight != targetRight) {
-                ValueAnimator animator = mIndicatorAnimator = new ValueAnimator();
+                ValueAnimatorCompat animator = mIndicatorAnimator = ViewUtils.createAnimator();
                 animator.setInterpolator(AnimationUtils.FAST_OUT_SLOW_IN_INTERPOLATOR);
                 animator.setDuration(duration);
                 animator.setFloatValues(0, 1);
-                animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                animator.addUpdateListener(new ValueAnimatorCompat.AnimatorUpdateListener() {
                     @Override
-                    public void onAnimationUpdate(ValueAnimator animator) {
+                    public void onAnimationUpdate(ValueAnimatorCompat animator) {
                         final float fraction = animator.getAnimatedFraction();
                         setIndicatorPosition(
                                 AnimationUtils.lerp(startLeft, targetLeft, fraction),
                                 AnimationUtils.lerp(startRight, targetRight, fraction));
                     }
                 });
-                animator.addListener(new AnimatorListenerAdapter() {
+                animator.addListener(new ValueAnimatorCompat.AnimatorListenerAdapter() {
                     @Override
-                    public void onAnimationEnd(Animator animator) {
+                    public void onAnimationEnd(ValueAnimatorCompat animator) {
                         mSelectedPosition = position;
                         mSelectionOffset = 0f;
                     }

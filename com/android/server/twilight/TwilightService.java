@@ -59,17 +59,17 @@ public final class TwilightService extends SystemService
 
     private final Handler mHandler;
 
-    protected AlarmManager mAlarmManager;
+    private AlarmManager mAlarmManager;
     private LocationManager mLocationManager;
 
     private boolean mBootCompleted;
     private boolean mHasListeners;
 
     private BroadcastReceiver mTimeChangedReceiver;
-    protected Location mLastLocation;
+    private Location mLastLocation;
 
     @GuardedBy("mListeners")
-    protected TwilightState mLastTwilightState;
+    private TwilightState mLastTwilightState;
 
     public TwilightService(Context context) {
         super(context);
@@ -247,11 +247,7 @@ public final class TwilightService extends SystemService
 
     @Override
     public void onLocationChanged(Location location) {
-        // Location providers may erroneously return (0.0, 0.0) when they fail to determine the
-        // device's location. These location updates can be safely ignored since the chance of a
-        // user actually being at these coordinates is quite low.
-        if (location != null
-                && !(location.getLongitude() == 0.0 && location.getLatitude() == 0.0)) {
+        if (location != null) {
             Slog.d(TAG, "onLocationChanged:"
                     + " provider=" + location.getProvider()
                     + " accuracy=" + location.getAccuracy()

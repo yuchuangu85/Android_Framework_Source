@@ -17,9 +17,7 @@ package android.os;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
-import android.annotation.SystemService;
 import android.content.Context;
-import android.hardware.thermal.V1_0.Constants;
 import android.util.Log;
 
 import java.lang.annotation.Retention;
@@ -29,7 +27,6 @@ import java.lang.annotation.RetentionPolicy;
  * The HardwarePropertiesManager class provides a mechanism of accessing hardware state of a
  * device: CPU, GPU and battery temperatures, CPU usage per core, fan speed, etc.
  */
-@SystemService(Context.HARDWARE_PROPERTIES_SERVICE)
 public class HardwarePropertiesManager {
 
     private static final String TAG = HardwarePropertiesManager.class.getSimpleName();
@@ -57,19 +54,20 @@ public class HardwarePropertiesManager {
     public @interface TemperatureSource {}
 
     /**
-     * Device temperature types.
+     * Device temperature types. These must match the values in
+     * frameworks/native/include/hardwareproperties/HardwarePropertiesManager.h
      */
     /** Temperature of CPUs in Celsius. */
-    public static final int DEVICE_TEMPERATURE_CPU = Constants.TemperatureType.CPU;
+    public static final int DEVICE_TEMPERATURE_CPU = 0;
 
     /** Temperature of GPUs in Celsius. */
-    public static final int DEVICE_TEMPERATURE_GPU = Constants.TemperatureType.GPU;
+    public static final int DEVICE_TEMPERATURE_GPU = 1;
 
     /** Temperature of battery in Celsius. */
-    public static final int DEVICE_TEMPERATURE_BATTERY = Constants.TemperatureType.BATTERY;
+    public static final int DEVICE_TEMPERATURE_BATTERY = 2;
 
     /** Temperature of device skin in Celsius. */
-    public static final int DEVICE_TEMPERATURE_SKIN = Constants.TemperatureType.SKIN;
+    public static final int DEVICE_TEMPERATURE_SKIN = 3;
 
     /** Get current temperature. */
     public static final int TEMPERATURE_CURRENT = 0;
@@ -111,8 +109,8 @@ public class HardwarePropertiesManager {
      *         {@link #UNDEFINED_TEMPERATURE} if undefined.
      *         Empty if platform doesn't provide the queried temperature.
      *
-     * @throws SecurityException if something other than the device owner or the current VR service
-     *         tries to retrieve information provided by this service.
+     * @throws SecurityException if something other than the profile or device owner, or the
+     *        current VR service tries to retrieve information provided by this service.
     */
     public @NonNull float[] getDeviceTemperatures(@DeviceTemperatureType int type,
             @TemperatureSource int source) {
@@ -149,8 +147,8 @@ public class HardwarePropertiesManager {
      *         each unplugged core.
      *         Empty if CPU usage is not supported on this system.
      *
-     * @throws SecurityException if something other than the device owner or the current VR service
-     *         tries to retrieve information provided by this service.
+     * @throws SecurityException if something other than the profile or device owner, or the
+     *        current VR service tries to retrieve information provided by this service.
      */
     public @NonNull CpuUsageInfo[] getCpuUsages() {
         try {
@@ -166,8 +164,8 @@ public class HardwarePropertiesManager {
      * @return an array of float fan speeds in RPM. Empty if there are no fans or fan speed is not
      * supported on this system.
      *
-     * @throws SecurityException if something other than the device owner or the current VR service
-     *         tries to retrieve information provided by this service.
+     * @throws SecurityException if something other than the profile or device owner, or the
+     *        current VR service tries to retrieve information provided by this service.
      */
     public @NonNull float[] getFanSpeeds() {
         try {

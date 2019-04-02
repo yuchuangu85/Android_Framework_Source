@@ -16,7 +16,6 @@
 package com.android.server.notification;
 
 import android.content.Context;
-import android.service.notification.NotificationListenerService;
 import android.util.Slog;
 
 /**
@@ -43,7 +42,8 @@ public class VisibilityExtractor implements NotificationSignalExtractor {
             return null;
         }
 
-        record.setPackageVisibilityOverride(record.getChannel().getLockscreenVisibility());
+        record.setPackageVisibilityOverride(
+                mConfig.getVisibilityOverride(record.sbn.getPackageName(), record.sbn.getUid()));
 
         return null;
     }

@@ -16,10 +16,6 @@
 
 package com.android.internal.app;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.content.Context;
-import android.content.res.Configuration;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -60,10 +56,6 @@ public class SuggestedLocaleAdapter extends BaseAdapter implements Filterable {
     private int mSuggestionCount;
     private final boolean mCountryMode;
     private LayoutInflater mInflater;
-
-    private Locale mDisplayLocale = null;
-    // used to potentially cache a modified Context that uses mDisplayLocale
-    private Context mContextOverride = null;
 
     public SuggestedLocaleAdapter(Set<LocaleStore.LocaleInfo> localeOptions, boolean countryMode) {
         mCountryMode = countryMode;
@@ -134,31 +126,6 @@ public class SuggestedLocaleAdapter extends BaseAdapter implements Filterable {
         return position;
     }
 
-    /**
-     * Overrides the locale used to display localized labels. Setting the locale to null will reset
-     * the Adapter to use the default locale for the labels.
-     */
-    public void setDisplayLocale(@NonNull Context context, @Nullable Locale locale) {
-        if (locale == null) {
-            mDisplayLocale = null;
-            mContextOverride = null;
-        } else if (!locale.equals(mDisplayLocale)) {
-            mDisplayLocale = locale;
-            final Configuration configOverride = new Configuration();
-            configOverride.setLocale(locale);
-            mContextOverride = context.createConfigurationContext(configOverride);
-        }
-    }
-
-    private void setTextTo(@NonNull TextView textView, int resId) {
-        if (mContextOverride == null) {
-            textView.setText(resId);
-        } else {
-            textView.setText(mContextOverride.getText(resId));
-            // If mContextOverride is not null, mDisplayLocale can't be null either.
-        }
-    }
-
     @Override
     public View getView(int position, View convertView, ViewGroup parent) {
         if (convertView == null && mInflater == null) {
@@ -176,16 +143,15 @@ public class SuggestedLocaleAdapter extends BaseAdapter implements Filterable {
                 }
                 TextView textView = (TextView) convertView;
                 if (itemType == TYPE_HEADER_SUGGESTED) {
-                    setTextTo(textView, R.string.language_picker_section_suggested);
+                    textView.setText(R.string.language_picker_section_suggested);
                 } else {
                     if (mCountryMode) {
-                        setTextTo(textView, R.string.region_picker_section_all);
+                        textView.setText(R.string.region_picker_section_all);
                     } else {
-                        setTextTo(textView, R.string.language_picker_section_all);
+                        textView.setText(R.string.language_picker_section_all);
                     }
                 }
-                textView.setTextLocale(
-                        mDisplayLocale != null ? mDisplayLocale : Locale.getDefault());
+                textView.setTextLocale(Locale.getDefault());
                 break;
             default:
                 // Covers both null, and "reusing" a wrong kind of view

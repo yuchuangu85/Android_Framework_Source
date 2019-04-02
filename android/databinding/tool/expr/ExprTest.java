@@ -56,13 +56,8 @@ public class ExprTest{
         }
 
         @Override
-        protected KCode generateCode() {
+        protected KCode generateCode(boolean full) {
             return new KCode();
-        }
-
-        @Override
-        public Expr cloneToModel(ExprModel model) {
-            return this;
         }
 
         @Override
@@ -95,13 +90,8 @@ public class ExprTest{
             }
 
             @Override
-            protected KCode generateCode() {
+            protected KCode generateCode(boolean full) {
                 return new KCode();
-            }
-
-            @Override
-            public Expr cloneToModel(ExprModel model) {
-                return this;
             }
 
             @Override

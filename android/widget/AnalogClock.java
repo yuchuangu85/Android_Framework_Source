@@ -16,14 +16,15 @@
 
 package android.widget;
 
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.BroadcastReceiver;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
+import android.os.Handler;
 import android.text.format.DateUtils;
 import android.text.format.Time;
 import android.util.AttributeSet;
@@ -257,7 +258,7 @@ public class AnalogClock extends View {
             }
 
             onTimeChanged();
-
+            
             invalidate();
         }
     };

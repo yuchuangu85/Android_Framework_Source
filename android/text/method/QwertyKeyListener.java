@@ -16,12 +16,7 @@
 
 package android.text.method;
 
-import android.text.AutoText;
-import android.text.Editable;
-import android.text.NoCopySpan;
-import android.text.Selection;
-import android.text.Spannable;
-import android.text.TextUtils;
+import android.text.*;
 import android.text.method.TextKeyListener.Capitalize;
 import android.util.SparseArray;
 import android.view.KeyCharacterMap;
@@ -85,7 +80,7 @@ public class QwertyKeyListener extends BaseKeyListener {
     public int getInputType() {
         return makeTextContentType(mAutoCap, mAutoText);
     }
-
+    
     public boolean onKeyDown(View view, Editable content,
                              int keyCode, KeyEvent event) {
         int selStart, selEnd;
@@ -196,9 +191,9 @@ public class QwertyKeyListener extends BaseKeyListener {
                 }
             }
 
-            if ((pref & TextKeyListener.AUTO_CAP) != 0
-                    && Character.isLowerCase(i)
-                    && TextKeyListener.shouldCap(mAutoCap, content, selStart)) {
+            if ((pref & TextKeyListener.AUTO_CAP) != 0 &&
+                Character.isLowerCase(i) && 
+                TextKeyListener.shouldCap(mAutoCap, content, selStart)) {
                 int where = content.getSpanEnd(TextKeyListener.CAPPED);
                 int flags = content.getSpanFlags(TextKeyListener.CAPPED);
 
@@ -366,9 +361,9 @@ public class QwertyKeyListener extends BaseKeyListener {
                                   View view) {
         int len = end - start;
         boolean changecase = false;
-
+        
         String replacement = AutoText.get(src, start, end, view);
-
+        
         if (replacement == null) {
             String key = TextUtils.substring(src, start, end).toLowerCase();
             replacement = AutoText.get(key, 0, end - start, view);
@@ -377,7 +372,7 @@ public class QwertyKeyListener extends BaseKeyListener {
             if (replacement == null)
                 return null;
         }
-
+        
         int caps = 0;
 
         if (changecase) {

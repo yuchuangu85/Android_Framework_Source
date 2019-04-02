@@ -13,7 +13,7 @@
  */
 package android.support.v17.leanback.widget;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 import android.animation.Animator;
 import android.animation.ObjectAnimator;
@@ -32,7 +32,7 @@ import android.widget.LinearLayout;
  * The view displaying 3 animated peak meters next to each other when a media item is playing.
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public class MediaNowPlayingView extends LinearLayout{
 
     private final ImageView mImage1;
@@ -47,9 +47,9 @@ public class MediaNowPlayingView extends LinearLayout{
         super(context, attrs);
 
         LayoutInflater.from(context).inflate(R.layout.lb_playback_now_playing_bars, this, true);
-        mImage1 = findViewById(R.id.bar1);
-        mImage2 = findViewById(R.id.bar2);
-        mImage3 = findViewById(R.id.bar3);
+        mImage1 = (ImageView) findViewById(R.id.bar1);
+        mImage2 = (ImageView) findViewById(R.id.bar2);
+        mImage3 = (ImageView) findViewById(R.id.bar3);
 
         mImage1.setPivotY(mImage1.getDrawable().getIntrinsicHeight());
         mImage2.setPivotY(mImage2.getDrawable().getIntrinsicHeight());

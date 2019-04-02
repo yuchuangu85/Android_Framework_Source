@@ -142,7 +142,7 @@ public class PackageInfo implements Parcelable {
      * {@link PackageManager#GET_INSTRUMENTATION} was set.
      */
     public InstrumentationInfo[] instrumentation;
-
+    
     /**
      * Array of all {@link android.R.styleable#AndroidManifestPermission
      * &lt;permission&gt;} tags included under &lt;manifest&gt;,
@@ -150,7 +150,7 @@ public class PackageInfo implements Parcelable {
      * {@link PackageManager#GET_PERMISSIONS} was set.
      */
     public PermissionInfo[] permissions;
-
+    
     /**
      * Array of all {@link android.R.styleable#AndroidManifestUsesPermission
      * &lt;uses-permission&gt;} tags included under &lt;manifest&gt;,
@@ -160,7 +160,7 @@ public class PackageInfo implements Parcelable {
      * by the system at install time.
      */
     public String[] requestedPermissions;
-
+    
     /**
      * Array of flags of all {@link android.R.styleable#AndroidManifestUsesPermission
      * &lt;uses-permission&gt;} tags included under &lt;manifest&gt;,
@@ -187,17 +187,8 @@ public class PackageInfo implements Parcelable {
     public static final int REQUESTED_PERMISSION_GRANTED = 1<<1;
 
     /**
-     * Array of all signatures read from the package file. This is only filled
-     * in if the flag {@link PackageManager#GET_SIGNATURES} was set. A package
-     * must be singed with at least one certificate which is at position zero.
-     * The package can be signed with additional certificates which appear as
-     * subsequent entries.
-     *
-     * <strong>Note:</strong> Signature ordering is not guaranteed to be
-     * stable which means that a package signed with certificates A and B is
-     * equivalent to being signed with certificates B and A. This means that
-     * in case multiple signatures are reported you cannot assume the one at
-     * the first position to be the same across updates.
+     * Array of all signatures read from the package file.  This is only filled
+     * in if the flag {@link PackageManager#GET_SIGNATURES} was set.
      */
     public Signature[] signatures;
     
@@ -261,9 +252,6 @@ public class PackageInfo implements Parcelable {
     public int installLocation = INSTALL_LOCATION_INTERNAL_ONLY;
 
     /** @hide */
-    public boolean isStub;
-
-    /** @hide */
     public boolean coreApp;
 
     /** @hide */
@@ -282,12 +270,6 @@ public class PackageInfo implements Parcelable {
      * @hide
      */
     public String overlayTarget;
-
-    /** @hide */
-    public int overlayPriority;
-
-    /** @hide */
-    public boolean isStaticOverlay;
 
     public PackageInfo() {
     }
@@ -336,14 +318,11 @@ public class PackageInfo implements Parcelable {
         dest.writeTypedArray(reqFeatures, parcelableFlags);
         dest.writeTypedArray(featureGroups, parcelableFlags);
         dest.writeInt(installLocation);
-        dest.writeInt(isStub ? 1 : 0);
         dest.writeInt(coreApp ? 1 : 0);
         dest.writeInt(requiredForAllUsers ? 1 : 0);
         dest.writeString(restrictedAccountType);
         dest.writeString(requiredAccountType);
         dest.writeString(overlayTarget);
-        dest.writeInt(isStaticOverlay ? 1 : 0);
-        dest.writeInt(overlayPriority);
     }
 
     public static final Parcelable.Creator<PackageInfo> CREATOR
@@ -388,14 +367,11 @@ public class PackageInfo implements Parcelable {
         reqFeatures = source.createTypedArray(FeatureInfo.CREATOR);
         featureGroups = source.createTypedArray(FeatureGroupInfo.CREATOR);
         installLocation = source.readInt();
-        isStub = source.readInt() != 0;
         coreApp = source.readInt() != 0;
         requiredForAllUsers = source.readInt() != 0;
         restrictedAccountType = source.readString();
         requiredAccountType = source.readString();
         overlayTarget = source.readString();
-        isStaticOverlay = source.readInt() != 0;
-        overlayPriority = source.readInt();
 
         // The component lists were flattened with the redundant ApplicationInfo
         // instances omitted.  Distribute the canonical one here as appropriate.

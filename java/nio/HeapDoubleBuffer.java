@@ -160,13 +160,12 @@ class HeapDoubleBuffer extends DoubleBuffer {
     }
 
     public DoubleBuffer put(DoubleBuffer src) {
-        if (src == this) {
-            throw new IllegalArgumentException();
-        }
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
         }
         if (src instanceof HeapDoubleBuffer) {
+            if (src == this)
+                throw new IllegalArgumentException();
             HeapDoubleBuffer sb = (HeapDoubleBuffer)src;
             int n = sb.remaining();
             if (n > remaining())

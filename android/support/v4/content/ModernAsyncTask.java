@@ -16,7 +16,7 @@
 
 package android.support.v4.content;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 import android.os.Binder;
 import android.os.Handler;
@@ -47,7 +47,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>Note that for now this is not publicly available because it is not a
  * complete implementation, only sufficient for the needs of
- * {@link android.content.AsyncTaskLoader}.
+ * {@link AsyncTaskLoader}.
  */
 abstract class ModernAsyncTask<Params, Progress, Result> {
     private static final String LOG_TAG = "AsyncTask";
@@ -71,8 +71,8 @@ abstract class ModernAsyncTask<Params, Progress, Result> {
     /**
      * An {@link Executor} that can be used to execute tasks in parallel.
      */
-    public static final Executor THREAD_POOL_EXECUTOR =
-            new ThreadPoolExecutor(CORE_POOL_SIZE, MAXIMUM_POOL_SIZE, KEEP_ALIVE,
+    public static final Executor THREAD_POOL_EXECUTOR
+            = new ThreadPoolExecutor(CORE_POOL_SIZE, MAXIMUM_POOL_SIZE, KEEP_ALIVE,
                     TimeUnit.SECONDS, sPoolWorkQueue, sThreadFactory);
 
     private static final int MESSAGE_POST_RESULT = 0x1;
@@ -118,7 +118,7 @@ abstract class ModernAsyncTask<Params, Progress, Result> {
     }
 
     /** @hide */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public static void setDefaultExecutor(Executor exec) {
         sDefaultExecutor = exec;
     }
@@ -126,7 +126,7 @@ abstract class ModernAsyncTask<Params, Progress, Result> {
     /**
      * Creates a new asynchronous task. This constructor must be invoked on the UI thread.
      */
-    ModernAsyncTask() {
+    public ModernAsyncTask() {
         mWorker = new WorkerRunnable<Params, Result>() {
             @Override
             public Result call() throws Exception {
@@ -178,7 +178,7 @@ abstract class ModernAsyncTask<Params, Progress, Result> {
 
     Result postResult(Result result) {
         Message message = getHandler().obtainMessage(MESSAGE_POST_RESULT,
-                new AsyncTaskResult<>(this, result));
+                new AsyncTaskResult<Result>(this, result));
         message.sendToTarget();
         return result;
     }
@@ -436,8 +436,6 @@ abstract class ModernAsyncTask<Params, Progress, Result> {
                     throw new IllegalStateException("Cannot execute task:"
                             + " the task has already been executed "
                             + "(a task can be executed only once)");
-                default:
-                    throw new IllegalStateException("We should never reach this state");
             }
         }
 
@@ -490,7 +488,7 @@ abstract class ModernAsyncTask<Params, Progress, Result> {
     }
 
     private static class InternalHandler extends Handler {
-        InternalHandler() {
+        public InternalHandler() {
             super(Looper.getMainLooper());
         }
 
@@ -510,7 +508,7 @@ abstract class ModernAsyncTask<Params, Progress, Result> {
         }
     }
 
-    private abstract static class WorkerRunnable<Params, Result> implements Callable<Result> {
+    private static abstract class WorkerRunnable<Params, Result> implements Callable<Result> {
         Params[] mParams;
 
         WorkerRunnable() {

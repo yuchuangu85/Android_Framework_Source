@@ -31,7 +31,6 @@ import android.graphics.drawable.Drawable;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.support.annotation.VisibleForTesting;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.inputmethod.InputMethodInfo;
@@ -50,7 +49,6 @@ public class AppRestrictionsHelper {
     private static final boolean DEBUG = false;
     private static final String TAG = "AppRestrictionsHelper";
 
-    private final Injector mInjector;
     private final Context mContext;
     private final PackageManager mPackageManager;
     private final IPackageManager mIPm;
@@ -63,17 +61,11 @@ public class AppRestrictionsHelper {
     private List<SelectableAppInfo> mVisibleApps;
 
     public AppRestrictionsHelper(Context context, UserHandle user) {
-        this(new Injector(context, user));
-    }
-
-    @VisibleForTesting
-    AppRestrictionsHelper(Injector injector) {
-        mInjector = injector;
-        mContext = mInjector.getContext();
-        mPackageManager = mInjector.getPackageManager();
-        mIPm = mInjector.getIPackageManager();
-        mUser = mInjector.getUser();
-        mUserManager = mInjector.getUserManager();
+        mContext = context;
+        mPackageManager = context.getPackageManager();
+        mIPm = AppGlobals.getPackageManager();
+        mUser = user;
+        mUserManager = (UserManager) context.getSystemService(Context.USER_SERVICE);
         mRestrictedProfile = mUserManager.getUserInfo(mUser.getIdentifier()).isRestricted();
     }
 
@@ -94,7 +86,8 @@ public class AppRestrictionsHelper {
     }
 
     public void applyUserAppsStates(OnDisableUiForPackageListener listener) {
-        if (!mRestrictedProfile && mUser.getIdentifier() != UserHandle.myUserId()) {
+        final int userId = mUser.getIdentifier();
+        if (!mUserManager.getUserInfo(userId).isRestricted() && userId != UserHandle.myUserId()) {
             Log.e(TAG, "Cannot apply application restrictions on another user!");
             return;
         }
@@ -112,11 +105,10 @@ public class AppRestrictionsHelper {
             // Enable selected apps
             try {
                 ApplicationInfo info = mIPm.getApplicationInfo(packageName,
-                        PackageManager.MATCH_ANY_USER, userId);
+                        PackageManager.MATCH_UNINSTALLED_PACKAGES, userId);
                 if (info == null || !info.enabled
                         || (info.flags&ApplicationInfo.FLAG_INSTALLED) == 0) {
-                    mIPm.installExistingPackageAsUser(packageName, mUser.getIdentifier(),
-                            0 /*installFlags*/, PackageManager.INSTALL_REASON_UNKNOWN);
+                    mIPm.installExistingPackageAsUser(packageName, mUser.getIdentifier());
                     if (DEBUG) {
                         Log.d(TAG, "Installing " + packageName);
                     }
@@ -138,8 +130,8 @@ public class AppRestrictionsHelper {
                 ApplicationInfo info = mIPm.getApplicationInfo(packageName, 0, userId);
                 if (info != null) {
                     if (mRestrictedProfile) {
-                        mPackageManager.deletePackageAsUser(packageName, null,
-                                PackageManager.DELETE_SYSTEM_APP, mUser.getIdentifier());
+                        mIPm.deletePackageAsUser(packageName, null, mUser.getIdentifier(),
+                                PackageManager.DELETE_SYSTEM_APP);
                         if (DEBUG) {
                             Log.d(TAG, "Uninstalling " + packageName);
                         }
@@ -179,7 +171,7 @@ public class AppRestrictionsHelper {
         addSystemApps(mVisibleApps, widgetIntent, excludePackages);
 
         List<ApplicationInfo> installedApps = pm.getInstalledApplications(
-                PackageManager.MATCH_ANY_USER);
+                PackageManager.MATCH_UNINSTALLED_PACKAGES);
         for (ApplicationInfo app : installedApps) {
             // If it's not installed, skip
             if ((app.flags & ApplicationInfo.FLAG_INSTALLED) == 0) continue;
@@ -276,7 +268,9 @@ public class AppRestrictionsHelper {
      * @param excludePackages the set of package names to append to
      */
     private void addSystemImes(Set<String> excludePackages) {
-        List<InputMethodInfo> imis = mInjector.getInputMethodList();
+        InputMethodManager imm = (InputMethodManager)
+                mContext.getSystemService(Context.INPUT_METHOD_SERVICE);
+        List<InputMethodInfo> imis = imm.getInputMethodList();
         for (InputMethodInfo imi : imis) {
             try {
                 if (imi.isDefault(mContext) && isSystemPackage(imi.getPackageName())) {
@@ -380,46 +374,6 @@ public class AppRestrictionsHelper {
             String lhsLabel = lhs.activityName.toString();
             String rhsLabel = rhs.activityName.toString();
             return lhsLabel.toLowerCase().compareTo(rhsLabel.toLowerCase());
-        }
-    }
-
-    /**
-     * Unit test will subclass it to inject mocks.
-     */
-    @VisibleForTesting
-    static class Injector {
-        private Context mContext;
-        private UserHandle mUser;
-
-        Injector(Context context, UserHandle user) {
-            mContext = context;
-            mUser = user;
-        }
-
-        Context getContext() {
-            return mContext;
-        }
-
-        UserHandle getUser() {
-            return mUser;
-        }
-
-        PackageManager getPackageManager() {
-            return mContext.getPackageManager();
-        }
-
-        IPackageManager getIPackageManager() {
-            return AppGlobals.getPackageManager();
-        }
-
-        UserManager getUserManager() {
-            return mContext.getSystemService(UserManager.class);
-        }
-
-        List<InputMethodInfo> getInputMethodList() {
-            InputMethodManager imm = (InputMethodManager) getContext().getSystemService(
-                    Context.INPUT_METHOD_SERVICE);
-            return imm.getInputMethodList();
         }
     }
 }

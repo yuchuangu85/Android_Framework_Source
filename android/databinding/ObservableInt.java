@@ -25,7 +25,7 @@ import java.io.Serializable;
  * <p>
  * Observable field classes may be used instead of creating an Observable object:
  * <pre><code>public class MyDataObject {
- *     public final ObservableField&lt;String&gt; name = new ObservableField&lt;String&gt;();
+ *     public final ObservableField<String> name = new ObservableField<String>();
  *     public final ObservableInt age = new ObservableInt();
  * }</code></pre>
  * Fields of this type should be declared final because bindings only detect changes in the

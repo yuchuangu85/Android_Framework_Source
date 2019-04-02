@@ -18,8 +18,6 @@ import android.support.v7.preference.DropDownPreference;
 import android.text.TextUtils;
 import android.util.ArraySet;
 import android.util.AttributeSet;
-
-import com.android.systemui.Dependency;
 import com.android.systemui.statusbar.phone.StatusBarIconController;
 import com.android.systemui.statusbar.policy.Clock;
 
@@ -46,13 +44,13 @@ public class ClockPreference extends DropDownPreference implements TunerService.
     @Override
     public void onAttached() {
         super.onAttached();
-        Dependency.get(TunerService.class).addTunable(this, StatusBarIconController.ICON_BLACKLIST,
+        TunerService.get(getContext()).addTunable(this, StatusBarIconController.ICON_BLACKLIST,
                 Clock.CLOCK_SECONDS);
     }
 
     @Override
     public void onDetached() {
-        Dependency.get(TunerService.class).removeTunable(this);
+        TunerService.get(getContext()).removeTunable(this);
         super.onDetached();
     }
 
@@ -83,14 +81,13 @@ public class ClockPreference extends DropDownPreference implements TunerService.
 
     @Override
     protected boolean persistString(String value) {
-        Dependency.get(TunerService.class).setValue(Clock.CLOCK_SECONDS, SECONDS.equals(value) ? 1
-                : 0);
+        TunerService.get(getContext()).setValue(Clock.CLOCK_SECONDS, SECONDS.equals(value) ? 1 : 0);
         if (DISABLED.equals(value)) {
             mBlacklist.add(mClock);
         } else {
             mBlacklist.remove(mClock);
         }
-        Dependency.get(TunerService.class).setValue(StatusBarIconController.ICON_BLACKLIST,
+        TunerService.get(getContext()).setValue(StatusBarIconController.ICON_BLACKLIST,
                 TextUtils.join(",", mBlacklist));
         return true;
     }

@@ -16,44 +16,38 @@
 
 package android.support.v7.widget;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.support.annotation.DrawableRes;
-import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.annotation.RequiresApi;
 import android.support.annotation.RestrictTo;
 import android.support.v4.view.TintableBackgroundView;
-import android.support.v4.widget.AutoSizeableTextView;
-import android.support.v4.widget.TextViewCompat;
 import android.support.v7.appcompat.R;
 import android.util.AttributeSet;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Button;
-import android.widget.TextView;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
- * A {@link Button} which supports compatible features on older versions of the platform,
+ * A {@link Button} which supports compatible features on older version of the platform,
  * including:
  * <ul>
- *     <li>Allows dynamic tint of its background via the background tint methods in
+ *     <li>Supports {@link R.attr#textAllCaps} style attribute which works back to
+ *     {@link android.os.Build.VERSION_CODES#GINGERBREAD Gingerbread}.</li>
+ *     <li>Allows dynamic tint of it background via the background tint methods in
  *     {@link android.support.v4.view.ViewCompat}.</li>
  *     <li>Allows setting of the background tint using {@link R.attr#backgroundTint} and
  *     {@link R.attr#backgroundTintMode}.</li>
  * </ul>
  *
- * <p>This will automatically be used when you use {@link Button} in your layouts
- * and the top-level activity / dialog is provided by
- * <a href="{@docRoot}topic/libraries/support-library/packages.html#v7-appcompat">appcompat</a>.
- * You should only need to manually use this class when writing custom views.</p>
+ * <p>This will automatically be used when you use {@link android.widget.Button} in your
+ * layouts. You should only need to manually use this class when writing custom views.</p>
  */
-public class AppCompatButton extends Button implements TintableBackgroundView,
-        AutoSizeableTextView {
+public class AppCompatButton extends Button implements TintableBackgroundView {
 
     private final AppCompatBackgroundHelper mBackgroundTintHelper;
     private final AppCompatTextHelper mTextHelper;
@@ -99,7 +93,7 @@ public class AppCompatButton extends Button implements TintableBackgroundView,
      *
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     @Override
     public void setSupportBackgroundTintList(@Nullable ColorStateList tint) {
         if (mBackgroundTintHelper != null) {
@@ -113,7 +107,7 @@ public class AppCompatButton extends Button implements TintableBackgroundView,
      *
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     @Override
     @Nullable
     public ColorStateList getSupportBackgroundTintList() {
@@ -127,7 +121,7 @@ public class AppCompatButton extends Button implements TintableBackgroundView,
      *
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     @Override
     public void setSupportBackgroundTintMode(@Nullable PorterDuff.Mode tintMode) {
         if (mBackgroundTintHelper != null) {
@@ -141,7 +135,7 @@ public class AppCompatButton extends Button implements TintableBackgroundView,
      *
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     @Override
     @Nullable
     public PorterDuff.Mode getSupportBackgroundTintMode() {
@@ -174,174 +168,10 @@ public class AppCompatButton extends Button implements TintableBackgroundView,
         event.setClassName(Button.class.getName());
     }
 
-    @RequiresApi(14)
     @Override
     public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
         super.onInitializeAccessibilityNodeInfo(info);
         info.setClassName(Button.class.getName());
-    }
-
-    @Override
-    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        super.onLayout(changed, left, top, right, bottom);
-        if (mTextHelper != null) {
-            mTextHelper.onLayout(changed, left, top, right, bottom);
-        }
-    }
-
-    @Override
-    public void setTextSize(int unit, float size) {
-        if (PLATFORM_SUPPORTS_AUTOSIZE) {
-            super.setTextSize(unit, size);
-        } else {
-            if (mTextHelper != null) {
-                mTextHelper.setTextSize(unit, size);
-            }
-        }
-    }
-
-    @Override
-    protected void onTextChanged(CharSequence text, int start, int lengthBefore, int lengthAfter) {
-        super.onTextChanged(text, start, lengthBefore, lengthAfter);
-        if (mTextHelper != null && !PLATFORM_SUPPORTS_AUTOSIZE && mTextHelper.isAutoSizeEnabled()) {
-            mTextHelper.autoSizeText();
-        }
-    }
-
-    /**
-     * @hide
-     */
-    @RestrictTo(LIBRARY_GROUP)
-    @Override
-    public void setAutoSizeTextTypeWithDefaults(
-            @TextViewCompat.AutoSizeTextType int autoSizeTextType) {
-        if (PLATFORM_SUPPORTS_AUTOSIZE) {
-            super.setAutoSizeTextTypeWithDefaults(autoSizeTextType);
-        } else {
-            if (mTextHelper != null) {
-                mTextHelper.setAutoSizeTextTypeWithDefaults(autoSizeTextType);
-            }
-        }
-    }
-
-    /**
-     * @hide
-     */
-    @RestrictTo(LIBRARY_GROUP)
-    @Override
-    public void setAutoSizeTextTypeUniformWithConfiguration(
-            int autoSizeMinTextSize,
-            int autoSizeMaxTextSize,
-            int autoSizeStepGranularity,
-            int unit) throws IllegalArgumentException {
-        if (PLATFORM_SUPPORTS_AUTOSIZE) {
-            super.setAutoSizeTextTypeUniformWithConfiguration(
-                    autoSizeMinTextSize, autoSizeMaxTextSize, autoSizeStepGranularity, unit);
-        } else {
-            if (mTextHelper != null) {
-                mTextHelper.setAutoSizeTextTypeUniformWithConfiguration(
-                        autoSizeMinTextSize, autoSizeMaxTextSize, autoSizeStepGranularity, unit);
-            }
-        }
-    }
-
-    /**
-     * @hide
-     */
-    @RestrictTo(LIBRARY_GROUP)
-    @Override
-    public void setAutoSizeTextTypeUniformWithPresetSizes(@NonNull int[] presetSizes, int unit)
-            throws IllegalArgumentException {
-        if (PLATFORM_SUPPORTS_AUTOSIZE) {
-            super.setAutoSizeTextTypeUniformWithPresetSizes(presetSizes, unit);
-        } else {
-            if (mTextHelper != null) {
-                mTextHelper.setAutoSizeTextTypeUniformWithPresetSizes(presetSizes, unit);
-            }
-        }
-    }
-
-    /**
-     * @hide
-     */
-    @RestrictTo(LIBRARY_GROUP)
-    @Override
-    @TextViewCompat.AutoSizeTextType
-    public int getAutoSizeTextType() {
-        if (PLATFORM_SUPPORTS_AUTOSIZE) {
-            return super.getAutoSizeTextType() == TextView.AUTO_SIZE_TEXT_TYPE_UNIFORM
-                    ? TextViewCompat.AUTO_SIZE_TEXT_TYPE_UNIFORM
-                    : TextViewCompat.AUTO_SIZE_TEXT_TYPE_NONE;
-        } else {
-            if (mTextHelper != null) {
-                return mTextHelper.getAutoSizeTextType();
-            }
-        }
-        return TextViewCompat.AUTO_SIZE_TEXT_TYPE_NONE;
-    }
-
-    /**
-     * @hide
-     */
-    @RestrictTo(LIBRARY_GROUP)
-    @Override
-    public int getAutoSizeStepGranularity() {
-        if (PLATFORM_SUPPORTS_AUTOSIZE) {
-            return super.getAutoSizeStepGranularity();
-        } else {
-            if (mTextHelper != null) {
-                return mTextHelper.getAutoSizeStepGranularity();
-            }
-        }
-        return -1;
-    }
-
-    /**
-     * @hide
-     */
-    @RestrictTo(LIBRARY_GROUP)
-    @Override
-    public int getAutoSizeMinTextSize() {
-        if (PLATFORM_SUPPORTS_AUTOSIZE) {
-            return super.getAutoSizeMinTextSize();
-        } else {
-            if (mTextHelper != null) {
-                return mTextHelper.getAutoSizeMinTextSize();
-            }
-        }
-        return -1;
-    }
-
-    /**
-     * @hide
-     */
-    @RestrictTo(LIBRARY_GROUP)
-    @Override
-    public int getAutoSizeMaxTextSize() {
-        if (PLATFORM_SUPPORTS_AUTOSIZE) {
-            return super.getAutoSizeMaxTextSize();
-        } else {
-            if (mTextHelper != null) {
-                return mTextHelper.getAutoSizeMaxTextSize();
-            }
-        }
-        return -1;
-    }
-
-    /**
-     * @hide
-     */
-    @RestrictTo(LIBRARY_GROUP)
-    @Override
-    public int[] getAutoSizeTextAvailableSizes() {
-        if (PLATFORM_SUPPORTS_AUTOSIZE) {
-            return super.getAutoSizeTextAvailableSizes();
-        } else {
-            if (mTextHelper != null) {
-                return mTextHelper.getAutoSizeTextAvailableSizes();
-            }
-        }
-        return new int[0];
     }
 
     /**

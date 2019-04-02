@@ -64,7 +64,7 @@ public class ScopedException extends RuntimeException {
         return sEncodeOutput ? createEncodedMessage() : createHumanReadableMessage();
     }
 
-    public String createHumanReadableMessage() {
+    private String createHumanReadableMessage() {
         ScopedErrorReport scopedError = getScopedErrorReport();
         StringBuilder sb = new StringBuilder();
         sb.append(super.getMessage()).append("\n")

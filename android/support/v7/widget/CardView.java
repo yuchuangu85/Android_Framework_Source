@@ -80,11 +80,11 @@ public class CardView extends FrameLayout {
 
     static {
         if (Build.VERSION.SDK_INT >= 21) {
-            IMPL = new CardViewApi21Impl();
+            IMPL = new CardViewApi21();
         } else if (Build.VERSION.SDK_INT >= 17) {
-            IMPL = new CardViewApi17Impl();
+            IMPL = new CardViewJellybeanMr1();
         } else {
-            IMPL = new CardViewBaseImpl();
+            IMPL = new CardViewGingerbread();
         }
         IMPL.initStatic();
     }
@@ -126,7 +126,6 @@ public class CardView extends FrameLayout {
         // NO OP
     }
 
-    @Override
     public void setPaddingRelative(int start, int top, int end, int bottom) {
         // NO OP
     }
@@ -187,7 +186,7 @@ public class CardView extends FrameLayout {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        if (!(IMPL instanceof CardViewApi21Impl)) {
+        if (!(IMPL instanceof CardViewApi21)) {
             final int widthMode = MeasureSpec.getMode(widthMeasureSpec);
             switch (widthMode) {
                 case MeasureSpec.EXACTLY:
@@ -195,9 +194,6 @@ public class CardView extends FrameLayout {
                     final int minWidth = (int) Math.ceil(IMPL.getMinWidth(mCardViewDelegate));
                     widthMeasureSpec = MeasureSpec.makeMeasureSpec(Math.max(minWidth,
                             MeasureSpec.getSize(widthMeasureSpec)), widthMode);
-                    break;
-                case MeasureSpec.UNSPECIFIED:
-                    // Do nothing
                     break;
             }
 
@@ -208,9 +204,6 @@ public class CardView extends FrameLayout {
                     final int minHeight = (int) Math.ceil(IMPL.getMinHeight(mCardViewDelegate));
                     heightMeasureSpec = MeasureSpec.makeMeasureSpec(Math.max(minHeight,
                             MeasureSpec.getSize(heightMeasureSpec)), heightMode);
-                    break;
-                case MeasureSpec.UNSPECIFIED:
-                    // Do nothing
                     break;
             }
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2001, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,9 +33,10 @@ import java.nio.channels.spi.*;
  * A pair of channels that implements a unidirectional pipe.
  *
  * <p> A pipe consists of a pair of channels: A writable {@link
- * Pipe.SinkChannel sink} channel and a readable {@link Pipe.SourceChannel source}
- * channel.  Once some bytes are written to the sink channel they can be read
- * from source channel in exactlyAthe order in which they were written.
+ * Pipe.SinkChannel </code>sink<code>} channel and a readable {@link
+ * Pipe.SourceChannel </code>source<code>} channel.  Once some bytes are
+ * written to the sink channel they can be read from source channel in exactly
+ * the order in which they were written.
  *
  * <p> Whether or not a thread writing bytes to a pipe will block until another
  * thread reads those bytes, or some previously-written bytes, from the pipe is
@@ -52,7 +53,7 @@ import java.nio.channels.spi.*;
 public abstract class Pipe {
 
     /**
-     * A channel representing the readable end of a {@link Pipe}.
+     * A channel representing the readable end of a {@link Pipe}.  </p>
      *
      * @since 1.4
      */
@@ -62,9 +63,6 @@ public abstract class Pipe {
     {
         /**
          * Constructs a new instance of this class.
-         *
-         * @param  provider
-         *         The selector provider
          */
         protected SourceChannel(SelectorProvider provider) {
             super(provider);
@@ -86,7 +84,7 @@ public abstract class Pipe {
     }
 
     /**
-     * A channel representing the writable end of a {@link Pipe}.
+     * A channel representing the writable end of a {@link Pipe}.  </p>
      *
      * @since 1.4
      */
@@ -96,9 +94,6 @@ public abstract class Pipe {
     {
         /**
          * Initializes a new instance of this class.
-         *
-         * @param  provider
-         *         The selector provider
          */
         protected SinkChannel(SelectorProvider provider) {
             super(provider);
@@ -125,14 +120,14 @@ public abstract class Pipe {
     protected Pipe() { }
 
     /**
-     * Returns this pipe's source channel.
+     * Returns this pipe's source channel.  </p>
      *
      * @return  This pipe's source channel
      */
     public abstract SourceChannel source();
 
     /**
-     * Returns this pipe's sink channel.
+     * Returns this pipe's sink channel.  </p>
      *
      * @return  This pipe's sink channel
      */

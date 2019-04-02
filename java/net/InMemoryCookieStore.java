@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2008, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,12 +28,12 @@ package java.net;
 
 import dalvik.system.VMRuntime;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Collections;
-import java.util.Iterator;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -76,11 +76,9 @@ public class InMemoryCookieStore implements CookieStore {
 
         lock.lock();
         try {
-            // Android-changed: http://b/33034917, android supports clearing cookies
-            // by adding the cookie with max-age: 0.
-            //if (cookie.getMaxAge() != 0) {
-            addIndex(uriIndex, getEffectiveURI(uri), cookie);
-            //}
+            if (cookie.getMaxAge() != 0) {
+                addIndex(uriIndex, getEffectiveURI(uri), cookie);
+            }
         } finally {
             lock.unlock();
         }
@@ -336,7 +334,7 @@ public class InMemoryCookieStore implements CookieStore {
                               T index,
                               HttpCookie cookie)
     {
-        // Android-changed: "index" can be null. We only use the URI based
+        // Android-changed : "index" can be null. We only use the URI based
         // index on Android and we want to support null URIs. The underlying
         // store is a HashMap which will support null keys anyway.
         List<HttpCookie> cookies = indexStore.get(index);

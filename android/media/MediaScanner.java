@@ -1438,7 +1438,7 @@ public class MediaScanner implements AutoCloseable {
             prescan(path, true);
 
             File file = new File(path);
-            if (!file.exists() || !file.canRead()) {
+            if (!file.exists()) {
                 return null;
             }
 
@@ -1958,10 +1958,7 @@ public class MediaScanner implements AutoCloseable {
     @Override
     protected void finalize() throws Throwable {
         try {
-            if (mCloseGuard != null) {
-                mCloseGuard.warnIfOpen();
-            }
-
+            mCloseGuard.warnIfOpen();
             close();
         } finally {
             super.finalize();

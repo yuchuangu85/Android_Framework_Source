@@ -17,6 +17,8 @@
 package android.text;
 
 /**
+ * Text改变监听
+ *
  * When an object of a type is attached to an Editable, its methods will
  * be called when the text is changed.
  */

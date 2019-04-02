@@ -76,8 +76,7 @@ public class CameraDeviceState {
         void onBusy();
         void onCaptureStarted(RequestHolder holder, long timestamp);
         void onCaptureResult(CameraMetadataNative result, RequestHolder holder);
-        void onRequestQueueEmpty();
-        void onRepeatingRequestError(long lastFrameNumber, int repeatingRequestId);
+        void onRepeatingRequestError(long lastFrameNumber);
     }
 
     /**
@@ -208,28 +207,12 @@ public class CameraDeviceState {
      * <p>Repeating request has been stopped due to an error such as abandoned output surfaces.</p>
      *
      * @param lastFrameNumber Frame number of the last repeating request before it is stopped.
-     * @param repeatingRequestId The ID of the repeating request being stopped
      */
-    public synchronized void setRepeatingRequestError(final long lastFrameNumber,
-            final int repeatingRequestId) {
+    public synchronized void setRepeatingRequestError(final long lastFrameNumber) {
         mCurrentHandler.post(new Runnable() {
             @Override
             public void run() {
-                mCurrentListener.onRepeatingRequestError(lastFrameNumber, repeatingRequestId);
-            }
-        });
-    }
-
-    /**
-     * Indicate that request queue (non-repeating) becomes empty.
-     *
-     * <p> Send notification that all non-repeating requests have been sent to camera device. </p>
-     */
-    public synchronized void setRequestQueueEmpty() {
-        mCurrentHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                mCurrentListener.onRequestQueueEmpty();
+                mCurrentListener.onRepeatingRequestError(lastFrameNumber);
             }
         });
     }

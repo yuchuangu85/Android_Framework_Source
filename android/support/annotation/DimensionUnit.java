@@ -15,9 +15,9 @@
  */
 package android.support.annotation;
 
-import static java.lang.annotation.RetentionPolicy.SOURCE;
-
 import java.lang.annotation.Retention;
+
+import static java.lang.annotation.RetentionPolicy.SOURCE;
 
 /**
  * Typedef for the {@link Dimension#unit} attribute.

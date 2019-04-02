@@ -25,7 +25,6 @@ import android.os.IInterface;
 import android.os.RemoteException;
 import android.util.Log;
 
-import java.lang.Runnable;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -46,7 +45,7 @@ abstract class RemoteListenerHelper<TListener extends IInterface> {
 
     private final Map<IBinder, LinkedListener> mListenerMap = new HashMap<>();
 
-    private boolean mIsRegistered;  // must access only on handler thread
+    private boolean mIsRegistered;
     private boolean mHasIsSupported;
     private boolean mIsSupported;
 
@@ -84,12 +83,12 @@ abstract class RemoteListenerHelper<TListener extends IInterface> {
             } else if (mHasIsSupported && !mIsSupported) {
                 result = RESULT_NOT_SUPPORTED;
             } else if (!isGpsEnabled()) {
+                result = RESULT_GPS_LOCATION_DISABLED;
+            } else if (!tryRegister()) {
                 // only attempt to register if GPS is enabled, otherwise we will register once GPS
                 // becomes available
-                result = RESULT_GPS_LOCATION_DISABLED;
+                result = RESULT_INTERNAL_ERROR;
             } else if (mHasIsSupported && mIsSupported) {
-                tryRegister();
-                // initially presume success, possible internal error could follow asynchornously
                 result = RESULT_SUCCESS;
             } else {
                 // at this point if the supported flag is not set, the notification will be sent
@@ -118,8 +117,8 @@ abstract class RemoteListenerHelper<TListener extends IInterface> {
 
     protected abstract boolean isAvailableInPlatform();
     protected abstract boolean isGpsEnabled();
-    protected abstract boolean registerWithService(); // must access only on handler thread
-    protected abstract void unregisterFromService(); // must access only on handler thread
+    protected abstract boolean registerWithService();
+    protected abstract void unregisterFromService();
     protected abstract ListenerOperation<TListener> getHandlerOperation(int result);
 
     protected interface ListenerOperation<TListener extends IInterface> {
@@ -139,16 +138,22 @@ abstract class RemoteListenerHelper<TListener extends IInterface> {
         }
     }
 
-    protected void tryUpdateRegistrationWithService() {
+    protected boolean tryUpdateRegistrationWithService() {
         synchronized (mListenerMap) {
             if (!isGpsEnabled()) {
                 tryUnregister();
-                return;
+                return true;
             }
             if (mListenerMap.isEmpty()) {
-                return;
+                return true;
             }
-            tryRegister();
+            if (tryRegister()) {
+                // registration was successful, there is no need to update the state
+                return true;
+            }
+            ListenerOperation<TListener> operation = getHandlerOperation(RESULT_INTERNAL_ERROR);
+            foreachUnsafe(operation);
+            return false;
         }
     }
 
@@ -175,40 +180,19 @@ abstract class RemoteListenerHelper<TListener extends IInterface> {
         }
     }
 
-    private void tryRegister() {
-        mHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                if (!mIsRegistered) {
-                    mIsRegistered = registerWithService();
-                }
-                if (!mIsRegistered) {
-                    // post back a failure
-                    mHandler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            synchronized (mListenerMap) {
-                                ListenerOperation<TListener> operation = getHandlerOperation(RESULT_INTERNAL_ERROR);
-                                foreachUnsafe(operation);
-                            }
-                        }
-                    });
-                }
-            }
-        });
+    private boolean tryRegister() {
+        if (!mIsRegistered) {
+            mIsRegistered = registerWithService();
+        }
+        return mIsRegistered;
     }
 
     private void tryUnregister() {
-        mHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                if (!mIsRegistered) {
-                    return;
-                }
-                unregisterFromService();
-                mIsRegistered = false;
-            }
-        });
+        if (!mIsRegistered) {
+            return;
+        }
+        unregisterFromService();
+        mIsRegistered = false;
     }
 
     private int calculateCurrentResultUnsafe() {

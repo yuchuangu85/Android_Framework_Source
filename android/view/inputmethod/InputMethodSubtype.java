@@ -84,8 +84,6 @@ public final class InputMethodSubtype implements Parcelable {
     private final String mSubtypeLanguageTag;
     private final String mSubtypeMode;
     private final String mSubtypeExtraValue;
-    private final Object mLock = new Object();
-    private volatile Locale mCachedLocaleObj;
     private volatile HashMap<String, String> mExtraValueHashMapCache;
 
     /**
@@ -239,7 +237,6 @@ public final class InputMethodSubtype implements Parcelable {
      * {@link InputMethodSubtype#InputMethodSubtype(int, int, String, String, String, boolean,
      * boolean, int)} except "id".
      */
-    @Deprecated
     public InputMethodSubtype(int nameId, int iconId, String locale, String mode, String extraValue,
             boolean isAuxiliary, boolean overridesImplicitlyEnabledSubtype) {
         this(nameId, iconId, locale, mode, extraValue, isAuxiliary,
@@ -277,7 +274,6 @@ public final class InputMethodSubtype implements Parcelable {
      * Arrays.hashCode(new Object[] {locale, mode, extraValue,
      * isAuxiliary, overridesImplicitlyEnabledSubtype, isAsciiCapable}) will be used instead.
      */
-    @Deprecated
     public InputMethodSubtype(int nameId, int iconId, String locale, String mode, String extraValue,
             boolean isAuxiliary, boolean overridesImplicitlyEnabledSubtype, int id) {
         this(getBuilder(nameId, iconId, locale, mode, extraValue, isAuxiliary,
@@ -374,20 +370,10 @@ public final class InputMethodSubtype implements Parcelable {
      */
     @Nullable
     public Locale getLocaleObject() {
-        if (mCachedLocaleObj != null) {
-            return mCachedLocaleObj;
+        if (!TextUtils.isEmpty(mSubtypeLanguageTag)) {
+            return Locale.forLanguageTag(mSubtypeLanguageTag);
         }
-        synchronized (mLock) {
-            if (mCachedLocaleObj != null) {
-                return mCachedLocaleObj;
-            }
-            if (!TextUtils.isEmpty(mSubtypeLanguageTag)) {
-                mCachedLocaleObj = Locale.forLanguageTag(mSubtypeLanguageTag);
-            } else {
-                mCachedLocaleObj = InputMethodUtils.constructLocaleFromString(mSubtypeLocale);
-            }
-            return mCachedLocaleObj;
-        }
+        return InputMethodUtils.constructLocaleFromString(mSubtypeLocale);
     }
 
     /**
@@ -532,27 +518,27 @@ public final class InputMethodSubtype implements Parcelable {
     }
 
     private HashMap<String, String> getExtraValueHashMap() {
-        synchronized (this) {
-            HashMap<String, String> extraValueMap = mExtraValueHashMapCache;
-            if (extraValueMap != null) {
-                return extraValueMap;
-            }
-            extraValueMap = new HashMap<>();
-            final String[] pairs = mSubtypeExtraValue.split(EXTRA_VALUE_PAIR_SEPARATOR);
-            for (int i = 0; i < pairs.length; ++i) {
-                final String[] pair = pairs[i].split(EXTRA_VALUE_KEY_VALUE_SEPARATOR);
-                if (pair.length == 1) {
-                    extraValueMap.put(pair[0], null);
-                } else if (pair.length > 1) {
-                    if (pair.length > 2) {
-                        Slog.w(TAG, "ExtraValue has two or more '='s");
+        if (mExtraValueHashMapCache == null) {
+            synchronized(this) {
+                if (mExtraValueHashMapCache == null) {
+                    mExtraValueHashMapCache = new HashMap<String, String>();
+                    final String[] pairs = mSubtypeExtraValue.split(EXTRA_VALUE_PAIR_SEPARATOR);
+                    final int N = pairs.length;
+                    for (int i = 0; i < N; ++i) {
+                        final String[] pair = pairs[i].split(EXTRA_VALUE_KEY_VALUE_SEPARATOR);
+                        if (pair.length == 1) {
+                            mExtraValueHashMapCache.put(pair[0], null);
+                        } else if (pair.length > 1) {
+                            if (pair.length > 2) {
+                                Slog.w(TAG, "ExtraValue has two or more '='s");
+                            }
+                            mExtraValueHashMapCache.put(pair[0], pair[1]);
+                        }
                     }
-                    extraValueMap.put(pair[0], pair[1]);
                 }
             }
-            mExtraValueHashMapCache = extraValueMap;
-            return extraValueMap;
         }
+        return mExtraValueHashMapCache;
     }
 
     /**

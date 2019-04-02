@@ -19,7 +19,6 @@ package com.android.server.appwidget;
 import android.content.Context;
 
 import com.android.server.AppWidgetBackupBridge;
-import com.android.server.FgThread;
 import com.android.server.SystemService;
 
 /**
@@ -35,21 +34,20 @@ public class AppWidgetService extends SystemService {
 
     @Override
     public void onStart() {
-        mImpl.onStart();
         publishBinderService(Context.APPWIDGET_SERVICE, mImpl);
         AppWidgetBackupBridge.register(mImpl);
     }
 
     @Override
     public void onBootPhase(int phase) {
-        if (phase == PHASE_ACTIVITY_MANAGER_READY) {
+        if (phase == PHASE_THIRD_PARTY_APPS_CAN_START) {
             mImpl.setSafeMode(isSafeMode());
         }
     }
 
     @Override
     public void onUnlockUser(int userHandle) {
-        FgThread.getHandler().post(() -> mImpl.onUserUnlocked(userHandle));
+        mImpl.onUserUnlocked(userHandle);
     }
 
     @Override

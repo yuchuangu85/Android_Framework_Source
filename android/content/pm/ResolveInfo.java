@@ -61,21 +61,11 @@ public class ResolveInfo implements Parcelable {
     public ProviderInfo providerInfo;
 
     /**
-     * An auxiliary response that may modify the resolved information. This is
-     * only set under certain circumstances; such as when resolving instant apps
-     * or components defined in un-installed splits.
+     * The ephemeral application that corresponds to this resolution match. This will
+     * only be set in specific circumstances.
      * @hide
      */
-    public AuxiliaryResolveInfo auxiliaryInfo;
-
-    /**
-     * Whether or not an instant app is available for the resolved intent.
-     */
-    public boolean isInstantAppAvailable;
-
-    /** @removed */
-    @Deprecated
-    public boolean instantAppAvailable;
+    public EphemeralResolveInfo ephemeralResolveInfo;
 
     /**
      * The IntentFilter that was matched for this ResolveInfo.
@@ -282,7 +272,7 @@ public class ResolveInfo implements Parcelable {
     }
 
     /** @hide */
-    public void dump(Printer pw, String prefix, int dumpFlags) {
+    public void dump(Printer pw, String prefix, int flags) {
         if (filter != null) {
             pw.println(prefix + "Filter:");
             filter.dump(pw, prefix + "  ");
@@ -302,13 +292,13 @@ public class ResolveInfo implements Parcelable {
         }
         if (activityInfo != null) {
             pw.println(prefix + "ActivityInfo:");
-            activityInfo.dump(pw, prefix + "  ", dumpFlags);
+            activityInfo.dump(pw, prefix + "  ", flags);
         } else if (serviceInfo != null) {
             pw.println(prefix + "ServiceInfo:");
-            serviceInfo.dump(pw, prefix + "  ", dumpFlags);
+            serviceInfo.dump(pw, prefix + "  ", flags);
         } else if (providerInfo != null) {
             pw.println(prefix + "ProviderInfo:");
-            providerInfo.dump(pw, prefix + "  ", dumpFlags);
+            providerInfo.dump(pw, prefix + "  ", flags);
         }
     }
 
@@ -334,8 +324,6 @@ public class ResolveInfo implements Parcelable {
         system = orig.system;
         targetUserId = orig.targetUserId;
         handleAllWebDataURI = orig.handleAllWebDataURI;
-        isInstantAppAvailable = orig.isInstantAppAvailable;
-        instantAppAvailable = isInstantAppAvailable;
     }
 
     public String toString() {
@@ -399,7 +387,6 @@ public class ResolveInfo implements Parcelable {
         dest.writeInt(noResourceId ? 1 : 0);
         dest.writeInt(iconResourceId);
         dest.writeInt(handleAllWebDataURI ? 1 : 0);
-        dest.writeInt(isInstantAppAvailable ? 1 : 0);
     }
 
     public static final Creator<ResolveInfo> CREATOR
@@ -447,7 +434,6 @@ public class ResolveInfo implements Parcelable {
         noResourceId = source.readInt() != 0;
         iconResourceId = source.readInt();
         handleAllWebDataURI = source.readInt() != 0;
-        instantAppAvailable = isInstantAppAvailable = source.readInt() != 0;
     }
 
     public static class DisplayNameComparator

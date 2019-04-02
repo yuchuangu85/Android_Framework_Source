@@ -29,10 +29,8 @@ import android.os.ServiceManager;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
-import android.telephony.euicc.EuiccManager;
 import android.util.AttributeSet;
 import android.util.Log;
-import android.view.View;
 import android.view.WindowManager;
 import android.widget.ImageView;
 
@@ -62,27 +60,9 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
     KeyguardUpdateMonitorCallback mUpdateMonitorCallback = new KeyguardUpdateMonitorCallback() {
         @Override
         public void onSimStateChanged(int subId, int slotId, State simState) {
-            if (DEBUG) Log.v(TAG, "onSimStateChanged(subId=" + subId + ",state=" + simState + ")");
-            switch(simState) {
-                // If the SIM is removed, then we must remove the keyguard. It will be put up
-                // again when the PUK locked SIM is re-entered.
-                case ABSENT:
-                // intentional fall-through
-                // If the SIM is unlocked via a key sequence through the emergency dialer, it will
-                // move into the READY state and the PUK lock keyguard should be removed.
-                case READY: {
-                    KeyguardUpdateMonitor.getInstance(getContext()).reportSimUnlocked(mSubId);
-                    // mCallback can be null if onSimStateChanged callback is called when keyguard
-                    // isn't active.
-                    if (mCallback != null) {
-                        mCallback.dismiss(true, KeyguardUpdateMonitor.getCurrentUser());
-                    }
-                    break;
-                }
-                default:
-                    resetState();
-            }
-        }
+           if (DEBUG) Log.v(TAG, "onSimStateChanged(subId=" + subId + ",state=" + simState + ")");
+           resetState();
+       };
     };
 
     public KeyguardSimPukView(Context context) {
@@ -128,7 +108,7 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
             }
             resetPasswordText(true /* animate */, true /* announce */);
             if (msg != 0) {
-                mSecurityMessageDisplay.setMessage(msg);
+                mSecurityMessageDisplay.setMessage(msg, true);
             }
         }
 
@@ -138,11 +118,10 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
             state = ENTER_PUK;
             KeyguardUpdateMonitor monitor = KeyguardUpdateMonitor.getInstance(mContext);
             mSubId = monitor.getNextSubIdForState(IccCardConstants.State.PUK_REQUIRED);
-            boolean isEsimLocked = KeyguardEsimArea.isEsimLocked(mContext, mSubId);
             if (SubscriptionManager.isValidSubscriptionId(mSubId)) {
                 int count = TelephonyManager.getDefault().getSimCount();
                 Resources rez = getResources();
-                String msg;
+                final String msg;
                 int color = Color.WHITE;
                 if (count < 2) {
                     msg = rez.getString(R.string.kg_puk_enter_puk_hint);
@@ -154,18 +133,11 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
                         color = info.getIconTint();
                     }
                 }
-                if (isEsimLocked) {
-                    msg = msg + " " + rez.getString(R.string.kg_sim_lock_instructions_esim);
-                }
-                mSecurityMessageDisplay.setMessage(msg);
+                mSecurityMessageDisplay.setMessage(msg, true);
                 mSimImageView.setImageTintList(ColorStateList.valueOf(color));
             }
-            KeyguardEsimArea esimButton = findViewById(R.id.keyguard_esim_area);
-            esimButton.setVisibility(isEsimLocked ? View.VISIBLE : View.GONE);
             mPasswordEntry.requestFocus();
         }
-
-
     }
 
     @Override
@@ -212,10 +184,11 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
     protected void onFinishInflate() {
         super.onFinishInflate();
 
+        mSecurityMessageDisplay.setTimeout(0); // don't show ownerinfo/charging status by default
         if (mEcaView instanceof EmergencyCarrierArea) {
             ((EmergencyCarrierArea) mEcaView).setCarrierTextVisible(true);
         }
-        mSimImageView = findViewById(R.id.keyguard_sim);
+        mSimImageView = (ImageView) findViewById(R.id.keyguard_sim);
     }
 
     @Override
@@ -359,7 +332,7 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
                             if (result == PhoneConstants.PIN_RESULT_SUCCESS) {
                                 KeyguardUpdateMonitor.getInstance(getContext())
                                         .reportSimUnlocked(mSubId);
-                                mCallback.dismiss(true, KeyguardUpdateMonitor.getCurrentUser());
+                                mCallback.dismiss(true);
                             } else {
                                 if (result == PhoneConstants.PIN_PASSWORD_INCORRECT) {
                                     if (attemptsRemaining <= 2) {
@@ -368,11 +341,11 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
                                     } else {
                                         // show message
                                         mSecurityMessageDisplay.setMessage(
-                                                getPukPasswordErrorMessage(attemptsRemaining));
+                                                getPukPasswordErrorMessage(attemptsRemaining), true);
                                     }
                                 } else {
                                     mSecurityMessageDisplay.setMessage(getContext().getString(
-                                            R.string.kg_password_puk_failed));
+                                            R.string.kg_password_puk_failed), true);
                                 }
                                 if (DEBUG) Log.d(LOG_TAG, "verifyPasswordAndUnlock "
                                         + " UpdateSim.onSimCheckResponse: "

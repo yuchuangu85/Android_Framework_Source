@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2004, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,8 +26,6 @@
 package java.security;
 
 
-// Android-changed: Stubbed the implementation.  Android doesn't support SecurityManager.
-// See comments in java.lang.SecurityManager for details.
 /**
  * Legacy security code; do not use.
  */

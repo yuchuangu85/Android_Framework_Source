@@ -20,7 +20,6 @@ import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.telephony.Rlog;
-import android.util.Log;
 import android.content.res.Resources;
 
 /**
@@ -52,6 +51,11 @@ public class SignalStrength implements Parcelable {
     //Use int max, as -1 is a valid value in signal strength
     public static final int INVALID = 0x7FFFFFFF;
 
+    private static final int RSRP_THRESH_TYPE_STRICT = 0;
+    private static final int[] RSRP_THRESH_STRICT = new int[] {-140, -115, -105, -95, -85, -44};
+    private static final int[] RSRP_THRESH_LENIENT = new int[] {-140, -128, -118, -108, -98, -44};
+
+
     private int mGsmSignalStrength; // Valid values are (0-31, 99) as defined in TS 27.007 8.5
     private int mGsmBitErrorRate;   // bit error rate (0-7, 99) as defined in TS 27.007 8.5
     private int mCdmaDbm;   // This value is the RSSI value
@@ -64,8 +68,6 @@ public class SignalStrength implements Parcelable {
     private int mLteRsrq;
     private int mLteRssnr;
     private int mLteCqi;
-    private int mLteRsrpBoost; // offset to be reduced from the rsrp threshold while calculating
-                                // signal strength level
     private int mTdScdmaRscp;
 
     private boolean isGsm; // This value is set by the ServiceStateTracker onSignalStrengthResult
@@ -106,7 +108,6 @@ public class SignalStrength implements Parcelable {
         mLteRsrq = INVALID;
         mLteRssnr = INVALID;
         mLteCqi = INVALID;
-        mLteRsrpBoost = 0;
         mTdScdmaRscp = INVALID;
         isGsm = true;
     }
@@ -132,25 +133,8 @@ public class SignalStrength implements Parcelable {
         mLteRsrq = INVALID;
         mLteRssnr = INVALID;
         mLteCqi = INVALID;
-        mLteRsrpBoost = 0;
         mTdScdmaRscp = INVALID;
         isGsm = gsmFlag;
-    }
-
-    /**
-     * Constructor
-     *
-     * @hide
-     */
-    public SignalStrength(int gsmSignalStrength, int gsmBitErrorRate,
-            int cdmaDbm, int cdmaEcio,
-            int evdoDbm, int evdoEcio, int evdoSnr,
-            int lteSignalStrength, int lteRsrp, int lteRsrq, int lteRssnr, int lteCqi,
-            int lteRsrpBoost, int tdScdmaRscp, boolean gsmFlag) {
-        initialize(gsmSignalStrength, gsmBitErrorRate, cdmaDbm, cdmaEcio,
-                evdoDbm, evdoEcio, evdoSnr, lteSignalStrength, lteRsrp,
-                lteRsrq, lteRssnr, lteCqi, lteRsrpBoost, gsmFlag);
-        mTdScdmaRscp = tdScdmaRscp;
     }
 
     /**
@@ -165,7 +149,7 @@ public class SignalStrength implements Parcelable {
             int tdScdmaRscp, boolean gsmFlag) {
         initialize(gsmSignalStrength, gsmBitErrorRate, cdmaDbm, cdmaEcio,
                 evdoDbm, evdoEcio, evdoSnr, lteSignalStrength, lteRsrp,
-                lteRsrq, lteRssnr, lteCqi, 0, gsmFlag);
+                lteRsrq, lteRssnr, lteCqi, gsmFlag);
         mTdScdmaRscp = tdScdmaRscp;
     }
 
@@ -181,7 +165,7 @@ public class SignalStrength implements Parcelable {
             boolean gsmFlag) {
         initialize(gsmSignalStrength, gsmBitErrorRate, cdmaDbm, cdmaEcio,
                 evdoDbm, evdoEcio, evdoSnr, lteSignalStrength, lteRsrp,
-                lteRsrq, lteRssnr, lteCqi, 0, gsmFlag);
+                lteRsrq, lteRssnr, lteCqi, gsmFlag);
     }
 
     /**
@@ -195,7 +179,7 @@ public class SignalStrength implements Parcelable {
             boolean gsmFlag) {
         initialize(gsmSignalStrength, gsmBitErrorRate, cdmaDbm, cdmaEcio,
                 evdoDbm, evdoEcio, evdoSnr, 99, INVALID,
-                INVALID, INVALID, INVALID, 0, gsmFlag);
+                INVALID, INVALID, INVALID, gsmFlag);
     }
 
     /**
@@ -229,7 +213,7 @@ public class SignalStrength implements Parcelable {
             boolean gsm) {
         initialize(gsmSignalStrength, gsmBitErrorRate, cdmaDbm, cdmaEcio,
                 evdoDbm, evdoEcio, evdoSnr, 99, INVALID,
-                INVALID, INVALID, INVALID, 0, gsm);
+                INVALID, INVALID, INVALID, gsm);
     }
 
     /**
@@ -247,7 +231,6 @@ public class SignalStrength implements Parcelable {
      * @param lteRsrq
      * @param lteRssnr
      * @param lteCqi
-     * @param lteRsrpBoost
      * @param gsm
      *
      * @hide
@@ -256,7 +239,7 @@ public class SignalStrength implements Parcelable {
             int cdmaDbm, int cdmaEcio,
             int evdoDbm, int evdoEcio, int evdoSnr,
             int lteSignalStrength, int lteRsrp, int lteRsrq, int lteRssnr, int lteCqi,
-            int lteRsrpBoost, boolean gsm) {
+            boolean gsm) {
         mGsmSignalStrength = gsmSignalStrength;
         mGsmBitErrorRate = gsmBitErrorRate;
         mCdmaDbm = cdmaDbm;
@@ -269,7 +252,6 @@ public class SignalStrength implements Parcelable {
         mLteRsrq = lteRsrq;
         mLteRssnr = lteRssnr;
         mLteCqi = lteCqi;
-        mLteRsrpBoost = lteRsrpBoost;
         mTdScdmaRscp = INVALID;
         isGsm = gsm;
         if (DBG) log("initialize: " + toString());
@@ -291,7 +273,6 @@ public class SignalStrength implements Parcelable {
         mLteRsrq = s.mLteRsrq;
         mLteRssnr = s.mLteRssnr;
         mLteCqi = s.mLteCqi;
-        mLteRsrpBoost = s.mLteRsrpBoost;
         mTdScdmaRscp = s.mTdScdmaRscp;
         isGsm = s.isGsm;
     }
@@ -316,7 +297,6 @@ public class SignalStrength implements Parcelable {
         mLteRsrq = in.readInt();
         mLteRssnr = in.readInt();
         mLteCqi = in.readInt();
-        mLteRsrpBoost = in.readInt();
         mTdScdmaRscp = in.readInt();
         isGsm = (in.readInt() != 0);
     }
@@ -364,7 +344,6 @@ public class SignalStrength implements Parcelable {
         out.writeInt(mLteRsrq);
         out.writeInt(mLteRssnr);
         out.writeInt(mLteCqi);
-        out.writeInt(mLteRsrpBoost);
         out.writeInt(mTdScdmaRscp);
         out.writeInt(isGsm ? 1 : 0);
     }
@@ -441,18 +420,6 @@ public class SignalStrength implements Parcelable {
     }
 
     /**
-     * @param lteRsrpBoost - signal strength offset
-     *
-     * Used by phone to set the lte signal strength offset which will be
-     * reduced from rsrp threshold while calculating signal strength level
-     *
-     * @hide
-     */
-    public void setLteRsrpBoost(int lteRsrpBoost) {
-        mLteRsrpBoost = lteRsrpBoost;
-    }
-
-    /**
      * Get the GSM Signal Strength, valid values are (0-31, 99) as defined in TS
      * 27.007 8.5
      */
@@ -525,11 +492,6 @@ public class SignalStrength implements Parcelable {
     /** @hide */
     public int getLteCqi() {
         return mLteCqi;
-    }
-
-    /** @hide */
-    public int getLteRsrpBoost() {
-        return mLteRsrpBoost;
     }
 
     /**
@@ -829,26 +791,21 @@ public class SignalStrength implements Parcelable {
          */
         int rssiIconLevel = SIGNAL_STRENGTH_NONE_OR_UNKNOWN, rsrpIconLevel = -1, snrIconLevel = -1;
 
-        int[] threshRsrp = Resources.getSystem().getIntArray(
-                com.android.internal.R.array.config_lteDbmThresholds);
-        if (threshRsrp.length != 6) {
-            Log.wtf(LOG_TAG, "getLteLevel - config_lteDbmThresholds has invalid num of elements."
-                    + " Cannot evaluate RSRP signal.");
+        int rsrpThreshType = Resources.getSystem().getInteger(com.android.internal.R.integer.
+                config_LTE_RSRP_threshold_type);
+        int[] threshRsrp;
+        if (rsrpThreshType == RSRP_THRESH_TYPE_STRICT) {
+            threshRsrp = RSRP_THRESH_STRICT;
         } else {
-            if (mLteRsrp > threshRsrp[5]) {
-                rsrpIconLevel = -1;
-            } else if (mLteRsrp >= (threshRsrp[4] - mLteRsrpBoost)) {
-                rsrpIconLevel = SIGNAL_STRENGTH_GREAT;
-            } else if (mLteRsrp >= (threshRsrp[3] - mLteRsrpBoost)) {
-                rsrpIconLevel = SIGNAL_STRENGTH_GOOD;
-            } else if (mLteRsrp >= (threshRsrp[2] - mLteRsrpBoost)) {
-                rsrpIconLevel = SIGNAL_STRENGTH_MODERATE;
-            } else if (mLteRsrp >= (threshRsrp[1] - mLteRsrpBoost)) {
-                rsrpIconLevel = SIGNAL_STRENGTH_POOR;
-            } else if (mLteRsrp >= threshRsrp[0]) {
-                rsrpIconLevel = SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
-            }
+            threshRsrp = RSRP_THRESH_LENIENT;
         }
+
+        if (mLteRsrp > threshRsrp[5]) rsrpIconLevel = -1;
+        else if (mLteRsrp >= threshRsrp[4]) rsrpIconLevel = SIGNAL_STRENGTH_GREAT;
+        else if (mLteRsrp >= threshRsrp[3]) rsrpIconLevel = SIGNAL_STRENGTH_GOOD;
+        else if (mLteRsrp >= threshRsrp[2]) rsrpIconLevel = SIGNAL_STRENGTH_MODERATE;
+        else if (mLteRsrp >= threshRsrp[1]) rsrpIconLevel = SIGNAL_STRENGTH_POOR;
+        else if (mLteRsrp >= threshRsrp[0]) rsrpIconLevel = SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
 
         /*
          * Values are -200 dB to +300 (SNR*10dB) RS_SNR >= 13.0 dB =>4 bars 4.5
@@ -865,8 +822,7 @@ public class SignalStrength implements Parcelable {
             snrIconLevel = SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
 
         if (DBG) log("getLTELevel - rsrp:" + mLteRsrp + " snr:" + mLteRssnr + " rsrpIconLevel:"
-                + rsrpIconLevel + " snrIconLevel:" + snrIconLevel
-                + " lteRsrpBoost:" + mLteRsrpBoost);
+                + rsrpIconLevel + " snrIconLevel:" + snrIconLevel);
 
         /* Choose a measurement type to use for notification */
         if (snrIconLevel != -1 && rsrpIconLevel != -1) {
@@ -989,7 +945,7 @@ public class SignalStrength implements Parcelable {
                 + (mEvdoDbm * primeNum) + (mEvdoEcio * primeNum) + (mEvdoSnr * primeNum)
                 + (mLteSignalStrength * primeNum) + (mLteRsrp * primeNum)
                 + (mLteRsrq * primeNum) + (mLteRssnr * primeNum) + (mLteCqi * primeNum)
-                + (mLteRsrpBoost * primeNum) + (mTdScdmaRscp * primeNum) + (isGsm ? 1 : 0));
+                + (mTdScdmaRscp * primeNum) + (isGsm ? 1 : 0));
     }
 
     /**
@@ -1021,7 +977,6 @@ public class SignalStrength implements Parcelable {
                 && mLteRsrq == s.mLteRsrq
                 && mLteRssnr == s.mLteRssnr
                 && mLteCqi == s.mLteCqi
-                && mLteRsrpBoost == s.mLteRsrpBoost
                 && mTdScdmaRscp == s.mTdScdmaRscp
                 && isGsm == s.isGsm);
     }
@@ -1044,7 +999,6 @@ public class SignalStrength implements Parcelable {
                 + " " + mLteRsrq
                 + " " + mLteRssnr
                 + " " + mLteCqi
-                + " " + mLteRsrpBoost
                 + " " + mTdScdmaRscp
                 + " " + (isGsm ? "gsm|lte" : "cdma"));
     }
@@ -1068,7 +1022,6 @@ public class SignalStrength implements Parcelable {
         mLteRsrq = m.getInt("LteRsrq");
         mLteRssnr = m.getInt("LteRssnr");
         mLteCqi = m.getInt("LteCqi");
-        mLteRsrpBoost = m.getInt("lteRsrpBoost");
         mTdScdmaRscp = m.getInt("TdScdma");
         isGsm = m.getBoolean("isGsm");
     }
@@ -1092,9 +1045,8 @@ public class SignalStrength implements Parcelable {
         m.putInt("LteRsrq", mLteRsrq);
         m.putInt("LteRssnr", mLteRssnr);
         m.putInt("LteCqi", mLteCqi);
-        m.putInt("lteRsrpBoost", mLteRsrpBoost);
         m.putInt("TdScdma", mTdScdmaRscp);
-        m.putBoolean("isGsm", isGsm);
+        m.putBoolean("isGsm", Boolean.valueOf(isGsm));
     }
 
     /**

@@ -16,8 +16,6 @@
 
 package android.support.v14.preference;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.app.DialogFragment;
@@ -39,6 +37,8 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.TextView;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Abstract base class which presents a dialog associated with a
@@ -195,7 +195,7 @@ public abstract class PreferenceDialogFragment extends DialogFragment implements
      * the soft input method brought up automatically.
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     protected boolean needInputMethod() {
         return false;
     }

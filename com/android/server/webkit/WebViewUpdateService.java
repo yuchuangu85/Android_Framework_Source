@@ -20,24 +20,21 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Binder;
 import android.os.PatternMatcher;
 import android.os.Process;
 import android.os.ResultReceiver;
-import android.os.ShellCallback;
 import android.os.UserHandle;
 import android.util.Slog;
 import android.webkit.IWebViewUpdateService;
+import android.webkit.WebViewFactory;
 import android.webkit.WebViewProviderInfo;
 import android.webkit.WebViewProviderResponse;
 
-import com.android.internal.util.DumpUtils;
 import com.android.server.SystemService;
 
 import java.io.FileDescriptor;
-import java.io.PrintWriter;
 import java.util.Arrays;
 
 /**
@@ -92,11 +89,8 @@ public class WebViewUpdateService extends SystemService {
                                     (intent.getExtras().getBoolean(Intent.EXTRA_REPLACING)
                                      ? PACKAGE_ADDED_REPLACED : PACKAGE_ADDED), userId);
                             break;
-                        case Intent.ACTION_USER_STARTED:
+                        case Intent.ACTION_USER_ADDED:
                             mImpl.handleNewUser(userId);
-                            break;
-                        case Intent.ACTION_USER_REMOVED:
-                            mImpl.handleUserRemoved(userId);
                             break;
                     }
                 }
@@ -115,8 +109,7 @@ public class WebViewUpdateService extends SystemService {
                 null /* broadcast permission */, null /* handler */);
 
         IntentFilter userAddedFilter = new IntentFilter();
-        userAddedFilter.addAction(Intent.ACTION_USER_STARTED);
-        userAddedFilter.addAction(Intent.ACTION_USER_REMOVED);
+        userAddedFilter.addAction(Intent.ACTION_USER_ADDED);
         getContext().registerReceiverAsUser(mWebViewUpdatedReceiver, UserHandle.ALL,
                 userAddedFilter, null /* broadcast permission */, null /* handler */);
 
@@ -147,10 +140,9 @@ public class WebViewUpdateService extends SystemService {
 
         @Override
         public void onShellCommand(FileDescriptor in, FileDescriptor out,
-                FileDescriptor err, String[] args, ShellCallback callback,
-                ResultReceiver resultReceiver) {
+                FileDescriptor err, String[] args, ResultReceiver resultReceiver) {
             (new WebViewUpdateServiceShellCommand(this)).exec(
-                    this, in, out, err, args, callback, resultReceiver);
+                    this, in, out, err, args, resultReceiver);
         }
 
 
@@ -231,13 +223,7 @@ public class WebViewUpdateService extends SystemService {
 
         @Override // Binder call
         public String getCurrentWebViewPackageName() {
-            PackageInfo pi = WebViewUpdateService.this.mImpl.getCurrentWebViewPackage();
-            return pi == null ? null : pi.packageName;
-        }
-
-        @Override // Binder call
-        public PackageInfo getCurrentWebViewPackage() {
-            return WebViewUpdateService.this.mImpl.getCurrentWebViewPackage();
+            return WebViewUpdateService.this.mImpl.getCurrentWebViewPackageName();
         }
 
         @Override // Binder call
@@ -264,38 +250,6 @@ public class WebViewUpdateService extends SystemService {
             } finally {
                 Binder.restoreCallingIdentity(callingId);
             }
-        }
-
-        @Override // Binder call
-        public boolean isMultiProcessEnabled() {
-            return WebViewUpdateService.this.mImpl.isMultiProcessEnabled();
-        }
-
-        @Override // Binder call
-        public void enableMultiProcess(boolean enable) {
-            if (getContext().checkCallingPermission(
-                        android.Manifest.permission.WRITE_SECURE_SETTINGS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                String msg = "Permission Denial: enableMultiProcess() from pid="
-                        + Binder.getCallingPid()
-                        + ", uid=" + Binder.getCallingUid()
-                        + " requires " + android.Manifest.permission.WRITE_SECURE_SETTINGS;
-                Slog.w(TAG, msg);
-                throw new SecurityException(msg);
-            }
-
-            long callingId = Binder.clearCallingIdentity();
-            try {
-                WebViewUpdateService.this.mImpl.enableMultiProcess(enable);
-            } finally {
-                Binder.restoreCallingIdentity(callingId);
-            }
-        }
-
-        @Override
-        protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-            if (!DumpUtils.checkDumpPermission(getContext(), TAG, pw)) return;
-            WebViewUpdateService.this.mImpl.dumpState(pw);
         }
     }
 }

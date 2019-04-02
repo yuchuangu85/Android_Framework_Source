@@ -16,14 +16,6 @@
 
 package android.support.v7.widget;
 
-import static android.support.v7.widget.RecyclerView.ViewHolder;
-
-import android.support.test.filters.SmallTest;
-import android.test.AndroidTestCase;
-import android.util.Log;
-import android.view.View;
-import android.widget.TextView;
-
 import junit.framework.AssertionFailedError;
 import junit.framework.TestResult;
 
@@ -32,12 +24,20 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
+import android.test.AndroidTestCase;
+import android.test.suitebuilder.annotation.SmallTest;
+import android.util.Log;
+import android.view.View;
+import android.widget.TextView;
+
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static android.support.v7.widget.RecyclerView.*;
 
 @RunWith(JUnit4.class)
 @SmallTest
@@ -1184,11 +1184,6 @@ public class AdapterHelperTest extends AndroidTestCase {
         public Object mItem;
         public MockViewHolder(View itemView) {
             super(itemView);
-        }
-
-        @Override
-        public String toString() {
-            return mItem == null ? "null" : mItem.toString();
         }
     }
 }

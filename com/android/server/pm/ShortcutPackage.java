@@ -150,10 +150,6 @@ class ShortcutPackage extends ShortcutPackageItem {
                 getPackageName(), getPackageUserId());
     }
 
-    public int getShortcutCount() {
-        return mShortcuts.size();
-    }
-
     @Override
     protected void onRestoreBlocked() {
         // Can't restore due to version/signature mismatch.  Remove all shortcuts.
@@ -183,7 +179,7 @@ class ShortcutPackage extends ShortcutPackageItem {
         }
     }
 
-    public void ensureNotImmutable(@NonNull String id) {
+    private void ensureNotImmutable(@NonNull String id) {
         ensureNotImmutable(mShortcuts.get(id));
     }
 
@@ -202,7 +198,7 @@ class ShortcutPackage extends ShortcutPackageItem {
     private ShortcutInfo deleteShortcutInner(@NonNull String id) {
         final ShortcutInfo shortcut = mShortcuts.remove(id);
         if (shortcut != null) {
-            mShortcutUser.mService.removeIconLocked(shortcut);
+            mShortcutUser.mService.removeIcon(getPackageUserId(), shortcut);
             shortcut.clearFlags(ShortcutInfo.FLAG_DYNAMIC | ShortcutInfo.FLAG_PINNED
                     | ShortcutInfo.FLAG_MANIFEST);
         }
@@ -215,7 +211,7 @@ class ShortcutPackage extends ShortcutPackageItem {
         deleteShortcutInner(newShortcut.getId());
 
         // Extract Icon and update the icon res ID and the bitmap path.
-        s.saveIconAndFixUpShortcutLocked(newShortcut);
+        s.saveIconAndFixUpShortcut(getPackageUserId(), newShortcut);
         s.fixUpShortcutResourceNamesAndValues(newShortcut);
         mShortcuts.put(newShortcut.getId(), newShortcut);
     }
@@ -364,11 +360,6 @@ class ShortcutPackage extends ShortcutPackageItem {
                 oldShortcut.addFlags(ShortcutInfo.FLAG_DISABLED);
             }
             oldShortcut.setTimestamp(mShortcutUser.mService.injectCurrentTimeMillis());
-
-            // See ShortcutRequestPinProcessor.directPinShortcut().
-            if (mShortcutUser.mService.isDummyMainActivity(oldShortcut.getActivity())) {
-                oldShortcut.setActivity(null);
-            }
 
             return oldShortcut;
         } else {
@@ -644,7 +635,11 @@ class ShortcutPackage extends ShortcutPackageItem {
                 return false; // Shouldn't happen.
             }
 
-            if (!isNewApp && !forceRescan) {
+            // Always scan the settings app, since its version code is the same for DR and MR1.
+            // TODO Fix it properly: b/32554059
+            final boolean isSettings = "com.android.settings".equals(getPackageName());
+
+            if (!isNewApp && !forceRescan && !isSettings) {
                 // Return if the package hasn't changed, ie:
                 // - version code hasn't change
                 // - lastUpdateTime hasn't change
@@ -659,6 +654,11 @@ class ShortcutPackage extends ShortcutPackageItem {
                         && (getPackageInfo().getLastUpdateTime() == pi.lastUpdateTime)
                         && areAllActivitiesStillEnabled()) {
                     return false;
+                }
+            }
+            if (isSettings) {
+                if (ShortcutService.DEBUG) {
+                    Slog.d(TAG, "Always scan settings.");
                 }
             }
         } finally {
@@ -694,6 +694,8 @@ class ShortcutPackage extends ShortcutPackageItem {
 
         getPackageInfo().updateVersionInfo(pi);
 
+        boolean changed = false;
+
         // For existing shortcuts, update timestamps if they have any resources.
         // Also check if shortcuts' activities are still main activities.  Otherwise, disable them.
         if (!isNewApp) {
@@ -702,13 +704,8 @@ class ShortcutPackage extends ShortcutPackageItem {
             for (int i = mShortcuts.size() - 1; i >= 0; i--) {
                 final ShortcutInfo si = mShortcuts.valueAt(i);
 
-                // Disable dynamic shortcuts whose target activity is gone.
                 if (si.isDynamic()) {
-                    if (si.getActivity() == null) {
-                        // Note if it's dynamic, it must have a target activity, but b/36228253.
-                        s.wtf("null activity detected.");
-                        // TODO Maybe remove it?
-                    } else if (!s.injectIsMainActivity(si.getActivity(), getPackageUserId())) {
+                    if (!s.injectIsMainActivity(si.getActivity(), getPackageUserId())) {
                         Slog.w(TAG, String.format(
                                 "%s is no longer main activity. Disabling shorcut %s.",
                                 getPackageName(), si.getId()));
@@ -717,6 +714,7 @@ class ShortcutPackage extends ShortcutPackageItem {
                         }
                         // Still pinned, so fall-through and possibly update the resources.
                     }
+                    changed = true;
                 }
 
                 if (si.hasAnyResources()) {
@@ -733,23 +731,29 @@ class ShortcutPackage extends ShortcutPackageItem {
                         // non-manifest at the moment, but icons can still be resources.)
                         si.lookupAndFillInResourceIds(publisherRes);
                     }
+                    changed = true;
                     si.setTimestamp(s.injectCurrentTimeMillis());
                 }
             }
         }
 
         // (Re-)publish manifest shortcut.
-        publishManifestShortcuts(newManifestShortcutList);
+        changed |= publishManifestShortcuts(newManifestShortcutList);
 
         if (newManifestShortcutList != null) {
-            pushOutExcessShortcuts();
+            changed |= pushOutExcessShortcuts();
         }
 
         s.verifyStates();
 
-        // This will send a notification to the launcher, and also save .
-        s.packageShortcutsChanged(getPackageName(), getPackageUserId());
-        return true; // true means changed.
+        if (changed) {
+            // This will send a notification to the launcher, and also save .
+            s.packageShortcutsChanged(getPackageName(), getPackageUserId());
+        } else {
+            // Still save the version code.
+            s.scheduleSaveUser(getPackageUserId());
+        }
+        return changed;
     }
 
     private boolean publishManifestShortcuts(List<ShortcutInfo> newManifestShortcutList) {
@@ -912,10 +916,6 @@ class ShortcutPackage extends ShortcutPackageItem {
             }
 
             final ComponentName activity = si.getActivity();
-            if (activity == null) {
-                mShortcutUser.mService.wtf("null activity detected.");
-                continue;
-            }
 
             ArrayList<ShortcutInfo> list = activitiesToShortcuts.get(activity);
             if (list == null) {
@@ -1267,20 +1267,12 @@ class ShortcutPackage extends ShortcutPackageItem {
         out.endTag(null, TAG_ROOT);
     }
 
-    private void saveShortcut(XmlSerializer out, ShortcutInfo si, boolean forBackup)
+    private static void saveShortcut(XmlSerializer out, ShortcutInfo si, boolean forBackup)
             throws IOException, XmlPullParserException {
-
-        final ShortcutService s = mShortcutUser.mService;
-
         if (forBackup) {
             if (!(si.isPinned() && si.isEnabled())) {
                 return; // We only backup pinned shortcuts that are enabled.
             }
-        }
-        // Note: at this point no shortcuts should have bitmaps pending save, but if they do,
-        // just remove the bitmap.
-        if (si.isIconPendingSave()) {
-            s.removeIconLocked(si);
         }
         out.startTag(null, TAG_SHORTCUT);
         ShortcutService.writeAttr(out, ATTR_ID, si.getId());
@@ -1305,7 +1297,6 @@ class ShortcutPackage extends ShortcutPackageItem {
             ShortcutService.writeAttr(out, ATTR_FLAGS,
                     si.getFlags() &
                             ~(ShortcutInfo.FLAG_HAS_ICON_FILE | ShortcutInfo.FLAG_HAS_ICON_RES
-                            | ShortcutInfo.FLAG_ICON_FILE_PENDING_SAVE
                             | ShortcutInfo.FLAG_DYNAMIC));
         } else {
             // When writing for backup, ranks shouldn't be saved, since shortcuts won't be restored
@@ -1532,8 +1523,6 @@ class ShortcutPackage extends ShortcutPackageItem {
 
         boolean failed = false;
 
-        final ShortcutService s = mShortcutUser.mService;
-
         final ArrayMap<ComponentName, ArrayList<ShortcutInfo>> all =
                 sortShortcutsToActivities();
 
@@ -1573,10 +1562,10 @@ class ShortcutPackage extends ShortcutPackageItem {
                 Log.e(TAG_VERIFY, "Package " + getPackageName() + ": shortcut " + si.getId()
                         + " is both dynamic and manifest at the same time.");
             }
-            if (si.getActivity() == null && !si.isFloating()) {
+            if (si.getActivity() == null) {
                 failed = true;
                 Log.e(TAG_VERIFY, "Package " + getPackageName() + ": shortcut " + si.getId()
-                        + " has null activity, but not floating.");
+                        + " has null activity.");
             }
             if ((si.isDynamic() || si.isManifestShortcut()) && !si.isEnabled()) {
                 failed = true;
@@ -1593,20 +1582,10 @@ class ShortcutPackage extends ShortcutPackageItem {
                 Log.e(TAG_VERIFY, "Package " + getPackageName() + ": shortcut " + si.getId()
                         + " still has an icon");
             }
-            if (si.hasAdaptiveBitmap() && !si.hasIconFile()) {
-                failed = true;
-                Log.e(TAG_VERIFY, "Package " + getPackageName() + ": shortcut " + si.getId()
-                    + " has adaptive bitmap but was not saved to a file.");
-            }
             if (si.hasIconFile() && si.hasIconResource()) {
                 failed = true;
                 Log.e(TAG_VERIFY, "Package " + getPackageName() + ": shortcut " + si.getId()
                         + " has both resource and bitmap icons");
-            }
-            if (s.isDummyMainActivity(si.getActivity())) {
-                failed = true;
-                Log.e(TAG_VERIFY, "Package " + getPackageName() + ": shortcut " + si.getId()
-                        + " has a dummy target activity");
             }
         }
 

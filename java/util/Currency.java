@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,45 +27,48 @@
 package java.util;
 
 import java.io.Serializable;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 import libcore.icu.ICU;
 
-// BEGIN Android-changed: Removed docs about superseding runtime currency data.
-// Doing so via a properties file is not supported on Android.
 /**
  * Represents a currency. Currencies are identified by their ISO 4217 currency
- * codes. Visit the <a href="http://www.iso.org/iso/home/standards/currency_codes.htm">
- * ISO web site</a> for more information.
+ * codes. Visit the <a href="http://www.iso.org/iso/en/prods-services/popstds/currencycodes.html">
+ * ISO web site</a> for more information, including a table of
+ * currency codes.
  * <p>
  * The class is designed so that there's never more than one
  * <code>Currency</code> instance for any given currency. Therefore, there's
  * no public constructor. You obtain a <code>Currency</code> instance using
  * the <code>getInstance</code> methods.
+ * <p>
+ * Users can supersede the Java runtime currency data by creating a properties
+ * file named <code>&lt;JAVA_HOME&gt;/lib/currency.properties</code>.  The contents
+ * of the properties file are key/value pairs of the ISO 3166 country codes
+ * and the ISO 4217 currency data respectively.  The value part consists of
+ * three ISO 4217 values of a currency, i.e., an alphabetic code, a numeric
+ * code, and a minor unit.  Those three ISO 4217 values are separated by commas.
+ * The lines which start with '#'s are considered comment lines.  For example,
+ * <p>
+ * <code>
+ * #Sample currency properties<br>
+ * JP=JPZ,999,0
+ * </code>
+ * <p>
+ * will supersede the currency data for Japan.
  *
  * @since 1.4
  */
-// END Android-changed: Removed docs about superseding runtime currency data.
 public final class Currency implements Serializable {
 
     private static final long serialVersionUID = -158308464356906721L;
 
-    /**
-     * ISO 4217 currency code for this currency.
-     *
-     * @serial
-     */
-    private final String currencyCode;
+    private static HashMap<String, Currency> instances = new HashMap<>();
 
-    // class data: instance map
-
-    private static ConcurrentMap<String, Currency> instances = new ConcurrentHashMap<>(7);
     private static HashSet<Currency> available;
 
-    // Android-changed: Implement Currency on top of ICU throughout.
-    // We do not keep track of defaultFractionDigits and numericCode separately here.
     private transient final android.icu.util.Currency icuCurrency;
+
+    private final String currencyCode;
 
     /**
      * Constructs a <code>Currency</code> instance. The constructor is private
@@ -87,20 +90,19 @@ public final class Currency implements Serializable {
      * a supported ISO 4217 code.
      */
     public static Currency getInstance(String currencyCode) {
-        // BEGIN Android-changed: use ICU
-        Currency instance = instances.get(currencyCode);
-        if (instance != null) {
+        synchronized (instances) {
+            Currency instance = instances.get(currencyCode);
+            if (instance == null) {
+                android.icu.util.Currency icuInstance =
+                        android.icu.util.Currency.getInstance(currencyCode);
+                if (icuInstance == null) {
+                    return null;
+                }
+                instance = new Currency(icuInstance);
+                instances.put(currencyCode, instance);
+            }
             return instance;
         }
-        android.icu.util.Currency icuInstance =
-                  android.icu.util.Currency.getInstance(currencyCode);
-        if (icuInstance == null) {
-            return null;
-        }
-        Currency currencyVal = new Currency(icuInstance);
-        // END Android-changed
-        instance = instances.putIfAbsent(currencyCode, currencyVal);
-        return (instance != null ? instance : currencyVal);
     }
 
     /**
@@ -118,14 +120,13 @@ public final class Currency implements Serializable {
      * @param locale the locale for whose country a <code>Currency</code>
      * instance is needed
      * @return the <code>Currency</code> instance for the country of the given
-     * locale, or {@code null}
+     * locale, or null
      * @exception NullPointerException if <code>locale</code> or its country
-     * code is {@code null}
-     * @exception IllegalArgumentException if the country of the given {@code locale}
+     * code is null
+     * @exception IllegalArgumentException if the country of the given locale
      * is not a supported ISO 3166 country code.
      */
     public static Currency getInstance(Locale locale) {
-        // BEGIN Android-changed: use ICU
         android.icu.util.Currency icuInstance =
                 android.icu.util.Currency.getInstance(locale);
         String variant = locale.getVariant();
@@ -142,7 +143,6 @@ public final class Currency implements Serializable {
             return null;
         }
         return getInstance(currencyCode);
-        // END Android-changed
     }
 
     /**
@@ -156,9 +156,8 @@ public final class Currency implements Serializable {
      * @since 1.7
      */
     public static Set<Currency> getAvailableCurrencies() {
-        synchronized(Currency.class) {
+        synchronized (Currency.class) {
             if (available == null) {
-                // BEGIN Android-changed: use ICU
                 Set<android.icu.util.Currency> icuAvailableCurrencies
                         = android.icu.util.Currency.getAvailableCurrencies();
                 available = new HashSet<>();
@@ -170,13 +169,9 @@ public final class Currency implements Serializable {
                     }
                     available.add(currency);
                 }
-                // END Android-changed
             }
+            return (Set<Currency>) available.clone();
         }
-
-        @SuppressWarnings("unchecked")
-        Set<Currency> result = (Set<Currency>) available.clone();
-        return result;
     }
 
     /**
@@ -189,21 +184,15 @@ public final class Currency implements Serializable {
     }
 
     /**
-     * Gets the symbol of this currency for the default
-     * {@link Locale.Category#DISPLAY DISPLAY} locale.
+     * Gets the symbol of this currency for the default locale.
      * For example, for the US Dollar, the symbol is "$" if the default
      * locale is the US, while for other locales it may be "US$". If no
      * symbol can be determined, the ISO 4217 currency code is returned.
-     * <p>
-     * This is equivalent to calling
-     * {@link #getSymbol(Locale)
-     *     getSymbol(Locale.getDefault(Locale.Category.DISPLAY))}.
      *
-     * @return the symbol of this currency for the default
-     *     {@link Locale.Category#DISPLAY DISPLAY} locale
+     * @return the symbol of this currency for the default locale
      */
     public String getSymbol() {
-        return getSymbol(Locale.getDefault(Locale.Category.DISPLAY));
+        return icuCurrency.getSymbol();
     }
 
     /**
@@ -218,12 +207,10 @@ public final class Currency implements Serializable {
      * @exception NullPointerException if <code>locale</code> is null
      */
     public String getSymbol(Locale locale) {
-        // BEGIN Android-changed: use ICU
         if (locale == null) {
             throw new NullPointerException("locale == null");
         }
         return icuCurrency.getSymbol(locale);
-        // END Android-changed
     }
 
     /**
@@ -236,12 +223,10 @@ public final class Currency implements Serializable {
      * @return the default number of fraction digits used with this currency
      */
     public int getDefaultFractionDigits() {
-        // BEGIN Android-changed: use ICU
         if (icuCurrency.getCurrencyCode().equals("XXX")) {
             return -1;
         }
         return icuCurrency.getDefaultFractionDigits();
-        // END Android-changed
     }
 
     /**
@@ -251,27 +236,19 @@ public final class Currency implements Serializable {
      * @since 1.7
      */
     public int getNumericCode() {
-        // Android-changed: use ICU
-        // was: return numericCode;
         return icuCurrency.getNumericCode();
     }
 
     /**
      * Gets the name that is suitable for displaying this currency for
-     * the default {@link Locale.Category#DISPLAY DISPLAY} locale.
-     * If there is no suitable display name found
+     * the default locale.  If there is no suitable display name found
      * for the default locale, the ISO 4217 currency code is returned.
-     * <p>
-     * This is equivalent to calling
-     * {@link #getDisplayName(Locale)
-     *     getDisplayName(Locale.getDefault(Locale.Category.DISPLAY))}.
      *
-     * @return the display name of this currency for the default
-     *     {@link Locale.Category#DISPLAY DISPLAY} locale
+     * @return the display name of this currency for the default locale
      * @since 1.7
      */
     public String getDisplayName() {
-        return getDisplayName(Locale.getDefault(Locale.Category.DISPLAY));
+        return icuCurrency.getDisplayName();
     }
 
     /**
@@ -286,8 +263,7 @@ public final class Currency implements Serializable {
      * @since 1.7
      */
     public String getDisplayName(Locale locale) {
-        // Android-changed: use ICU
-        return icuCurrency.getDisplayName(Objects.requireNonNull(locale));
+        return icuCurrency.getDisplayName(locale);
     }
 
     /**
@@ -295,9 +271,7 @@ public final class Currency implements Serializable {
      *
      * @return the ISO 4217 currency code of this currency
      */
-    @Override
     public String toString() {
-        // Android-changed: use ICU
         return icuCurrency.toString();
     }
 

@@ -16,7 +16,6 @@
 
 package android.net;
 
-import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.app.DownloadManager;
 import android.app.backup.BackupManager;
@@ -109,27 +108,6 @@ public class TrafficStats {
      */
     public static final int TAG_SYSTEM_RESTORE = 0xFFFFFF04;
 
-    /**
-     * Default tag value for code (typically APKs) downloaded by an app store on
-     * behalf of the app, such as updates.
-     *
-     * @hide
-     */
-    public static final int TAG_SYSTEM_APP = 0xFFFFFF05;
-
-    /** @hide */
-    public static final int TAG_SYSTEM_DHCP = 0xFFFFFF40;
-    /** @hide */
-    public static final int TAG_SYSTEM_NTP = 0xFFFFFF41;
-    /** @hide */
-    public static final int TAG_SYSTEM_PROBE = 0xFFFFFF42;
-    /** @hide */
-    public static final int TAG_SYSTEM_NEIGHBOR = 0xFFFFFF43;
-    /** @hide */
-    public static final int TAG_SYSTEM_GPS = 0xFFFFFF44;
-    /** @hide */
-    public static final int TAG_SYSTEM_PAC = 0xFFFFFF45;
-
     private static INetworkStatsService sStatsService;
 
     private synchronized static INetworkStatsService getStatsService() {
@@ -170,24 +148,6 @@ public class TrafficStats {
 
     /**
      * Set active tag to use when accounting {@link Socket} traffic originating
-     * from the current thread. Only one active tag per thread is supported.
-     * <p>
-     * Changes only take effect during subsequent calls to
-     * {@link #tagSocket(Socket)}.
-     * <p>
-     * Tags between {@code 0xFFFFFF00} and {@code 0xFFFFFFFF} are reserved and
-     * used internally by system services like {@link DownloadManager} when
-     * performing traffic on behalf of an application.
-     *
-     * @return the current tag for the calling thread, which can be used to
-     *         restore any existing values after a nested operation is finished
-     */
-    public static int getAndSetThreadStatsTag(int tag) {
-        return NetworkManagementSocketTagger.setThreadSocketStatsTag(tag);
-    }
-
-    /**
-     * Set active tag to use when accounting {@link Socket} traffic originating
      * from the current thread. The tag used internally is well-defined to
      * distinguish all backup-related traffic.
      *
@@ -208,19 +168,6 @@ public class TrafficStats {
     @SystemApi
     public static void setThreadStatsTagRestore() {
         setThreadStatsTag(TAG_SYSTEM_RESTORE);
-    }
-
-    /**
-     * Set active tag to use when accounting {@link Socket} traffic originating
-     * from the current thread. The tag used internally is well-defined to
-     * distinguish all code (typically APKs) downloaded by an app store on
-     * behalf of the app, such as updates.
-     *
-     * @hide
-     */
-    @SystemApi
-    public static void setThreadStatsTagApp() {
-        setThreadStatsTag(TAG_SYSTEM_APP);
     }
 
     /**
@@ -258,7 +205,6 @@ public class TrafficStats {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.UPDATE_DEVICE_STATS)
     public static void setThreadStatsUid(int uid) {
         NetworkManagementSocketTagger.setThreadSocketStatsUid(uid);
     }
@@ -271,7 +217,6 @@ public class TrafficStats {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.UPDATE_DEVICE_STATS)
     public static void clearThreadStatsUid() {
         NetworkManagementSocketTagger.setThreadSocketStatsUid(-1);
     }

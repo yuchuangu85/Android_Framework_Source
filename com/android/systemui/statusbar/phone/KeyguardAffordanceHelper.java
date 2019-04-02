@@ -395,12 +395,12 @@ public class KeyguardAffordanceHelper {
                         false, false, false, false);
             } else {
                 updateIcon(targetView, 0.0f, fadeOutAlpha * targetView.getRestingAlpha(),
-                        animateIcons, slowAnimation, true /* isReset */, forceNoCircleAnimation);
+                        animateIcons, slowAnimation, false, forceNoCircleAnimation);
             }
             updateIcon(otherView, 0.0f, fadeOutAlpha * otherView.getRestingAlpha(),
-                    animateIcons, slowAnimation, isReset, forceNoCircleAnimation);
+                    animateIcons, slowAnimation, false, forceNoCircleAnimation);
             updateIcon(mCenterIcon, 0.0f, fadeOutAlpha * mCenterIcon.getRestingAlpha(),
-                    animateIcons, slowAnimation, isReset, forceNoCircleAnimation);
+                    animateIcons, slowAnimation, false, forceNoCircleAnimation);
 
             mTranslation = translation;
         }
@@ -509,7 +509,7 @@ public class KeyguardAffordanceHelper {
 
     public void reset(boolean animate) {
         cancelAnimation();
-        setTranslation(0.0f, true /* isReset */, animate);
+        setTranslation(0.0f, true, animate);
         mMotionCancelled = true;
         if (mSwipingInProgress) {
             mCallback.onSwipingAborted();

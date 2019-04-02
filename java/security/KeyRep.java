@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2006, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,7 +26,6 @@
 package java.security;
 
 import java.io.*;
-import java.util.Locale;
 
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
@@ -116,17 +115,17 @@ public class KeyRep implements Serializable {
      *
      * @param type either one of Type.SECRET, Type.PUBLIC, or Type.PRIVATE
      * @param algorithm the algorithm returned from
-     *          {@code Key.getAlgorithm()}
+     *          <code>Key.getAlgorithm()</code>
      * @param format the encoding format returned from
-     *          {@code Key.getFormat()}
+     *          <code>Key.getFormat()</code>
      * @param encoded the encoded bytes returned from
-     *          {@code Key.getEncoded()}
+     *          <code>Key.getEncoded()</code>
      *
      * @exception NullPointerException
-     *          if type is {@code null},
-     *          if algorithm is {@code null},
-     *          if format is {@code null},
-     *          or if encoded is {@code null}
+     *          if type is <code>null</code>,
+     *          if algorithm is <code>null</code>,
+     *          if format is <code>null</code>,
+     *          or if encoded is <code>null</code>
      */
     public KeyRep(Type type, String algorithm,
                 String format, byte[] encoded) {
@@ -138,7 +137,7 @@ public class KeyRep implements Serializable {
 
         this.type = type;
         this.algorithm = algorithm;
-        this.format = format.toUpperCase(Locale.ENGLISH);
+        this.format = format.toUpperCase();
         this.encoded = encoded.clone();
     }
 

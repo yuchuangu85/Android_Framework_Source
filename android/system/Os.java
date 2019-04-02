@@ -63,25 +63,6 @@ public final class Os {
   /** @hide */ public static void bind(FileDescriptor fd, SocketAddress address) throws ErrnoException, SocketException { Libcore.os.bind(fd, address); }
 
   /**
-   * See <a href="http://man7.org/linux/man-pages/man2/capget.2.html">capget(2)</a>.
-   *
-   * @hide
-   */
-  public static StructCapUserData[] capget(StructCapUserHeader hdr) throws ErrnoException {
-      return Libcore.os.capget(hdr);
-  }
-
-  /**
-   * See <a href="http://man7.org/linux/man-pages/man2/capset.2.html">capset(2)</a>.
-   *
-   * @hide
-   */
-  public static void capset(StructCapUserHeader hdr, StructCapUserData[] data)
-          throws ErrnoException {
-      Libcore.os.capset(hdr, data);
-  }
-
-  /**
    * See <a href="http://man7.org/linux/man-pages/man2/chmod.2.html">chmod(2)</a>.
    */
   public static void chmod(String path, int mode) throws ErrnoException { Libcore.os.chmod(path, mode); }
@@ -192,11 +173,6 @@ public final class Os {
    */
   public static String getenv(String name) { return Libcore.os.getenv(name); }
 
-  /**
-   * See <a href="http://man7.org/linux/man-pages/man3/getifaddrs.3.html">getifaddrs(3)</a>.
-   */
-  /** @hide */ public static StructIfaddrs[] getifaddrs() throws ErrnoException { return Libcore.os.getifaddrs(); }
-
   /** @hide */ public static String getnameinfo(InetAddress address, int flags) throws GaiException { return Libcore.os.getnameinfo(address, flags); }
 
   /**
@@ -223,8 +199,6 @@ public final class Os {
 
   /** @hide */ public static StructPasswd getpwuid(int uid) throws ErrnoException { return Libcore.os.getpwuid(uid); }
 
-  /** @hide */ public static StructRlimit getrlimit(int resource) throws ErrnoException { return Libcore.os.getrlimit(resource); }
-
   /**
    * See <a href="http://man7.org/linux/man-pages/man2/getsockname.2.html">getsockname(2)</a>.
    */
@@ -247,20 +221,12 @@ public final class Os {
    */
   public static int getuid() { return Libcore.os.getuid(); }
 
-  /**
-   * See <a href="http://man7.org/linux/man-pages/man2/getxattr.2.html">getxattr(2)</a>
-   */
-  public static byte[] getxattr(String path, String name) throws ErrnoException { return Libcore.os.getxattr(path, name); }
+  /** @hide */ public static int getxattr(String path, String name, byte[] outValue) throws ErrnoException { return Libcore.os.getxattr(path, name, outValue); }
 
   /**
    * See <a href="http://man7.org/linux/man-pages/man3/if_indextoname.3.html">if_indextoname(3)</a>.
    */
   public static String if_indextoname(int index) { return Libcore.os.if_indextoname(index); }
-
-  /**
-   * See <a href="http://man7.org/linux/man-pages/man3/if_nametoindex.3.html">if_nametoindex(3)</a>.
-   */
-  public static int if_nametoindex(String name) { return Libcore.os.if_nametoindex(name); }
 
   /**
    * See <a href="http://man7.org/linux/man-pages/man3/inet_pton.3.html">inet_pton(3)</a>.
@@ -294,11 +260,6 @@ public final class Os {
    * See <a href="http://man7.org/linux/man-pages/man2/listen.2.html">listen(2)</a>.
    */
   public static void listen(FileDescriptor fd, int backlog) throws ErrnoException { Libcore.os.listen(fd, backlog); }
-
-  /**
-   * See <a href="http://man7.org/linux/man-pages/man2/listxattr.2.html">listxattr(2)</a>
-   */
-  public static String[] listxattr(String path) throws ErrnoException { return Libcore.os.listxattr(path); }
 
   /**
    * See <a href="http://man7.org/linux/man-pages/man2/lseek.2.html">lseek(2)</a>.
@@ -372,7 +333,7 @@ public final class Os {
   public static int poll(StructPollfd[] fds, int timeoutMs) throws ErrnoException { return Libcore.os.poll(fds, timeoutMs); }
 
   /**
-   * See <a href="http://man7.org/linux/man-pages/man3/posix_fallocate.3.html">posix_fallocate(3)</a>.
+   * See <a href="http://man7.org/linux/man-pages/man2/posix_fallocate.2.html">posix_fallocate(2)</a>.
    */
   public static void posix_fallocate(FileDescriptor fd, long offset, long length) throws ErrnoException { Libcore.os.posix_fallocate(fd, offset, length); }
 
@@ -436,10 +397,7 @@ public final class Os {
    */
   public static void remove(String path) throws ErrnoException { Libcore.os.remove(path); }
 
-  /**
-   * See <a href="http://man7.org/linux/man-pages/man2/removexattr.2.html">removexattr(2)</a>.
-   */
-  public static void removexattr(String path, String name) throws ErrnoException { Libcore.os.removexattr(path, name); }
+  /** @hide */ public static void removexattr(String path, String name) throws ErrnoException { Libcore.os.removexattr(path, name); }
 
   /**
    * See <a href="http://man7.org/linux/man-pages/man2/rename.2.html">rename(2)</a>.
@@ -508,12 +466,7 @@ public final class Os {
 
   /** @hide */ public static void setsockoptByte(FileDescriptor fd, int level, int option, int value) throws ErrnoException { Libcore.os.setsockoptByte(fd, level, option, value); }
   /** @hide */ public static void setsockoptIfreq(FileDescriptor fd, int level, int option, String value) throws ErrnoException { Libcore.os.setsockoptIfreq(fd, level, option, value); }
-
-  /**
-   * See <a href="http://man7.org/linux/man-pages/man2/setsockopt.2.html">setsockopt(2)</a>.
-   */
-  public static void setsockoptInt(FileDescriptor fd, int level, int option, int value) throws ErrnoException { Libcore.os.setsockoptInt(fd, level, option, value); }
-
+  /** @hide */ public static void setsockoptInt(FileDescriptor fd, int level, int option, int value) throws ErrnoException { Libcore.os.setsockoptInt(fd, level, option, value); }
   /** @hide */ public static void setsockoptIpMreqn(FileDescriptor fd, int level, int option, int value) throws ErrnoException { Libcore.os.setsockoptIpMreqn(fd, level, option, value); }
   /** @hide */ public static void setsockoptGroupReq(FileDescriptor fd, int level, int option, StructGroupReq value) throws ErrnoException { Libcore.os.setsockoptGroupReq(fd, level, option, value); }
   /** @hide */ public static void setsockoptGroupSourceReq(FileDescriptor fd, int level, int option, StructGroupSourceReq value) throws ErrnoException { Libcore.os.setsockoptGroupSourceReq(fd, level, option, value); }
@@ -525,10 +478,7 @@ public final class Os {
    */
   public static void setuid(int uid) throws ErrnoException { Libcore.os.setuid(uid); }
 
-  /**
-   * See <a href="http://man7.org/linux/man-pages/man2/setxattr.2.html">setxattr(2)</a>
-   */
-  public static void setxattr(String path, String name, byte[] value, int flags) throws ErrnoException { Libcore.os.setxattr(path, name, value, flags); };
+  /** @hide */ public static void setxattr(String path, String name, byte[] value, int flags) throws ErrnoException { Libcore.os.setxattr(path, name, value, flags); };
 
   /**
    * See <a href="http://man7.org/linux/man-pages/man2/shutdown.2.html">shutdown(2)</a>.

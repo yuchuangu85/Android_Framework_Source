@@ -37,7 +37,7 @@ import java.util.Arrays;
  * When device is dozing, set constraint for all jobs, except whitelisted apps, as not satisfied.
  * When device is not dozing, set constraint for all jobs as satisfied.
  */
-public final class DeviceIdleJobsController extends StateController {
+public class DeviceIdleJobsController extends StateController {
 
     private static final String LOG_TAG = "DeviceIdleJobsController";
     private static final boolean LOG_DEBUG = false;
@@ -164,12 +164,13 @@ public final class DeviceIdleJobsController extends StateController {
 
     @Override
     public void maybeStartTrackingJobLocked(JobStatus jobStatus, JobStatus lastJob) {
-        updateTaskStateLocked(jobStatus);
+        synchronized (mLock) {
+            updateTaskStateLocked(jobStatus);
+        }
     }
 
     @Override
-    public void maybeStopTrackingJobLocked(JobStatus jobStatus, JobStatus incomingJob,
-            boolean forUpdate) {
+    public void maybeStopTrackingJobLocked(JobStatus jobStatus, JobStatus incomingJob, boolean forUpdate) {
     }
 
     @Override

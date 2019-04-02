@@ -15,8 +15,6 @@
  */
 package android.support.v4.media;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
@@ -25,14 +23,17 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.support.annotation.RestrictTo;
 import android.support.annotation.StringDef;
-import android.support.v4.media.session.MediaControllerCompat.TransportControls;
 import android.support.v4.util.ArrayMap;
+import android.support.v4.media.MediaBrowserCompat;
+import android.support.v4.media.session.MediaControllerCompat;
 import android.text.TextUtils;
 import android.util.Log;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Set;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Contains metadata about an item, such as the title, artist, etc.
@@ -215,7 +216,7 @@ public final class MediaMetadataCompat implements Parcelable {
     /**
      * A Uri formatted String representing the content. This value is specific to the
      * service providing the content. It may be used with
-     * {@link TransportControls#playFromUri(Uri, Bundle)}
+     * {@link MediaControllerCompat.TransportControls#playFromUri(Uri, Bundle)}
      * to initiate playback when provided by a {@link MediaBrowserCompat} connected to
      * the same app.
      */
@@ -238,29 +239,9 @@ public final class MediaMetadataCompat implements Parcelable {
             = "android.media.metadata.BT_FOLDER_TYPE";
 
     /**
-     * Whether the media is an advertisement. A value of 0 indicates it is not an advertisement. A
-     * value of 1 or non-zero indicates it is an advertisement. If not specified, this value is set
-     * to 0 by default.
-     */
-    public static final String METADATA_KEY_ADVERTISEMENT = "android.media.metadata.ADVERTISEMENT";
-
-    /**
-     * The download status of the media which will be used for later offline playback. It should be
-     * one of the following:
-     *
-     * <ul>
-     * <li>{@link MediaDescriptionCompat#STATUS_NOT_DOWNLOADED}</li>
-     * <li>{@link MediaDescriptionCompat#STATUS_DOWNLOADING}</li>
-     * <li>{@link MediaDescriptionCompat#STATUS_DOWNLOADED}</li>
-     * </ul>
-     */
-    public static final String METADATA_KEY_DOWNLOAD_STATUS =
-            "android.media.metadata.DOWNLOAD_STATUS";
-
-    /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     @StringDef({METADATA_KEY_TITLE, METADATA_KEY_ARTIST, METADATA_KEY_ALBUM, METADATA_KEY_AUTHOR,
             METADATA_KEY_WRITER, METADATA_KEY_COMPOSER, METADATA_KEY_COMPILATION,
             METADATA_KEY_DATE, METADATA_KEY_GENRE, METADATA_KEY_ALBUM_ARTIST, METADATA_KEY_ART_URI,
@@ -273,17 +254,16 @@ public final class MediaMetadataCompat implements Parcelable {
     /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     @StringDef({METADATA_KEY_DURATION, METADATA_KEY_YEAR, METADATA_KEY_TRACK_NUMBER,
-            METADATA_KEY_NUM_TRACKS, METADATA_KEY_DISC_NUMBER, METADATA_KEY_BT_FOLDER_TYPE,
-            METADATA_KEY_ADVERTISEMENT, METADATA_KEY_DOWNLOAD_STATUS})
+            METADATA_KEY_NUM_TRACKS, METADATA_KEY_DISC_NUMBER, METADATA_KEY_BT_FOLDER_TYPE})
     @Retention(RetentionPolicy.SOURCE)
     public @interface LongKey {}
 
     /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     @StringDef({METADATA_KEY_ART, METADATA_KEY_ALBUM_ART, METADATA_KEY_DISPLAY_ICON})
     @Retention(RetentionPolicy.SOURCE)
     public @interface BitmapKey {}
@@ -291,7 +271,7 @@ public final class MediaMetadataCompat implements Parcelable {
     /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     @StringDef({METADATA_KEY_USER_RATING, METADATA_KEY_RATING})
     @Retention(RetentionPolicy.SOURCE)
     public @interface RatingKey {}
@@ -333,8 +313,6 @@ public final class MediaMetadataCompat implements Parcelable {
         METADATA_KEYS_TYPE.put(METADATA_KEY_MEDIA_ID, METADATA_TYPE_TEXT);
         METADATA_KEYS_TYPE.put(METADATA_KEY_BT_FOLDER_TYPE, METADATA_TYPE_LONG);
         METADATA_KEYS_TYPE.put(METADATA_KEY_MEDIA_URI, METADATA_TYPE_TEXT);
-        METADATA_KEYS_TYPE.put(METADATA_KEY_ADVERTISEMENT, METADATA_TYPE_LONG);
-        METADATA_KEYS_TYPE.put(METADATA_KEY_DOWNLOAD_STATUS, METADATA_TYPE_LONG);
     }
 
     private static final @TextKey String[] PREFERRED_DESCRIPTION_ORDER = {
@@ -531,17 +509,10 @@ public final class MediaMetadataCompat implements Parcelable {
         bob.setIconBitmap(icon);
         bob.setIconUri(iconUri);
         bob.setMediaUri(mediaUri);
-
-        Bundle bundle = new Bundle();
         if (mBundle.containsKey(METADATA_KEY_BT_FOLDER_TYPE)) {
+            Bundle bundle = new Bundle();
             bundle.putLong(MediaDescriptionCompat.EXTRA_BT_FOLDER_TYPE,
                     getLong(METADATA_KEY_BT_FOLDER_TYPE));
-        }
-        if (mBundle.containsKey(METADATA_KEY_DOWNLOAD_STATUS)) {
-            bundle.putLong(MediaDescriptionCompat.EXTRA_DOWNLOAD_STATUS,
-                    getLong(METADATA_KEY_DOWNLOAD_STATUS));
-        }
-        if (!bundle.isEmpty()) {
             bob.setExtras(bundle);
         }
         mDescription = bob.build();
@@ -601,17 +572,17 @@ public final class MediaMetadataCompat implements Parcelable {
      *         none.
      */
     public static MediaMetadataCompat fromMediaMetadata(Object metadataObj) {
-        if (metadataObj != null && Build.VERSION.SDK_INT >= 21) {
-            Parcel p = Parcel.obtain();
-            MediaMetadataCompatApi21.writeToParcel(metadataObj, p, 0);
-            p.setDataPosition(0);
-            MediaMetadataCompat metadata = MediaMetadataCompat.CREATOR.createFromParcel(p);
-            p.recycle();
-            metadata.mMetadataObj = metadataObj;
-            return metadata;
-        } else {
+        if (metadataObj == null || Build.VERSION.SDK_INT < 21) {
             return null;
         }
+
+        Parcel p = Parcel.obtain();
+        MediaMetadataCompatApi21.writeToParcel(metadataObj, p, 0);
+        p.setDataPosition(0);
+        MediaMetadataCompat metadata = MediaMetadataCompat.CREATOR.createFromParcel(p);
+        p.recycle();
+        metadata.mMetadataObj = metadataObj;
+        return metadata;
     }
 
     /**
@@ -625,13 +596,15 @@ public final class MediaMetadataCompat implements Parcelable {
      *         if none.
      */
     public Object getMediaMetadata() {
-        if (mMetadataObj == null && Build.VERSION.SDK_INT >= 21) {
-            Parcel p = Parcel.obtain();
-            writeToParcel(p, 0);
-            p.setDataPosition(0);
-            mMetadataObj = MediaMetadataCompatApi21.createFromParcel(p);
-            p.recycle();
+        if (mMetadataObj != null || Build.VERSION.SDK_INT < 21) {
+            return mMetadataObj;
         }
+
+        Parcel p = Parcel.obtain();
+        writeToParcel(p, 0);
+        p.setDataPosition(0);
+        mMetadataObj = MediaMetadataCompatApi21.createFromParcel(p);
+        p.recycle();
         return mMetadataObj;
     }
 
@@ -678,21 +651,29 @@ public final class MediaMetadataCompat implements Parcelable {
          * Create a Builder using a {@link MediaMetadataCompat} instance to set
          * initial values, but replace bitmaps with a scaled down copy if they
          * are larger than maxBitmapSize.
+         * <p>
+         * This also deep-copies the bitmaps for {@link #METADATA_KEY_ART} and
+         * {@link #METADATA_KEY_ALBUM_ART} on
+         * {@link android.os.Build.VERSION_CODES#ICE_CREAM_SANDWITCH} and later
+         * to prevent bitmaps from being recycled by RCC.
          *
          * @param source The original metadata to copy.
          * @param maxBitmapSize The maximum height/width for bitmaps contained
          *            in the metadata.
          * @hide
          */
-        @RestrictTo(LIBRARY_GROUP)
+        @RestrictTo(GROUP_ID)
         public Builder(MediaMetadataCompat source, int maxBitmapSize) {
             this(source);
             for (String key : mBundle.keySet()) {
                 Object value = mBundle.get(key);
-                if (value instanceof Bitmap) {
+                if (value != null && value instanceof Bitmap) {
                     Bitmap bmp = (Bitmap) value;
                     if (bmp.getHeight() > maxBitmapSize || bmp.getWidth() > maxBitmapSize) {
                         putBitmap(key, scaleBitmap(bmp, maxBitmapSize));
+                    } else if (Build.VERSION.SDK_INT >= 14 &&
+                            (key.equals(METADATA_KEY_ART) || key.equals(METADATA_KEY_ALBUM_ART))) {
+                        putBitmap(key, bmp.copy(bmp.getConfig(), false));
                     }
                 }
             }
@@ -782,9 +763,6 @@ public final class MediaMetadataCompat implements Parcelable {
          * <li>{@link #METADATA_KEY_NUM_TRACKS}</li>
          * <li>{@link #METADATA_KEY_DISC_NUMBER}</li>
          * <li>{@link #METADATA_KEY_YEAR}</li>
-         * <li>{@link #METADATA_KEY_BT_FOLDER_TYPE}</li>
-         * <li>{@link #METADATA_KEY_ADVERTISEMENT}</li>
-         * <li>{@link #METADATA_KEY_DOWNLOAD_STATUS}</li>
          * </ul>
          *
          * @param key The key for referencing this value

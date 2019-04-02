@@ -38,7 +38,7 @@ import java.util.Set;
  * API and dispatches the event on the UI thread to the right class in the
  * Settings.
  */
-public class BluetoothEventManager {
+public final class BluetoothEventManager {
     private static final String TAG = "BluetoothEventManager";
 
     private final LocalBluetoothAdapter mLocalAdapter;
@@ -97,11 +97,11 @@ public class BluetoothEventManager {
 
         // Pairing broadcasts
         addHandler(BluetoothDevice.ACTION_BOND_STATE_CHANGED, new BondStateChangedHandler());
+        addHandler(BluetoothDevice.ACTION_PAIRING_CANCEL, new PairingCancelHandler());
 
         // Fine-grained state broadcasts
         addHandler(BluetoothDevice.ACTION_CLASS_CHANGED, new ClassChangedHandler());
         addHandler(BluetoothDevice.ACTION_UUID, new UuidChangedHandler());
-        addHandler(BluetoothDevice.ACTION_BATTERY_LEVEL_CHANGED, new BatteryLevelChangedHandler());
 
         // Dock event broadcasts
         addHandler(Intent.ACTION_DOCK_EVENT, new DockEventHandler());
@@ -200,7 +200,7 @@ public class BluetoothEventManager {
             cachedDevice.setRssi(rssi);
             cachedDevice.setBtClass(btClass);
             cachedDevice.setNewName(name);
-            cachedDevice.setJustDiscovered(true);
+            cachedDevice.setVisible(true);
         }
     }
 
@@ -268,16 +268,16 @@ public class BluetoothEventManager {
             if (cachedDevice == null) {
                 Log.w(TAG, "CachedBluetoothDevice for device " + device +
                         " not found, calling readPairedDevices().");
-                if (readPairedDevices()) {
-                    cachedDevice = mDeviceManager.findDevice(device);
-                }
-
-                if (cachedDevice == null) {
-                    Log.w(TAG, "Got bonding state changed for " + device +
+                if (!readPairedDevices()) {
+                    Log.e(TAG, "Got bonding state changed for " + device +
                             ", but we have no record of that device.");
-
-                    cachedDevice = mDeviceManager.addDevice(mLocalAdapter, mProfileManager, device);
-                    dispatchDeviceAdded(cachedDevice);
+                    return;
+                }
+                cachedDevice = mDeviceManager.findDevice(device);
+                if (cachedDevice == null) {
+                    Log.e(TAG, "Got bonding state changed for " + device +
+                            ", but device not added in cache.");
+                    return;
                 }
             }
 
@@ -343,6 +343,24 @@ public class BluetoothEventManager {
         }
     }
 
+    private class PairingCancelHandler implements Handler {
+        public void onReceive(Context context, Intent intent, BluetoothDevice device) {
+            if (device == null) {
+                Log.e(TAG, "ACTION_PAIRING_CANCEL with no EXTRA_DEVICE");
+                return;
+            }
+            CachedBluetoothDevice cachedDevice = mDeviceManager.findDevice(device);
+            if (cachedDevice == null) {
+                Log.e(TAG, "ACTION_PAIRING_CANCEL with no cached device");
+                return;
+            }
+            int errorMsg = R.string.bluetooth_pairing_error_message;
+            if (context != null && cachedDevice != null) {
+                Utils.showError(context, cachedDevice.getName(), errorMsg);
+            }
+        }
+    }
+
     private class DockEventHandler implements Handler {
         public void onReceive(Context context, Intent intent, BluetoothDevice device) {
             // Remove if unpair device upon undocking
@@ -352,23 +370,12 @@ public class BluetoothEventManager {
                 if (device != null && device.getBondState() == BluetoothDevice.BOND_NONE) {
                     CachedBluetoothDevice cachedDevice = mDeviceManager.findDevice(device);
                     if (cachedDevice != null) {
-                        cachedDevice.setJustDiscovered(false);
+                        cachedDevice.setVisible(false);
                     }
                 }
             }
         }
     }
-
-    private class BatteryLevelChangedHandler implements Handler {
-        public void onReceive(Context context, Intent intent,
-                BluetoothDevice device) {
-            CachedBluetoothDevice cachedDevice = mDeviceManager.findDevice(device);
-            if (cachedDevice != null) {
-                cachedDevice.refresh();
-            }
-        }
-    }
-
     boolean readPairedDevices() {
         Set<BluetoothDevice> bondedDevices = mLocalAdapter.getBondedDevices();
         if (bondedDevices == null) {

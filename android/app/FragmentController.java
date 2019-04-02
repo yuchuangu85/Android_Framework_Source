@@ -120,7 +120,6 @@ public class FragmentController {
      *
      * @deprecated use {@link #restoreAllState(Parcelable, FragmentManagerNonConfig)}
      */
-    @Deprecated
     public void restoreAllState(Parcelable state, List<Fragment> nonConfigList) {
         mHost.mFragmentManager.restoreAllState(state,
                 new FragmentManagerNonConfig(nonConfigList, null));
@@ -143,7 +142,6 @@ public class FragmentController {
      * @deprecated use {@link #retainNestedNonConfig()} to also track retained
      *             nested child fragments
      */
-    @Deprecated
     public List<Fragment> retainNonConfig() {
         return mHost.mFragmentManager.retainNonConfig().getFragments();
     }
@@ -250,49 +248,20 @@ public class FragmentController {
      * <p>Call when the multi-window mode of the activity changed.
      *
      * @see Fragment#onMultiWindowModeChanged
-     * @deprecated use {@link #dispatchMultiWindowModeChanged(boolean, Configuration)}
      */
-    @Deprecated
     public void dispatchMultiWindowModeChanged(boolean isInMultiWindowMode) {
         mHost.mFragmentManager.dispatchMultiWindowModeChanged(isInMultiWindowMode);
     }
 
     /**
-     * Lets all Fragments managed by the controller's FragmentManager know the multi-window mode of
-     * the activity changed.
-     * <p>Call when the multi-window mode of the activity changed.
-     *
-     * @see Fragment#onMultiWindowModeChanged
-     */
-    public void dispatchMultiWindowModeChanged(boolean isInMultiWindowMode,
-            Configuration newConfig) {
-        mHost.mFragmentManager.dispatchMultiWindowModeChanged(isInMultiWindowMode, newConfig);
-    }
-
-    /**
      * Lets all Fragments managed by the controller's FragmentManager know the picture-in-picture
      * mode of the activity changed.
      * <p>Call when the picture-in-picture mode of the activity changed.
      *
      * @see Fragment#onPictureInPictureModeChanged
-     * @deprecated use {@link #dispatchPictureInPictureModeChanged(boolean, Configuration)}
      */
-    @Deprecated
     public void dispatchPictureInPictureModeChanged(boolean isInPictureInPictureMode) {
         mHost.mFragmentManager.dispatchPictureInPictureModeChanged(isInPictureInPictureMode);
-    }
-
-    /**
-     * Lets all Fragments managed by the controller's FragmentManager know the picture-in-picture
-     * mode of the activity changed.
-     * <p>Call when the picture-in-picture mode of the activity changed.
-     *
-     * @see Fragment#onPictureInPictureModeChanged
-     */
-    public void dispatchPictureInPictureModeChanged(boolean isInPictureInPictureMode,
-            Configuration newConfig) {
-        mHost.mFragmentManager.dispatchPictureInPictureModeChanged(isInPictureInPictureMode,
-                newConfig);
     }
 
     /**

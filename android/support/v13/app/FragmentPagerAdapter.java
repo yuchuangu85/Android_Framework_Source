@@ -87,7 +87,6 @@ public abstract class FragmentPagerAdapter extends PagerAdapter {
         }
     }
 
-    @SuppressWarnings("ReferenceEquality")
     @Override
     public Object instantiateItem(ViewGroup container, int position) {
         if (mCurTransaction == null) {
@@ -109,7 +108,7 @@ public abstract class FragmentPagerAdapter extends PagerAdapter {
                     makeFragmentName(container.getId(), itemId));
         }
         if (fragment != mCurrentPrimaryItem) {
-            fragment.setMenuVisibility(false);
+            FragmentCompat.setMenuVisibility(fragment, false);
             FragmentCompat.setUserVisibleHint(fragment, false);
         }
 
@@ -126,17 +125,16 @@ public abstract class FragmentPagerAdapter extends PagerAdapter {
         mCurTransaction.detach((Fragment)object);
     }
 
-    @SuppressWarnings("ReferenceEquality")
     @Override
     public void setPrimaryItem(ViewGroup container, int position, Object object) {
         Fragment fragment = (Fragment)object;
         if (fragment != mCurrentPrimaryItem) {
             if (mCurrentPrimaryItem != null) {
-                mCurrentPrimaryItem.setMenuVisibility(false);
+                FragmentCompat.setMenuVisibility(mCurrentPrimaryItem, false);
                 FragmentCompat.setUserVisibleHint(mCurrentPrimaryItem, false);
             }
             if (fragment != null) {
-                fragment.setMenuVisibility(true);
+                FragmentCompat.setMenuVisibility(fragment, true);
                 FragmentCompat.setUserVisibleHint(fragment, true);
             }
             mCurrentPrimaryItem = fragment;

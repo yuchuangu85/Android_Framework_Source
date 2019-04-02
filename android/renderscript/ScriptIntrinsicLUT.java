@@ -56,10 +56,6 @@ public final class ScriptIntrinsicLUT extends ScriptIntrinsic {
 
     }
 
-    public void destroy() {
-        mTables.destroy();
-        super.destroy();
-    }
 
     private void validate(int index, int value) {
         if (index < 0 || index > 255) {

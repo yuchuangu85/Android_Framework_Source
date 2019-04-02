@@ -66,7 +66,7 @@ import java.util.ArrayList;
  *      complete}
  */
 public abstract class FragmentStatePagerAdapter extends PagerAdapter {
-    private static final String TAG = "FragStatePagerAdapter";
+    private static final String TAG = "FragmentStatePagerAdapter";
     private static final boolean DEBUG = false;
 
     private final FragmentManager mFragmentManager;
@@ -121,7 +121,7 @@ public abstract class FragmentStatePagerAdapter extends PagerAdapter {
         while (mFragments.size() <= position) {
             mFragments.add(null);
         }
-        fragment.setMenuVisibility(false);
+        FragmentCompat.setMenuVisibility(fragment, false);
         FragmentCompat.setUserVisibleHint(fragment, false);
         mFragments.set(position, fragment);
         mCurTransaction.add(container.getId(), fragment);
@@ -148,17 +148,16 @@ public abstract class FragmentStatePagerAdapter extends PagerAdapter {
         mCurTransaction.remove(fragment);
     }
 
-    @SuppressWarnings("ReferenceEquality")
     @Override
     public void setPrimaryItem(ViewGroup container, int position, Object object) {
         Fragment fragment = (Fragment)object;
         if (fragment != mCurrentPrimaryItem) {
             if (mCurrentPrimaryItem != null) {
-                mCurrentPrimaryItem.setMenuVisibility(false);
+                FragmentCompat.setMenuVisibility(mCurrentPrimaryItem, false);
                 FragmentCompat.setUserVisibleHint(mCurrentPrimaryItem, false);
             }
             if (fragment != null) {
-                fragment.setMenuVisibility(true);
+                FragmentCompat.setMenuVisibility(fragment, true);
                 FragmentCompat.setUserVisibleHint(fragment, true);
             }
             mCurrentPrimaryItem = fragment;

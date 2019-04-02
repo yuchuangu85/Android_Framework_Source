@@ -16,24 +16,18 @@
 
 package android.support.v7.view.menu;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.ColorStateList;
-import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
-import android.support.annotation.Nullable;
 import android.support.annotation.RestrictTo;
-import android.support.v4.graphics.drawable.DrawableCompat;
 import android.support.v4.internal.view.SupportMenuItem;
 import android.support.v4.view.ActionProvider;
+import android.support.v4.view.MenuItemCompat;
 import android.support.v7.content.res.AppCompatResources;
 import android.util.Log;
 import android.view.ContextMenu.ContextMenuInfo;
-import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.SubMenu;
@@ -41,10 +35,12 @@ import android.view.View;
 import android.view.ViewDebug;
 import android.widget.LinearLayout;
 
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+
 /**
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public final class MenuItemImpl implements SupportMenuItem {
 
     private static final String TAG = "MenuItemImpl";
@@ -61,9 +57,7 @@ public final class MenuItemImpl implements SupportMenuItem {
     private CharSequence mTitleCondensed;
     private Intent mIntent;
     private char mShortcutNumericChar;
-    private int mShortcutNumericModifiers = KeyEvent.META_CTRL_ON;
     private char mShortcutAlphabeticChar;
-    private int mShortcutAlphabeticModifiers = KeyEvent.META_CTRL_ON;
 
     /** The icon's drawable which is only created as needed */
     private Drawable mIconDrawable;
@@ -83,15 +77,6 @@ public final class MenuItemImpl implements SupportMenuItem {
     private Runnable mItemCallback;
     private SupportMenuItem.OnMenuItemClickListener mClickListener;
 
-    private CharSequence mContentDescription;
-    private CharSequence mTooltipText;
-
-    private ColorStateList mIconTintList = null;
-    private PorterDuff.Mode mIconTintMode = null;
-    private boolean mHasIconTint = false;
-    private boolean mHasIconTintMode = false;
-    private boolean mNeedToApplyIconTint = false;
-
     private int mFlags = ENABLED;
     private static final int CHECKABLE = 0x00000001;
     private static final int CHECKED = 0x00000002;
@@ -104,7 +89,7 @@ public final class MenuItemImpl implements SupportMenuItem {
 
     private View mActionView;
     private ActionProvider mActionProvider;
-    private MenuItem.OnActionExpandListener mOnActionExpandListener;
+    private MenuItemCompat.OnActionExpandListener mOnActionExpandListener;
     private boolean mIsActionViewExpanded = false;
 
     /** Used for the icon resource ID if this item does not have an icon */
@@ -168,8 +153,8 @@ public final class MenuItemImpl implements SupportMenuItem {
             return true;
         }
 
-        if (mMenu.dispatchMenuItemSelected(mMenu, this)) {
-            return true;
+        if (mMenu.dispatchMenuItemSelected(mMenu.getRootMenu(), this)) {
+          return true;
         }
 
         if (mItemCallback != null) {
@@ -270,32 +255,8 @@ public final class MenuItemImpl implements SupportMenuItem {
     }
 
     @Override
-    public MenuItem setAlphabeticShortcut(char alphaChar, int alphaModifiers) {
-        if (mShortcutAlphabeticChar == alphaChar
-                && mShortcutAlphabeticModifiers == alphaModifiers) {
-            return this;
-        }
-
-        mShortcutAlphabeticChar = Character.toLowerCase(alphaChar);
-        mShortcutAlphabeticModifiers = KeyEvent.normalizeMetaState(alphaModifiers);
-
-        mMenu.onItemsChanged(false);
-        return this;
-    }
-
-    @Override
-    public int getAlphabeticModifiers() {
-        return mShortcutAlphabeticModifiers;
-    }
-
-    @Override
     public char getNumericShortcut() {
         return mShortcutNumericChar;
-    }
-
-    @Override
-    public int getNumericModifiers() {
-        return mShortcutNumericModifiers;
     }
 
     @Override
@@ -312,36 +273,9 @@ public final class MenuItemImpl implements SupportMenuItem {
     }
 
     @Override
-    public MenuItem setNumericShortcut(char numericChar, int numericModifiers) {
-        if (mShortcutNumericChar == numericChar && mShortcutNumericModifiers == numericModifiers) {
-            return this;
-        }
-
-        mShortcutNumericChar = numericChar;
-        mShortcutNumericModifiers = KeyEvent.normalizeMetaState(numericModifiers);
-
-        mMenu.onItemsChanged(false);
-
-        return this;
-    }
-
-    @Override
     public MenuItem setShortcut(char numericChar, char alphaChar) {
         mShortcutNumericChar = numericChar;
         mShortcutAlphabeticChar = Character.toLowerCase(alphaChar);
-
-        mMenu.onItemsChanged(false);
-
-        return this;
-    }
-
-    @Override
-    public MenuItem setShortcut(char numericChar, char alphaChar, int numericModifiers,
-            int alphaModifiers) {
-        mShortcutNumericChar = numericChar;
-        mShortcutNumericModifiers = KeyEvent.normalizeMetaState(numericModifiers);
-        mShortcutAlphabeticChar = Character.toLowerCase(alphaChar);
-        mShortcutAlphabeticModifiers = KeyEvent.normalizeMetaState(alphaModifiers);
 
         mMenu.onItemsChanged(false);
 
@@ -484,14 +418,14 @@ public final class MenuItemImpl implements SupportMenuItem {
     @Override
     public Drawable getIcon() {
         if (mIconDrawable != null) {
-            return applyIconTintIfNecessary(mIconDrawable);
+            return mIconDrawable;
         }
 
         if (mIconResId != NO_ICON) {
             Drawable icon = AppCompatResources.getDrawable(mMenu.getContext(), mIconResId);
             mIconResId = NO_ICON;
             mIconDrawable = icon;
-            return applyIconTintIfNecessary(icon);
+            return icon;
         }
 
         return null;
@@ -501,7 +435,6 @@ public final class MenuItemImpl implements SupportMenuItem {
     public MenuItem setIcon(Drawable icon) {
         mIconResId = NO_ICON;
         mIconDrawable = icon;
-        mNeedToApplyIconTint = true;
         mMenu.onItemsChanged(false);
 
         return this;
@@ -511,64 +444,11 @@ public final class MenuItemImpl implements SupportMenuItem {
     public MenuItem setIcon(int iconResId) {
         mIconDrawable = null;
         mIconResId = iconResId;
-        mNeedToApplyIconTint = true;
 
         // If we have a view, we need to push the Drawable to them
         mMenu.onItemsChanged(false);
 
         return this;
-    }
-
-
-    @Override
-    public MenuItem setIconTintList(@Nullable ColorStateList iconTintList) {
-        mIconTintList = iconTintList;
-        mHasIconTint = true;
-        mNeedToApplyIconTint = true;
-
-        mMenu.onItemsChanged(false);
-
-        return this;
-    }
-
-    @Override
-    public ColorStateList getIconTintList() {
-        return mIconTintList;
-    }
-
-    @Override
-    public MenuItem setIconTintMode(PorterDuff.Mode iconTintMode) {
-        mIconTintMode = iconTintMode;
-        mHasIconTintMode = true;
-        mNeedToApplyIconTint = true;
-
-        mMenu.onItemsChanged(false);
-
-        return this;
-    }
-
-    @Override
-    public PorterDuff.Mode getIconTintMode() {
-        return mIconTintMode;
-    }
-
-    private Drawable applyIconTintIfNecessary(Drawable icon) {
-        if (icon != null && mNeedToApplyIconTint && (mHasIconTint || mHasIconTintMode)) {
-            icon = DrawableCompat.wrap(icon);
-            icon = icon.mutate();
-
-            if (mHasIconTint) {
-                DrawableCompat.setTintList(icon, mIconTintList);
-            }
-
-            if (mHasIconTintMode) {
-                DrawableCompat.setTintMode(icon, mIconTintMode);
-            }
-
-            mNeedToApplyIconTint = false;
-        }
-
-        return icon;
     }
 
     @Override
@@ -831,6 +711,13 @@ public final class MenuItemImpl implements SupportMenuItem {
         return false;
     }
 
+    @Override
+    public SupportMenuItem setSupportOnActionExpandListener(
+            MenuItemCompat.OnActionExpandListener listener) {
+        mOnActionExpandListener = listener;
+        return this;
+    }
+
     public boolean hasCollapsibleActionView() {
         if ((mShowAsAction & SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW) != 0) {
             if (mActionView == null && mActionProvider != null) {
@@ -853,35 +740,7 @@ public final class MenuItemImpl implements SupportMenuItem {
 
     @Override
     public MenuItem setOnActionExpandListener(MenuItem.OnActionExpandListener listener) {
-        mOnActionExpandListener = listener;
-        return this;
-    }
-
-    @Override
-    public SupportMenuItem setContentDescription(CharSequence contentDescription) {
-        mContentDescription = contentDescription;
-
-        mMenu.onItemsChanged(false);
-
-        return this;
-    }
-
-    @Override
-    public CharSequence getContentDescription() {
-        return mContentDescription;
-    }
-
-    @Override
-    public SupportMenuItem setTooltipText(CharSequence tooltipText) {
-        mTooltipText = tooltipText;
-
-        mMenu.onItemsChanged(false);
-
-        return this;
-    }
-
-    @Override
-    public CharSequence getTooltipText() {
-        return mTooltipText;
+        throw new UnsupportedOperationException(
+                "This is not supported, use MenuItemCompat.setOnActionExpandListener()");
     }
 }

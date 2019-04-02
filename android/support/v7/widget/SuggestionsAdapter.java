@@ -110,7 +110,7 @@ class SuggestionsAdapter extends ResourceCursorAdapter implements OnClickListene
      * copied to the query text field.
      * <p>
      *
-     * @param refineWhat which queries to refine. Possible values are {@link #REFINE_NONE},
+     * @param refine which queries to refine. Possible values are {@link #REFINE_NONE},
      * {@link #REFINE_BY_ENTRY}, and {@link #REFINE_ALL}.
      */
     public void setQueryRefinement(int refineWhat) {
@@ -461,29 +461,6 @@ class SuggestionsAdapter extends ResourceCursorAdapter implements OnClickListene
     }
 
     /**
-     * This method is overridden purely to provide a bit of protection against
-     * flaky content providers.
-     *
-     * @see android.widget.CursorAdapter#getDropDownView(int, View, ViewGroup)
-     */
-    @Override
-    public View getDropDownView(int position, View convertView, ViewGroup parent) {
-        try {
-            return super.getDropDownView(position, convertView, parent);
-        } catch (RuntimeException e) {
-            Log.w(LOG_TAG, "Search suggestions cursor threw exception.", e);
-            // Put exception string in item title
-            final View v = newDropDownView(mContext, mCursor, parent);
-            if (v != null) {
-                final ChildViewCache views = (ChildViewCache) v.getTag();
-                final TextView tv = views.mText1;
-                tv.setText(e.toString());
-            }
-            return v;
-        }
-    }
-
-    /**
      * Gets a drawable given a value provided by a suggestion provider.
      *
      * This value could be just the string value of a resource id
@@ -503,7 +480,7 @@ class SuggestionsAdapter extends ResourceCursorAdapter implements OnClickListene
      * @return a Drawable, or null if none found
      */
     private Drawable getDrawableFromResourceValue(String drawableId) {
-        if (drawableId == null || drawableId.isEmpty() || "0".equals(drawableId)) {
+        if (drawableId == null || drawableId.length() == 0 || "0".equals(drawableId)) {
             return null;
         }
         try {

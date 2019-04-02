@@ -16,19 +16,17 @@
 
 package android.support.v13.view.inputmethod;
 
-import android.support.annotation.RequiresApi;
 import android.content.ClipDescription;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.ResultReceiver;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.v4.os.BuildCompat;
 import android.text.TextUtils;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputConnectionWrapper;
-import android.view.inputmethod.InputContentInfo;
 
 /**
  * Helper for accessing features in {@link InputConnection} introduced after API level 13 in a
@@ -45,7 +43,7 @@ public final class InputConnectionCompat {
                 @NonNull EditorInfo editorInfo, @NonNull OnCommitContentListener callback);
     }
 
-    static final class InputContentInfoCompatBaseImpl implements InputConnectionCompatImpl {
+    static final class BaseInputContentInfoCompatImpl implements InputConnectionCompatImpl {
 
         private static String COMMIT_CONTENT_ACTION =
                 "android.support.v13.view.inputmethod.InputConnectionCompat.COMMIT_CONTENT";
@@ -89,7 +87,7 @@ public final class InputConnectionCompat {
             return new InputConnectionWrapper(ic, false /* mutable */) {
                 @Override
                 public boolean performPrivateCommand(String action, Bundle data) {
-                    if (InputContentInfoCompatBaseImpl.handlePerformPrivateCommand(action, data,
+                    if (BaseInputContentInfoCompatImpl.handlePerformPrivateCommand(action, data,
                             listener)) {
                         return true;
                     }
@@ -130,15 +128,14 @@ public final class InputConnectionCompat {
         }
     }
 
-    @RequiresApi(25)
-    private static final class InputContentInfoCompatApi25Impl
+    private final static class Api25InputContentInfoCompatImpl
             implements InputConnectionCompatImpl {
         @Override
         public boolean commitContent(@NonNull InputConnection inputConnection,
                 @NonNull InputContentInfoCompat inputContentInfo, int flags,
                 @Nullable Bundle opts) {
-            return inputConnection.commitContent((InputContentInfo) inputContentInfo.unwrap(),
-                    flags, opts);
+            return InputConnectionCompatApi25.commitContent(inputConnection,
+                    inputContentInfo.unwrap(), flags, opts);
         }
 
         @Nullable
@@ -147,26 +144,26 @@ public final class InputConnectionCompat {
                 @Nullable InputConnection inputConnection, @NonNull EditorInfo editorInfo,
                 @Nullable OnCommitContentListener onCommitContentListener) {
             final OnCommitContentListener listener = onCommitContentListener;
-            return new InputConnectionWrapper(inputConnection, false /* mutable */) {
-                @Override
-                public boolean commitContent(InputContentInfo inputContentInfo, int flags,
-                        Bundle opts) {
-                    if (listener.onCommitContent(InputContentInfoCompat.wrap(inputContentInfo),
-                            flags, opts)) {
-                        return true;
-                    }
-                    return super.commitContent(inputContentInfo, flags, opts);
-                }
-            };
+            return InputConnectionCompatApi25.createWrapper(
+                    inputConnection,
+                    new InputConnectionCompatApi25.OnCommitContentListener() {
+                        @Override
+                        public boolean onCommitContent(Object inputContentInfo, int flags,
+                                Bundle opts) {
+                            InputContentInfoCompat inputContentInfoCompat =
+                                    InputContentInfoCompat.wrap(inputContentInfo);
+                            return listener.onCommitContent(inputContentInfoCompat, flags, opts);
+                        }
+            });
         }
     }
 
     private static final InputConnectionCompatImpl IMPL;
     static {
-        if (Build.VERSION.SDK_INT >= 25) {
-            IMPL = new InputContentInfoCompatApi25Impl();
+        if (BuildCompat.isAtLeastNMR1()) {
+            IMPL = new Api25InputContentInfoCompatImpl();
         } else {
-            IMPL = new InputContentInfoCompatBaseImpl();
+            IMPL = new BaseInputContentInfoCompatImpl();
         }
     }
 

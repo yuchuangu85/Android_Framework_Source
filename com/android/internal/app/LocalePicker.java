@@ -18,7 +18,7 @@ package com.android.internal.app;
 
 import com.android.internal.R;
 
-import android.app.ActivityManager;
+import android.app.ActivityManagerNative;
 import android.app.IActivityManager;
 import android.app.ListFragment;
 import android.app.backup.BackupManager;
@@ -269,7 +269,7 @@ public class LocalePicker extends ListFragment {
      */
     public static void updateLocales(LocaleList locales) {
         try {
-            final IActivityManager am = ActivityManager.getService();
+            final IActivityManager am = ActivityManagerNative.getDefault();
             final Configuration config = am.getConfiguration();
 
             config.setLocales(locales);
@@ -290,7 +290,7 @@ public class LocalePicker extends ListFragment {
      */
     public static LocaleList getLocales() {
         try {
-            return ActivityManager.getService()
+            return ActivityManagerNative.getDefault()
                     .getConfiguration().getLocales();
         } catch (RemoteException e) {
             // If something went wrong

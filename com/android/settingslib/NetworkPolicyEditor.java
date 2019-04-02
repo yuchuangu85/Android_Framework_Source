@@ -21,7 +21,6 @@ import static android.net.NetworkPolicy.LIMIT_DISABLED;
 import static android.net.NetworkPolicy.SNOOZE_NEVER;
 import static android.net.NetworkPolicy.WARNING_DISABLED;
 import static android.net.NetworkTemplate.MATCH_WIFI;
-
 import static com.android.internal.util.Preconditions.checkNotNull;
 
 import android.net.NetworkPolicy;
@@ -30,12 +29,10 @@ import android.net.NetworkTemplate;
 import android.net.wifi.WifiInfo;
 import android.os.AsyncTask;
 import android.text.TextUtils;
-import android.util.RecurrenceRule;
+import android.text.format.Time;
 
 import com.google.android.collect.Lists;
 
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.util.ArrayList;
 
 /**
@@ -131,36 +128,35 @@ public class NetworkPolicyEditor {
     @Deprecated
     private static NetworkPolicy buildDefaultPolicy(NetworkTemplate template) {
         // TODO: move this into framework to share with NetworkPolicyManagerService
-        final RecurrenceRule cycleRule;
+        final int cycleDay;
+        final String cycleTimezone;
         final boolean metered;
 
         if (template.getMatchRule() == MATCH_WIFI) {
-            cycleRule = RecurrenceRule.buildNever();
+            cycleDay = CYCLE_NONE;
+            cycleTimezone = Time.TIMEZONE_UTC;
             metered = false;
         } else {
-            cycleRule = RecurrenceRule.buildRecurringMonthly(ZonedDateTime.now().getDayOfMonth(),
-                    ZoneId.systemDefault());
+            final Time time = new Time();
+            time.setToNow();
+            cycleDay = time.monthDay;
+            cycleTimezone = time.timezone;
             metered = true;
         }
 
-        return new NetworkPolicy(template, cycleRule, WARNING_DISABLED,
+        return new NetworkPolicy(template, cycleDay, cycleTimezone, WARNING_DISABLED,
                 LIMIT_DISABLED, SNOOZE_NEVER, SNOOZE_NEVER, metered, true);
     }
 
-    @Deprecated
     public int getPolicyCycleDay(NetworkTemplate template) {
         final NetworkPolicy policy = getPolicy(template);
-        if (policy != null && policy.cycleRule.isMonthly()) {
-            return policy.cycleRule.start.getDayOfMonth();
-        } else {
-            return CYCLE_NONE;
-        }
+        return (policy != null) ? policy.cycleDay : -1;
     }
 
-    @Deprecated
     public void setPolicyCycleDay(NetworkTemplate template, int cycleDay, String cycleTimezone) {
         final NetworkPolicy policy = getOrCreatePolicy(template);
-        policy.cycleRule = NetworkPolicy.buildRule(cycleDay, ZoneId.of(cycleTimezone));
+        policy.cycleDay = cycleDay;
+        policy.cycleTimezone = cycleTimezone;
         policy.inferred = false;
         policy.clearSnooze();
         writeAsync();
@@ -171,7 +167,7 @@ public class NetworkPolicyEditor {
         return (policy != null) ? policy.warningBytes : WARNING_DISABLED;
     }
 
-    private void setPolicyWarningBytesInner(NetworkTemplate template, long warningBytes) {
+    public void setPolicyWarningBytes(NetworkTemplate template, long warningBytes) {
         final NetworkPolicy policy = getOrCreatePolicy(template);
         policy.warningBytes = warningBytes;
         policy.inferred = false;
@@ -179,33 +175,64 @@ public class NetworkPolicyEditor {
         writeAsync();
     }
 
-    public void setPolicyWarningBytes(NetworkTemplate template, long warningBytes) {
-        long limitBytes = getPolicyLimitBytes(template);
-
-        warningBytes =
-            (limitBytes == LIMIT_DISABLED) ? warningBytes : Math.min(warningBytes, limitBytes);
-
-        setPolicyWarningBytesInner(template, warningBytes);
-    }
-
     public long getPolicyLimitBytes(NetworkTemplate template) {
         final NetworkPolicy policy = getPolicy(template);
         return (policy != null) ? policy.limitBytes : LIMIT_DISABLED;
     }
 
-
     public void setPolicyLimitBytes(NetworkTemplate template, long limitBytes) {
-        long warningBytes = getPolicyWarningBytes(template);
-
-        if (warningBytes > limitBytes && limitBytes != LIMIT_DISABLED) {
-            setPolicyWarningBytesInner(template, limitBytes);
-        }
-
         final NetworkPolicy policy = getOrCreatePolicy(template);
         policy.limitBytes = limitBytes;
         policy.inferred = false;
         policy.clearSnooze();
         writeAsync();
+    }
+
+    public boolean getPolicyMetered(NetworkTemplate template) {
+        NetworkPolicy policy = getPolicy(template);
+        if (policy != null) {
+            return policy.metered;
+        } else {
+            return false;
+        }
+    }
+
+    public void setPolicyMetered(NetworkTemplate template, boolean metered) {
+        boolean modified = false;
+
+        NetworkPolicy policy = getPolicy(template);
+        if (metered) {
+            if (policy == null) {
+                policy = buildDefaultPolicy(template);
+                policy.metered = true;
+                policy.inferred = false;
+                mPolicies.add(policy);
+                modified = true;
+            } else if (!policy.metered) {
+                policy.metered = true;
+                policy.inferred = false;
+                modified = true;
+            }
+
+        } else {
+            if (policy == null) {
+                // ignore when policy doesn't exist
+            } else if (policy.metered) {
+                policy.metered = false;
+                policy.inferred = false;
+                modified = true;
+            }
+        }
+
+        // Remove legacy unquoted policies while we're here
+        final NetworkTemplate unquoted = buildUnquotedNetworkTemplate(template);
+        final NetworkPolicy unquotedPolicy = getPolicy(unquoted);
+        if (unquotedPolicy != null) {
+            mPolicies.remove(unquotedPolicy);
+            modified = true;
+        }
+
+        if (modified) writeAsync();
     }
 
     /**

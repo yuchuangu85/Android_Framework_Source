@@ -120,7 +120,7 @@ public class PhotoPagerAdapter extends BaseCursorPagerAdapter {
         if (value == null) {
             return false;
         } else {
-            return Boolean.parseBoolean(value);
+            return Boolean.valueOf(value);
         }
     }
 

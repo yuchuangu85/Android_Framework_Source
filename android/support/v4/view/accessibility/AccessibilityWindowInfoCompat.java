@@ -16,15 +16,219 @@
 
 package android.support.v4.view.accessibility;
 
-import static android.os.Build.VERSION.SDK_INT;
-
 import android.graphics.Rect;
-import android.view.accessibility.AccessibilityWindowInfo;
+import android.os.Build;
 
 /**
- * Helper for accessing {@link android.view.accessibility.AccessibilityWindowInfo}.
+ * Helper for accessing {@link android.view.accessibility.AccessibilityWindowInfo}
+ * introduced after API level 4 in a backwards compatible fashion.
  */
 public class AccessibilityWindowInfoCompat {
+
+    private interface AccessibilityWindowInfoImpl {
+        Object obtain();
+        Object obtain(Object info);
+        int getType(Object info);
+        int getLayer(Object info);
+        Object getRoot(Object info);
+        Object getParent(Object info);
+        int getId(Object info);
+        void getBoundsInScreen(Object info, Rect outBounds);
+        boolean isActive(Object info);
+        boolean isFocused(Object info);
+        boolean isAccessibilityFocused(Object info);
+        int getChildCount(Object info);
+        Object getChild(Object info, int index);
+        CharSequence getTitle(Object info);
+        Object getAnchor(Object info);
+        void recycle(Object info);
+    }
+
+    private static class AccessibilityWindowInfoStubImpl implements AccessibilityWindowInfoImpl {
+
+        AccessibilityWindowInfoStubImpl() {
+        }
+
+        @Override
+        public Object obtain() {
+            return null;
+        }
+
+        @Override
+        public Object obtain(Object info) {
+            return null;
+        }
+
+        @Override
+        public int getType(Object info) {
+            return UNDEFINED;
+        }
+
+        @Override
+        public int getLayer(Object info) {
+            return UNDEFINED;
+        }
+
+        @Override
+        public Object getRoot(Object info) {
+            return null;
+        }
+
+        @Override
+        public Object getParent(Object info) {
+            return null;
+        }
+
+        @Override
+        public int getId(Object info) {
+            return UNDEFINED;
+        }
+
+        @Override
+        public void getBoundsInScreen(Object info, Rect outBounds) {
+        }
+
+        @Override
+        public boolean isActive(Object info) {
+            return true;
+        }
+
+        @Override
+        public boolean isFocused(Object info) {
+            return true;
+        }
+
+        @Override
+        public boolean isAccessibilityFocused(Object info) {
+            return true;
+        }
+
+        @Override
+        public int getChildCount(Object info) {
+            return 0;
+        }
+
+        @Override
+        public Object getChild(Object info, int index) {
+            return null;
+        }
+
+        @Override
+        public void recycle(Object info) {
+        }
+
+        @Override
+        public CharSequence getTitle(Object info) {
+            return null;
+        }
+
+        @Override
+        public Object getAnchor(Object info) {
+            return null;
+        }
+    }
+
+    private static class AccessibilityWindowInfoApi21Impl extends AccessibilityWindowInfoStubImpl {
+        AccessibilityWindowInfoApi21Impl() {
+        }
+
+        @Override
+        public Object obtain() {
+            return AccessibilityWindowInfoCompatApi21.obtain();
+        }
+
+        @Override
+        public Object obtain(Object info) {
+            return AccessibilityWindowInfoCompatApi21.obtain(info);
+        }
+
+        @Override
+        public int getType(Object info) {
+            return AccessibilityWindowInfoCompatApi21.getType(info);
+        }
+
+        @Override
+        public int getLayer(Object info) {
+            return AccessibilityWindowInfoCompatApi21.getLayer(info);
+        }
+
+        @Override
+        public Object getRoot(Object info) {
+            return AccessibilityWindowInfoCompatApi21.getRoot(info);
+        }
+
+        @Override
+        public Object getParent(Object info) {
+            return AccessibilityWindowInfoCompatApi21.getParent(info);
+        }
+
+        @Override
+        public int getId(Object info) {
+            return AccessibilityWindowInfoCompatApi21.getId(info);
+        }
+
+        @Override
+        public void getBoundsInScreen(Object info, Rect outBounds) {
+            AccessibilityWindowInfoCompatApi21.getBoundsInScreen(info, outBounds);
+        }
+
+        @Override
+        public boolean isActive(Object info) {
+            return AccessibilityWindowInfoCompatApi21.isActive(info);
+        }
+
+        @Override
+        public boolean isFocused(Object info) {
+            return AccessibilityWindowInfoCompatApi21.isFocused(info);
+        }
+
+        @Override
+        public boolean isAccessibilityFocused(Object info) {
+            return AccessibilityWindowInfoCompatApi21.isAccessibilityFocused(info);
+        }
+
+        @Override
+        public int getChildCount(Object info) {
+            return AccessibilityWindowInfoCompatApi21.getChildCount(info);
+        }
+
+        @Override
+        public Object getChild(Object info, int index) {
+            return AccessibilityWindowInfoCompatApi21.getChild(info, index);
+        }
+
+        @Override
+        public void recycle(Object info) {
+            AccessibilityWindowInfoCompatApi21.recycle(info);
+        }
+    }
+
+    private static class AccessibilityWindowInfoApi24Impl extends AccessibilityWindowInfoApi21Impl {
+        AccessibilityWindowInfoApi24Impl() {
+        }
+
+        @Override
+        public CharSequence getTitle(Object info) {
+            return AccessibilityWindowInfoCompatApi24.getTitle(info);
+        }
+
+        @Override
+        public Object getAnchor(Object info) {
+            return AccessibilityWindowInfoCompatApi24.getAnchor(info);
+        }
+    }
+
+    static {
+        if (Build.VERSION.SDK_INT >= 24) {
+            IMPL = new AccessibilityWindowInfoApi24Impl();
+        } else  if (Build.VERSION.SDK_INT >= 21) {
+            IMPL = new AccessibilityWindowInfoApi21Impl();
+        } else {
+            IMPL = new AccessibilityWindowInfoStubImpl();
+        }
+    }
+
+    private static final AccessibilityWindowInfoImpl IMPL;
     private Object mInfo;
 
     private static final int UNDEFINED = -1;
@@ -94,11 +298,7 @@ public class AccessibilityWindowInfoCompat {
      * @see #TYPE_ACCESSIBILITY_OVERLAY
      */
     public int getType() {
-        if (SDK_INT >= 21) {
-            return ((AccessibilityWindowInfo) mInfo).getType();
-        } else {
-            return UNDEFINED;
-        }
+        return IMPL.getType(mInfo);
     }
 
     /**
@@ -108,11 +308,7 @@ public class AccessibilityWindowInfoCompat {
      * @return The window layer.
      */
     public int getLayer() {
-        if (SDK_INT >= 21) {
-            return ((AccessibilityWindowInfo) mInfo).getLayer();
-        } else {
-            return UNDEFINED;
-        }
+        return IMPL.getLayer(mInfo);
     }
 
     /**
@@ -121,12 +317,7 @@ public class AccessibilityWindowInfoCompat {
      * @return The root node.
      */
     public AccessibilityNodeInfoCompat getRoot() {
-        if (SDK_INT >= 21) {
-            return AccessibilityNodeInfoCompat.wrapNonNullInstance(
-                    ((AccessibilityWindowInfo) mInfo).getRoot());
-        } else {
-            return null;
-        }
+        return AccessibilityNodeInfoCompat.wrapNonNullInstance(IMPL.getRoot(mInfo));
     }
 
     /**
@@ -135,11 +326,7 @@ public class AccessibilityWindowInfoCompat {
      * @return The parent window.
      */
     public AccessibilityWindowInfoCompat getParent() {
-        if (SDK_INT >= 21) {
-            return wrapNonNullInstance(((AccessibilityWindowInfo) mInfo).getParent());
-        } else {
-            return null;
-        }
+        return wrapNonNullInstance(IMPL.getParent(mInfo));
     }
 
     /**
@@ -148,11 +335,7 @@ public class AccessibilityWindowInfoCompat {
      * @return windowId The window id.
      */
     public int getId() {
-        if (SDK_INT >= 21) {
-            return ((AccessibilityWindowInfo) mInfo).getId();
-        } else {
-            return UNDEFINED;
-        }
+        return IMPL.getId(mInfo);
     }
 
     /**
@@ -161,9 +344,7 @@ public class AccessibilityWindowInfoCompat {
      * @param outBounds The out window bounds.
      */
     public void getBoundsInScreen(Rect outBounds) {
-        if (SDK_INT >= 21) {
-            ((AccessibilityWindowInfo) mInfo).getBoundsInScreen(outBounds);
-        }
+        IMPL.getBoundsInScreen(mInfo, outBounds);
     }
 
     /**
@@ -174,11 +355,7 @@ public class AccessibilityWindowInfoCompat {
      * @return Whether this is the active window.
      */
     public boolean isActive() {
-        if (SDK_INT >= 21) {
-            return ((AccessibilityWindowInfo) mInfo).isActive();
-        } else {
-            return true;
-        }
+        return IMPL.isActive(mInfo);
     }
 
     /**
@@ -187,11 +364,7 @@ public class AccessibilityWindowInfoCompat {
      * @return Whether has input focus.
      */
     public boolean isFocused() {
-        if (SDK_INT >= 21) {
-            return ((AccessibilityWindowInfo) mInfo).isFocused();
-        } else {
-            return true;
-        }
+        return IMPL.isFocused(mInfo);
     }
 
     /**
@@ -200,11 +373,7 @@ public class AccessibilityWindowInfoCompat {
      * @return Whether has accessibility focus.
      */
     public boolean isAccessibilityFocused() {
-        if (SDK_INT >= 21) {
-            return ((AccessibilityWindowInfo) mInfo).isAccessibilityFocused();
-        } else {
-            return true;
-        }
+        return IMPL.isAccessibilityFocused(mInfo);
     }
 
     /**
@@ -213,11 +382,7 @@ public class AccessibilityWindowInfoCompat {
      * @return The child count.
      */
     public int getChildCount() {
-        if (SDK_INT >= 21) {
-            return ((AccessibilityWindowInfo) mInfo).getChildCount();
-        } else {
-            return 0;
-        }
+        return IMPL.getChildCount(mInfo);
     }
 
     /**
@@ -227,11 +392,7 @@ public class AccessibilityWindowInfoCompat {
      * @return The child.
      */
     public AccessibilityWindowInfoCompat getChild(int index) {
-        if (SDK_INT >= 21) {
-            return wrapNonNullInstance(((AccessibilityWindowInfo) mInfo).getChild(index));
-        } else {
-            return null;
-        }
+        return wrapNonNullInstance(IMPL.getChild(mInfo, index));
     }
 
     /**
@@ -241,11 +402,7 @@ public class AccessibilityWindowInfoCompat {
      * explicitly set, or {@code null} if neither is available.
      */
     public CharSequence getTitle() {
-        if (SDK_INT >= 24) {
-            return ((AccessibilityWindowInfo) mInfo).getTitle();
-        } else {
-            return null;
-        }
+        return IMPL.getTitle(mInfo);
     }
 
     /**
@@ -254,12 +411,7 @@ public class AccessibilityWindowInfoCompat {
      * @return The anchor node, or {@code null} if none exists.
      */
     public AccessibilityNodeInfoCompat getAnchor() {
-        if (SDK_INT >= 24) {
-            return AccessibilityNodeInfoCompat.wrapNonNullInstance(
-                    ((AccessibilityWindowInfo) mInfo).getAnchor());
-        } else {
-            return null;
-        }
+        return AccessibilityNodeInfoCompat.wrapNonNullInstance(IMPL.getAnchor(mInfo));
     }
 
     /**
@@ -269,11 +421,7 @@ public class AccessibilityWindowInfoCompat {
      * @return An instance.
      */
     public static AccessibilityWindowInfoCompat obtain() {
-        if (SDK_INT >= 21) {
-            return wrapNonNullInstance(AccessibilityWindowInfo.obtain());
-        } else {
-            return null;
-        }
+        return wrapNonNullInstance(IMPL.obtain());
     }
 
     /**
@@ -285,14 +433,7 @@ public class AccessibilityWindowInfoCompat {
      * @return An instance.
      */
     public static AccessibilityWindowInfoCompat obtain(AccessibilityWindowInfoCompat info) {
-        if (SDK_INT >= 21) {
-            return info == null
-                    ? null
-                    : wrapNonNullInstance(
-                            AccessibilityWindowInfo.obtain((AccessibilityWindowInfo) info.mInfo));
-        } else {
-            return null;
-        }
+        return info == null ? null : wrapNonNullInstance(IMPL.obtain(info.mInfo));
     }
 
     /**
@@ -304,9 +445,7 @@ public class AccessibilityWindowInfoCompat {
      * @throws IllegalStateException If the info is already recycled.
      */
     public void recycle() {
-        if (SDK_INT >= 21) {
-            ((AccessibilityWindowInfo) mInfo).recycle();
-        }
+        IMPL.recycle(mInfo);
     }
 
     @Override

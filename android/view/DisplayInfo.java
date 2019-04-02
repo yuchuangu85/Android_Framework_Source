@@ -23,9 +23,9 @@ import android.os.Parcelable;
 import android.util.ArraySet;
 import android.util.DisplayMetrics;
 
-import libcore.util.Objects;
-
 import java.util.Arrays;
+
+import libcore.util.Objects;
 
 /**
  * Describes the characteristics of a particular logical display.
@@ -238,15 +238,6 @@ public final class DisplayInfo implements Parcelable {
      */
     public String ownerPackageName;
 
-    /**
-     * @hide
-     * Get current remove mode of the display - what actions should be performed with the display's
-     * content when it is removed.
-     *
-     * @see Display#getRemoveMode()
-     */
-    public int removeMode = Display.REMOVE_MODE_MOVE_CONTENT_TO_PRIMARY;
-
     public static final Creator<DisplayInfo> CREATOR = new Creator<DisplayInfo>() {
         @Override
         public DisplayInfo createFromParcel(Parcel source) {
@@ -307,8 +298,7 @@ public final class DisplayInfo implements Parcelable {
                 && presentationDeadlineNanos == other.presentationDeadlineNanos
                 && state == other.state
                 && ownerUid == other.ownerUid
-                && Objects.equal(ownerPackageName, other.ownerPackageName)
-                && removeMode == other.removeMode;
+                && Objects.equal(ownerPackageName, other.ownerPackageName);
     }
 
     @Override
@@ -351,7 +341,6 @@ public final class DisplayInfo implements Parcelable {
         state = other.state;
         ownerUid = other.ownerUid;
         ownerPackageName = other.ownerPackageName;
-        removeMode = other.removeMode;
     }
 
     public void readFromParcel(Parcel source) {
@@ -396,7 +385,6 @@ public final class DisplayInfo implements Parcelable {
         ownerUid = source.readInt();
         ownerPackageName = source.readString();
         uniqueId = source.readString();
-        removeMode = source.readInt();
     }
 
     @Override
@@ -440,7 +428,6 @@ public final class DisplayInfo implements Parcelable {
         dest.writeInt(ownerUid);
         dest.writeString(ownerPackageName);
         dest.writeString(uniqueId);
-        dest.writeInt(removeMode);
     }
 
     @Override
@@ -532,20 +519,6 @@ public final class DisplayInfo implements Parcelable {
                 logicalHeight : logicalWidth;
     }
 
-    public boolean isHdr() {
-        int[] types = hdrCapabilities != null ? hdrCapabilities.getSupportedHdrTypes() : null;
-        return types != null && types.length > 0;
-    }
-
-    public boolean isWideColorGamut() {
-        for (int colorMode : supportedColorModes) {
-            if (colorMode == Display.COLOR_MODE_DCI_P3 || colorMode > Display.COLOR_MODE_SRGB) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * Returns true if the specified UID has access to this display.
      */
@@ -562,10 +535,12 @@ public final class DisplayInfo implements Parcelable {
         outMetrics.xdpi = outMetrics.noncompatXdpi = physicalXDpi;
         outMetrics.ydpi = outMetrics.noncompatYdpi = physicalYDpi;
 
-        width = configuration != null && configuration.appBounds != null
-                ? configuration.appBounds.width() : width;
-        height = configuration != null && configuration.appBounds != null
-                ? configuration.appBounds.height() : height;
+        width = (configuration != null
+                && configuration.screenWidthDp != Configuration.SCREEN_WIDTH_DP_UNDEFINED)
+                ? (int)((configuration.screenWidthDp * outMetrics.density) + 0.5f) : width;
+        height = (configuration != null
+                && configuration.screenHeightDp != Configuration.SCREEN_HEIGHT_DP_UNDEFINED)
+                ? (int)((configuration.screenHeightDp * outMetrics.density) + 0.5f) : height;
 
         outMetrics.noncompatWidthPixels  = outMetrics.widthPixels = width;
         outMetrics.noncompatHeightPixels = outMetrics.heightPixels = height;
@@ -648,8 +623,6 @@ public final class DisplayInfo implements Parcelable {
             sb.append(" (uid ").append(ownerUid).append(")");
         }
         sb.append(flagsToString(flags));
-        sb.append(", removeMode ");
-        sb.append(removeMode);
         sb.append("}");
         return sb.toString();
     }

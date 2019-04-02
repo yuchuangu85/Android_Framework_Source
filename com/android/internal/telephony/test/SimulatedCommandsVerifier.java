@@ -19,8 +19,6 @@ package com.android.internal.telephony.test;
 import android.os.Handler;
 import android.os.Message;
 import android.service.carrier.CarrierIdentifier;
-import android.telephony.ImsiEncryptionInfo;
-import android.telephony.NetworkScanRequest;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.RadioCapability;
@@ -146,22 +144,22 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
-    public void registerForNetworkStateChanged(Handler h, int what, Object obj) {
+    public void registerForVoiceNetworkStateChanged(Handler h, int what, Object obj) {
 
     }
 
     @Override
-    public void unregisterForNetworkStateChanged(Handler h) {
+    public void unregisterForVoiceNetworkStateChanged(Handler h) {
 
     }
 
     @Override
-    public void registerForDataCallListChanged(Handler h, int what, Object obj) {
+    public void registerForDataNetworkStateChanged(Handler h, int what, Object obj) {
 
     }
 
     @Override
-    public void unregisterForDataCallListChanged(Handler h) {
+    public void unregisterForDataNetworkStateChanged(Handler h) {
 
     }
 
@@ -947,16 +945,6 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
-    public void startNetworkScan(NetworkScanRequest nsr, Message response) {
-
-    }
-
-    @Override
-    public void stopNetworkScan(Message response) {
-
-    }
-
-    @Override
     public void getBasebandVersion(Message response) {
 
     }
@@ -1017,6 +1005,11 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
 
     @Override
     public void getPreferredNetworkType(Message response) {
+
+    }
+
+    @Override
+    public void getNeighboringCids(Message response) {
 
     }
 
@@ -1151,8 +1144,9 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
-    public void setupDataCall(int radioTechnology, DataProfile dataProfile, boolean isRoaming,
-                              boolean allowRoaming, Message result) {
+    public void setupDataCall(int radioTechnology, int profile, String apn, String user,
+                              String password, int authType, String protocol, Message result) {
+
     }
 
     @Override
@@ -1207,6 +1201,16 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
+    public void getCellInfoList(Message result) {
+
+    }
+
+    @Override
+    public void setCellInfoListRate(int rateInMillis, Message response) {
+
+    }
+
+    @Override
     public void registerForCellInfoList(Handler h, int what, Object obj) {
 
     }
@@ -1217,12 +1221,13 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
-    public void setInitialAttachApn(DataProfile dataProfile, boolean isRoaming, Message result) {
+    public void setInitialAttachApn(String apn, String protocol, int authType, String username,
+                                    String password, Message result) {
 
     }
 
     @Override
-    public void setDataProfile(DataProfile[] dps, boolean isRoaming, Message result) {
+    public void setDataProfile(DataProfile[] dps, Message result) {
 
     }
 
@@ -1232,7 +1237,7 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
-    public void iccOpenLogicalChannel(String AID, int p2, Message response) {
+    public void iccOpenLogicalChannel(String AID, Message response) {
 
     }
 
@@ -1350,12 +1355,6 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
-    public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo,
-                                                Message result) {
-
-    }
-
-    @Override
     public void setAllowedCarriers(List<CarrierIdentifier> carriers, Message result) {
 
     }
@@ -1371,41 +1370,5 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
 
     @Override
     public void unregisterForPcoData(Handler h) {
-    }
-
-    @Override
-    public void registerForModemReset(Handler h, int what, Object obj) {
-    }
-
-    @Override
-    public void unregisterForModemReset(Handler h) {
-    }
-
-    @Override
-    public void sendDeviceState(int stateType, boolean state, Message result) {
-    }
-
-    @Override
-    public void setUnsolResponseFilter(int filter, Message result){
-    }
-
-    @Override
-    public void setSimCardPower(int state, Message result) {
-    }
-
-    @Override
-    public void registerForCarrierInfoForImsiEncryption(Handler h, int what, Object obj) {
-    }
-
-    @Override
-    public void registerForNetworkScanResult(Handler h, int what, Object obj) {
-    }
-
-    @Override
-    public void unregisterForNetworkScanResult(Handler h) {
-    }
-
-    @Override
-    public void unregisterForCarrierInfoForImsiEncryption(Handler h) {
     }
 }

@@ -46,7 +46,6 @@ class TwilightCalculator {
     private static final float J0 = 0.0009f;
 
     // correction for civil twilight
-    @SuppressWarnings("FloatingPointLiteralPrecision")
     private static final float ALTIDUTE_CORRECTION_CIVIL_TWILIGHT = -0.104719755f;
 
     // coefficients for calculating Equation of Center.
@@ -54,7 +53,6 @@ class TwilightCalculator {
     private static final float C2 = 0.000349066f;
     private static final float C3 = 0.000005236f;
 
-    @SuppressWarnings("FloatingPointLiteralPrecision")
     private static final float OBLIQUITY = 0.40927971f;
 
     // Java time on Jan 1, 2000 12:00 UTC.
@@ -84,7 +82,6 @@ class TwilightCalculator {
      * @param latitude latitude in degrees.
      * @param longitude latitude in degrees.
      */
-    @SuppressWarnings("FloatingPointLiteralPrecision")
     public void calculateTwilight(long time, double latitude, double longitude) {
         final float daysSince2000 = (float) (time - UTC_2000) / DateUtils.DAY_IN_MILLIS;
 

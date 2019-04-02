@@ -16,8 +16,6 @@
 
 package java.lang.ref;
 
-import dalvik.annotation.optimization.FastNative;
-
 /**
  * @hide
  */
@@ -102,12 +100,9 @@ public final class FinalizerReference<T> extends Reference<T> {
             // We search the list for that FinalizerReference (it should be at or near the head),
             // and then put it on the queue so that it can be finalized.
             for (FinalizerReference<?> r = head; r != null; r = r.next) {
-                // Use getReferent() instead of directly accessing the referent field not to race
-                // with GC reference processing. Can't use get() either because it's overridden to
-                // return the zombie.
-                if (r.getReferent() == sentinel) {
+                if (r.referent == sentinel) {
                     FinalizerReference<Sentinel> sentinelReference = (FinalizerReference<Sentinel>) r;
-                    sentinelReference.clearReferent();
+                    sentinelReference.referent = null;
                     sentinelReference.zombie = sentinel;
                     // Make a single element list, then enqueue the reference on the daemon unenqueued
                     // list. This is required instead of enqueuing directly on the finalizer queue
@@ -131,9 +126,6 @@ public final class FinalizerReference<T> extends Reference<T> {
         throw new AssertionError("newly-created live Sentinel not on list!");
     }
 
-    @FastNative
-    private final native T getReferent();
-    @FastNative
     private native boolean makeCircularListIfUnenqueued();
 
     /**

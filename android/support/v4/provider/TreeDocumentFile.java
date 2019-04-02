@@ -16,17 +16,9 @@
 
 package android.support.v4.provider;
 
-import android.content.ContentResolver;
 import android.content.Context;
-import android.database.Cursor;
 import android.net.Uri;
-import android.provider.DocumentsContract;
-import android.support.annotation.RequiresApi;
-import android.util.Log;
 
-import java.util.ArrayList;
-
-@RequiresApi(21)
 class TreeDocumentFile extends DocumentFile {
     private Context mContext;
     private Uri mUri;
@@ -39,24 +31,13 @@ class TreeDocumentFile extends DocumentFile {
 
     @Override
     public DocumentFile createFile(String mimeType, String displayName) {
-        final Uri result = TreeDocumentFile.createFile(mContext, mUri, mimeType, displayName);
+        final Uri result = DocumentsContractApi21.createFile(mContext, mUri, mimeType, displayName);
         return (result != null) ? new TreeDocumentFile(this, mContext, result) : null;
-    }
-
-    private static Uri createFile(Context context, Uri self, String mimeType,
-            String displayName) {
-        try {
-            return DocumentsContract.createDocument(context.getContentResolver(), self, mimeType,
-                    displayName);
-        } catch (Exception e) {
-            return null;
-        }
     }
 
     @Override
     public DocumentFile createDirectory(String displayName) {
-        final Uri result = TreeDocumentFile.createFile(
-                mContext, mUri, DocumentsContract.Document.MIME_TYPE_DIR, displayName);
+        final Uri result = DocumentsContractApi21.createDirectory(mContext, mUri, displayName);
         return (result != null) ? new TreeDocumentFile(this, mContext, result) : null;
     }
 
@@ -86,11 +67,6 @@ class TreeDocumentFile extends DocumentFile {
     }
 
     @Override
-    public boolean isVirtual() {
-        return DocumentsContractApi19.isVirtual(mContext, mUri);
-    }
-
-    @Override
     public long lastModified() {
         return DocumentsContractApi19.lastModified(mContext, mUri);
     }
@@ -112,11 +88,7 @@ class TreeDocumentFile extends DocumentFile {
 
     @Override
     public boolean delete() {
-        try {
-            return DocumentsContract.deleteDocument(mContext.getContentResolver(), mUri);
-        } catch (Exception e) {
-            return false;
-        }
+        return DocumentsContractApi19.delete(mContext, mUri);
     }
 
     @Override
@@ -126,28 +98,7 @@ class TreeDocumentFile extends DocumentFile {
 
     @Override
     public DocumentFile[] listFiles() {
-        final ContentResolver resolver = mContext.getContentResolver();
-        final Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(mUri,
-                DocumentsContract.getDocumentId(mUri));
-        final ArrayList<Uri> results = new ArrayList<>();
-
-        Cursor c = null;
-        try {
-            c = resolver.query(childrenUri, new String[] {
-                    DocumentsContract.Document.COLUMN_DOCUMENT_ID }, null, null, null);
-            while (c.moveToNext()) {
-                final String documentId = c.getString(0);
-                final Uri documentUri = DocumentsContract.buildDocumentUriUsingTree(mUri,
-                        documentId);
-                results.add(documentUri);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Failed query: " + e);
-        } finally {
-            closeQuietly(c);
-        }
-
-        final Uri[] result = results.toArray(new Uri[results.size()]);
+        final Uri[] result = DocumentsContractApi21.listFiles(mContext, mUri);
         final DocumentFile[] resultFiles = new DocumentFile[result.length];
         for (int i = 0; i < result.length; i++) {
             resultFiles[i] = new TreeDocumentFile(this, mContext, result[i]);
@@ -155,29 +106,13 @@ class TreeDocumentFile extends DocumentFile {
         return resultFiles;
     }
 
-    private static void closeQuietly(AutoCloseable closeable) {
-        if (closeable != null) {
-            try {
-                closeable.close();
-            } catch (RuntimeException rethrown) {
-                throw rethrown;
-            } catch (Exception ignored) {
-            }
-        }
-    }
-
     @Override
     public boolean renameTo(String displayName) {
-        try {
-            final Uri result = DocumentsContract.renameDocument(
-                    mContext.getContentResolver(), mUri, displayName);
-            if (result != null) {
-                mUri = result;
-                return true;
-            } else {
-                return false;
-            }
-        } catch (Exception e) {
+        final Uri result = DocumentsContractApi21.renameTo(mContext, mUri, displayName);
+        if (result != null) {
+            mUri = result;
+            return true;
+        } else {
             return false;
         }
     }

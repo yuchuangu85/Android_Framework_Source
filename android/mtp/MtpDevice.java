@@ -25,9 +25,7 @@ import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
 
 import android.os.UserManager;
-import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.Preconditions;
-import dalvik.system.CloseGuard;
 
 import java.io.IOException;
 
@@ -47,23 +45,12 @@ public final class MtpDevice {
         System.loadLibrary("media_jni");
     }
 
-    /** Make sure that MTP device is closed properly */
-    @GuardedBy("mLock")
-    private CloseGuard mCloseGuard = CloseGuard.get();
-
-    /** Current connection to the {@link #mDevice}, or null if device is not connected */
-    @GuardedBy("mLock")
-    private UsbDeviceConnection mConnection;
-
-    private final Object mLock = new Object();
-
     /**
      * MtpClient constructor
      *
      * @param device the {@link android.hardware.usb.UsbDevice} for the MTP or PTP device
      */
-    public MtpDevice(@NonNull UsbDevice device) {
-        Preconditions.checkNotNull(device);
+    public MtpDevice(UsbDevice device) {
         mDevice = device;
     }
 
@@ -76,29 +63,21 @@ public final class MtpDevice {
      * @param connection an open {@link android.hardware.usb.UsbDeviceConnection} for the device
      * @return true if the device was successfully opened.
      */
-    public boolean open(@NonNull UsbDeviceConnection connection) {
+    public boolean open(UsbDeviceConnection connection) {
         boolean result = false;
 
         Context context = connection.getContext();
+        if (context != null) {
+            UserManager userManager = (UserManager) context.getSystemService(Context.USER_SERVICE);
 
-        synchronized (mLock) {
-            if (context != null) {
-                UserManager userManager = (UserManager) context
-                        .getSystemService(Context.USER_SERVICE);
-
-                if (!userManager.hasUserRestriction(UserManager.DISALLOW_USB_FILE_TRANSFER)) {
-                    result = native_open(mDevice.getDeviceName(), connection.getFileDescriptor());
-                }
-            }
-
-            if (!result) {
-                connection.close();
-            } else {
-                mConnection = connection;
-                mCloseGuard.open("close");
+            if (!userManager.hasUserRestriction(UserManager.DISALLOW_USB_FILE_TRANSFER)) {
+                result = native_open(mDevice.getDeviceName(), connection.getFileDescriptor());
             }
         }
 
+        if (!result) {
+            connection.close();
+        }
         return result;
     }
 
@@ -108,26 +87,13 @@ public final class MtpDevice {
      * with a new {@link android.hardware.usb.UsbDeviceConnection}.
      */
     public void close() {
-        synchronized (mLock) {
-            if (mConnection != null) {
-                mCloseGuard.close();
-
-                native_close();
-
-                mConnection.close();
-                mConnection = null;
-            }
-        }
+        native_close();
     }
 
     @Override
     protected void finalize() throws Throwable {
         try {
-            if (mCloseGuard != null) {
-                mCloseGuard.warnIfOpen();
-            }
-
-            close();
+            native_close();
         } finally {
             super.finalize();
         }
@@ -140,7 +106,7 @@ public final class MtpDevice {
      *
      * @return the device name
      */
-    public @NonNull String getDeviceName() {
+    public String getDeviceName() {
         return mDevice.getDeviceName();
     }
 
@@ -156,16 +122,16 @@ public final class MtpDevice {
     }
 
     @Override
-    public @NonNull String toString() {
+    public String toString() {
         return mDevice.getDeviceName();
     }
 
     /**
      * Returns the {@link MtpDeviceInfo} for this device
      *
-     * @return the device info, or null if fetching device info fails
+     * @return the device info
      */
-    public @Nullable MtpDeviceInfo getDeviceInfo() {
+    public MtpDeviceInfo getDeviceInfo() {
         return native_get_device_info();
     }
 
@@ -173,9 +139,9 @@ public final class MtpDevice {
      * Returns the list of IDs for all storage units on this device
      * Information about each storage unit can be accessed via {@link #getStorageInfo}.
      *
-     * @return the list of storage IDs, or null if fetching storage IDs fails
+     * @return the list of storage IDs
      */
-    public @Nullable int[] getStorageIds() {
+    public int[] getStorageIds() {
         return native_get_storage_ids();
     }
 
@@ -188,9 +154,9 @@ public final class MtpDevice {
      * @param format the format of the object to return, or zero for all formats
      * @param objectHandle the parent object to query, -1 for the storage root,
      *     or zero for all objects
-     * @return the object handles, or null if fetching object handles fails
+     * @return the object handles
      */
-    public @Nullable int[] getObjectHandles(int storageId, int format, int objectHandle) {
+    public int[] getObjectHandles(int storageId, int format, int objectHandle) {
         return native_get_object_handles(storageId, format, objectHandle);
     }
 
@@ -204,7 +170,7 @@ public final class MtpDevice {
      *      {@link MtpObjectInfo#getCompressedSize})
      * @return the object's data, or null if reading fails
      */
-    public @Nullable byte[] getObject(int objectHandle, int objectSize) {
+    public byte[] getObject(int objectHandle, int objectSize) {
         Preconditions.checkArgumentNonnegative(objectSize, "objectSize should not be negative");
         return native_get_object(objectHandle, objectSize);
     }
@@ -222,7 +188,7 @@ public final class MtpDevice {
      * @param buffer Array to write data.
      * @return Size of bytes that are actually read.
      */
-    public long getPartialObject(int objectHandle, long offset, long size, @NonNull byte[] buffer)
+    public long getPartialObject(int objectHandle, long offset, long size, byte[] buffer)
             throws IOException {
         return native_get_partial_object(objectHandle, offset, size, buffer);
     }
@@ -243,7 +209,7 @@ public final class MtpDevice {
      * @return Size of bytes that are actually read.
      * @see MtpConstants#OPERATION_GET_PARTIAL_OBJECT_64
      */
-    public long getPartialObject64(int objectHandle, long offset, long size, @NonNull byte[] buffer)
+    public long getPartialObject64(int objectHandle, long offset, long size, byte[] buffer)
             throws IOException {
         return native_get_partial_object_64(objectHandle, offset, size, buffer);
     }
@@ -258,7 +224,7 @@ public final class MtpDevice {
      * @param objectHandle handle of the object to read
      * @return the object's thumbnail, or null if reading fails
      */
-    public @Nullable byte[] getThumbnail(int objectHandle) {
+    public byte[] getThumbnail(int objectHandle) {
         return native_get_thumbnail(objectHandle);
     }
 
@@ -266,9 +232,9 @@ public final class MtpDevice {
      * Retrieves the {@link MtpStorageInfo} for a storage unit.
      *
      * @param storageId the ID of the storage unit
-     * @return the MtpStorageInfo, or null if fetching storage info fails
+     * @return the MtpStorageInfo
      */
-    public @Nullable MtpStorageInfo getStorageInfo(int storageId) {
+    public MtpStorageInfo getStorageInfo(int storageId) {
         return native_get_storage_info(storageId);
     }
 
@@ -276,9 +242,9 @@ public final class MtpDevice {
      * Retrieves the {@link MtpObjectInfo} for an object.
      *
      * @param objectHandle the handle of the object
-     * @return the MtpObjectInfo, or null if fetching object info fails
+     * @return the MtpObjectInfo
      */
-    public @Nullable MtpObjectInfo getObjectInfo(int objectHandle) {
+    public MtpObjectInfo getObjectInfo(int objectHandle) {
         return native_get_object_info(objectHandle);
     }
 
@@ -325,7 +291,7 @@ public final class MtpDevice {
      *      {@link android.os.Environment#getExternalStorageDirectory}
      * @return true if the file transfer succeeds
      */
-    public boolean importFile(int objectHandle, @NonNull String destPath) {
+    public boolean importFile(int objectHandle, String destPath) {
         return native_import_file(objectHandle, destPath);
     }
 
@@ -339,7 +305,7 @@ public final class MtpDevice {
      * @param descriptor file descriptor to write the data to for the file transfer.
      * @return true if the file transfer succeeds
      */
-    public boolean importFile(int objectHandle, @NonNull ParcelFileDescriptor descriptor) {
+    public boolean importFile(int objectHandle, ParcelFileDescriptor descriptor) {
         return native_import_file(objectHandle, descriptor.getFd());
     }
 
@@ -354,8 +320,7 @@ public final class MtpDevice {
      * @param descriptor file descriptor to read the data from.
      * @return true if the file transfer succeeds
      */
-    public boolean sendObject(
-            int objectHandle, long size, @NonNull ParcelFileDescriptor descriptor) {
+    public boolean sendObject(int objectHandle, long size, ParcelFileDescriptor descriptor) {
         return native_send_object(objectHandle, size, descriptor.getFd());
     }
 
@@ -366,9 +331,9 @@ public final class MtpDevice {
      * The returned {@link MtpObjectInfo} has the new object handle field filled in.
      *
      * @param info metadata of the entry
-     * @return object info of the created entry, or null if sending object info fails
+     * @return object info of the created entry or null if the operation failed.
      */
-    public @Nullable MtpObjectInfo sendObjectInfo(@NonNull MtpObjectInfo info) {
+    public MtpObjectInfo sendObjectInfo(MtpObjectInfo info) {
         return native_send_object_info(info);
     }
 

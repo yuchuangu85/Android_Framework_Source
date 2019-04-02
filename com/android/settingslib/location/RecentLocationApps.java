@@ -27,7 +27,6 @@ import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.util.IconDrawableFactory;
 import android.util.Log;
 
 import java.util.ArrayList;
@@ -49,12 +48,10 @@ public class RecentLocationApps {
 
     private final PackageManager mPackageManager;
     private final Context mContext;
-    private final IconDrawableFactory mDrawableFactory;
 
     public RecentLocationApps(Context context) {
         mContext = context;
         mPackageManager = context.getPackageManager();
-        mDrawableFactory = IconDrawableFactory.newInstance(context);
     }
 
     /**
@@ -149,7 +146,8 @@ public class RecentLocationApps {
             }
 
             final UserHandle userHandle = new UserHandle(userId);
-            Drawable icon = mDrawableFactory.getBadgedIcon(appInfo, userId);
+            Drawable appIcon = mPackageManager.getApplicationIcon(appInfo);
+            Drawable icon = mPackageManager.getUserBadgedIcon(appIcon, userHandle);
             CharSequence appLabel = mPackageManager.getApplicationLabel(appInfo);
             CharSequence badgedAppLabel = mPackageManager.getUserBadgedLabel(appLabel, userHandle);
             if (appLabel.toString().contentEquals(badgedAppLabel)) {

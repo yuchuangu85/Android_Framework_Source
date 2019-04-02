@@ -17,7 +17,7 @@
 package android.view;
 
 import android.app.Activity;
-import android.os.Binder;
+import android.app.ActivityManagerNative;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -54,7 +54,7 @@ public final class DragAndDropPermissions implements Parcelable {
 
     private final IDragAndDropPermissions mDragAndDropPermissions;
 
-    private IBinder mTransientToken;
+    private IBinder mPermissionOwnerToken;
 
     /**
      * Create a new {@link DragAndDropPermissions} object to control the access permissions for
@@ -98,8 +98,9 @@ public final class DragAndDropPermissions implements Parcelable {
      */
     public boolean takeTransient() {
         try {
-            mTransientToken = new Binder();
-            mDragAndDropPermissions.takeTransient(mTransientToken);
+            mPermissionOwnerToken = ActivityManagerNative.getDefault().
+                    newUriPermissionOwner("drop");
+            mDragAndDropPermissions.takeTransient(mPermissionOwnerToken);
         } catch (RemoteException e) {
             return false;
         }
@@ -112,7 +113,7 @@ public final class DragAndDropPermissions implements Parcelable {
     public void release() {
         try {
             mDragAndDropPermissions.release();
-            mTransientToken = null;
+            mPermissionOwnerToken = null;
         } catch (RemoteException e) {
         }
     }
@@ -138,11 +139,11 @@ public final class DragAndDropPermissions implements Parcelable {
     @Override
     public void writeToParcel(Parcel destination, int flags) {
         destination.writeStrongInterface(mDragAndDropPermissions);
-        destination.writeStrongBinder(mTransientToken);
+        destination.writeStrongBinder(mPermissionOwnerToken);
     }
 
     private DragAndDropPermissions(Parcel in) {
         mDragAndDropPermissions = IDragAndDropPermissions.Stub.asInterface(in.readStrongBinder());
-        mTransientToken = in.readStrongBinder();
+        mPermissionOwnerToken = in.readStrongBinder();
     }
 }

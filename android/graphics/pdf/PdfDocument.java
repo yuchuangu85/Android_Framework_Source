@@ -202,10 +202,7 @@ public class PdfDocument {
     @Override
     protected void finalize() throws Throwable {
         try {
-            if (mCloseGuard != null) {
-                mCloseGuard.warnIfOpen();
-            }
-
+            mCloseGuard.warnIfOpen();
             dispose();
         } finally {
             super.finalize();

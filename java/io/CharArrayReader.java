@@ -130,10 +130,8 @@ public class CharArrayReader extends Reader {
             if (pos >= count) {
                 return -1;
             }
-
-            int avail = count - pos;
-            if (len > avail) {
-                len = avail;
+            if (pos + len > count) {
+                len = count - pos;
             }
             if (len <= 0) {
                 return 0;
@@ -159,10 +157,8 @@ public class CharArrayReader extends Reader {
     public long skip(long n) throws IOException {
         synchronized (lock) {
             ensureOpen();
-
-            long avail = count - pos;
-            if (n > avail) {
-                n = avail;
+            if (pos + n > count) {
+                n = count - pos;
             }
             if (n < 0) {
                 return 0;

@@ -16,24 +16,16 @@
 
 package com.android.setupwizardlib.test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertSame;
-
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
+import android.test.AndroidTestCase;
+import android.test.suitebuilder.annotation.SmallTest;
 import android.text.Annotation;
 import android.text.SpannableStringBuilder;
 
 import com.android.setupwizardlib.span.SpanHelper;
 
-import org.junit.Test;
-import org.junit.runner.RunWith;
+public class SpanHelperTest extends AndroidTestCase {
 
-@RunWith(AndroidJUnit4.class)
-@SmallTest
-public class SpanHelperTest {
-
-    @Test
+    @SmallTest
     public void testReplaceSpan() {
         SpannableStringBuilder ssb = new SpannableStringBuilder("Hello world");
         Annotation oldSpan = new Annotation("key", "value");

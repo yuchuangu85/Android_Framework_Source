@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2009, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -178,8 +178,8 @@ public abstract class Enum<E extends Enum<E>>
      * method is the order in which the constants are declared.
      */
     public final int compareTo(E o) {
-        Enum<?> other = (Enum<?>)o;
-        Enum<E> self = this;
+        Enum other = (Enum)o;
+        Enum self = this;
         if (self.getClass() != other.getClass() && // optimization
             self.getDeclaringClass() != other.getDeclaringClass())
             throw new ClassCastException();
@@ -198,11 +198,10 @@ public abstract class Enum<E extends Enum<E>>
      * @return the Class object corresponding to this enum constant's
      *     enum type
      */
-    @SuppressWarnings("unchecked")
     public final Class<E> getDeclaringClass() {
-        Class<?> clazz = getClass();
-        Class<?> zuper = clazz.getSuperclass();
-        return (zuper == Enum.class) ? (Class<E>)clazz : (Class<E>)zuper;
+        Class clazz = getClass();
+        Class zuper = clazz.getSuperclass();
+        return (zuper == Enum.class) ? clazz : zuper;
     }
 
     /**
@@ -234,28 +233,26 @@ public abstract class Enum<E extends Enum<E>>
      */
     public static <T extends Enum<T>> T valueOf(Class<T> enumType,
                                                 String name) {
-        // Android-changed: Use a static BasicLruCache mapping Enum class -> Enum instance array.
-        if (enumType == null) {
+        if (enumType == null)
             throw new NullPointerException("enumType == null");
-        }
-        if (name == null) {
-            throw new NullPointerException("name == null");
-        }
+        if (name == null)
+            throw new NullPointerException("Name is null");
         T[] values = getSharedConstants(enumType);
-        if (values == null) {
+        T result = null;
+        if (values != null) {
+            for (T value : values) {
+                if (name.equals(value.name())) {
+                    result = value;
+                }
+            }
+        } else {
             throw new IllegalArgumentException(enumType.toString() + " is not an enum type.");
         }
 
-        // Iterate backwards through the array to retain historic Android behavior in the
-        // unexpected / likely invalid case where there are multiple values with the same name.
-        for (int i = values.length - 1; i >= 0; --i) {
-            T value = values[i];
-            if (name.equals(value.name())) {
-                return value;
-            }
-        }
+        if (result != null)
+            return result;
         throw new IllegalArgumentException(
-                "No enum constant " + enumType.getCanonicalName() + "." + name);
+            "No enum constant " + enumType.getCanonicalName() + "." + name);
     }
 
     private static final BasicLruCache<Class<? extends Enum>, Object[]> sharedConstantsCache

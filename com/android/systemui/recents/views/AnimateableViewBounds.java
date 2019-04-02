@@ -30,17 +30,17 @@ public class AnimateableViewBounds extends ViewOutlineProvider {
     private static final float MIN_ALPHA = 0.1f;
     private static final float MAX_ALPHA = 0.8f;
 
-    protected View mSourceView;
+    View mSourceView;
     @ViewDebug.ExportedProperty(category="recents")
-    protected Rect mClipRect = new Rect();
+    Rect mClipRect = new Rect();
     @ViewDebug.ExportedProperty(category="recents")
-    protected Rect mClipBounds = new Rect();
+    Rect mClipBounds = new Rect();
     @ViewDebug.ExportedProperty(category="recents")
-    protected Rect mLastClipBounds = new Rect();
+    Rect mLastClipBounds = new Rect();
     @ViewDebug.ExportedProperty(category="recents")
-    protected int mCornerRadius;
+    int mCornerRadius;
     @ViewDebug.ExportedProperty(category="recents")
-    protected float mAlpha = 1f;
+    float mAlpha = 1f;
 
     public AnimateableViewBounds(View source, int cornerRadius) {
         mSourceView = source;
@@ -110,7 +110,7 @@ public class AnimateableViewBounds extends ViewOutlineProvider {
         return mClipRect.bottom;
     }
 
-    protected void updateClipBounds() {
+    private void updateClipBounds() {
         mClipBounds.set(Math.max(0, mClipRect.left), Math.max(0, mClipRect.top),
                 mSourceView.getWidth() - Math.max(0, mClipRect.right),
                 mSourceView.getHeight() - Math.max(0, mClipRect.bottom));

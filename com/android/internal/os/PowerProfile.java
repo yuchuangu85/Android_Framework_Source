@@ -171,11 +171,6 @@ public class PowerProfile {
     public static final String POWER_FLASHLIGHT = "camera.flashlight";
 
     /**
-     * Power consumption when DDR is being used.
-     */
-    public static final String POWER_MEMORY = "memory.bandwidths";
-
-    /**
      * Average power consumption when the camera is on over all standard use cases.
      *
      * TODO: Add more fine-grained camera power metrics.
@@ -205,17 +200,13 @@ public class PowerProfile {
     private static final String TAG_ARRAYITEM = "value";
     private static final String ATTR_NAME = "name";
 
-    private static final Object sLock = new Object();
-
     public PowerProfile(Context context) {
         // Read the XML file for the given profile (normally only one per
         // device)
-        synchronized (sLock) {
-            if (sPowerMap.size() == 0) {
-                readPowerValuesFromXml(context);
-            }
-            initCpuClusters();
+        if (sPowerMap.size() == 0) {
+            readPowerValuesFromXml(context);
         }
+        initCpuClusters();
     }
 
     private void readPowerValuesFromXml(Context context) {
@@ -316,7 +307,7 @@ public class PowerProfile {
     private static final String POWER_CPU_CLUSTER_SPEED_PREFIX = "cpu.speeds.cluster";
     private static final String POWER_CPU_CLUSTER_ACTIVE_PREFIX = "cpu.active.cluster";
 
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("deprecated")
     private void initCpuClusters() {
         // Figure out how many CPU clusters we're dealing with
         final Object obj = sPowerMap.get(POWER_CPU_CLUSTER_CORE_COUNT);
@@ -369,24 +360,6 @@ public class PowerProfile {
     public double getAveragePowerForCpu(int cluster, int step) {
         if (cluster >= 0 && cluster < mCpuClusters.length) {
             return getAveragePower(mCpuClusters[cluster].powerKey, step);
-        }
-        return 0;
-    }
-
-    /**
-     * Returns the number of memory bandwidth buckets defined in power_profile.xml, or a
-     * default value if the subsystem has no recorded value.
-     * @return the number of memory bandwidth buckets.
-     */
-    public int getNumElements(String key) {
-        if (sPowerMap.containsKey(key)) {
-            Object data = sPowerMap.get(key);
-            if (data instanceof Double[]) {
-                final Double[] values = (Double[]) data;
-                return values.length;
-            } else {
-                return 1;
-            }
         }
         return 0;
     }

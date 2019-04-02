@@ -97,11 +97,9 @@ public class NetworkSecurityPolicy {
      * Handle an update to the system or user certificate stores.
      * @hide
      */
+    @TestApi
     public void handleTrustStorageUpdate() {
-        ApplicationConfig config = ApplicationConfig.getDefaultInstance();
-        if (config != null) {
-            config.handleTrustStorageUpdate();
-        }
+        ApplicationConfig.getDefaultInstance().handleTrustStorageUpdate();
     }
 
     /**

@@ -287,10 +287,8 @@ public class NanoAppInstanceInfo {
         mPublisher = in.readString();
         mName = in.readString();
 
-        mHandle = in.readInt();
         mAppId = in.readLong();
         mAppVersion = in.readInt();
-        mContexthubId = in.readInt();
         mNeededReadMemBytes = in.readInt();
         mNeededWriteMemBytes = in.readInt();
         mNeededExecMemBytes = in.readInt();
@@ -311,8 +309,6 @@ public class NanoAppInstanceInfo {
     public void writeToParcel(Parcel out, int flags) {
         out.writeString(mPublisher);
         out.writeString(mName);
-
-        out.writeInt(mHandle);
         out.writeLong(mAppId);
         out.writeInt(mAppVersion);
         out.writeInt(mContexthubId);

@@ -22,7 +22,6 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Process;
-import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.TextUtils;
 
@@ -119,7 +118,7 @@ public class DefaultDialerManager {
         String defaultPackageName = Settings.Secure.getStringForUser(context.getContentResolver(),
                 Settings.Secure.DIALER_DEFAULT_APPLICATION, user);
 
-        final List<String> packageNames = getInstalledDialerApplications(context, user);
+        final List<String> packageNames = getInstalledDialerApplications(context);
 
         // Verify that the default dialer has not been disabled or uninstalled.
         if (packageNames.contains(defaultPackageName)) {
@@ -164,17 +163,14 @@ public class DefaultDialerManager {
 
         for (ResolveInfo resolveInfo : resolveInfoList) {
             final ActivityInfo activityInfo = resolveInfo.activityInfo;
-            if (activityInfo != null
-                    && !packageNames.contains(activityInfo.packageName)
-                    // ignore cross profile intent handler
-                    && resolveInfo.targetUserId == UserHandle.USER_CURRENT) {
+            if (activityInfo != null && !packageNames.contains(activityInfo.packageName)) {
                 packageNames.add(activityInfo.packageName);
             }
         }
 
         final Intent dialIntentWithTelScheme = new Intent(Intent.ACTION_DIAL);
         dialIntentWithTelScheme.setData(Uri.fromParts(PhoneAccount.SCHEME_TEL, "", null));
-        return filterByIntent(context, packageNames, dialIntentWithTelScheme, userId);
+        return filterByIntent(context, packageNames, dialIntentWithTelScheme);
     }
 
     public static List<String> getInstalledDialerApplications(Context context) {
@@ -208,18 +204,17 @@ public class DefaultDialerManager {
      *
      * @param context A valid context
      * @param packageNames List of package names to filter.
-     * @param userId The UserId
      * @return The filtered list.
      */
     private static List<String> filterByIntent(Context context, List<String> packageNames,
-            Intent intent, int userId) {
+            Intent intent) {
         if (packageNames == null || packageNames.isEmpty()) {
             return new ArrayList<>();
         }
 
         final List<String> result = new ArrayList<>();
         final List<ResolveInfo> resolveInfoList = context.getPackageManager()
-                .queryIntentActivitiesAsUser(intent, 0, userId);
+                .queryIntentActivities(intent, 0);
         final int length = resolveInfoList.size();
         for (int i = 0; i < length; i++) {
             final ActivityInfo info = resolveInfoList.get(i).activityInfo;

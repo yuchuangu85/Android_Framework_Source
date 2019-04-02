@@ -18,13 +18,8 @@ package android.net;
 
 import android.os.Parcel;
 import android.os.Parcelable;
-
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.util.BitUtils;
-import com.android.internal.util.Preconditions;
-
-import java.util.Objects;
-import java.util.StringJoiner;
+import android.text.TextUtils;
+import java.lang.IllegalArgumentException;
 
 /**
  * This class represents the capabilities of a network.  This is used both to specify
@@ -38,8 +33,6 @@ import java.util.StringJoiner;
  * all cellular based connections are metered and all Wi-Fi based connections are not.
  */
 public final class NetworkCapabilities implements Parcelable {
-    private static final String TAG = "NetworkCapabilities";
-
     /**
      * @hide
      */
@@ -212,6 +205,19 @@ public final class NetworkCapabilities implements Parcelable {
             (1 << NET_CAPABILITY_FOREGROUND);
 
     /**
+     * Network specifier for factories which want to match any network specifier
+     * (NS) in a request. Behavior:
+     * <li>Empty NS in request matches any network factory NS</li>
+     * <li>Empty NS in the network factory NS only matches a request with an
+     * empty NS</li>
+     * <li>"*" (this constant) NS in the network factory matches requests with
+     * any NS</li>
+     *
+     * @hide
+     */
+    public static final String MATCH_ALL_REQUESTS_NETWORK_SPECIFIER = "*";
+
+    /**
      * Network capabilities that are not allowed in NetworkRequests. This exists because the
      * NetworkFactory / NetworkAgent model does not deal well with the situation where a
      * capability's presence cannot be known in advance. If such a capability is requested, then we
@@ -233,8 +239,7 @@ public final class NetworkCapabilities implements Parcelable {
      * Capabilities that suggest that a network is restricted.
      * {@see #maybeMarkCapabilitiesRestricted}.
      */
-    @VisibleForTesting
-    /* package */ static final long RESTRICTED_CAPABILITIES =
+    private static final long RESTRICTED_CAPABILITIES =
             (1 << NET_CAPABILITY_CBS) |
             (1 << NET_CAPABILITY_DUN) |
             (1 << NET_CAPABILITY_EIMS) |
@@ -243,17 +248,6 @@ public final class NetworkCapabilities implements Parcelable {
             (1 << NET_CAPABILITY_IMS) |
             (1 << NET_CAPABILITY_RCS) |
             (1 << NET_CAPABILITY_XCAP);
-
-    /**
-     * Capabilities that suggest that a network is unrestricted.
-     * {@see #maybeMarkCapabilitiesRestricted}.
-     */
-    @VisibleForTesting
-    /* package */ static final long UNRESTRICTED_CAPABILITIES =
-            (1 << NET_CAPABILITY_INTERNET) |
-            (1 << NET_CAPABILITY_MMS) |
-            (1 << NET_CAPABILITY_SUPL) |
-            (1 << NET_CAPABILITY_WIFI_P2P);
 
     /**
      * Adds the given capability to this {@code NetworkCapability} instance.
@@ -295,7 +289,7 @@ public final class NetworkCapabilities implements Parcelable {
      * @hide
      */
     public int[] getCapabilities() {
-        return BitUtils.unpackBits(mNetworkCapabilities);
+        return enumerateBits(mNetworkCapabilities);
     }
 
     /**
@@ -309,6 +303,19 @@ public final class NetworkCapabilities implements Parcelable {
             return false;
         }
         return ((mNetworkCapabilities & (1 << capability)) != 0);
+    }
+
+    private int[] enumerateBits(long val) {
+        int size = Long.bitCount(val);
+        int[] result = new int[size];
+        int index = 0;
+        int resource = 0;
+        while (val > 0) {
+            if ((val & 1) == 1) result[index++] = resource;
+            val = val >> 1;
+            resource++;
+        }
+        return result;
     }
 
     private void combineNetCapabilities(NetworkCapabilities nc) {
@@ -348,6 +355,11 @@ public final class NetworkCapabilities implements Parcelable {
         return (nc.mNetworkCapabilities == this.mNetworkCapabilities);
     }
 
+    private boolean equalsNetCapabilitiesImmutable(NetworkCapabilities that) {
+        return ((this.mNetworkCapabilities & ~MUTABLE_CAPABILITIES) ==
+                (that.mNetworkCapabilities & ~MUTABLE_CAPABILITIES));
+    }
+
     private boolean equalsNetCapabilitiesRequestable(NetworkCapabilities that) {
         return ((this.mNetworkCapabilities & ~NON_REQUESTABLE_CAPABILITIES) ==
                 (that.mNetworkCapabilities & ~NON_REQUESTABLE_CAPABILITIES));
@@ -363,16 +375,12 @@ public final class NetworkCapabilities implements Parcelable {
      * @hide
      */
     public void maybeMarkCapabilitiesRestricted() {
-        // Verify there aren't any unrestricted capabilities.  If there are we say
-        // the whole thing is unrestricted.
-        final boolean hasUnrestrictedCapabilities =
-                ((mNetworkCapabilities & UNRESTRICTED_CAPABILITIES) != 0);
-
-        // Must have at least some restricted capabilities.
-        final boolean hasRestrictedCapabilities =
-                ((mNetworkCapabilities & RESTRICTED_CAPABILITIES) != 0);
-
-        if (hasRestrictedCapabilities && !hasUnrestrictedCapabilities) {
+        // If all the capabilities are typically provided by restricted networks, conclude that this
+        // network is restricted.
+        if ((mNetworkCapabilities & ~(DEFAULT_CAPABILITIES | RESTRICTED_CAPABILITIES)) == 0 &&
+                // Must have at least some restricted capabilities, otherwise a request for an
+                // internet-less network will get marked restricted.
+                (mNetworkCapabilities & RESTRICTED_CAPABILITIES) != 0) {
             removeCapability(NET_CAPABILITY_NOT_RESTRICTED);
         }
     }
@@ -410,35 +418,8 @@ public final class NetworkCapabilities implements Parcelable {
      */
     public static final int TRANSPORT_VPN = 4;
 
-    /**
-     * Indicates this network uses a Wi-Fi Aware transport.
-     */
-    public static final int TRANSPORT_WIFI_AWARE = 5;
-
-    /**
-     * Indicates this network uses a LoWPAN transport.
-     */
-    public static final int TRANSPORT_LOWPAN = 6;
-
-    /** @hide */
-    public static final int MIN_TRANSPORT = TRANSPORT_CELLULAR;
-    /** @hide */
-    public static final int MAX_TRANSPORT = TRANSPORT_LOWPAN;
-
-    /** @hide */
-    public static boolean isValidTransport(int transportType) {
-        return (MIN_TRANSPORT <= transportType) && (transportType <= MAX_TRANSPORT);
-    }
-
-    private static final String[] TRANSPORT_NAMES = {
-        "CELLULAR",
-        "WIFI",
-        "BLUETOOTH",
-        "ETHERNET",
-        "VPN",
-        "WIFI_AWARE",
-        "LOWPAN"
-    };
+    private static final int MIN_TRANSPORT = TRANSPORT_CELLULAR;
+    private static final int MAX_TRANSPORT = TRANSPORT_VPN;
 
     /**
      * Adds the given transport type to this {@code NetworkCapability} instance.
@@ -454,7 +435,9 @@ public final class NetworkCapabilities implements Parcelable {
      * @hide
      */
     public NetworkCapabilities addTransportType(int transportType) {
-        checkValidTransportType(transportType);
+        if (transportType < MIN_TRANSPORT || transportType > MAX_TRANSPORT) {
+            throw new IllegalArgumentException("TransportType out of range");
+        }
         mTransportTypes |= 1 << transportType;
         setNetworkSpecifier(mNetworkSpecifier); // used for exception checking
         return this;
@@ -468,7 +451,9 @@ public final class NetworkCapabilities implements Parcelable {
      * @hide
      */
     public NetworkCapabilities removeTransportType(int transportType) {
-        checkValidTransportType(transportType);
+        if (transportType < MIN_TRANSPORT || transportType > MAX_TRANSPORT) {
+            throw new IllegalArgumentException("TransportType out of range");
+        }
         mTransportTypes &= ~(1 << transportType);
         setNetworkSpecifier(mNetworkSpecifier); // used for exception checking
         return this;
@@ -482,7 +467,7 @@ public final class NetworkCapabilities implements Parcelable {
      * @hide
      */
     public int[] getTransportTypes() {
-        return BitUtils.unpackBits(mTransportTypes);
+        return enumerateBits(mTransportTypes);
     }
 
     /**
@@ -492,18 +477,19 @@ public final class NetworkCapabilities implements Parcelable {
      * @return {@code true} if set on this instance.
      */
     public boolean hasTransport(int transportType) {
-        return isValidTransport(transportType) && ((mTransportTypes & (1 << transportType)) != 0);
+        if (transportType < MIN_TRANSPORT || transportType > MAX_TRANSPORT) {
+            return false;
+        }
+        return ((mTransportTypes & (1 << transportType)) != 0);
     }
 
     private void combineTransportTypes(NetworkCapabilities nc) {
         this.mTransportTypes |= nc.mTransportTypes;
     }
-
     private boolean satisfiedByTransportTypes(NetworkCapabilities nc) {
         return ((this.mTransportTypes == 0) ||
                 ((this.mTransportTypes & nc.mTransportTypes) != 0));
     }
-
     /** @hide */
     public boolean equalsTransportTypes(NetworkCapabilities nc) {
         return (nc.mTransportTypes == this.mTransportTypes);
@@ -590,56 +576,63 @@ public final class NetworkCapabilities implements Parcelable {
                 this.mLinkDownBandwidthKbps == nc.mLinkDownBandwidthKbps);
     }
 
-    private NetworkSpecifier mNetworkSpecifier = null;
-
+    private String mNetworkSpecifier;
     /**
      * Sets the optional bearer specific network specifier.
      * This has no meaning if a single transport is also not specified, so calling
      * this without a single transport set will generate an exception, as will
      * subsequently adding or removing transports after this is set.
      * </p>
+     * The interpretation of this {@code String} is bearer specific and bearers that use
+     * it should document their particulars.  For example, Bluetooth may use some sort of
+     * device id while WiFi could used SSID and/or BSSID.  Cellular may use carrier SPN (name)
+     * or Subscription ID.
      *
-     * @param networkSpecifier A concrete, parcelable framework class that extends
-     *                         NetworkSpecifier.
+     * @param networkSpecifier An {@code String} of opaque format used to specify the bearer
+     *                         specific network specifier where the bearer has a choice of
+     *                         networks.
      * @return This NetworkCapabilities instance, to facilitate chaining.
      * @hide
      */
-    public NetworkCapabilities setNetworkSpecifier(NetworkSpecifier networkSpecifier) {
-        if (networkSpecifier != null && Long.bitCount(mTransportTypes) != 1) {
+    public NetworkCapabilities setNetworkSpecifier(String networkSpecifier) {
+        if (TextUtils.isEmpty(networkSpecifier) == false && Long.bitCount(mTransportTypes) != 1) {
             throw new IllegalStateException("Must have a single transport specified to use " +
                     "setNetworkSpecifier");
         }
-
         mNetworkSpecifier = networkSpecifier;
-
         return this;
     }
 
     /**
      * Gets the optional bearer specific network specifier.
      *
-     * @return The optional {@link NetworkSpecifier} specifying the bearer specific network
-     *         specifier. See {@link #setNetworkSpecifier}.
+     * @return The optional {@code String} specifying the bearer specific network specifier.
+     *         See {@link #setNetworkSpecifier}.
      * @hide
      */
-    public NetworkSpecifier getNetworkSpecifier() {
+    public String getNetworkSpecifier() {
         return mNetworkSpecifier;
     }
 
     private void combineSpecifiers(NetworkCapabilities nc) {
-        if (mNetworkSpecifier != null && !mNetworkSpecifier.equals(nc.mNetworkSpecifier)) {
+        String otherSpecifier = nc.getNetworkSpecifier();
+        if (TextUtils.isEmpty(otherSpecifier)) return;
+        if (TextUtils.isEmpty(mNetworkSpecifier) == false) {
             throw new IllegalStateException("Can't combine two networkSpecifiers");
         }
-        setNetworkSpecifier(nc.mNetworkSpecifier);
+        setNetworkSpecifier(otherSpecifier);
     }
-
     private boolean satisfiedBySpecifier(NetworkCapabilities nc) {
-        return mNetworkSpecifier == null || mNetworkSpecifier.satisfiedBy(nc.mNetworkSpecifier)
-                || nc.mNetworkSpecifier instanceof MatchAllNetworkSpecifier;
+        return (TextUtils.isEmpty(mNetworkSpecifier) ||
+                mNetworkSpecifier.equals(nc.mNetworkSpecifier) ||
+                MATCH_ALL_REQUESTS_NETWORK_SPECIFIER.equals(nc.mNetworkSpecifier));
     }
-
     private boolean equalsSpecifier(NetworkCapabilities nc) {
-        return Objects.equals(mNetworkSpecifier, nc.mNetworkSpecifier);
+        if (TextUtils.isEmpty(mNetworkSpecifier)) {
+            return TextUtils.isEmpty(nc.mNetworkSpecifier);
+        } else {
+            return mNetworkSpecifier.equals(nc.mNetworkSpecifier);
+        }
     }
 
     /**
@@ -758,44 +751,15 @@ public final class NetworkCapabilities implements Parcelable {
 
     /**
      * Checks that our immutable capabilities are the same as those of the given
-     * {@code NetworkCapabilities} and return a String describing any difference.
-     * The returned String is empty if there is no difference.
+     * {@code NetworkCapabilities}.
      *
      * @hide
      */
-    public String describeImmutableDifferences(NetworkCapabilities that) {
-        if (that == null) {
-            return "other NetworkCapabilities was null";
-        }
-
-        StringJoiner joiner = new StringJoiner(", ");
-
-        // Ignore NOT_METERED being added or removed as it is effectively dynamic. http://b/63326103
-        // TODO: properly support NOT_METERED as a mutable and requestable capability.
-        // Ignore DUN being added or removed. http://b/65257223.
-        final long mask = ~MUTABLE_CAPABILITIES
-                & ~(1 << NET_CAPABILITY_NOT_METERED) & ~(1 << NET_CAPABILITY_DUN);
-        long oldImmutableCapabilities = this.mNetworkCapabilities & mask;
-        long newImmutableCapabilities = that.mNetworkCapabilities & mask;
-        if (oldImmutableCapabilities != newImmutableCapabilities) {
-            String before = capabilityNamesOf(BitUtils.unpackBits(oldImmutableCapabilities));
-            String after = capabilityNamesOf(BitUtils.unpackBits(newImmutableCapabilities));
-            joiner.add(String.format("immutable capabilities changed: %s -> %s", before, after));
-        }
-
-        if (!equalsSpecifier(that)) {
-            NetworkSpecifier before = this.getNetworkSpecifier();
-            NetworkSpecifier after = that.getNetworkSpecifier();
-            joiner.add(String.format("specifier changed: %s -> %s", before, after));
-        }
-
-        if (!equalsTransportTypes(that)) {
-            String before = transportNamesOf(this.getTransportTypes());
-            String after = transportNamesOf(that.getTransportTypes());
-            joiner.add(String.format("transports changed: %s -> %s", before, after));
-        }
-
-        return joiner.toString();
+    public boolean equalImmutableCapabilities(NetworkCapabilities nc) {
+        if (nc == null) return false;
+        return (equalsNetCapabilitiesImmutable(nc) &&
+                equalsTransportTypes(nc) &&
+                equalsSpecifier(nc));
     }
 
     /**
@@ -830,7 +794,7 @@ public final class NetworkCapabilities implements Parcelable {
                 ((int)(mTransportTypes >> 32) * 7) +
                 (mLinkUpBandwidthKbps * 11) +
                 (mLinkDownBandwidthKbps * 13) +
-                Objects.hashCode(mNetworkSpecifier) * 17 +
+                (TextUtils.isEmpty(mNetworkSpecifier) ? 0 : mNetworkSpecifier.hashCode() * 17) +
                 (mSignalStrength * 19));
     }
 
@@ -844,7 +808,7 @@ public final class NetworkCapabilities implements Parcelable {
         dest.writeLong(mTransportTypes);
         dest.writeInt(mLinkUpBandwidthKbps);
         dest.writeInt(mLinkDownBandwidthKbps);
-        dest.writeParcelable((Parcelable) mNetworkSpecifier, flags);
+        dest.writeString(mNetworkSpecifier);
         dest.writeInt(mSignalStrength);
     }
 
@@ -858,7 +822,7 @@ public final class NetworkCapabilities implements Parcelable {
                 netCap.mTransportTypes = in.readLong();
                 netCap.mLinkUpBandwidthKbps = in.readInt();
                 netCap.mLinkDownBandwidthKbps = in.readInt();
-                netCap.mNetworkSpecifier = in.readParcelable(null);
+                netCap.mNetworkSpecifier = in.readString();
                 netCap.mSignalStrength = in.readInt();
                 return netCap;
             }
@@ -870,15 +834,33 @@ public final class NetworkCapabilities implements Parcelable {
 
     @Override
     public String toString() {
-        // TODO: enumerate bits for transports and capabilities instead of creating arrays.
-        // TODO: use a StringBuilder instead of string concatenation.
         int[] types = getTransportTypes();
         String transports = (types.length > 0) ? " Transports: " + transportNamesOf(types) : "";
 
         types = getCapabilities();
         String capabilities = (types.length > 0 ? " Capabilities: " : "");
         for (int i = 0; i < types.length; ) {
-            capabilities += capabilityNameOf(types[i]);
+            switch (types[i]) {
+                case NET_CAPABILITY_MMS:            capabilities += "MMS"; break;
+                case NET_CAPABILITY_SUPL:           capabilities += "SUPL"; break;
+                case NET_CAPABILITY_DUN:            capabilities += "DUN"; break;
+                case NET_CAPABILITY_FOTA:           capabilities += "FOTA"; break;
+                case NET_CAPABILITY_IMS:            capabilities += "IMS"; break;
+                case NET_CAPABILITY_CBS:            capabilities += "CBS"; break;
+                case NET_CAPABILITY_WIFI_P2P:       capabilities += "WIFI_P2P"; break;
+                case NET_CAPABILITY_IA:             capabilities += "IA"; break;
+                case NET_CAPABILITY_RCS:            capabilities += "RCS"; break;
+                case NET_CAPABILITY_XCAP:           capabilities += "XCAP"; break;
+                case NET_CAPABILITY_EIMS:           capabilities += "EIMS"; break;
+                case NET_CAPABILITY_NOT_METERED:    capabilities += "NOT_METERED"; break;
+                case NET_CAPABILITY_INTERNET:       capabilities += "INTERNET"; break;
+                case NET_CAPABILITY_NOT_RESTRICTED: capabilities += "NOT_RESTRICTED"; break;
+                case NET_CAPABILITY_TRUSTED:        capabilities += "TRUSTED"; break;
+                case NET_CAPABILITY_NOT_VPN:        capabilities += "NOT_VPN"; break;
+                case NET_CAPABILITY_VALIDATED:      capabilities += "VALIDATED"; break;
+                case NET_CAPABILITY_CAPTIVE_PORTAL: capabilities += "CAPTIVE_PORTAL"; break;
+                case NET_CAPABILITY_FOREGROUND:     capabilities += "FOREGROUND"; break;
+            }
             if (++i < types.length) capabilities += "&";
         }
 
@@ -898,69 +880,18 @@ public final class NetworkCapabilities implements Parcelable {
     /**
      * @hide
      */
-    public static String capabilityNamesOf(int[] capabilities) {
-        StringJoiner joiner = new StringJoiner("|");
-        if (capabilities != null) {
-            for (int c : capabilities) {
-                joiner.add(capabilityNameOf(c));
-            }
-        }
-        return joiner.toString();
-    }
-
-    /**
-     * @hide
-     */
-    public static String capabilityNameOf(int capability) {
-        switch (capability) {
-            case NET_CAPABILITY_MMS:            return "MMS";
-            case NET_CAPABILITY_SUPL:           return "SUPL";
-            case NET_CAPABILITY_DUN:            return "DUN";
-            case NET_CAPABILITY_FOTA:           return "FOTA";
-            case NET_CAPABILITY_IMS:            return "IMS";
-            case NET_CAPABILITY_CBS:            return "CBS";
-            case NET_CAPABILITY_WIFI_P2P:       return "WIFI_P2P";
-            case NET_CAPABILITY_IA:             return "IA";
-            case NET_CAPABILITY_RCS:            return "RCS";
-            case NET_CAPABILITY_XCAP:           return "XCAP";
-            case NET_CAPABILITY_EIMS:           return "EIMS";
-            case NET_CAPABILITY_NOT_METERED:    return "NOT_METERED";
-            case NET_CAPABILITY_INTERNET:       return "INTERNET";
-            case NET_CAPABILITY_NOT_RESTRICTED: return "NOT_RESTRICTED";
-            case NET_CAPABILITY_TRUSTED:        return "TRUSTED";
-            case NET_CAPABILITY_NOT_VPN:        return "NOT_VPN";
-            case NET_CAPABILITY_VALIDATED:      return "VALIDATED";
-            case NET_CAPABILITY_CAPTIVE_PORTAL: return "CAPTIVE_PORTAL";
-            case NET_CAPABILITY_FOREGROUND:     return "FOREGROUND";
-            default:                            return Integer.toString(capability);
-        }
-    }
-
-    /**
-     * @hide
-     */
     public static String transportNamesOf(int[] types) {
-        StringJoiner joiner = new StringJoiner("|");
-        if (types != null) {
-            for (int t : types) {
-                joiner.add(transportNameOf(t));
+        String transports = "";
+        for (int i = 0; i < types.length;) {
+            switch (types[i]) {
+                case TRANSPORT_CELLULAR:    transports += "CELLULAR"; break;
+                case TRANSPORT_WIFI:        transports += "WIFI"; break;
+                case TRANSPORT_BLUETOOTH:   transports += "BLUETOOTH"; break;
+                case TRANSPORT_ETHERNET:    transports += "ETHERNET"; break;
+                case TRANSPORT_VPN:         transports += "VPN"; break;
             }
+            if (++i < types.length) transports += "|";
         }
-        return joiner.toString();
-    }
-
-    /**
-     * @hide
-     */
-    public static String transportNameOf(int transport) {
-        if (!isValidTransport(transport)) {
-            return "UNKNOWN";
-        }
-        return TRANSPORT_NAMES[transport];
-    }
-
-    private static void checkValidTransportType(int transport) {
-        Preconditions.checkArgument(
-                isValidTransport(transport), "Invalid TransportType " + transport);
+        return transports;
     }
 }

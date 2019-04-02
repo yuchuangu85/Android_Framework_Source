@@ -37,7 +37,7 @@ class ByteBufferAsLongBuffer extends LongBuffer {                 // package-pri
                            int mark, int pos, int lim, int cap,
                            int off, ByteOrder order) {
         super(mark, pos, lim, cap);
-        this.bb = bb.duplicate();
+        this.bb = bb;
         this.isReadOnly = bb.isReadOnly;
         // There are only two possibilities for the type of ByteBuffer "bb", viz, DirectByteBuffer and
         // HeapByteBuffer. We only have to initialize the field when bb is an instance of
@@ -49,7 +49,6 @@ class ByteBufferAsLongBuffer extends LongBuffer {                 // package-pri
         if (bb instanceof DirectByteBuffer) {
             this.address = bb.address + off;
         }
-        this.bb.order(order);
         this.order = order;
         offset = off;
     }

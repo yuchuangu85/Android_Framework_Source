@@ -22,17 +22,18 @@ import android.content.Context;
 import android.net.NetworkCapabilities;
 import android.net.NetworkFactory;
 import android.net.NetworkRequest;
-import android.net.StringNetworkSpecifier;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.telephony.Rlog;
+import android.text.TextUtils;
 import android.util.LocalLog;
 
 import com.android.internal.telephony.PhoneSwitcher;
 import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.SubscriptionMonitor;
 import com.android.internal.util.IndentingPrintWriter;
+import com.android.internal.util.Protocol;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -118,7 +119,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         nc.addCapability(NetworkCapabilities.NET_CAPABILITY_EIMS);
         nc.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED);
         nc.addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
-        nc.setNetworkSpecifier(new StringNetworkSpecifier(String.valueOf(subscriptionId)));
+        nc.setNetworkSpecifier(String.valueOf(subscriptionId));
         return nc;
     }
 
@@ -222,7 +223,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         NetworkRequest networkRequest = (NetworkRequest)msg.obj;
         boolean isApplicable = false;
         LocalLog localLog = null;
-        if (networkRequest.networkCapabilities.getNetworkSpecifier() == null) {
+        if (TextUtils.isEmpty(networkRequest.networkCapabilities.getNetworkSpecifier())) {
             // request only for the default network
             localLog = mDefaultRequests.get(networkRequest);
             if (localLog == null) {
@@ -262,7 +263,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
         NetworkRequest networkRequest = (NetworkRequest)msg.obj;
         LocalLog localLog = null;
         boolean isApplicable = false;
-        if (networkRequest.networkCapabilities.getNetworkSpecifier() == null) {
+        if (TextUtils.isEmpty(networkRequest.networkCapabilities.getNetworkSpecifier())) {
             // request only for the default network
             localLog = mDefaultRequests.remove(networkRequest);
             isApplicable = (localLog != null) && mIsDefault;

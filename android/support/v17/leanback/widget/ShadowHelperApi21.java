@@ -14,11 +14,10 @@
 package android.support.v17.leanback.widget;
 
 import android.graphics.Outline;
-import android.support.annotation.RequiresApi;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 
-@RequiresApi(21)
 class ShadowHelperApi21 {
 
     static class ShadowImpl {

@@ -31,9 +31,8 @@ public interface ViewMediatorCallback {
      *
      * @param strongAuth whether the user has authenticated with strong authentication like
      *                   pattern, password or PIN but not by trust agents or fingerprint
-     * @param targetUserId a user that needs to be the foreground user at the completion.
      */
-    void keyguardDone(boolean strongAuth, int targetUserId);
+    void keyguardDone(boolean strongAuth);
 
     /**
      * Report that the keyguard is done drawing.
@@ -51,9 +50,8 @@ public interface ViewMediatorCallback {
      *
      * @param strongAuth whether the user has authenticated with strong authentication like
      *                   pattern, password or PIN but not by trust agents or fingerprint
-     * @param targetUserId a user that needs to be the foreground user at the completion.
      */
-    void keyguardDonePending(boolean strongAuth, int targetUserId);
+    void keyguardDonePending(boolean strongAuth);
 
     /**
      * Report when keyguard is actually gone
@@ -76,6 +74,12 @@ public interface ViewMediatorCallback {
     void playTrustedSound();
 
     /**
+     * @return true if and only if Keyguard is showing or if Keyguard is disabled by an external app
+     *         (legacy API)
+     */
+    boolean isInputRestricted();
+
+    /**
      * @return true if the screen is on
      */
     boolean isScreenOn();
@@ -88,9 +92,4 @@ public interface ViewMediatorCallback {
      *         {@link KeyguardSecurityView#PROMPT_REASON_TIMEOUT}.
      */
     int getBouncerPromptReason();
-
-    /**
-     * Invoked when the secondary display showing a keyguard window changes.
-     */
-    void onSecondaryDisplayShowingChanged(int displayId);
 }

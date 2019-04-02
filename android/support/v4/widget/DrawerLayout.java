@@ -17,9 +17,6 @@
 
 package android.support.v4.widget;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
@@ -37,12 +34,14 @@ import android.support.annotation.DrawableRes;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.annotation.RestrictTo;
 import android.support.v4.content.ContextCompat;
 import android.support.v4.graphics.drawable.DrawableCompat;
+import android.support.v4.os.ParcelableCompat;
+import android.support.v4.os.ParcelableCompatCreatorCallbacks;
 import android.support.v4.view.AbsSavedState;
 import android.support.v4.view.AccessibilityDelegateCompat;
 import android.support.v4.view.GravityCompat;
+import android.support.v4.view.MotionEventCompat;
 import android.support.v4.view.ViewCompat;
 import android.support.v4.view.ViewGroupCompat;
 import android.support.v4.view.accessibility.AccessibilityNodeInfoCompat;
@@ -54,7 +53,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
-import android.view.WindowInsets;
 import android.view.accessibility.AccessibilityEvent;
 
 import java.lang.annotation.Retention;
@@ -95,12 +93,8 @@ import java.util.List;
  * href="{@docRoot}training/implementing-navigation/nav-drawer.html">Creating a Navigation
  * Drawer</a>.</p>
  */
-public class DrawerLayout extends ViewGroup {
+public class DrawerLayout extends ViewGroup implements DrawerLayoutImpl {
     private static final String TAG = "DrawerLayout";
-
-    private static final int[] THEME_ATTRS = {
-            android.R.attr.colorPrimaryDark
-    };
 
     @IntDef({STATE_IDLE, STATE_DRAGGING, STATE_SETTLING})
     @Retention(RetentionPolicy.SOURCE)
@@ -148,8 +142,7 @@ public class DrawerLayout extends ViewGroup {
      */
     public static final int LOCK_MODE_UNDEFINED = 3;
 
-    @IntDef(value = {Gravity.LEFT, Gravity.RIGHT, GravityCompat.START, GravityCompat.END},
-            flag = true)
+    @IntDef({Gravity.LEFT, Gravity.RIGHT, GravityCompat.START, GravityCompat.END})
     @Retention(RetentionPolicy.SOURCE)
     private @interface EdgeGravity {}
 
@@ -296,6 +289,79 @@ public class DrawerLayout extends ViewGroup {
         }
     }
 
+    interface DrawerLayoutCompatImpl {
+        void configureApplyInsets(View drawerLayout);
+        void dispatchChildInsets(View child, Object insets, int drawerGravity);
+        void applyMarginInsets(MarginLayoutParams lp, Object insets, int drawerGravity);
+        int getTopInset(Object lastInsets);
+        Drawable getDefaultStatusBarBackground(Context context);
+    }
+
+    static class DrawerLayoutCompatImplBase implements DrawerLayoutCompatImpl {
+        @Override
+        public void configureApplyInsets(View drawerLayout) {
+            // This space for rent
+        }
+
+        @Override
+        public void dispatchChildInsets(View child, Object insets, int drawerGravity) {
+            // This space for rent
+        }
+
+        @Override
+        public void applyMarginInsets(MarginLayoutParams lp, Object insets, int drawerGravity) {
+            // This space for rent
+        }
+
+        @Override
+        public int getTopInset(Object insets) {
+            return 0;
+        }
+
+        @Override
+        public Drawable getDefaultStatusBarBackground(Context context) {
+            return null;
+        }
+    }
+
+    static class DrawerLayoutCompatImplApi21 implements DrawerLayoutCompatImpl {
+        @Override
+        public void configureApplyInsets(View drawerLayout) {
+            DrawerLayoutCompatApi21.configureApplyInsets(drawerLayout);
+        }
+
+        @Override
+        public void dispatchChildInsets(View child, Object insets, int drawerGravity) {
+            DrawerLayoutCompatApi21.dispatchChildInsets(child, insets, drawerGravity);
+        }
+
+        @Override
+        public void applyMarginInsets(MarginLayoutParams lp, Object insets, int drawerGravity) {
+            DrawerLayoutCompatApi21.applyMarginInsets(lp, insets, drawerGravity);
+        }
+
+        @Override
+        public int getTopInset(Object insets) {
+            return DrawerLayoutCompatApi21.getTopInset(insets);
+        }
+
+        @Override
+        public Drawable getDefaultStatusBarBackground(Context context) {
+            return DrawerLayoutCompatApi21.getDefaultStatusBarBackground(context);
+        }
+    }
+
+    static {
+        final int version = Build.VERSION.SDK_INT;
+        if (version >= 21) {
+            IMPL = new DrawerLayoutCompatImplApi21();
+        } else {
+            IMPL = new DrawerLayoutCompatImplBase();
+        }
+    }
+
+    static final DrawerLayoutCompatImpl IMPL;
+
     public DrawerLayout(Context context) {
         this(context, null);
     }
@@ -333,27 +399,8 @@ public class DrawerLayout extends ViewGroup {
         ViewCompat.setAccessibilityDelegate(this, new AccessibilityDelegate());
         ViewGroupCompat.setMotionEventSplittingEnabled(this, false);
         if (ViewCompat.getFitsSystemWindows(this)) {
-            if (Build.VERSION.SDK_INT >= 21) {
-                setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
-                    @TargetApi(21)
-                    @Override
-                    public WindowInsets onApplyWindowInsets(View view, WindowInsets insets) {
-                        final DrawerLayout drawerLayout = (DrawerLayout) view;
-                        drawerLayout.setChildInsets(insets, insets.getSystemWindowInsetTop() > 0);
-                        return insets.consumeSystemWindowInsets();
-                    }
-                });
-                setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
-                final TypedArray a = context.obtainStyledAttributes(THEME_ATTRS);
-                try {
-                    mStatusBarBackground = a.getDrawable(0);
-                } finally {
-                    a.recycle();
-                }
-            } else {
-                mStatusBarBackground = null;
-            }
+            IMPL.configureApplyInsets(this);
+            mStatusBarBackground = IMPL.getDefaultStatusBarBackground(context);
         }
 
         mDrawerElevation = DRAWER_ELEVATION * density;
@@ -395,7 +442,7 @@ public class DrawerLayout extends ViewGroup {
      * @hide Internal use only; called to apply window insets when configured
      * with fitsSystemWindows="true"
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @Override
     public void setChildInsets(Object insets, boolean draw) {
         mLastInsets = insets;
         mDrawStatusBarBackground = draw;
@@ -406,7 +453,7 @@ public class DrawerLayout extends ViewGroup {
     /**
      * Set a simple drawable used for the left or right shadow. The drawable provided must have a
      * nonzero intrinsic width. For API 21 and above, an elevation will be set on the drawer
-     * instead of using the provided shadow drawable.
+     * instead of the drawable provided.
      *
      * <p>Note that for better support for both left-to-right and right-to-left layout
      * directions, a drawable for RTL layout (in additional to the one in LTR layout) can be
@@ -445,7 +492,7 @@ public class DrawerLayout extends ViewGroup {
     /**
      * Set a simple drawable used for the left or right shadow. The drawable provided must have a
      * nonzero intrinsic width. For API 21 and above, an elevation will be set on the drawer
-     * instead of using the provided shadow drawable.
+     * instead of the drawable provided.
      *
      * <p>Note that for better support for both left-to-right and right-to-left layout
      * directions, a drawable for RTL layout (in additional to the one in LTR layout) can be
@@ -842,7 +889,8 @@ public class DrawerLayout extends ViewGroup {
         final int childCount = getChildCount();
         for (int i = 0; i < childCount; i++) {
             final View child = getChildAt(i);
-            if ((!isDrawerOpen && !isDrawerView(child)) || (isDrawerOpen && child == drawerView)) {
+            if (!isDrawerOpen && !isDrawerView(child)
+                    || isDrawerOpen && child == drawerView) {
                 // Drawer is closed and this is a content view or this is an
                 // open drawer view, so it should be visible.
                 ViewCompat.setImportantForAccessibility(child,
@@ -1018,36 +1066,9 @@ public class DrawerLayout extends ViewGroup {
             if (applyInsets) {
                 final int cgrav = GravityCompat.getAbsoluteGravity(lp.gravity, layoutDirection);
                 if (ViewCompat.getFitsSystemWindows(child)) {
-                    if (Build.VERSION.SDK_INT >= 21) {
-                        WindowInsets wi = (WindowInsets) mLastInsets;
-                        if (cgrav == Gravity.LEFT) {
-                            wi = wi.replaceSystemWindowInsets(wi.getSystemWindowInsetLeft(),
-                                    wi.getSystemWindowInsetTop(), 0,
-                                    wi.getSystemWindowInsetBottom());
-                        } else if (cgrav == Gravity.RIGHT) {
-                            wi = wi.replaceSystemWindowInsets(0, wi.getSystemWindowInsetTop(),
-                                    wi.getSystemWindowInsetRight(),
-                                    wi.getSystemWindowInsetBottom());
-                        }
-                        child.dispatchApplyWindowInsets(wi);
-                    }
+                    IMPL.dispatchChildInsets(child, mLastInsets, cgrav);
                 } else {
-                    if (Build.VERSION.SDK_INT >= 21) {
-                        WindowInsets wi = (WindowInsets) mLastInsets;
-                        if (cgrav == Gravity.LEFT) {
-                            wi = wi.replaceSystemWindowInsets(wi.getSystemWindowInsetLeft(),
-                                    wi.getSystemWindowInsetTop(), 0,
-                                    wi.getSystemWindowInsetBottom());
-                        } else if (cgrav == Gravity.RIGHT) {
-                            wi = wi.replaceSystemWindowInsets(0, wi.getSystemWindowInsetTop(),
-                                    wi.getSystemWindowInsetRight(),
-                                    wi.getSystemWindowInsetBottom());
-                        }
-                        lp.leftMargin = wi.getSystemWindowInsetLeft();
-                        lp.topMargin = wi.getSystemWindowInsetTop();
-                        lp.rightMargin = wi.getSystemWindowInsetRight();
-                        lp.bottomMargin = wi.getSystemWindowInsetBottom();
-                    }
+                    IMPL.applyMarginInsets(lp, mLastInsets, cgrav);
                 }
             }
 
@@ -1255,9 +1276,8 @@ public class DrawerLayout extends ViewGroup {
         }
         mScrimOpacity = scrimOpacity;
 
-        boolean leftDraggerSettling = mLeftDragger.continueSettling(true);
-        boolean rightDraggerSettling = mRightDragger.continueSettling(true);
-        if (leftDraggerSettling || rightDraggerSettling) {
+        // "|" used on purpose; both need to run.
+        if (mLeftDragger.continueSettling(true) | mRightDragger.continueSettling(true)) {
             ViewCompat.postInvalidateOnAnimation(this);
         }
     }
@@ -1313,7 +1333,6 @@ public class DrawerLayout extends ViewGroup {
         invalidate();
     }
 
-    @Override
     public void onRtlPropertiesChanged(int layoutDirection) {
         resolveShadowDrawables();
     }
@@ -1322,13 +1341,7 @@ public class DrawerLayout extends ViewGroup {
     public void onDraw(Canvas c) {
         super.onDraw(c);
         if (mDrawStatusBarBackground && mStatusBarBackground != null) {
-            final int inset;
-            if (Build.VERSION.SDK_INT >= 21) {
-                inset = mLastInsets != null
-                        ? ((WindowInsets) mLastInsets).getSystemWindowInsetTop() : 0;
-            } else {
-                inset = 0;
-            }
+            final int inset = IMPL.getTopInset(mLastInsets);
             if (inset > 0) {
                 mStatusBarBackground.setBounds(0, 0, getWidth(), inset);
                 mStatusBarBackground.draw(c);
@@ -1419,10 +1432,9 @@ public class DrawerLayout extends ViewGroup {
         return false;
     }
 
-    @SuppressWarnings("ShortCircuitBoolean")
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-        final int action = ev.getActionMasked();
+        final int action = MotionEventCompat.getActionMasked(ev);
 
         // "|" used deliberately here; both methods should be invoked.
         final boolean interceptForDrag = mLeftDragger.shouldInterceptTouchEvent(ev)
@@ -1475,7 +1487,7 @@ public class DrawerLayout extends ViewGroup {
         final int action = ev.getAction();
         boolean wantTouchEvents = true;
 
-        switch (action & MotionEvent.ACTION_MASK) {
+        switch (action & MotionEventCompat.ACTION_MASK) {
             case MotionEvent.ACTION_DOWN: {
                 final float x = ev.getX();
                 final float y = ev.getY();
@@ -2024,22 +2036,18 @@ public class DrawerLayout extends ViewGroup {
             dest.writeInt(lockModeEnd);
         }
 
-        public static final Creator<SavedState> CREATOR = new ClassLoaderCreator<SavedState>() {
-            @Override
-            public SavedState createFromParcel(Parcel in, ClassLoader loader) {
-                return new SavedState(in, loader);
-            }
+        public static final Creator<SavedState> CREATOR = ParcelableCompat.newCreator(
+                new ParcelableCompatCreatorCallbacks<SavedState>() {
+                    @Override
+                    public SavedState createFromParcel(Parcel in, ClassLoader loader) {
+                        return new SavedState(in, loader);
+                    }
 
-            @Override
-            public SavedState createFromParcel(Parcel in) {
-                return new SavedState(in, null);
-            }
-
-            @Override
-            public SavedState[] newArray(int size) {
-                return new SavedState[size];
-            }
-        };
+                    @Override
+                    public SavedState[] newArray(int size) {
+                        return new SavedState[size];
+                    }
+                });
     }
 
     private class ViewDragCallback extends ViewDragHelper.Callback {
@@ -2119,10 +2127,10 @@ public class DrawerLayout extends ViewGroup {
 
             int left;
             if (checkDrawerViewAbsoluteGravity(releasedChild, Gravity.LEFT)) {
-                left = xvel > 0 || (xvel == 0 && offset > 0.5f) ? 0 : -childWidth;
+                left = xvel > 0 || xvel == 0 && offset > 0.5f ? 0 : -childWidth;
             } else {
                 final int width = getWidth();
-                left = xvel < 0 || (xvel == 0 && offset > 0.5f) ? width - childWidth : width;
+                left = xvel < 0 || xvel == 0 && offset > 0.5f ? width - childWidth : width;
             }
 
             mDragger.settleCapturedViewAt(left, releasedChild.getTop());
@@ -2367,7 +2375,7 @@ public class DrawerLayout extends ViewGroup {
         }
     }
 
-    static final class ChildAccessibilityDelegate extends AccessibilityDelegateCompat {
+    final class ChildAccessibilityDelegate extends AccessibilityDelegateCompat {
         @Override
         public void onInitializeAccessibilityNodeInfo(View child,
                 AccessibilityNodeInfoCompat info) {

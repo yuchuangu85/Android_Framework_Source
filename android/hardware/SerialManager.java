@@ -16,7 +16,6 @@
 
 package android.hardware;
 
-import android.annotation.SystemService;
 import android.content.Context;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
@@ -26,7 +25,6 @@ import java.io.IOException;
 /**
  * @hide
  */
-@SystemService(Context.SERIAL_SERVICE)
 public class SerialManager {
     private static final String TAG = "SerialManager";
 

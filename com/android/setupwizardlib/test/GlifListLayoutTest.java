@@ -16,52 +16,41 @@
 
 package com.android.setupwizardlib.test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.os.Build;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
+import android.test.InstrumentationTestCase;
+import android.test.suitebuilder.annotation.SmallTest;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.ArrayAdapter;
+import android.widget.HeaderViewListAdapter;
 import android.widget.ListAdapter;
 import android.widget.ListView;
 import android.widget.TextView;
 
 import com.android.setupwizardlib.GlifListLayout;
 
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-
-@RunWith(AndroidJUnit4.class)
-@SmallTest
-public class GlifListLayoutTest {
+public class GlifListLayoutTest extends InstrumentationTestCase {
 
     private Context mContext;
 
-    @Before
-    public void setUp() throws Exception {
-        mContext = new ContextThemeWrapper(InstrumentationRegistry.getContext(),
+    @Override
+    protected void setUp() throws Exception {
+        super.setUp();
+        mContext = new ContextThemeWrapper(getInstrumentation().getContext(),
                 R.style.SuwThemeGlif_Light);
     }
 
-    @Test
+    @SmallTest
     public void testDefaultTemplate() {
         GlifListLayout layout = new GlifListLayout(mContext);
         assertListTemplateInflated(layout);
     }
 
-    @Test
+    @SmallTest
     public void testAddView() {
         GlifListLayout layout = new GlifListLayout(mContext);
         TextView tv = new TextView(mContext);
@@ -73,7 +62,7 @@ public class GlifListLayoutTest {
         }
     }
 
-    @Test
+    @SmallTest
     public void testInflateFromXml() {
         LayoutInflater inflater = LayoutInflater.from(mContext);
         GlifListLayout layout = (GlifListLayout)
@@ -81,14 +70,14 @@ public class GlifListLayoutTest {
         assertListTemplateInflated(layout);
     }
 
-    @Test
+    @SmallTest
     public void testGetListView() {
         GlifListLayout layout = new GlifListLayout(mContext);
         assertListTemplateInflated(layout);
         assertNotNull("getListView should not be null", layout.getListView());
     }
 
-    @Test
+    @SmallTest
     public void testAdapter() {
         GlifListLayout layout = new GlifListLayout(mContext);
         assertListTemplateInflated(layout);
@@ -104,8 +93,8 @@ public class GlifListLayoutTest {
                 adapter, gotAdapter);
     }
 
-    @Test
-    public void testDividerInsetLegacy() {
+    @SmallTest
+    public void testDividerInset() {
         GlifListLayout layout = new GlifListLayout(mContext);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
@@ -114,22 +103,6 @@ public class GlifListLayoutTest {
 
         layout.setDividerInset(10);
         assertEquals("Divider inset should be 10", 10, layout.getDividerInset());
-
-        final Drawable divider = layout.getDivider();
-        assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
-    }
-
-    @Test
-    public void testDividerInsets() {
-        GlifListLayout layout = new GlifListLayout(mContext);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
-        }
-        assertListTemplateInflated(layout);
-
-        layout.setDividerInsets(10, 15);
-        assertEquals("Divider inset should be 10", 10, layout.getDividerInsetStart());
-        assertEquals("Divider inset should be 15", 15, layout.getDividerInsetEnd());
 
         final Drawable divider = layout.getDivider();
         assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);

@@ -25,7 +25,7 @@ import android.util.Log;
 import android.util.SparseArray;
 
 /**
- * This helper is for an old pattern of implementing a {@link BroadcastReceiver}
+ * Helper for the common pattern of implementing a {@link BroadcastReceiver}
  * that receives a device wakeup event and then passes the work off
  * to a {@link android.app.Service}, while ensuring that the
  * device does not go back to sleep during the transition.
@@ -57,20 +57,12 @@ import android.util.SparseArray;
  *
  * {@sample frameworks/support/samples/Support4Demos/src/com/example/android/supportv4/content/SimpleWakefulService.java
  *      complete}
- *
- * @deprecated As of {@link android.os.Build.VERSION_CODES#O Android O}, background check
- * restrictions make this class no longer generally useful.  (It is generally not safe to
- * start a service from the receipt of a broadcast, because you don't have any guarantees
- * that your app is in the foreground at this point and thus allowed to do so.)  Instead,
- * developers should use android.app.job.JobScheduler to schedule a job, and this
- * does not require that the app hold a wake lock while doing so (the system will take
- * care of holding a wake lock for the job).
  */
-@Deprecated
 public abstract class WakefulBroadcastReceiver extends BroadcastReceiver {
     private static final String EXTRA_WAKE_LOCK_ID = "android.support.content.wakelockid";
 
-    private static final SparseArray<PowerManager.WakeLock> sActiveWakeLocks = new SparseArray<>();
+    private static final SparseArray<PowerManager.WakeLock> mActiveWakeLocks
+            = new SparseArray<PowerManager.WakeLock>();
     private static int mNextId = 1;
 
     /**
@@ -88,7 +80,7 @@ public abstract class WakefulBroadcastReceiver extends BroadcastReceiver {
      * Context.startService}.
      */
     public static ComponentName startWakefulService(Context context, Intent intent) {
-        synchronized (sActiveWakeLocks) {
+        synchronized (mActiveWakeLocks) {
             int id = mNextId;
             mNextId++;
             if (mNextId <= 0) {
@@ -105,8 +97,8 @@ public abstract class WakefulBroadcastReceiver extends BroadcastReceiver {
             PowerManager.WakeLock wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
                     "wake:" + comp.flattenToShortString());
             wl.setReferenceCounted(false);
-            wl.acquire(60 * 1000);
-            sActiveWakeLocks.put(id, wl);
+            wl.acquire(60*1000);
+            mActiveWakeLocks.put(id, wl);
             return comp;
         }
     }
@@ -124,11 +116,11 @@ public abstract class WakefulBroadcastReceiver extends BroadcastReceiver {
         if (id == 0) {
             return false;
         }
-        synchronized (sActiveWakeLocks) {
-            PowerManager.WakeLock wl = sActiveWakeLocks.get(id);
+        synchronized (mActiveWakeLocks) {
+            PowerManager.WakeLock wl = mActiveWakeLocks.get(id);
             if (wl != null) {
                 wl.release();
-                sActiveWakeLocks.remove(id);
+                mActiveWakeLocks.remove(id);
                 return true;
             }
             // We return true whether or not we actually found the wake lock
@@ -137,7 +129,7 @@ public abstract class WakefulBroadcastReceiver extends BroadcastReceiver {
             // We just log a warning here if there is no wake lock found, which could
             // happen for example if this function is called twice on the same
             // intent or the process is killed and restarted before processing the intent.
-            Log.w("WakefulBroadcastReceiv.", "No active wake lock id #" + id);
+            Log.w("WakefulBroadcastReceiver", "No active wake lock id #" + id);
             return true;
         }
     }

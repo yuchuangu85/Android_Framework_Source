@@ -18,6 +18,7 @@ package com.android.server;
 
 import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.ActivityManagerNative;
 import android.app.AlarmManager;
 import android.app.AppOpsManager;
 import android.app.BroadcastOptions;
@@ -31,15 +32,11 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageManager.NameNotFoundException;
-import android.content.pm.PermissionInfo;
 import android.database.ContentObserver;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
@@ -84,8 +81,6 @@ import static android.app.AlarmManager.RTC;
 import static android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP;
 import static android.app.AlarmManager.ELAPSED_REALTIME;
 
-import com.android.internal.annotations.GuardedBy;
-import com.android.internal.util.DumpUtils;
 import com.android.internal.util.LocalLog;
 
 class AlarmManagerService extends SystemService {
@@ -105,7 +100,6 @@ class AlarmManagerService extends SystemService {
     static final boolean DEBUG_VALIDATE = localLOGV || false;
     static final boolean DEBUG_ALARM_CLOCK = localLOGV || false;
     static final boolean DEBUG_LISTENER_CALLBACK = localLOGV || false;
-    static final boolean DEBUG_WAKELOCK = localLOGV || false;
     static final boolean RECORD_ALARMS_IN_HISTORY = true;
     static final boolean RECORD_DEVICE_IDLE_ALARMS = false;
     static final int ALARM_EVENT = 1;
@@ -119,8 +113,7 @@ class AlarmManagerService extends SystemService {
 
     private static final Intent NEXT_ALARM_CLOCK_CHANGED_INTENT =
             new Intent(AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED)
-                    .addFlags(Intent.FLAG_RECEIVER_REPLACE_PENDING
-                            | Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND);
+                    .addFlags(Intent.FLAG_RECEIVER_REPLACE_PENDING);
 
     final LocalLog mLog = new LocalLog(TAG);
 
@@ -157,20 +150,6 @@ class AlarmManagerService extends SystemService {
     long mLastTimeChangeRealtime;
     long mAllowWhileIdleMinTime;
     int mNumTimeChanged;
-
-    // Bookkeeping about the identity of the "System UI" package, determined at runtime.
-
-    /**
-     * This permission must be defined by the canonical System UI package,
-     * with protection level "signature".
-     */
-    private static final String SYSTEM_UI_SELF_PERMISSION =
-            "android.permission.systemui.IDENTITY";
-
-    /**
-     * At boot we use SYSTEM_UI_SELF_PERMISSION to look up the definer's uid.
-     */
-    int mSystemUiUid;
 
     /**
      * The current set of user whitelisted apps for device idle mode, meaning these are allowed
@@ -297,7 +276,7 @@ class AlarmManagerService extends SystemService {
                 } catch (IllegalArgumentException e) {
                     // Failed to parse the settings string, log this and move on
                     // with defaults.
-                    Slog.e(TAG, "Bad alarm manager settings", e);
+                    Slog.e(TAG, "Bad device idle settings", e);
                 }
 
                 MIN_FUTURITY = mParser.getLong(KEY_MIN_FUTURITY, DEFAULT_MIN_FUTURITY);
@@ -526,8 +505,8 @@ class AlarmManagerService extends SystemService {
             for (int i = alarms.size()-1; i >= 0; i--) {
                 Alarm alarm = alarms.get(i);
                 try {
-                    if (alarm.uid == uid && ActivityManager.getService().isAppStartModeDisabled(
-                            uid, alarm.packageName)) {
+                    if (alarm.uid == uid && ActivityManagerNative.getDefault().getAppStartMode(
+                            uid, alarm.packageName) == ActivityManager.APP_START_MODE_DISABLED) {
                         alarms.remove(i);
                         didRemove = true;
                         if (alarm.alarmClock != null) {
@@ -850,7 +829,6 @@ class AlarmManagerService extends SystemService {
 
     static final class InFlight {
         final PendingIntent mPendingIntent;
-        final long mWhenElapsed;
         final IBinder mListener;
         final WorkSource mWorkSource;
         final int mUid;
@@ -863,7 +841,6 @@ class AlarmManagerService extends SystemService {
                 WorkSource workSource, int uid, String alarmPkg, int alarmType, String tag,
                 long nowELAPSED) {
             mPendingIntent = pendingIntent;
-            mWhenElapsed = nowELAPSED;
             mListener = listener != null ? listener.asBinder() : null;
             mWorkSource = workSource;
             mUid = uid;
@@ -879,20 +856,6 @@ class AlarmManagerService extends SystemService {
             fs.lastTime = nowELAPSED;
             mFilterStats = fs;
             mAlarmType = alarmType;
-        }
-
-        @Override
-        public String toString() {
-            return "InFlight{"
-                    + "pendingIntent=" + mPendingIntent
-                    + ", when=" + mWhenElapsed
-                    + ", workSource=" + mWorkSource
-                    + ", uid=" + mUid
-                    + ", tag=" + mTag
-                    + ", broadcastStats=" + mBroadcastStats
-                    + ", filterStats=" + mFilterStats
-                    + ", alarmType=" + mAlarmType
-                    + "}";
         }
     }
 
@@ -911,19 +874,6 @@ class AlarmManagerService extends SystemService {
             mBroadcastStats = broadcastStats;
             mTag = tag;
         }
-
-        @Override
-        public String toString() {
-            return "FilterStats{"
-                    + "tag=" + mTag
-                    + ", lastTime=" + lastTime
-                    + ", aggregateTime=" + aggregateTime
-                    + ", count=" + count
-                    + ", numWakeup=" + numWakeup
-                    + ", startTime=" + startTime
-                    + ", nesting=" + nesting
-                    + "}";
-        }
     }
 
     static final class BroadcastStats {
@@ -940,19 +890,6 @@ class AlarmManagerService extends SystemService {
         BroadcastStats(int uid, String packageName) {
             mUid = uid;
             mPackageName = packageName;
-        }
-
-        @Override
-        public String toString() {
-            return "BroadcastStats{"
-                    + "uid=" + mUid
-                    + ", packageName=" + mPackageName
-                    + ", aggregateTime=" + aggregateTime
-                    + ", count=" + count
-                    + ", numWakeup=" + numWakeup
-                    + ", startTime=" + startTime
-                    + ", nesting=" + nesting
-                    + "}";
         }
     }
 
@@ -972,47 +909,16 @@ class AlarmManagerService extends SystemService {
         // because kernel doesn't keep this after reboot
         setTimeZoneImpl(SystemProperties.get(TIMEZONE_PROPERTY));
 
-        // Also sure that we're booting with a halfway sensible current time
-        if (mNativeData != 0) {
-            final long systemBuildTime = Environment.getRootDirectory().lastModified();
-            if (System.currentTimeMillis() < systemBuildTime) {
-                Slog.i(TAG, "Current time only " + System.currentTimeMillis()
-                        + ", advancing to build time " + systemBuildTime);
-                setKernelTime(mNativeData, systemBuildTime);
-            }
-        }
-
-        // Determine SysUI's uid
-        final PackageManager packMan = getContext().getPackageManager();
-        try {
-            PermissionInfo sysUiPerm = packMan.getPermissionInfo(SYSTEM_UI_SELF_PERMISSION, 0);
-            ApplicationInfo sysUi = packMan.getApplicationInfo(sysUiPerm.packageName, 0);
-            if ((sysUi.privateFlags&ApplicationInfo.PRIVATE_FLAG_PRIVILEGED) != 0) {
-                mSystemUiUid = sysUi.uid;
-            } else {
-                Slog.e(TAG, "SysUI permission " + SYSTEM_UI_SELF_PERMISSION
-                        + " defined by non-privileged app " + sysUi.packageName
-                        + " - ignoring");
-            }
-        } catch (NameNotFoundException e) {
-        }
-
-        if (mSystemUiUid <= 0) {
-            Slog.wtf(TAG, "SysUI package not found!");
-        }
-
         PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
         mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "*alarm*");
 
         mTimeTickSender = PendingIntent.getBroadcastAsUser(getContext(), 0,
                 new Intent(Intent.ACTION_TIME_TICK).addFlags(
                         Intent.FLAG_RECEIVER_REGISTERED_ONLY
-                        | Intent.FLAG_RECEIVER_FOREGROUND
-                        | Intent.FLAG_RECEIVER_VISIBLE_TO_INSTANT_APPS), 0,
+                        | Intent.FLAG_RECEIVER_FOREGROUND), 0,
                         UserHandle.ALL);
         Intent intent = new Intent(Intent.ACTION_DATE_CHANGED);
-        intent.addFlags(Intent.FLAG_RECEIVER_REPLACE_PENDING
-                | Intent.FLAG_RECEIVER_VISIBLE_TO_INSTANT_APPS);
+        intent.addFlags(Intent.FLAG_RECEIVER_REPLACE_PENDING);
         mDateChangeSender = PendingIntent.getBroadcastAsUser(getContext(), 0, intent,
                 Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT, UserHandle.ALL);
         
@@ -1031,8 +937,8 @@ class AlarmManagerService extends SystemService {
         }
 
         try {
-            ActivityManager.getService().registerUidObserver(new UidObserver(),
-                    ActivityManager.UID_OBSERVER_IDLE, ActivityManager.PROCESS_STATE_UNKNOWN, null);
+            ActivityManagerNative.getDefault().registerUidObserver(new UidObserver(),
+                    ActivityManager.UID_OBSERVER_IDLE);
         } catch (RemoteException e) {
             // ignored; both services live in system_server
         }
@@ -1089,9 +995,7 @@ class AlarmManagerService extends SystemService {
 
         if (timeZoneWasChanged) {
             Intent intent = new Intent(Intent.ACTION_TIMEZONE_CHANGED);
-            intent.addFlags(Intent.FLAG_RECEIVER_REPLACE_PENDING
-                    | Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND
-                    | Intent.FLAG_RECEIVER_VISIBLE_TO_INSTANT_APPS);
+            intent.addFlags(Intent.FLAG_RECEIVER_REPLACE_PENDING);
             intent.putExtra("time-zone", zone.getID());
             getContext().sendBroadcastAsUser(intent, UserHandle.ALL);
         }
@@ -1186,7 +1090,8 @@ class AlarmManagerService extends SystemService {
                 operation, directReceiver, listenerTag, workSource, flags, alarmClock,
                 callingUid, callingPackage);
         try {
-            if (ActivityManager.getService().isAppStartModeDisabled(callingUid, callingPackage)) {
+            if (ActivityManagerNative.getDefault().getAppStartMode(callingUid, callingPackage)
+                    == ActivityManager.APP_START_MODE_DISABLED) {
                 Slog.w(TAG, "Not setting alarm from " + callingUid + ":" + a
                         + " -- package not allowed to start");
                 return;
@@ -1281,11 +1186,6 @@ class AlarmManagerService extends SystemService {
                     mAllowWhileIdleDispatches.add(ent);
                 }
             }
-            if ((mPendingIdleUntil != a) && (mPendingIdleUntil != null)) {
-                Slog.wtfStack(TAG, "setImplLocked: idle until changed from " + mPendingIdleUntil
-                        + " to " + a);
-            }
-
             mPendingIdleUntil = a;
             mConstants.updateAllowWhileIdleMinTimeLocked();
             needRebatch = true;
@@ -1375,7 +1275,6 @@ class AlarmManagerService extends SystemService {
             // This means we will allow these alarms to go off as normal even while idle, with no
             // timing restrictions.
             } else if (workSource == null && (callingUid < Process.FIRST_APPLICATION_UID
-                    || callingUid == mSystemUiUid
                     || Arrays.binarySearch(mDeviceIdleUserWhitelist,
                             UserHandle.getAppId(callingUid)) >= 0)) {
                 flags |= AlarmManager.FLAG_ALLOW_WHILE_IDLE_UNRESTRICTED;
@@ -1444,7 +1343,14 @@ class AlarmManagerService extends SystemService {
 
         @Override
         protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-            if (!DumpUtils.checkDumpAndUsageStatsPermission(getContext(), TAG, pw)) return;
+            if (getContext().checkCallingOrSelfPermission(android.Manifest.permission.DUMP)
+                    != PackageManager.PERMISSION_GRANTED) {
+                pw.println("Permission Denial: can't dump AlarmManager from from pid="
+                        + Binder.getCallingPid()
+                        + ", uid=" + Binder.getCallingUid());
+                return;
+            }
+
             dumpImpl(pw);
         }
     };
@@ -1570,10 +1476,6 @@ class AlarmManagerService extends SystemService {
 
             pw.println();
             pw.print("  Broadcast ref count: "); pw.println(mBroadcastRefCount);
-            pw.print("  PendingIntent send count: "); pw.println(mSendCount);
-            pw.print("  PendingIntent finish count: "); pw.println(mSendFinishCount);
-            pw.print("  Listener send count: "); pw.println(mListenerCount);
-            pw.print("  Listener finish count: "); pw.println(mListenerFinishCount);
             pw.println();
 
             if (mInFlight.size() > 0) {
@@ -2038,9 +1940,13 @@ class AlarmManagerService extends SystemService {
         }
         for (int i = mPendingWhileIdleAlarms.size() - 1; i >= 0; i--) {
             final Alarm a = mPendingWhileIdleAlarms.get(i);
-            if (a.uid == uid) {
-                // Don't set didRemove, since this doesn't impact the scheduled alarms.
-                mPendingWhileIdleAlarms.remove(i);
+            try {
+                if (a.uid == uid && ActivityManagerNative.getDefault().getAppStartMode(
+                        uid, a.packageName) == ActivityManager.APP_START_MODE_DISABLED) {
+                    // Don't set didRemove, since this doesn't impact the scheduled alarms.
+                    mPendingWhileIdleAlarms.remove(i);
+                }
+            } catch (RemoteException e) {
             }
         }
 
@@ -2512,11 +2418,11 @@ class AlarmManagerService extends SystemService {
                 if (RECORD_ALARMS_IN_HISTORY) {
                     if (alarm.workSource != null && alarm.workSource.size() > 0) {
                         for (int wi=0; wi<alarm.workSource.size(); wi++) {
-                            ActivityManager.noteAlarmStart(
+                            ActivityManagerNative.noteAlarmStart(
                                     alarm.operation, alarm.workSource.get(wi), alarm.statsTag);
                         }
                     } else {
-                        ActivityManager.noteAlarmStart(
+                        ActivityManagerNative.noteAlarmStart(
                                 alarm.operation, alarm.uid, alarm.statsTag);
                     }
                 }
@@ -2558,9 +2464,9 @@ class AlarmManagerService extends SystemService {
                         expectedClockTime = lastTimeChangeClockTime
                                 + (nowELAPSED - mLastTimeChangeRealtime);
                     }
-                    if (lastTimeChangeClockTime == 0 || nowRTC < (expectedClockTime-1000)
-                            || nowRTC > (expectedClockTime+1000)) {
-                        // The change is by at least +/- 1000 ms (or this is the first change),
+                    if (lastTimeChangeClockTime == 0 || nowRTC < (expectedClockTime-500)
+                            || nowRTC > (expectedClockTime+500)) {
+                        // The change is by at least +/- 500 ms (or this is the first change),
                         // let's do it!
                         if (DEBUG_BATCH) {
                             Slog.v(TAG, "Time changed notification from kernel; rebatching");
@@ -2577,9 +2483,7 @@ class AlarmManagerService extends SystemService {
                         }
                         Intent intent = new Intent(Intent.ACTION_TIME_CHANGED);
                         intent.addFlags(Intent.FLAG_RECEIVER_REPLACE_PENDING
-                                | Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT
-                                | Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND
-                                | Intent.FLAG_RECEIVER_VISIBLE_TO_INSTANT_APPS);
+                                | Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
                         getContext().sendBroadcastAsUser(intent, UserHandle.ALL);
 
                         // The world has changed on us, so we need to re-evaluate alarms
@@ -2682,7 +2586,7 @@ class AlarmManagerService extends SystemService {
 
             final int uid = (knownUid >= 0)
                     ? knownUid
-                    : ActivityManager.getService().getUidForIntentSender(pi.getTarget());
+                    : ActivityManagerNative.getDefault().getUidForIntentSender(pi.getTarget());
             if (uid >= 0) {
                 mWakeLock.setWorkSource(new WorkSource(uid));
                 return;
@@ -2900,29 +2804,19 @@ class AlarmManagerService extends SystemService {
     }
 
     final class UidObserver extends IUidObserver.Stub {
-        @Override public void onUidStateChanged(int uid, int procState, long procStateSeq) {
+        @Override public void onUidStateChanged(int uid, int procState) throws RemoteException {
         }
 
-        @Override public void onUidGone(int uid, boolean disabled) {
-            if (disabled) {
-                synchronized (mLock) {
-                    removeForStoppedLocked(uid);
-                }
+        @Override public void onUidGone(int uid) throws RemoteException {
+        }
+
+        @Override public void onUidActive(int uid) throws RemoteException {
+        }
+
+        @Override public void onUidIdle(int uid) throws RemoteException {
+            synchronized (mLock) {
+                removeForStoppedLocked(uid);
             }
-        }
-
-        @Override public void onUidActive(int uid) {
-        }
-
-        @Override public void onUidIdle(int uid, boolean disabled) {
-            if (disabled) {
-                synchronized (mLock) {
-                    removeForStoppedLocked(uid);
-                }
-            }
-        }
-
-        @Override public void onUidCachedChanged(int uid, boolean cached) {
         }
     };
 
@@ -2946,22 +2840,7 @@ class AlarmManagerService extends SystemService {
         return bs;
     }
 
-    /**
-     * Canonical count of (operation.send() - onSendFinished()) and
-     * listener send/complete/timeout invocations.
-     * Guarded by the usual lock.
-     */
-    @GuardedBy("mLock")
-    private int mSendCount = 0;
-    @GuardedBy("mLock")
-    private int mSendFinishCount = 0;
-    @GuardedBy("mLock")
-    private int mListenerCount = 0;
-    @GuardedBy("mLock")
-    private int mListenerFinishCount = 0;
-
     class DeliveryTracker extends IAlarmCompleteListener.Stub implements PendingIntent.OnFinished {
-
         private InFlight removeLocked(PendingIntent pi, Intent intent) {
             for (int i = 0; i < mInFlight.size(); i++) {
                 if (mInFlight.get(i).mPendingIntent == pi) {
@@ -2999,11 +2878,11 @@ class AlarmManagerService extends SystemService {
             if (RECORD_ALARMS_IN_HISTORY) {
                 if (inflight.mWorkSource != null && inflight.mWorkSource.size() > 0) {
                     for (int wi=0; wi<inflight.mWorkSource.size(); wi++) {
-                        ActivityManager.noteAlarmFinish(
+                        ActivityManagerNative.noteAlarmFinish(
                                 inflight.mPendingIntent, inflight.mWorkSource.get(wi), inflight.mTag);
                     }
                 } else {
-                    ActivityManager.noteAlarmFinish(
+                    ActivityManagerNative.noteAlarmFinish(
                             inflight.mPendingIntent, inflight.mUid, inflight.mTag);
                 }
             }
@@ -3014,9 +2893,6 @@ class AlarmManagerService extends SystemService {
                 updateStatsLocked(inflight);
             }
             mBroadcastRefCount--;
-            if (DEBUG_WAKELOCK) {
-                Slog.d(TAG, "mBroadcastRefCount -> " + mBroadcastRefCount);
-            }
             if (mBroadcastRefCount == 0) {
                 mHandler.obtainMessage(AlarmHandler.REPORT_ALARMS_ACTIVE, 0).sendToTarget();
                 mWakeLock.release();
@@ -3048,7 +2924,7 @@ class AlarmManagerService extends SystemService {
         @Override
         public void alarmComplete(IBinder who) {
             if (who == null) {
-                mLog.w("Invalid alarmComplete: uid=" + Binder.getCallingUid()
+                Slog.w(TAG, "Invalid alarmComplete: uid=" + Binder.getCallingUid()
                         + " pid=" + Binder.getCallingPid());
                 return;
             }
@@ -3063,7 +2939,6 @@ class AlarmManagerService extends SystemService {
                             Slog.i(TAG, "alarmComplete() from " + who);
                         }
                         updateTrackingLocked(inflight);
-                        mListenerFinishCount++;
                     } else {
                         // Delivery timed out, and the timeout handling already took care of
                         // updating our tracking here, so we needn't do anything further.
@@ -3084,7 +2959,6 @@ class AlarmManagerService extends SystemService {
         public void onSendFinished(PendingIntent pi, Intent intent, int resultCode,
                 String resultData, Bundle resultExtras) {
             synchronized (mLock) {
-                mSendFinishCount++;
                 updateTrackingLocked(removeLocked(pi, intent));
             }
         }
@@ -3101,12 +2975,10 @@ class AlarmManagerService extends SystemService {
                         Slog.i(TAG, "Alarm listener " + who + " timed out in delivery");
                     }
                     updateTrackingLocked(inflight);
-                    mListenerFinishCount++;
                 } else {
                     if (DEBUG_LISTENER_CALLBACK) {
                         Slog.i(TAG, "Spurious timeout of listener " + who);
                     }
-                    mLog.w("Spurious timeout of listener " + who);
                 }
             }
         }
@@ -3117,7 +2989,6 @@ class AlarmManagerService extends SystemService {
         public void deliverLocked(Alarm alarm, long nowELAPSED, boolean allowWhileIdle) {
             if (alarm.operation != null) {
                 // PendingIntent alarm
-                mSendCount++;
                 try {
                     alarm.operation.send(getContext(), 0,
                             mBackgroundIntent.putExtra(
@@ -3134,12 +3005,10 @@ class AlarmManagerService extends SystemService {
                     // 'finished' callback won't be invoked.  We also don't need
                     // to do any wakelock or stats tracking, so we have nothing
                     // left to do here but go on to the next thing.
-                    mSendFinishCount++;
                     return;
                 }
             } else {
                 // Direct listener callback alarm
-                mListenerCount++;
                 try {
                     if (DEBUG_LISTENER_CALLBACK) {
                         Slog.v(TAG, "Alarm to uid=" + alarm.uid
@@ -3159,15 +3028,11 @@ class AlarmManagerService extends SystemService {
                     // alarm was not possible, so we have no wakelock or timeout or
                     // stats management to do.  It threw before we posted the delayed
                     // timeout message, so we're done here.
-                    mListenerFinishCount++;
                     return;
                 }
             }
 
             // The alarm is now in flight; now arrange wakelock and stats tracking
-            if (DEBUG_WAKELOCK) {
-                Slog.d(TAG, "mBroadcastRefCount -> " + (mBroadcastRefCount + 1));
-            }
             if (mBroadcastRefCount == 0) {
                 setWakelockWorkSource(alarm.operation, alarm.workSource,
                         alarm.type, alarm.statsTag, (alarm.operation == null) ? alarm.uid : -1,
@@ -3218,13 +3083,13 @@ class AlarmManagerService extends SystemService {
                 if (alarm.workSource != null && alarm.workSource.size() > 0) {
                     for (int wi=0; wi<alarm.workSource.size(); wi++) {
                         final String wsName = alarm.workSource.getName(wi);
-                        ActivityManager.noteWakeupAlarm(
+                        ActivityManagerNative.noteWakeupAlarm(
                                 alarm.operation, alarm.workSource.get(wi),
                                 (wsName != null) ? wsName : alarm.packageName,
                                 alarm.statsTag);
                     }
                 } else {
-                    ActivityManager.noteWakeupAlarm(
+                    ActivityManagerNative.noteWakeupAlarm(
                             alarm.operation, alarm.uid, alarm.packageName, alarm.statsTag);
                 }
             }

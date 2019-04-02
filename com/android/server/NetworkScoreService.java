@@ -17,7 +17,6 @@
 package com.android.server;
 
 import android.Manifest.permission;
-import android.annotation.Nullable;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.ContentResolver;
@@ -26,54 +25,32 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
-import android.database.ContentObserver;
-import android.location.LocationManager;
-import android.net.INetworkRecommendationProvider;
 import android.net.INetworkScoreCache;
 import android.net.INetworkScoreService;
-import android.net.NetworkKey;
 import android.net.NetworkScoreManager;
-import android.net.NetworkScorerAppData;
+import android.net.NetworkScorerAppManager;
+import android.net.NetworkScorerAppManager.NetworkScorerAppData;
 import android.net.ScoredNetwork;
-import android.net.Uri;
-import android.net.wifi.ScanResult;
-import android.net.wifi.WifiInfo;
-import android.net.wifi.WifiManager;
-import android.net.wifi.WifiScanner;
 import android.os.Binder;
-import android.os.Build;
-import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
-import android.os.Message;
-import android.os.Process;
-import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.UserHandle;
-import android.provider.Settings.Global;
-import android.util.ArrayMap;
-import android.util.ArraySet;
+import android.provider.Settings;
+import android.text.TextUtils;
 import android.util.Log;
 
+import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
-import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.content.PackageMonitor;
-import com.android.internal.os.TransferPipe;
-import com.android.internal.util.DumpUtils;
 
 import java.io.FileDescriptor;
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.BiConsumer;
-import java.util.function.Function;
-import java.util.function.Supplier;
-import java.util.function.UnaryOperator;
 
 /**
  * Backing service for {@link android.net.NetworkScoreManager}.
@@ -81,23 +58,15 @@ import java.util.function.UnaryOperator;
  */
 public class NetworkScoreService extends INetworkScoreService.Stub {
     private static final String TAG = "NetworkScoreService";
-    private static final boolean DBG = Build.IS_DEBUGGABLE && Log.isLoggable(TAG, Log.DEBUG);
-    private static final boolean VERBOSE = Build.IS_DEBUGGABLE && Log.isLoggable(TAG, Log.VERBOSE);
+    private static final boolean DBG = false;
 
     private final Context mContext;
-    private final NetworkScorerAppManager mNetworkScorerAppManager;
-    @GuardedBy("mScoreCaches")
-    private final Map<Integer, RemoteCallbackList<INetworkScoreCache>> mScoreCaches;
+    private final Map<Integer, INetworkScoreCache> mScoreCaches;
     /** Lock used to update mPackageMonitor when scorer package changes occur. */
-    private final Object mPackageMonitorLock = new Object();
-    private final Object mServiceConnectionLock = new Object();
-    private final Handler mHandler;
-    private final DispatchingContentObserver mContentObserver;
-    private final Function<NetworkScorerAppData, ScoringServiceConnection> mServiceConnProducer;
+    private final Object mPackageMonitorLock = new Object[0];
 
     @GuardedBy("mPackageMonitorLock")
     private NetworkScorerPackageMonitor mPackageMonitor;
-    @GuardedBy("mServiceConnectionLock")
     private ScoringServiceConnection mServiceConnection;
 
     private BroadcastReceiver mUserIntentReceiver = new BroadcastReceiver() {
@@ -114,25 +83,15 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
         }
     };
 
-    private BroadcastReceiver mLocationModeReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            final String action = intent.getAction();
-            if (LocationManager.MODE_CHANGED_ACTION.equals(action)) {
-                refreshBinding();
-            }
-        }
-    };
-
     /**
      * Clears scores when the active scorer package is no longer valid and
      * manages the service connection.
      */
     private class NetworkScorerPackageMonitor extends PackageMonitor {
-        final String mPackageToWatch;
+        final String mRegisteredPackage;
 
-        private NetworkScorerPackageMonitor(String packageToWatch) {
-            mPackageToWatch = packageToWatch;
+        private NetworkScorerPackageMonitor(String mRegisteredPackage) {
+            this.mRegisteredPackage = mRegisteredPackage;
         }
 
         @Override
@@ -165,170 +124,95 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
             evaluateBinding(packageName, true /* forceUnbind */);
         }
 
-        private void evaluateBinding(String changedPackageName, boolean forceUnbind) {
-            if (!mPackageToWatch.equals(changedPackageName)) {
-                // Early exit when we don't care about the package that has changed.
-                return;
-            }
-
-            if (DBG) {
-                Log.d(TAG, "Evaluating binding for: " + changedPackageName
-                        + ", forceUnbind=" + forceUnbind);
-            }
-
-            final NetworkScorerAppData activeScorer = mNetworkScorerAppManager.getActiveScorer();
-            if (activeScorer == null) {
-                // Package change has invalidated a scorer, this will also unbind any service
-                // connection.
-                if (DBG) Log.d(TAG, "No active scorers available.");
-                refreshBinding();
-            } else { // The scoring service changed in some way.
-                if (forceUnbind) {
-                    unbindFromScoringServiceIfNeeded();
-                }
+        private void evaluateBinding(String scorerPackageName, boolean forceUnbind) {
+            if (mRegisteredPackage.equals(scorerPackageName)) {
                 if (DBG) {
-                    Log.d(TAG, "Binding to " + activeScorer.getRecommendationServiceComponent()
-                            + " if needed.");
+                    Log.d(TAG, "Evaluating binding for: " + scorerPackageName
+                            + ", forceUnbind=" + forceUnbind);
                 }
-                bindToScoringServiceIfNeeded(activeScorer);
-            }
-        }
-    }
-
-    /**
-     * Dispatches observed content changes to a handler for further processing.
-     */
-    @VisibleForTesting
-    public static class DispatchingContentObserver extends ContentObserver {
-        final private Map<Uri, Integer> mUriEventMap;
-        final private Context mContext;
-        final private Handler mHandler;
-
-        public DispatchingContentObserver(Context context, Handler handler) {
-            super(handler);
-            mContext = context;
-            mHandler = handler;
-            mUriEventMap = new ArrayMap<>();
-        }
-
-        void observe(Uri uri, int what) {
-            mUriEventMap.put(uri, what);
-            final ContentResolver resolver = mContext.getContentResolver();
-            resolver.registerContentObserver(uri, false /*notifyForDescendants*/, this);
-        }
-
-        @Override
-        public void onChange(boolean selfChange) {
-            onChange(selfChange, null);
-        }
-
-        @Override
-        public void onChange(boolean selfChange, Uri uri) {
-            if (DBG) Log.d(TAG, String.format("onChange(%s, %s)", selfChange, uri));
-            final Integer what = mUriEventMap.get(uri);
-            if (what != null) {
-                mHandler.obtainMessage(what).sendToTarget();
-            } else {
-                Log.w(TAG, "No matching event to send for URI = " + uri);
+                final NetworkScorerAppData activeScorer =
+                        NetworkScorerAppManager.getActiveScorer(mContext);
+                if (activeScorer == null) {
+                    // Package change has invalidated a scorer, this will also unbind any service
+                    // connection.
+                    Log.i(TAG, "Package " + mRegisteredPackage +
+                            " is no longer valid, disabling scoring.");
+                    setScorerInternal(null);
+                } else if (activeScorer.mScoringServiceClassName == null) {
+                    // The scoring service is not available, make sure it's unbound.
+                    unbindFromScoringServiceIfNeeded();
+                } else { // The scoring service changed in some way.
+                    if (forceUnbind) {
+                        unbindFromScoringServiceIfNeeded();
+                    }
+                    bindToScoringServiceIfNeeded(activeScorer);
+                }
             }
         }
     }
 
     public NetworkScoreService(Context context) {
-      this(context, new NetworkScorerAppManager(context),
-              ScoringServiceConnection::new, Looper.myLooper());
-    }
-
-    @VisibleForTesting
-    NetworkScoreService(Context context, NetworkScorerAppManager networkScoreAppManager,
-            Function<NetworkScorerAppData, ScoringServiceConnection> serviceConnProducer,
-            Looper looper) {
         mContext = context;
-        mNetworkScorerAppManager = networkScoreAppManager;
-        mScoreCaches = new ArrayMap<>();
+        mScoreCaches = new HashMap<>();
         IntentFilter filter = new IntentFilter(Intent.ACTION_USER_UNLOCKED);
         // TODO: Need to update when we support per-user scorers. http://b/23422763
         mContext.registerReceiverAsUser(
                 mUserIntentReceiver, UserHandle.SYSTEM, filter, null /* broadcastPermission*/,
                 null /* scheduler */);
-        mHandler = new ServiceHandler(looper);
-        IntentFilter locationModeFilter = new IntentFilter(LocationManager.MODE_CHANGED_ACTION);
-        mContext.registerReceiverAsUser(
-                mLocationModeReceiver, UserHandle.SYSTEM, locationModeFilter,
-                null /* broadcastPermission*/, mHandler);
-        mContentObserver = new DispatchingContentObserver(context, mHandler);
-        mServiceConnProducer = serviceConnProducer;
     }
 
     /** Called when the system is ready to run third-party code but before it actually does so. */
     void systemReady() {
         if (DBG) Log.d(TAG, "systemReady");
-        registerRecommendationSettingsObserver();
+        ContentResolver cr = mContext.getContentResolver();
+        if (Settings.Global.getInt(cr, Settings.Global.NETWORK_SCORING_PROVISIONED, 0) == 0) {
+            // On first run, we try to initialize the scorer to the one configured at build time.
+            // This will be a no-op if the scorer isn't actually valid.
+            String defaultPackage = mContext.getResources().getString(
+                    R.string.config_defaultNetworkScorerPackageName);
+            if (!TextUtils.isEmpty(defaultPackage)) {
+                NetworkScorerAppManager.setActiveScorer(mContext, defaultPackage);
+            }
+            Settings.Global.putInt(cr, Settings.Global.NETWORK_SCORING_PROVISIONED, 1);
+        }
+
+        registerPackageMonitorIfNeeded();
     }
 
     /** Called when the system is ready for us to start third-party code. */
     void systemRunning() {
         if (DBG) Log.d(TAG, "systemRunning");
+        bindToScoringServiceIfNeeded();
     }
 
-    @VisibleForTesting
-    void onUserUnlocked(int userId) {
-        if (DBG) Log.d(TAG, "onUserUnlocked(" + userId + ")");
-        refreshBinding();
-    }
-
-    private void refreshBinding() {
-        if (DBG) Log.d(TAG, "refreshBinding()");
-        // Make sure the scorer is up-to-date
-        mNetworkScorerAppManager.updateState();
-        mNetworkScorerAppManager.migrateNetworkScorerAppSettingIfNeeded();
+    private void onUserUnlocked(int userId) {
         registerPackageMonitorIfNeeded();
         bindToScoringServiceIfNeeded();
     }
 
-    private void registerRecommendationSettingsObserver() {
-        final Uri packageNameUri = Global.getUriFor(Global.NETWORK_RECOMMENDATIONS_PACKAGE);
-        mContentObserver.observe(packageNameUri,
-                ServiceHandler.MSG_RECOMMENDATIONS_PACKAGE_CHANGED);
-
-        final Uri settingUri = Global.getUriFor(Global.NETWORK_RECOMMENDATIONS_ENABLED);
-        mContentObserver.observe(settingUri,
-                ServiceHandler.MSG_RECOMMENDATION_ENABLED_SETTING_CHANGED);
-    }
-
-    /**
-     * Ensures the package manager is registered to monitor the current active scorer.
-     * If a discrepancy is found any previous monitor will be cleaned up
-     * and a new monitor will be created.
-     *
-     * This method is idempotent.
-     */
     private void registerPackageMonitorIfNeeded() {
-        if (DBG) Log.d(TAG, "registerPackageMonitorIfNeeded()");
-        final NetworkScorerAppData appData = mNetworkScorerAppManager.getActiveScorer();
+        if (DBG) Log.d(TAG, "registerPackageMonitorIfNeeded");
+        NetworkScorerAppData scorer = NetworkScorerAppManager.getActiveScorer(mContext);
         synchronized (mPackageMonitorLock) {
             // Unregister the current monitor if needed.
-            if (mPackageMonitor != null && (appData == null
-                    || !appData.getRecommendationServicePackageName().equals(
-                            mPackageMonitor.mPackageToWatch))) {
+            if (mPackageMonitor != null) {
                 if (DBG) {
                     Log.d(TAG, "Unregistering package monitor for "
-                            + mPackageMonitor.mPackageToWatch);
+                            + mPackageMonitor.mRegisteredPackage);
                 }
                 mPackageMonitor.unregister();
                 mPackageMonitor = null;
             }
 
             // Create and register the monitor if a scorer is active.
-            if (appData != null && mPackageMonitor == null) {
-                mPackageMonitor = new NetworkScorerPackageMonitor(
-                        appData.getRecommendationServicePackageName());
+            if (scorer != null) {
+                mPackageMonitor = new NetworkScorerPackageMonitor(scorer.mPackageName);
                 // TODO: Need to update when we support per-user scorers. http://b/23422763
                 mPackageMonitor.register(mContext, null /* thread */, UserHandle.SYSTEM,
                         false /* externalStorage */);
                 if (DBG) {
                     Log.d(TAG, "Registered package monitor for "
-                            + mPackageMonitor.mPackageToWatch);
+                            + mPackageMonitor.mRegisteredPackage);
                 }
             }
         }
@@ -336,35 +220,28 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
 
     private void bindToScoringServiceIfNeeded() {
         if (DBG) Log.d(TAG, "bindToScoringServiceIfNeeded");
-        NetworkScorerAppData scorerData = mNetworkScorerAppManager.getActiveScorer();
+        NetworkScorerAppData scorerData = NetworkScorerAppManager.getActiveScorer(mContext);
         bindToScoringServiceIfNeeded(scorerData);
     }
 
-    /**
-     * Ensures the service connection is bound to the current active scorer.
-     * If a discrepancy is found any previous connection will be cleaned up
-     * and a new connection will be created.
-     *
-     * This method is idempotent.
-     */
-    private void bindToScoringServiceIfNeeded(NetworkScorerAppData appData) {
-        if (DBG) Log.d(TAG, "bindToScoringServiceIfNeeded(" + appData + ")");
-        if (appData != null) {
-            synchronized (mServiceConnectionLock) {
-                // If we're connected to a different component then drop it.
-                if (mServiceConnection != null
-                        && !mServiceConnection.getAppData().equals(appData)) {
-                    unbindFromScoringServiceIfNeeded();
-                }
-
-                // If we're not connected at all then create a new connection.
-                if (mServiceConnection == null) {
-                    mServiceConnection = mServiceConnProducer.apply(appData);
-                }
-
-                // Make sure the connection is connected (idempotent)
-                mServiceConnection.bind(mContext);
+    private void bindToScoringServiceIfNeeded(NetworkScorerAppData scorerData) {
+        if (DBG) Log.d(TAG, "bindToScoringServiceIfNeeded(" + scorerData + ")");
+        if (scorerData != null && scorerData.mScoringServiceClassName != null) {
+            ComponentName componentName =
+                    new ComponentName(scorerData.mPackageName, scorerData.mScoringServiceClassName);
+            // If we're connected to a different component then drop it.
+            if (mServiceConnection != null
+                    && !mServiceConnection.mComponentName.equals(componentName)) {
+                unbindFromScoringServiceIfNeeded();
             }
+
+            // If we're not connected at all then create a new connection.
+            if (mServiceConnection == null) {
+                mServiceConnection = new ScoringServiceConnection(componentName);
+            }
+
+            // Make sure the connection is connected (idempotent)
+            mServiceConnection.connect(mContext);
         } else { // otherwise make sure it isn't bound.
             unbindFromScoringServiceIfNeeded();
         }
@@ -372,296 +249,58 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
 
     private void unbindFromScoringServiceIfNeeded() {
         if (DBG) Log.d(TAG, "unbindFromScoringServiceIfNeeded");
-        synchronized (mServiceConnectionLock) {
-            if (mServiceConnection != null) {
-                mServiceConnection.unbind(mContext);
-                if (DBG) Log.d(TAG, "Disconnected from: "
-                        + mServiceConnection.getAppData().getRecommendationServiceComponent());
-            }
-            mServiceConnection = null;
+        if (mServiceConnection != null) {
+            mServiceConnection.disconnect(mContext);
         }
-        clearInternal();
+        mServiceConnection = null;
     }
 
     @Override
     public boolean updateScores(ScoredNetwork[] networks) {
-        if (!isCallerActiveScorer(getCallingUid())) {
+        if (!NetworkScorerAppManager.isCallerActiveScorer(mContext, getCallingUid())) {
             throw new SecurityException("Caller with UID " + getCallingUid() +
                     " is not the active scorer.");
         }
 
-        final long token = Binder.clearCallingIdentity();
-        try {
-            // Separate networks by type.
-            Map<Integer, List<ScoredNetwork>> networksByType = new ArrayMap<>();
-            for (ScoredNetwork network : networks) {
-                List<ScoredNetwork> networkList = networksByType.get(network.networkKey.type);
-                if (networkList == null) {
-                    networkList = new ArrayList<>();
-                    networksByType.put(network.networkKey.type, networkList);
-                }
-                networkList.add(network);
+        // Separate networks by type.
+        Map<Integer, List<ScoredNetwork>> networksByType = new HashMap<>();
+        for (ScoredNetwork network : networks) {
+            List<ScoredNetwork> networkList = networksByType.get(network.networkKey.type);
+            if (networkList == null) {
+                networkList = new ArrayList<>();
+                networksByType.put(network.networkKey.type, networkList);
             }
+            networkList.add(network);
+        }
 
-            // Pass the scores of each type down to the appropriate network scorer.
-            for (final Map.Entry<Integer, List<ScoredNetwork>> entry : networksByType.entrySet()) {
-                final RemoteCallbackList<INetworkScoreCache> callbackList;
-                final boolean isEmpty;
-                synchronized (mScoreCaches) {
-                    callbackList = mScoreCaches.get(entry.getKey());
-                    isEmpty = callbackList == null
-                            || callbackList.getRegisteredCallbackCount() == 0;
-                }
-
-                if (isEmpty) {
+        // Pass the scores of each type down to the appropriate network scorer.
+        for (Map.Entry<Integer, List<ScoredNetwork>> entry : networksByType.entrySet()) {
+            INetworkScoreCache scoreCache = mScoreCaches.get(entry.getKey());
+            if (scoreCache != null) {
+                try {
+                    scoreCache.updateScores(entry.getValue());
+                } catch (RemoteException e) {
                     if (Log.isLoggable(TAG, Log.VERBOSE)) {
-                        Log.v(TAG, "No scorer registered for type " + entry.getKey()
-                                + ", discarding");
+                        Log.v(TAG, "Unable to update scores of type " + entry.getKey(), e);
                     }
-                    continue;
                 }
-
-                final BiConsumer<INetworkScoreCache, Object> consumer =
-                        FilteringCacheUpdatingConsumer.create(mContext, entry.getValue(),
-                                entry.getKey());
-                sendCacheUpdateCallback(consumer, Collections.singleton(callbackList));
-            }
-
-            return true;
-        } finally {
-            Binder.restoreCallingIdentity(token);
-        }
-    }
-
-    /**
-     * A {@link BiConsumer} implementation that filters the given {@link ScoredNetwork}
-     * list (if needed) before invoking {@link INetworkScoreCache#updateScores(List)} on the
-     * accepted {@link INetworkScoreCache} implementation.
-     */
-    @VisibleForTesting
-    static class FilteringCacheUpdatingConsumer
-            implements BiConsumer<INetworkScoreCache, Object> {
-        private final Context mContext;
-        private final List<ScoredNetwork> mScoredNetworkList;
-        private final int mNetworkType;
-        // TODO: 1/23/17 - Consider a Map if we implement more filters.
-        // These are created on-demand to defer the construction cost until
-        // an instance is actually needed.
-        private UnaryOperator<List<ScoredNetwork>> mCurrentNetworkFilter;
-        private UnaryOperator<List<ScoredNetwork>> mScanResultsFilter;
-
-        static FilteringCacheUpdatingConsumer create(Context context,
-                List<ScoredNetwork> scoredNetworkList, int networkType) {
-            return new FilteringCacheUpdatingConsumer(context, scoredNetworkList, networkType,
-                    null, null);
-        }
-
-        @VisibleForTesting
-        FilteringCacheUpdatingConsumer(Context context,
-                List<ScoredNetwork> scoredNetworkList, int networkType,
-                UnaryOperator<List<ScoredNetwork>> currentNetworkFilter,
-                UnaryOperator<List<ScoredNetwork>> scanResultsFilter) {
-            mContext = context;
-            mScoredNetworkList = scoredNetworkList;
-            mNetworkType = networkType;
-            mCurrentNetworkFilter = currentNetworkFilter;
-            mScanResultsFilter = scanResultsFilter;
-        }
-
-        @Override
-        public void accept(INetworkScoreCache networkScoreCache, Object cookie) {
-            int filterType = NetworkScoreManager.CACHE_FILTER_NONE;
-            if (cookie instanceof Integer) {
-                filterType = (Integer) cookie;
-            }
-
-            try {
-                final List<ScoredNetwork> filteredNetworkList =
-                        filterScores(mScoredNetworkList, filterType);
-                if (!filteredNetworkList.isEmpty()) {
-                    networkScoreCache.updateScores(filteredNetworkList);
-                }
-            } catch (RemoteException e) {
-                if (VERBOSE) {
-                    Log.v(TAG, "Unable to update scores of type " + mNetworkType, e);
-                }
+            } else if (Log.isLoggable(TAG, Log.VERBOSE)) {
+                Log.v(TAG, "No scorer registered for type " + entry.getKey() + ", discarding");
             }
         }
 
-        /**
-         * Applies the appropriate filter and returns the filtered results.
-         */
-        private List<ScoredNetwork> filterScores(List<ScoredNetwork> scoredNetworkList,
-                int filterType) {
-            switch (filterType) {
-                case NetworkScoreManager.CACHE_FILTER_NONE:
-                    return scoredNetworkList;
-
-                case NetworkScoreManager.CACHE_FILTER_CURRENT_NETWORK:
-                    if (mCurrentNetworkFilter == null) {
-                        mCurrentNetworkFilter =
-                                new CurrentNetworkScoreCacheFilter(new WifiInfoSupplier(mContext));
-                    }
-                    return mCurrentNetworkFilter.apply(scoredNetworkList);
-
-                case NetworkScoreManager.CACHE_FILTER_SCAN_RESULTS:
-                    if (mScanResultsFilter == null) {
-                        mScanResultsFilter = new ScanResultsScoreCacheFilter(
-                                new ScanResultsSupplier(mContext));
-                    }
-                    return mScanResultsFilter.apply(scoredNetworkList);
-
-                default:
-                    Log.w(TAG, "Unknown filter type: " + filterType);
-                    return scoredNetworkList;
-            }
-        }
-    }
-
-    /**
-     * Helper class that improves the testability of the cache filter Functions.
-     */
-    private static class WifiInfoSupplier implements Supplier<WifiInfo> {
-        private final Context mContext;
-
-        WifiInfoSupplier(Context context) {
-            mContext = context;
-        }
-
-        @Override
-        public WifiInfo get() {
-            WifiManager wifiManager = mContext.getSystemService(WifiManager.class);
-            if (wifiManager != null) {
-                return wifiManager.getConnectionInfo();
-            }
-            Log.w(TAG, "WifiManager is null, failed to return the WifiInfo.");
-            return null;
-        }
-    }
-
-    /**
-     * Helper class that improves the testability of the cache filter Functions.
-     */
-    private static class ScanResultsSupplier implements Supplier<List<ScanResult>> {
-        private final Context mContext;
-
-        ScanResultsSupplier(Context context) {
-            mContext = context;
-        }
-
-        @Override
-        public List<ScanResult> get() {
-            WifiScanner wifiScanner = mContext.getSystemService(WifiScanner.class);
-            if (wifiScanner != null) {
-                return wifiScanner.getSingleScanResults();
-            }
-            Log.w(TAG, "WifiScanner is null, failed to return scan results.");
-            return Collections.emptyList();
-        }
-    }
-
-    /**
-     * Filters the given set of {@link ScoredNetwork}s and returns a new List containing only the
-     * {@link ScoredNetwork} associated with the current network. If no network is connected the
-     * returned list will be empty.
-     * <p>
-     * Note: this filter performs some internal caching for consistency and performance. The
-     *       current network is determined at construction time and never changed. Also, the
-     *       last filtered list is saved so if the same input is provided multiple times in a row
-     *       the computation is only done once.
-     */
-    @VisibleForTesting
-    static class CurrentNetworkScoreCacheFilter implements UnaryOperator<List<ScoredNetwork>> {
-        private final NetworkKey mCurrentNetwork;
-
-        CurrentNetworkScoreCacheFilter(Supplier<WifiInfo> wifiInfoSupplier) {
-            mCurrentNetwork = NetworkKey.createFromWifiInfo(wifiInfoSupplier.get());
-        }
-
-        @Override
-        public List<ScoredNetwork> apply(List<ScoredNetwork> scoredNetworks) {
-            if (mCurrentNetwork == null || scoredNetworks.isEmpty()) {
-                return Collections.emptyList();
-            }
-
-            for (int i = 0; i < scoredNetworks.size(); i++) {
-                final ScoredNetwork scoredNetwork = scoredNetworks.get(i);
-                if (scoredNetwork.networkKey.equals(mCurrentNetwork)) {
-                    return Collections.singletonList(scoredNetwork);
-                }
-            }
-
-            return Collections.emptyList();
-        }
-    }
-
-    /**
-     * Filters the given set of {@link ScoredNetwork}s and returns a new List containing only the
-     * {@link ScoredNetwork} associated with the current set of {@link ScanResult}s.
-     * If there are no {@link ScanResult}s the returned list will be empty.
-     * <p>
-     * Note: this filter performs some internal caching for consistency and performance. The
-     *       current set of ScanResults is determined at construction time and never changed.
-     *       Also, the last filtered list is saved so if the same input is provided multiple
-     *       times in a row the computation is only done once.
-     */
-    @VisibleForTesting
-    static class ScanResultsScoreCacheFilter implements UnaryOperator<List<ScoredNetwork>> {
-        private final Set<NetworkKey> mScanResultKeys;
-
-        ScanResultsScoreCacheFilter(Supplier<List<ScanResult>> resultsSupplier) {
-            List<ScanResult> scanResults = resultsSupplier.get();
-            final int size = scanResults.size();
-            mScanResultKeys = new ArraySet<>(size);
-            for (int i = 0; i < size; i++) {
-                ScanResult scanResult = scanResults.get(i);
-                NetworkKey key = NetworkKey.createFromScanResult(scanResult);
-                if (key != null) {
-                    mScanResultKeys.add(key);
-                }
-            }
-        }
-
-        @Override
-        public List<ScoredNetwork> apply(List<ScoredNetwork> scoredNetworks) {
-            if (mScanResultKeys.isEmpty() || scoredNetworks.isEmpty()) {
-                return Collections.emptyList();
-            }
-
-            List<ScoredNetwork> filteredScores = new ArrayList<>();
-            for (int i = 0; i < scoredNetworks.size(); i++) {
-                final ScoredNetwork scoredNetwork = scoredNetworks.get(i);
-                if (mScanResultKeys.contains(scoredNetwork.networkKey)) {
-                    filteredScores.add(scoredNetwork);
-                }
-            }
-
-            return filteredScores;
-        }
-    }
-
-    private boolean canCallerRequestScores() {
-        // REQUEST_NETWORK_SCORES is a signature only permission.
-        return mContext.checkCallingOrSelfPermission(permission.REQUEST_NETWORK_SCORES) ==
-                 PackageManager.PERMISSION_GRANTED;
-    }
-
-    private boolean canCallerScoreNetworks() {
-        return mContext.checkCallingOrSelfPermission(permission.SCORE_NETWORKS) ==
-                PackageManager.PERMISSION_GRANTED;
+        return true;
     }
 
     @Override
     public boolean clearScores() {
-        // Only the active scorer or the system should be allowed to flush all scores.
-        if (isCallerActiveScorer(getCallingUid()) || canCallerRequestScores()) {
-            final long token = Binder.clearCallingIdentity();
-            try {
-                clearInternal();
-                return true;
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
+        // Only the active scorer or the system (who can broadcast BROADCAST_NETWORK_PRIVILEGED)
+        // should be allowed to flush all scores.
+        if (NetworkScorerAppManager.isCallerActiveScorer(mContext, getCallingUid()) ||
+                mContext.checkCallingOrSelfPermission(permission.BROADCAST_NETWORK_PRIVILEGED) ==
+                        PackageManager.PERMISSION_GRANTED) {
+            clearInternal();
+            return true;
         } else {
             throw new SecurityException(
                     "Caller is neither the active scorer nor the scorer manager.");
@@ -670,294 +309,168 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
 
     @Override
     public boolean setActiveScorer(String packageName) {
-        // Only the system can set the active scorer
-        if (!isCallerSystemProcess(getCallingUid()) && !canCallerScoreNetworks()) {
-            throw new SecurityException(
-                    "Caller is neither the system process or a network scorer.");
-        }
+        // TODO: For now, since SCORE_NETWORKS requires an app to be privileged, we allow such apps
+        // to directly set the scorer app rather than having to use the consent dialog. The
+        // assumption is that anyone bundling a scorer app with the system is trusted by the OEM to
+        // do the right thing and not enable this feature without explaining it to the user.
+        // In the future, should this API be opened to 3p apps, we will need to lock this down and
+        // figure out another way to streamline the UX.
 
-        return mNetworkScorerAppManager.setActiveScorer(packageName);
-    }
+        // mContext.enforceCallingOrSelfPermission(permission.BROADCAST_NETWORK_PRIVILEGED, TAG);
+        mContext.enforceCallingOrSelfPermission(permission.SCORE_NETWORKS, TAG);
 
-    /**
-     * Determine whether the application with the given UID is the enabled scorer.
-     *
-     * @param callingUid the UID to check
-     * @return true if the provided UID is the active scorer, false otherwise.
-     */
-    @Override
-    public boolean isCallerActiveScorer(int callingUid) {
-        synchronized (mServiceConnectionLock) {
-            return mServiceConnection != null
-                    && mServiceConnection.getAppData().packageUid == callingUid;
-        }
-    }
-
-    private boolean isCallerSystemProcess(int callingUid) {
-        return callingUid == Process.SYSTEM_UID;
-    }
-
-    /**
-     * Obtain the package name of the current active network scorer.
-     *
-     * @return the full package name of the current active scorer, or null if there is no active
-     *         scorer.
-     */
-    @Override
-    public String getActiveScorerPackage() {
-        if (canCallerRequestScores() || canCallerScoreNetworks()) {
-            synchronized (mServiceConnectionLock) {
-                if (mServiceConnection != null) {
-                    return mServiceConnection.getPackageName();
-                }
-            }
-        } else {
-            throw new SecurityException(
-                    "Caller is not a network scorer/requester.");
-        }
-
-        return null;
-    }
-
-    /**
-     * Returns metadata about the active scorer or <code>null</code> if there is no active scorer.
-     */
-    @Override
-    public NetworkScorerAppData getActiveScorer() {
-        // Only the system can access this data.
-        if (isCallerSystemProcess(getCallingUid()) || canCallerRequestScores()) {
-            synchronized (mServiceConnectionLock) {
-                if (mServiceConnection != null) {
-                    return mServiceConnection.getAppData();
-                }
-            }
-        } else {
-            throw new SecurityException(
-                    "Caller is neither the system process nor a score requester.");
-        }
-
-        return null;
-    }
-
-    /**
-     * Returns the list of available scorer apps. The list will be empty if there are
-     * no valid scorers.
-     */
-    @Override
-    public List<NetworkScorerAppData> getAllValidScorers() {
-        // Only the system can access this data.
-        if (!isCallerSystemProcess(getCallingUid()) && !canCallerRequestScores()) {
-            throw new SecurityException(
-                    "Caller is neither the system process nor a score requester.");
-        }
-
-        return mNetworkScorerAppManager.getAllValidScorers();
+        return setScorerInternal(packageName);
     }
 
     @Override
     public void disableScoring() {
-        // Only the active scorer or the system should be allowed to disable scoring.
-        if (!isCallerActiveScorer(getCallingUid()) && !canCallerRequestScores()) {
+        // Only the active scorer or the system (who can broadcast BROADCAST_NETWORK_PRIVILEGED)
+        // should be allowed to disable scoring.
+        if (NetworkScorerAppManager.isCallerActiveScorer(mContext, getCallingUid()) ||
+                mContext.checkCallingOrSelfPermission(permission.BROADCAST_NETWORK_PRIVILEGED) ==
+                        PackageManager.PERMISSION_GRANTED) {
+            // The return value is discarded here because at this point, the call should always
+            // succeed. The only reason for failure is if the new package is not a valid scorer, but
+            // we're disabling scoring altogether here.
+            setScorerInternal(null /* packageName */);
+        } else {
             throw new SecurityException(
                     "Caller is neither the active scorer nor the scorer manager.");
         }
+    }
 
-        // no-op for now but we could write to the setting if needed.
+    /** Set the active scorer. Callers are responsible for checking permissions as appropriate. */
+    private boolean setScorerInternal(String packageName) {
+        if (DBG) Log.d(TAG, "setScorerInternal(" + packageName + ")");
+        long token = Binder.clearCallingIdentity();
+        try {
+            unbindFromScoringServiceIfNeeded();
+            // Preemptively clear scores even though the set operation could fail. We do this for
+            // safety as scores should never be compared across apps; in practice, Settings should
+            // only be allowing valid apps to be set as scorers, so failure here should be rare.
+            clearInternal();
+            // Get the scorer that is about to be replaced, if any, so we can notify it directly.
+            NetworkScorerAppData prevScorer = NetworkScorerAppManager.getActiveScorer(mContext);
+            boolean result = NetworkScorerAppManager.setActiveScorer(mContext, packageName);
+            // Unconditionally attempt to bind to the current scorer. If setActiveScorer() failed
+            // then we'll attempt to restore the previous binding (if any), otherwise an attempt
+            // will be made to bind to the new scorer.
+            bindToScoringServiceIfNeeded();
+            if (result) { // new scorer successfully set
+                registerPackageMonitorIfNeeded();
+
+                Intent intent = new Intent(NetworkScoreManager.ACTION_SCORER_CHANGED);
+                if (prevScorer != null) { // Directly notify the old scorer.
+                    intent.setPackage(prevScorer.mPackageName);
+                    // TODO: Need to update when we support per-user scorers. http://b/23422763
+                    mContext.sendBroadcastAsUser(intent, UserHandle.SYSTEM);
+                }
+
+                if (packageName != null) { // Then notify the new scorer
+                    intent.putExtra(NetworkScoreManager.EXTRA_NEW_SCORER, packageName);
+                    intent.setPackage(packageName);
+                    // TODO: Need to update when we support per-user scorers. http://b/23422763
+                    mContext.sendBroadcastAsUser(intent, UserHandle.SYSTEM);
+                }
+            }
+            return result;
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
     }
 
     /** Clear scores. Callers are responsible for checking permissions as appropriate. */
     private void clearInternal() {
-        sendCacheUpdateCallback(new BiConsumer<INetworkScoreCache, Object>() {
-            @Override
-            public void accept(INetworkScoreCache networkScoreCache, Object cookie) {
-                try {
-                    networkScoreCache.clearScores();
-                } catch (RemoteException e) {
-                    if (Log.isLoggable(TAG, Log.VERBOSE)) {
-                        Log.v(TAG, "Unable to clear scores", e);
-                    }
-                }
-            }
-        }, getScoreCacheLists());
-    }
+        Set<INetworkScoreCache> cachesToClear = getScoreCaches();
 
-    @Override
-    public void registerNetworkScoreCache(int networkType,
-                                          INetworkScoreCache scoreCache,
-                                          int filterType) {
-        mContext.enforceCallingOrSelfPermission(permission.REQUEST_NETWORK_SCORES, TAG);
-        final long token = Binder.clearCallingIdentity();
-        try {
-            synchronized (mScoreCaches) {
-                RemoteCallbackList<INetworkScoreCache> callbackList = mScoreCaches.get(networkType);
-                if (callbackList == null) {
-                    callbackList = new RemoteCallbackList<>();
-                    mScoreCaches.put(networkType, callbackList);
-                }
-                if (!callbackList.register(scoreCache, filterType)) {
-                    if (callbackList.getRegisteredCallbackCount() == 0) {
-                        mScoreCaches.remove(networkType);
-                    }
-                    if (Log.isLoggable(TAG, Log.VERBOSE)) {
-                        Log.v(TAG, "Unable to register NetworkScoreCache for type " + networkType);
-                    }
+        for (INetworkScoreCache scoreCache : cachesToClear) {
+            try {
+                scoreCache.clearScores();
+            } catch (RemoteException e) {
+                if (Log.isLoggable(TAG, Log.VERBOSE)) {
+                    Log.v(TAG, "Unable to clear scores", e);
                 }
             }
-        } finally {
-            Binder.restoreCallingIdentity(token);
         }
     }
 
     @Override
-    public void unregisterNetworkScoreCache(int networkType, INetworkScoreCache scoreCache) {
-        mContext.enforceCallingOrSelfPermission(permission.REQUEST_NETWORK_SCORES, TAG);
-        final long token = Binder.clearCallingIdentity();
-        try {
-            synchronized (mScoreCaches) {
-                RemoteCallbackList<INetworkScoreCache> callbackList = mScoreCaches.get(networkType);
-                if (callbackList == null || !callbackList.unregister(scoreCache)) {
-                    if (Log.isLoggable(TAG, Log.VERBOSE)) {
-                        Log.v(TAG, "Unable to unregister NetworkScoreCache for type "
-                                + networkType);
-                    }
-                } else if (callbackList.getRegisteredCallbackCount() == 0) {
-                    mScoreCaches.remove(networkType);
-                }
+    public void registerNetworkScoreCache(int networkType, INetworkScoreCache scoreCache) {
+        mContext.enforceCallingOrSelfPermission(permission.BROADCAST_NETWORK_PRIVILEGED, TAG);
+        synchronized (mScoreCaches) {
+            if (mScoreCaches.containsKey(networkType)) {
+                throw new IllegalArgumentException(
+                        "Score cache already registered for type " + networkType);
             }
-        } finally {
-            Binder.restoreCallingIdentity(token);
+            mScoreCaches.put(networkType, scoreCache);
         }
     }
 
     @Override
-    public boolean requestScores(NetworkKey[] networks) {
-        mContext.enforceCallingOrSelfPermission(permission.REQUEST_NETWORK_SCORES, TAG);
-        final long token = Binder.clearCallingIdentity();
-        try {
-            final INetworkRecommendationProvider provider = getRecommendationProvider();
-            if (provider != null) {
-                try {
-                    provider.requestScores(networks);
-                    // TODO: 12/15/16 - Consider pushing null scores into the cache to
-                    // prevent repeated requests for the same scores.
-                    return true;
-                } catch (RemoteException e) {
-                    Log.w(TAG, "Failed to request scores.", e);
-                    // TODO: 12/15/16 - Keep track of failures.
-                }
-            }
-            return false;
-        } finally {
-            Binder.restoreCallingIdentity(token);
+    protected void dump(FileDescriptor fd, PrintWriter writer, String[] args) {
+        mContext.enforceCallingOrSelfPermission(permission.DUMP, TAG);
+        NetworkScorerAppData currentScorer = NetworkScorerAppManager.getActiveScorer(mContext);
+        if (currentScorer == null) {
+            writer.println("Scoring is disabled.");
+            return;
         }
-    }
+        writer.println("Current scorer: " + currentScorer.mPackageName);
 
-    @Override
-    protected void dump(final FileDescriptor fd, final PrintWriter writer, final String[] args) {
-        if (!DumpUtils.checkDumpPermission(mContext, TAG, writer)) return;
-        final long token = Binder.clearCallingIdentity();
-        try {
-            NetworkScorerAppData currentScorer = mNetworkScorerAppManager.getActiveScorer();
-            if (currentScorer == null) {
-                writer.println("Scoring is disabled.");
-                return;
-            }
-            writer.println("Current scorer: " + currentScorer);
-
-            sendCacheUpdateCallback(new BiConsumer<INetworkScoreCache, Object>() {
-                @Override
-                public void accept(INetworkScoreCache networkScoreCache, Object cookie) {
-                    try {
-                        TransferPipe.dumpAsync(networkScoreCache.asBinder(), fd, args);
-                    } catch (IOException | RemoteException e) {
-                        writer.println("Failed to dump score cache: " + e);
-                    }
-                }
-            }, getScoreCacheLists());
-
-            synchronized (mServiceConnectionLock) {
-                if (mServiceConnection != null) {
-                    mServiceConnection.dump(fd, writer, args);
-                } else {
-                    writer.println("ScoringServiceConnection: null");
+        for (INetworkScoreCache scoreCache : getScoreCaches()) {
+            try {
+                scoreCache.asBinder().dump(fd, args);
+            } catch (RemoteException e) {
+                writer.println("Unable to dump score cache");
+                if (Log.isLoggable(TAG, Log.VERBOSE)) {
+                    Log.v(TAG, "Unable to dump score cache", e);
                 }
             }
-            writer.flush();
-        } finally {
-            Binder.restoreCallingIdentity(token);
         }
+        if (mServiceConnection != null) {
+            mServiceConnection.dump(fd, writer, args);
+        } else {
+            writer.println("ScoringServiceConnection: null");
+        }
+        writer.flush();
     }
 
     /**
-     * Returns a {@link Collection} of all {@link RemoteCallbackList}s that are currently active.
+     * Returns a set of all score caches that are currently active.
      *
      * <p>May be used to perform an action on all score caches without potentially strange behavior
      * if a new scorer is registered during that action's execution.
      */
-    private Collection<RemoteCallbackList<INetworkScoreCache>> getScoreCacheLists() {
+    private Set<INetworkScoreCache> getScoreCaches() {
         synchronized (mScoreCaches) {
-            return new ArrayList<>(mScoreCaches.values());
+            return new HashSet<>(mScoreCaches.values());
         }
     }
 
-    private void sendCacheUpdateCallback(BiConsumer<INetworkScoreCache, Object> consumer,
-            Collection<RemoteCallbackList<INetworkScoreCache>> remoteCallbackLists) {
-        for (RemoteCallbackList<INetworkScoreCache> callbackList : remoteCallbackLists) {
-            synchronized (callbackList) { // Ensure only one active broadcast per RemoteCallbackList
-                final int count = callbackList.beginBroadcast();
-                try {
-                    for (int i = 0; i < count; i++) {
-                        consumer.accept(callbackList.getBroadcastItem(i),
-                                callbackList.getBroadcastCookie(i));
-                    }
-                } finally {
-                    callbackList.finishBroadcast();
-                }
-            }
-        }
-    }
+    private static class ScoringServiceConnection implements ServiceConnection {
+        private final ComponentName mComponentName;
+        private boolean mBound = false;
+        private boolean mConnected = false;
 
-    @Nullable
-    private INetworkRecommendationProvider getRecommendationProvider() {
-        synchronized (mServiceConnectionLock) {
-            if (mServiceConnection != null) {
-                return mServiceConnection.getRecommendationProvider();
-            }
-        }
-        return null;
-    }
-
-    // The class and methods need to be public for Mockito to work.
-    @VisibleForTesting
-    public static class ScoringServiceConnection implements ServiceConnection {
-        private final NetworkScorerAppData mAppData;
-        private volatile boolean mBound = false;
-        private volatile boolean mConnected = false;
-        private volatile INetworkRecommendationProvider mRecommendationProvider;
-
-        ScoringServiceConnection(NetworkScorerAppData appData) {
-            mAppData = appData;
+        ScoringServiceConnection(ComponentName componentName) {
+            mComponentName = componentName;
         }
 
-        @VisibleForTesting
-        public void bind(Context context) {
+        void connect(Context context) {
             if (!mBound) {
-                Intent service = new Intent(NetworkScoreManager.ACTION_RECOMMEND_NETWORKS);
-                service.setComponent(mAppData.getRecommendationServiceComponent());
+                Intent service = new Intent();
+                service.setComponent(mComponentName);
                 mBound = context.bindServiceAsUser(service, this,
                         Context.BIND_AUTO_CREATE | Context.BIND_FOREGROUND_SERVICE,
                         UserHandle.SYSTEM);
                 if (!mBound) {
                     Log.w(TAG, "Bind call failed for " + service);
-                    context.unbindService(this);
                 } else {
                     if (DBG) Log.d(TAG, "ScoringServiceConnection bound.");
                 }
             }
         }
 
-        @VisibleForTesting
-        public void unbind(Context context) {
+        void disconnect(Context context) {
             try {
                 if (mBound) {
                     mBound = false;
@@ -967,36 +480,12 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
             } catch (RuntimeException e) {
                 Log.e(TAG, "Unbind failed.", e);
             }
-
-            mConnected = false;
-            mRecommendationProvider = null;
-        }
-
-        @VisibleForTesting
-        public NetworkScorerAppData getAppData() {
-            return mAppData;
-        }
-
-        @VisibleForTesting
-        public INetworkRecommendationProvider getRecommendationProvider() {
-            return mRecommendationProvider;
-        }
-
-        @VisibleForTesting
-        public String getPackageName() {
-            return mAppData.getRecommendationServiceComponent().getPackageName();
-        }
-
-        @VisibleForTesting
-        public boolean isAlive() {
-            return mBound && mConnected;
         }
 
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
             if (DBG) Log.d(TAG, "ScoringServiceConnection: " + name.flattenToString());
             mConnected = true;
-            mRecommendationProvider = INetworkRecommendationProvider.Stub.asInterface(service);
         }
 
         @Override
@@ -1005,38 +494,11 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
                 Log.d(TAG, "ScoringServiceConnection, disconnected: " + name.flattenToString());
             }
             mConnected = false;
-            mRecommendationProvider = null;
         }
 
         public void dump(FileDescriptor fd, PrintWriter writer, String[] args) {
-            writer.println("ScoringServiceConnection: "
-                    + mAppData.getRecommendationServiceComponent()
-                    + ", bound: " + mBound
+            writer.println("ScoringServiceConnection: " + mComponentName + ", bound: " + mBound
                     + ", connected: " + mConnected);
-        }
-    }
-
-    @VisibleForTesting
-    public final class ServiceHandler extends Handler {
-        public static final int MSG_RECOMMENDATIONS_PACKAGE_CHANGED = 1;
-        public static final int MSG_RECOMMENDATION_ENABLED_SETTING_CHANGED = 2;
-
-        public ServiceHandler(Looper looper) {
-            super(looper);
-        }
-
-        @Override
-        public void handleMessage(Message msg) {
-            final int what = msg.what;
-            switch (what) {
-                case MSG_RECOMMENDATIONS_PACKAGE_CHANGED:
-                case MSG_RECOMMENDATION_ENABLED_SETTING_CHANGED:
-                    refreshBinding();
-                    break;
-
-                default:
-                    Log.w(TAG,"Unknown message: " + what);
-            }
         }
     }
 }

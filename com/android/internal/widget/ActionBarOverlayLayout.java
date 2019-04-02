@@ -76,7 +76,6 @@ public class ActionBarOverlayLayout extends ViewGroup implements DecorContentPar
     private final Rect mLastBaseContentInsets = new Rect();
     private final Rect mContentInsets = new Rect();
     private final Rect mBaseInnerInsets = new Rect();
-    private final Rect mLastBaseInnerInsets = new Rect();
     private final Rect mInnerInsets = new Rect();
     private final Rect mLastInnerInsets = new Rect();
 
@@ -324,10 +323,6 @@ public class ActionBarOverlayLayout extends ViewGroup implements DecorContentPar
 
         mBaseInnerInsets.set(systemInsets);
         computeFitSystemWindows(mBaseInnerInsets, mBaseContentInsets);
-        if (!mLastBaseInnerInsets.equals(mBaseInnerInsets)) {
-            changed = true;
-            mLastBaseContentInsets.set(mBaseContentInsets);
-        }
         if (!mLastBaseContentInsets.equals(mBaseContentInsets)) {
             changed = true;
             mLastBaseContentInsets.set(mBaseContentInsets);
@@ -574,10 +569,10 @@ public class ActionBarOverlayLayout extends ViewGroup implements DecorContentPar
     void pullChildren() {
         if (mContent == null) {
             mContent = findViewById(com.android.internal.R.id.content);
-            mActionBarTop = findViewById(
+            mActionBarTop = (ActionBarContainer) findViewById(
                     com.android.internal.R.id.action_bar_container);
             mDecorToolbar = getDecorToolbar(findViewById(com.android.internal.R.id.action_bar));
-            mActionBarBottom = findViewById(
+            mActionBarBottom = (ActionBarContainer) findViewById(
                     com.android.internal.R.id.split_action_bar);
         }
     }
@@ -712,7 +707,7 @@ public class ActionBarOverlayLayout extends ViewGroup implements DecorContentPar
                 mDecorToolbar.setSplitToolbar(splitActionBar);
                 mDecorToolbar.setSplitWhenNarrow(splitWhenNarrow);
 
-                final ActionBarContextView cab = findViewById(
+                final ActionBarContextView cab = (ActionBarContextView) findViewById(
                         com.android.internal.R.id.action_context_bar);
                 cab.setSplitView(mActionBarBottom);
                 cab.setSplitToolbar(splitActionBar);

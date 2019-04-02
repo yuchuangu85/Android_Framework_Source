@@ -16,6 +16,7 @@
 
 package android.view;
 
+import android.content.ComponentCallbacks;
 import android.content.res.Configuration;
 
 import java.text.BreakIterator;
@@ -64,7 +65,7 @@ public final class AccessibilityIterators {
     }
 
     static class CharacterTextSegmentIterator extends AbstractTextSegmentIterator
-            implements ViewRootImpl.ConfigChangedCallback {
+            implements ComponentCallbacks {
         private static CharacterTextSegmentIterator sInstance;
 
         private Locale mLocale;
@@ -143,12 +144,17 @@ public final class AccessibilityIterators {
         }
 
         @Override
-        public void onConfigurationChanged(Configuration globalConfig) {
-            final Locale locale = globalConfig.getLocales().get(0);
+        public void onConfigurationChanged(Configuration newConfig) {
+            Locale locale = newConfig.locale;
             if (!mLocale.equals(locale)) {
                 mLocale = locale;
                 onLocaleChanged(locale);
             }
+        }
+
+        @Override
+        public void onLowMemory() {
+            /* ignore */
         }
 
         protected void onLocaleChanged(Locale locale) {

@@ -17,19 +17,13 @@
 package com.android.setupwizardlib.util;
 
 import android.graphics.Rect;
-import android.os.Build;
 import android.os.Bundle;
-import android.support.v4.view.AccessibilityDelegateCompat;
 import android.support.v4.view.accessibility.AccessibilityNodeInfoCompat;
-import android.support.v4.view.accessibility.AccessibilityNodeProviderCompat;
 import android.support.v4.widget.ExploreByTouchHelper;
 import android.text.Layout;
 import android.text.Spanned;
 import android.text.style.ClickableSpan;
 import android.util.Log;
-import android.view.MotionEvent;
-import android.view.View;
-import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.TextView;
 
@@ -38,10 +32,6 @@ import java.util.List;
 /**
  * An accessibility delegate that allows {@link android.text.style.ClickableSpan} to be focused and
  * clicked by accessibility services.
- * <p>
- * <strong>Note: </strong> From Android O on, there is native support for ClickableSpan
- * accessibility, so this class is not needed (and indeed has no effect.)
- * </p>
  *
  * <p />Sample usage:
  * <pre>
@@ -64,138 +54,19 @@ import java.util.List;
  * @see com.android.setupwizardlib.view.RichTextView
  * @see android.support.v4.widget.ExploreByTouchHelper
  */
-public class LinkAccessibilityHelper extends AccessibilityDelegateCompat {
+public class LinkAccessibilityHelper extends ExploreByTouchHelper {
 
     private static final String TAG = "LinkAccessibilityHelper";
 
     private final TextView mView;
     private final Rect mTempRect = new Rect();
-    private final ExploreByTouchHelper mExploreByTouchHelper;
 
     public LinkAccessibilityHelper(TextView view) {
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N_MR1) {
-            // Pre-O, we essentially extend ExploreByTouchHelper to expose a virtual view hierarchy
-            mExploreByTouchHelper = new ExploreByTouchHelper(view) {
-                @Override
-                protected int getVirtualViewAt(float x, float y) {
-                    return LinkAccessibilityHelper.this.getVirtualViewAt(x, y);
-                }
-
-                @Override
-                protected void getVisibleVirtualViews(List<Integer> virtualViewIds) {
-                    LinkAccessibilityHelper.this.getVisibleVirtualViews(virtualViewIds);
-                }
-
-                @Override
-                protected void onPopulateEventForVirtualView(int virtualViewId,
-                        AccessibilityEvent event) {
-                    LinkAccessibilityHelper
-                            .this.onPopulateEventForVirtualView(virtualViewId, event);
-                }
-
-                @Override
-                protected void onPopulateNodeForVirtualView(int virtualViewId,
-                        AccessibilityNodeInfoCompat infoCompat) {
-                    LinkAccessibilityHelper
-                            .this.onPopulateNodeForVirtualView(virtualViewId, infoCompat);
-
-                }
-
-                @Override
-                protected boolean onPerformActionForVirtualView(int virtualViewId, int action,
-                        Bundle arguments) {
-                    return LinkAccessibilityHelper.this
-                            .onPerformActionForVirtualView(virtualViewId, action, arguments);
-                }
-            };
-        } else {
-            mExploreByTouchHelper = null;
-        }
+        super(view);
         mView = view;
     }
 
     @Override
-    public void sendAccessibilityEvent(View host, int eventType) {
-        if (mExploreByTouchHelper != null) {
-            mExploreByTouchHelper.sendAccessibilityEvent(host, eventType);
-        } else {
-            super.sendAccessibilityEvent(host, eventType);
-        }
-    }
-
-    @Override
-    public void sendAccessibilityEventUnchecked(View host, AccessibilityEvent event) {
-        if (mExploreByTouchHelper != null) {
-            mExploreByTouchHelper.sendAccessibilityEventUnchecked(host, event);
-        } else {
-            super.sendAccessibilityEventUnchecked(host, event);
-        }
-    }
-
-    @Override
-    public boolean dispatchPopulateAccessibilityEvent(View host, AccessibilityEvent event) {
-        return (mExploreByTouchHelper != null)
-                ? mExploreByTouchHelper.dispatchPopulateAccessibilityEvent(host, event)
-                : super.dispatchPopulateAccessibilityEvent(host, event);
-    }
-
-    @Override
-    public void onPopulateAccessibilityEvent(View host, AccessibilityEvent event) {
-        if (mExploreByTouchHelper != null) {
-            mExploreByTouchHelper.onPopulateAccessibilityEvent(host, event);
-        } else {
-            super.onPopulateAccessibilityEvent(host, event);
-        }
-    }
-
-    @Override
-    public void onInitializeAccessibilityEvent(View host, AccessibilityEvent event) {
-        if (mExploreByTouchHelper != null) {
-            mExploreByTouchHelper.onInitializeAccessibilityEvent(host, event);
-        } else {
-            super.onInitializeAccessibilityEvent(host, event);
-        }
-    }
-
-    @Override
-    public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfoCompat info) {
-        if (mExploreByTouchHelper != null) {
-            mExploreByTouchHelper.onInitializeAccessibilityNodeInfo(host, info);
-        } else {
-            super.onInitializeAccessibilityNodeInfo(host, info);
-        }
-    }
-
-    @Override
-    public boolean onRequestSendAccessibilityEvent(ViewGroup host, View child,
-            AccessibilityEvent event) {
-        return (mExploreByTouchHelper != null)
-                ? mExploreByTouchHelper.onRequestSendAccessibilityEvent(host, child, event)
-                : super.onRequestSendAccessibilityEvent(host, child, event);
-    }
-
-    @Override
-    public AccessibilityNodeProviderCompat getAccessibilityNodeProvider(View host) {
-        return (mExploreByTouchHelper != null)
-                ? mExploreByTouchHelper.getAccessibilityNodeProvider(host)
-                : super.getAccessibilityNodeProvider(host);
-    }
-
-    @Override
-    public boolean performAccessibilityAction(View host, int action, Bundle args) {
-        return (mExploreByTouchHelper != null)
-                ? mExploreByTouchHelper.performAccessibilityAction(host, action, args)
-                : super.performAccessibilityAction(host, action, args);
-    }
-
-    /**
-     * Delegated to {@link ExploreByTouchHelper}
-     */
-    public final boolean dispatchHoverEvent(MotionEvent event) {
-        return (mExploreByTouchHelper != null) ? mExploreByTouchHelper.dispatchHoverEvent(event)
-                : false;
-    }
-
     protected int getVirtualViewAt(float x, float y) {
         final CharSequence text = mView.getText();
         if (text instanceof Spanned) {
@@ -207,9 +78,10 @@ public class LinkAccessibilityHelper extends AccessibilityDelegateCompat {
                 return spannedText.getSpanStart(linkSpan);
             }
         }
-        return ExploreByTouchHelper.INVALID_ID;
+        return INVALID_ID;
     }
 
+    @Override
     protected void getVisibleVirtualViews(List<Integer> virtualViewIds) {
         final CharSequence text = mView.getText();
         if (text instanceof Spanned) {
@@ -222,6 +94,7 @@ public class LinkAccessibilityHelper extends AccessibilityDelegateCompat {
         }
     }
 
+    @Override
     protected void onPopulateEventForVirtualView(int virtualViewId, AccessibilityEvent event) {
         final ClickableSpan span = getSpanForOffset(virtualViewId);
         if (span != null) {
@@ -232,6 +105,7 @@ public class LinkAccessibilityHelper extends AccessibilityDelegateCompat {
         }
     }
 
+    @Override
     protected void onPopulateNodeForVirtualView(int virtualViewId,
             AccessibilityNodeInfoCompat info) {
         final ClickableSpan span = getSpanForOffset(virtualViewId);
@@ -252,6 +126,7 @@ public class LinkAccessibilityHelper extends AccessibilityDelegateCompat {
         info.addAction(AccessibilityNodeInfoCompat.ACTION_CLICK);
     }
 
+    @Override
     protected boolean onPerformActionForVirtualView(int virtualViewId, int action,
             Bundle arguments) {
         if (action == AccessibilityNodeInfoCompat.ACTION_CLICK) {

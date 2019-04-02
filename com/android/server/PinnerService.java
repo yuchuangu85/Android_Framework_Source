@@ -16,15 +16,12 @@
 
 package com.android.server;
 
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.net.Uri;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Handler;
@@ -36,12 +33,10 @@ import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructStat;
-import android.util.ArraySet;
 import android.util.Slog;
 
 import com.android.internal.app.ResolverActivity;
 import com.android.internal.os.BackgroundThread;
-import com.android.internal.util.DumpUtils;
 
 import dalvik.system.DexFile;
 import dalvik.system.VMRuntime;
@@ -68,23 +63,10 @@ public final class PinnerService extends SystemService {
 
     private BinderService mBinderService;
 
-    private final long MAX_CAMERA_PIN_SIZE = 80 * (1 << 20); //80MB max
+    private final long MAX_CAMERA_PIN_SIZE = 50 * (1 << 20); //50MB max
 
     private PinnerHandler mPinnerHandler = null;
 
-    private final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-          // If this user's camera app has been updated, update pinned files accordingly.
-          if (intent.getAction() == Intent.ACTION_PACKAGE_REPLACED) {
-                Uri packageUri = intent.getData();
-                String packageName = packageUri.getSchemeSpecificPart();
-                ArraySet<String> updatedPackages = new ArraySet<>();
-                updatedPackages.add(packageName);
-                update(updatedPackages);
-            }
-        }
-    };
 
     public PinnerService(Context context) {
         super(context);
@@ -93,11 +75,6 @@ public final class PinnerService extends SystemService {
         mShouldPinCamera = context.getResources().getBoolean(
                 com.android.internal.R.bool.config_pinnerCameraApp);
         mPinnerHandler = new PinnerHandler(BackgroundThread.get().getLooper());
-
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(Intent.ACTION_PACKAGE_REPLACED);
-        filter.addDataScheme("package");
-        mContext.registerReceiver(mBroadcastReceiver, filter);
     }
 
     @Override
@@ -107,7 +84,6 @@ public final class PinnerService extends SystemService {
         }
         mBinderService = new BinderService();
         publishBinderService("pinner", mBinderService);
-        publishLocalService(PinnerService.class, this);
 
         mPinnerHandler.obtainMessage(PinnerHandler.PIN_ONSTART_MSG).sendToTarget();
         mPinnerHandler.obtainMessage(PinnerHandler.PIN_CAMERA_MSG, UserHandle.USER_SYSTEM, 0)
@@ -123,20 +99,6 @@ public final class PinnerService extends SystemService {
     @Override
     public void onSwitchUser(int userHandle) {
         mPinnerHandler.obtainMessage(PinnerHandler.PIN_CAMERA_MSG, userHandle, 0).sendToTarget();
-    }
-
-    /**
-     * Update the currently pinned files.
-     * Specifically, this only updates camera pinning.
-     * The other files pinned in onStart will not need to be updated.
-     */
-    public void update(ArraySet<String> updatedPackages) {
-        ApplicationInfo cameraInfo = getCameraInfo(UserHandle.USER_SYSTEM);
-        if (cameraInfo != null && updatedPackages.contains(cameraInfo.packageName)) {
-            Slog.i(TAG, "Updating pinned files.");
-            mPinnerHandler.obtainMessage(PinnerHandler.PIN_CAMERA_MSG, UserHandle.USER_SYSTEM, 0)
-                    .sendToTarget();
-        }
     }
 
     /**
@@ -230,19 +192,19 @@ public final class PinnerService extends SystemService {
 
         if (isResolverActivity(cameraResolveInfo.activityInfo))
         {
-            if (DEBUG) {
-              Slog.v(TAG, "cameraIntent returned resolverActivity");
-            }
             return null;
         }
 
         return cameraResolveInfo.activityInfo.applicationInfo;
     }
 
-    /**
-     * If the camera app is already pinned, unpin and repin it.
-     */
     private boolean pinCamera(int userHandle){
+        //we may have already pinned a camera app.  If we've pinned this
+        //camera app, we're done.  otherwise, unpin and pin the new app
+        if (alreadyPinned(userHandle)){
+            return true;
+        }
+
         ApplicationInfo cameraInfo = getCameraInfo(userHandle);
         if (cameraInfo == null) {
             return false;
@@ -267,10 +229,9 @@ public final class PinnerService extends SystemService {
 
         // determine the ABI from either ApplicationInfo or Build
         String arch = "arm";
-        if (cameraInfo.primaryCpuAbi != null) {
-            if (VMRuntime.is64BitAbi(cameraInfo.primaryCpuAbi)) {
-                arch = arch + "64";
-            }
+        if (cameraInfo.primaryCpuAbi != null
+            && VMRuntime.is64BitAbi(cameraInfo.primaryCpuAbi)) {
+            arch = arch + "64";
         } else {
             if (VMRuntime.is64BitAbi(Build.SUPPORTED_ABIS[0])) {
                 arch = arch + "64";
@@ -279,22 +240,20 @@ public final class PinnerService extends SystemService {
 
         // get the path to the odex or oat file
         String baseCodePath = cameraInfo.getBaseCodePath();
-        String[] files = null;
+        String odex = null;
         try {
-            files = DexFile.getDexFileOutputPaths(baseCodePath, arch);
+            odex = DexFile.getDexFileOutputPath(baseCodePath, arch);
         } catch (IOException ioe) {}
-        if (files == null) {
+        if (odex == null) {
             return true;
         }
 
         //not pinning the oat/odex is not a fatal error
-        for (String file : files) {
-            pf = pinFile(file, 0, 0, MAX_CAMERA_PIN_SIZE);
-            if (pf != null) {
-                mPinnedCameraFiles.add(pf);
-                if (DEBUG) {
-                    Slog.i(TAG, "Pinned " + pf.mFilename);
-                }
+        pf = pinFile(odex, 0, 0, MAX_CAMERA_PIN_SIZE);
+        if (pf != null) {
+            mPinnedCameraFiles.add(pf);
+            if (DEBUG) {
+                Slog.i(TAG, "Pinned " + pf.mFilename);
             }
         }
 
@@ -371,7 +330,7 @@ public final class PinnerService extends SystemService {
     private final class BinderService extends Binder {
         @Override
         protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-            if (!DumpUtils.checkDumpPermission(mContext, TAG, pw)) return;
+            mContext.enforceCallingOrSelfPermission(android.Manifest.permission.DUMP, TAG);
             pw.println("Pinned Files:");
             synchronized(this) {
                 for (int i = 0; i < mPinnedFiles.size(); i++) {

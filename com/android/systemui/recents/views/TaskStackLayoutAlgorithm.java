@@ -23,7 +23,6 @@ import android.content.res.Resources;
 import android.graphics.Path;
 import android.graphics.Rect;
 import android.util.ArraySet;
-import android.util.Log;
 import android.util.MutableFloat;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
@@ -39,8 +38,6 @@ import com.android.systemui.recents.misc.SystemServicesProxy;
 import com.android.systemui.recents.misc.Utilities;
 import com.android.systemui.recents.model.Task;
 import com.android.systemui.recents.model.TaskStack;
-import com.android.systemui.recents.views.lowram.TaskStackLowRamLayoutAlgorithm;
-import com.android.systemui.recents.views.grid.TaskGridLayoutAlgorithm;
 
 import java.io.PrintWriter;
 import java.lang.annotation.Retention;
@@ -215,19 +212,13 @@ public class TaskStackLayoutAlgorithm {
         }
     }
 
-    /**
-     * @return True if we should use the grid layout.
-     */
-    boolean useGridLayout() {
-        return Recents.getConfiguration().isGridEnabled;
-    }
-
     // A report of the visibility state of the stack
-    public static class VisibilityReport {
+    public class VisibilityReport {
         public int numVisibleTasks;
         public int numVisibleThumbnails;
 
-        public VisibilityReport(int tasks, int thumbnails) {
+        /** Package level ctor */
+        VisibilityReport(int tasks, int thumbnails) {
             numVisibleTasks = tasks;
             numVisibleThumbnails = thumbnails;
         }
@@ -249,14 +240,14 @@ public class TaskStackLayoutAlgorithm {
     // This is the current system insets
     @ViewDebug.ExportedProperty(category="recents")
     public Rect mSystemInsets = new Rect();
+    // This is the bounds of the stack action above the stack rect
+    @ViewDebug.ExportedProperty(category="recents")
+    public Rect mStackActionButtonRect = new Rect();
 
     // The visible ranges when the stack is focused and unfocused
     private Range mUnfocusedRange;
     private Range mFocusedRange;
 
-    // This is the bounds of the stack action above the stack rect
-    @ViewDebug.ExportedProperty(category="recents")
-    private Rect mStackActionButtonRect = new Rect();
     // The base top margin for the stack from the system insets
     @ViewDebug.ExportedProperty(category="recents")
     private int mBaseTopMargin;
@@ -292,9 +283,6 @@ public class TaskStackLayoutAlgorithm {
     // scrolled to the front
     @ViewDebug.ExportedProperty(category="recents")
     private int mStackBottomOffset;
-
-    /** The height, in pixels, of each task view's title bar. */
-    private int mTitleBarHeight;
 
     // The paths defining the motion of the tasks when the stack is focused and unfocused
     private Path mUnfocusedCurve;
@@ -338,7 +326,7 @@ public class TaskStackLayoutAlgorithm {
     @ViewDebug.ExportedProperty(category="recents")
     int mMinTranslationZ;
     @ViewDebug.ExportedProperty(category="recents")
-    public int mMaxTranslationZ;
+    int mMaxTranslationZ;
 
     // Optimization, allows for quick lookup of task -> index
     private SparseIntArray mTaskIndexMap = new SparseIntArray();
@@ -346,19 +334,29 @@ public class TaskStackLayoutAlgorithm {
 
     // The freeform workspace layout
     FreeformWorkspaceLayoutAlgorithm mFreeformLayoutAlgorithm;
-    TaskGridLayoutAlgorithm mTaskGridLayoutAlgorithm;
-    TaskStackLowRamLayoutAlgorithm mTaskStackLowRamLayoutAlgorithm;
 
     // The transform to place TaskViews at the front and back of the stack respectively
     TaskViewTransform mBackOfStackTransform = new TaskViewTransform();
     TaskViewTransform mFrontOfStackTransform = new TaskViewTransform();
 
     public TaskStackLayoutAlgorithm(Context context, TaskStackLayoutAlgorithmCallbacks cb) {
+        Resources res = context.getResources();
         mContext = context;
         mCb = cb;
         mFreeformLayoutAlgorithm = new FreeformWorkspaceLayoutAlgorithm(context);
-        mTaskGridLayoutAlgorithm = new TaskGridLayoutAlgorithm(context);
-        mTaskStackLowRamLayoutAlgorithm = new TaskStackLowRamLayoutAlgorithm(context);
+        mMinMargin = res.getDimensionPixelSize(R.dimen.recents_layout_min_margin);
+        mBaseTopMargin = getDimensionForDevice(context,
+                R.dimen.recents_layout_top_margin_phone,
+                R.dimen.recents_layout_top_margin_tablet,
+                R.dimen.recents_layout_top_margin_tablet_xlarge);
+        mBaseSideMargin = getDimensionForDevice(context,
+                R.dimen.recents_layout_side_margin_phone,
+                R.dimen.recents_layout_side_margin_tablet,
+                R.dimen.recents_layout_side_margin_tablet_xlarge);
+        mBaseBottomMargin = res.getDimensionPixelSize(R.dimen.recents_layout_bottom_margin);
+        mFreeformStackGap =
+                res.getDimensionPixelSize(R.dimen.recents_freeform_layout_bottom_margin);
+
         reloadOnConfigurationChange(context);
     }
 
@@ -383,7 +381,6 @@ public class TaskStackLayoutAlgorithm {
                 R.dimen.recents_layout_initial_top_offset_tablet,
                 R.dimen.recents_layout_initial_top_offset_tablet,
                 R.dimen.recents_layout_initial_top_offset_tablet,
-                R.dimen.recents_layout_initial_top_offset_tablet,
                 R.dimen.recents_layout_initial_top_offset_tablet);
         mBaseInitialBottomOffset = getDimensionForDevice(context,
                 R.dimen.recents_layout_initial_bottom_offset_phone_port,
@@ -391,33 +388,8 @@ public class TaskStackLayoutAlgorithm {
                 R.dimen.recents_layout_initial_bottom_offset_tablet,
                 R.dimen.recents_layout_initial_bottom_offset_tablet,
                 R.dimen.recents_layout_initial_bottom_offset_tablet,
-                R.dimen.recents_layout_initial_bottom_offset_tablet,
                 R.dimen.recents_layout_initial_bottom_offset_tablet);
         mFreeformLayoutAlgorithm.reloadOnConfigurationChange(context);
-        mTaskGridLayoutAlgorithm.reloadOnConfigurationChange(context);
-        mTaskStackLowRamLayoutAlgorithm.reloadOnConfigurationChange(context);
-        mMinMargin = res.getDimensionPixelSize(R.dimen.recents_layout_min_margin);
-        mBaseTopMargin = getDimensionForDevice(context,
-                R.dimen.recents_layout_top_margin_phone,
-                R.dimen.recents_layout_top_margin_tablet,
-                R.dimen.recents_layout_top_margin_tablet_xlarge,
-                R.dimen.recents_layout_top_margin_tablet);
-        mBaseSideMargin = getDimensionForDevice(context,
-                R.dimen.recents_layout_side_margin_phone,
-                R.dimen.recents_layout_side_margin_tablet,
-                R.dimen.recents_layout_side_margin_tablet_xlarge,
-                R.dimen.recents_layout_side_margin_tablet);
-        mBaseBottomMargin = res.getDimensionPixelSize(R.dimen.recents_layout_bottom_margin);
-        mFreeformStackGap =
-                res.getDimensionPixelSize(R.dimen.recents_freeform_layout_bottom_margin);
-        mTitleBarHeight = getDimensionForDevice(mContext,
-                R.dimen.recents_task_view_header_height,
-                R.dimen.recents_task_view_header_height,
-                R.dimen.recents_task_view_header_height,
-                R.dimen.recents_task_view_header_height_tablet_land,
-                R.dimen.recents_task_view_header_height,
-                R.dimen.recents_task_view_header_height_tablet_land,
-                R.dimen.recents_grid_task_view_header_height);
     }
 
     /**
@@ -434,8 +406,6 @@ public class TaskStackLayoutAlgorithm {
     public boolean setSystemInsets(Rect systemInsets) {
         boolean changed = !mSystemInsets.equals(systemInsets);
         mSystemInsets.set(systemInsets);
-        mTaskGridLayoutAlgorithm.setSystemInsets(systemInsets);
-        mTaskStackLowRamLayoutAlgorithm.setSystemInsets(systemInsets);
         return changed;
     }
 
@@ -487,13 +457,6 @@ public class TaskStackLayoutAlgorithm {
         int height = mStackRect.height() - mInitialTopOffset - mStackBottomOffset;
         mTaskRect.set(mStackRect.left, mStackRect.top, mStackRect.right, mStackRect.top + height);
 
-        if (mTaskRect.width() <= 0 || mTaskRect.height() <= 0) {
-            // Logging for b/36654830
-            Log.e(TAG, "Invalid task rect: taskRect=" + mTaskRect + " stackRect=" + mStackRect
-                    + " displayRect=" + displayRect + " windowRect=" + windowRect
-                    + " taskStackBounds=" + taskStackBounds);
-        }
-
         // Short circuit here if the stack rects haven't changed so we don't do all the work below
         if (!lastStackRect.equals(mStackRect)) {
             // Reinitialize the focused and unfocused curves
@@ -508,19 +471,15 @@ public class TaskStackLayoutAlgorithm {
 
             updateFrontBackTransforms();
         }
-
-        // Initialize the grid layout
-        mTaskGridLayoutAlgorithm.initialize(windowRect);
-        mTaskStackLowRamLayoutAlgorithm.initialize(windowRect);
     }
 
     /**
      * Computes the minimum and maximum scroll progress values and the progress values for each task
      * in the stack.
      */
-    public void update(TaskStack stack, ArraySet<Task.TaskKey> ignoreTasksSet,
-            RecentsActivityLaunchState launchState) {
+    void update(TaskStack stack, ArraySet<Task.TaskKey> ignoreTasksSet) {
         SystemServicesProxy ssp = Recents.getSystemServices();
+        RecentsActivityLaunchState launchState = Recents.getConfiguration().getLaunchState();
 
         // Clear the progress map
         mTaskIndexMap.clear();
@@ -576,8 +535,7 @@ public class TaskStackLayoutAlgorithm {
             mMinScrollP = 0;
             mMaxScrollP = Math.max(mMinScrollP, (mNumStackTasks - 1) -
                     Math.max(0, mFocusedRange.getAbsoluteX(maxBottomNormX)));
-            if (launchState.launchedFromHome || launchState.launchedFromPipApp
-                    || launchState.launchedWithNextPipApp) {
+            if (launchState.launchedFromHome) {
                 mInitialScrollP = Utilities.clamp(launchTaskIndex, mMinScrollP, mMaxScrollP);
             } else {
                 mInitialScrollP = Utilities.clamp(launchTaskIndex - 1, mMinScrollP, mMaxScrollP);
@@ -593,23 +551,15 @@ public class TaskStackLayoutAlgorithm {
             int maxBottomOffset = mStackBottomOffset + mTaskRect.height();
             float maxBottomNormX = getNormalizedXFromUnfocusedY(maxBottomOffset, FROM_BOTTOM);
             mUnfocusedRange.offset(0f);
-            mMinScrollP = Recents.getConfiguration().isLowRamDevice
-                    ? mTaskStackLowRamLayoutAlgorithm.getMinScrollP()
-                    : 0;
-            mMaxScrollP = Recents.getConfiguration().isLowRamDevice
-                    ? mTaskStackLowRamLayoutAlgorithm.getMaxScrollP(taskCount)
-                    : Math.max(mMinScrollP, (mNumStackTasks - 1) -
+            mMinScrollP = 0;
+            mMaxScrollP = Math.max(mMinScrollP, (mNumStackTasks - 1) -
                     Math.max(0, mUnfocusedRange.getAbsoluteX(maxBottomNormX)));
-            boolean scrollToFront = launchState.launchedFromHome || launchState.launchedFromPipApp
-                    || launchState.launchedWithNextPipApp || launchState.launchedViaDockGesture;
-
+            boolean scrollToFront = launchState.launchedFromHome ||
+                    launchState.launchedViaDockGesture;
             if (launchState.launchedFromBlacklistedApp) {
                 mInitialScrollP = mMaxScrollP;
             } else if (launchState.launchedWithAltTab) {
                 mInitialScrollP = Utilities.clamp(launchTaskIndex, mMinScrollP, mMaxScrollP);
-            } else if (Recents.getConfiguration().isLowRamDevice) {
-                mInitialScrollP = mTaskStackLowRamLayoutAlgorithm.getInitialScrollP(mNumStackTasks,
-                        scrollToFront);
             } else if (scrollToFront) {
                 mInitialScrollP = Utilities.clamp(launchTaskIndex, mMinScrollP, mMaxScrollP);
             } else {
@@ -631,8 +581,6 @@ public class TaskStackLayoutAlgorithm {
         mTaskIndexOverrideMap.clear();
 
         boolean scrollToFront = launchState.launchedFromHome ||
-                launchState.launchedFromPipApp ||
-                launchState.launchedWithNextPipApp ||
                 launchState.launchedFromBlacklistedApp ||
                 launchState.launchedViaDockGesture;
         if (getInitialFocusState() == STATE_UNFOCUSED && mNumStackTasks > 1) {
@@ -720,7 +668,7 @@ public class TaskStackLayoutAlgorithm {
      */
     public float updateFocusStateOnScroll(float lastTargetStackScroll, float targetStackScroll,
             float lastStackScroll) {
-        if (targetStackScroll == lastStackScroll || Recents.getConfiguration().isLowRamDevice) {
+        if (targetStackScroll == lastStackScroll) {
             return targetStackScroll;
         }
 
@@ -774,11 +722,6 @@ public class TaskStackLayoutAlgorithm {
         }
     }
 
-    public Rect getStackActionButtonRect() {
-        return useGridLayout()
-                ? mTaskGridLayoutAlgorithm.getStackActionButtonRect() : mStackActionButtonRect;
-    }
-
     /**
      * Returns the TaskViewTransform that would put the task just off the back of the stack.
      */
@@ -812,14 +755,6 @@ public class TaskStackLayoutAlgorithm {
      * stack scroll.  Requires that update() is called first.
      */
     public VisibilityReport computeStackVisibilityReport(ArrayList<Task> tasks) {
-        if (useGridLayout()) {
-            return mTaskGridLayoutAlgorithm.computeStackVisibilityReport(tasks);
-        }
-
-        if (Recents.getConfiguration().isLowRamDevice) {
-            return mTaskStackLowRamLayoutAlgorithm.computeStackVisibilityReport(tasks);
-        }
-
         // Ensure minimum visibility count
         if (tasks.size() <= 1) {
             return new VisibilityReport(1, 1);
@@ -827,8 +762,8 @@ public class TaskStackLayoutAlgorithm {
 
         // Quick return when there are no stack tasks
         if (mNumStackTasks == 0) {
-            return new VisibilityReport(mNumFreeformTasks > 0 ? Math.max(mNumFreeformTasks, 1) : 0,
-                    mNumFreeformTasks > 0 ? Math.max(mNumFreeformTasks, 1) : 0);
+            return new VisibilityReport(Math.max(mNumFreeformTasks, 1),
+                    Math.max(mNumFreeformTasks, 1));
         }
 
         // Otherwise, walk backwards in the stack and count the number of tasks and visible
@@ -838,8 +773,8 @@ public class TaskStackLayoutAlgorithm {
         currentRange.offset(mInitialScrollP);
         int taskBarHeight = mContext.getResources().getDimensionPixelSize(
                 R.dimen.recents_task_view_header_height);
-        int numVisibleTasks = mNumFreeformTasks > 0 ? Math.max(mNumFreeformTasks, 1) : 0;
-        int numVisibleThumbnails = mNumFreeformTasks > 0 ? Math.max(mNumFreeformTasks, 0) : 0;
+        int numVisibleTasks = Math.max(mNumFreeformTasks, 1);
+        int numVisibleThumbnails = Math.max(mNumFreeformTasks, 1);
         float prevScreenY = Integer.MAX_VALUE;
         for (int i = tasks.size() - 1; i >= 0; i--) {
             Task task = tasks.get(i);
@@ -870,15 +805,15 @@ public class TaskStackLayoutAlgorithm {
                     // Once we hit the next front most task that does not have a visible thumbnail,
                     // walk through remaining visible set
                     for (int j = i; j >= 0; j--) {
+                        numVisibleTasks++;
                         taskProgress = getStackScrollForTask(tasks.get(j));
                         if (!currentRange.isInRange(taskProgress)) {
-                            break;
+                            continue;
                         }
-                        numVisibleTasks++;
                     }
                     break;
                 }
-            } else {
+            } else if (!isFrontMostTaskInGroup) {
                 // Affiliated task, no thumbnail
                 numVisibleTasks++;
             }
@@ -909,20 +844,6 @@ public class TaskStackLayoutAlgorithm {
         if (mFreeformLayoutAlgorithm.isTransformAvailable(task, this)) {
             mFreeformLayoutAlgorithm.getTransform(task, transformOut, this);
             return transformOut;
-        } else if (useGridLayout()) {
-            int taskIndex = mTaskIndexMap.get(task.key.id);
-            int taskCount = mTaskIndexMap.size();
-            mTaskGridLayoutAlgorithm.getTransform(taskIndex, taskCount, transformOut, this);
-            return transformOut;
-        } else if (Recents.getConfiguration().isLowRamDevice) {
-            if (task == null) {
-                transformOut.reset();
-                return transformOut;
-            }
-            int taskIndex = mTaskIndexMap.get(task.key.id);
-            mTaskStackLowRamLayoutAlgorithm.getTransform(taskIndex, stackScroll, transformOut,
-                    mNumStackTasks, this);
-            return transformOut;
         } else {
             // Return early if we have an invalid index
             int nonOverrideTaskProgress = mTaskIndexMap.get(task.key.id, -1);
@@ -933,7 +854,6 @@ public class TaskStackLayoutAlgorithm {
             float taskProgress = ignoreTaskOverrides
                     ? nonOverrideTaskProgress
                     : getStackScrollForTask(task);
-
             getStackTransform(taskProgress, nonOverrideTaskProgress, stackScroll, focusState,
                     transformOut, frontTransform, false /* ignoreSingleTaskCase */, forceUpdate);
             return transformOut;
@@ -956,17 +876,12 @@ public class TaskStackLayoutAlgorithm {
      * Transforms the given {@param transformOut} to the screen coordinates, overriding the current
      * window rectangle with {@param windowOverrideRect} if non-null.
      */
-    TaskViewTransform transformToScreenCoordinates(TaskViewTransform transformOut,
+    public TaskViewTransform transformToScreenCoordinates(TaskViewTransform transformOut,
             Rect windowOverrideRect) {
         Rect windowRect = windowOverrideRect != null
                 ? windowOverrideRect
                 : Recents.getSystemServices().getWindowRect();
         transformOut.rect.offset(windowRect.left, windowRect.top);
-        if (useGridLayout()) {
-            // Draw the thumbnail a little lower to perfectly coincide with the view we are
-            // transitioning to, where the header bar has already been drawn.
-            transformOut.rect.offset(0, mTitleBarHeight);
-        }
         return transformOut;
     }
 
@@ -1059,6 +974,7 @@ public class TaskStackLayoutAlgorithm {
                     unfocusedDim *= MAX_DIM / (MAX_DIM - offset);
                 }
             }
+
             y = (mStackRect.top - mTaskRect.top) +
                     (int) Utilities.mapRange(focusState, unfocusedY, focusedY);
             z = Utilities.mapRange(Utilities.clamp01(boundedScrollUnfocusedNonOverrideRangeX),
@@ -1094,7 +1010,7 @@ public class TaskStackLayoutAlgorithm {
      */
     float getStackScrollForTask(Task t) {
         Float overrideP = mTaskIndexOverrideMap.get(t.key.id, null);
-        if (Recents.getConfiguration().isLowRamDevice || overrideP == null) {
+        if (overrideP == null) {
             return (float) mTaskIndexMap.get(t.key.id, 0);
         }
         return overrideP;
@@ -1113,12 +1029,6 @@ public class TaskStackLayoutAlgorithm {
      * offset (which is at the task's brightest point).
      */
     float getStackScrollForTaskAtInitialOffset(Task t) {
-        if (Recents.getConfiguration().isLowRamDevice) {
-            RecentsActivityLaunchState launchState = Recents.getConfiguration().getLaunchState();
-            return mTaskStackLowRamLayoutAlgorithm.getInitialScrollP(mNumStackTasks,
-                    launchState.launchedFromHome || launchState.launchedFromPipApp
-                            || launchState.launchedWithNextPipApp);
-        }
         float normX = getNormalizedXFromUnfocusedY(mInitialTopOffset, FROM_TOP);
         mUnfocusedRange.offset(0f);
         return Utilities.clamp((float) mTaskIndexMap.get(t.key.id, 0) - Math.max(0,
@@ -1131,9 +1041,6 @@ public class TaskStackLayoutAlgorithm {
      * screen along the arc-length proportionally (1/arclength).
      */
     public float getDeltaPForY(int downY, int y) {
-        if (Recents.getConfiguration().isLowRamDevice) {
-            return mTaskStackLowRamLayoutAlgorithm.scrollToPercentage(downY - y);
-        }
         float deltaP = (float) (y - downY) / mStackRect.height() *
                 mUnfocusedCurveInterpolator.getArcLength();
         return -deltaP;
@@ -1144,9 +1051,6 @@ public class TaskStackLayoutAlgorithm {
      * of the curve, map back to the screen y.
      */
     public int getYForDeltaP(float downScrollP, float p) {
-        if (Recents.getConfiguration().isLowRamDevice) {
-            return mTaskStackLowRamLayoutAlgorithm.percentageToScroll(downScrollP - p);
-        }
         int y = (int) ((p - downScrollP) * mStackRect.height() *
                 (1f / mUnfocusedCurveInterpolator.getArcLength()));
         return -y;
@@ -1185,9 +1089,9 @@ public class TaskStackLayoutAlgorithm {
      * Retrieves resources that are constant regardless of the current configuration of the device.
      */
     public static int getDimensionForDevice(Context ctx, int phoneResId,
-            int tabletResId, int xlargeTabletResId, int gridLayoutResId) {
+            int tabletResId, int xlargeTabletResId) {
         return getDimensionForDevice(ctx, phoneResId, phoneResId, tabletResId, tabletResId,
-                xlargeTabletResId, xlargeTabletResId, gridLayoutResId);
+                xlargeTabletResId, xlargeTabletResId);
     }
 
     /**
@@ -1195,14 +1099,12 @@ public class TaskStackLayoutAlgorithm {
      */
     public static int getDimensionForDevice(Context ctx, int phonePortResId, int phoneLandResId,
             int tabletPortResId, int tabletLandResId, int xlargeTabletPortResId,
-            int xlargeTabletLandResId, int gridLayoutResId) {
+            int xlargeTabletLandResId) {
         RecentsConfiguration config = Recents.getConfiguration();
         Resources res = ctx.getResources();
         boolean isLandscape = Utilities.getAppConfiguration(ctx).orientation ==
                 Configuration.ORIENTATION_LANDSCAPE;
-        if (config.isGridEnabled) {
-            return res.getDimensionPixelSize(gridLayoutResId);
-        } else if (config.isXLargeScreen) {
+        if (config.isXLargeScreen) {
             return res.getDimensionPixelSize(isLandscape
                     ? xlargeTabletLandResId
                     : xlargeTabletPortResId);
@@ -1339,11 +1241,6 @@ public class TaskStackLayoutAlgorithm {
         if (mStackRect.isEmpty()) {
             return;
         }
-        if (Recents.getConfiguration().isLowRamDevice) {
-            mTaskStackLowRamLayoutAlgorithm.getBackOfStackTransform(mBackOfStackTransform, this);
-            mTaskStackLowRamLayoutAlgorithm.getFrontOfStackTransform(mFrontOfStackTransform, this);
-            return;
-        }
 
         float min = Utilities.mapRange(mFocusState, mUnfocusedRange.relativeMin,
                 mFocusedRange.relativeMin);
@@ -1355,16 +1252,6 @@ public class TaskStackLayoutAlgorithm {
                 true /* ignoreSingleTaskCase */, true /* forceUpdate */);
         mBackOfStackTransform.visible = true;
         mFrontOfStackTransform.visible = true;
-    }
-
-    /**
-     * Returns the proper task rectangle according to the current grid state.
-     */
-    public Rect getTaskRect() {
-        if (Recents.getConfiguration().isLowRamDevice) {
-            return mTaskStackLowRamLayoutAlgorithm.getTaskRect();
-        }
-        return useGridLayout() ? mTaskGridLayoutAlgorithm.getTaskGridRect() : mTaskRect;
     }
 
     public void dump(String prefix, PrintWriter writer) {

@@ -16,16 +16,17 @@
 
 package android.support.v4.util;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.support.annotation.RestrictTo;
 
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+
 /**
- * Helper for accessing features in {@link android.util.DebugUtils}.
+ * Helper for accessing features in {@link android.util.DebugUtils}
+ * introduced after API level 4 in a backwards compatible fashion.
  *
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public class DebugUtils {
 
     public static void buildShortClassTag(Object cls, StringBuilder out) {

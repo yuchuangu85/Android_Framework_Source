@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2007, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -73,9 +73,6 @@ public class CipherOutputStream extends FilterOutputStream {
 
     // the buffer holding data ready to be written out
     private byte[] obuffer;
-
-    // stream status
-    private boolean closed = false;
 
     /**
      *
@@ -201,17 +198,12 @@ public class CipherOutputStream extends FilterOutputStream {
      * @since      JCE1.2
      */
     public void close() throws IOException {
-        if (closed) {
-            return;
-        }
-
-        closed = true;
         try {
             obuffer = cipher.doFinal();
-        } catch (IllegalBlockSizeException | BadPaddingException e) {
+        } catch (IllegalBlockSizeException e) {
             obuffer = null;
-            // Android-added: Throw an exception when the underlying cipher does.  http://b/36636576
-            throw new IOException(e);
+        } catch (BadPaddingException e) {
+            obuffer = null;
         }
         try {
             flush();

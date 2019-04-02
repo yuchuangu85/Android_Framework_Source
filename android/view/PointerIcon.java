@@ -17,6 +17,9 @@
 package android.view;
 
 import android.annotation.NonNull;
+import android.util.SparseArray;
+import com.android.internal.util.XmlUtils;
+
 import android.annotation.XmlRes;
 import android.content.Context;
 import android.content.res.Resources;
@@ -29,9 +32,6 @@ import android.graphics.drawable.Drawable;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
-import android.util.SparseArray;
-
-import com.android.internal.util.XmlUtils;
 
 /**
  * Represents an icon that can be used as a mouse pointer.

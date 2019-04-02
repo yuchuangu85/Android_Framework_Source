@@ -16,8 +16,6 @@
 
 package android.support.v4.app;
 
-import static android.os.Build.VERSION.SDK_INT;
-
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Intent;
@@ -25,15 +23,15 @@ import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Build;
 import android.support.annotation.StringRes;
 import android.support.v4.content.IntentCompat;
+import android.support.v4.view.MenuItemCompat;
 import android.text.Html;
 import android.text.Spanned;
 import android.util.Log;
-import android.view.ActionProvider;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.widget.ShareActionProvider;
 
 import java.util.ArrayList;
 
@@ -77,7 +75,92 @@ public final class ShareCompat {
     public static final String EXTRA_CALLING_ACTIVITY =
             "android.support.v4.app.EXTRA_CALLING_ACTIVITY";
 
-    private static final String HISTORY_FILENAME_PREFIX = ".sharecompat_";
+    /**
+     * Compatibility shims for sharing operations
+     */
+    interface ShareCompatImpl {
+        void configureMenuItem(MenuItem item, IntentBuilder shareIntent);
+        String escapeHtml(CharSequence text);
+    }
+
+    static class ShareCompatImplBase implements ShareCompatImpl {
+        @Override
+        public void configureMenuItem(MenuItem item, IntentBuilder shareIntent) {
+            item.setIntent(shareIntent.createChooserIntent());
+        }
+
+        @Override
+        public String escapeHtml(CharSequence text) {
+            StringBuilder out = new StringBuilder();
+            withinStyle(out, text, 0, text.length());
+            return out.toString();
+        }
+
+        private static void withinStyle(StringBuilder out, CharSequence text,
+                int start, int end) {
+            for (int i = start; i < end; i++) {
+                char c = text.charAt(i);
+
+                if (c == '<') {
+                    out.append("&lt;");
+                } else if (c == '>') {
+                    out.append("&gt;");
+                } else if (c == '&') {
+                    out.append("&amp;");
+                } else if (c > 0x7E || c < ' ') {
+                    out.append("&#" + ((int) c) + ";");
+                } else if (c == ' ') {
+                    while (i + 1 < end && text.charAt(i + 1) == ' ') {
+                        out.append("&nbsp;");
+                        i++;
+                    }
+
+                    out.append(' ');
+                } else {
+                    out.append(c);
+                }
+            }
+        }
+    }
+
+    static class ShareCompatImplICS extends ShareCompatImplBase {
+        @Override
+        public void configureMenuItem(MenuItem item, IntentBuilder shareIntent) {
+            ShareCompatICS.configureMenuItem(item, shareIntent.getActivity(),
+                    shareIntent.getIntent());
+            if (shouldAddChooserIntent(item)) {
+                item.setIntent(shareIntent.createChooserIntent());
+            }
+        }
+
+        boolean shouldAddChooserIntent(MenuItem item) {
+            return !item.hasSubMenu();
+        }
+    }
+
+    static class ShareCompatImplJB extends ShareCompatImplICS {
+        @Override
+        public String escapeHtml(CharSequence html) {
+            return ShareCompatJB.escapeHtml(html);
+        }
+
+        @Override
+        boolean shouldAddChooserIntent(MenuItem item) {
+            return false;
+        }
+    }
+
+    static ShareCompatImpl IMPL;
+
+    static {
+        if (Build.VERSION.SDK_INT >= 16) {
+            IMPL = new ShareCompatImplJB();
+        } else if (Build.VERSION.SDK_INT >= 14) {
+            IMPL = new ShareCompatImplICS();
+        } else {
+            IMPL = new ShareCompatImplBase();
+        }
+    }
 
     private ShareCompat() {}
 
@@ -124,18 +207,23 @@ public final class ShareCompat {
     /**
      * Configure a {@link MenuItem} to act as a sharing action.
      *
-     * <p>This method will configure a ShareActionProvider to provide a more robust UI
+     * <p>If the app is running on API level 14 or higher (Android 4.0/Ice Cream Sandwich)
+     * this method will configure a ShareActionProvider to provide a more robust UI
      * for selecting the target of the share. History will be tracked for each calling
      * activity in a file named with the prefix ".sharecompat_" in the application's
      * private data directory. If the application wishes to set this MenuItem to show
-     * as an action in the Action Bar it should use {@link MenuItem#setShowAsAction(int)} to request
-     * that behavior in addition to calling this method.</p>
+     * as an action in the Action Bar it should use
+     * {@link MenuItemCompat#setShowAsAction(MenuItem, int)} to request that behavior
+     * in addition to calling this method.</p>
+     *
+     * <p>If the app is running on an older platform version this method will configure
+     * a standard activity chooser dialog for the menu item.</p>
      *
      * <p>During the calling activity's lifecycle, if data within the share intent must
      * change the app should change that state in one of several ways:</p>
      * <ul>
-     * <li>Call {@link ActivityCompat#invalidateOptionsMenu(Activity)}. If the app uses the
-     * Action Bar its menu will be recreated and rebuilt.
+     * <li>Call {@link ActivityCompat#invalidateOptionsMenu(Activity)}. If the app is running
+     * on API level 11 or above and uses the Action Bar its menu will be recreated and rebuilt.
      * If not, the activity will receive a call to {@link Activity#onPrepareOptionsMenu(Menu)}
      * the next time the user presses the menu key to open the options menu panel. The activity
      * can then call configureMenuItem again with a new or altered IntentBuilder to reconfigure
@@ -148,23 +236,7 @@ public final class ShareCompat {
      * @param shareIntent IntentBuilder with data about the content to share
      */
     public static void configureMenuItem(MenuItem item, IntentBuilder shareIntent) {
-        ActionProvider itemProvider = item.getActionProvider();
-        ShareActionProvider provider;
-        if (!(itemProvider instanceof ShareActionProvider)) {
-            provider = new ShareActionProvider(shareIntent.getActivity());
-        } else {
-            provider = (ShareActionProvider) itemProvider;
-        }
-        provider.setShareHistoryFileName(HISTORY_FILENAME_PREFIX
-                + shareIntent.getActivity().getClass().getName());
-        provider.setShareIntent(shareIntent.getIntent());
-        item.setActionProvider(provider);
-
-        if (SDK_INT < 16) {
-            if (!item.hasSubMenu()) {
-                item.setIntent(shareIntent.createChooserIntent());
-            }
-        }
+        IMPL.configureMenuItem(item, shareIntent);
     }
 
     /**
@@ -178,8 +250,8 @@ public final class ShareCompat {
     public static void configureMenuItem(Menu menu, int menuItemId, IntentBuilder shareIntent) {
         MenuItem item = menu.findItem(menuItemId);
         if (item == null) {
-            throw new IllegalArgumentException("Could not find menu item with id " + menuItemId
-                    + " in the supplied menu");
+            throw new IllegalArgumentException("Could not find menu item with id " + menuItemId +
+                    " in the supplied menu");
         }
         configureMenuItem(item, shareIntent);
     }
@@ -687,42 +759,10 @@ public final class ShareCompat {
                 if (text instanceof Spanned) {
                     result = Html.toHtml((Spanned) text);
                 } else if (text != null) {
-                    if (SDK_INT >= 16) {
-                        result = Html.escapeHtml(text);
-                    } else {
-                        StringBuilder out = new StringBuilder();
-                        withinStyle(out, text, 0, text.length());
-                        result = out.toString();
-                    }
+                    result = IMPL.escapeHtml(text);
                 }
             }
             return result;
-        }
-
-        private static void withinStyle(StringBuilder out, CharSequence text,
-                int start, int end) {
-            for (int i = start; i < end; i++) {
-                char c = text.charAt(i);
-
-                if (c == '<') {
-                    out.append("&lt;");
-                } else if (c == '>') {
-                    out.append("&gt;");
-                } else if (c == '&') {
-                    out.append("&amp;");
-                } else if (c > 0x7E || c < ' ') {
-                    out.append("&#" + ((int) c) + ";");
-                } else if (c == ' ') {
-                    while (i + 1 < end && text.charAt(i + 1) == ' ') {
-                        out.append("&nbsp;");
-                        i++;
-                    }
-
-                    out.append(' ');
-                } else {
-                    out.append(c);
-                }
-            }
         }
 
         /**
@@ -759,8 +799,8 @@ public final class ShareCompat {
             if (index == 0) {
                 return mIntent.getParcelableExtra(Intent.EXTRA_STREAM);
             }
-            throw new IndexOutOfBoundsException("Stream items available: " + getStreamCount()
-                    + " index requested: " + index);
+            throw new IndexOutOfBoundsException("Stream items available: " + getStreamCount() +
+                    " index requested: " + index);
         }
 
         /**

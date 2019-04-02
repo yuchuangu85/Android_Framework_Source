@@ -16,8 +16,6 @@
 
 package android.support.v14.preference;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.app.DialogFragment;
 import android.app.Fragment;
 import android.content.Context;
@@ -28,11 +26,11 @@ import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.RestrictTo;
 import android.support.annotation.XmlRes;
 import android.support.v4.content.res.TypedArrayUtils;
+import android.support.v4.view.ViewCompat;
 import android.support.v7.preference.AndroidResources;
 import android.support.v7.preference.DialogPreference;
 import android.support.v7.preference.EditTextPreference;
@@ -51,6 +49,8 @@ import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Shows a hierarchy of {@link Preference} objects as
@@ -158,7 +158,6 @@ public abstract class PreferenceFragment extends Fragment implements
     };
 
     final private Runnable mRequestFocus = new Runnable() {
-        @Override
         public void run() {
             mList.focusableViewAvailable(mList);
         }
@@ -208,7 +207,7 @@ public abstract class PreferenceFragment extends Fragment implements
          * @param pref The preference requesting the dialog.
          * @return true if the dialog creation has been handled.
          */
-        boolean onPreferenceDisplayDialog(@NonNull PreferenceFragment caller, Preference pref);
+        boolean onPreferenceDisplayDialog(PreferenceFragment caller, Preference pref);
     }
 
     @Override
@@ -218,7 +217,7 @@ public abstract class PreferenceFragment extends Fragment implements
         getActivity().getTheme().resolveAttribute(
                 android.support.v7.preference.R.attr.preferenceTheme, tv, true);
         final int theme = tv.resourceId;
-        if (theme == 0) {
+        if (theme <= 0) {
             throw new IllegalStateException("Must specify preferenceTheme in theme");
         }
         mStyledContext = new ContextThemeWrapper(getActivity(), theme);
@@ -263,8 +262,7 @@ public abstract class PreferenceFragment extends Fragment implements
         final Drawable divider = a.getDrawable(R.styleable.PreferenceFragment_android_divider);
         final int dividerHeight = a.getDimensionPixelSize(
                 R.styleable.PreferenceFragment_android_dividerHeight, -1);
-        final boolean allowDividerAfterLastItem = a.getBoolean(
-                R.styleable.PreferenceFragment_allowDividerAfterLastItem, true);
+
         a.recycle();
 
         // Need to theme the inflater to pick up the preferenceFragmentListStyle
@@ -299,7 +297,6 @@ public abstract class PreferenceFragment extends Fragment implements
         if (dividerHeight != -1) {
             setDividerHeight(dividerHeight);
         }
-        mDividerDecoration.setAllowDividerAfterLastItem(allowDividerAfterLastItem);
 
         listContainer.addView(mList);
         mHandler.post(mRequestFocus);
@@ -476,7 +473,6 @@ public abstract class PreferenceFragment extends Fragment implements
     /**
      * {@inheritDoc}
      */
-    @Override
     public boolean onPreferenceTreeClick(Preference preference) {
         if (preference.getFragment() != null) {
             boolean handled = false;
@@ -523,7 +519,6 @@ public abstract class PreferenceFragment extends Fragment implements
      * @return The {@link Preference} with the key, or null.
      * @see android.support.v7.preference.PreferenceGroup#findPreference(CharSequence)
      */
-    @Override
     public Preference findPreference(CharSequence key) {
         if (mPreferenceManager == null) {
             return null;
@@ -560,12 +555,12 @@ public abstract class PreferenceFragment extends Fragment implements
     }
 
     /** @hide */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     protected void onBindPreferences() {
     }
 
     /** @hide */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     protected void onUnbindPreferences() {
     }
 
@@ -668,7 +663,7 @@ public abstract class PreferenceFragment extends Fragment implements
      * @return Fragment to possibly use as a callback
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public Fragment getCallbackFragment() {
         return null;
     }
@@ -784,7 +779,6 @@ public abstract class PreferenceFragment extends Fragment implements
 
         private Drawable mDivider;
         private int mDividerHeight;
-        private boolean mAllowDividerAfterLastItem = true;
 
         @Override
         public void onDrawOver(Canvas c, RecyclerView parent, RecyclerView.State state) {
@@ -796,7 +790,7 @@ public abstract class PreferenceFragment extends Fragment implements
             for (int childViewIndex = 0; childViewIndex < childCount; childViewIndex++) {
                 final View view = parent.getChildAt(childViewIndex);
                 if (shouldDrawDividerBelow(view, parent)) {
-                    int top = (int) view.getY() + view.getHeight();
+                    int top = (int) ViewCompat.getY(view) + view.getHeight();
                     mDivider.setBounds(0, top, width, top + mDividerHeight);
                     mDivider.draw(c);
                 }
@@ -818,7 +812,7 @@ public abstract class PreferenceFragment extends Fragment implements
             if (!dividerAllowedBelow) {
                 return false;
             }
-            boolean nextAllowed = mAllowDividerAfterLastItem;
+            boolean nextAllowed = true;
             int index = parent.indexOfChild(view);
             if (index < parent.getChildCount() - 1) {
                 final View nextView = parent.getChildAt(index + 1);
@@ -842,10 +836,6 @@ public abstract class PreferenceFragment extends Fragment implements
         public void setDividerHeight(int dividerHeight) {
             mDividerHeight = dividerHeight;
             mList.invalidateItemDecorations();
-        }
-
-        public void setAllowDividerAfterLastItem(boolean allowDividerAfterLastItem) {
-            mAllowDividerAfterLastItem = allowDividerAfterLastItem;
         }
     }
 }

@@ -20,9 +20,11 @@ public interface SecurityMessageDisplay {
 
     void setNextMessageColor(int color);
 
-    void setMessage(CharSequence msg);
+    void setMessage(CharSequence msg, boolean important);
 
-    void setMessage(int resId);
+    void setMessage(int resId, boolean important);
 
-    void formatMessage(int resId, Object... formatArgs);
+    void setMessage(int resId, boolean important, Object... formatArgs);
+
+    void setTimeout(int timeout_ms);
 }

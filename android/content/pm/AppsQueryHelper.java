@@ -168,9 +168,8 @@ public class AppsQueryHelper {
     @SuppressWarnings("unchecked")
     protected List<ApplicationInfo> getAllApps(int userId) {
         try {
-            return mPackageManager.getInstalledApplications(
-                    PackageManager.MATCH_UNINSTALLED_PACKAGES
-                            | PackageManager.MATCH_DISABLED_COMPONENTS, userId).getList();
+            return mPackageManager.getInstalledApplications(PackageManager.GET_UNINSTALLED_PACKAGES
+                    | PackageManager.GET_DISABLED_COMPONENTS, userId).getList();
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -180,10 +179,8 @@ public class AppsQueryHelper {
     protected List<ResolveInfo> queryIntentActivitiesAsUser(Intent intent, int userId) {
         try {
             return mPackageManager.queryIntentActivities(intent, null,
-                    PackageManager.MATCH_DISABLED_COMPONENTS
-                            | PackageManager.MATCH_UNINSTALLED_PACKAGES
-                            | PackageManager.MATCH_DIRECT_BOOT_AWARE
-                            | PackageManager.MATCH_DIRECT_BOOT_UNAWARE,
+                    PackageManager.GET_DISABLED_COMPONENTS
+                            | PackageManager.GET_UNINSTALLED_PACKAGES,
                     userId).getList();
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -195,10 +192,7 @@ public class AppsQueryHelper {
         try {
             return mPackageManager.queryIntentServices(intent, null,
                     PackageManager.GET_META_DATA
-                            | PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS
-                            | PackageManager.MATCH_DIRECT_BOOT_AWARE
-                            | PackageManager.MATCH_DIRECT_BOOT_UNAWARE, userId)
-                    .getList();
+                            | PackageManager.GET_DISABLED_UNTIL_USED_COMPONENTS, userId).getList();
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

@@ -23,22 +23,17 @@ import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.Signature;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.os.UserHandle;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.PackageUtils;
-import android.util.Pair;
-import android.util.Slog;
 import android.util.Xml;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.content.PackageMonitor;
 import com.android.internal.util.FastXmlSerializer;
 import com.android.internal.util.XmlUtils;
-import com.android.server.accounts.AccountsDb.DeDatabaseHelper;
-
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
@@ -63,6 +58,14 @@ public final class AccountManagerBackupHelper {
     private static final String ATTR_ACCOUNT_SHA_256 = "account-sha-256";
     private static final String ATTR_PACKAGE = "package";
     private static final String ATTR_DIGEST = "digest";
+
+    private static final String ACCOUNT_ACCESS_GRANTS = ""
+            + "SELECT " + AccountManagerService.ACCOUNTS_NAME + ", "
+            + AccountManagerService.GRANTS_GRANTEE_UID
+            + " FROM " + AccountManagerService.TABLE_ACCOUNTS
+            + ", " + AccountManagerService.TABLE_GRANTS
+            + " WHERE " + AccountManagerService.GRANTS_ACCOUNTS_ID
+            + "=" + AccountManagerService.ACCOUNTS_ID;
 
     private final Object mLock = new Object();
 
@@ -102,19 +105,17 @@ public final class AccountManagerBackupHelper {
             Account account = null;
             AccountManagerService.UserAccounts accounts = mAccountManagerService
                     .getUserAccounts(userId);
-            synchronized (accounts.dbLock) {
-                synchronized (accounts.cacheLock) {
-                    for (Account[] accountsPerType : accounts.accountCache.values()) {
-                        for (Account accountPerType : accountsPerType) {
-                            if (accountDigest.equals(PackageUtils.computeSha256Digest(
-                                    accountPerType.name.getBytes()))) {
-                                account = accountPerType;
-                                break;
-                            }
-                        }
-                        if (account != null) {
+            synchronized (accounts.cacheLock) {
+                for (Account[] accountsPerType : accounts.accountCache.values()) {
+                    for (Account accountPerType : accountsPerType) {
+                        if (accountDigest.equals(PackageUtils.computeSha256Digest(
+                                accountPerType.name.getBytes()))) {
+                            account = accountPerType;
                             break;
                         }
+                    }
+                    if (account != null) {
+                        break;
                     }
                 }
             }
@@ -128,18 +129,9 @@ public final class AccountManagerBackupHelper {
             } catch (PackageManager.NameNotFoundException e) {
                 return false;
             }
-
-            // Before we used only the first signature to compute the SHA 256 but some
-            // apps could be singed by multiple certs and the cert order is undefined.
-            // We prefer the modern computation procedure where all certs are taken
-            // into account but also allow the value from the old computation to allow
-            // restoring backed up grants on an older platform version.
-            final String[] signaturesSha256Digests = PackageUtils.computeSignaturesSha256Digests(
-                    packageInfo.signatures);
-            final String signaturesSha256Digest = PackageUtils.computeSignaturesSha256Digest(
-                    signaturesSha256Digests);
-            if (!certDigest.equals(signaturesSha256Digest) && (packageInfo.signatures.length <= 1
-                    || !certDigest.equals(signaturesSha256Digests[0]))) {
+            String currentCertDigest = PackageUtils.computeCertSha256Digest(
+                    packageInfo.signatures[0]);
+            if (!certDigest.equals(currentCertDigest)) {
                 return false;
             }
             final int uid = packageInfo.applicationInfo.uid;
@@ -154,15 +146,22 @@ public final class AccountManagerBackupHelper {
     public byte[] backupAccountAccessPermissions(int userId) {
         final AccountManagerService.UserAccounts accounts = mAccountManagerService
                 .getUserAccounts(userId);
-        synchronized (accounts.dbLock) {
-            synchronized (accounts.cacheLock) {
-                List<Pair<String, Integer>> allAccountGrants = accounts.accountsDb
-                        .findAllAccountGrants();
-                if (allAccountGrants.isEmpty()) {
+        synchronized (accounts.cacheLock) {
+            SQLiteDatabase db = accounts.openHelper.getReadableDatabase();
+            try (
+                Cursor cursor = db.rawQuery(ACCOUNT_ACCESS_GRANTS, null);
+            ) {
+                if (cursor == null || !cursor.moveToFirst()) {
                     return null;
                 }
+
+                final int nameColumnIdx = cursor.getColumnIndex(
+                        AccountManagerService.ACCOUNTS_NAME);
+                final int uidColumnIdx = cursor.getColumnIndex(
+                        AccountManagerService.GRANTS_GRANTEE_UID);
+
+                ByteArrayOutputStream dataStream = new ByteArrayOutputStream();
                 try {
-                    ByteArrayOutputStream dataStream = new ByteArrayOutputStream();
                     final XmlSerializer serializer = new FastXmlSerializer();
                     serializer.setOutput(dataStream, StandardCharsets.UTF_8.name());
                     serializer.startDocument(null, true);
@@ -170,9 +169,10 @@ public final class AccountManagerBackupHelper {
 
                     PackageManager packageManager = mAccountManagerService.mContext
                             .getPackageManager();
-                    for (Pair<String, Integer> grant : allAccountGrants) {
-                        final String accountName = grant.first;
-                        final int uid = grant.second;
+
+                    do {
+                        final String accountName = cursor.getString(nameColumnIdx);
+                        final int uid = cursor.getInt(uidColumnIdx);
 
                         final String[] packageNames = packageManager.getPackagesForUid(uid);
                         if (packageNames == null) {
@@ -180,17 +180,8 @@ public final class AccountManagerBackupHelper {
                         }
 
                         for (String packageName : packageNames) {
-                            final PackageInfo packageInfo;
-                            try {
-                                packageInfo = packageManager.getPackageInfoAsUser(packageName,
-                                        PackageManager.GET_SIGNATURES, userId);
-                            } catch (PackageManager.NameNotFoundException e) {
-                                Slog.i(TAG, "Skipping backup of account access grant for"
-                                        + " non-existing package: " + packageName);
-                                continue;
-                            }
-                            final String digest = PackageUtils.computeSignaturesSha256Digest(
-                                    packageInfo.signatures);
+                            String digest = PackageUtils.computePackageCertSha256Digest(
+                                    packageManager, packageName, userId);
                             if (digest != null) {
                                 serializer.startTag(null, TAG_PERMISSION);
                                 serializer.attribute(null, ATTR_ACCOUNT_SHA_256,
@@ -200,15 +191,17 @@ public final class AccountManagerBackupHelper {
                                 serializer.endTag(null, TAG_PERMISSION);
                             }
                         }
-                    }
+                    } while (cursor.moveToNext());
+
                     serializer.endTag(null, TAG_PERMISSIONS);
                     serializer.endDocument();
                     serializer.flush();
-                    return dataStream.toByteArray();
                 } catch (IOException e) {
                     Log.e(TAG, "Error backing up account access grants", e);
                     return null;
                 }
+
+                return dataStream.toByteArray();
             }
         }
     }
@@ -252,7 +245,7 @@ public final class AccountManagerBackupHelper {
                             if (mRestorePackageMonitor == null) {
                                 mRestorePackageMonitor = new RestorePackageMonitor();
                                 mRestorePackageMonitor.register(mAccountManagerService.mContext,
-                                        mAccountManagerService.mHandler.getLooper(), true);
+                                        mAccountManagerService.mMessageHandler.getLooper(), true);
                             }
                             if (mRestorePendingAppPermissions == null) {
                                 mRestorePendingAppPermissions = new ArrayList<>();
@@ -264,8 +257,10 @@ public final class AccountManagerBackupHelper {
             }
 
             // Make sure we eventually prune the in-memory pending restores
-            mRestoreCancelCommand = new CancelRestoreCommand();
-            mAccountManagerService.mHandler.postDelayed(mRestoreCancelCommand,
+            synchronized (mLock) {
+                mRestoreCancelCommand = new CancelRestoreCommand();
+            }
+            mAccountManagerService.mMessageHandler.postDelayed(mRestoreCancelCommand,
                     PENDING_RESTORE_TIMEOUT_MILLIS);
         } catch (XmlPullParserException | IOException e) {
             Log.e(TAG, "Error restoring app permissions", e);
@@ -276,6 +271,7 @@ public final class AccountManagerBackupHelper {
         @Override
         public void onPackageAdded(String packageName, int uid) {
             synchronized (mLock) {
+                // Can happen if restore is cancelled and there is a notification in flight
                 if (mRestorePendingAppPermissions == null) {
                     return;
                 }
@@ -296,7 +292,7 @@ public final class AccountManagerBackupHelper {
                 }
                 if (mRestorePendingAppPermissions.isEmpty()
                         && mRestoreCancelCommand != null) {
-                    mAccountManagerService.mHandler.removeCallbacks(mRestoreCancelCommand);
+                    mAccountManagerService.mMessageHandler.removeCallbacks(mRestoreCancelCommand);
                     mRestoreCancelCommand.run();
                     mRestoreCancelCommand = null;
                 }

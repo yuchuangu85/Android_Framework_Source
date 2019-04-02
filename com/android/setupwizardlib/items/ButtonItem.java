@@ -16,12 +16,10 @@
 
 package com.android.setupwizardlib.items;
 
-import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.util.AttributeSet;
 import android.view.ContextThemeWrapper;
-import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -129,7 +127,7 @@ public class ButtonItem extends AbstractItem implements View.OnClickListener {
             if (mTheme != 0) {
                 context = new ContextThemeWrapper(context, mTheme);
             }
-            mButton = createButton(context);
+            mButton = new Button(context);
             mButton.setOnClickListener(this);
         } else {
             if (mButton.getParent() instanceof ViewGroup) {
@@ -140,7 +138,6 @@ public class ButtonItem extends AbstractItem implements View.OnClickListener {
         }
         mButton.setEnabled(mEnabled);
         mButton.setText(mText);
-        mButton.setId(getViewId());
         return mButton;
     }
 
@@ -149,13 +146,5 @@ public class ButtonItem extends AbstractItem implements View.OnClickListener {
         if (mListener != null) {
             mListener.onClick(this);
         }
-    }
-
-    @SuppressLint("InflateParams")  // This is used similar to Button(Context), so it's OK to not
-                                    // specify the parent.
-    private Button createButton(Context context) {
-        // Inflate a single button from XML, so that when using support lib, it will take advantage
-        // of the injected layout inflater and give us AppCompatButton instead.
-        return (Button) LayoutInflater.from(context).inflate(R.layout.suw_button, null, false);
     }
 }

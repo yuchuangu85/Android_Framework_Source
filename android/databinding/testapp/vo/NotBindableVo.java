@@ -13,12 +13,7 @@
 
 package android.databinding.testapp.vo;
 
-import android.view.View;
-
-import java.util.concurrent.atomic.AtomicInteger;
-
 public class NotBindableVo {
-    public static int STATIC_VAL = 101;
     private int mIntValue;
     private int mIntValueGetCount;
     private boolean mBoolValue;
@@ -27,7 +22,6 @@ public class NotBindableVo {
     private int mStringValueGetCount;
     private final String mFinalString = "this has final content";
     public final int publicField = 3;
-    public static AtomicInteger sStaticCounter = new AtomicInteger();
 
     public NotBindableVo() {
     }
@@ -90,10 +84,5 @@ public class NotBindableVo {
 
     public int getStringValueGetCount() {
         return mStringValueGetCount;
-    }
-
-    public static boolean incStaticCounter() {
-        sStaticCounter.incrementAndGet();
-        return true;
     }
 }

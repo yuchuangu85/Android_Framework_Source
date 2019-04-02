@@ -7,7 +7,6 @@ import android.net.metrics.DhcpErrorEvent;
 import android.os.Build;
 import android.os.SystemProperties;
 import android.system.OsConstants;
-import android.text.TextUtils;
 import com.android.internal.annotations.VisibleForTesting;
 
 import java.io.UnsupportedEncodingException;
@@ -26,10 +25,8 @@ import java.util.List;
  * Defines basic data and operations needed to build and use packets for the
  * DHCP protocol.  Subclasses create the specific packets used at each
  * stage of the negotiation.
- *
- * @hide
  */
-public abstract class DhcpPacket {
+abstract class DhcpPacket {
     protected static final String TAG = "DhcpPacket";
 
     // dhcpcd has a minimum lease of 20 seconds, but DhcpStateMachine would refuse to wake up the
@@ -632,8 +629,7 @@ public abstract class DhcpPacket {
     protected void addCommonClientTlvs(ByteBuffer buf) {
         addTlv(buf, DHCP_MAX_MESSAGE_SIZE, (short) MAX_LENGTH);
         addTlv(buf, DHCP_VENDOR_CLASS_ID, getVendorId());
-        final String hn = getHostname();
-        if (!TextUtils.isEmpty(hn)) addTlv(buf, DHCP_HOST_NAME, hn);
+        addTlv(buf, DHCP_HOST_NAME, getHostname());
     }
 
     /**

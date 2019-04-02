@@ -16,8 +16,6 @@
 
 package android.support.v7.widget;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
@@ -26,6 +24,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.ScaleDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.os.Build;
 import android.support.annotation.NonNull;
 import android.support.annotation.RestrictTo;
@@ -35,8 +34,10 @@ import android.util.Log;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+
 /** @hide */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public class DrawableUtils {
 
     private static final String TAG = "DrawableUtils";
@@ -135,7 +136,7 @@ public class DrawableUtils {
         }
 
         if (drawable instanceof DrawableContainer) {
-            // If we have a DrawableContainer, let's traverse its child array
+            // If we have a DrawableContainer, let's traverse it's child array
             final Drawable.ConstantState state = drawable.getConstantState();
             if (state instanceof DrawableContainer.DrawableContainerState) {
                 final DrawableContainer.DrawableContainerState containerState =
@@ -163,7 +164,7 @@ public class DrawableUtils {
 
     /**
      * VectorDrawable has an issue on API 21 where it sometimes doesn't create its tint filter.
-     * Fixed by toggling its state to force a filter creation.
+     * Fixed by toggling it's state to force a filter creation.
      */
     private static void fixVectorDrawableTinting(final Drawable drawable) {
         final int[] originalState = drawable.getState();
@@ -178,17 +179,16 @@ public class DrawableUtils {
         drawable.setState(originalState);
     }
 
-    /**
-     * Parses tint mode.
-     */
-    public static PorterDuff.Mode parseTintMode(int value, PorterDuff.Mode defaultMode) {
+    static PorterDuff.Mode parseTintMode(int value, PorterDuff.Mode defaultMode) {
         switch (value) {
             case 3: return PorterDuff.Mode.SRC_OVER;
             case 5: return PorterDuff.Mode.SRC_IN;
             case 9: return PorterDuff.Mode.SRC_ATOP;
             case 14: return PorterDuff.Mode.MULTIPLY;
             case 15: return PorterDuff.Mode.SCREEN;
-            case 16: return PorterDuff.Mode.ADD;
+            case 16: return Build.VERSION.SDK_INT >= 11
+                    ? PorterDuff.Mode.valueOf("ADD")
+                    : defaultMode;
             default: return defaultMode;
         }
     }

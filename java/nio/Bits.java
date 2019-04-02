@@ -608,13 +608,16 @@ class Bits {                            // package-private
 
     // -- Processor and memory-system properties --
 
-    // Android-changed: Android is always little-endian.
-    // private static final ByteOrder byteOrder;
+    /* ----- BEGIN android -----
+    private static final ByteOrder byteOrder;*/
     private static final ByteOrder byteOrder = ByteOrder.LITTLE_ENDIAN;
+    // ----- END android -----
 
     static ByteOrder byteOrder() {
-        // BEGIN Android-removed: Android is always little-endian.
-        /*
+        // Android changed : android is always little endian.
+        return byteOrder;
+
+        /* ----- BEGIN android -----
         if (byteOrder == null)
             throw new Error("Unknown byte order");
         if (byteOrder == null) {
@@ -631,13 +634,11 @@ class Bits {                            // package-private
                 unsafe.freeMemory(a);
             }
         }
-        */
-        // END Android-removed: Android is always little-endian.
         return byteOrder;
+        */
     }
 
-    // BEGIN Android-removed: Android is always little-endian.
-    /*
+    /* ----- BEGIN android -----
     static {
         long a = unsafe.allocateMemory(8);
         try {
@@ -654,8 +655,7 @@ class Bits {                            // package-private
             unsafe.freeMemory(a);
         }
     }
-    */
-    // END Android-removed: Android is always little-endian.
+    ----- END android ----- */
 
 
     private static int pageSize = -1;
@@ -744,8 +744,7 @@ class Bits {                            // package-private
 
     // -- Monitoring of direct buffer usage --
 
-    // BEGIN Android-changed
-    /*
+    /* ----- BEGIN android -----
     static {
         // setup access to this package in SharedSecrets
         sun.misc.SharedSecrets.setJavaNioAccess(
@@ -781,8 +780,7 @@ class Bits {                            // package-private
                 }
         });
     }
-    */
-    // END Android-changed
+    ----- END android ----- */
 
     // -- Bulk get/put acceleration --
 

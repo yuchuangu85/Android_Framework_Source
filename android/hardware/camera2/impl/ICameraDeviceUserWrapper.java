@@ -106,9 +106,9 @@ public class ICameraDeviceUserWrapper {
         }
     }
 
-    public void endConfigure(int operatingMode) throws CameraAccessException {
+    public void endConfigure(boolean isConstrainedHighSpeed) throws CameraAccessException {
         try {
-            mRemoteDevice.endConfigure(operatingMode);
+            mRemoteDevice.endConfigure(isConstrainedHighSpeed);
         } catch (Throwable t) {
             CameraManager.throwAsPublicException(t);
             throw new UnsupportedOperationException("Unexpected exception", t);
@@ -215,10 +215,10 @@ public class ICameraDeviceUserWrapper {
         }
     }
 
-    public void finalizeOutputConfigurations(int streamId, OutputConfiguration deferredConfig)
+    public void setDeferredConfiguration(int streamId, OutputConfiguration deferredConfig)
             throws CameraAccessException {
         try {
-            mRemoteDevice.finalizeOutputConfigurations(streamId, deferredConfig);
+            mRemoteDevice.setDeferredConfiguration(streamId, deferredConfig);
         } catch (Throwable t) {
             CameraManager.throwAsPublicException(t);
             throw new UnsupportedOperationException("Unexpected exception", t);

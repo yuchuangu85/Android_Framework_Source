@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -46,20 +46,23 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.ObjectStreamField;
 import java.io.Serializable;
+import java.security.AccessController;
 import java.text.MessageFormat;
+import java.util.spi.LocaleNameProvider;
 import libcore.icu.ICU;
 
+import sun.security.action.GetPropertyAction;
+import sun.util.LocaleServiceProviderPool;
 import sun.util.locale.BaseLocale;
 import sun.util.locale.InternalLocaleBuilder;
 import sun.util.locale.LanguageTag;
 import sun.util.locale.LocaleExtensions;
-import sun.util.locale.LocaleMatcher;
 import sun.util.locale.LocaleObjectCache;
 import sun.util.locale.LocaleSyntaxException;
 import sun.util.locale.LocaleUtils;
 import sun.util.locale.ParseStatus;
+import sun.util.locale.UnicodeLocaleExtension;
 
-// Android-added: documentation about ICU data & warning of default locale.
 /**
  * A <code>Locale</code> object represents a specific geographical, political,
  * or cultural region. An operation that requires a <code>Locale</code> to perform
@@ -69,18 +72,17 @@ import sun.util.locale.ParseStatus;
  * according to the customs and conventions of the user's native country,
  * region, or culture.
  *
- * <p> The {@code Locale} class implements IETF BCP 47 which is composed of
- * <a href="http://tools.ietf.org/html/rfc4647">RFC 4647 "Matching of Language
- * Tags"</a> and <a href="http://tools.ietf.org/html/rfc5646">RFC 5646 "Tags
- * for Identifying Languages"</a> with support for the LDML (UTS#35, "Unicode
- * Locale Data Markup Language") BCP 47-compatible extensions for locale data
+ * <p> The <code>Locale</code> class implements identifiers
+ * interchangeable with BCP 47 (IETF BCP 47, "Tags for Identifying
+ * Languages"), with support for the LDML (UTS#35, "Unicode Locale
+ * Data Markup Language") BCP 47-compatible extensions for locale data
  * exchange.
  *
  * <p> A <code>Locale</code> object logically consists of the fields
  * described below.
  *
  * <dl>
- *   <dt><a name="def_language"><b>language</b></a></dt>
+ *   <dt><a name="def_language"></a><b>language</b></dt>
  *
  *   <dd>ISO 639 alpha-2 or alpha-3 language code, or registered
  *   language subtags up to 8 alpha letters (for future enhancements).
@@ -88,51 +90,51 @@ import sun.util.locale.ParseStatus;
  *   alpha-2 code must be used.  You can find a full list of valid
  *   language codes in the IANA Language Subtag Registry (search for
  *   "Type: language").  The language field is case insensitive, but
- *   <code>Locale</code> always canonicalizes to lower case.</dd>
+ *   <code>Locale</code> always canonicalizes to lower case.</dd><br>
  *
  *   <dd>Well-formed language values have the form
  *   <code>[a-zA-Z]{2,8}</code>.  Note that this is not the the full
  *   BCP47 language production, since it excludes extlang.  They are
  *   not needed since modern three-letter language codes replace
- *   them.</dd>
+ *   them.</dd><br>
  *
- *   <dd>Example: "en" (English), "ja" (Japanese), "kok" (Konkani)</dd>
+ *   <dd>Example: "en" (English), "ja" (Japanese), "kok" (Konkani)</dd><br>
  *
- *   <dt><a name="def_script"><b>script</b></a></dt>
+ *   <dt><a name="def_script"/></a><b>script</b></dt>
  *
  *   <dd>ISO 15924 alpha-4 script code.  You can find a full list of
  *   valid script codes in the IANA Language Subtag Registry (search
  *   for "Type: script").  The script field is case insensitive, but
  *   <code>Locale</code> always canonicalizes to title case (the first
  *   letter is upper case and the rest of the letters are lower
- *   case).</dd>
+ *   case).</dd><br>
  *
  *   <dd>Well-formed script values have the form
- *   <code>[a-zA-Z]{4}</code></dd>
+ *   <code>[a-zA-Z]{4}</code></dd><br>
  *
- *   <dd>Example: "Latn" (Latin), "Cyrl" (Cyrillic)</dd>
+ *   <dd>Example: "Latn" (Latin), "Cyrl" (Cyrillic)</dd><br>
  *
- *   <dt><a name="def_region"><b>country (region)</b></a></dt>
+ *   <dt><a name="def_region"></a><b>country (region)</b></dt>
  *
  *   <dd>ISO 3166 alpha-2 country code or UN M.49 numeric-3 area code.
  *   You can find a full list of valid country and region codes in the
  *   IANA Language Subtag Registry (search for "Type: region").  The
  *   country (region) field is case insensitive, but
- *   <code>Locale</code> always canonicalizes to upper case.</dd>
+ *   <code>Locale</code> always canonicalizes to upper case.</dd><br>
  *
  *   <dd>Well-formed country/region values have
- *   the form <code>[a-zA-Z]{2} | [0-9]{3}</code></dd>
+ *   the form <code>[a-zA-Z]{2} | [0-9]{3}</code></dd><br>
  *
  *   <dd>Example: "US" (United States), "FR" (France), "029"
- *   (Caribbean)</dd>
+ *   (Caribbean)</dd><br>
  *
- *   <dt><a name="def_variant"><b>variant</b></a></dt>
+ *   <dt><a name="def_variant"></a><b>variant</b></dt>
  *
  *   <dd>Any arbitrary value used to indicate a variation of a
  *   <code>Locale</code>.  Where there are two or more variant values
  *   each indicating its own semantics, these values should be ordered
  *   by importance, with most important first, separated by
- *   underscore('_').  The variant field is case sensitive.</dd>
+ *   underscore('_').  The variant field is case sensitive.</dd><br>
  *
  *   <dd>Note: IETF BCP 47 places syntactic restrictions on variant
  *   subtags.  Also BCP 47 subtags are strictly used to indicate
@@ -148,16 +150,16 @@ import sun.util.locale.ParseStatus;
  *   cultural behaviors such as calendar type or number script.  In
  *   BCP 47 this kind of information, which does not identify the
  *   language, is supported by extension subtags or private use
- *   subtags.</dd>
+ *   subtags.</dd><br>
  *
  *   <dd>Well-formed variant values have the form <code>SUBTAG
  *   (('_'|'-') SUBTAG)*</code> where <code>SUBTAG =
  *   [0-9][0-9a-zA-Z]{3} | [0-9a-zA-Z]{5,8}</code>. (Note: BCP 47 only
- *   uses hyphen ('-') as a delimiter, this is more lenient).</dd>
+ *   uses hyphen ('-') as a delimiter, this is more lenient).</dd><br>
  *
- *   <dd>Example: "polyton" (Polytonic Greek), "POSIX"</dd>
+ *   <dd>Example: "polyton" (Polytonic Greek), "POSIX"</dd><br>
  *
- *   <dt><a name="def_extensions"><b>extensions</b></a></dt>
+ *   <dt><a name="def_extensions"></a><b>extensions</b></dt>
  *
  *   <dd>A map from single character keys to string values, indicating
  *   extensions apart from language identification.  The extensions in
@@ -165,14 +167,14 @@ import sun.util.locale.ParseStatus;
  *   extension subtags and private use subtags. The extensions are
  *   case insensitive, but <code>Locale</code> canonicalizes all
  *   extension keys and values to lower case. Note that extensions
- *   cannot have empty values.</dd>
+ *   cannot have empty values.</dd><br>
  *
  *   <dd>Well-formed keys are single characters from the set
  *   <code>[0-9a-zA-Z]</code>.  Well-formed values have the form
  *   <code>SUBTAG ('-' SUBTAG)*</code> where for the key 'x'
  *   <code>SUBTAG = [0-9a-zA-Z]{1,8}</code> and for other keys
  *   <code>SUBTAG = [0-9a-zA-Z]{2,8}</code> (that is, 'x' allows
- *   single-character subtags).</dd>
+ *   single-character subtags).</dd><br>
  *
  *   <dd>Example: key="u"/value="ca-japanese" (Japanese Calendar),
  *   key="x"/value="java-1-7"</dd>
@@ -185,7 +187,7 @@ import sun.util.locale.ParseStatus;
  * requirement (is well-formed), but does not validate the value
  * itself.  See {@link Builder} for details.
  *
- * <h3><a name="def_locale_extension">Unicode locale/language extension</a></h3>
+ * <h4><a name="def_locale_extension"></a>Unicode locale/language extension</h4>
  *
  * <p>UTS#35, "Unicode Locale Data Markup Language" defines optional
  * attributes and keywords to override or refine the default behavior
@@ -266,77 +268,6 @@ import sun.util.locale.ParseStatus;
  * </pre>
  * </blockquote>
  *
- * <h4><a name="LocaleMatching">Locale Matching</a></h4>
- *
- * <p>If an application or a system is internationalized and provides localized
- * resources for multiple locales, it sometimes needs to find one or more
- * locales (or language tags) which meet each user's specific preferences. Note
- * that a term "language tag" is used interchangeably with "locale" in this
- * locale matching documentation.
- *
- * <p>In order to do matching a user's preferred locales to a set of language
- * tags, <a href="http://tools.ietf.org/html/rfc4647">RFC 4647 Matching of
- * Language Tags</a> defines two mechanisms: filtering and lookup.
- * <em>Filtering</em> is used to get all matching locales, whereas
- * <em>lookup</em> is to choose the best matching locale.
- * Matching is done case-insensitively. These matching mechanisms are described
- * in the following sections.
- *
- * <p>A user's preference is called a <em>Language Priority List</em> and is
- * expressed as a list of language ranges. There are syntactically two types of
- * language ranges: basic and extended. See
- * {@link Locale.LanguageRange Locale.LanguageRange} for details.
- *
- * <h5>Filtering</h5>
- *
- * <p>The filtering operation returns all matching language tags. It is defined
- * in RFC 4647 as follows:
- * "In filtering, each language range represents the least specific language
- * tag (that is, the language tag with fewest number of subtags) that is an
- * acceptable match. All of the language tags in the matching set of tags will
- * have an equal or greater number of subtags than the language range. Every
- * non-wildcard subtag in the language range will appear in every one of the
- * matching language tags."
- *
- * <p>There are two types of filtering: filtering for basic language ranges
- * (called "basic filtering") and filtering for extended language ranges
- * (called "extended filtering"). They may return different results by what
- * kind of language ranges are included in the given Language Priority List.
- * {@link Locale.FilteringMode} is a parameter to specify how filtering should
- * be done.
- *
- * <h5>Lookup</h5>
- *
- * <p>The lookup operation returns the best matching language tags. It is
- * defined in RFC 4647 as follows:
- * "By contrast with filtering, each language range represents the most
- * specific tag that is an acceptable match.  The first matching tag found,
- * according to the user's priority, is considered the closest match and is the
- * item returned."
- *
- * <p>For example, if a Language Priority List consists of two language ranges,
- * {@code "zh-Hant-TW"} and {@code "en-US"}, in prioritized order, lookup
- * method progressively searches the language tags below in order to find the
- * best matching language tag.
- * <blockquote>
- * <pre>
- *    1. zh-Hant-TW
- *    2. zh-Hant
- *    3. zh
- *    4. en-US
- *    5. en
- * </pre>
- * </blockquote>
- * If there is a language tag which matches completely to a language range
- * above, the language tag is returned.
- *
- * <p>{@code "*"} is the special language range, and it is ignored in lookup.
- *
- * <p>If multiple language tags match as a result of the subtag {@code '*'}
- * included in a language range, the first matching language tag returned by
- * an {@link Iterator} over a {@link Collection} of language tags is treated as
- * the best matching one.
- *
  * <h4>Use of Locale</h4>
  *
  * <p>Once you've created a <code>Locale</code> you can query it for information
@@ -347,8 +278,7 @@ import sun.util.locale.ParseStatus;
  * you can use <code>getDisplayLanguage</code> to get the name of
  * the language suitable for displaying to the user. Interestingly,
  * the <code>getDisplayXXX</code> methods are themselves locale-sensitive
- * and have two versions: one that uses the default
- * {@link Locale.Category#DISPLAY DISPLAY} locale and one
+ * and have two versions: one that uses the default locale and one
  * that uses the locale specified as an argument.
  *
  * <p>The Java Platform provides a number of classes that perform locale-sensitive
@@ -366,8 +296,7 @@ import sun.util.locale.ParseStatus;
  * </pre>
  * </blockquote>
  * Each of these methods has two variants; one with an explicit locale
- * and one without; the latter uses the default
- * {@link Locale.Category#FORMAT FORMAT} locale:
+ * and one without; the latter uses the default locale:
  * <blockquote>
  * <pre>
  *     NumberFormat.getInstance(myLocale)
@@ -405,7 +334,7 @@ import sun.util.locale.ParseStatus;
  * Clients desiring a string representation of the complete locale can
  * then always rely on <code>toLanguageTag</code> for this purpose.
  *
- * <h5><a name="special_cases_constructor">Special cases</a></h5>
+ * <h5><a name="special_cases_constructor"></a>Special cases</h5>
  *
  * <p>For compatibility reasons, two
  * non-conforming locales are treated as special cases.  These are
@@ -512,14 +441,6 @@ import sun.util.locale.ParseStatus;
  *     <td><a href="http://site.icu-project.org/download/55">ICU 55.1</a></td>
  *     <td><a href="http://cldr.unicode.org/index/downloads/cldr-27">CLDR 27.0.1</a></td>
  *     <td><a href="http://www.unicode.org/versions/Unicode7.0.0/">Unicode 7.0</a></td></tr>
- * <tr><td>Android 7.0 (Nougat)</td>
- *     <td><a href="http://site.icu-project.org/download/56">ICU 56.1</a></td>
- *     <td><a href="http://cldr.unicode.org/index/downloads/cldr-28">CLDR 28</a></td>
- *     <td><a href="http://www.unicode.org/versions/Unicode8.0.0/">Unicode 8.0</a></td></tr>
- * <tr><td>Android 8.0 (Oreo)</td>
- *     <td><a href="http://site.icu-project.org/download/58">ICU 58.2</a></td>
- *     <td><a href="http://cldr.unicode.org/index/downloads/cldr-30">CLDR 30.0.3</a></td>
- *     <td><a href="http://www.unicode.org/versions/Unicode9.0.0/">Unicode 9.0</a></td></tr>
  * </table>
  *
  * <a name="default_locale"></a><h4>Be wary of the default locale</h3>
@@ -647,7 +568,9 @@ public final class Locale implements Cloneable, Serializable {
      */
     static public final Locale CANADA_FRENCH = createConstant("fr", "CA");
 
-    // Android-added: (internal only): ISO 639-3 generic code for undetermined languages.
+    /**
+     * ISO 639-3 generic code for undetermined languages.
+     */
     private static final String UNDETERMINED_LANGUAGE = "und";
 
     /**
@@ -893,9 +816,11 @@ public final class Locale implements Cloneable, Serializable {
      */
     public static Locale getDefault() {
         // do not synchronize this method - see 4071298
-        // Android-changed: Add NoImagePreloadHolder to allow compile-time initialization.
-        // return defaultLocale;
-        return NoImagePreloadHolder.defaultLocale;
+        // it's OK if more than one default locale happens to be created
+        if (defaultLocale == null) {
+            defaultLocale = initDefault();
+        }
+        return defaultLocale;
     }
 
     /**
@@ -916,23 +841,16 @@ public final class Locale implements Cloneable, Serializable {
      */
     public static Locale getDefault(Locale.Category category) {
         // do not synchronize this method - see 4071298
+        // it's OK if more than one default locale happens to be created
         switch (category) {
         case DISPLAY:
             if (defaultDisplayLocale == null) {
-                synchronized(Locale.class) {
-                    if (defaultDisplayLocale == null) {
-                        defaultDisplayLocale = initDefault(category);
-                    }
-                }
+                defaultDisplayLocale = initDefault(category);
             }
             return defaultDisplayLocale;
         case FORMAT:
             if (defaultFormatLocale == null) {
-                synchronized(Locale.class) {
-                    if (defaultFormatLocale == null) {
-                        defaultFormatLocale = initDefault(category);
-                    }
-                }
+                defaultFormatLocale = initDefault(category);
             }
             return defaultFormatLocale;
         default:
@@ -941,10 +859,6 @@ public final class Locale implements Cloneable, Serializable {
         return getDefault();
     }
 
-    // BEGIN Android-changed: initDefault changes
-    //  1.) In initDefault(), user.locale gets priority
-    //  2.) In both initDefault methods, use System.getProperty() instead
-    //      of legacy AccessController / GetPropertyAction security code.
     /**
      * @hide visible for testing.
      */
@@ -976,13 +890,13 @@ public final class Locale implements Cloneable, Serializable {
             country = System.getProperty("user.country", "");
             variant = System.getProperty("user.variant", "");
         }
-
         return getInstance(language, script, country, variant, null);
     }
 
     private static Locale initDefault(Locale.Category category) {
-        // Android-changed: Add NoImagePreloadHolder to allow compile-time initialization.
-        final Locale defaultLocale = NoImagePreloadHolder.defaultLocale;
+        // make sure defaultLocale is initialized
+        final Locale defaultLocale = getDefault();
+
         return getInstance(
             System.getProperty(category.languageKey, defaultLocale.getLanguage()),
             System.getProperty(category.scriptKey, defaultLocale.getScript()),
@@ -990,7 +904,6 @@ public final class Locale implements Cloneable, Serializable {
             System.getProperty(category.variantKey, defaultLocale.getVariant()),
             null);
     }
-    // END Android-changed: initDefault changes
 
     /**
      * Sets the default locale for this instance of the Java Virtual Machine.
@@ -1023,10 +936,7 @@ public final class Locale implements Cloneable, Serializable {
     public static synchronized void setDefault(Locale newLocale) {
         setDefault(Category.DISPLAY, newLocale);
         setDefault(Category.FORMAT, newLocale);
-        // Android-changed: Add NoImagePreloadHolder to allow compile-time initialization.
-        // defaultLocale = newLocale;
-        NoImagePreloadHolder.defaultLocale = newLocale;
-        // Android-added: Keep ICU state in sync with java.util.
+        defaultLocale = newLocale;
         ICU.setDefaultLocale(newLocale.toLanguageTag());
     }
 
@@ -1080,16 +990,18 @@ public final class Locale implements Cloneable, Serializable {
         }
     }
 
-    // Android-changed: Removed documentation references to LocaleServiceProvider.
     /**
      * Returns an array of all installed locales.
+     * The returned array represents the union of locales supported
+     * by the Java runtime environment and by installed
+     * {@link java.util.spi.LocaleServiceProvider LocaleServiceProvider}
+     * implementations.  It must contain at least a <code>Locale</code>
+     * instance equal to {@link java.util.Locale#US Locale.US}.
      *
      * @return An array of installed locales.
      */
     public static Locale[] getAvailableLocales() {
-        // Android-changed: Switched to use ICU.
-        // return LocaleServiceProviderPool.getAllAvailableLocales();
-        return ICU.getAvailableLocales();
+        return LocaleServiceProviderPool.getAllAvailableLocales();
     }
 
     /**
@@ -1100,11 +1012,9 @@ public final class Locale implements Cloneable, Serializable {
      * country (region), such as 3-letter numeric UN M.49 area codes.
      * Therefore, the list returned by this method does not contain ALL valid
      * codes that can be used to create Locales.
-     *
-     * @return An array of ISO 3166 two-letter country codes.
      */
     public static String[] getISOCountries() {
-        // Android-changed: Switched to use ICU.
+        // Android-changed: Use ICU.
         return ICU.getISOCountries();
     }
 
@@ -1121,11 +1031,9 @@ public final class Locale implements Cloneable, Serializable {
      * 8 characters in length.  Therefore, the list returned by this method does
      * not contain ALL valid codes that can be used to create Locales.
      * </ul>
-     *
-     * @return Am array of ISO 639 two-letter language codes.
      */
     public static String[] getISOLanguages() {
-        // Android-changed: Switched to use ICU.
+        // Android-changed: Use ICU.
         return ICU.getISOLanguages();
     }
 
@@ -1189,30 +1097,6 @@ public final class Locale implements Cloneable, Serializable {
     }
 
     /**
-     * Returns {@code true} if this {@code Locale} has any <a href="#def_extensions">
-     * extensions</a>.
-     *
-     * @return {@code true} if this {@code Locale} has any extensions
-     * @since 1.8
-     */
-    public boolean hasExtensions() {
-        return localeExtensions != null;
-    }
-
-    /**
-     * Returns a copy of this {@code Locale} with no <a href="#def_extensions">
-     * extensions</a>. If this {@code Locale} has no extensions, this {@code Locale}
-     * is returned.
-     *
-     * @return a copy of this {@code Locale} with no extensions, or {@code this}
-     *         if {@code this} has no extensions
-     * @since 1.8
-     */
-    public Locale stripExtensions() {
-        return hasExtensions() ? Locale.getInstance(baseLocale, null) : this;
-    }
-
-    /**
      * Returns the extension (or private use) value associated with
      * the specified key, or null if there is no extension
      * associated with the key. To be well-formed, the key must be one
@@ -1231,7 +1115,7 @@ public final class Locale implements Cloneable, Serializable {
         if (!LocaleExtensions.isValidKey(key)) {
             throw new IllegalArgumentException("Ill-formed extension key: " + key);
         }
-        return hasExtensions() ? localeExtensions.getExtensionValue(key) : null;
+        return (localeExtensions == null) ? null : localeExtensions.getExtensionValue(key);
     }
 
     /**
@@ -1244,7 +1128,7 @@ public final class Locale implements Cloneable, Serializable {
      * @since 1.7
      */
     public Set<Character> getExtensionKeys() {
-        if (!hasExtensions()) {
+        if (localeExtensions == null) {
             return Collections.emptySet();
         }
         return localeExtensions.getKeys();
@@ -1259,7 +1143,7 @@ public final class Locale implements Cloneable, Serializable {
      * @since 1.7
      */
     public Set<String> getUnicodeLocaleAttributes() {
-        if (!hasExtensions()) {
+        if (localeExtensions == null) {
             return Collections.emptySet();
         }
         return localeExtensions.getUnicodeLocaleAttributes();
@@ -1280,10 +1164,10 @@ public final class Locale implements Cloneable, Serializable {
      * @since 1.7
      */
     public String getUnicodeLocaleType(String key) {
-        if (!isUnicodeExtensionKey(key)) {
+        if (!UnicodeLocaleExtension.isKey(key)) {
             throw new IllegalArgumentException("Ill-formed Unicode locale key: " + key);
         }
-        return hasExtensions() ? localeExtensions.getUnicodeLocaleType(key) : null;
+        return (localeExtensions == null) ? null : localeExtensions.getUnicodeLocaleType(key);
     }
 
     /**
@@ -1324,7 +1208,7 @@ public final class Locale implements Cloneable, Serializable {
      * Returns a string representation of this <code>Locale</code>
      * object, consisting of language, country, variant, script,
      * and extensions as below:
-     * <blockquote>
+     * <p><blockquote>
      * language + "_" + country + "_" + (variant + "_#" | "#") + script + "-" + extensions
      * </blockquote>
      *
@@ -1348,15 +1232,15 @@ public final class Locale implements Cloneable, Serializable {
      * fields only.  To represent a Locale as a String for interchange purposes, use
      * {@link #toLanguageTag}.
      *
-     * <p>Examples: <ul>
-     * <li><tt>en</tt></li>
-     * <li><tt>de_DE</tt></li>
-     * <li><tt>_GB</tt></li>
-     * <li><tt>en_US_WIN</tt></li>
-     * <li><tt>de__POSIX</tt></li>
-     * <li><tt>zh_CN_#Hans</tt></li>
-     * <li><tt>zh_TW_#Hant-x-java</tt></li>
-     * <li><tt>th_TH_TH_#u-nu-thai</tt></li></ul>
+     * <p>Examples: <ul><tt>
+     * <li>en
+     * <li>de_DE
+     * <li>_GB
+     * <li>en_US_WIN
+     * <li>de__POSIX
+     * <li>zh_CN_#Hans
+     * <li>zh_TW_#Hant-x-java
+     * <li>th_TH_TH_#u-nu-thai</tt></ul>
      *
      * @return A string representation of the Locale, for debugging.
      * @see #getDisplayName
@@ -1464,10 +1348,6 @@ public final class Locale implements Cloneable, Serializable {
      * @since 1.7
      */
     public String toLanguageTag() {
-        if (languageTag != null) {
-            return languageTag;
-        }
-
         LanguageTag tag = LanguageTag.parseLocale(baseLocale, localeExtensions);
         StringBuilder buf = new StringBuilder();
 
@@ -1511,13 +1391,7 @@ public final class Locale implements Cloneable, Serializable {
             buf.append(subtag);
         }
 
-        String langTag = buf.toString();
-        synchronized (this) {
-            if (languageTag == null) {
-                languageTag = langTag;
-            }
-        }
-        return languageTag;
+        return buf.toString();
     }
 
     /**
@@ -1575,7 +1449,7 @@ public final class Locale implements Cloneable, Serializable {
      *    // returns "ja-JP-u-ca-japanese-x-lvariant-JP"
      *    Locale.forLanguageTag("th-TH-x-lvariant-TH").toLanguageTag();
      *    // returns "th-TH-u-nu-thai-x-lvariant-TH"
-     * </pre></ul>
+     * <pre></ul>
      *
      * <p>This implements the 'Language-Tag' production of BCP47, and
      * so supports grandfathered (regular and irregular) as well as
@@ -1586,7 +1460,7 @@ public final class Locale implements Cloneable, Serializable {
      *
      * <p>Grandfathered tags with canonical replacements are as follows:
      *
-     * <table summary="Grandfathered tags with canonical replacements">
+     * <table>
      * <tbody align="center">
      * <tr><th>grandfathered tag</th><th>&nbsp;</th><th>modern replacement</th></tr>
      * <tr><td>art-lojban</td><td>&nbsp;</td><td>jbo</td></tr>
@@ -1615,7 +1489,7 @@ public final class Locale implements Cloneable, Serializable {
      * <p>Grandfathered tags with no modern replacement will be
      * converted as follows:
      *
-     * <table summary="Grandfathered tags with no modern replacement">
+     * <table>
      * <tbody align="center">
      * <tr><th>grandfathered tag</th><th>&nbsp;</th><th>converts to</th></tr>
      * <tr><td>cel-gaulish</td><td>&nbsp;</td><td>xtg-x-cel-gaulish</td></tr>
@@ -1668,26 +1542,21 @@ public final class Locale implements Cloneable, Serializable {
      * three-letter language abbreviation is not available for this locale.
      */
     public String getISO3Language() throws MissingResourceException {
+        // Android-changed: Use ICU.getIso3Language. Also return "" for empty languages
+        // for the sake of backwards compatibility.
         String lang = baseLocale.getLanguage();
         if (lang.length() == 3) {
             return lang;
-        }
-        // BEGIN Android-added
-        // return "" for empty languages for the sake of backwards compatibility.
-        else if (lang.isEmpty()) {
+        } else if (lang.isEmpty()) {
             return "";
         }
-        // END Android-added
 
-        // BEGIN Android-changed: Use ICU.
-        // String language3 = getISO3Code(lang, LocaleISOData.isoLanguageTable);
-        // if (language3 == null) {
         String language3 = ICU.getISO3Language(lang);
         if (!lang.isEmpty() && language3.isEmpty()) {
-        // END Android-changed
             throw new MissingResourceException("Couldn't find 3-letter language code for "
                     + lang, "FormatData_" + toString(), "ShortLanguage");
         }
+
         return language3;
     }
 
@@ -1705,7 +1574,7 @@ public final class Locale implements Cloneable, Serializable {
      * three-letter country abbreviation is not available for this locale.
      */
     public String getISO3Country() throws MissingResourceException {
-        // BEGIN Android-changed: Use ICU. Also return "" for missing regions.
+        // Android changed: Use.getIso3Country. Also return "" for missing regions.
         final String region = baseLocale.getRegion();
         // Note that this will return an UN.M49 region code
         if (region.length() == 3) {
@@ -1720,34 +1589,25 @@ public final class Locale implements Cloneable, Serializable {
             throw new MissingResourceException("Couldn't find 3-letter country code for "
                     + baseLocale.getRegion(), "FormatData_" + toString(), "ShortCountry");
         }
-        // END Android-changed
         return country3;
     }
 
     /**
      * Returns a name for the locale's language that is appropriate for display to the
      * user.
-     * If possible, the name returned will be localized for the default
-     * {@link Locale.Category#DISPLAY DISPLAY} locale.
-     * For example, if the locale is fr_FR and the default
-     * {@link Locale.Category#DISPLAY DISPLAY} locale
+     * If possible, the name returned will be localized for the default locale.
+     * For example, if the locale is fr_FR and the default locale
      * is en_US, getDisplayLanguage() will return "French"; if the locale is en_US and
-     * the default {@link Locale.Category#DISPLAY DISPLAY} locale is fr_FR,
-     * getDisplayLanguage() will return "anglais".
-     * If the name returned cannot be localized for the default
-     * {@link Locale.Category#DISPLAY DISPLAY} locale,
+     * the default locale is fr_FR, getDisplayLanguage() will return "anglais".
+     * If the name returned cannot be localized for the default locale,
      * (say, we don't have a Japanese name for Croatian),
      * this function falls back on the English name, and uses the ISO code as a last-resort
      * value.  If the locale doesn't specify a language, this function returns the empty string.
-     *
-     * @return The name of the display language.
      */
     public final String getDisplayLanguage() {
         return getDisplayLanguage(getDefault(Category.DISPLAY));
     }
 
-    // BEGIN Android-changed: Use ICU; documentation; backwards compatibility hacks;
-    // added private helper methods.
     /**
      * Returns the name of this locale's language, localized to {@code locale}.
      * If the language name is unknown, the language code is returned.
@@ -1812,73 +1672,56 @@ public final class Locale implements Cloneable, Serializable {
 
         return true;
     }
-    // END Android-changed
 
     /**
      * Returns a name for the the locale's script that is appropriate for display to
-     * the user. If possible, the name will be localized for the default
-     * {@link Locale.Category#DISPLAY DISPLAY} locale.  Returns
+     * the user. If possible, the name will be localized for the default locale.  Returns
      * the empty string if this locale doesn't specify a script code.
      *
-     * @return the display name of the script code for the current default
-     *     {@link Locale.Category#DISPLAY DISPLAY} locale
+     * @return the display name of the script code for the current default locale
      * @since 1.7
      */
     public String getDisplayScript() {
-        return getDisplayScript(getDefault(Category.DISPLAY));
+        return getDisplayScript(getDefault());
     }
 
     /**
-     * Returns a name for the locale's script that is appropriate
-     * for display to the user. If possible, the name will be
-     * localized for the given locale. Returns the empty string if
-     * this locale doesn't specify a script code.
+     * Returns the name of this locale's script code, localized to {@link Locale}. If the
+     * script code is unknown, the return value of this method is the same as that of
+     * {@link #getScript()}.
      *
-     * @param inLocale The locale for which to retrieve the display script.
-     * @return the display name of the script code for the current default
-     * {@link Locale.Category#DISPLAY DISPLAY} locale
-     * @throws NullPointerException if <code>inLocale</code> is <code>null</code>
      * @since 1.7
      */
-    public String getDisplayScript(Locale inLocale) {
-        // BEGIN Android-changed: Use ICU.
+    public String getDisplayScript(Locale locale) {
         String scriptCode = baseLocale.getScript();
         if (scriptCode.isEmpty()) {
             return "";
         }
 
-        String result = ICU.getDisplayScript(this, inLocale);
+        String result = ICU.getDisplayScript(this, locale);
         if (result == null) { // TODO: do we need to do this, or does ICU do it for us?
-            result = ICU.getDisplayScript(this, Locale.getDefault(Category.DISPLAY));
+            result = ICU.getDisplayScript(this, Locale.getDefault());
         }
 
         return result;
-        // END Android-changed
+
     }
 
     /**
      * Returns a name for the locale's country that is appropriate for display to the
      * user.
-     * If possible, the name returned will be localized for the default
-     * {@link Locale.Category#DISPLAY DISPLAY} locale.
-     * For example, if the locale is fr_FR and the default
-     * {@link Locale.Category#DISPLAY DISPLAY} locale
+     * If possible, the name returned will be localized for the default locale.
+     * For example, if the locale is fr_FR and the default locale
      * is en_US, getDisplayCountry() will return "France"; if the locale is en_US and
-     * the default {@link Locale.Category#DISPLAY DISPLAY} locale is fr_FR,
-     * getDisplayCountry() will return "Etats-Unis".
-     * If the name returned cannot be localized for the default
-     * {@link Locale.Category#DISPLAY DISPLAY} locale,
+     * the default locale is fr_FR, getDisplayCountry() will return "Etats-Unis".
+     * If the name returned cannot be localized for the default locale,
      * (say, we don't have a Japanese name for Croatia),
      * this function falls back on the English name, and uses the ISO code as a last-resort
      * value.  If the locale doesn't specify a country, this function returns the empty string.
-     *
-     * @return The name of the country appropriate to the locale.
      */
     public final String getDisplayCountry() {
         return getDisplayCountry(getDefault(Category.DISPLAY));
     }
-
-    // BEGIN Android-changed: Use ICU; documentation; added private helper methods.
     /**
      * Returns the name of this locale's country, localized to {@code locale}.
      * Returns the empty string if this locale does not correspond to a specific
@@ -1955,31 +1798,24 @@ public final class Locale implements Cloneable, Serializable {
 
         return true;
     }
-    // END Android-changed: Use ICU; documentation; added private helper methods.
 
     /**
      * Returns a name for the locale's variant code that is appropriate for display to the
-     * user.  If possible, the name will be localized for the default
-     * {@link Locale.Category#DISPLAY DISPLAY} locale.  If the locale
+     * user.  If possible, the name will be localized for the default locale.  If the locale
      * doesn't specify a variant code, this function returns the empty string.
-     *
-     * @return The name of the display variant code appropriate to the locale.
      */
     public final String getDisplayVariant() {
         return getDisplayVariant(getDefault(Category.DISPLAY));
     }
 
     /**
-     * Returns a name for the locale's variant code that is appropriate for display to the
-     * user.  If possible, the name will be localized for inLocale.  If the locale
-     * doesn't specify a variant code, this function returns the empty string.
+     * Returns the full variant name in the specified {@code Locale} for the variant code
+     * of this {@code Locale}. If there is no matching variant name, the variant code is
+     * returned.
      *
-     * @param inLocale The locale for which to retrieve the display variant code.
-     * @return The name of the display variant code appropriate to the given locale.
-     * @exception NullPointerException if <code>inLocale</code> is <code>null</code>
+     * @since 1.7
      */
-    // BEGIN Android-changed: Use ICU; added private helper methods.
-    public String getDisplayVariant(Locale inLocale) {
+    public String getDisplayVariant(Locale locale) {
         String variantCode = baseLocale.getVariant();
         if (variantCode.isEmpty()) {
             return "";
@@ -1991,7 +1827,7 @@ public final class Locale implements Cloneable, Serializable {
             return variantCode;
         }
 
-        String result = ICU.getDisplayVariant(this, inLocale);
+        String result = ICU.getDisplayVariant(this, locale);
         if (result == null) { // TODO: do we need to do this, or does ICU do it for us?
             result = ICU.getDisplayVariant(this, Locale.getDefault());
         }
@@ -2042,7 +1878,6 @@ public final class Locale implements Cloneable, Serializable {
 
         return false;
     }
-    // END Android-changed
 
     /**
      * Returns a name for the locale that is appropriate for display to the
@@ -2058,16 +1893,13 @@ public final class Locale implements Cloneable, Serializable {
      * country<br>
      * </blockquote>
      * depending on which fields are specified in the locale.  If the
-     * language, script, country, and variant fields are all empty,
+     * language, sacript, country, and variant fields are all empty,
      * this function returns the empty string.
-     *
-     * @return The name of the locale appropriate to display.
      */
     public final String getDisplayName() {
         return getDisplayName(getDefault(Category.DISPLAY));
     }
 
-    // BEGIN Android-changed: Use ICU.
     /**
      * Returns this locale's language name, country name, and variant, localized
      * to {@code locale}. The exact output form depends on whether this locale
@@ -2129,19 +1961,17 @@ public final class Locale implements Cloneable, Serializable {
         }
         return buffer.toString();
     }
-    // END Android-changed: Use ICU.
 
     /**
      * Overrides Cloneable.
      */
-    @Override
     public Object clone()
     {
         try {
             Locale that = (Locale)super.clone();
             return that;
         } catch (CloneNotSupportedException e) {
-            throw new InternalError(e);
+            throw new InternalError();
         }
     }
 
@@ -2198,14 +2028,9 @@ public final class Locale implements Cloneable, Serializable {
      */
     private transient volatile int hashCodeValue = 0;
 
-    // Android-changed: Add NoImagePreloadHolder to allow compile-time initialization.
-    private static class NoImagePreloadHolder {
-        public volatile static Locale defaultLocale = initDefault();
-    }
-    private volatile static Locale defaultDisplayLocale = null;
-    private volatile static Locale defaultFormatLocale = null;
-
-    private transient volatile String languageTag;
+    private static Locale defaultLocale = null;
+    private static Locale defaultDisplayLocale = null;
+    private static Locale defaultFormatLocale = null;
 
     /**
      * Format a list using given pattern strings.
@@ -2222,11 +2047,9 @@ public final class Locale implements Cloneable, Serializable {
         // If we have no list patterns, compose the list in a simple,
         // non-localized way.
         if (listPattern == null || listCompositionPattern == null) {
-            StringBuilder result = new StringBuilder();
-            for (int i = 0; i < stringList.length; ++i) {
-                if (i > 0) {
-                    result.append(',');
-                }
+            StringBuffer result = new StringBuffer();
+            for (int i=0; i<stringList.length; ++i) {
+                if (i>0) result.append(',');
                 result.append(stringList[i]);
             }
             return result.toString();
@@ -2271,13 +2094,6 @@ public final class Locale implements Cloneable, Serializable {
 
         // Recurse
         return composeList(format, newList);
-    }
-
-    // Duplicate of sun.util.locale.UnicodeLocaleExtension.isKey in order to
-    // avoid its class loading.
-    private static boolean isUnicodeExtensionKey(String s) {
-        // 2alphanum
-        return (s.length() == 2) && LocaleUtils.isAlphaNumericString(s);
     }
 
     /**
@@ -2341,8 +2157,6 @@ public final class Locale implements Cloneable, Serializable {
         String variant = (String)fields.get("variant", "");
         String extStr = (String)fields.get("extensions", "");
         baseLocale = BaseLocale.getInstance(convertOldISOCodes(language), script, country, variant);
-        // Android-changed: Handle null for backwards compatible deserialization. http://b/26387905
-        // if (extStr.length() > 0) {
         if (extStr != null && extStr.length() > 0) {
             try {
                 InternalLocaleBuilder bldr = new InternalLocaleBuilder();
@@ -2363,7 +2177,7 @@ public final class Locale implements Cloneable, Serializable {
      * are exactly "ja", "JP", "JP" or "th", "TH", "TH" and script/extensions
      * fields are empty, this method supplies <code>UNICODE_LOCALE_EXTENSION</code>
      * "ca"/"japanese" (calendar type is "japanese") or "nu"/"thai" (number script
-     * type is "thai"). See <a href="Locale.html#special_cases_constructor">Special Cases</a>
+     * type is "thai"). See <a href="Locale.html#special_cases_constructor"/>Special Cases</a>
      * for more information.
      *
      * @return an instance of <code>Locale</code> equivalent to
@@ -2416,9 +2230,9 @@ public final class Locale implements Cloneable, Serializable {
         return extensions;
     }
 
-    // Android-removed: Drop nested private class LocaleNameGetter.
-    // BEGIN Android-added: Add adjustLanguageCode(); for internal use only.
-    /** @hide for internal use only. */
+    /**
+     * @hide for internal use only.
+     */
     public static String adjustLanguageCode(String languageCode) {
         String adjusted = languageCode.toLowerCase(Locale.US);
         // Map new language codes to the obsolete language
@@ -2433,7 +2247,6 @@ public final class Locale implements Cloneable, Serializable {
 
         return adjusted;
     }
-    // END Android-added
 
     /**
      * Enum for locale categories.  These locale categories are used to get/set
@@ -2771,11 +2584,9 @@ public final class Locale implements Cloneable, Serializable {
          * @see #setExtension(char, String)
          */
         public Builder removeUnicodeLocaleAttribute(String attribute) {
-            // BEGIN Android-added: removeUnicodeLocaleAttribute(null) is documented to throw NPE
             if (attribute == null) {
                 throw new NullPointerException("attribute == null");
             }
-            // END Android-added: removeUnicodeLocaleAttribute(null) is documented to throw NPE
 
             try {
                 localeBuilder.removeUnicodeLocaleAttribute(attribute);
@@ -2827,612 +2638,4 @@ public final class Locale implements Cloneable, Serializable {
             return Locale.getInstance(baseloc, extensions);
         }
     }
-
-    /**
-     * This enum provides constants to select a filtering mode for locale
-     * matching. Refer to <a href="http://tools.ietf.org/html/rfc4647">RFC 4647
-     * Matching of Language Tags</a> for details.
-     *
-     * <p>As an example, think of two Language Priority Lists each of which
-     * includes only one language range and a set of following language tags:
-     *
-     * <pre>
-     *    de (German)
-     *    de-DE (German, Germany)
-     *    de-Deva (German, in Devanagari script)
-     *    de-Deva-DE (German, in Devanagari script, Germany)
-     *    de-DE-1996 (German, Germany, orthography of 1996)
-     *    de-Latn-DE (German, in Latin script, Germany)
-     *    de-Latn-DE-1996 (German, in Latin script, Germany, orthography of 1996)
-     * </pre>
-     *
-     * The filtering method will behave as follows:
-     *
-     * <table cellpadding=2 summary="Filtering method behavior">
-     * <tr>
-     * <th>Filtering Mode</th>
-     * <th>Language Priority List: {@code "de-DE"}</th>
-     * <th>Language Priority List: {@code "de-*-DE"}</th>
-     * </tr>
-     * <tr>
-     * <td valign=top>
-     * {@link FilteringMode#AUTOSELECT_FILTERING AUTOSELECT_FILTERING}
-     * </td>
-     * <td valign=top>
-     * Performs <em>basic</em> filtering and returns {@code "de-DE"} and
-     * {@code "de-DE-1996"}.
-     * </td>
-     * <td valign=top>
-     * Performs <em>extended</em> filtering and returns {@code "de-DE"},
-     * {@code "de-Deva-DE"}, {@code "de-DE-1996"}, {@code "de-Latn-DE"}, and
-     * {@code "de-Latn-DE-1996"}.
-     * </td>
-     * </tr>
-     * <tr>
-     * <td valign=top>
-     * {@link FilteringMode#EXTENDED_FILTERING EXTENDED_FILTERING}
-     * </td>
-     * <td valign=top>
-     * Performs <em>extended</em> filtering and returns {@code "de-DE"},
-     * {@code "de-Deva-DE"}, {@code "de-DE-1996"}, {@code "de-Latn-DE"}, and
-     * {@code "de-Latn-DE-1996"}.
-     * </td>
-     * <td valign=top>Same as above.</td>
-     * </tr>
-     * <tr>
-     * <td valign=top>
-     * {@link FilteringMode#IGNORE_EXTENDED_RANGES IGNORE_EXTENDED_RANGES}
-     * </td>
-     * <td valign=top>
-     * Performs <em>basic</em> filtering and returns {@code "de-DE"} and
-     * {@code "de-DE-1996"}.
-     * </td>
-     * <td valign=top>
-     * Performs <em>basic</em> filtering and returns {@code null} because
-     * nothing matches.
-     * </td>
-     * </tr>
-     * <tr>
-     * <td valign=top>
-     * {@link FilteringMode#MAP_EXTENDED_RANGES MAP_EXTENDED_RANGES}
-     * </td>
-     * <td valign=top>Same as above.</td>
-     * <td valign=top>
-     * Performs <em>basic</em> filtering and returns {@code "de-DE"} and
-     * {@code "de-DE-1996"} because {@code "de-*-DE"} is mapped to
-     * {@code "de-DE"}.
-     * </td>
-     * </tr>
-     * <tr>
-     * <td valign=top>
-     * {@link FilteringMode#REJECT_EXTENDED_RANGES REJECT_EXTENDED_RANGES}
-     * </td>
-     * <td valign=top>Same as above.</td>
-     * <td valign=top>
-     * Throws {@link IllegalArgumentException} because {@code "de-*-DE"} is
-     * not a valid basic language range.
-     * </td>
-     * </tr>
-     * </table>
-     *
-     * @see #filter(List, Collection, FilteringMode)
-     * @see #filterTags(List, Collection, FilteringMode)
-     *
-     * @since 1.8
-     */
-    public static enum FilteringMode {
-        /**
-         * Specifies automatic filtering mode based on the given Language
-         * Priority List consisting of language ranges. If all of the ranges
-         * are basic, basic filtering is selected. Otherwise, extended
-         * filtering is selected.
-         */
-        AUTOSELECT_FILTERING,
-
-        /**
-         * Specifies extended filtering.
-         */
-        EXTENDED_FILTERING,
-
-        /**
-         * Specifies basic filtering: Note that any extended language ranges
-         * included in the given Language Priority List are ignored.
-         */
-        IGNORE_EXTENDED_RANGES,
-
-        /**
-         * Specifies basic filtering: If any extended language ranges are
-         * included in the given Language Priority List, they are mapped to the
-         * basic language range. Specifically, a language range starting with a
-         * subtag {@code "*"} is treated as a language range {@code "*"}. For
-         * example, {@code "*-US"} is treated as {@code "*"}. If {@code "*"} is
-         * not the first subtag, {@code "*"} and extra {@code "-"} are removed.
-         * For example, {@code "ja-*-JP"} is mapped to {@code "ja-JP"}.
-         */
-        MAP_EXTENDED_RANGES,
-
-        /**
-         * Specifies basic filtering: If any extended language ranges are
-         * included in the given Language Priority List, the list is rejected
-         * and the filtering method throws {@link IllegalArgumentException}.
-         */
-        REJECT_EXTENDED_RANGES
-    };
-
-    /**
-     * This class expresses a <em>Language Range</em> defined in
-     * <a href="http://tools.ietf.org/html/rfc4647">RFC 4647 Matching of
-     * Language Tags</a>. A language range is an identifier which is used to
-     * select language tag(s) meeting specific requirements by using the
-     * mechanisms described in <a href="Locale.html#LocaleMatching">Locale
-     * Matching</a>. A list which represents a user's preferences and consists
-     * of language ranges is called a <em>Language Priority List</em>.
-     *
-     * <p>There are two types of language ranges: basic and extended. In RFC
-     * 4647, the syntax of language ranges is expressed in
-     * <a href="http://tools.ietf.org/html/rfc4234">ABNF</a> as follows:
-     * <blockquote>
-     * <pre>
-     *     basic-language-range    = (1*8ALPHA *("-" 1*8alphanum)) / "*"
-     *     extended-language-range = (1*8ALPHA / "*")
-     *                               *("-" (1*8alphanum / "*"))
-     *     alphanum                = ALPHA / DIGIT
-     * </pre>
-     * </blockquote>
-     * For example, {@code "en"} (English), {@code "ja-JP"} (Japanese, Japan),
-     * {@code "*"} (special language range which matches any language tag) are
-     * basic language ranges, whereas {@code "*-CH"} (any languages,
-     * Switzerland), {@code "es-*"} (Spanish, any regions), and
-     * {@code "zh-Hant-*"} (Traditional Chinese, any regions) are extended
-     * language ranges.
-     *
-     * @see #filter
-     * @see #filterTags
-     * @see #lookup
-     * @see #lookupTag
-     *
-     * @since 1.8
-     */
-    public static final class LanguageRange {
-
-       /**
-        * A constant holding the maximum value of weight, 1.0, which indicates
-        * that the language range is a good fit for the user.
-        */
-        public static final double MAX_WEIGHT = 1.0;
-
-       /**
-        * A constant holding the minimum value of weight, 0.0, which indicates
-        * that the language range is not a good fit for the user.
-        */
-        public static final double MIN_WEIGHT = 0.0;
-
-        private final String range;
-        private final double weight;
-
-        private volatile int hash = 0;
-
-        /**
-         * Constructs a {@code LanguageRange} using the given {@code range}.
-         * Note that no validation is done against the IANA Language Subtag
-         * Registry at time of construction.
-         *
-         * <p>This is equivalent to {@code LanguageRange(range, MAX_WEIGHT)}.
-         *
-         * @param range a language range
-         * @throws NullPointerException if the given {@code range} is
-         *     {@code null}
-         */
-        public LanguageRange(String range) {
-            this(range, MAX_WEIGHT);
-        }
-
-        /**
-         * Constructs a {@code LanguageRange} using the given {@code range} and
-         * {@code weight}. Note that no validation is done against the IANA
-         * Language Subtag Registry at time of construction.
-         *
-         * @param range  a language range
-         * @param weight a weight value between {@code MIN_WEIGHT} and
-         *     {@code MAX_WEIGHT}
-         * @throws NullPointerException if the given {@code range} is
-         *     {@code null}
-         * @throws IllegalArgumentException if the given {@code weight} is less
-         *     than {@code MIN_WEIGHT} or greater than {@code MAX_WEIGHT}
-         */
-        public LanguageRange(String range, double weight) {
-            if (range == null) {
-                throw new NullPointerException();
-            }
-            if (weight < MIN_WEIGHT || weight > MAX_WEIGHT) {
-                throw new IllegalArgumentException("weight=" + weight);
-            }
-
-            range = range.toLowerCase();
-
-            // Do syntax check.
-            boolean isIllFormed = false;
-            String[] subtags = range.split("-");
-            if (isSubtagIllFormed(subtags[0], true)
-                || range.endsWith("-")) {
-                isIllFormed = true;
-            } else {
-                for (int i = 1; i < subtags.length; i++) {
-                    if (isSubtagIllFormed(subtags[i], false)) {
-                        isIllFormed = true;
-                        break;
-                    }
-                }
-            }
-            if (isIllFormed) {
-                throw new IllegalArgumentException("range=" + range);
-            }
-
-            this.range = range;
-            this.weight = weight;
-        }
-
-        private static boolean isSubtagIllFormed(String subtag,
-                                                 boolean isFirstSubtag) {
-            if (subtag.equals("") || subtag.length() > 8) {
-                return true;
-            } else if (subtag.equals("*")) {
-                return false;
-            }
-            char[] charArray = subtag.toCharArray();
-            if (isFirstSubtag) { // ALPHA
-                for (char c : charArray) {
-                    if (c < 'a' || c > 'z') {
-                        return true;
-                    }
-                }
-            } else { // ALPHA / DIGIT
-                for (char c : charArray) {
-                    if (c < '0' || (c > '9' && c < 'a') || c > 'z') {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }
-
-        /**
-         * Returns the language range of this {@code LanguageRange}.
-         *
-         * @return the language range.
-         */
-        public String getRange() {
-            return range;
-        }
-
-        /**
-         * Returns the weight of this {@code LanguageRange}.
-         *
-         * @return the weight value.
-         */
-        public double getWeight() {
-            return weight;
-        }
-
-        /**
-         * Parses the given {@code ranges} to generate a Language Priority List.
-         *
-         * <p>This method performs a syntactic check for each language range in
-         * the given {@code ranges} but doesn't do validation using the IANA
-         * Language Subtag Registry.
-         *
-         * <p>The {@code ranges} to be given can take one of the following
-         * forms:
-         *
-         * <pre>
-         *   "Accept-Language: ja,en;q=0.4"  (weighted list with Accept-Language prefix)
-         *   "ja,en;q=0.4"                   (weighted list)
-         *   "ja,en"                         (prioritized list)
-         * </pre>
-         *
-         * In a weighted list, each language range is given a weight value.
-         * The weight value is identical to the "quality value" in
-         * <a href="http://tools.ietf.org/html/rfc2616">RFC 2616</a>, and it
-         * expresses how much the user prefers  the language. A weight value is
-         * specified after a corresponding language range followed by
-         * {@code ";q="}, and the default weight value is {@code MAX_WEIGHT}
-         * when it is omitted.
-         *
-         * <p>Unlike a weighted list, language ranges in a prioritized list
-         * are sorted in the descending order based on its priority. The first
-         * language range has the highest priority and meets the user's
-         * preference most.
-         *
-         * <p>In either case, language ranges are sorted in descending order in
-         * the Language Priority List based on priority or weight. If a
-         * language range appears in the given {@code ranges} more than once,
-         * only the first one is included on the Language Priority List.
-         *
-         * <p>The returned list consists of language ranges from the given
-         * {@code ranges} and their equivalents found in the IANA Language
-         * Subtag Registry. For example, if the given {@code ranges} is
-         * {@code "Accept-Language: iw,en-us;q=0.7,en;q=0.3"}, the elements in
-         * the list to be returned are:
-         *
-         * <pre>
-         *  <b>Range</b>                                   <b>Weight</b>
-         *    "iw" (older tag for Hebrew)             1.0
-         *    "he" (new preferred code for Hebrew)    1.0
-         *    "en-us" (English, United States)        0.7
-         *    "en" (English)                          0.3
-         * </pre>
-         *
-         * Two language ranges, {@code "iw"} and {@code "he"}, have the same
-         * highest priority in the list. By adding {@code "he"} to the user's
-         * Language Priority List, locale-matching method can find Hebrew as a
-         * matching locale (or language tag) even if the application or system
-         * offers only {@code "he"} as a supported locale (or language tag).
-         *
-         * @param ranges a list of comma-separated language ranges or a list of
-         *     language ranges in the form of the "Accept-Language" header
-         *     defined in <a href="http://tools.ietf.org/html/rfc2616">RFC
-         *     2616</a>
-         * @return a Language Priority List consisting of language ranges
-         *     included in the given {@code ranges} and their equivalent
-         *     language ranges if available. The list is modifiable.
-         * @throws NullPointerException if {@code ranges} is null
-         * @throws IllegalArgumentException if a language range or a weight
-         *     found in the given {@code ranges} is ill-formed
-         */
-        public static List<LanguageRange> parse(String ranges) {
-            return LocaleMatcher.parse(ranges);
-        }
-
-        /**
-         * Parses the given {@code ranges} to generate a Language Priority
-         * List, and then customizes the list using the given {@code map}.
-         * This method is equivalent to
-         * {@code mapEquivalents(parse(ranges), map)}.
-         *
-         * @param ranges a list of comma-separated language ranges or a list
-         *     of language ranges in the form of the "Accept-Language" header
-         *     defined in <a href="http://tools.ietf.org/html/rfc2616">RFC
-         *     2616</a>
-         * @param map a map containing information to customize language ranges
-         * @return a Language Priority List with customization. The list is
-         *     modifiable.
-         * @throws NullPointerException if {@code ranges} is null
-         * @throws IllegalArgumentException if a language range or a weight
-         *     found in the given {@code ranges} is ill-formed
-         * @see #parse(String)
-         * @see #mapEquivalents
-         */
-        public static List<LanguageRange> parse(String ranges,
-                                                Map<String, List<String>> map) {
-            return mapEquivalents(parse(ranges), map);
-        }
-
-        /**
-         * Generates a new customized Language Priority List using the given
-         * {@code priorityList} and {@code map}. If the given {@code map} is
-         * empty, this method returns a copy of the given {@code priorityList}.
-         *
-         * <p>In the map, a key represents a language range whereas a value is
-         * a list of equivalents of it. {@code '*'} cannot be used in the map.
-         * Each equivalent language range has the same weight value as its
-         * original language range.
-         *
-         * <pre>
-         *  An example of map:
-         *    <b>Key</b>                            <b>Value</b>
-         *      "zh" (Chinese)                 "zh",
-         *                                     "zh-Hans"(Simplified Chinese)
-         *      "zh-HK" (Chinese, Hong Kong)   "zh-HK"
-         *      "zh-TW" (Chinese, Taiwan)      "zh-TW"
-         * </pre>
-         *
-         * The customization is performed after modification using the IANA
-         * Language Subtag Registry.
-         *
-         * <p>For example, if a user's Language Priority List consists of five
-         * language ranges ({@code "zh"}, {@code "zh-CN"}, {@code "en"},
-         * {@code "zh-TW"}, and {@code "zh-HK"}), the newly generated Language
-         * Priority List which is customized using the above map example will
-         * consists of {@code "zh"}, {@code "zh-Hans"}, {@code "zh-CN"},
-         * {@code "zh-Hans-CN"}, {@code "en"}, {@code "zh-TW"}, and
-         * {@code "zh-HK"}.
-         *
-         * <p>{@code "zh-HK"} and {@code "zh-TW"} aren't converted to
-         * {@code "zh-Hans-HK"} nor {@code "zh-Hans-TW"} even if they are
-         * included in the Language Priority List. In this example, mapping
-         * is used to clearly distinguish Simplified Chinese and Traditional
-         * Chinese.
-         *
-         * <p>If the {@code "zh"}-to-{@code "zh"} mapping isn't included in the
-         * map, a simple replacement will be performed and the customized list
-         * won't include {@code "zh"} and {@code "zh-CN"}.
-         *
-         * @param priorityList user's Language Priority List
-         * @param map a map containing information to customize language ranges
-         * @return a new Language Priority List with customization. The list is
-         *     modifiable.
-         * @throws NullPointerException if {@code priorityList} is {@code null}
-         * @see #parse(String, Map)
-         */
-        public static List<LanguageRange> mapEquivalents(
-                                              List<LanguageRange>priorityList,
-                                              Map<String, List<String>> map) {
-            return LocaleMatcher.mapEquivalents(priorityList, map);
-        }
-
-        /**
-         * Returns a hash code value for the object.
-         *
-         * @return  a hash code value for this object.
-         */
-        @Override
-        public int hashCode() {
-            if (hash == 0) {
-                int result = 17;
-                result = 37*result + range.hashCode();
-                long bitsWeight = Double.doubleToLongBits(weight);
-                result = 37*result + (int)(bitsWeight ^ (bitsWeight >>> 32));
-                hash = result;
-            }
-            return hash;
-        }
-
-        /**
-         * Compares this object to the specified object. The result is true if
-         * and only if the argument is not {@code null} and is a
-         * {@code LanguageRange} object that contains the same {@code range}
-         * and {@code weight} values as this object.
-         *
-         * @param obj the object to compare with
-         * @return  {@code true} if this object's {@code range} and
-         *     {@code weight} are the same as the {@code obj}'s; {@code false}
-         *     otherwise.
-         */
-        @Override
-        public boolean equals(Object obj) {
-            if (this == obj) {
-                return true;
-            }
-            if (!(obj instanceof LanguageRange)) {
-                return false;
-            }
-            LanguageRange other = (LanguageRange)obj;
-            return hash == other.hash
-                   && range.equals(other.range)
-                   && weight == other.weight;
-        }
-    }
-
-    /**
-     * Returns a list of matching {@code Locale} instances using the filtering
-     * mechanism defined in RFC 4647.
-     *
-     * @param priorityList user's Language Priority List in which each language
-     *     tag is sorted in descending order based on priority or weight
-     * @param locales {@code Locale} instances used for matching
-     * @param mode filtering mode
-     * @return a list of {@code Locale} instances for matching language tags
-     *     sorted in descending order based on priority or weight, or an empty
-     *     list if nothing matches. The list is modifiable.
-     * @throws NullPointerException if {@code priorityList} or {@code locales}
-     *     is {@code null}
-     * @throws IllegalArgumentException if one or more extended language ranges
-     *     are included in the given list when
-     *     {@link FilteringMode#REJECT_EXTENDED_RANGES} is specified
-     *
-     * @since 1.8
-     */
-    public static List<Locale> filter(List<LanguageRange> priorityList,
-                                      Collection<Locale> locales,
-                                      FilteringMode mode) {
-        return LocaleMatcher.filter(priorityList, locales, mode);
-    }
-
-    /**
-     * Returns a list of matching {@code Locale} instances using the filtering
-     * mechanism defined in RFC 4647. This is equivalent to
-     * {@link #filter(List, Collection, FilteringMode)} when {@code mode} is
-     * {@link FilteringMode#AUTOSELECT_FILTERING}.
-     *
-     * @param priorityList user's Language Priority List in which each language
-     *     tag is sorted in descending order based on priority or weight
-     * @param locales {@code Locale} instances used for matching
-     * @return a list of {@code Locale} instances for matching language tags
-     *     sorted in descending order based on priority or weight, or an empty
-     *     list if nothing matches. The list is modifiable.
-     * @throws NullPointerException if {@code priorityList} or {@code locales}
-     *     is {@code null}
-     *
-     * @since 1.8
-     */
-    public static List<Locale> filter(List<LanguageRange> priorityList,
-                                      Collection<Locale> locales) {
-        return filter(priorityList, locales, FilteringMode.AUTOSELECT_FILTERING);
-    }
-
-    /**
-     * Returns a list of matching languages tags using the basic filtering
-     * mechanism defined in RFC 4647.
-     *
-     * @param priorityList user's Language Priority List in which each language
-     *     tag is sorted in descending order based on priority or weight
-     * @param tags language tags
-     * @param mode filtering mode
-     * @return a list of matching language tags sorted in descending order
-     *     based on priority or weight, or an empty list if nothing matches.
-     *     The list is modifiable.
-     * @throws NullPointerException if {@code priorityList} or {@code tags} is
-     *     {@code null}
-     * @throws IllegalArgumentException if one or more extended language ranges
-     *     are included in the given list when
-     *     {@link FilteringMode#REJECT_EXTENDED_RANGES} is specified
-     *
-     * @since 1.8
-     */
-    public static List<String> filterTags(List<LanguageRange> priorityList,
-                                          Collection<String> tags,
-                                          FilteringMode mode) {
-        return LocaleMatcher.filterTags(priorityList, tags, mode);
-    }
-
-    /**
-     * Returns a list of matching languages tags using the basic filtering
-     * mechanism defined in RFC 4647. This is equivalent to
-     * {@link #filterTags(List, Collection, FilteringMode)} when {@code mode}
-     * is {@link FilteringMode#AUTOSELECT_FILTERING}.
-     *
-     * @param priorityList user's Language Priority List in which each language
-     *     tag is sorted in descending order based on priority or weight
-     * @param tags language tags
-     * @return a list of matching language tags sorted in descending order
-     *     based on priority or weight, or an empty list if nothing matches.
-     *     The list is modifiable.
-     * @throws NullPointerException if {@code priorityList} or {@code tags} is
-     *     {@code null}
-     *
-     * @since 1.8
-     */
-    public static List<String> filterTags(List<LanguageRange> priorityList,
-                                          Collection<String> tags) {
-        return filterTags(priorityList, tags, FilteringMode.AUTOSELECT_FILTERING);
-    }
-
-    /**
-     * Returns a {@code Locale} instance for the best-matching language
-     * tag using the lookup mechanism defined in RFC 4647.
-     *
-     * @param priorityList user's Language Priority List in which each language
-     *     tag is sorted in descending order based on priority or weight
-     * @param locales {@code Locale} instances used for matching
-     * @return the best matching <code>Locale</code> instance chosen based on
-     *     priority or weight, or {@code null} if nothing matches.
-     * @throws NullPointerException if {@code priorityList} or {@code tags} is
-     *     {@code null}
-     *
-     * @since 1.8
-     */
-    public static Locale lookup(List<LanguageRange> priorityList,
-                                Collection<Locale> locales) {
-        return LocaleMatcher.lookup(priorityList, locales);
-    }
-
-    /**
-     * Returns the best-matching language tag using the lookup mechanism
-     * defined in RFC 4647.
-     *
-     * @param priorityList user's Language Priority List in which each language
-     *     tag is sorted in descending order based on priority or weight
-     * @param tags language tangs used for matching
-     * @return the best matching language tag chosen based on priority or
-     *     weight, or {@code null} if nothing matches.
-     * @throws NullPointerException if {@code priorityList} or {@code tags} is
-     *     {@code null}
-     *
-     * @since 1.8
-     */
-    public static String lookupTag(List<LanguageRange> priorityList,
-                                   Collection<String> tags) {
-        return LocaleMatcher.lookupTag(priorityList, tags);
-    }
-
 }

@@ -71,18 +71,16 @@ public abstract class MediaRouteDialogPresenter {
         final MediaRouter router = (MediaRouter)context.getSystemService(
                 Context.MEDIA_ROUTER_SERVICE);
 
-        int theme = MediaRouteChooserDialog.isLightTheme(context)
-                ? android.R.style.Theme_DeviceDefault_Light_Dialog
-                : android.R.style.Theme_DeviceDefault_Dialog;
-
         MediaRouter.RouteInfo route = router.getSelectedRoute();
         if (route.isDefault() || !route.matchesTypes(routeTypes)) {
-            final MediaRouteChooserDialog d = new MediaRouteChooserDialog(context, theme);
+            final MediaRouteChooserDialog d = new MediaRouteChooserDialog(
+                    context, android.R.style.Theme_DeviceDefault_Dialog);
             d.setRouteTypes(routeTypes);
             d.setExtendedSettingsClickListener(extendedSettingsClickListener);
             return d;
         } else {
-            MediaRouteControllerDialog d = new MediaRouteControllerDialog(context, theme);
+            MediaRouteControllerDialog d = new MediaRouteControllerDialog(
+                    context, android.R.style.Theme_DeviceDefault_Dialog);
             return d;
         }
     }

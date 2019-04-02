@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -357,10 +357,9 @@ public interface ResultSet extends Wrapper, AutoCloseable {
      *            called on a closed result set
      * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
      * this method
-     * @deprecated Use {@code getBigDecimal(int columnIndex)}
-     *             or {@code getBigDecimal(String columnLabel)}
+     * @deprecated Deprecated
      */
-    @Deprecated
+    @Deprecated // Android-added - also changed deprecated tag to contain text.
     BigDecimal getBigDecimal(int columnIndex, int scale) throws SQLException;
 
     /**
@@ -480,7 +479,6 @@ public interface ResultSet extends Wrapper, AutoCloseable {
      * @deprecated use <code>getCharacterStream</code> in place of
      *              <code>getUnicodeStream</code>
      */
-    @Deprecated
     java.io.InputStream getUnicodeStream(int columnIndex) throws SQLException;
 
     /**
@@ -645,10 +643,9 @@ public interface ResultSet extends Wrapper, AutoCloseable {
      *            called on a closed result set
      * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
      * this method
-     * @deprecated Use {@code getBigDecimal(int columnIndex)}
-     *             or {@code getBigDecimal(String columnLabel)}
+     * @deprecated Deprecated
      */
-    @Deprecated
+    @Deprecated // Android-added - also changed deprecated tag to contain text.
     BigDecimal getBigDecimal(String columnLabel, int scale) throws SQLException;
 
     /**
@@ -766,7 +763,6 @@ public interface ResultSet extends Wrapper, AutoCloseable {
      * this method
      * @deprecated use <code>getCharacterStream</code> instead
      */
-    @Deprecated
     java.io.InputStream getUnicodeStream(String columnLabel) throws SQLException;
 
     /**

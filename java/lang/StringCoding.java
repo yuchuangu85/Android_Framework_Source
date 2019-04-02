@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -75,9 +75,11 @@ class StringCoding {
     //
     private static byte[] safeTrim(byte[] ba, int len, Charset cs, boolean isTrusted) {
 
-        // Android-changed: System.getSecurityManager() == null is always true on Android.
+        /* ----- BEGIN android -----
+        if (len == ba.length && (isTrusted || System.getSecurityManager() == null))
         // Libcore tests expect a defensive copy in pretty much all cases.
-        // if (len == ba.length && (isTrusted || System.getSecurityManager() == null))
+        // + System.getSecurityManager() == null is always true on android
+        */
         if (len == ba.length && (isTrusted))
             return ba;
         else
@@ -88,9 +90,11 @@ class StringCoding {
     //
     private static char[] safeTrim(char[] ca, int len,
                                    Charset cs, boolean isTrusted) {
-        // Android-changed: System.getSecurityManager() == null is always true on Android.
+        /* ----- BEGIN android -----
+        if (len == ca.length && (isTrusted || System.getSecurityManager() == null))
         // Libcore tests expect a defensive copy in pretty much all cases.
-        // if (len == ca.length && (isTrusted || System.getSecurityManager() == null))
+        // + System.getSecurityManager() == null is always true on android
+        */
         if (len == ca.length && (isTrusted))
             return ca;
         else
@@ -305,30 +309,26 @@ class StringCoding {
 
         byte[] encode(char[] ca, int off, int len) {
             int en = scale(len, ce.maxBytesPerChar());
-            byte[] ba = new byte[en];
             if (len == 0)
-                return ba;
+                return new byte[0];
             if (ce instanceof ArrayEncoder) {
+                byte[] ba = new byte[en];
                 int blen = ((ArrayEncoder)ce).encode(ca, off, len, ba);
                 return safeTrim(ba, blen, cs, isTrusted);
             } else {
                 ce.reset();
-                ByteBuffer bb = ByteBuffer.wrap(ba);
                 CharBuffer cb = CharBuffer.wrap(ca, off, len);
                 try {
-                    // Android-changed:  Pass read-only buffer, so the encoder can't alter it
-                    CoderResult cr = ce.encode(cb.asReadOnlyBuffer(), bb, true);
-                    if (!cr.isUnderflow())
-                        cr.throwException();
-                    cr = ce.flush(bb);
-                    if (!cr.isUnderflow())
-                        cr.throwException();
+                    /* ----- BEGIN android -----
+                    CoderResult cr = ce.encode(cb, bb, true);
+                    Pass read-only buffer, so the encoder can't alter it */
+                    ByteBuffer bb = ce.encode(cb.asReadOnlyBuffer());
+                    return safeTrim(bb.array(), bb.limit(), cs, isTrusted);
                 } catch (CharacterCodingException x) {
                     // Substitution is always enabled,
                     // so this shouldn't happen
                     throw new Error(x);
                 }
-                return safeTrim(ba, bb.position(), cs, isTrusted);
             }
         }
     }
@@ -376,7 +376,9 @@ class StringCoding {
             ByteBuffer bb = ByteBuffer.wrap(ba);
             CharBuffer cb = CharBuffer.wrap(ca, off, len);
             try {
-                // Android-changed:  Pass read-only buffer, so the encoder can't alter it
+                /* ----- BEGIN android -----
+                   CoderResult cr = ce.encode(cb, bb, true);
+                   Pass read-only buffer, so the encoder can't alter it */
                 CoderResult cr = ce.encode(cb.asReadOnlyBuffer(), bb, true);
                 if (!cr.isUnderflow())
                     cr.throwException();
@@ -388,6 +390,13 @@ class StringCoding {
             }
             return safeTrim(ba, bb.position(), cs, isTrusted);
         }
+    }
+
+    static byte[] encode(Charset cs, String str) {
+        ByteBuffer buffer = cs.encode(str);
+        byte[] bytes = new byte[buffer.limit()];
+        buffer.get(bytes);
+        return bytes;
     }
 
     static byte[] encode(char[] ca, int off, int len) {

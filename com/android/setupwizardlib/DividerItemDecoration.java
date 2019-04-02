@@ -36,16 +36,12 @@ import java.lang.annotation.RetentionPolicy;
  * default, and the behavior of whether the divider is shown can be customized by subclassing
  * {@link com.android.setupwizardlib.DividerItemDecoration.DividedViewHolder}.
  *
- * <p>Modified from v14 PreferenceFragment.DividerDecoration.
+ * <p>Modified from v14 PreferenceFragment.DividerDecoration, added with inset capabilities.
  */
 public class DividerItemDecoration extends RecyclerView.ItemDecoration {
 
     /* static section */
 
-    /**
-     * An interface to be implemented by a {@link RecyclerView.ViewHolder} which controls whether
-     * dividers should be shown above and below that item.
-     */
     public interface DividedViewHolder {
 
         /**

@@ -16,7 +16,8 @@ public abstract class OMANode {
     private final String mContext;
     private final Map<String, String> mAttributes;
 
-    protected OMANode(OMAConstructed parent, String name, String context, Map<String, String> avps) {
+    protected OMANode(OMAConstructed parent, String name, String context,
+                      Map<String, String> avps) {
         mParent = parent;
         mName = name;
         mContext = context;
@@ -93,7 +94,8 @@ public abstract class OMANode {
         sb.append('<').append(MOTree.NodeTag);
         if (mAttributes != null && !mAttributes.isEmpty()) {
             for (Map.Entry<String, String> avp : mAttributes.entrySet()) {
-                sb.append(' ').append(avp.getKey()).append("=\"").append(avp.getValue()).append('"');
+                sb.append(' ').append(avp.getKey()).append("=\"")
+                        .append(avp.getValue()).append('"');
             }
         }
         sb.append(">\n");

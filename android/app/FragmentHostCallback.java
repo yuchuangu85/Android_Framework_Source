@@ -23,7 +23,6 @@ import android.content.Intent;
 import android.content.IntentSender;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -55,8 +54,7 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
     private boolean mLoadersStarted;
 
     public FragmentHostCallback(Context context, Handler handler, int windowAnimations) {
-        this((context instanceof Activity) ? (Activity)context : null, context,
-                chooseHandler(context, handler), windowAnimations);
+        this(null /*activity*/, context, handler, windowAnimations);
     }
 
     FragmentHostCallback(Activity activity) {
@@ -69,19 +67,6 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
         mContext = context;
         mHandler = handler;
         mWindowAnimations = windowAnimations;
-    }
-
-    /**
-     * Used internally in {@link #FragmentHostCallback(Context, Handler, int)} to choose
-     * the Activity's handler or the provided handler.
-     */
-    private static Handler chooseHandler(Context context, Handler handler) {
-        if (handler == null && context instanceof Activity) {
-            Activity activity = (Activity) context;
-            return activity.mHandler;
-        } else {
-            return handler;
-        }
     }
 
     /**
@@ -147,20 +132,6 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
     }
 
     /**
-     * @hide
-     * Starts a new {@link Activity} from the given fragment.
-     * See {@link Activity#startActivityForResult(Intent, int)}.
-     */
-    public void onStartActivityAsUserFromFragment(Fragment fragment, Intent intent, int requestCode,
-            Bundle options, UserHandle userHandle) {
-        if (requestCode != -1) {
-            throw new IllegalStateException(
-                    "Starting activity with a requestCode requires a FragmentActivity host");
-        }
-        mContext.startActivityAsUser(intent, userHandle);
-    }
-
-    /**
      * Starts a new {@link IntentSender} from the given fragment.
      * See {@link Activity#startIntentSender(IntentSender, Intent, int, int, int, Bundle)}.
      */
@@ -207,7 +178,7 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
 
     @Nullable
     @Override
-    public <T extends View> T onFindViewById(int id) {
+    public View onFindViewById(int id) {
         return null;
     }
 
@@ -323,11 +294,13 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
             mAllLoaderManagers = new ArrayMap<String, LoaderManager>();
         }
         LoaderManagerImpl lm = (LoaderManagerImpl) mAllLoaderManagers.get(who);
-        if (lm == null && create) {
-            lm = new LoaderManagerImpl(who, this, started);
-            mAllLoaderManagers.put(who, lm);
-        } else if (started && lm != null && !lm.mStarted){
-            lm.doStart();
+        if (lm == null) {
+            if (create) {
+                lm = new LoaderManagerImpl(who, this, started);
+                mAllLoaderManagers.put(who, lm);
+            }
+        } else {
+            lm.updateHostController(this);
         }
         return lm;
     }

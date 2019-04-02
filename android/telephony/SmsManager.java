@@ -16,8 +16,6 @@
 
 package android.telephony;
 
-import android.annotation.RequiresPermission;
-import android.annotation.SystemApi;
 import android.app.ActivityThread;
 import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
@@ -36,6 +34,7 @@ import android.util.Log;
 import com.android.internal.telephony.IMms;
 import com.android.internal.telephony.ISms;
 import com.android.internal.telephony.SmsRawData;
+import com.android.internal.telephony.uicc.IccConstants;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -72,16 +71,6 @@ public final class SmsManager {
     public static final int CELL_BROADCAST_RAN_TYPE_GSM = 0;
     /** @hide */
     public static final int CELL_BROADCAST_RAN_TYPE_CDMA = 1;
-
-    /** SMS record length from TS 51.011 10.5.3
-     * @hide
-     */
-    public static final int SMS_RECORD_LENGTH = 176;
-
-    /** SMS record length from C.S0023 3.4.27
-     * @hide
-     */
-    public static final int CDMA_SMS_RECORD_LENGTH = 255;
 
     private static final Map<Integer, SmsManager> sSubInstances =
             new ArrayMap<Integer, SmsManager>();
@@ -309,13 +298,13 @@ public final class SmsManager {
     public void sendTextMessage(
             String destinationAddress, String scAddress, String text,
             PendingIntent sentIntent, PendingIntent deliveryIntent) {
-        sendTextMessageInternal(destinationAddress, scAddress, text, sentIntent, deliveryIntent,
-                true /* persistMessage*/);
+        sendTextMessageInternal(destinationAddress, scAddress, text,
+            sentIntent, deliveryIntent, true /* persistMessageForCarrierApp*/);
     }
 
     private void sendTextMessageInternal(String destinationAddress, String scAddress,
             String text, PendingIntent sentIntent, PendingIntent deliveryIntent,
-            boolean persistMessage) {
+            boolean persistMessageForCarrierApp) {
         if (TextUtils.isEmpty(destinationAddress)) {
             throw new IllegalArgumentException("Invalid destinationAddress");
         }
@@ -329,7 +318,7 @@ public final class SmsManager {
             iccISms.sendTextForSubscriber(getSubscriptionId(), ActivityThread.currentPackageName(),
                     destinationAddress,
                     scAddress, text, sentIntent, deliveryIntent,
-                    persistMessage);
+                    persistMessageForCarrierApp);
         } catch (RemoteException ex) {
             // ignore it
         }
@@ -338,21 +327,16 @@ public final class SmsManager {
     /**
      * Send a text based SMS without writing it into the SMS Provider.
      *
-     * <p>Requires Permission:
-     * {@link android.Manifest.permission#MODIFY_PHONE_STATE} or the calling app has carrier
-     * privileges.
-     * </p>
+     * <p>Only the carrier app can call this method.</p>
      *
      * @see #sendTextMessage(String, String, String, PendingIntent, PendingIntent)
      * @hide
      */
-    @SystemApi
-    @RequiresPermission(android.Manifest.permission.MODIFY_PHONE_STATE)
     public void sendTextMessageWithoutPersisting(
             String destinationAddress, String scAddress, String text,
             PendingIntent sentIntent, PendingIntent deliveryIntent) {
-        sendTextMessageInternal(destinationAddress, scAddress, text, sentIntent, deliveryIntent,
-                false /* persistMessage */);
+        sendTextMessageInternal(destinationAddress, scAddress, text,
+            sentIntent, deliveryIntent, false /* persistMessageForCarrierApp*/);
     }
 
     /**
@@ -389,8 +373,8 @@ public final class SmsManager {
     /**
      * Inject an SMS PDU into the android application framework.
      *
-     * <p>Requires permission: {@link android.Manifest.permission#MODIFY_PHONE_STATE} or carrier
-     * privileges. @see android.telephony.TelephonyManager#hasCarrierPrivileges
+     * The caller should have carrier privileges.
+     * @see android.telephony.TelephonyManager#hasCarrierPrivileges
      *
      * @param pdu is the byte array of pdu to be injected into android application framework
      * @param format is the format of SMS pdu (3gpp or 3gpp2)
@@ -481,14 +465,14 @@ public final class SmsManager {
     public void sendMultipartTextMessage(
             String destinationAddress, String scAddress, ArrayList<String> parts,
             ArrayList<PendingIntent> sentIntents, ArrayList<PendingIntent> deliveryIntents) {
-        sendMultipartTextMessageInternal(destinationAddress, scAddress, parts, sentIntents,
-                deliveryIntents, true /* persistMessage*/);
+        sendMultipartTextMessageInternal(destinationAddress, scAddress, parts,
+              sentIntents, deliveryIntents, true /* persistMessageForCarrierApp*/);
     }
 
     private void sendMultipartTextMessageInternal(
-            String destinationAddress, String scAddress, List<String> parts,
-            List<PendingIntent> sentIntents, List<PendingIntent> deliveryIntents,
-            boolean persistMessage) {
+            String destinationAddress, String scAddress, ArrayList<String> parts,
+            ArrayList<PendingIntent> sentIntents, ArrayList<PendingIntent> deliveryIntents,
+            boolean persistMessageForCarrierApp) {
         if (TextUtils.isEmpty(destinationAddress)) {
             throw new IllegalArgumentException("Invalid destinationAddress");
         }
@@ -502,7 +486,7 @@ public final class SmsManager {
                 iccISms.sendMultipartTextForSubscriber(getSubscriptionId(),
                         ActivityThread.currentPackageName(),
                         destinationAddress, scAddress, parts,
-                        sentIntents, deliveryIntents, persistMessage);
+                        sentIntents, deliveryIntents, persistMessageForCarrierApp);
             } catch (RemoteException ex) {
                 // ignore it
             }
@@ -523,21 +507,16 @@ public final class SmsManager {
     /**
      * Send a multi-part text based SMS without writing it into the SMS Provider.
      *
-     * <p>Requires Permission:
-     * {@link android.Manifest.permission#MODIFY_PHONE_STATE} or the calling app has carrier
-     * privileges.
-     * </p>
+     * <p>Only the carrier app can call this method.</p>
      *
      * @see #sendMultipartTextMessage(String, String, ArrayList, ArrayList, ArrayList)
      * @hide
      **/
-    @SystemApi
-    @RequiresPermission(android.Manifest.permission.MODIFY_PHONE_STATE)
     public void sendMultipartTextMessageWithoutPersisting(
-            String destinationAddress, String scAddress, List<String> parts,
-            List<PendingIntent> sentIntents, List<PendingIntent> deliveryIntents) {
-        sendMultipartTextMessageInternal(destinationAddress, scAddress, parts, sentIntents,
-                deliveryIntents, false /* persistMessage*/);
+            String destinationAddress, String scAddress, ArrayList<String> parts,
+            ArrayList<PendingIntent> sentIntents, ArrayList<PendingIntent> deliveryIntents) {
+        sendMultipartTextMessageInternal(destinationAddress, scAddress, parts,
+            sentIntents, deliveryIntents, false /* persistMessageForCarrierApp*/);
     }
 
     /**
@@ -765,7 +744,7 @@ public final class SmsManager {
     public boolean
     deleteMessageFromIcc(int messageIndex) {
         boolean success = false;
-        byte[] pdu = new byte[SMS_RECORD_LENGTH-1];
+        byte[] pdu = new byte[IccConstants.SMS_RECORD_LENGTH-1];
         Arrays.fill(pdu, (byte)0xff);
 
         try {
@@ -1131,14 +1110,10 @@ public final class SmsManager {
     static public final int RESULT_ERROR_NULL_PDU           = 3;
     /** Failed because service is currently unavailable */
     static public final int RESULT_ERROR_NO_SERVICE         = 4;
-    /** Failed because we reached the sending queue limit. */
+    /** Failed because we reached the sending queue limit.  {@hide} */
     static public final int RESULT_ERROR_LIMIT_EXCEEDED     = 5;
     /** Failed because FDN is enabled. {@hide} */
     static public final int RESULT_ERROR_FDN_CHECK_FAILURE  = 6;
-    /** Failed because user denied the sending of this short code. */
-    static public final int RESULT_ERROR_SHORT_CODE_NOT_ALLOWED = 7;
-    /** Failed because the user has denied this app ever send premium short codes. */
-    static public final int RESULT_ERROR_SHORT_CODE_NEVER_ALLOWED = 8;
 
     static private final String PHONE_PACKAGE_NAME = "com.android.phone";
 
@@ -1614,33 +1589,6 @@ public final class SmsManager {
             // ignore it
         }
         return null;
-    }
-
-    /**
-     * Create a single use app specific incoming SMS request for the the calling package.
-     *
-     * This method returns a token that if included in a subsequent incoming SMS message will cause
-     * {@code intent} to be sent with the SMS data.
-     *
-     * The token is only good for one use, after an SMS has been received containing the token all
-     * subsequent SMS messages with the token will be routed as normal.
-     *
-     * An app can only have one request at a time, if the app already has a request pending it will
-     * be replaced with a new request.
-     *
-     * @return Token to include in an SMS message. The token will be 11 characters long.
-     * @see android.provider.Telephony.Sms.Intents#getMessagesFromIntent
-     */
-    public String createAppSpecificSmsToken(PendingIntent intent) {
-        try {
-            ISms iccSms = getISmsServiceOrThrow();
-            return iccSms.createAppSpecificSmsToken(getSubscriptionId(),
-                    ActivityThread.currentPackageName(), intent);
-
-        } catch (RemoteException ex) {
-            ex.rethrowFromSystemServer();
-            return null;
-        }
     }
 
     /**

@@ -42,14 +42,9 @@ public class ArgListExpr extends Expr {
     }
 
     @Override
-    protected KCode generateCode() {
+    protected KCode generateCode(boolean expand) {
         throw new IllegalStateException("should never try to convert an argument expressions"
                 + " into code");
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.argListExpr(cloneToModel(model, getChildren()));
     }
 
     @Override

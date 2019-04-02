@@ -20,6 +20,8 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Point;
 import android.hardware.display.DisplayManagerGlobal;
+import android.os.Binder;
+import android.os.RemoteException;
 import android.util.Log;
 import android.view.Display;
 import android.view.Surface;
@@ -100,7 +102,7 @@ final class Screenshooter {
         // Rotate the screenshot to the current orientation
         if (rotation != ROTATION_FREEZE_0) {
             Bitmap unrotatedScreenShot = Bitmap.createBitmap(displayWidth, displayHeight,
-                    Bitmap.Config.ARGB_8888, screenShot.hasAlpha(), screenShot.getColorSpace());
+                    Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(unrotatedScreenShot);
             canvas.translate(unrotatedScreenShot.getWidth() / 2,
                     unrotatedScreenShot.getHeight() / 2);

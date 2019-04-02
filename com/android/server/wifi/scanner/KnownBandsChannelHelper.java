@@ -263,7 +263,7 @@ public class KnownBandsChannelHelper extends ChannelHelper {
         }
 
         @Override
-        public Set<Integer> getScanFreqs() {
+        public Set<Integer> getSupplicantScanFreqs() {
             if (mExactBands == WifiScanner.WIFI_BAND_BOTH_WITH_DFS) {
                 return null;
             } else {

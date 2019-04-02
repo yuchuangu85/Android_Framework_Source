@@ -36,9 +36,9 @@ public class NotificationBigPictureTemplateViewWrapper extends NotificationTempl
     }
 
     @Override
-    public void onContentUpdated(ExpandableNotificationRow row) {
-        super.onContentUpdated(row);
-        updateImageTag(row.getStatusBarNotification());
+    public void notifyContentUpdated(StatusBarNotification notification) {
+        super.notifyContentUpdated(notification);
+        updateImageTag(notification);
     }
 
     private void updateImageTag(StatusBarNotification notification) {

@@ -37,7 +37,7 @@ public interface TintableCompoundButton {
      *
      * @param tint the tint to apply, may be {@code null} to clear tint
      */
-    void setSupportButtonTintList(@Nullable ColorStateList tint);
+    public void setSupportButtonTintList(@Nullable ColorStateList tint);
 
     /**
      * Returns the tint applied to the button drawable
@@ -45,7 +45,7 @@ public interface TintableCompoundButton {
      * @see #setSupportButtonTintList(ColorStateList)
      */
     @Nullable
-    ColorStateList getSupportButtonTintList();
+    public ColorStateList getSupportButtonTintList();
 
     /**
      * Specifies the blending mode which should be used to apply the tint specified by
@@ -56,10 +56,9 @@ public interface TintableCompoundButton {
      *                 {@code null} to clear tint
      *
      * @see #getSupportButtonTintMode()
-     * @see android.support.v4.graphics.drawable.DrawableCompat#setTintMode(Drawable,
-     * PorterDuff.Mode)
+     * @see DrawableCompat#setTintMode(Drawable, PorterDuff.Mode)
      */
-    void setSupportButtonTintMode(@Nullable PorterDuff.Mode tintMode);
+    public void setSupportButtonTintMode(@Nullable PorterDuff.Mode tintMode);
 
     /**
      * Returns the blending mode used to apply the tint to the button drawable
@@ -67,5 +66,5 @@ public interface TintableCompoundButton {
      * @see #setSupportButtonTintMode(PorterDuff.Mode)
      */
     @Nullable
-    PorterDuff.Mode getSupportButtonTintMode();
+    public PorterDuff.Mode getSupportButtonTintMode();
 }

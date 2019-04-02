@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2013, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -160,7 +160,7 @@ import sun.security.util.SecurityConstants;
  *     }
  * </pre></blockquote>
  *
- * <h3> <a name="name">Binary names</a> </h3>
+ * <h4> <a name="name">Binary names</a> </h4>
  *
  * <p> Any class name provided as a {@link String} parameter to methods in
  * <tt>ClassLoader</tt> must be a binary name as defined by
@@ -298,7 +298,7 @@ public abstract class ClassLoader {
      * #loadClass(String, boolean)} method.  It is invoked by the Java virtual
      * machine to resolve class references.  Invoking this method is equivalent
      * to invoking {@link #loadClass(String, boolean) <tt>loadClass(name,
-     * false)</tt>}.
+     * false)</tt>}.  </p>
      *
      * @param  name
      *         The <a href="#name">binary name</a> of the class
@@ -317,7 +317,7 @@ public abstract class ClassLoader {
      * default implementation of this method searches for classes in the
      * following order:
      *
-     * <ol>
+     * <p><ol>
      *
      *   <li><p> Invoke {@link #findLoadedClass(String)} to check if the class
      *   has already been loaded.  </p></li>
@@ -350,8 +350,7 @@ public abstract class ClassLoader {
      * @throws  ClassNotFoundException
      *          If the class could not be found
      */
-    // Android-removed: Remove references to getClassLoadingLock
-    //                   Remove perf counters.
+    // Android-removed : Remove references to getClassLoadingLock
     //
     // <p> Unless overridden, this method synchronizes on the result of
     // {@link #getClassLoadingLock <tt>getClassLoadingLock</tt>} method
@@ -360,8 +359,9 @@ public abstract class ClassLoader {
         throws ClassNotFoundException
     {
             // First, check if the class has already been loaded
-            Class<?> c = findLoadedClass(name);
+            Class c = findLoadedClass(name);
             if (c == null) {
+                long t0 = System.nanoTime();
                 try {
                     if (parent != null) {
                         c = parent.loadClass(name, false);
@@ -376,7 +376,10 @@ public abstract class ClassLoader {
                 if (c == null) {
                     // If still not found, then invoke findClass in order
                     // to find the class.
+                    long t1 = System.nanoTime();
                     c = findClass(name);
+
+                    // this is the defining class loader; record the stats
                 }
             }
             return c;
@@ -389,7 +392,7 @@ public abstract class ClassLoader {
      * follow the delegation model for loading classes, and will be invoked by
      * the {@link #loadClass <tt>loadClass</tt>} method after checking the
      * parent class loader for the requested class.  The default implementation
-     * throws a <tt>ClassNotFoundException</tt>.
+     * throws a <tt>ClassNotFoundException</tt>.  </p>
      *
      * @param  name
      *         The <a href="#name">binary name</a> of the class
@@ -542,7 +545,7 @@ public abstract class ClassLoader {
      * bootstrap class loader.  If <tt>name</tt> is not <tt>null</tt>, it
      * must be equal to the <a href="#name">binary name</a> of the class
      * specified by the byte array "<tt>b</tt>", otherwise a {@link
-     * NoClassDefFoundError <tt>NoClassDefFoundError</tt>} will be thrown. </p>
+     * NoClassDefFoundError} will be thrown.  </p>
      *
      * @param  name
      *         The expected <a href="#name">binary name</a> of the class, or
@@ -609,16 +612,16 @@ public abstract class ClassLoader {
      * <i>bBuffer</i><tt>,</tt> <i>pd</i><tt>)</tt> yields exactly the same
      * result as the statements
      *
-     *<p> <tt>
+     * <blockquote><tt>
      * ...<br>
-     * byte[] temp = new byte[bBuffer.{@link
+     * byte[] temp = new byte[</tt><i>bBuffer</i><tt>.{@link
      * java.nio.ByteBuffer#remaining remaining}()];<br>
-     *     bBuffer.{@link java.nio.ByteBuffer#get(byte[])
+     *     </tt><i>bBuffer</i><tt>.{@link java.nio.ByteBuffer#get(byte[])
      * get}(temp);<br>
      *     return {@link #defineClass(String, byte[], int, int, ProtectionDomain)
-     * cl.defineClass}(name, temp, 0,
-     * temp.length, pd);<br>
-     * </tt></p>
+     * </tt><i>cl</i><tt>.defineClass}(</tt><i>name</i><tt>, temp, 0,
+     * temp.length, </tt><i>pd</i><tt>);<br>
+     * </tt></blockquote>
      *
      * @param  name
      *         The expected <a href="#name">binary name</a>. of the class, or
@@ -666,6 +669,7 @@ public abstract class ClassLoader {
      * already been linked, then this method simply returns. Otherwise, the
      * class is linked as described in the "Execution" chapter of
      * <cite>The Java&trade; Language Specification</cite>.
+     * </p>
      *
      * @param  c
      *         The class to link
@@ -710,7 +714,7 @@ public abstract class ClassLoader {
      * Returns a class loaded by the bootstrap class loader;
      * or return null if not found.
      */
-    private Class<?> findBootstrapClassOrNull(String name)
+    private Class findBootstrapClassOrNull(String name)
     {
         return null;
     }
@@ -719,7 +723,7 @@ public abstract class ClassLoader {
      * Returns the class with the given <a href="#name">binary name</a> if this
      * loader has been recorded by the Java virtual machine as an initiating
      * loader of a class with that <a href="#name">binary name</a>.  Otherwise
-     * <tt>null</tt> is returned.
+     * <tt>null</tt> is returned.  </p>
      *
      * @param  name
      *         The <a href="#name">binary name</a> of the class
@@ -740,7 +744,7 @@ public abstract class ClassLoader {
 
     /**
      * Sets the signers of a class.  This should be invoked after defining a
-     * class.
+     * class.  </p>
      *
      * @param  c
      *         The <tt>Class</tt> object
@@ -768,10 +772,6 @@ public abstract class ClassLoader {
      * resource; if the parent is <tt>null</tt> the path of the class loader
      * built-in to the virtual machine is searched.  That failing, this method
      * will invoke {@link #findResource(String)} to find the resource.  </p>
-     *
-     * @apiNote When overriding this method it is recommended that an
-     * implementation ensures that any delegation is consistent with the {@link
-     * #getResources(java.lang.String) getResources(String)} method.
      *
      * @param  name
      *         The resource name
@@ -806,13 +806,6 @@ public abstract class ClassLoader {
      * <p> The search order is described in the documentation for {@link
      * #getResource(String)}.  </p>
      *
-     * @apiNote When overriding this method it is recommended that an
-     * implementation ensures that any delegation is consistent with the {@link
-     * #getResource(java.lang.String) getResource(String)} method. This should
-     * ensure that the first element returned by the Enumeration's
-     * {@code nextElement} method is the same resource that the
-     * {@code getResource(String)} method would return.
-     *
      * @param  name
      *         The resource name
      *
@@ -829,8 +822,7 @@ public abstract class ClassLoader {
      * @since  1.2
      */
     public Enumeration<URL> getResources(String name) throws IOException {
-        @SuppressWarnings("unchecked")
-        Enumeration<URL>[] tmp = (Enumeration<URL>[]) new Enumeration<?>[2];
+        Enumeration[] tmp = new Enumeration[2];
         if (parent != null) {
             tmp[0] = parent.getResources(name);
         } else {
@@ -843,7 +835,7 @@ public abstract class ClassLoader {
 
     /**
      * Finds the resource with the given name. Class loader implementations
-     * should override this method to specify where to find resources.
+     * should override this method to specify where to find resources.  </p>
      *
      * @param  name
      *         The resource name
@@ -861,7 +853,7 @@ public abstract class ClassLoader {
      * Returns an enumeration of {@link java.net.URL <tt>URL</tt>} objects
      * representing all the resources with the given name. Class loader
      * implementations should override this method to specify where to load
-     * resources from.
+     * resources from.  </p>
      *
      * @param  name
      *         The resource name
@@ -879,16 +871,14 @@ public abstract class ClassLoader {
     }
 
     /**
-     * Registers the caller as parallel capable.
+     * Registers the caller as parallel capable.</p>
      * The registration succeeds if and only if all of the following
-     * conditions are met:
-     * <ol>
-     * <li> no instance of the caller has been created</li>
-     * <li> all of the super classes (except class Object) of the caller are
-     * registered as parallel capable</li>
-     * </ol>
-     * <p>Note that once a class loader is registered as parallel capable, there
-     * is no way to change it back.</p>
+     * conditions are met: <br>
+     * 1. no instance of the caller has been created</p>
+     * 2. all of the super classes (except class Object) of the caller are
+     * registered as parallel capable</p>
+     * Note that once a class loader is registered as parallel capable, there
+     * is no way to change it back. </p>
      *
      * @return  true if the caller is successfully registered as
      *          parallel capable and false if otherwise.
@@ -903,7 +893,7 @@ public abstract class ClassLoader {
     /**
      * Find a resource of the specified name from the search path used to load
      * classes.  This method locates the resource through the system class
-     * loader (see {@link #getSystemClassLoader()}).
+     * loader (see {@link #getSystemClassLoader()}).  </p>
      *
      * @param  name
      *         The resource name
@@ -995,7 +985,7 @@ public abstract class ClassLoader {
     /**
      * Open for reading, a resource of the specified name from the search path
      * used to load classes.  This method locates the resource through the
-     * system class loader (see {@link #getSystemClassLoader()}).
+     * system class loader (see {@link #getSystemClassLoader()}).  </p>
      *
      * @param  name
      *         The resource name
@@ -1114,7 +1104,7 @@ public abstract class ClassLoader {
      * class loaders to define the packages for their classes. Packages must
      * be created before the class is defined, and package names must be
      * unique within a class loader and cannot be redefined or changed once
-     * created.
+     * created.  </p>
      *
      * @param  name
      *         The package name
@@ -1171,7 +1161,7 @@ public abstract class ClassLoader {
 
     /**
      * Returns a <tt>Package</tt> that has been defined by this class loader
-     * or any of its ancestors.
+     * or any of its ancestors.  </p>
      *
      * @param  name
      *         The package name
@@ -1191,7 +1181,7 @@ public abstract class ClassLoader {
 
     /**
      * Returns all of the <tt>Packages</tt> defined by this class loader and
-     * its ancestors.
+     * its ancestors.  </p>
      *
      * @return  The array of <tt>Package</tt> objects defined by this
      *          <tt>ClassLoader</tt>
@@ -1215,7 +1205,7 @@ public abstract class ClassLoader {
      * method to locate the native libraries that belong to classes loaded with
      * this class loader. If this method returns <tt>null</tt>, the VM
      * searches the library along the path specified as the
-     * "<tt>java.library.path</tt>" property.
+     * "<tt>java.library.path</tt>" property.  </p>
      *
      * @param  libname
      *         The library name
@@ -1237,7 +1227,7 @@ public abstract class ClassLoader {
      * in the future will have assertions enabled or disabled by default.
      * This setting may be overridden on a per-package or per-class basis by
      * invoking {@link #setPackageAssertionStatus(String, boolean)} or {@link
-     * #setClassAssertionStatus(String, boolean)}.
+     * #setClassAssertionStatus(String, boolean)}.  </p>
      *
      * @param  enabled
      *         <tt>true</tt> if classes loaded by this class loader will
@@ -1321,6 +1311,7 @@ public abstract class ClassLoader {
      * status settings associated with the class loader.  This method is
      * provided so that class loaders can be made to ignore any command line or
      * persistent assertion status settings and "start with a clean slate."
+     * </p>
      *
      * @since  1.4
      */

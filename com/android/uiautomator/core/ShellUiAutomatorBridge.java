@@ -16,11 +16,10 @@
 
 package com.android.uiautomator.core;
 
-import android.app.ActivityManager;
-import android.app.ContentProviderHolder;
+import android.app.ActivityManagerNative;
 import android.app.IActivityManager;
+import android.app.IActivityManager.ContentProviderHolder;
 import android.app.UiAutomation;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.IContentProvider;
 import android.database.Cursor;
@@ -57,7 +56,7 @@ public class ShellUiAutomatorBridge extends UiAutomatorBridge {
         try {
             IContentProvider provider = null;
             Cursor cursor = null;
-            IActivityManager activityManager = ActivityManager.getService();
+            IActivityManager activityManager = ActivityManagerNative.getDefault();
             String providerName = Settings.Secure.CONTENT_URI.getAuthority();
             IBinder token = new Binder();
             try {
@@ -70,12 +69,10 @@ public class ShellUiAutomatorBridge extends UiAutomatorBridge {
                 cursor = provider.query(null, Settings.Secure.CONTENT_URI,
                         new String[] {
                             Settings.Secure.VALUE
-                        },
-                        ContentResolver.createSqlQueryBundle(
-                                "name=?",
-                                new String[] { Settings.Secure.LONG_PRESS_TIMEOUT },
-                                null),
-                        null);
+                        }, "name=?",
+                        new String[] {
+                            Settings.Secure.LONG_PRESS_TIMEOUT
+                        }, null, null);
                 if (cursor.moveToFirst()) {
                     longPressTimeout = cursor.getInt(0);
                 }
@@ -101,7 +98,7 @@ public class ShellUiAutomatorBridge extends UiAutomatorBridge {
                 IWindowManager.Stub.asInterface(ServiceManager.getService(Context.WINDOW_SERVICE));
         int ret = -1;
         try {
-            ret = wm.getDefaultDisplayRotation();
+            ret = wm.getRotation();
         } catch (RemoteException e) {
             Log.e(LOG_TAG, "Error getting screen rotation", e);
             throw new RuntimeException(e);

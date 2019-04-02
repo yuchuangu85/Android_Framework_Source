@@ -32,7 +32,9 @@ public final class UserHandle implements Parcelable {
      */
     public static final int PER_USER_RANGE = 100000;
 
-    /** @hide A user id to indicate all users on the device */
+    /** @hide A user id to indicate all users on the device
+     * （这个id代表多有用户，比如一些操作需要所有用户都执行，即可判断userId是不是和这个一样）
+     */
     public static final @UserIdInt int USER_ALL = -1;
 
     /** @hide A user handle to indicate all users on the device */
@@ -62,7 +64,6 @@ public final class UserHandle implements Parcelable {
      * @deprecated Consider using either {@link UserHandle#USER_SYSTEM} constant or
      * check the target user's flag {@link android.content.pm.UserInfo#isAdmin}.
      */
-    @Deprecated
     public static final @UserIdInt int USER_OWNER = 0;
 
     /**
@@ -70,7 +71,6 @@ public final class UserHandle implements Parcelable {
      * @deprecated Consider using either {@link UserHandle#SYSTEM} constant or
      * check the target user's flag {@link android.content.pm.UserInfo#isAdmin}.
      */
-    @Deprecated
     public static final UserHandle OWNER = new UserHandle(USER_OWNER);
 
     /** @hide A user id constant to indicate the "system" user of the device */
@@ -115,6 +115,7 @@ public final class UserHandle implements Parcelable {
     public static boolean isIsolated(int uid) {
         if (uid > 0) {
             final int appId = getAppId(uid);
+            // uid在[99000-99999]范围内的为孤立进程
             return appId >= Process.FIRST_ISOLATED_UID && appId <= Process.LAST_ISOLATED_UID;
         } else {
             return false;
@@ -155,11 +156,6 @@ public final class UserHandle implements Parcelable {
     /** @hide */
     public static @UserIdInt int getCallingUserId() {
         return getUserId(Binder.getCallingUid());
-    }
-
-    /** @hide */
-    public static @AppIdInt int getCallingAppId() {
-        return getAppId(Binder.getCallingUid());
     }
 
     /** @hide */
@@ -217,15 +213,6 @@ public final class UserHandle implements Parcelable {
             return -1;
         }
         return appId;
-    }
-
-    /**
-     * Returns the cache GID for a given UID or appId.
-     * @hide
-     */
-    public static int getCacheAppGid(int id) {
-        return Process.FIRST_APPLICATION_CACHE_GID + (id % PER_USER_RANGE)
-                - Process.FIRST_APPLICATION_UID;
     }
 
     /**
@@ -324,7 +311,6 @@ public final class UserHandle implements Parcelable {
      * {@link android.content.pm.UserInfo#isPrimary()}
      * {@link android.content.pm.UserInfo#isAdmin()} based on your particular use case.
      */
-    @Deprecated
     @SystemApi
     public boolean isOwner() {
         return this.equals(OWNER);
@@ -349,7 +335,6 @@ public final class UserHandle implements Parcelable {
      * @hide
      */
     @SystemApi
-    @TestApi
     public @UserIdInt int getIdentifier() {
         return mHandle;
     }
@@ -375,7 +360,7 @@ public final class UserHandle implements Parcelable {
     public int hashCode() {
         return mHandle;
     }
-    
+
     public int describeContents() {
         return 0;
     }
@@ -387,10 +372,10 @@ public final class UserHandle implements Parcelable {
     /**
      * Write a UserHandle to a Parcel, handling null pointers.  Must be
      * read with {@link #readFromParcel(Parcel)}.
-     * 
+     *
      * @param h The UserHandle to be written.
      * @param out The Parcel in which the UserHandle will be placed.
-     * 
+     *
      * @see #readFromParcel(Parcel)
      */
     public static void writeToParcel(UserHandle h, Parcel out) {
@@ -400,23 +385,23 @@ public final class UserHandle implements Parcelable {
             out.writeInt(USER_NULL);
         }
     }
-    
+
     /**
      * Read a UserHandle from a Parcel that was previously written
      * with {@link #writeToParcel(UserHandle, Parcel)}, returning either
      * a null or new object as appropriate.
-     * 
+     *
      * @param in The Parcel from which to read the UserHandle
      * @return Returns a new UserHandle matching the previously written
      * object, or null if a null had been written.
-     * 
+     *
      * @see #writeToParcel(UserHandle, Parcel)
      */
     public static UserHandle readFromParcel(Parcel in) {
         int h = in.readInt();
         return h != USER_NULL ? new UserHandle(h) : null;
     }
-    
+
     public static final Parcelable.Creator<UserHandle> CREATOR
             = new Parcelable.Creator<UserHandle>() {
         public UserHandle createFromParcel(Parcel in) {
@@ -434,7 +419,7 @@ public final class UserHandle implements Parcelable {
      * must not use this with data written by
      * {@link #writeToParcel(UserHandle, Parcel)} since it is not possible
      * to handle a null UserHandle here.
-     * 
+     *
      * @param in The Parcel containing the previously written UserHandle,
      * positioned at the location in the buffer where it was written.
      */

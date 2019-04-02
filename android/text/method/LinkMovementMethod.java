@@ -98,14 +98,14 @@ public class LinkMovementMethod extends ScrollingMovementMethod {
 
         int padding = widget.getTotalPaddingTop() +
                       widget.getTotalPaddingBottom();
-        int areaTop = widget.getScrollY();
-        int areaBot = areaTop + widget.getHeight() - padding;
+        int areatop = widget.getScrollY();
+        int areabot = areatop + widget.getHeight() - padding;
 
-        int lineTop = layout.getLineForVertical(areaTop);
-        int lineBot = layout.getLineForVertical(areaBot);
+        int linetop = layout.getLineForVertical(areatop);
+        int linebot = layout.getLineForVertical(areabot);
 
-        int first = layout.getLineStart(lineTop);
-        int last = layout.getLineEnd(lineBot);
+        int first = layout.getLineStart(linetop);
+        int last = layout.getLineEnd(linebot);
 
         ClickableSpan[] candidates = buffer.getSpans(first, last, ClickableSpan.class);
 
@@ -141,46 +141,46 @@ public class LinkMovementMethod extends ScrollingMovementMethod {
             break;
 
         case UP:
-            int bestStart, bestEnd;
+            int beststart, bestend;
 
-            bestStart = -1;
-            bestEnd = -1;
+            beststart = -1;
+            bestend = -1;
 
             for (int i = 0; i < candidates.length; i++) {
                 int end = buffer.getSpanEnd(candidates[i]);
 
                 if (end < selEnd || selStart == selEnd) {
-                    if (end > bestEnd) {
-                        bestStart = buffer.getSpanStart(candidates[i]);
-                        bestEnd = end;
+                    if (end > bestend) {
+                        beststart = buffer.getSpanStart(candidates[i]);
+                        bestend = end;
                     }
                 }
             }
 
-            if (bestStart >= 0) {
-                Selection.setSelection(buffer, bestEnd, bestStart);
+            if (beststart >= 0) {
+                Selection.setSelection(buffer, bestend, beststart);
                 return true;
             }
 
             break;
 
         case DOWN:
-            bestStart = Integer.MAX_VALUE;
-            bestEnd = Integer.MAX_VALUE;
+            beststart = Integer.MAX_VALUE;
+            bestend = Integer.MAX_VALUE;
 
             for (int i = 0; i < candidates.length; i++) {
                 int start = buffer.getSpanStart(candidates[i]);
 
                 if (start > selStart || selStart == selEnd) {
-                    if (start < bestStart) {
-                        bestStart = start;
-                        bestEnd = buffer.getSpanEnd(candidates[i]);
+                    if (start < beststart) {
+                        beststart = start;
+                        bestend = buffer.getSpanEnd(candidates[i]);
                     }
                 }
             }
 
-            if (bestEnd < Integer.MAX_VALUE) {
-                Selection.setSelection(buffer, bestStart, bestEnd);
+            if (bestend < Integer.MAX_VALUE) {
+                Selection.setSelection(buffer, beststart, bestend);
                 return true;
             }
 
@@ -195,7 +195,8 @@ public class LinkMovementMethod extends ScrollingMovementMethod {
                                 MotionEvent event) {
         int action = event.getAction();
 
-        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_DOWN) {
+        if (action == MotionEvent.ACTION_UP ||
+            action == MotionEvent.ACTION_DOWN) {
             int x = (int) event.getX();
             int y = (int) event.getY();
 
@@ -209,16 +210,17 @@ public class LinkMovementMethod extends ScrollingMovementMethod {
             int line = layout.getLineForVertical(y);
             int off = layout.getOffsetForHorizontal(line, x);
 
-            ClickableSpan[] links = buffer.getSpans(off, off, ClickableSpan.class);
+            ClickableSpan[] link = buffer.getSpans(off, off, ClickableSpan.class);
 
-            if (links.length != 0) {
+            if (link.length != 0) {
                 if (action == MotionEvent.ACTION_UP) {
-                    links[0].onClick(widget);
+                    link[0].onClick(widget);
                 } else if (action == MotionEvent.ACTION_DOWN) {
                     Selection.setSelection(buffer,
-                        buffer.getSpanStart(links[0]),
-                        buffer.getSpanEnd(links[0]));
+                                           buffer.getSpanStart(link[0]),
+                                           buffer.getSpanEnd(link[0]));
                 }
+
                 return true;
             } else {
                 Selection.removeSelection(buffer);

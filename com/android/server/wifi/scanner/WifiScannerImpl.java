@@ -22,12 +22,8 @@ import android.net.wifi.WifiScanner;
 import android.os.Looper;
 
 import com.android.server.wifi.Clock;
-import com.android.server.wifi.WifiInjector;
-import com.android.server.wifi.WifiMonitor;
 import com.android.server.wifi.WifiNative;
 
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
 import java.util.Comparator;
 
 /**
@@ -48,13 +44,11 @@ public abstract class WifiScannerImpl {
      */
     public static final WifiScannerImplFactory DEFAULT_FACTORY = new WifiScannerImplFactory() {
             public WifiScannerImpl create(Context context, Looper looper, Clock clock) {
-                WifiNative wifiNative = WifiInjector.getInstance().getWifiNative();
-                WifiMonitor wifiMonitor = WifiInjector.getInstance().getWifiMonitor();
-                if (wifiNative.getBgScanCapabilities(new WifiNative.ScanCapabilities())) {
-                    return new HalWifiScannerImpl(context, wifiNative, wifiMonitor, looper, clock);
+                WifiNative wifiNative = WifiNative.getWlanNativeInterface();
+                if (wifiNative.getScanCapabilities(new WifiNative.ScanCapabilities())) {
+                    return new HalWifiScannerImpl(context, wifiNative, looper, clock);
                 } else {
-                    return new WificondScannerImpl(context, wifiNative, wifiMonitor, looper,
-                            clock);
+                    return new SupplicantWifiScannerImpl(context, wifiNative, looper, clock);
                 }
             }
         };
@@ -161,5 +155,25 @@ public abstract class WifiScannerImpl {
      */
     public abstract boolean shouldScheduleBackgroundScanForHwPno();
 
-    protected abstract void dump(FileDescriptor fd, PrintWriter pw, String[] args);
+    /**
+     * Set a new hotlist
+     */
+    public abstract boolean setHotlist(WifiScanner.HotlistSettings settings,
+            WifiNative.HotlistEventHandler eventHandler);
+
+    /**
+     * Reset any active hotlist
+     */
+    public abstract void resetHotlist();
+
+    /**
+     * Start tracking significant wifi changes
+     */
+    public abstract boolean trackSignificantWifiChange(WifiScanner.WifiChangeSettings settings,
+            WifiNative.SignificantWifiChangeEventHandler handler);
+
+    /**
+     * Stop tracking significant wifi changes
+     */
+    public abstract void untrackSignificantWifiChange();
 }

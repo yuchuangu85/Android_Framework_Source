@@ -68,9 +68,4 @@ class PlaybackControlsRowView extends LinearLayout {
         }
         return super.onRequestFocusInDescendants(direction, previouslyFocusedRect);
     }
-
-    @Override
-    public boolean hasOverlappingRendering() {
-        return false;
-    }
 }

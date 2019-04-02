@@ -58,24 +58,28 @@ public class BindingTarget implements LocationScopeProvider {
             L.e(ErrorMessages.TWO_WAY_EVENT_ATTRIBUTE, name);
         }
         mBindings.add(new Binding(this, name, expr));
+        if (expr.isTwoWay()) {
+            try {
+                Scope.enter(expr);
+                expr.assertIsInvertible();
+                final InverseBinding inverseBinding = new InverseBinding(this, name, expr);
+                mInverseBindings.add(inverseBinding);
+                mBindings.add(new Binding(this, inverseBinding.getEventAttribute(),
+                        mModel.twoWayListenerExpr(inverseBinding),
+                        inverseBinding.getEventSetter()));
+            } finally {
+                Scope.exit();
+            }
+        }
     }
 
     public String getInterfaceType() {
         return mBundle.getInterfaceType() == null ? mBundle.getFullClassName() : mBundle.getInterfaceType();
     }
 
-    public InverseBinding addInverseBinding(String name, Expr expr, String bindingClass) {
-        expr.assertIsInvertible();
-        final InverseBinding inverseBinding = new InverseBinding(this, name, expr, bindingClass);
-        mInverseBindings.add(inverseBinding);
-        mBindings.add(new Binding(this, inverseBinding.getEventAttribute(),
-                mModel.twoWayListenerExpr(inverseBinding),
-                inverseBinding.getEventSetter()));
-        return inverseBinding;
-    }
-
     public InverseBinding addInverseBinding(String name, BindingGetterCall call) {
-        final InverseBinding inverseBinding = new InverseBinding(this, name, call);
+        final InverseBinding inverseBinding = new InverseBinding(this, name, null);
+        inverseBinding.setGetterCall(call);
         mInverseBindings.add(inverseBinding);
         mBindings.add(new Binding(this, inverseBinding.getEventAttribute(),
                 mModel.twoWayListenerExpr(inverseBinding)));
@@ -107,7 +111,7 @@ public class BindingTarget implements LocationScopeProvider {
         if (mResolvedClass == null) {
             if (mBundle.isBinder()) {
                 mResolvedClass = ModelAnalyzer.getInstance().
-                        findClass(mBundle.getInterfaceType(), mModel.getImports());
+                        findClass(ModelAnalyzer.VIEW_DATA_BINDING, mModel.getImports());
             } else {
                 mResolvedClass = ModelAnalyzer.getInstance().findClass(mBundle.getFullClassName(),
                         mModel.getImports());
@@ -147,34 +151,13 @@ public class BindingTarget implements LocationScopeProvider {
 
     public void resolveListeners() {
         for (Binding binding : mBindings) {
-            try {
-                Scope.enter(binding);
-                binding.resolveListeners();
-            } finally {
-                Scope.exit();
-            }
-        }
-    }
-
-    public void resolveCallbackParams() {
-        for (Binding binding : mBindings) {
-            try {
-                Scope.enter(binding);
-                binding.resolveCallbackParams();
-            } finally {
-                Scope.exit();
-            }
+            binding.resolveListeners();
         }
     }
 
     public void resolveTwoWayExpressions() {
         for (Binding binding : mBindings) {
-            try {
-                Scope.enter(binding);
-                binding.resolveTwoWayExpressions();
-            } finally {
-                Scope.exit();
-            }
+            binding.resolveTwoWayExpressions();
         }
     }
 

@@ -144,9 +144,7 @@ public class UiccPkcs15 extends Handler {
 
         public Pkcs15Selector(Message callBack) {
             mCallback = callBack;
-            // Specified in ISO 7816-4 clause 7.1.1 0x04 means that FCP template is requested.
-            int p2 = 0x04;
-            mUiccCard.iccOpenLogicalChannel(PKCS15_AID, p2, /* supported P2 value */
+            mUiccCard.iccOpenLogicalChannel(PKCS15_AID,
                     obtainMessage(EVENT_OPEN_LOGICAL_CHANNEL_DONE));
         }
 

@@ -1,28 +1,14 @@
-/*
- * Copyright (C) 2015 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package android.support.v7.widget;
 
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.RecyclerView.Adapter;
-import android.support.v7.widget.RecyclerView.ItemAnimator.ItemHolderInfo;
 import android.support.v7.widget.RecyclerView.ViewHolder;
+import android.support.v7.widget.RecyclerView.ItemAnimator.ItemHolderInfo;
 import android.util.Log;
 import android.view.View;
+
+import java.util.List;
 
 /**
  * A wrapper class for ItemAnimator that records View bounds and decides whether it should run
@@ -34,7 +20,7 @@ import android.view.View;
  * extend this class, you can override {@link #obtainHolderInfo()} method to provide your own info
  * class that extends {@link ItemHolderInfo}.
  */
-public abstract class SimpleItemAnimator extends RecyclerView.ItemAnimator {
+abstract public class SimpleItemAnimator extends RecyclerView.ItemAnimator {
 
     private static final boolean DEBUG = false;
 
@@ -134,8 +120,8 @@ public abstract class SimpleItemAnimator extends RecyclerView.ItemAnimator {
             @NonNull ItemHolderInfo preInfo, @NonNull ItemHolderInfo postInfo) {
         if (preInfo.left != postInfo.left || preInfo.top != postInfo.top) {
             if (DEBUG) {
-                Log.d(TAG, "PERSISTENT: " + viewHolder
-                        + " with view " + viewHolder.itemView);
+                Log.d(TAG, "PERSISTENT: " + viewHolder +
+                        " with view " + viewHolder.itemView);
             }
             return animateMove(viewHolder,
                     preInfo.left, preInfo.top, postInfo.left, postInfo.top);
@@ -186,7 +172,7 @@ public abstract class SimpleItemAnimator extends RecyclerView.ItemAnimator {
      * @return true if a later call to {@link #runPendingAnimations()} is requested,
      * false otherwise.
      */
-    public abstract boolean animateRemove(ViewHolder holder);
+    abstract public boolean animateRemove(ViewHolder holder);
 
     /**
      * Called when an item is added to the RecyclerView. Implementors can choose
@@ -211,7 +197,7 @@ public abstract class SimpleItemAnimator extends RecyclerView.ItemAnimator {
      * @return true if a later call to {@link #runPendingAnimations()} is requested,
      * false otherwise.
      */
-    public abstract boolean animateAdd(ViewHolder holder);
+    abstract public boolean animateAdd(ViewHolder holder);
 
     /**
      * Called when an item is moved in the RecyclerView. Implementors can choose
@@ -231,7 +217,7 @@ public abstract class SimpleItemAnimator extends RecyclerView.ItemAnimator {
      * @return true if a later call to {@link #runPendingAnimations()} is requested,
      * false otherwise.
      */
-    public abstract boolean animateMove(ViewHolder holder, int fromX, int fromY,
+    abstract public boolean animateMove(ViewHolder holder, int fromX, int fromY,
             int toX, int toY);
 
     /**
@@ -264,7 +250,7 @@ public abstract class SimpleItemAnimator extends RecyclerView.ItemAnimator {
      * @return true if a later call to {@link #runPendingAnimations()} is requested,
      * false otherwise.
      */
-    public abstract boolean animateChange(ViewHolder oldHolder,
+    abstract public boolean animateChange(ViewHolder oldHolder,
             ViewHolder newHolder, int fromLeft, int fromTop, int toLeft, int toTop);
 
     /**
@@ -454,4 +440,3 @@ public abstract class SimpleItemAnimator extends RecyclerView.ItemAnimator {
     public void onChangeFinished(ViewHolder item, boolean oldItem) {
     }
 }
-

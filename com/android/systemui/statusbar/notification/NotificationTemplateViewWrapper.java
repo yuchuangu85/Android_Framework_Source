@@ -16,9 +16,9 @@
 
 package com.android.systemui.statusbar.notification;
 
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Color;
-import android.graphics.Rect;
 import android.service.notification.StatusBarNotification;
 import android.view.View;
 import android.widget.ImageView;
@@ -42,14 +42,11 @@ public class NotificationTemplateViewWrapper extends NotificationHeaderViewWrapp
     private TextView mTitle;
     private TextView mText;
     private View mActionsContainer;
-    private View mReplyAction;
-    private Rect mTmpRect = new Rect();
 
     private int mContentHeight;
     private int mMinHeightHint;
 
-    protected NotificationTemplateViewWrapper(Context ctx, View view,
-            ExpandableNotificationRow row) {
+    protected NotificationTemplateViewWrapper(Context ctx, View view, ExpandableNotificationRow row) {
         super(ctx, view, row);
         mTransformationHelper.setCustomTransformation(
                 new ViewTransformationHelper.CustomTransformation() {
@@ -119,10 +116,8 @@ public class NotificationTemplateViewWrapper extends NotificationHeaderViewWrapp
 
     private void resolveTemplateViews(StatusBarNotification notification) {
         mPicture = (ImageView) mView.findViewById(com.android.internal.R.id.right_icon);
-        if (mPicture != null) {
-            mPicture.setTag(ImageTransformState.ICON_TAG,
-                    notification.getNotification().getLargeIcon());
-        }
+        mPicture.setTag(ImageTransformState.ICON_TAG,
+                notification.getNotification().getLargeIcon());
         mTitle = (TextView) mView.findViewById(com.android.internal.R.id.title);
         mText = (TextView) mView.findViewById(com.android.internal.R.id.text);
         final View progress = mView.findViewById(com.android.internal.R.id.progress);
@@ -133,37 +128,14 @@ public class NotificationTemplateViewWrapper extends NotificationHeaderViewWrapp
             mProgressBar = null;
         }
         mActionsContainer = mView.findViewById(com.android.internal.R.id.actions_container);
-        mReplyAction = mView.findViewById(com.android.internal.R.id.reply_icon_action);
     }
 
     @Override
-    public boolean disallowSingleClick(float x, float y) {
-        if (mReplyAction != null && mReplyAction.getVisibility() == View.VISIBLE) {
-            if (isOnView(mReplyAction, x, y) || isOnView(mPicture, x, y)) {
-                return true;
-            }
-        }
-        return super.disallowSingleClick(x, y);
-    }
-
-    private boolean isOnView(View view, float x, float y) {
-        View searchView = (View) view.getParent();
-        while (searchView != null && !(searchView instanceof ExpandableNotificationRow)) {
-            searchView.getHitRect(mTmpRect);
-            x -= mTmpRect.left;
-            y -= mTmpRect.top;
-            searchView = (View) searchView.getParent();
-        }
-        view.getHitRect(mTmpRect);
-        return mTmpRect.contains((int) x,(int) y);
-    }
-
-    @Override
-    public void onContentUpdated(ExpandableNotificationRow row) {
+    public void notifyContentUpdated(StatusBarNotification notification) {
         // Reinspect the notification. Before the super call, because the super call also updates
         // the transformation types and we need to have our values set by then.
-        resolveTemplateViews(row.getStatusBarNotification());
-        super.onContentUpdated(row);
+        resolveTemplateViews(notification);
+        super.notifyContentUpdated(notification);
     }
 
     @Override
@@ -180,20 +152,16 @@ public class NotificationTemplateViewWrapper extends NotificationHeaderViewWrapp
         // This also clears the existing types
         super.updateTransformedTypes();
         if (mTitle != null) {
-            mTransformationHelper.addTransformedView(TransformableView.TRANSFORMING_VIEW_TITLE,
-                    mTitle);
+            mTransformationHelper.addTransformedView(TransformableView.TRANSFORMING_VIEW_TITLE, mTitle);
         }
         if (mText != null) {
-            mTransformationHelper.addTransformedView(TransformableView.TRANSFORMING_VIEW_TEXT,
-                    mText);
+            mTransformationHelper.addTransformedView(TransformableView.TRANSFORMING_VIEW_TEXT, mText);
         }
         if (mPicture != null) {
-            mTransformationHelper.addTransformedView(TransformableView.TRANSFORMING_VIEW_IMAGE,
-                    mPicture);
+            mTransformationHelper.addTransformedView(TransformableView.TRANSFORMING_VIEW_IMAGE, mPicture);
         }
         if (mProgressBar != null) {
-            mTransformationHelper.addTransformedView(TransformableView.TRANSFORMING_VIEW_PROGRESS,
-                    mProgressBar);
+            mTransformationHelper.addTransformedView(TransformableView.TRANSFORMING_VIEW_PROGRESS, mProgressBar);
         }
     }
 
@@ -203,7 +171,7 @@ public class NotificationTemplateViewWrapper extends NotificationHeaderViewWrapp
             return;
         }
         super.setDark(dark, fade, delay);
-        setPictureDark(dark, fade, delay);
+        setPictureGrayscale(dark, fade, delay);
         setProgressBarDark(dark, fade, delay);
     }
 
@@ -218,9 +186,12 @@ public class NotificationTemplateViewWrapper extends NotificationHeaderViewWrapp
     }
 
     private void fadeProgressDark(final ProgressBar target, final boolean dark, long delay) {
-        getDozer().startIntensityAnimation(animation -> {
-            float t = (float) animation.getAnimatedValue();
-            updateProgressDark(target, t);
+        startIntensityAnimation(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator animation) {
+                float t = (float) animation.getAnimatedValue();
+                updateProgressDark(target, t);
+            }
         }, dark, delay, null /* listener */);
     }
 
@@ -234,9 +205,13 @@ public class NotificationTemplateViewWrapper extends NotificationHeaderViewWrapp
         updateProgressDark(target, dark ? 1f : 0f);
     }
 
-    private void setPictureDark(boolean dark, boolean fade, long delay) {
+    protected void setPictureGrayscale(boolean grayscale, boolean fade, long delay) {
         if (mPicture != null) {
-            getDozer().setImageDark(mPicture, dark, fade, delay, true /* useGrayscale */);
+            if (fade) {
+                fadeGrayscale(mPicture, grayscale, delay);
+            } else {
+                updateGrayscale(mPicture, grayscale);
+            }
         }
     }
 

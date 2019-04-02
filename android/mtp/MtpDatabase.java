@@ -29,7 +29,6 @@ import android.media.MediaScanner;
 import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.RemoteException;
-import android.os.SystemProperties;
 import android.provider.MediaStore;
 import android.provider.MediaStore.Audio;
 import android.provider.MediaStore.Files;
@@ -52,7 +51,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MtpDatabase implements AutoCloseable {
     private static final String TAG = "MtpDatabase";
 
-    private final Context mUserContext;
     private final Context mContext;
     private final String mPackageName;
     private final ContentProviderClient mMediaProvider;
@@ -135,8 +133,6 @@ public class MtpDatabase implements AutoCloseable {
     private int mBatteryLevel;
     private int mBatteryScale;
 
-    private int mDeviceType;
-
     static {
         System.loadLibrary("media_jni");
     }
@@ -160,14 +156,13 @@ public class MtpDatabase implements AutoCloseable {
         }
     };
 
-    public MtpDatabase(Context context, Context userContext, String volumeName, String storagePath,
+    public MtpDatabase(Context context, String volumeName, String storagePath,
             String[] subDirectories) {
         native_setup();
 
         mContext = context;
-        mUserContext = userContext;
         mPackageName = context.getPackageName();
-        mMediaProvider = userContext.getContentResolver()
+        mMediaProvider = context.getContentResolver()
                 .acquireContentProviderClient(MediaStore.AUTHORITY);
         mVolumeName = volumeName;
         mMediaStoragePath = storagePath;
@@ -200,7 +195,6 @@ public class MtpDatabase implements AutoCloseable {
         }
 
         initDeviceProperties(context);
-        mDeviceType = SystemProperties.getInt("sys.usb.mtp.device_type", 0);
 
         mCloseGuard.open("close");
     }
@@ -235,10 +229,7 @@ public class MtpDatabase implements AutoCloseable {
     @Override
     protected void finalize() throws Throwable {
         try {
-            if (mCloseGuard != null) {
-                mCloseGuard.warnIfOpen();
-            }
-
+            mCloseGuard.warnIfOpen();
             close();
         } finally {
             super.finalize();
@@ -597,7 +588,6 @@ public class MtpDatabase implements AutoCloseable {
             MtpConstants.FORMAT_XML_DOCUMENT,
             MtpConstants.FORMAT_FLAC,
             MtpConstants.FORMAT_DNG,
-            MtpConstants.FORMAT_HEIF,
         };
     }
 
@@ -708,7 +698,6 @@ public class MtpDatabase implements AutoCloseable {
             case MtpConstants.FORMAT_PNG:
             case MtpConstants.FORMAT_BMP:
             case MtpConstants.FORMAT_DNG:
-            case MtpConstants.FORMAT_HEIF:
                 return IMAGE_PROPERTIES;
             default:
                 return FILE_PROPERTIES;
@@ -721,7 +710,6 @@ public class MtpDatabase implements AutoCloseable {
             MtpConstants.DEVICE_PROPERTY_DEVICE_FRIENDLY_NAME,
             MtpConstants.DEVICE_PROPERTY_IMAGE_SIZE,
             MtpConstants.DEVICE_PROPERTY_BATTERY_LEVEL,
-            MtpConstants.DEVICE_PROPERTY_PERCEIVED_DEVICE_TYPE,
         };
     }
 
@@ -879,10 +867,6 @@ public class MtpDatabase implements AutoCloseable {
                 String imageSize = Integer.toString(width) + "x" +  Integer.toString(height);
                 imageSize.getChars(0, imageSize.length(), outStringValue, 0);
                 outStringValue[imageSize.length()] = 0;
-                return MtpConstants.RESPONSE_OK;
-
-            case MtpConstants.DEVICE_PROPERTY_PERCEIVED_DEVICE_TYPE:
-                outIntValue[0] = mDeviceType;
                 return MtpConstants.RESPONSE_OK;
 
             // DEVICE_PROPERTY_BATTERY_LEVEL is implemented in the JNI code
@@ -1116,7 +1100,7 @@ public class MtpDatabase implements AutoCloseable {
 
     private void sessionEnded() {
         if (mDatabaseModified) {
-            mUserContext.sendBroadcast(new Intent(MediaStore.ACTION_MTP_SESSION_END));
+            mContext.sendBroadcast(new Intent(MediaStore.ACTION_MTP_SESSION_END));
             mDatabaseModified = false;
         }
     }

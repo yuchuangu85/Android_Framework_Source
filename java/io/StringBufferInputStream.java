@@ -118,10 +118,8 @@ class StringBufferInputStream extends InputStream {
         if (pos >= count) {
             return -1;
         }
-
-        int avail = count - pos;
-        if (len > avail) {
-            len = avail;
+        if (pos + len > count) {
+            len = count - pos;
         }
         if (len <= 0) {
             return 0;

@@ -382,29 +382,18 @@ public final class ProviderMap {
     }
 
     /**
-     * Before invoking IApplicationThread.dumpProvider(), print meta information to the print
-     * writer and handle passed flags.
+     * Invokes IApplicationThread.dumpProvider() on the thread of the specified provider if
+     * there is a thread associated with the provider.
      */
     private void dumpProvider(String prefix, FileDescriptor fd, PrintWriter pw,
             final ContentProviderRecord r, String[] args, boolean dumpAll) {
-        for (String s: args) {
-            if (!dumpAll && s.contains("--proto")) {
-                if (r.proc != null && r.proc.thread != null) {
-                    dumpToTransferPipe(null , fd, pw, r, args);
-                }
-                return;
-            }
-        }
         String innerPrefix = prefix + "  ";
         synchronized (mAm) {
             pw.print(prefix); pw.print("PROVIDER ");
-            pw.print(r);
-            pw.print(" pid=");
-            if (r.proc != null) {
-                pw.println(r.proc.pid);
-            } else {
-                pw.println("(not running)");
-            }
+                    pw.print(r);
+                    pw.print(" pid=");
+                    if (r.proc != null) pw.println(r.proc.pid);
+                    else pw.println("(not running)");
             if (dumpAll) {
                 r.dump(pw, innerPrefix, true);
             }
@@ -412,32 +401,23 @@ public final class ProviderMap {
         if (r.proc != null && r.proc.thread != null) {
             pw.println("    Client:");
             pw.flush();
-            dumpToTransferPipe("      ", fd, pw, r, args);
-        }
-    }
-
-    /**
-     * Invokes IApplicationThread.dumpProvider() on the thread of the specified provider without
-     * any meta string (e.g., provider info, indentation) written to the file descriptor.
-     */
-    private void dumpToTransferPipe(String prefix, FileDescriptor fd, PrintWriter pw,
-            final ContentProviderRecord r, String[] args) {
-        try {
-            TransferPipe tp = new TransferPipe();
             try {
-                r.proc.thread.dumpProvider(
-                    tp.getWriteFd(), r.provider.asBinder(), args);
-                tp.setBufferPrefix(prefix);
-                // Short timeout, since blocking here can
-                // deadlock with the application.
-                tp.go(fd, 2000);
-            } finally {
-                tp.kill();
+                TransferPipe tp = new TransferPipe();
+                try {
+                    r.proc.thread.dumpProvider(
+                            tp.getWriteFd().getFileDescriptor(), r.provider.asBinder(), args);
+                    tp.setBufferPrefix("      ");
+                    // Short timeout, since blocking here can
+                    // deadlock with the application.
+                    tp.go(fd, 2000);
+                } finally {
+                    tp.kill();
+                }
+            } catch (IOException ex) {
+                pw.println("      Failure while dumping the provider: " + ex);
+            } catch (RemoteException ex) {
+                pw.println("      Got a RemoteException while dumping the service");
             }
-        } catch (IOException ex) {
-            pw.println("      Failure while dumping the provider: " + ex);
-        } catch (RemoteException ex) {
-            pw.println("      Got a RemoteException while dumping the service");
         }
     }
 }

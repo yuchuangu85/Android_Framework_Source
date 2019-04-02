@@ -20,16 +20,14 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Message;
 import android.service.carrier.CarrierIdentifier;
-import android.telephony.ImsiEncryptionInfo;
-import android.telephony.NetworkScanRequest;
 
 import com.android.internal.telephony.BaseCommands;
 import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.RadioCapability;
-import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
 import com.android.internal.telephony.dataconnection.DataProfile;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
+import com.android.internal.telephony.RadioCapability;
+import com.android.internal.telephony.UUSInfo;
 
 import java.util.List;
 
@@ -260,8 +258,9 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
     }
 
     @Override
-    public void setupDataCall(int radioTechnology, DataProfile dataProfile, boolean isRoaming,
-                              boolean allowRoaming, Message result) {
+    public void setupDataCall(int radioTechnology, int profile,
+            String apn, String user, String password, int authType,
+            String protocol, Message result) {
     }
 
     @Override
@@ -332,14 +331,6 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
 
     @Override
     public void getAvailableNetworks(Message response) {
-    }
-
-    @Override
-    public void startNetworkScan(NetworkScanRequest nsr, Message response) {
-    }
-
-    @Override
-    public void stopNetworkScan(Message response) {
     }
 
     @Override
@@ -431,6 +422,10 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
 
     @Override
     public void getPreferredNetworkType(Message response) {
+    }
+
+    @Override
+    public void getNeighboringCids(Message response) {
     }
 
     @Override
@@ -560,15 +555,24 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
     }
 
     @Override
-    public void setInitialAttachApn(DataProfile dataProfile, boolean isRoaming, Message result) {
+    public void getCellInfoList(Message result) {
     }
 
     @Override
-    public void setDataProfile(DataProfile[] dps, boolean isRoaming, Message result) {
+    public void setCellInfoListRate(int rateInMillis, Message response) {
     }
 
     @Override
-    public void iccOpenLogicalChannel(String AID, int p2, Message response) {}
+    public void setInitialAttachApn(String apn, String protocol, int authType, String username,
+            String password, Message result) {
+    }
+
+    @Override
+    public void setDataProfile(DataProfile[] dps, Message result) {
+    }
+
+    @Override
+    public void iccOpenLogicalChannel(String AID, Message response) {}
 
     @Override
     public void iccCloseLogicalChannel(int channel, Message response) {}
@@ -625,27 +629,10 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
     }
 
     @Override
-    public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo,
-                                                Message result) {
-    }
-
-    @Override
     public void setAllowedCarriers(List<CarrierIdentifier> carriers, Message result) {
     }
 
     @Override
     public void getAllowedCarriers(Message result) {
-    }
-
-    @Override
-    public void sendDeviceState(int stateType, boolean state, Message result) {
-    }
-
-    @Override
-    public void setUnsolResponseFilter(int filter, Message result){
-    }
-
-    @Override
-    public void setSimCardPower(int state, Message result) {
     }
 }

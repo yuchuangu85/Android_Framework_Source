@@ -45,14 +45,9 @@ public class TwoWayListenerExpr extends Expr {
     }
 
     @Override
-    protected KCode generateCode() {
+    protected KCode generateCode(boolean expand) {
         final String fieldName = LayoutBinderWriterKt.getFieldName(mInverseBinding);
         return new KCode(fieldName);
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.twoWayListenerExpr(mInverseBinding);
     }
 
     @Override

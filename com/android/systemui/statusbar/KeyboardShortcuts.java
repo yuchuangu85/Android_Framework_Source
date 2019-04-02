@@ -58,11 +58,9 @@ import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import com.android.internal.app.AssistUtils;
-import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto;
 import com.android.settingslib.Utils;
 import com.android.systemui.R;
-import com.android.systemui.recents.misc.SystemServicesProxy;
+import com.android.systemui.recents.Recents;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -85,12 +83,6 @@ public final class KeyboardShortcuts {
     private final SparseArray<String> mModifierNames = new SparseArray<>();
     private final SparseArray<Drawable> mSpecialCharacterDrawables = new SparseArray<>();
     private final SparseArray<Drawable> mModifierDrawables = new SparseArray<>();
-    // Ordered list of modifiers that are supported. All values in this array must exist in
-    // mModifierNames.
-    private final int[] mModifierList = new int[] {
-            KeyEvent.META_META_ON, KeyEvent.META_CTRL_ON, KeyEvent.META_ALT_ON,
-            KeyEvent.META_SHIFT_ON, KeyEvent.META_SYM_ON, KeyEvent.META_FUNCTION_ON
-    };
 
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final Context mContext;
@@ -124,7 +116,6 @@ public final class KeyboardShortcuts {
 
     private Dialog mKeyboardShortcutsDialog;
     private KeyCharacterMap mKeyCharacterMap;
-    private KeyCharacterMap mBackupKeyCharacterMap;
 
     private KeyboardShortcuts(Context context) {
         this.mContext = new ContextThemeWrapper(context, android.R.style.Theme_DeviceDefault_Light);
@@ -140,8 +131,6 @@ public final class KeyboardShortcuts {
     }
 
     public static void show(Context context, int deviceId) {
-        MetricsLogger.visible(context,
-                MetricsProto.MetricsEvent.KEYBOARD_SHORTCUTS_HELPER);
         synchronized (sLock) {
             if (sInstance != null && !sInstance.mContext.equals(context)) {
                 dismiss();
@@ -163,8 +152,6 @@ public final class KeyboardShortcuts {
     public static void dismiss() {
         synchronized (sLock) {
             if (sInstance != null) {
-                MetricsLogger.hidden(sInstance.mContext,
-                        MetricsProto.MetricsEvent.KEYBOARD_SHORTCUTS_HELPER);
                 sInstance.dismissKeyboardShortcuts();
                 sInstance = null;
             }
@@ -347,7 +334,6 @@ public final class KeyboardShortcuts {
      */
     private void retrieveKeyCharacterMap(int deviceId) {
         final InputManager inputManager = InputManager.getInstance();
-        mBackupKeyCharacterMap = inputManager.getInputDevice(-1).getKeyCharacterMap();
         if (deviceId != -1) {
             final InputDevice inputDevice = inputManager.getInputDevice(deviceId);
             if (inputDevice != null) {
@@ -365,13 +351,13 @@ public final class KeyboardShortcuts {
                 return;
             }
         }
-        // Fall back to -1, the virtual keyboard.
-        mKeyCharacterMap = mBackupKeyCharacterMap;
+        final InputDevice inputDevice = inputManager.getInputDevice(-1);
+        mKeyCharacterMap = inputDevice.getKeyCharacterMap();
     }
 
     private void showKeyboardShortcuts(int deviceId) {
         retrieveKeyCharacterMap(deviceId);
-        SystemServicesProxy.getInstance(mContext).requestKeyboardShortcuts(mContext,
+        Recents.getSystemServices().requestKeyboardShortcuts(mContext,
                 new KeyboardShortcutsReceiver() {
                     @Override
                     public void onKeyboardShortcutsReceived(
@@ -488,9 +474,9 @@ public final class KeyboardShortcuts {
         final Icon messagingIcon = getIconForIntentCategory(Intent.CATEGORY_APP_MESSAGING, userId);
         if (messagingIcon != null) {
             keyboardShortcutInfoAppItems.add(new KeyboardShortcutInfo(
-                    mContext.getString(R.string.keyboard_shortcut_group_applications_sms),
+                    mContext.getString(R.string.keyboard_shortcut_group_applications_im),
                     messagingIcon,
-                    KeyEvent.KEYCODE_S,
+                    KeyEvent.KEYCODE_T,
                     KeyEvent.META_META_ON));
         }
 
@@ -580,12 +566,7 @@ public final class KeyboardShortcuts {
         mKeyboardShortcutsDialog.setCanceledOnTouchOutside(true);
         Window keyboardShortcutsWindow = mKeyboardShortcutsDialog.getWindow();
         keyboardShortcutsWindow.setType(TYPE_SYSTEM_DIALOG);
-        synchronized (sLock) {
-            // showKeyboardShortcutsDialog only if it has not been dismissed already
-            if (sInstance != null) {
-                mKeyboardShortcutsDialog.show();
-            }
-        }
+        mKeyboardShortcutsDialog.show();
     }
 
     private void populateKeyboardShortcuts(LinearLayout keyboardShortcutsLayout,
@@ -711,12 +692,7 @@ public final class KeyboardShortcuts {
             if (displayLabel != 0) {
                 shortcutKeyString = String.valueOf(displayLabel);
             } else {
-                displayLabel = mBackupKeyCharacterMap.getDisplayLabel(info.getKeycode());
-                if (displayLabel != 0) {
-                    shortcutKeyString = String.valueOf(displayLabel);
-                } else {
-                    return null;
-                }
+                return null;
             }
         }
 
@@ -735,8 +711,8 @@ public final class KeyboardShortcuts {
         if (modifiers == 0) {
             return shortcutKeys;
         }
-        for(int i = 0; i < mModifierList.length; ++i) {
-            final int supportedModifier = mModifierList[i];
+        for(int i = 0; i < mModifierNames.size(); ++i) {
+            final int supportedModifier = mModifierNames.keyAt(i);
             if ((modifiers & supportedModifier) != 0) {
                 shortcutKeys.add(new StringDrawableContainer(
                         mModifierNames.get(supportedModifier),

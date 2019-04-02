@@ -16,25 +16,17 @@
 
 package com.android.server;
 
-import com.android.internal.util.ConcurrentUtils;
-import com.android.server.location.ContextHubService;
-import com.android.server.SystemServerInitThreadPool;
+import android.hardware.location.ContextHubService;
 import android.content.Context;
 import android.util.Log;
 
-import java.util.concurrent.Future;
-
 class ContextHubSystemService extends SystemService {
     private static final String TAG = "ContextHubSystemService";
-    private ContextHubService mContextHubService;
-
-    private Future<?> mInit;
+    private final ContextHubService mContextHubService;
 
     public ContextHubSystemService(Context context) {
         super(context);
-        mInit = SystemServerInitThreadPool.get().submit(() -> {
-            mContextHubService = new ContextHubService(context);
-        }, "Init ContextHubSystemService");
+        mContextHubService = new ContextHubService(context);
     }
 
     @Override
@@ -45,10 +37,7 @@ class ContextHubSystemService extends SystemService {
     public void onBootPhase(int phase) {
         if (phase == SystemService.PHASE_SYSTEM_SERVICES_READY) {
             Log.d(TAG, "onBootPhase: PHASE_SYSTEM_SERVICES_READY");
-            ConcurrentUtils.waitForFutureNoInterrupt(mInit,
-                    "Wait for ContextHubSystemService init");
-            mInit = null;
-            publishBinderService(Context.CONTEXTHUB_SERVICE, mContextHubService);
+            publishBinderService(ContextHubService.CONTEXTHUB_SERVICE, mContextHubService);
         }
     }
 }

@@ -34,7 +34,6 @@ import android.content.ContextWrapper;
 import android.content.DialogInterface;
 import android.content.res.Configuration;
 import android.content.pm.ApplicationInfo;
-import android.content.res.ResourceId;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -170,7 +169,7 @@ public class Dialog implements DialogInterface, Window.Callback,
 
     Dialog(@NonNull Context context, @StyleRes int themeResId, boolean createContextThemeWrapper) {
         if (createContextThemeWrapper) {
-            if (themeResId == ResourceId.ID_NULL) {
+            if (themeResId == 0) {
                 final TypedValue outValue = new TypedValue();
                 context.getTheme().resolveAttribute(R.attr.dialogTheme, outValue, true);
                 themeResId = outValue.resourceId;
@@ -186,11 +185,6 @@ public class Dialog implements DialogInterface, Window.Callback,
         mWindow = w;
         w.setCallback(this);
         w.setOnWindowDismissedCallback(this);
-        w.setOnWindowSwipeDismissedCallback(() -> {
-            if (mCancelable) {
-                cancel();
-            }
-        });
         w.setWindowManager(mWindowManager, null, null);
         w.setGravity(Gravity.CENTER);
 
@@ -206,7 +200,6 @@ public class Dialog implements DialogInterface, Window.Callback,
             @Nullable Message cancelCallback) {
         this(context);
         mCancelable = cancelable;
-        updateWindowForCancelable();
         mCancelMessage = cancelCallback;
     }
 
@@ -214,7 +207,6 @@ public class Dialog implements DialogInterface, Window.Callback,
             @Nullable OnCancelListener cancelListener) {
         this(context);
         mCancelable = cancelable;
-        updateWindowForCancelable();
         setOnCancelListener(cancelListener);
     }
 
@@ -499,22 +491,14 @@ public class Dialog implements DialogInterface, Window.Callback,
     }
 
     /**
-     * Finds the first descendant view with the given ID or {@code null} if the
-     * ID is invalid (< 0), there is no matching view in the hierarchy, or the
-     * dialog has not yet been fully created (for example, via {@link #show()}
-     * or {@link #create()}).
-     * <p>
-     * <strong>Note:</strong> In most cases -- depending on compiler support --
-     * the resulting view is automatically cast to the target class type. If
-     * the target class type is unconstrained, an explicit cast may be
-     * necessary.
+     * Finds a child view with the given identifier. Returns null if the
+     * specified child view does not exist or the dialog has not yet been fully
+     * created (for example, via {@link #show()} or {@link #create()}).
      *
-     * @param id the ID to search for
-     * @return a view with given ID if found, or {@code null} otherwise
-     * @see View#findViewById(int)
+     * @param id the identifier of the view to find
+     * @return The view with the given id or null.
      */
-    @Nullable
-    public <T extends View> T findViewById(@IdRes int id) {
+    public @Nullable View findViewById(@IdRes int id) {
         return mWindow.findViewById(id);
     }
 
@@ -758,7 +742,7 @@ public class Dialog implements DialogInterface, Window.Callback,
 
     /** @hide */
     @Override
-    public void onWindowDismissed(boolean finishTask, boolean suppressWindowTransition) {
+    public void onWindowDismissed(boolean finishTask) {
         dismiss();
     }
 
@@ -1203,7 +1187,6 @@ public class Dialog implements DialogInterface, Window.Callback,
      */
     public void setCancelable(boolean flag) {
         mCancelable = flag;
-        updateWindowForCancelable();
     }
 
     /**
@@ -1217,7 +1200,6 @@ public class Dialog implements DialogInterface, Window.Callback,
     public void setCanceledOnTouchOutside(boolean cancel) {
         if (cancel && !mCancelable) {
             mCancelable = true;
-            updateWindowForCancelable();
         }
         
         mWindow.setCloseOnTouchOutside(cancel);
@@ -1368,9 +1350,5 @@ public class Dialog implements DialogInterface, Window.Callback,
                     break;
             }
         }
-    }
-
-    private void updateWindowForCancelable() {
-        mWindow.setCloseOnSwipeEnabled(mCancelable);
     }
 }

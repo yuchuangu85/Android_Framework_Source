@@ -27,15 +27,11 @@ import static android.net.NetworkStatsHistory.Entry.UNKNOWN;
 import static android.net.NetworkStatsHistory.ParcelUtils.readLongArray;
 import static android.net.NetworkStatsHistory.ParcelUtils.writeLongArray;
 import static android.text.format.DateUtils.SECOND_IN_MILLIS;
-
 import static com.android.internal.util.ArrayUtils.total;
 
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.service.NetworkStatsHistoryBucketProto;
-import android.service.NetworkStatsHistoryProto;
 import android.util.MathUtils;
-import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.util.IndentingPrintWriter;
 
@@ -281,24 +277,6 @@ public class NetworkStatsHistory implements Parcelable {
         entry.txPackets = getLong(txPackets, i, UNKNOWN);
         entry.operations = getLong(operations, i, UNKNOWN);
         return entry;
-    }
-
-    public void setValues(int i, Entry entry) {
-        // Unwind old values
-        if (rxBytes != null) totalBytes -= rxBytes[i];
-        if (txBytes != null) totalBytes -= txBytes[i];
-
-        bucketStart[i] = entry.bucketStart;
-        setLong(activeTime, i, entry.activeTime);
-        setLong(rxBytes, i, entry.rxBytes);
-        setLong(rxPackets, i, entry.rxPackets);
-        setLong(txBytes, i, entry.txBytes);
-        setLong(txPackets, i, entry.txPackets);
-        setLong(operations, i, entry.operations);
-
-        // Apply new values
-        if (rxBytes != null) totalBytes += rxBytes[i];
-        if (txBytes != null) totalBytes += txBytes[i];
     }
 
     /**
@@ -647,33 +625,6 @@ public class NetworkStatsHistory implements Parcelable {
             if (txPackets != null) { pw.print(txPackets[i]); } else { pw.print("*"); } pw.print(',');
             if (operations != null) { pw.print(operations[i]); } else { pw.print("*"); }
             pw.println();
-        }
-    }
-
-    public void writeToProto(ProtoOutputStream proto, long tag) {
-        final long start = proto.start(tag);
-
-        proto.write(NetworkStatsHistoryProto.BUCKET_DURATION_MS, bucketDuration);
-
-        for (int i = 0; i < bucketCount; i++) {
-            final long startBucket = proto.start(NetworkStatsHistoryProto.BUCKETS);
-
-            proto.write(NetworkStatsHistoryBucketProto.BUCKET_START_MS, bucketStart[i]);
-            writeToProto(proto, NetworkStatsHistoryBucketProto.RX_BYTES, rxBytes, i);
-            writeToProto(proto, NetworkStatsHistoryBucketProto.RX_PACKETS, rxPackets, i);
-            writeToProto(proto, NetworkStatsHistoryBucketProto.TX_BYTES, txBytes, i);
-            writeToProto(proto, NetworkStatsHistoryBucketProto.TX_PACKETS, txPackets, i);
-            writeToProto(proto, NetworkStatsHistoryBucketProto.OPERATIONS, operations, i);
-
-            proto.end(startBucket);
-        }
-
-        proto.end(start);
-    }
-
-    private static void writeToProto(ProtoOutputStream proto, long tag, long[] array, int index) {
-        if (array != null) {
-            proto.write(tag, array[index]);
         }
     }
 

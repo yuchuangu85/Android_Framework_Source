@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,11 +44,13 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.ObjectStreamField;
 import java.io.Serializable;
+import java.text.spi.DecimalFormatSymbolsProvider;
 import java.util.Currency;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
-import libcore.icu.ICU;
 import libcore.icu.LocaleData;
+
+import sun.util.LocaleServiceProviderPool;
 
 /**
  * This class represents the set of symbols (such as the decimal separator,
@@ -66,69 +68,61 @@ import libcore.icu.LocaleData;
 
 public class DecimalFormatSymbols implements Cloneable, Serializable {
 
-    // Android-changed: Removed reference to DecimalFormatSymbolsProvider but suggested
-    // getInstance() be used instead in case Android supports it in future.
     /**
-     * Create a DecimalFormatSymbols object for the default
-     * {@link java.util.Locale.Category#FORMAT FORMAT} locale.
-     * It is recommended that the {@link #getInstance(Locale) getInstance} method is used
-     * instead.
-     * <p>This is equivalent to calling
-     * {@link #DecimalFormatSymbols(Locale)
-     *     DecimalFormatSymbols(Locale.getDefault(Locale.Category.FORMAT))}.
-     * @see java.util.Locale#getDefault(java.util.Locale.Category)
-     * @see java.util.Locale.Category#FORMAT
+     * Create a DecimalFormatSymbols object for the default locale.
+     * This constructor can only construct instances for the locales
+     * supported by the Java runtime environment, not for those
+     * supported by installed
+     * {@link java.text.spi.DecimalFormatSymbolsProvider DecimalFormatSymbolsProvider}
+     * implementations. For full locale coverage, use the
+     * {@link #getInstance(Locale) getInstance} method.
      */
     public DecimalFormatSymbols() {
         initialize( Locale.getDefault(Locale.Category.FORMAT) );
     }
 
-    // Android-changed: Removed reference to DecimalFormatSymbolsProvider but suggested
-    // getInstance() be used instead in case Android supports it in future.
     /**
      * Create a DecimalFormatSymbols object for the given locale.
-     * It is recommended that the {@link #getInstance(Locale) getInstance} method is used
-     * instead.
-     * If the specified locale contains the {@link java.util.Locale#UNICODE_LOCALE_EXTENSION}
-     * for the numbering system, the instance is initialized with the specified numbering
-     * system if the JRE implementation supports it. For example,
-     * <pre>
-     * NumberFormat.getNumberInstance(Locale.forLanguageTag("th-TH-u-nu-thai"))
-     * </pre>
-     * This may return a {@code NumberFormat} instance with the Thai numbering system,
-     * instead of the Latin numbering system.
+     * This constructor can only construct instances for the locales
+     * supported by the Java runtime environment, not for those
+     * supported by installed
+     * {@link java.text.spi.DecimalFormatSymbolsProvider DecimalFormatSymbolsProvider}
+     * implementations. For full locale coverage, use the
+     * {@link #getInstance(Locale) getInstance} method.
      *
-     * @param locale the desired locale
      * @exception NullPointerException if <code>locale</code> is null
      */
     public DecimalFormatSymbols( Locale locale ) {
         initialize( locale );
     }
 
-    // Android-changed: Removed reference to DecimalFormatSymbolsProvider.
     /**
      * Returns an array of all locales for which the
      * <code>getInstance</code> methods of this class can return
      * localized instances.
+     * The returned array represents the union of locales supported by the Java
+     * runtime and by installed
+     * {@link java.text.spi.DecimalFormatSymbolsProvider DecimalFormatSymbolsProvider}
+     * implementations.  It must contain at least a <code>Locale</code>
+     * instance equal to {@link java.util.Locale#US Locale.US}.
      *
-     * @return an array of locales for which localized
+     * @return An array of locales for which localized
      *         <code>DecimalFormatSymbols</code> instances are available.
      * @since 1.6
      */
     public static Locale[] getAvailableLocales() {
-        // Android-changed: Removed used of DecimalFormatSymbolsProvider. Switched to use ICU.
-        return ICU.getAvailableLocales();
+        LocaleServiceProviderPool pool =
+            LocaleServiceProviderPool.getPool(DecimalFormatSymbolsProvider.class);
+        return pool.getAvailableLocales();
     }
 
-    // Android-changed: Removed reference to DecimalFormatSymbolsProvider.
     /**
      * Gets the <code>DecimalFormatSymbols</code> instance for the default
-     * locale.
-     * <p>This is equivalent to calling
-     * {@link #getInstance(Locale)
-     *     getInstance(Locale.getDefault(Locale.Category.FORMAT))}.
-     * @see java.util.Locale#getDefault(java.util.Locale.Category)
-     * @see java.util.Locale.Category#FORMAT
+     * locale.  This method provides access to <code>DecimalFormatSymbols</code>
+     * instances for locales supported by the Java runtime itself as well
+     * as for those supported by installed
+     * {@link java.text.spi.DecimalFormatSymbolsProvider
+     * DecimalFormatSymbolsProvider} implementations.
      * @return a <code>DecimalFormatSymbols</code> instance.
      * @since 1.6
      */
@@ -136,33 +130,37 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
         return getInstance(Locale.getDefault(Locale.Category.FORMAT));
     }
 
-    // Android-changed: Removed reference to DecimalFormatSymbolsProvider.
     /**
      * Gets the <code>DecimalFormatSymbols</code> instance for the specified
-     * locale.
-     * If the specified locale contains the {@link java.util.Locale#UNICODE_LOCALE_EXTENSION}
-     * for the numbering system, the instance is initialized with the specified numbering
-     * system if the JRE implementation supports it. For example,
-     * <pre>
-     * NumberFormat.getNumberInstance(Locale.forLanguageTag("th-TH-u-nu-thai"))
-     * </pre>
-     * This may return a {@code NumberFormat} instance with the Thai numbering system,
-     * instead of the Latin numbering system.
-     *
+     * locale.  This method provides access to <code>DecimalFormatSymbols</code>
+     * instances for locales supported by the Java runtime itself as well
+     * as for those supported by installed
+     * {@link java.text.spi.DecimalFormatSymbolsProvider
+     * DecimalFormatSymbolsProvider} implementations.
      * @param locale the desired locale.
      * @return a <code>DecimalFormatSymbols</code> instance.
      * @exception NullPointerException if <code>locale</code> is null
      * @since 1.6
      */
     public static final DecimalFormatSymbols getInstance(Locale locale) {
-        // Android-changed: Removed used of DecimalFormatSymbolsProvider.
+
+        // Check whether a provider can provide an implementation that's closer
+        // to the requested locale than what the Java runtime itself can provide.
+        LocaleServiceProviderPool pool =
+            LocaleServiceProviderPool.getPool(DecimalFormatSymbolsProvider.class);
+        if (pool.hasProviders()) {
+            DecimalFormatSymbols providersInstance = pool.getLocalizedObject(
+                                DecimalFormatSymbolsGetter.INSTANCE, locale);
+            if (providersInstance != null) {
+                return providersInstance;
+            }
+        }
+
         return new DecimalFormatSymbols(locale);
     }
 
     /**
      * Gets the character used for zero. Different for Arabic, etc.
-     *
-     * @return the character used for zero
      */
     public char getZeroDigit() {
         return zeroDigit;
@@ -170,8 +168,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
     /**
      * Sets the character used for zero. Different for Arabic, etc.
-     *
-     * @param zeroDigit the character used for zero
      */
     public void setZeroDigit(char zeroDigit) {
         this.zeroDigit = zeroDigit;
@@ -180,8 +176,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
     /**
      * Gets the character used for thousands separator. Different for French, etc.
-     *
-     * @return the grouping separator
      */
     public char getGroupingSeparator() {
         return groupingSeparator;
@@ -189,8 +183,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
     /**
      * Sets the character used for thousands separator. Different for French, etc.
-     *
-     * @param groupingSeparator the grouping separator
      */
     public void setGroupingSeparator(char groupingSeparator) {
         this.groupingSeparator = groupingSeparator;
@@ -199,8 +191,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
     /**
      * Gets the character used for decimal sign. Different for French, etc.
-     *
-     * @return the character used for decimal sign
      */
     public char getDecimalSeparator() {
         return decimalSeparator;
@@ -208,8 +198,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
     /**
      * Sets the character used for decimal sign. Different for French, etc.
-     *
-     * @param decimalSeparator the character used for decimal sign
      */
     public void setDecimalSeparator(char decimalSeparator) {
         this.decimalSeparator = decimalSeparator;
@@ -218,8 +206,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
     /**
      * Gets the character used for per mille sign. Different for Arabic, etc.
-     *
-     * @return the character used for per mille sign
      */
     public char getPerMill() {
         return perMill;
@@ -227,8 +213,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
     /**
      * Sets the character used for per mille sign. Different for Arabic, etc.
-     *
-     * @param perMill the character used for per mille sign
      */
     public void setPerMill(char perMill) {
         this.perMill = perMill;
@@ -237,8 +221,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
     /**
      * Gets the character used for percent sign. Different for Arabic, etc.
-     *
-     * @return the character used for percent sign
      */
     public char getPercent() {
         return percent;
@@ -255,8 +237,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
     /**
      * Sets the character used for percent sign. Different for Arabic, etc.
-     *
-     * @param percent the character used for percent sign
      */
     public void setPercent(char percent) {
         this.percent = percent;
@@ -265,8 +245,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
     /**
      * Gets the character used for a digit in a pattern.
-     *
-     * @return the character used for a digit in a pattern
      */
     public char getDigit() {
         return digit;
@@ -274,8 +252,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
     /**
      * Sets the character used for a digit in a pattern.
-     *
-     * @param digit the character used for a digit in a pattern
      */
     public void setDigit(char digit) {
         this.digit = digit;
@@ -285,8 +261,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
     /**
      * Gets the character used to separate positive and negative subpatterns
      * in a pattern.
-     *
-     * @return the pattern separator
      */
     public char getPatternSeparator() {
         return patternSeparator;
@@ -295,8 +269,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
     /**
      * Sets the character used to separate positive and negative subpatterns
      * in a pattern.
-     *
-     * @param patternSeparator the pattern separator
      */
     public void setPatternSeparator(char patternSeparator) {
         this.patternSeparator = patternSeparator;
@@ -306,8 +278,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
     /**
      * Gets the string used to represent infinity. Almost always left
      * unchanged.
-     *
-     * @return the string representing infinity
      */
     public String getInfinity() {
         return infinity;
@@ -316,8 +286,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
     /**
      * Sets the string used to represent infinity. Almost always left
      * unchanged.
-     *
-     * @param infinity the string representing infinity
      */
     public void setInfinity(String infinity) {
         this.infinity = infinity;
@@ -327,8 +295,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
     /**
      * Gets the string used to represent "not a number". Almost always left
      * unchanged.
-     *
-     * @return the string representing "not a number"
      */
     public String getNaN() {
         return NaN;
@@ -337,8 +303,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
     /**
      * Sets the string used to represent "not a number". Almost always left
      * unchanged.
-     *
-     * @param NaN the string representing "not a number"
      */
     public void setNaN(String NaN) {
         this.NaN = NaN;
@@ -349,8 +313,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
      * Gets the character used to represent minus sign. If no explicit
      * negative format is specified, one is formed by prefixing
      * minusSign to the positive format.
-     *
-     * @return the character representing minus sign
      */
     public char getMinusSign() {
         return minusSign;
@@ -372,8 +334,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
      * Sets the character used to represent minus sign. If no explicit
      * negative format is specified, one is formed by prefixing
      * minusSign to the positive format.
-     *
-     * @param minusSign the character representing minus sign
      */
     public void setMinusSign(char minusSign) {
         this.minusSign = minusSign;
@@ -383,8 +343,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
     /**
      * Returns the currency symbol for the currency of these
      * DecimalFormatSymbols in their locale.
-     *
-     * @return the currency symbol
      * @since 1.2
      */
     public String getCurrencySymbol()
@@ -395,8 +353,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
     /**
      * Sets the currency symbol for the currency of these
      * DecimalFormatSymbols in their locale.
-     *
-     * @param currency the currency symbol
      * @since 1.2
      */
     public void setCurrencySymbol(String currency)
@@ -408,8 +364,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
     /**
      * Returns the ISO 4217 currency code of the currency of these
      * DecimalFormatSymbols.
-     *
-     * @return the currency code
      * @since 1.2
      */
     public String getInternationalCurrencySymbol()
@@ -428,7 +382,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
      * then the currency attribute is set to null and the currency symbol
      * attribute is not modified.
      *
-     * @param currencyCode the currency code
      * @see #setCurrency
      * @see #setCurrencySymbol
      * @since 1.2
@@ -484,8 +437,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
     /**
      * Returns the monetary decimal separator.
-     *
-     * @return the monetary decimal separator
      * @since 1.2
      */
     public char getMonetaryDecimalSeparator()
@@ -495,8 +446,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
     /**
      * Sets the monetary decimal separator.
-     *
-     * @param sep the monetary decimal separator
      * @since 1.2
      */
     public void setMonetaryDecimalSeparator(char sep)
@@ -563,20 +512,18 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
     /**
      * Standard override.
      */
-    @Override
     public Object clone() {
         try {
             return (DecimalFormatSymbols)super.clone();
             // other fields are bit-copied
         } catch (CloneNotSupportedException e) {
-            throw new InternalError(e);
+            throw new InternalError();
         }
     }
 
     /**
      * Override equals.
      */
-    @Override
     public boolean equals(Object obj) {
         if (obj == null) return false;
         if (this == obj) return true;
@@ -603,7 +550,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
     /**
      * Override hashCode.
      */
-    @Override
     public int hashCode() {
             int result = zeroDigit;
             result = result * 37 + groupingSeparator;
@@ -630,7 +576,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
     private void initialize( Locale locale ) {
         this.locale = locale;
 
-        // Android-changed: Removed use of DecimalFormatSymbolsProvider. Switched to ICU.
         // get resource bundle data - try the cache first
         boolean needCacheUpdate = false;
         Object[] data = cachedLocaleData.get(locale);
@@ -656,7 +601,6 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
 
         String[] numberElements = (String[]) data[0];
 
-        // Android-changed: Added maybeStripMarkers
         decimalSeparator = numberElements[0].charAt(0);
         groupingSeparator = numberElements[1].charAt(0);
         patternSeparator = numberElements[2].charAt(0);
@@ -710,36 +654,25 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
         }
     }
 
-    // Android-changed: maybeStripMarkers added in b/26207216, fixed in b/32465689.
     /**
-     * Attempts to strip RTL, LTR and Arabic letter markers from {@code symbol}.
-     * If the string contains a single non-marker character (and any number of marker characters),
-     * then that character is returned, otherwise {@code fallback} is returned.
-     *
-     * @hide
+     * Attempts to strip RTL, LTR and Arabic letter markers from {@code symbol}. If the symbol's
+     * length is 1, then the first char of the symbol is returned. If the symbol's length is 2 and
+     * the first char is a marker, then the second char is returned. In all other cases,
+     * {@code fallback} is returned.
      */
-    // VisibleForTesting
-    public static char maybeStripMarkers(String symbol, char fallback) {
+    private static char maybeStripMarkers(String symbol, char fallback) {
         final int length = symbol.length();
-        if (length >= 1) {
-            boolean sawNonMarker = false;
-            char nonMarker = 0;
-            for (int i = 0; i < length; i++) {
-                final char c = symbol.charAt(i);
-                if (c == '\u200E' || c == '\u200F' || c == '\u061C') {
-                    continue;
-                }
-                if (sawNonMarker) {
-                    // More than one non-marker character.
-                    return fallback;
-                }
-                sawNonMarker = true;
-                nonMarker = c;
-            }
-            if (sawNonMarker) {
-                return nonMarker;
+        if (length == 1) {
+            return symbol.charAt(0);
+        }
+
+        if (length == 2) {
+            char first = symbol.charAt(0);
+            if (first =='\u200E' || first =='\u200F' || first =='\u061C'); {
+                return symbol.charAt(1);
             }
         }
+
         return fallback;
     }
 
@@ -1112,4 +1045,24 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
     private static final ConcurrentHashMap<Locale, Object[]> cachedLocaleData = new ConcurrentHashMap<Locale, Object[]>(3);
 
     private transient android.icu.text.DecimalFormatSymbols cachedIcuDFS = null;
+
+    /**
+     * Obtains a DecimalFormatSymbols instance from a DecimalFormatSymbolsProvider
+     * implementation.
+     */
+    private static class DecimalFormatSymbolsGetter
+        implements LocaleServiceProviderPool.LocalizedObjectGetter<DecimalFormatSymbolsProvider,
+                                                                   DecimalFormatSymbols> {
+        private static final DecimalFormatSymbolsGetter INSTANCE =
+            new DecimalFormatSymbolsGetter();
+
+        public DecimalFormatSymbols getObject(
+                                DecimalFormatSymbolsProvider decimalFormatSymbolsProvider,
+                                Locale locale,
+                                String key,
+                                Object... params) {
+            assert params.length == 0;
+            return decimalFormatSymbolsProvider.getInstance(locale);
+        }
+    }
 }

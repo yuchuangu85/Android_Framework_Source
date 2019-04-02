@@ -17,8 +17,8 @@
 package com.android.server.fingerprint;
 
 import android.content.Context;
-import android.hardware.biometrics.fingerprint.V2_1.IBiometricsFingerprint;
 import android.hardware.fingerprint.FingerprintManager;
+import android.hardware.fingerprint.IFingerprintDaemon;
 import android.hardware.fingerprint.IFingerprintServiceReceiver;
 import android.os.IBinder;
 import android.os.RemoteException;
@@ -41,14 +41,14 @@ public abstract class RemovalClient extends ClientMonitor {
 
     @Override
     public int start() {
-        IBiometricsFingerprint daemon = getFingerprintDaemon();
+        IFingerprintDaemon daemon = getFingerprintDaemon();
         // The fingerprint template ids will be removed when we get confirmation from the HAL
         try {
-            final int result = daemon.remove(getGroupId(), mFingerId);
+            final int result = daemon.remove(mFingerId, getGroupId());
             if (result != 0) {
                 Slog.w(TAG, "startRemove with id = " + mFingerId + " failed, result=" + result);
                 MetricsLogger.histogram(getContext(), "fingerprintd_remove_start_error", result);
-                onError(FingerprintManager.FINGERPRINT_ERROR_HW_UNAVAILABLE, 0 /* vendorCode */);
+                onError(FingerprintManager.FINGERPRINT_ERROR_HW_UNAVAILABLE);
                 return result;
             }
         } catch (RemoteException e) {
@@ -59,52 +59,36 @@ public abstract class RemovalClient extends ClientMonitor {
 
     @Override
     public int stop(boolean initiatedByClient) {
-        if (mAlreadyCancelled) {
-            Slog.w(TAG, "stopRemove: already cancelled!");
-            return 0;
+        // We don't actually stop remove, but inform the client that the cancel operation succeeded
+        // so we can start the next operation.
+        if (initiatedByClient) {
+            onError(FingerprintManager.FINGERPRINT_ERROR_CANCELED);
         }
-        IBiometricsFingerprint daemon = getFingerprintDaemon();
-        if (daemon == null) {
-            Slog.w(TAG, "stopRemoval: no fingerprint HAL!");
-            return ERROR_ESRCH;
-        }
-        try {
-            final int result = daemon.cancel();
-            if (result != 0) {
-                Slog.w(TAG, "stopRemoval failed, result=" + result);
-                return result;
-            }
-            if (DEBUG) Slog.w(TAG, "client " + getOwnerString() + " is no longer removing");
-        } catch (RemoteException e) {
-            Slog.e(TAG, "stopRemoval failed", e);
-            return ERROR_ESRCH;
-        }
-        mAlreadyCancelled = true;
-        return 0; // success
+        return 0;
     }
 
     /*
      * @return true if we're done.
      */
-    private boolean sendRemoved(int fingerId, int groupId, int remaining) {
+    private boolean sendRemoved(int fingerId, int groupId) {
         IFingerprintServiceReceiver receiver = getReceiver();
         try {
             if (receiver != null) {
-                receiver.onRemoved(getHalDeviceId(), fingerId, groupId, remaining);
+                receiver.onRemoved(getHalDeviceId(), fingerId, groupId);
             }
         } catch (RemoteException e) {
             Slog.w(TAG, "Failed to notify Removed:", e);
         }
-        return remaining == 0;
+        return fingerId == 0;
     }
 
     @Override
-    public boolean onRemoved(int fingerId, int groupId, int remaining) {
+    public boolean onRemoved(int fingerId, int groupId) {
         if (fingerId != 0) {
             FingerprintUtils.getInstance().removeFingerprintIdForUser(getContext(), fingerId,
                     getTargetUserId());
         }
-        return sendRemoved(fingerId, getGroupId(), remaining);
+        return sendRemoved(fingerId, getGroupId());
     }
 
     @Override
@@ -120,9 +104,9 @@ public abstract class RemovalClient extends ClientMonitor {
     }
 
     @Override
-    public boolean onEnumerationResult(int fingerId, int groupId, int remaining) {
+    public boolean onEnumerationResult(int fingerId, int groupId) {
         if (DEBUG) Slog.w(TAG, "onEnumerationResult() called for remove!");
-        return true; // Invalid for Remove.
+        return false; // Invalid for Remove.
     }
 
 

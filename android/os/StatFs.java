@@ -34,16 +34,11 @@ public class StatFs {
      * class.
      *
      * @param path path in the desired file system to stat.
-     *
-     * @throws IllegalArgumentException if the file system access fails
      */
     public StatFs(String path) {
         mStat = doStat(path);
     }
 
-    /**
-     * @throws IllegalArgumentException if the file system access fails
-     */
     private static StructStatVfs doStat(String path) {
         try {
             return Os.statvfs(path);
@@ -56,8 +51,6 @@ public class StatFs {
      * Perform a restat of the file system referenced by this object. This is
      * the same as re-constructing the object with the same file system path,
      * and the new stat values are available upon return.
-     *
-     * @throws IllegalArgumentException if the file system access fails
      */
     public void restat(String path) {
         mStat = doStat(path);
@@ -68,15 +61,15 @@ public class StatFs {
      */
     @Deprecated
     public int getBlockSize() {
-        return (int) mStat.f_frsize;
+        return (int) mStat.f_bsize;
     }
 
     /**
      * The size, in bytes, of a block on the file system. This corresponds to
-     * the Unix {@code statvfs.f_frsize} field.
+     * the Unix {@code statvfs.f_bsize} field.
      */
     public long getBlockSizeLong() {
-        return mStat.f_frsize;
+        return mStat.f_bsize;
     }
 
     /**
@@ -119,7 +112,7 @@ public class StatFs {
      * will want to use {@link #getAvailableBytes()} instead.
      */
     public long getFreeBytes() {
-        return mStat.f_bfree * mStat.f_frsize;
+        return mStat.f_bfree * mStat.f_bsize;
     }
 
     /**
@@ -143,13 +136,13 @@ public class StatFs {
      * applications.
      */
     public long getAvailableBytes() {
-        return mStat.f_bavail * mStat.f_frsize;
+        return mStat.f_bavail * mStat.f_bsize;
     }
 
     /**
      * The total number of bytes supported by the file system.
      */
     public long getTotalBytes() {
-        return mStat.f_blocks * mStat.f_frsize;
+        return mStat.f_blocks * mStat.f_bsize;
     }
 }

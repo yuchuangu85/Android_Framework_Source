@@ -16,13 +16,10 @@
 
 package android.webkit;
 
-import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
-
-import java.util.List;
 
 /**
  * This is the main entry-point into the WebView back end implementations, which the WebView
@@ -77,26 +74,6 @@ public interface WebViewFactoryProvider {
          * {@link android.webkit.WebChromeClient.FileChooserParams#parseResult(int, Intent)}
          */
         Uri[] parseFileChooserResult(int resultCode, Intent intent);
-
-        /**
-         * Implement the API method
-         * {@link android.webkit.WebView#startSafeBrowsing(Context , ValueCallback<Boolean>)}
-         */
-        void initSafeBrowsing(Context context, ValueCallback<Boolean> callback);
-
-        /**
-        * Implement the API method
-        * {@link android.webkit.WebView#setSafeBrowsingWhitelist(List<String>,
-        * ValueCallback<Boolean>)}
-        */
-        void setSafeBrowsingWhitelist(List<String> urls, ValueCallback<Boolean> callback);
-
-        /**
-         * Implement the API method
-         * {@link android.webkit.WebView#getSafeBrowsingPrivacyPolicyUrl()}
-         */
-        @NonNull
-        Uri getSafeBrowsingPrivacyPolicyUrl();
     }
 
     Statics getStatics();

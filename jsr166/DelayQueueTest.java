@@ -27,7 +27,7 @@ import junit.framework.Test;
 
 public class DelayQueueTest extends JSR166TestCase {
 
-    // Android-changed: Extend BlockingQueueTest directly instead of creating
+    // android-changed: Extend BlockingQueueTest directly instead of creating
     // an inner class and its associated suite.
     //
     // public static class Generic extends BlockingQueueTest {

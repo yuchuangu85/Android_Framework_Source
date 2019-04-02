@@ -390,17 +390,15 @@ public abstract class RegisteredServicesCache<V> {
     @VisibleForTesting
     protected boolean inSystemImage(int callerUid) {
         String[] packages = mContext.getPackageManager().getPackagesForUid(callerUid);
-        if (packages != null) {
-            for (String name : packages) {
-                try {
-                    PackageInfo packageInfo =
-                            mContext.getPackageManager().getPackageInfo(name, 0 /* flags */);
-                    if ((packageInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
-                        return true;
-                    }
-                } catch (PackageManager.NameNotFoundException e) {
-                    return false;
+        for (String name : packages) {
+            try {
+                PackageInfo packageInfo =
+                        mContext.getPackageManager().getPackageInfo(name, 0 /* flags */);
+                if ((packageInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
+                    return true;
                 }
+            } catch (PackageManager.NameNotFoundException e) {
+                return false;
             }
         }
         return false;

@@ -18,18 +18,551 @@ package android.support.v4.view.accessibility;
 
 import android.os.Build;
 import android.os.Parcelable;
-import android.support.annotation.NonNull;
 import android.view.View;
 import android.view.accessibility.AccessibilityEvent;
-import android.view.accessibility.AccessibilityRecord;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
- * Helper for accessing {@link AccessibilityRecord}.
+ * Helper for accessing {@link android.view.accessibility.AccessibilityRecord}
+ * introduced after API level 4 in a backwards compatible fashion.
  */
 public class AccessibilityRecordCompat {
-    private final AccessibilityRecord mRecord;
+
+    static interface AccessibilityRecordImpl {
+        public Object obtain();
+        public Object obtain(Object record);
+        public void setSource(Object record, View source);
+        public void setSource(Object record, View root, int virtualDescendantId);
+        public AccessibilityNodeInfoCompat getSource(Object record);
+        public int getWindowId(Object record);
+        public boolean isChecked(Object record);
+        public void setChecked(Object record, boolean isChecked);
+        public boolean isEnabled(Object record);
+        public void setEnabled(Object record, boolean isEnabled);
+        public boolean isPassword(Object record);
+        public void setPassword(Object record, boolean isPassword);
+        public boolean isFullScreen(Object record);
+        public void setFullScreen(Object record, boolean isFullScreen);
+        public boolean isScrollable(Object record);
+        public void setScrollable(Object record, boolean scrollable);
+        public int getItemCount(Object record);
+        public void setItemCount(Object record, int itemCount);
+        public int getCurrentItemIndex(Object record);
+        public void setCurrentItemIndex(Object record, int currentItemIndex);
+        public int getFromIndex(Object record);
+        public void setFromIndex(Object record, int fromIndex);
+        public int getToIndex(Object record);
+        public void setToIndex(Object record, int toIndex);
+        public int getScrollX(Object record);
+        public void setScrollX(Object record, int scrollX);
+        public int getScrollY(Object record);
+        public void setScrollY(Object record, int scrollY);
+        public int getMaxScrollX(Object record);
+        public void setMaxScrollX(Object record, int maxScrollX);
+        public int getMaxScrollY(Object record);
+        public void setMaxScrollY(Object record, int maxScrollY);
+        public int getAddedCount(Object record);
+        public void setAddedCount(Object record, int addedCount);
+        public int getRemovedCount(Object record);
+        public void setRemovedCount(Object record, int removedCount);
+        public CharSequence getClassName(Object record);
+        public void setClassName(Object record, CharSequence className);
+        public List<CharSequence> getText(Object record);
+        public CharSequence getBeforeText(Object record);
+        public void setBeforeText(Object record, CharSequence beforeText);
+        public CharSequence getContentDescription(Object record);
+        public void setContentDescription(Object record, CharSequence contentDescription);
+        public Parcelable getParcelableData(Object record);
+        public void setParcelableData(Object record, Parcelable parcelableData);
+        public void recycle(Object record);
+    }
+
+    static class AccessibilityRecordStubImpl implements AccessibilityRecordImpl {
+        @Override
+        public Object obtain() {
+            return null;
+        }
+
+        @Override
+        public Object obtain(Object record) {
+            return null;
+        }
+
+        @Override
+        public int getAddedCount(Object record) {
+            return 0;
+        }
+
+        @Override
+        public CharSequence getBeforeText(Object record) {
+            return null;
+        }
+
+        @Override
+        public CharSequence getClassName(Object record) {
+            return null;
+        }
+
+        @Override
+        public CharSequence getContentDescription(Object record) {
+            return null;
+        }
+
+        @Override
+        public int getCurrentItemIndex(Object record) {
+            return 0;
+        }
+
+        @Override
+        public int getFromIndex(Object record) {
+            return 0;
+        }
+
+        @Override
+        public int getItemCount(Object record) {
+            return 0;
+        }
+
+        @Override
+        public int getMaxScrollX(Object record) {
+            return 0;
+        }
+
+        @Override
+        public int getMaxScrollY(Object record) {
+            return 0;
+        }
+
+        @Override
+        public Parcelable getParcelableData(Object record) {
+            return null;
+        }
+
+        @Override
+        public int getRemovedCount(Object record) {
+            return 0;
+        }
+
+        @Override
+        public int getScrollX(Object record) {
+            return 0;
+        }
+
+        @Override
+        public int getScrollY(Object record) {
+            return 0;
+        }
+
+        @Override
+        public AccessibilityNodeInfoCompat getSource(Object record) {
+            return null;
+        }
+
+        @Override
+        public List<CharSequence> getText(Object record) {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public int getToIndex(Object record) {
+            return 0;
+        }
+
+        @Override
+        public int getWindowId(Object record) {
+            return 0;
+        }
+
+        @Override
+        public boolean isChecked(Object record) {
+            return false;
+        }
+
+        @Override
+        public boolean isEnabled(Object record) {
+            return false;
+        }
+
+        @Override
+        public boolean isFullScreen(Object record) {
+            return false;
+        }
+
+        @Override
+        public boolean isPassword(Object record) {
+            return false;
+        }
+
+        @Override
+        public boolean isScrollable(Object record) {
+            return false;
+        }
+
+        @Override
+        public void recycle(Object record) {
+
+        }
+
+        @Override
+        public void setAddedCount(Object record, int addedCount) {
+
+        }
+
+        @Override
+        public void setBeforeText(Object record, CharSequence beforeText) {
+
+        }
+
+        @Override
+        public void setChecked(Object record, boolean isChecked) {
+
+        }
+
+        @Override
+        public void setClassName(Object record, CharSequence className) {
+
+        }
+
+        @Override
+        public void setContentDescription(Object record, CharSequence contentDescription) {
+
+        }
+
+        @Override
+        public void setCurrentItemIndex(Object record, int currentItemIndex) {
+
+        }
+
+        @Override
+        public void setEnabled(Object record, boolean isEnabled) {
+
+        }
+
+        @Override
+        public void setFromIndex(Object record, int fromIndex) {
+
+        }
+
+        @Override
+        public void setFullScreen(Object record, boolean isFullScreen) {
+
+        }
+
+        @Override
+        public void setItemCount(Object record, int itemCount) {
+
+        }
+
+        @Override
+        public void setMaxScrollX(Object record, int maxScrollX) {
+
+        }
+
+        @Override
+        public void setMaxScrollY(Object record, int maxScrollY) {
+
+        }
+
+        @Override
+        public void setParcelableData(Object record, Parcelable parcelableData) {
+
+        }
+
+        @Override
+        public void setPassword(Object record, boolean isPassword) {
+
+        }
+
+        @Override
+        public void setRemovedCount(Object record, int removedCount) {
+
+        }
+
+        @Override
+        public void setScrollX(Object record, int scrollX) {
+
+        }
+
+        @Override
+        public void setScrollY(Object record, int scrollY) {
+
+        }
+
+        @Override
+        public void setScrollable(Object record, boolean scrollable) {
+
+        }
+
+        @Override
+        public void setSource(Object record, View source) {
+
+        }
+
+        @Override
+        public void setSource(Object record, View root, int virtualDescendantId) {
+
+        }
+
+        @Override
+        public void setToIndex(Object record, int toIndex) {
+
+        }
+    }
+
+    static class AccessibilityRecordIcsImpl extends AccessibilityRecordStubImpl {
+        @Override
+        public Object obtain() {
+            return AccessibilityRecordCompatIcs.obtain();
+        }
+
+        @Override
+        public Object obtain(Object record) {
+            return AccessibilityRecordCompatIcs.obtain(record);
+        }
+
+        @Override
+        public int getAddedCount(Object record) {
+            return AccessibilityRecordCompatIcs.getAddedCount(record);
+        }
+
+        @Override
+        public CharSequence getBeforeText(Object record) {
+            return AccessibilityRecordCompatIcs.getBeforeText(record);
+        }
+
+        @Override
+        public CharSequence getClassName(Object record) {
+            return AccessibilityRecordCompatIcs.getClassName(record);
+        }
+
+        @Override
+        public CharSequence getContentDescription(Object record) {
+            return AccessibilityRecordCompatIcs.getContentDescription(record);
+        }
+
+        @Override
+        public int getCurrentItemIndex(Object record) {
+            return AccessibilityRecordCompatIcs.getCurrentItemIndex(record);
+        }
+
+        @Override
+        public int getFromIndex(Object record) {
+            return AccessibilityRecordCompatIcs.getFromIndex(record);
+        }
+
+        @Override
+        public int getItemCount(Object record) {
+            return AccessibilityRecordCompatIcs.getItemCount(record);
+        }
+
+        @Override
+        public Parcelable getParcelableData(Object record) {
+            return AccessibilityRecordCompatIcs.getParcelableData(record);
+        }
+
+        @Override
+        public int getRemovedCount(Object record) {
+            return AccessibilityRecordCompatIcs.getRemovedCount(record);
+        }
+
+        @Override
+        public int getScrollX(Object record) {
+            return AccessibilityRecordCompatIcs.getScrollX(record);
+        }
+
+        @Override
+        public int getScrollY(Object record) {
+            return AccessibilityRecordCompatIcs.getScrollY(record);
+        }
+
+        @Override
+        public AccessibilityNodeInfoCompat getSource(Object record) {
+            return AccessibilityNodeInfoCompat.wrapNonNullInstance(
+                    AccessibilityRecordCompatIcs.getSource(record));
+        }
+
+        @Override
+        public List<CharSequence> getText(Object record) {
+            return AccessibilityRecordCompatIcs.getText(record);
+        }
+
+        @Override
+        public int getToIndex(Object record) {
+            return AccessibilityRecordCompatIcs.getToIndex(record);
+        }
+
+        @Override
+        public int getWindowId(Object record) {
+            return AccessibilityRecordCompatIcs.getWindowId(record);
+        }
+
+        @Override
+        public boolean isChecked(Object record) {
+            return AccessibilityRecordCompatIcs.isChecked(record);
+        }
+
+        @Override
+        public boolean isEnabled(Object record) {
+            return AccessibilityRecordCompatIcs.isEnabled(record);
+        }
+
+        @Override
+        public boolean isFullScreen(Object record) {
+            return AccessibilityRecordCompatIcs.isFullScreen(record);
+        }
+
+        @Override
+        public boolean isPassword(Object record) {
+            return AccessibilityRecordCompatIcs.isPassword(record);
+        }
+
+        @Override
+        public boolean isScrollable(Object record) {
+            return AccessibilityRecordCompatIcs.isScrollable(record);
+        }
+
+        @Override
+        public void recycle(Object record) {
+            AccessibilityRecordCompatIcs.recycle(record);
+        }
+
+        @Override
+        public void setAddedCount(Object record, int addedCount) {
+            AccessibilityRecordCompatIcs.setAddedCount(record, addedCount);
+        }
+
+        @Override
+        public void setBeforeText(Object record, CharSequence beforeText) {
+            AccessibilityRecordCompatIcs.setBeforeText(record, beforeText);
+        }
+
+        @Override
+        public void setChecked(Object record, boolean isChecked) {
+            AccessibilityRecordCompatIcs.setChecked(record, isChecked);
+        }
+
+        @Override
+        public void setClassName(Object record, CharSequence className) {
+            AccessibilityRecordCompatIcs.setClassName(record, className);
+        }
+
+        @Override
+        public void setContentDescription(Object record, CharSequence contentDescription) {
+            AccessibilityRecordCompatIcs.setContentDescription(record, contentDescription);
+        }
+
+        @Override
+        public void setCurrentItemIndex(Object record, int currentItemIndex) {
+            AccessibilityRecordCompatIcs.setCurrentItemIndex(record, currentItemIndex);
+        }
+
+        @Override
+        public void setEnabled(Object record, boolean isEnabled) {
+            AccessibilityRecordCompatIcs.setEnabled(record, isEnabled);
+        }
+
+        @Override
+        public void setFromIndex(Object record, int fromIndex) {
+            AccessibilityRecordCompatIcs.setFromIndex(record, fromIndex);
+        }
+
+        @Override
+        public void setFullScreen(Object record, boolean isFullScreen) {
+            AccessibilityRecordCompatIcs.setFullScreen(record, isFullScreen);
+        }
+
+        @Override
+        public void setItemCount(Object record, int itemCount) {
+            AccessibilityRecordCompatIcs.setItemCount(record, itemCount);
+        }
+
+        @Override
+        public void setParcelableData(Object record, Parcelable parcelableData) {
+            AccessibilityRecordCompatIcs.setParcelableData(record, parcelableData);
+        }
+
+        @Override
+        public void setPassword(Object record, boolean isPassword) {
+            AccessibilityRecordCompatIcs.setPassword(record, isPassword);
+        }
+
+        @Override
+        public void setRemovedCount(Object record, int removedCount) {
+            AccessibilityRecordCompatIcs.setRemovedCount(record, removedCount);
+        }
+
+        @Override
+        public void setScrollX(Object record, int scrollX) {
+            AccessibilityRecordCompatIcs.setScrollX(record, scrollX);
+        }
+
+        @Override
+        public void setScrollY(Object record, int scrollY) {
+            AccessibilityRecordCompatIcs.setScrollY(record, scrollY);
+        }
+
+        @Override
+        public void setScrollable(Object record, boolean scrollable) {
+            AccessibilityRecordCompatIcs.setScrollable(record, scrollable);
+        }
+
+        @Override
+        public void setSource(Object record, View source) {
+            AccessibilityRecordCompatIcs.setSource(record, source);
+        }
+
+        @Override
+        public void setToIndex(Object record, int toIndex) {
+            AccessibilityRecordCompatIcs.setToIndex(record, toIndex);
+        }
+    }
+
+    static class AccessibilityRecordIcsMr1Impl extends AccessibilityRecordIcsImpl {
+        @Override
+        public int getMaxScrollX(Object record) {
+            return AccessibilityRecordCompatIcsMr1.getMaxScrollX(record);
+        }
+
+        @Override
+        public int getMaxScrollY(Object record) {
+            return AccessibilityRecordCompatIcsMr1.getMaxScrollY(record);
+        }
+
+        @Override
+        public void setMaxScrollX(Object record, int maxScrollX) {
+            AccessibilityRecordCompatIcsMr1.setMaxScrollX(record, maxScrollX);
+        }
+
+        @Override
+        public void setMaxScrollY(Object record, int maxScrollY) {
+            AccessibilityRecordCompatIcsMr1.setMaxScrollY(record, maxScrollY);
+        }
+    }
+
+    static class AccessibilityRecordJellyBeanImpl extends AccessibilityRecordIcsMr1Impl {
+        @Override
+        public void setSource(Object record, View root, int virtualDescendantId) {
+            AccessibilityRecordCompatJellyBean.setSource(record, root, virtualDescendantId);
+        }
+    }
+
+    static {
+        if (Build.VERSION.SDK_INT >= 16) { // JellyBean
+            IMPL = new AccessibilityRecordJellyBeanImpl();
+        } else if (Build.VERSION.SDK_INT >= 15) {  // ICS MR1
+            IMPL = new AccessibilityRecordIcsMr1Impl();
+        } else if (Build.VERSION.SDK_INT >= 14) { // ICS
+            IMPL = new AccessibilityRecordIcsImpl();
+        } else {
+            IMPL = new AccessibilityRecordStubImpl();
+        }
+    }
+
+    private static final AccessibilityRecordImpl IMPL;
+
+    private final Object mRecord;
 
     /**
      * @deprecated This is not type safe. If you want to modify an
@@ -40,7 +573,7 @@ public class AccessibilityRecordCompat {
      */
     @Deprecated
     public AccessibilityRecordCompat(Object record) {
-        mRecord = (AccessibilityRecord) record;
+        mRecord = record;
     }
 
     /**
@@ -60,12 +593,9 @@ public class AccessibilityRecordCompat {
      * given record.
      *
      * @return An instance.
-     *
-     * @deprecated Use {@link AccessibilityRecord#obtain(AccessibilityRecord)} directly.
      */
-    @Deprecated
     public static AccessibilityRecordCompat obtain(AccessibilityRecordCompat record) {
-        return new AccessibilityRecordCompat(AccessibilityRecord.obtain(record.mRecord));
+       return new AccessibilityRecordCompat(IMPL.obtain(record.mRecord));
     }
 
     /**
@@ -73,12 +603,9 @@ public class AccessibilityRecordCompat {
      * instantiated.
      *
      * @return An instance.
-     *
-     * @deprecated Use {@link AccessibilityRecord#obtain()} directly.
      */
-    @Deprecated
     public static AccessibilityRecordCompat obtain() {
-        return new AccessibilityRecordCompat(AccessibilityRecord.obtain());
+        return new AccessibilityRecordCompat(IMPL.obtain());
     }
 
     /**
@@ -87,12 +614,9 @@ public class AccessibilityRecordCompat {
      * @param source The source.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setSource(View)} directly.
      */
-    @Deprecated
     public void setSource(View source) {
-        mRecord.setSource(source);
+        IMPL.setSource(mRecord, source);
     }
 
     /**
@@ -108,34 +632,9 @@ public class AccessibilityRecordCompat {
      *
      * @param root The root of the virtual subtree.
      * @param virtualDescendantId The id of the virtual descendant.
-     *
-     * @deprecated Use {@link #setSource(AccessibilityRecord, View, int)} instead.
      */
-    @Deprecated
     public void setSource(View root, int virtualDescendantId) {
-        AccessibilityRecordCompat.setSource(mRecord, root, virtualDescendantId);
-    }
-
-    /**
-     * Sets the source to be a virtual descendant of the given <code>root</code>.
-     * If <code>virtualDescendantId</code> equals to {@link View#NO_ID} the root
-     * is set as the source.
-     * <p>
-     * A virtual descendant is an imaginary View that is reported as a part of the view
-     * hierarchy for accessibility purposes. This enables custom views that draw complex
-     * content to report them selves as a tree of virtual views, thus conveying their
-     * logical structure.
-     * </p>
-     *
-     * @param record The {@link AccessibilityRecord} instance to use.
-     * @param root The root of the virtual subtree.
-     * @param virtualDescendantId The id of the virtual descendant.
-     */
-    public static void setSource(@NonNull AccessibilityRecord record, View root,
-            int virtualDescendantId) {
-        if (Build.VERSION.SDK_INT >= 16) {
-            record.setSource(root, virtualDescendantId);
-        }
+        IMPL.setSource(mRecord, root, virtualDescendantId);
     }
 
     /**
@@ -149,36 +648,27 @@ public class AccessibilityRecordCompat {
      *</p>
      *
      * @return The info of the source.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getSource()} directly.
      */
-    @Deprecated
     public AccessibilityNodeInfoCompat getSource() {
-        return AccessibilityNodeInfoCompat.wrapNonNullInstance(mRecord.getSource());
+        return IMPL.getSource(mRecord);
     }
 
     /**
      * Gets the id of the window from which the event comes from.
      *
      * @return The window id.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getWindowId()} directly.
      */
-    @Deprecated
     public int getWindowId() {
-        return mRecord.getWindowId();
+        return IMPL.getWindowId(mRecord);
     }
 
     /**
      * Gets if the source is checked.
      *
      * @return True if the view is checked, false otherwise.
-     *
-     * @deprecated Use {@link AccessibilityRecord#isChecked()} directly.
      */
-    @Deprecated
     public boolean isChecked() {
-        return mRecord.isChecked();
+        return IMPL.isChecked(mRecord);
     }
 
     /**
@@ -187,24 +677,18 @@ public class AccessibilityRecordCompat {
      * @param isChecked True if the view is checked, false otherwise.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setChecked(boolean)} directly.
      */
-    @Deprecated
     public void setChecked(boolean isChecked) {
-        mRecord.setChecked(isChecked);
+        IMPL.setChecked(mRecord, isChecked);
     }
 
     /**
      * Gets if the source is enabled.
      *
      * @return True if the view is enabled, false otherwise.
-     *
-     * @deprecated Use {@link AccessibilityRecord#isEnabled()} directly.
      */
-    @Deprecated
     public boolean isEnabled() {
-        return mRecord.isEnabled();
+        return IMPL.isEnabled(mRecord);
     }
 
     /**
@@ -213,24 +697,18 @@ public class AccessibilityRecordCompat {
      * @param isEnabled True if the view is enabled, false otherwise.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#isEnabled()} directly.
      */
-    @Deprecated
     public void setEnabled(boolean isEnabled) {
-        mRecord.setEnabled(isEnabled);
+        IMPL.setEnabled(mRecord, isEnabled);
     }
 
     /**
      * Gets if the source is a password field.
      *
      * @return True if the view is a password field, false otherwise.
-     *
-     * @deprecated Use {@link AccessibilityRecord#isPassword()} directly.
      */
-    @Deprecated
     public boolean isPassword() {
-        return mRecord.isPassword();
+        return IMPL.isPassword(mRecord);
     }
 
     /**
@@ -239,24 +717,18 @@ public class AccessibilityRecordCompat {
      * @param isPassword True if the view is a password field, false otherwise.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setPassword(boolean)} directly.
      */
-    @Deprecated
     public void setPassword(boolean isPassword) {
-        mRecord.setPassword(isPassword);
+        IMPL.setPassword(mRecord, isPassword);
     }
 
     /**
      * Gets if the source is taking the entire screen.
      *
      * @return True if the source is full screen, false otherwise.
-     *
-     * @deprecated Use {@link AccessibilityRecord#isFullScreen()} directly.
      */
-    @Deprecated
     public boolean isFullScreen() {
-        return mRecord.isFullScreen();
+        return IMPL.isFullScreen(mRecord);
     }
 
     /**
@@ -265,24 +737,18 @@ public class AccessibilityRecordCompat {
      * @param isFullScreen True if the source is full screen, false otherwise.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setFullScreen(boolean)} directly.
      */
-    @Deprecated
     public void setFullScreen(boolean isFullScreen) {
-        mRecord.setFullScreen(isFullScreen);
+        IMPL.setFullScreen(mRecord, isFullScreen);
     }
 
     /**
      * Gets if the source is scrollable.
      *
      * @return True if the source is scrollable, false otherwise.
-     *
-     * @deprecated Use {@link AccessibilityRecord#isScrollable()} directly.
      */
-    @Deprecated
     public boolean isScrollable() {
-        return mRecord.isScrollable();
+        return IMPL.isScrollable(mRecord);
     }
 
     /**
@@ -291,24 +757,18 @@ public class AccessibilityRecordCompat {
      * @param scrollable True if the source is scrollable, false otherwise.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setScrollable(boolean)} directly.
      */
-    @Deprecated
     public void setScrollable(boolean scrollable) {
-        mRecord.setScrollable(scrollable);
+        IMPL.setScrollable(mRecord, scrollable);
     }
 
     /**
      * Gets the number of items that can be visited.
      *
      * @return The number of items.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getItemCount()} directly.
      */
-    @Deprecated
     public int getItemCount() {
-        return mRecord.getItemCount();
+        return IMPL.getItemCount(mRecord);
     }
 
     /**
@@ -317,24 +777,18 @@ public class AccessibilityRecordCompat {
      * @param itemCount The number of items.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setItemCount(int)} directly.
      */
-    @Deprecated
     public void setItemCount(int itemCount) {
-        mRecord.setItemCount(itemCount);
+        IMPL.setItemCount(mRecord, itemCount);
     }
 
     /**
      * Gets the index of the source in the list of items the can be visited.
      *
      * @return The current item index.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getCurrentItemIndex()} directly.
      */
-    @Deprecated
     public int getCurrentItemIndex() {
-        return mRecord.getCurrentItemIndex();
+        return IMPL.getCurrentItemIndex(mRecord);
     }
 
     /**
@@ -343,12 +797,9 @@ public class AccessibilityRecordCompat {
      * @param currentItemIndex The current item index.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setCurrentItemIndex(int)} directly.
      */
-    @Deprecated
     public void setCurrentItemIndex(int currentItemIndex) {
-        mRecord.setCurrentItemIndex(currentItemIndex);
+        IMPL.setCurrentItemIndex(mRecord, currentItemIndex);
     }
 
     /**
@@ -358,12 +809,9 @@ public class AccessibilityRecordCompat {
      *
      * @return The index of the first character or selection
      *        start or the first visible item.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getFromIndex()} directly.
      */
-    @Deprecated
     public int getFromIndex() {
-        return mRecord.getFromIndex();
+        return IMPL.getFromIndex(mRecord);
     }
 
     /**
@@ -375,12 +823,9 @@ public class AccessibilityRecordCompat {
      *        start or the first visible item.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setFromIndex(int)} directly.
      */
-    @Deprecated
     public void setFromIndex(int fromIndex) {
-        mRecord.setFromIndex(fromIndex);
+        IMPL.setFromIndex(mRecord, fromIndex);
     }
 
     /**
@@ -388,12 +833,9 @@ public class AccessibilityRecordCompat {
      * visible item when scrolling.
      *
      * @return The index of selection end or last item index.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getToIndex()} directly.
      */
-    @Deprecated
     public int getToIndex() {
-        return mRecord.getToIndex();
+        return IMPL.getToIndex(mRecord);
     }
 
     /**
@@ -401,172 +843,89 @@ public class AccessibilityRecordCompat {
      * visible item when scrolling.
      *
      * @param toIndex The index of selection end or last item index.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setToIndex(int)} directly.
      */
-    @Deprecated
     public void setToIndex(int toIndex) {
-        mRecord.setToIndex(toIndex);
+        IMPL.setToIndex(mRecord, toIndex);
     }
 
     /**
      * Gets the scroll offset of the source left edge in pixels.
      *
      * @return The scroll.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getScrollX()} directly.
      */
-    @Deprecated
     public int getScrollX() {
-        return mRecord.getScrollX();
+        return IMPL.getScrollX(mRecord);
     }
 
     /**
      * Sets the scroll offset of the source left edge in pixels.
      *
      * @param scrollX The scroll.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setScrollX(int)} directly.
      */
-    @Deprecated
     public void setScrollX(int scrollX) {
-        mRecord.setScrollX(scrollX);
+        IMPL.setScrollX(mRecord, scrollX);
     }
 
     /**
      * Gets the scroll offset of the source top edge in pixels.
      *
      * @return The scroll.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getScrollY()} directly.
      */
-    @Deprecated
     public int getScrollY() {
-        return mRecord.getScrollY();
+        return IMPL.getScrollY(mRecord);
     }
 
     /**
      * Sets the scroll offset of the source top edge in pixels.
      *
      * @param scrollY The scroll.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setScrollY(int)} directly.
      */
-    @Deprecated
     public void setScrollY(int scrollY) {
-        mRecord.setScrollY(scrollY);
+        IMPL.setScrollY(mRecord, scrollY);
     }
 
     /**
      * Gets the max scroll offset of the source left edge in pixels.
      *
      * @return The max scroll.
-     *
-     * @deprecated Use {@link #getMaxScrollX(AccessibilityRecord)} instead.
      */
-    @Deprecated
     public int getMaxScrollX() {
-        return AccessibilityRecordCompat.getMaxScrollX(mRecord);
+        return IMPL.getMaxScrollX(mRecord);
     }
-
-    /**
-     * Gets the max scroll offset of the source left edge in pixels.
-     *
-     * @param record The {@link AccessibilityRecord} instance to use.
-     * @return The max scroll.
-     */
-    public static int getMaxScrollX(AccessibilityRecord record) {
-        if (Build.VERSION.SDK_INT >= 15) {
-            return record.getMaxScrollX();
-        } else {
-            return 0;
-        }
-    }
-
     /**
      * Sets the max scroll offset of the source left edge in pixels.
      *
      * @param maxScrollX The max scroll.
-     *
-     * @deprecated Use {@link #setMaxScrollX(AccessibilityRecord, int)} instead.
      */
-    @Deprecated
     public void setMaxScrollX(int maxScrollX) {
-        AccessibilityRecordCompat.setMaxScrollX(mRecord, maxScrollX);
-    }
-
-    /**
-     * Sets the max scroll offset of the source left edge in pixels.
-     *
-     * @param record The {@link AccessibilityRecord} instance to use.
-     * @param maxScrollX The max scroll.
-     */
-    public static void setMaxScrollX(AccessibilityRecord record, int maxScrollX) {
-        if (Build.VERSION.SDK_INT >= 15) {
-            record.setMaxScrollX(maxScrollX);
-        }
+        IMPL.setMaxScrollX(mRecord, maxScrollX);
     }
 
     /**
      * Gets the max scroll offset of the source top edge in pixels.
      *
      * @return The max scroll.
-     *
-     * @deprecated Use {@link #getMaxScrollY(AccessibilityRecord)} instead.
      */
-    @Deprecated
     public int getMaxScrollY() {
-        return AccessibilityRecordCompat.getMaxScrollY(mRecord);
-    }
-
-    /**
-     * Gets the max scroll offset of the source top edge in pixels.
-     *
-     * @param record The {@link AccessibilityRecord} instance to use.
-     * @return The max scroll.
-     */
-    public static int getMaxScrollY(AccessibilityRecord record) {
-        if (Build.VERSION.SDK_INT >= 15) {
-            return record.getMaxScrollY();
-        } else {
-            return 0;
-        }
+        return IMPL.getMaxScrollY(mRecord);
     }
 
     /**
      * Sets the max scroll offset of the source top edge in pixels.
      *
      * @param maxScrollY The max scroll.
-     *
-     * @deprecated Use {@link #setMaxScrollY(AccessibilityRecord, int)} instead.
      */
-    @Deprecated
     public void setMaxScrollY(int maxScrollY) {
-        AccessibilityRecordCompat.setMaxScrollY(mRecord, maxScrollY);
-    }
-
-    /**
-     * Sets the max scroll offset of the source top edge in pixels.
-     *
-     * @param record The {@link AccessibilityRecord} instance to use.
-     * @param maxScrollY The max scroll.
-     */
-    public static void setMaxScrollY(AccessibilityRecord record, int maxScrollY) {
-        if (Build.VERSION.SDK_INT >= 15) {
-            record.setMaxScrollY(maxScrollY);
-        }
+        IMPL.setMaxScrollY(mRecord, maxScrollY);
     }
 
     /**
      * Gets the number of added characters.
      *
      * @return The number of added characters.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getAddedCount()} directly.
      */
-    @Deprecated
     public int getAddedCount() {
-        return mRecord.getAddedCount();
+        return IMPL.getAddedCount(mRecord);
     }
 
     /**
@@ -575,24 +934,18 @@ public class AccessibilityRecordCompat {
      * @param addedCount The number of added characters.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setAddedCount(int)} directly.
      */
-    @Deprecated
     public void setAddedCount(int addedCount) {
-        mRecord.setAddedCount(addedCount);
+        IMPL.setAddedCount(mRecord, addedCount);
     }
 
     /**
      * Gets the number of removed characters.
      *
      * @return The number of removed characters.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getRemovedCount()} directly.
      */
-    @Deprecated
     public int getRemovedCount() {
-        return mRecord.getRemovedCount();
+        return IMPL.getRemovedCount(mRecord);
     }
 
     /**
@@ -601,24 +954,18 @@ public class AccessibilityRecordCompat {
      * @param removedCount The number of removed characters.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setRemovedCount(int)} directly.
      */
-    @Deprecated
     public void setRemovedCount(int removedCount) {
-        mRecord.setRemovedCount(removedCount);
+        IMPL.setRemovedCount(mRecord, removedCount);
     }
 
     /**
      * Gets the class name of the source.
      *
      * @return The class name.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getClassName()} directly.
      */
-    @Deprecated
     public CharSequence getClassName() {
-        return mRecord.getClassName();
+        return IMPL.getClassName(mRecord);
     }
 
     /**
@@ -627,12 +974,9 @@ public class AccessibilityRecordCompat {
      * @param className The lass name.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setClassName(CharSequence)} directly.
      */
-    @Deprecated
     public void setClassName(CharSequence className) {
-        mRecord.setClassName(className);
+        IMPL.setClassName(mRecord, className);
     }
 
     /**
@@ -640,24 +984,18 @@ public class AccessibilityRecordCompat {
      * of the text. Specifically, the lower the index the higher the priority.
      *
      * @return The text.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getText()} directly.
      */
-    @Deprecated
     public List<CharSequence> getText() {
-        return mRecord.getText();
+        return IMPL.getText(mRecord);
     }
 
     /**
      * Sets the text before a change.
      *
      * @return The text before the change.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getBeforeText()} directly.
      */
-    @Deprecated
     public CharSequence getBeforeText() {
-        return mRecord.getBeforeText();
+        return IMPL.getBeforeText(mRecord);
     }
 
     /**
@@ -666,24 +1004,18 @@ public class AccessibilityRecordCompat {
      * @param beforeText The text before the change.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setBeforeText(CharSequence)} directly.
      */
-    @Deprecated
     public void setBeforeText(CharSequence beforeText) {
-        mRecord.setBeforeText(beforeText);
+        IMPL.setBeforeText(mRecord, beforeText);
     }
 
     /**
      * Gets the description of the source.
      *
      * @return The description.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getContentDescription()} directly.
      */
-    @Deprecated
     public CharSequence getContentDescription() {
-        return mRecord.getContentDescription();
+        return IMPL.getContentDescription(mRecord);
     }
 
     /**
@@ -692,24 +1024,18 @@ public class AccessibilityRecordCompat {
      * @param contentDescription The description.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setContentDescription(CharSequence)} directly.
      */
-    @Deprecated
     public void setContentDescription(CharSequence contentDescription) {
-        mRecord.setContentDescription(contentDescription);
+        IMPL.setContentDescription(mRecord, contentDescription);
     }
 
     /**
      * Gets the {@link Parcelable} data.
      *
      * @return The parcelable data.
-     *
-     * @deprecated Use {@link AccessibilityRecord#getParcelableData()} directly.
      */
-    @Deprecated
     public Parcelable getParcelableData() {
-        return mRecord.getParcelableData();
+        return IMPL.getParcelableData(mRecord);
     }
 
     /**
@@ -718,12 +1044,9 @@ public class AccessibilityRecordCompat {
      * @param parcelableData The parcelable data.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
-     *
-     * @deprecated Use {@link AccessibilityRecord#setParcelableData(Parcelable)} directly.
      */
-    @Deprecated
     public void setParcelableData(Parcelable parcelableData) {
-        mRecord.setParcelableData(parcelableData);
+        IMPL.setParcelableData(mRecord, parcelableData);
     }
 
     /**
@@ -734,27 +1057,17 @@ public class AccessibilityRecordCompat {
      * </p>
      *
      * @throws IllegalStateException If the record is already recycled.
-     *
-     * @deprecated Use {@link AccessibilityRecord#recycle()} directly.
      */
-    @Deprecated
     public void recycle() {
-        mRecord.recycle();
+        IMPL.recycle(mRecord);
     }
 
-    /**
-     * @deprecated Use {@link AccessibilityRecord#hashCode()} directly.
-     */
-    @Deprecated
     @Override
     public int hashCode() {
         return (mRecord == null) ? 0 : mRecord.hashCode();
     }
 
-    /**
-     * @deprecated Use {@link AccessibilityRecord} directly.
-     */
-    @Deprecated
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {

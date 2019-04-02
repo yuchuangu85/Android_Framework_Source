@@ -21,21 +21,17 @@ import android.content.Intent;
 import android.content.res.Configuration;
 
 import android.provider.Settings;
-import android.service.quicksettings.Tile;
 import android.widget.Switch;
 
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
-import com.android.systemui.Dependency;
+import com.android.internal.logging.MetricsProto.MetricsEvent;
 import com.android.systemui.R;
-import com.android.systemui.qs.QSHost;
-import com.android.systemui.plugins.qs.QSTile.BooleanState;
-import com.android.systemui.qs.tileimpl.QSTileImpl;
+import com.android.systemui.qs.QSTile;
 import com.android.systemui.statusbar.policy.RotationLockController;
 import com.android.systemui.statusbar.policy.RotationLockController.RotationLockControllerCallback;
 
 /** Quick settings tile: Rotation **/
-public class RotationLockTile extends QSTileImpl<BooleanState> {
+public class RotationLockTile extends QSTile<QSTile.BooleanState> {
     private final AnimationIcon mPortraitToAuto
             = new AnimationIcon(R.drawable.ic_portrait_to_auto_rotate_animation,
             R.drawable.ic_portrait_from_auto_rotate);
@@ -52,9 +48,9 @@ public class RotationLockTile extends QSTileImpl<BooleanState> {
 
     private final RotationLockController mController;
 
-    public RotationLockTile(QSHost host) {
+    public RotationLockTile(Host host) {
         super(host);
-        mController = Dependency.get(RotationLockController.class);
+        mController = host.getRotationLockController();
     }
 
     @Override
@@ -62,12 +58,12 @@ public class RotationLockTile extends QSTileImpl<BooleanState> {
         return new BooleanState();
     }
 
-    public void handleSetListening(boolean listening) {
+    public void setListening(boolean listening) {
         if (mController == null) return;
         if (listening) {
-            mController.addCallback(mCallback);
+            mController.addRotationLockControllerCallback(mCallback);
         } else {
-            mController.removeCallback(mCallback);
+            mController.removeRotationLockControllerCallback(mCallback);
         }
     }
 
@@ -79,6 +75,7 @@ public class RotationLockTile extends QSTileImpl<BooleanState> {
     @Override
     protected void handleClick() {
         if (mController == null) return;
+        MetricsLogger.action(mContext, getMetricsCategory(), !mState.value);
         final boolean newState = !mState.value;
         mController.setRotationLocked(!newState);
         refreshState(newState);
@@ -107,8 +104,8 @@ public class RotationLockTile extends QSTileImpl<BooleanState> {
             state.icon = portrait ? mPortraitToAuto : mLandscapeToAuto;
         }
         state.contentDescription = getAccessibilityString(rotationLocked);
-        state.expandedAccessibilityClassName = Switch.class.getName();
-        state.state = state.value ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE;
+        state.minimalAccessibilityClassName = state.expandedAccessibilityClassName
+                = Switch.class.getName();
     }
 
     public static boolean isCurrentOrientationLockPortrait(RotationLockController controller,
@@ -135,13 +132,13 @@ public class RotationLockTile extends QSTileImpl<BooleanState> {
      */
     private String getAccessibilityString(boolean locked) {
         if (locked) {
-            return mContext.getString(R.string.accessibility_quick_settings_rotation_value,
+            return mContext.getString(R.string.accessibility_quick_settings_rotation) + ","
+                    + mContext.getString(R.string.accessibility_quick_settings_rotation_value,
                     isCurrentOrientationLockPortrait(mController, mContext)
                             ? mContext.getString(
                                     R.string.quick_settings_rotation_locked_portrait_label)
                             : mContext.getString(
-                                    R.string.quick_settings_rotation_locked_landscape_label))
-                    + "," + mContext.getString(R.string.accessibility_quick_settings_rotation);
+                                    R.string.quick_settings_rotation_locked_landscape_label));
 
         } else {
             return mContext.getString(R.string.accessibility_quick_settings_rotation);

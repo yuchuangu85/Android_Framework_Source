@@ -78,8 +78,8 @@ public final class CancellationSignal {
             if (listener != null) {
                 listener.onCancel();
             }
-            if (obj != null && Build.VERSION.SDK_INT >= 16) {
-                ((android.os.CancellationSignal) obj).cancel();
+            if (obj != null) {
+                CancellationSignalCompatJellybean.cancel(obj);
             }
         } finally {
             synchronized (this) {
@@ -137,9 +137,9 @@ public final class CancellationSignal {
         }
         synchronized (this) {
             if (mCancellationSignalObj == null) {
-                mCancellationSignalObj = new android.os.CancellationSignal();
+                mCancellationSignalObj = CancellationSignalCompatJellybean.create();
                 if (mIsCanceled) {
-                    ((android.os.CancellationSignal) mCancellationSignalObj).cancel();
+                    CancellationSignalCompatJellybean.cancel(mCancellationSignalObj);
                 }
             }
             return mCancellationSignalObj;

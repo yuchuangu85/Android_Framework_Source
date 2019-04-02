@@ -16,37 +16,25 @@
 
 package com.android.setupwizardlib.test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertSame;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
-
-import android.database.DataSetObserver;
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
+import android.test.AndroidTestCase;
+import android.test.suitebuilder.annotation.SmallTest;
 
 import com.android.setupwizardlib.items.Item;
 import com.android.setupwizardlib.items.ItemAdapter;
 import com.android.setupwizardlib.items.ItemGroup;
 import com.android.setupwizardlib.items.ItemHierarchy;
 
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.InOrder;
-
 import java.util.Arrays;
 import java.util.HashSet;
 
-@RunWith(AndroidJUnit4.class)
-@SmallTest
-public class ItemAdapterTest {
+public class ItemAdapterTest extends AndroidTestCase {
 
     private Item[] mItems = new Item[5];
     private ItemGroup mItemGroup = new ItemGroup();
 
-    @Before
-    public void setUp() throws Exception {
+    @Override
+    protected void setUp() throws Exception {
+        super.setUp();
         for (int i = 0; i < 5; i++) {
             Item item = new Item();
             item.setTitle("TestTitle" + i);
@@ -57,7 +45,7 @@ public class ItemAdapterTest {
         }
     }
 
-    @Test
+    @SmallTest
     public void testAdapter() {
         ItemAdapter adapter = new ItemAdapter(mItemGroup);
         assertEquals("Adapter should have 5 items", 5, adapter.getCount());
@@ -75,27 +63,10 @@ public class ItemAdapterTest {
                 new HashSet<>(Arrays.asList(0, 1, 2)), viewTypes);
     }
 
-    @Test
+    @SmallTest
     public void testGetRootItemHierarchy() {
         ItemAdapter adapter = new ItemAdapter(mItemGroup);
         ItemHierarchy root = adapter.getRootItemHierarchy();
         assertSame("Root item hierarchy should be mItemGroup", mItemGroup, root);
-    }
-
-    @Test
-    public void testAdapterNotifications() {
-        ItemAdapter adapter = new ItemAdapter(mItemGroup);
-        final DataSetObserver observer = mock(DataSetObserver.class);
-        adapter.registerDataSetObserver(observer);
-        final InOrder inOrder = inOrder(observer);
-
-        mItems[0].setTitle("Child 1");
-        inOrder.verify(observer).onChanged();
-
-        mItemGroup.removeChild(mItems[1]);
-        inOrder.verify(observer).onChanged();
-
-        mItemGroup.addChild(mItems[1]);
-        inOrder.verify(observer).onChanged();
     }
 }

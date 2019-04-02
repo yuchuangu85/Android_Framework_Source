@@ -15,14 +15,16 @@
  */
 package com.android.server.wifi.util;
 
-import android.net.wifi.ScanResult;
+import static com.android.server.wifi.anqp.Constants.getInteger;
+
 import android.net.wifi.ScanResult.InformationElement;
 import android.util.Log;
 
-import com.android.server.wifi.ByteBufferReader;
+import com.android.server.wifi.anqp.Constants;
+import com.android.server.wifi.anqp.VenueNameElement;
 import com.android.server.wifi.hotspot2.NetworkDetail;
-import com.android.server.wifi.hotspot2.anqp.Constants;
 
+import java.net.ProtocolException;
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -30,7 +32,6 @@ import java.util.ArrayList;
 import java.util.BitSet;
 
 public class InformationElementUtil {
-    private static final String TAG = "InformationElementUtil";
 
     public static InformationElement[] parseInformationElements(byte[] bytes) {
         if (bytes == null) {
@@ -64,71 +65,6 @@ public class InformationElementUtil {
         return infoElements.toArray(new InformationElement[infoElements.size()]);
     }
 
-    /**
-     * Parse and retrieve the Roaming Consortium Information Element from the list of IEs.
-     *
-     * @param ies List of IEs to retrieve from
-     * @return {@link RoamingConsortium}
-     */
-    public static RoamingConsortium getRoamingConsortiumIE(InformationElement[] ies) {
-        RoamingConsortium roamingConsortium = new RoamingConsortium();
-        if (ies != null) {
-            for (InformationElement ie : ies) {
-                if (ie.id == InformationElement.EID_ROAMING_CONSORTIUM) {
-                    try {
-                        roamingConsortium.from(ie);
-                    } catch (RuntimeException e) {
-                        Log.e(TAG, "Failed to parse Roaming Consortium IE: " + e.getMessage());
-                    }
-                }
-            }
-        }
-        return roamingConsortium;
-    }
-
-    /**
-     * Parse and retrieve the Hotspot 2.0 Vendor Specific Information Element from the list of IEs.
-     *
-     * @param ies List of IEs to retrieve from
-     * @return {@link Vsa}
-     */
-    public static Vsa getHS2VendorSpecificIE(InformationElement[] ies) {
-        Vsa vsa = new Vsa();
-        if (ies != null) {
-            for (InformationElement ie : ies) {
-                if (ie.id == InformationElement.EID_VSA) {
-                    try {
-                        vsa.from(ie);
-                    } catch (RuntimeException e) {
-                        Log.e(TAG, "Failed to parse Vendor Specific IE: " + e.getMessage());
-                    }
-                }
-            }
-        }
-        return vsa;
-    }
-
-    /**
-     * Parse and retrieve the Interworking information element from the list of IEs.
-     *
-     * @param ies List of IEs to retrieve from
-     * @return {@link Interworking}
-     */
-    public static Interworking getInterworkingIE(InformationElement[] ies) {
-        Interworking interworking = new Interworking();
-        if (ies != null) {
-            for (InformationElement ie : ies) {
-                if (ie.id == InformationElement.EID_INTERWORKING) {
-                    try {
-                        interworking.from(ie);
-                    } catch (RuntimeException e) {
-                        Log.e(TAG, "Failed to parse Interworking IE: " + e.getMessage());
-                    }
-                }
-            }
-        }
-        return interworking;
-    }
 
     public static class BssLoad {
         public int stationCount = 0;
@@ -224,6 +160,8 @@ public class InformationElementUtil {
     public static class Interworking {
         public NetworkDetail.Ant ant = null;
         public boolean internet = false;
+        public VenueNameElement.VenueGroup venueGroup = null;
+        public VenueNameElement.VenueType venueType = null;
         public long hessid = 0L;
 
         public void from(InformationElement ie) {
@@ -234,21 +172,24 @@ public class InformationElementUtil {
             int anOptions = data.get() & Constants.BYTE_MASK;
             ant = NetworkDetail.Ant.values()[anOptions & 0x0f];
             internet = (anOptions & 0x10) != 0;
-            // There are only three possible lengths for the Interworking IE:
-            // Len 1: Access Network Options only
-            // Len 3: Access Network Options & Venue Info
-            // Len 7: Access Network Options & HESSID
-            // Len 9: Access Network Options, Venue Info, & HESSID
-            if (ie.bytes.length != 1
-                    && ie.bytes.length != 3
-                    && ie.bytes.length != 7
-                    && ie.bytes.length != 9) {
-                throw new IllegalArgumentException(
-                        "Bad Interworking element length: " + ie.bytes.length);
+            // Len 1 none, 3 venue-info, 7 HESSID, 9 venue-info & HESSID
+            if (ie.bytes.length == 3 || ie.bytes.length == 9) {
+                try {
+                    ByteBuffer vinfo = data.duplicate();
+                    vinfo.limit(vinfo.position() + 2);
+                    VenueNameElement vne = new VenueNameElement(
+                            Constants.ANQPElementType.ANQPVenueName, vinfo);
+                    venueGroup = vne.getGroup();
+                    venueType = vne.getType();
+                } catch (ProtocolException pe) {
+                    /*Cannot happen*/
+                }
+            } else if (ie.bytes.length != 1 && ie.bytes.length != 7) {
+                throw new IllegalArgumentException("Bad Interworking element length: "
+                        + ie.bytes.length);
             }
-
             if (ie.bytes.length == 7 || ie.bytes.length == 9) {
-                hessid = ByteBufferReader.readInteger(data, ByteOrder.BIG_ENDIAN, 6);
+                hessid = getInteger(data, ByteOrder.BIG_ENDIAN, 6);
             }
         }
     }
@@ -282,15 +223,15 @@ public class InformationElementUtil {
             roamingConsortiums = new long[oiCount];
             if (oi1Length > 0 && roamingConsortiums.length > 0) {
                 roamingConsortiums[0] =
-                        ByteBufferReader.readInteger(data, ByteOrder.BIG_ENDIAN, oi1Length);
+                        getInteger(data, ByteOrder.BIG_ENDIAN, oi1Length);
             }
             if (oi2Length > 0 && roamingConsortiums.length > 1) {
                 roamingConsortiums[1] =
-                        ByteBufferReader.readInteger(data, ByteOrder.BIG_ENDIAN, oi2Length);
+                        getInteger(data, ByteOrder.BIG_ENDIAN, oi2Length);
             }
             if (oi3Length > 0 && roamingConsortiums.length > 2) {
                 roamingConsortiums[2] =
-                        ByteBufferReader.readInteger(data, ByteOrder.BIG_ENDIAN, oi3Length);
+                        getInteger(data, ByteOrder.BIG_ENDIAN, oi3Length);
             }
         }
     }
@@ -327,52 +268,37 @@ public class InformationElementUtil {
         }
     }
 
-    /**
-     * This IE contained a bit field indicating the capabilities being advertised by the STA.
-     * The size of the bit field (number of bytes) is indicated by the |Length| field in the IE.
-     *
-     * Refer to Section 8.4.2.29 in IEEE 802.11-2012 Spec for capability associated with each
-     * bit.
-     *
-     * Here is the wire format of this IE:
-     * | Element ID | Length | Capabilities |
-     *       1           1          n
-     */
     public static class ExtendedCapabilities {
         private static final int RTT_RESP_ENABLE_BIT = 70;
-        private static final int SSID_UTF8_BIT = 48;
+        private static final long SSID_UTF8_BIT = 0x0001000000000000L;
 
-        public BitSet capabilitiesBitSet;
-
-        /**
-         * @return true if SSID should be interpreted using UTF-8 encoding
-         */
-        public boolean isStrictUtf8() {
-            return capabilitiesBitSet.get(SSID_UTF8_BIT);
-        }
-
-        /**
-         * @return true if 802.11 MC RTT Response is enabled
-         */
-        public boolean is80211McRTTResponder() {
-            return capabilitiesBitSet.get(RTT_RESP_ENABLE_BIT);
-        }
+        public Long extendedCapabilities = null;
+        public boolean is80211McRTTResponder = false;
 
         public ExtendedCapabilities() {
-            capabilitiesBitSet = new BitSet();
         }
 
         public ExtendedCapabilities(ExtendedCapabilities other) {
-            capabilitiesBitSet = other.capabilitiesBitSet;
+            extendedCapabilities = other.extendedCapabilities;
+            is80211McRTTResponder = other.is80211McRTTResponder;
         }
 
-        /**
-         * Parse an ExtendedCapabilities from the IE containing raw bytes.
-         *
-         * @param ie The Information element data
-         */
+        public boolean isStrictUtf8() {
+            return extendedCapabilities != null && (extendedCapabilities & SSID_UTF8_BIT) != 0;
+        }
+
         public void from(InformationElement ie) {
-            capabilitiesBitSet = BitSet.valueOf(ie.bytes);
+            ByteBuffer data = ByteBuffer.wrap(ie.bytes).order(ByteOrder.LITTLE_ENDIAN);
+            extendedCapabilities =
+                    Constants.getInteger(data, ByteOrder.LITTLE_ENDIAN, ie.bytes.length);
+
+            int index = RTT_RESP_ENABLE_BIT / 8;
+            byte offset = RTT_RESP_ENABLE_BIT % 8;
+            if (ie.bytes.length < index + 1) {
+                is80211McRTTResponder = false;
+            } else {
+                is80211McRTTResponder = (ie.bytes[index] & ((byte) 0x1 << offset)) != 0;
+            }
         }
     }
 
@@ -389,7 +315,6 @@ public class InformationElementUtil {
         private static final int CAP_PRIVACY_BIT_OFFSET = 4;
 
         private static final int WPA_VENDOR_OUI_TYPE_ONE = 0x01f25000;
-        private static final int WPS_VENDOR_OUI_TYPE = 0x04f25000;
         private static final short WPA_VENDOR_OUI_VERSION = 0x0001;
         private static final short RSNE_VERSION = 0x0001;
 
@@ -402,23 +327,6 @@ public class InformationElementUtil {
         private static final int WPA2_AKM_FT_PSK = 0x04ac0f00;
         private static final int WPA2_AKM_EAP_SHA256 = 0x05ac0f00;
         private static final int WPA2_AKM_PSK_SHA256 = 0x06ac0f00;
-
-        private static final int WPA_CIPHER_NONE = 0x00f25000;
-        private static final int WPA_CIPHER_TKIP = 0x02f25000;
-        private static final int WPA_CIPHER_CCMP = 0x04f25000;
-
-        private static final int RSN_CIPHER_NONE = 0x00ac0f00;
-        private static final int RSN_CIPHER_TKIP = 0x02ac0f00;
-        private static final int RSN_CIPHER_CCMP = 0x04ac0f00;
-        private static final int RSN_CIPHER_NO_GROUP_ADDRESSED = 0x07ac0f00;
-
-        public ArrayList<Integer> protocol;
-        public ArrayList<ArrayList<Integer>> keyManagement;
-        public ArrayList<ArrayList<Integer>> pairwiseCipher;
-        public ArrayList<Integer> groupCipher;
-        public boolean isESS;
-        public boolean isPrivacy;
-        public boolean isWPS;
 
         public Capabilities() {
         }
@@ -436,112 +344,80 @@ public class InformationElementUtil {
         //
         // Note: InformationElement.bytes has 'Element ID' and 'Length'
         //       stripped off already
-        private void parseRsnElement(InformationElement ie) {
+        private static String parseRsnElement(InformationElement ie) {
             ByteBuffer buf = ByteBuffer.wrap(ie.bytes).order(ByteOrder.LITTLE_ENDIAN);
 
             try {
                 // version
                 if (buf.getShort() != RSNE_VERSION) {
                     // incorrect version
-                    return;
+                    return null;
                 }
 
-                // found the RSNE IE, hence start building the capability string
-                protocol.add(ScanResult.PROTOCOL_WPA2);
-
                 // group data cipher suite
-                groupCipher.add(parseRsnCipher(buf.getInt()));
+                // here we simply advance the buffer position
+                buf.getInt();
+
+                // found the RSNE IE, hence start building the capability string
+                String security = "[WPA2";
 
                 // pairwise cipher suite count
                 short cipherCount = buf.getShort();
-                ArrayList<Integer> rsnPairwiseCipher = new ArrayList<>();
+
                 // pairwise cipher suite list
                 for (int i = 0; i < cipherCount; i++) {
-                    rsnPairwiseCipher.add(parseRsnCipher(buf.getInt()));
+                    // here we simply advance the buffer position
+                    buf.getInt();
                 }
-                pairwiseCipher.add(rsnPairwiseCipher);
 
                 // AKM
                 // AKM suite count
                 short akmCount = buf.getShort();
-                ArrayList<Integer> rsnKeyManagement = new ArrayList<>();
 
+                // parse AKM suite list
+                if (akmCount == 0) {
+                    security += "-EAP"; //default AKM
+                }
+                boolean found = false;
                 for (int i = 0; i < akmCount; i++) {
                     int akm = buf.getInt();
                     switch (akm) {
                         case WPA2_AKM_EAP:
-                            rsnKeyManagement.add(ScanResult.KEY_MGMT_EAP);
+                            security += (found ? "+" : "-") + "EAP";
+                            found = true;
                             break;
                         case WPA2_AKM_PSK:
-                            rsnKeyManagement.add(ScanResult.KEY_MGMT_PSK);
+                            security += (found ? "+" : "-") + "PSK";
+                            found = true;
                             break;
                         case WPA2_AKM_FT_EAP:
-                            rsnKeyManagement.add(ScanResult.KEY_MGMT_FT_EAP);
+                            security += (found ? "+" : "-") + "FT/EAP";
+                            found = true;
                             break;
                         case WPA2_AKM_FT_PSK:
-                            rsnKeyManagement.add(ScanResult.KEY_MGMT_FT_PSK);
+                            security += (found ? "+" : "-") + "FT/PSK";
+                            found = true;
                             break;
                         case WPA2_AKM_EAP_SHA256:
-                            rsnKeyManagement.add(ScanResult.KEY_MGMT_EAP_SHA256);
+                            security += (found ? "+" : "-") + "EAP-SHA256";
+                            found = true;
                             break;
                         case WPA2_AKM_PSK_SHA256:
-                            rsnKeyManagement.add(ScanResult.KEY_MGMT_PSK_SHA256);
+                            security += (found ? "+" : "-") + "PSK-SHA256";
+                            found = true;
                             break;
                         default:
                             // do nothing
                             break;
                     }
                 }
-                // Default AKM
-                if (rsnKeyManagement.isEmpty()) {
-                    rsnKeyManagement.add(ScanResult.KEY_MGMT_EAP);
-                }
-                keyManagement.add(rsnKeyManagement);
+
+                // we parsed what we want at this point
+                security += "]";
+                return security;
             } catch (BufferUnderflowException e) {
                 Log.e("IE_Capabilities", "Couldn't parse RSNE, buffer underflow");
-            }
-        }
-
-        private static int parseWpaCipher(int cipher) {
-            switch (cipher) {
-                case WPA_CIPHER_NONE:
-                    return ScanResult.CIPHER_NONE;
-                case WPA_CIPHER_TKIP:
-                    return ScanResult.CIPHER_TKIP;
-                case WPA_CIPHER_CCMP:
-                    return ScanResult.CIPHER_CCMP;
-                default:
-                    Log.w("IE_Capabilities", "Unknown WPA cipher suite: "
-                            + Integer.toHexString(cipher));
-                    return ScanResult.CIPHER_NONE;
-            }
-        }
-
-        private static int parseRsnCipher(int cipher) {
-            switch (cipher) {
-                case RSN_CIPHER_NONE:
-                    return ScanResult.CIPHER_NONE;
-                case RSN_CIPHER_TKIP:
-                    return ScanResult.CIPHER_TKIP;
-                case RSN_CIPHER_CCMP:
-                    return ScanResult.CIPHER_CCMP;
-                case RSN_CIPHER_NO_GROUP_ADDRESSED:
-                    return ScanResult.CIPHER_NO_GROUP_ADDRESSED;
-                default:
-                    Log.w("IE_Capabilities", "Unknown RSN cipher suite: "
-                            + Integer.toHexString(cipher));
-                    return ScanResult.CIPHER_NONE;
-            }
-        }
-
-        private static boolean isWpsElement(InformationElement ie) {
-            ByteBuffer buf = ByteBuffer.wrap(ie.bytes).order(ByteOrder.LITTLE_ENDIAN);
-            try {
-                // WPS OUI and type
-                return (buf.getInt() == WPS_VENDOR_OUI_TYPE);
-            } catch (BufferUnderflowException e) {
-                Log.e("IE_Capabilities", "Couldn't parse VSA IE, buffer underflow");
-                return false;
+                return null;
             }
         }
 
@@ -561,8 +437,6 @@ public class InformationElementUtil {
         //
         // | Element ID | Length | OUI | Type | Version |
         //      1           1       3     1        2
-        // | Group Data Cipher Suite |
-        //             4
         // | Pairwise Cipher Suite Count | Pairwise Cipher Suite List |
         //              2                            4 * m
         // | AKM Suite Count | AKM Suite List |
@@ -571,7 +445,7 @@ public class InformationElementUtil {
         // Note: InformationElement.bytes has 'Element ID' and 'Length'
         //       stripped off already
         //
-        private void parseWpaOneElement(InformationElement ie) {
+        private static String parseWpaOneElement(InformationElement ie) {
             ByteBuffer buf = ByteBuffer.wrap(ie.bytes).order(ByteOrder.LITTLE_ENDIAN);
 
             try {
@@ -579,174 +453,104 @@ public class InformationElementUtil {
                 // been called for verification before we reach here.
                 buf.getInt();
 
+                // start building the string
+                String security = "[WPA";
+
                 // version
                 if (buf.getShort() != WPA_VENDOR_OUI_VERSION)  {
                     // incorrect version
-                    return;
+                    return null;
                 }
 
-                // start building the string
-                protocol.add(ScanResult.PROTOCOL_WPA);
-
                 // group data cipher suite
-                groupCipher.add(parseWpaCipher(buf.getInt()));
+                // here we simply advance buffer position
+                buf.getInt();
 
                 // pairwise cipher suite count
                 short cipherCount = buf.getShort();
-                ArrayList<Integer> wpaPairwiseCipher = new ArrayList<>();
+
                 // pairwise chipher suite list
                 for (int i = 0; i < cipherCount; i++) {
-                    wpaPairwiseCipher.add(parseWpaCipher(buf.getInt()));
+                    // here we simply advance buffer position
+                    buf.getInt();
                 }
-                pairwiseCipher.add(wpaPairwiseCipher);
 
                 // AKM
                 // AKM suite count
                 short akmCount = buf.getShort();
-                ArrayList<Integer> wpaKeyManagement = new ArrayList<>();
 
                 // AKM suite list
+                if (akmCount == 0) {
+                    security += "-EAP"; //default AKM
+                }
+                boolean found = false;
                 for (int i = 0; i < akmCount; i++) {
                     int akm = buf.getInt();
                     switch (akm) {
                         case WPA_AKM_EAP:
-                            wpaKeyManagement.add(ScanResult.KEY_MGMT_EAP);
+                            security += (found ? "+" : "-") + "EAP";
+                            found = true;
                             break;
                         case WPA_AKM_PSK:
-                            wpaKeyManagement.add(ScanResult.KEY_MGMT_PSK);
+                            security += (found ? "+" : "-") + "PSK";
+                            found = true;
                             break;
                         default:
                             // do nothing
                             break;
                     }
                 }
-                // Default AKM
-                if (wpaKeyManagement.isEmpty()) {
-                    wpaKeyManagement.add(ScanResult.KEY_MGMT_EAP);
-                }
-                keyManagement.add(wpaKeyManagement);
+
+                // we parsed what we want at this point
+                security += "]";
+                return security;
             } catch (BufferUnderflowException e) {
                 Log.e("IE_Capabilities", "Couldn't parse type 1 WPA, buffer underflow");
+                return null;
             }
         }
 
         /**
          * Parse the Information Element and the 16-bit Capability Information field
-         * to build the InformationElemmentUtil.capabilities object.
+         * to build the ScanResult.capabilities String.
          *
          * @param ies -- Information Element array
          * @param beaconCap -- 16-bit Beacon Capability Information field
+         * @return security string that mirrors what wpa_supplicant generates
          */
-
-        public void from(InformationElement[] ies, BitSet beaconCap) {
-            protocol = new ArrayList<Integer>();
-            keyManagement = new ArrayList<ArrayList<Integer>>();
-            groupCipher = new ArrayList<Integer>();
-            pairwiseCipher = new ArrayList<ArrayList<Integer>>();
+        public static String buildCapabilities(InformationElement[] ies, BitSet beaconCap) {
+            String capabilities = "";
+            boolean rsneFound = false;
+            boolean wpaFound = false;
 
             if (ies == null || beaconCap == null) {
-                return;
+                return capabilities;
             }
-            isESS = beaconCap.get(CAP_ESS_BIT_OFFSET);
-            isPrivacy = beaconCap.get(CAP_PRIVACY_BIT_OFFSET);
+
+            boolean ess = beaconCap.get(CAP_ESS_BIT_OFFSET);
+            boolean privacy = beaconCap.get(CAP_PRIVACY_BIT_OFFSET);
+
             for (InformationElement ie : ies) {
                 if (ie.id == InformationElement.EID_RSN) {
-                    parseRsnElement(ie);
+                    rsneFound = true;
+                    capabilities += parseRsnElement(ie);
                 }
 
                 if (ie.id == InformationElement.EID_VSA) {
                     if (isWpaOneElement(ie)) {
-                        parseWpaOneElement(ie);
-                    }
-                    if (isWpsElement(ie)) {
-                        // TODO(b/62134557): parse WPS IE to provide finer granularity information.
-                        isWPS = true;
+                        wpaFound = true;
+                        capabilities += parseWpaOneElement(ie);
                     }
                 }
             }
-        }
 
-        private String protocolToString(int protocol) {
-            switch (protocol) {
-                case ScanResult.PROTOCOL_NONE:
-                    return "None";
-                case ScanResult.PROTOCOL_WPA:
-                    return "WPA";
-                case ScanResult.PROTOCOL_WPA2:
-                    return "WPA2";
-                default:
-                    return "?";
-            }
-        }
-
-        private String keyManagementToString(int akm) {
-            switch (akm) {
-                case ScanResult.KEY_MGMT_NONE:
-                    return "None";
-                case ScanResult.KEY_MGMT_PSK:
-                    return "PSK";
-                case ScanResult.KEY_MGMT_EAP:
-                    return "EAP";
-                case ScanResult.KEY_MGMT_FT_EAP:
-                    return "FT/EAP";
-                case ScanResult.KEY_MGMT_FT_PSK:
-                    return "FT/PSK";
-                case ScanResult.KEY_MGMT_EAP_SHA256:
-                    return "EAP-SHA256";
-                case ScanResult.KEY_MGMT_PSK_SHA256:
-                    return "PSK-SHA256";
-                default:
-                    return "?";
-            }
-        }
-
-        private String cipherToString(int cipher) {
-            switch (cipher) {
-                case ScanResult.CIPHER_NONE:
-                    return "None";
-                case ScanResult.CIPHER_CCMP:
-                    return "CCMP";
-                case ScanResult.CIPHER_TKIP:
-                    return "TKIP";
-                default:
-                    return "?";
-            }
-        }
-
-        /**
-         * Build the ScanResult.capabilities String.
-         *
-         * @return security string that mirrors what wpa_supplicant generates
-         */
-        public String generateCapabilitiesString() {
-            String capabilities = "";
-            // private Beacon without an RSNE or WPA IE, hence WEP0
-            boolean isWEP = (protocol.isEmpty()) && isPrivacy;
-
-            if (isWEP) {
+            if (!rsneFound && !wpaFound && privacy) {
+                //private Beacon without an RSNE or WPA IE, hence WEP0
                 capabilities += "[WEP]";
             }
-            for (int i = 0; i < protocol.size(); i++) {
-                capabilities += "[" + protocolToString(protocol.get(i));
-                if (i < keyManagement.size()) {
-                    for (int j = 0; j < keyManagement.get(i).size(); j++) {
-                        capabilities += ((j == 0) ? "-" : "+")
-                                + keyManagementToString(keyManagement.get(i).get(j));
-                    }
-                }
-                if (i < pairwiseCipher.size()) {
-                    for (int j = 0; j < pairwiseCipher.get(i).size(); j++) {
-                        capabilities += ((j == 0) ? "-" : "+")
-                                + cipherToString(pairwiseCipher.get(i).get(j));
-                    }
-                }
-                capabilities += "]";
-            }
-            if (isESS) {
+
+            if (ess) {
                 capabilities += "[ESS]";
-            }
-            if (isWPS) {
-                capabilities += "[WPS]";
             }
 
             return capabilities;

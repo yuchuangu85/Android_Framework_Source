@@ -17,11 +17,8 @@
 package android.app;
 
 import android.os.Parcel;
-import android.os.ParcelFileDescriptor;
 import android.os.Parcelable;
-import android.util.Slog;
-
-import java.io.IOException;
+import android.os.ParcelFileDescriptor;
 
 /**
  * System private API for passing profiler settings.
@@ -29,8 +26,6 @@ import java.io.IOException;
  * {@hide}
  */
 public class ProfilerInfo implements Parcelable {
-
-    private static final String TAG = "ProfilerInfo";
 
     /* Name of profile output file. */
     public final String profileFile;
@@ -44,50 +39,13 @@ public class ProfilerInfo implements Parcelable {
     /* Automatically stop the profiler when the app goes idle. */
     public final boolean autoStopProfiler;
 
-    /*
-     * Indicates whether to stream the profiling info to the out file continuously.
-     */
-    public final boolean streamingOutput;
-
-    /**
-     * Denotes an agent (and its parameters) to attach for profiling.
-     */
-    public final String agent;
-
-    public ProfilerInfo(String filename, ParcelFileDescriptor fd, int interval, boolean autoStop,
-            boolean streaming, String agent) {
+    public ProfilerInfo(String filename, ParcelFileDescriptor fd, int interval, boolean autoStop) {
         profileFile = filename;
         profileFd = fd;
         samplingInterval = interval;
         autoStopProfiler = autoStop;
-        streamingOutput = streaming;
-        this.agent = agent;
     }
 
-    public ProfilerInfo(ProfilerInfo in) {
-        profileFile = in.profileFile;
-        profileFd = in.profileFd;
-        samplingInterval = in.samplingInterval;
-        autoStopProfiler = in.autoStopProfiler;
-        streamingOutput = in.streamingOutput;
-        agent = in.agent;
-    }
-
-    /**
-     * Close profileFd, if it is open. The field will be null after a call to this function.
-     */
-    public void closeFd() {
-        if (profileFd != null) {
-            try {
-                profileFd.close();
-            } catch (IOException e) {
-                Slog.w(TAG, "Failure closing profile fd", e);
-            }
-            profileFd = null;
-        }
-    }
-
-    @Override
     public int describeContents() {
         if (profileFd != null) {
             return profileFd.describeContents();
@@ -96,7 +54,6 @@ public class ProfilerInfo implements Parcelable {
         }
     }
 
-    @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeString(profileFile);
         if (profileFd != null) {
@@ -107,29 +64,23 @@ public class ProfilerInfo implements Parcelable {
         }
         out.writeInt(samplingInterval);
         out.writeInt(autoStopProfiler ? 1 : 0);
-        out.writeInt(streamingOutput ? 1 : 0);
-        out.writeString(agent);
     }
 
     public static final Parcelable.Creator<ProfilerInfo> CREATOR =
             new Parcelable.Creator<ProfilerInfo>() {
-                @Override
-                public ProfilerInfo createFromParcel(Parcel in) {
-                    return new ProfilerInfo(in);
-                }
+        public ProfilerInfo createFromParcel(Parcel in) {
+            return new ProfilerInfo(in);
+        }
 
-                @Override
-                public ProfilerInfo[] newArray(int size) {
-                    return new ProfilerInfo[size];
-                }
-            };
+        public ProfilerInfo[] newArray(int size) {
+            return new ProfilerInfo[size];
+        }
+    };
 
     private ProfilerInfo(Parcel in) {
         profileFile = in.readString();
         profileFd = in.readInt() != 0 ? ParcelFileDescriptor.CREATOR.createFromParcel(in) : null;
         samplingInterval = in.readInt();
         autoStopProfiler = in.readInt() != 0;
-        streamingOutput = in.readInt() != 0;
-        agent = in.readString();
     }
 }

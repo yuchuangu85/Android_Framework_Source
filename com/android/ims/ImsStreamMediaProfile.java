@@ -72,20 +72,14 @@ public class ImsStreamMediaProfile implements Parcelable {
     public static final int VIDEO_QUALITY_VGA_LANDSCAPE = (1 << 3);
     public static final int VIDEO_QUALITY_VGA_PORTRAIT = (1 << 4);
 
-    /**
-     * RTT Modes
-     */
-    public static final int RTT_MODE_DISABLED = 0;
-    public static final int RTT_MODE_FULL = 1;
-
     // Audio related information
     public int mAudioQuality;
     public int mAudioDirection;
     // Video related information
     public int mVideoQuality;
     public int mVideoDirection;
-    // Rtt related information
-    public int mRttMode;
+
+
 
     public ImsStreamMediaProfile(Parcel in) {
         readFromParcel(in);
@@ -96,7 +90,6 @@ public class ImsStreamMediaProfile implements Parcelable {
         mAudioDirection = DIRECTION_SEND_RECEIVE;
         mVideoQuality = VIDEO_QUALITY_NONE;
         mVideoDirection = DIRECTION_INVALID;
-        mRttMode = RTT_MODE_DISABLED;
     }
 
     public ImsStreamMediaProfile(int audioQuality, int audioDirection,
@@ -107,16 +100,11 @@ public class ImsStreamMediaProfile implements Parcelable {
         mVideoDirection = videoDirection;
     }
 
-    public ImsStreamMediaProfile(int rttMode) {
-        mRttMode = rttMode;
-    }
-
     public void copyFrom(ImsStreamMediaProfile profile) {
         mAudioQuality = profile.mAudioQuality;
         mAudioDirection = profile.mAudioDirection;
         mVideoQuality = profile.mVideoQuality;
         mVideoDirection = profile.mVideoDirection;
-        mRttMode = profile.mRttMode;
     }
 
     @Override
@@ -124,8 +112,7 @@ public class ImsStreamMediaProfile implements Parcelable {
         return "{ audioQuality=" + mAudioQuality +
                 ", audioDirection=" + mAudioDirection +
                 ", videoQuality=" + mVideoQuality +
-                ", videoDirection=" + mVideoDirection +
-                ", rttMode=" + mRttMode + " }";
+                ", videoDirection=" + mVideoDirection + " }";
     }
 
     @Override
@@ -139,7 +126,6 @@ public class ImsStreamMediaProfile implements Parcelable {
         out.writeInt(mAudioDirection);
         out.writeInt(mVideoQuality);
         out.writeInt(mVideoDirection);
-        out.writeInt(mRttMode);
     }
 
     private void readFromParcel(Parcel in) {
@@ -147,7 +133,6 @@ public class ImsStreamMediaProfile implements Parcelable {
         mAudioDirection = in.readInt();
         mVideoQuality = in.readInt();
         mVideoDirection = in.readInt();
-        mRttMode = in.readInt();
     }
 
     public static final Creator<ImsStreamMediaProfile> CREATOR =
@@ -162,20 +147,4 @@ public class ImsStreamMediaProfile implements Parcelable {
             return new ImsStreamMediaProfile[size];
         }
     };
-
-    /**
-     * Determines if it's RTT call
-     * @return true if RTT call, false otherwise.
-     */
-    public boolean isRttCall() {
-        return (mRttMode == RTT_MODE_FULL);
-    }
-
-    /**
-     * Updates the RttCall attribute
-     */
-    public void setRttMode(int rttMode) {
-        mRttMode = rttMode;
-    }
-
 }

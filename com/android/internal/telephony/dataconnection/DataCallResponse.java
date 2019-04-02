@@ -23,7 +23,9 @@ import android.net.NetworkUtils;
 import android.net.RouteInfo;
 import android.os.SystemProperties;
 import android.telephony.Rlog;
-import android.text.TextUtils;
+
+import com.android.internal.telephony.PhoneConstants;
+import com.android.internal.telephony.dataconnection.DcFailCause;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -36,18 +38,18 @@ public class DataCallResponse {
     private final boolean DBG = true;
     private final String LOG_TAG = "DataCallResponse";
 
-    public final int status;
-    public final int suggestedRetryTime;
-    public final int cid;
-    public final int active;
-    public final String type;
-    public final String ifname;
-    public final String [] addresses;
-    public final String [] dnses;
-    // TODO: Change this to final if possible.
-    public String[] gateways;
-    public final String [] pcscf;
-    public final int mtu;
+    public int version = 0;
+    public int status = 0;
+    public int cid = 0;
+    public int active = 0;
+    public String type = "";
+    public String ifname = "";
+    public String [] addresses = new String[0];
+    public String [] dnses = new String[0];
+    public String[] gateways = new String[0];
+    public int suggestedRetryTime = -1;
+    public String [] pcscf = new String[0];
+    public int mtu = PhoneConstants.UNSET_MTU;
 
     /**
      * Class returned by onSetupConnectionCompleted.
@@ -72,29 +74,11 @@ public class DataCallResponse {
         }
     }
 
-    public DataCallResponse(int status, int suggestedRetryTime, int cid, int active, String type,
-                            String ifname, String addresses, String dnses, String gateways,
-                            String pcscf, int mtu) {
-        this.status = status;
-        this.suggestedRetryTime = suggestedRetryTime;
-        this.cid = cid;
-        this.active = active;
-        this.type = (type == null) ? "" : type;
-        this.ifname = (ifname == null) ? "" : ifname;
-        if ((status == DcFailCause.NONE.getErrorCode()) && TextUtils.isEmpty(ifname)) {
-            throw new RuntimeException("DataCallResponse, no ifname");
-        }
-        this.addresses = TextUtils.isEmpty(addresses) ? new String[0] : addresses.split(" ");
-        this.dnses = TextUtils.isEmpty(dnses) ? new String[0] : dnses.split(" ");
-        this.gateways = TextUtils.isEmpty(gateways) ? new String[0] : gateways.split(" ");
-        this.pcscf = TextUtils.isEmpty(pcscf) ? new String[0] : pcscf.split(" ");
-        this.mtu = mtu;
-    }
-
     @Override
     public String toString() {
         StringBuffer sb = new StringBuffer();
         sb.append("DataCallResponse: {")
+           .append("version=").append(version)
            .append(" status=").append(status)
            .append(" retry=").append(suggestedRetryTime)
            .append(" cid=").append(cid)
@@ -258,7 +242,11 @@ public class DataCallResponse {
                 result = SetupResult.ERR_UnacceptableParameter;
             }
         } else {
-            result = SetupResult.ERR_RilError;
+            if (version < 4) {
+                result = SetupResult.ERR_GetLastErrorFromRil;
+            } else {
+                result = SetupResult.ERR_RilError;
+            }
         }
 
         // An error occurred so clear properties

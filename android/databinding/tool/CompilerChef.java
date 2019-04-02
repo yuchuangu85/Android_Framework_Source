@@ -13,8 +13,6 @@
 
 package android.databinding.tool;
 
-import android.databinding.tool.reflection.InjectedClass;
-import android.databinding.tool.reflection.InjectedMethod;
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
 import android.databinding.tool.store.ResourceBundle;
@@ -25,7 +23,6 @@ import android.databinding.tool.writer.DataBinderWriter;
 import android.databinding.tool.writer.DynamicUtilWriter;
 import android.databinding.tool.writer.JavaFileWriter;
 
-import java.util.HashMap;
 import java.util.Set;
 
 /**
@@ -72,8 +69,6 @@ public class CompilerChef {
         chef.mResourceBundle = bundle;
         chef.mFileWriter = fileWriter;
         chef.mResourceBundle.validateMultiResLayouts();
-        chef.pushClassesToAnalyzer();
-        chef.pushDynamicUtilToAnalyzer();
         return chef;
     }
 
@@ -92,71 +87,6 @@ public class CompilerChef {
         L.d("checking if we have anything to generate. bundle size: %s",
                 mResourceBundle == null ? -1 : mResourceBundle.getLayoutBundles().size());
         return mResourceBundle != null && mResourceBundle.getLayoutBundles().size() > 0;
-    }
-
-    /**
-     * Injects ViewDataBinding subclasses to the ModelAnalyzer so that they can be
-     * analyzed prior to creation. This is useful for resolving variable setters and
-     * View fields during compilation.
-     */
-    private void pushClassesToAnalyzer() {
-        ModelAnalyzer analyzer = ModelAnalyzer.getInstance();
-        for (String layoutName : mResourceBundle.getLayoutBundles().keySet()) {
-            ResourceBundle.LayoutFileBundle layoutFileBundle =
-                    mResourceBundle.getLayoutBundles().get(layoutName).get(0);
-            final HashMap<String, String> imports = new HashMap<String, String>();
-            for (ResourceBundle.NameTypeLocation imp : layoutFileBundle.getImports()) {
-                imports.put(imp.name, imp.type);
-            }
-            final HashMap<String, String> variables = new HashMap<String, String>();
-            for (ResourceBundle.VariableDeclaration variable : layoutFileBundle.getVariables()) {
-                final String variableName = variable.name;
-                String type = variable.type;
-                if (imports.containsKey(type)) {
-                    type = imports.get(type);
-                }
-                variables.put(variableName, type);
-            }
-            final HashMap<String, String> fields = new HashMap<String, String>();
-            for (ResourceBundle.BindingTargetBundle bindingTargetBundle :
-                    layoutFileBundle.getBindingTargetBundles()) {
-                if (bindingTargetBundle.getId() != null) {
-                    fields.put(bindingTargetBundle.getId(), bindingTargetBundle.getInterfaceType());
-                }
-            }
-            final String className = layoutFileBundle.getBindingClassPackage() + "." +
-                    layoutFileBundle.getBindingClassName();
-            analyzer.injectViewDataBinding(className, variables, fields);
-        }
-    }
-
-    public static InjectedClass pushDynamicUtilToAnalyzer() {
-        InjectedClass injectedClass = new InjectedClass("android.databinding.DynamicUtil",
-                "java.lang.Object");
-        injectedClass.addMethod(new InjectedMethod(injectedClass, true, "getColorFromResource",
-                "int", "android.view.View", "int"));
-        injectedClass.addMethod(new InjectedMethod(injectedClass, true,
-                "getColorStateListFromResource", "android.content.res.ColorStateList",
-                "android.view.View", "int"));
-        injectedClass.addMethod(new InjectedMethod(injectedClass, true, "getDrawableFromResource",
-                "android.graphics.drawable.Drawable", "android.view.View", "int"));
-        injectedClass.addMethod(new InjectedMethod(injectedClass, true, "parse",
-                "boolean", "java.lang.String", "boolean"));
-        injectedClass.addMethod(new InjectedMethod(injectedClass, true, "parse",
-                "short", "java.lang.String", "short"));
-        injectedClass.addMethod(new InjectedMethod(injectedClass, true, "parse",
-                "int", "java.lang.String", "int"));
-        injectedClass.addMethod(new InjectedMethod(injectedClass, true, "parse",
-                "long", "java.lang.String", "long"));
-        injectedClass.addMethod(new InjectedMethod(injectedClass, true, "parse",
-                "float", "java.lang.String", "float"));
-        injectedClass.addMethod(new InjectedMethod(injectedClass, true, "parse",
-                "double", "java.lang.String", "double"));
-        injectedClass.addMethod(new InjectedMethod(injectedClass, true, "parse",
-                "char", "java.lang.String", "char"));
-        ModelAnalyzer analyzer = ModelAnalyzer.getInstance();
-        analyzer.injectClass(injectedClass);
-        return injectedClass;
     }
 
     public void writeDataBinderMapper(int minSdk, BRWriter brWriter) {

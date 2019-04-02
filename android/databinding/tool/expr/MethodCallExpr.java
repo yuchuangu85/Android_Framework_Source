@@ -16,29 +16,26 @@
 
 package android.databinding.tool.expr;
 
+import static android.databinding.tool.reflection.Callable.DYNAMIC;
+import static android.databinding.tool.reflection.Callable.STATIC;
+
 import android.databinding.tool.processing.Scope;
 import android.databinding.tool.reflection.Callable;
 import android.databinding.tool.reflection.Callable.Type;
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
 import android.databinding.tool.reflection.ModelMethod;
-import android.databinding.tool.solver.ExecutionPath;
 import android.databinding.tool.util.L;
 import android.databinding.tool.writer.KCode;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-
-import static android.databinding.tool.reflection.Callable.DYNAMIC;
-import static android.databinding.tool.reflection.Callable.STATIC;
 
 
 public class MethodCallExpr extends Expr {
     final String mName;
+
     Callable mGetter;
-    // Allow protected calls -- only used for ViewDataBinding methods.
-    private boolean mAllowProtected;
 
     static List<Expr> concat(Expr e, List<Expr> list) {
         List<Expr> merged = new ArrayList<Expr>();
@@ -52,7 +49,6 @@ public class MethodCallExpr extends Expr {
         mName = name;
     }
 
-    @SuppressWarnings("Duplicates")
     @Override
     public void updateExpr(ModelAnalyzer modelAnalyzer) {
         try {
@@ -65,24 +61,12 @@ public class MethodCallExpr extends Expr {
     }
 
     @Override
-    protected KCode generateCode() {
+    protected KCode generateCode(boolean expand) {
         KCode code = new KCode()
-                .app("", getTarget().toCode())
-                .app(".")
-                .app(getGetter().name)
-                .app("(");
-        appendArgs(code);
-        code.app(")");
-        return code;
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.methodCall(getTarget().cloneToModel(model), mName,
-                cloneToModel(model, getArgs()));
-    }
-
-    private void appendArgs(KCode code) {
+        .app("", getTarget().toCode(expand))
+        .app(".")
+        .app(getGetter().name)
+        .app("(");
         boolean first = true;
         for (Expr arg : getArgs()) {
             if (first) {
@@ -90,33 +74,10 @@ public class MethodCallExpr extends Expr {
             } else {
                 code.app(", ");
             }
-            code.app("", arg.toCode());
+            code.app("", arg.toCode(expand));
         }
-    }
-
-    @Override
-    public List<ExecutionPath> toExecutionPath(List<ExecutionPath> paths) {
-        final List<ExecutionPath> targetPaths = getTarget().toExecutionPath(paths);
-        // after this, we need a null check.
-        List<ExecutionPath> result = new ArrayList<ExecutionPath>();
-        if (getTarget() instanceof StaticIdentifierExpr) {
-            result.addAll(toExecutionPathInOrder(paths, getArgs()));
-        } else {
-            for (ExecutionPath path : targetPaths) {
-                Expr cmp = getModel()
-                        .comparison("!=", getTarget(), getModel().symbol("null", Object.class));
-                path.addPath(cmp);
-                final ExecutionPath subPath = path.addBranch(cmp, true);
-                if (subPath != null) {
-                    result.addAll(toExecutionPathInOrder(subPath, getArgs()));
-                }
-            }
-        }
-        return result;
-    }
-
-    private List<ExecutionPath> toExecutionPathInOrder(ExecutionPath path, List<Expr> args) {
-        return toExecutionPathInOrder(Arrays.asList(path), args);
+        code.app(")");
+        return code;
     }
 
     @Override
@@ -129,20 +90,12 @@ public class MethodCallExpr extends Expr {
 
             Expr target = getTarget();
             boolean isStatic = target instanceof StaticIdentifierExpr;
-            ModelMethod method = target.getResolvedType().getMethod(mName, args, isStatic,
-                    mAllowProtected);
+            ModelMethod method = target.getResolvedType().getMethod(mName, args, isStatic);
             if (method == null) {
-                StringBuilder argTypes = new StringBuilder();
-                for (ModelClass arg : args) {
-                    if (argTypes.length() != 0) {
-                        argTypes.append(", ");
-                    }
-                    argTypes.append(arg.toJavaCode());
-                }
-                String message = "cannot find method '" + mName + "(" + argTypes + ")' in class " +
+                String message = "cannot find method '" + mName + "' in class " +
                         target.getResolvedType().toJavaCode();
                 IllegalArgumentException e = new IllegalArgumentException(message);
-                L.e(e, "cannot find method %s(%s) in class %s", mName, argTypes,
+                L.e(e, "cannot find method %s in class %s", mName,
                         target.getResolvedType().toJavaCode());
                 throw e;
             }
@@ -162,7 +115,7 @@ public class MethodCallExpr extends Expr {
                 flags |= STATIC;
             }
             mGetter = new Callable(Type.METHOD, method.getName(), null, method.getReturnType(args),
-                    method.getParameterTypes().length, flags, method);
+                    method.getParameterTypes().length, flags);
         }
         return mGetter.resolvedType;
     }
@@ -200,31 +153,8 @@ public class MethodCallExpr extends Expr {
         return mGetter;
     }
 
-    public void setAllowProtected() {
-        mAllowProtected = true;
-    }
-
     @Override
     public String getInvertibleError() {
         return "Method calls may not be used in two-way expressions";
-    }
-
-    @Override
-    public String toString() {
-        StringBuilder buf = new StringBuilder();
-        buf.append(getTarget())
-                .append('.')
-                .append(mName)
-                .append('(');
-        final List<Expr> args = getArgs();
-        for (int i = 0; i < args.size(); i++) {
-            Expr arg = args.get(i);
-            if (i != 0) {
-                buf.append(", ");
-            }
-            buf.append(arg);
-        }
-        buf.append(')');
-        return buf.toString();
     }
 }

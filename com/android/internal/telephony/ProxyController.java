@@ -16,6 +16,9 @@
 
 package com.android.internal.telephony;
 
+import java.util.ArrayList;
+import java.util.Random;
+
 import android.content.Context;
 import android.content.Intent;
 import android.os.AsyncResult;
@@ -28,12 +31,13 @@ import android.telephony.Rlog;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 
+import com.android.internal.telephony.PhoneSwitcher;
 import com.android.internal.telephony.uicc.UiccController;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Random;
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.HashSet;
 
 public class ProxyController {
     static final String LOG_TAG = "ProxyController";
@@ -126,7 +130,7 @@ public class ProxyController {
 
         mUiccPhoneBookController = new UiccPhoneBookController(mPhones);
         mPhoneSubInfoController = new PhoneSubInfoController(mContext, mPhones);
-        mUiccSmsController = new UiccSmsController();
+        mUiccSmsController = new UiccSmsController(mPhones);
         mSetRadioAccessFamilyStatus = new int[mPhones.length];
         mNewRadioAccessFamily = new int[mPhones.length];
         mOldRadioAccessFamily = new int[mPhones.length];

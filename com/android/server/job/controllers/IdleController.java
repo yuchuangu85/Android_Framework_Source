@@ -17,6 +17,7 @@
 package com.android.server.job.controllers;
 
 import java.io.PrintWriter;
+import java.util.ArrayList;
 
 import android.app.AlarmManager;
 import android.app.PendingIntent;
@@ -26,21 +27,20 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.SystemClock;
 import android.os.UserHandle;
-import android.util.ArraySet;
 import android.util.Slog;
 
 import com.android.server.am.ActivityManagerService;
 import com.android.server.job.JobSchedulerService;
 import com.android.server.job.StateChangedListener;
 
-public final class IdleController extends StateController {
+public class IdleController extends StateController {
     private static final String TAG = "IdleController";
 
     // Policy: we decide that we're "idle" if the device has been unused /
     // screen off or dreaming for at least this long
     private long mInactivityIdleThreshold;
     private long mIdleWindowSlop;
-    final ArraySet<JobStatus> mTrackedTasks = new ArraySet<>();
+    final ArrayList<JobStatus> mTrackedTasks = new ArrayList<JobStatus>();
     IdlenessTracker mIdleTracker;
 
     // Singleton factory
@@ -69,17 +69,13 @@ public final class IdleController extends StateController {
     public void maybeStartTrackingJobLocked(JobStatus taskStatus, JobStatus lastJob) {
         if (taskStatus.hasIdleConstraint()) {
             mTrackedTasks.add(taskStatus);
-            taskStatus.setTrackingController(JobStatus.TRACKING_IDLE);
             taskStatus.setIdleConstraintSatisfied(mIdleTracker.isIdle());
         }
     }
 
     @Override
-    public void maybeStopTrackingJobLocked(JobStatus taskStatus, JobStatus incomingJob,
-            boolean forUpdate) {
-        if (taskStatus.clearTrackingController(JobStatus.TRACKING_IDLE)) {
-            mTrackedTasks.remove(taskStatus);
-        }
+    public void maybeStopTrackingJobLocked(JobStatus taskStatus, JobStatus incomingJob, boolean forUpdate) {
+        mTrackedTasks.remove(taskStatus);
     }
 
     /**
@@ -87,8 +83,8 @@ public final class IdleController extends StateController {
      */
     void reportNewIdleState(boolean isIdle) {
         synchronized (mLock) {
-            for (int i = mTrackedTasks.size()-1; i >= 0; i--) {
-                mTrackedTasks.valueAt(i).setIdleConstraintSatisfied(isIdle);
+            for (JobStatus task : mTrackedTasks) {
+                task.setIdleConstraintSatisfied(isIdle);
             }
         }
         mStateChangedListener.onControllerStateChanged();
@@ -107,7 +103,7 @@ public final class IdleController extends StateController {
         mIdleTracker.startTracking();
     }
 
-    final class IdlenessTracker extends BroadcastReceiver {
+    class IdlenessTracker extends BroadcastReceiver {
         private AlarmManager mAlarm;
         private PendingIntent mIdleTriggerIntent;
         boolean mIdle;
@@ -151,6 +147,7 @@ public final class IdleController extends StateController {
         @Override
         public void onReceive(Context context, Intent intent) {
             final String action = intent.getAction();
+
             if (action.equals(Intent.ACTION_SCREEN_ON)
                     || action.equals(Intent.ACTION_DREAMING_STOPPED)) {
                 if (DEBUG) {
@@ -186,11 +183,6 @@ public final class IdleController extends StateController {
                     }
                     mIdle = true;
                     reportNewIdleState(mIdle);
-                } else {
-                    if (DEBUG) {
-                        Slog.v(TAG, "TRIGGER_IDLE received but not changing state; idle="
-                                + mIdle + " screen=" + mScreenOn);
-                    }
                 }
             }
         }
@@ -199,12 +191,12 @@ public final class IdleController extends StateController {
     @Override
     public void dumpControllerStateLocked(PrintWriter pw, int filterUid) {
         pw.print("Idle: ");
-        pw.println(mIdleTracker.isIdle());
+        pw.println(mIdleTracker.isIdle() ? "true" : "false");
         pw.print("Tracking ");
         pw.print(mTrackedTasks.size());
         pw.println(":");
         for (int i = 0; i < mTrackedTasks.size(); i++) {
-            final JobStatus js = mTrackedTasks.valueAt(i);
+            final JobStatus js = mTrackedTasks.get(i);
             if (!js.shouldDump(filterUid)) {
                 continue;
             }

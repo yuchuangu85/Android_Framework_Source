@@ -37,38 +37,19 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * You can use this adapter to provide views for an {@link AdapterView},
- * Returns a view for each object in a collection of data objects you
- * provide, and can be used with list-based user interface widgets such as
- * {@link ListView} or {@link Spinner}.
- * <p>
- * By default, the array adapter creates a view by calling {@link Object#toString()} on each
- * data object in the collection you provide, and places the result in a TextView.
- * You may also customize what type of view is used for the data object in the collection.
- * To customize what type of view is used for the data object,
- * override {@link #getView(int, View, ViewGroup)}
- * and inflate a view resource.
- * For a code example, see
- * the <a href="https://developer.android.com/samples/CustomChoiceList/index.html">
- * CustomChoiceList</a> sample.
- * </p>
- * <p>
- * For an example of using an array adapter with a ListView, see the
- * <a href="{@docRoot}guide/topics/ui/declaring-layout.html#AdapterViews">
- * Adapter Views</a> guide.
- * </p>
- * <p>
- * For an example of using an array adapter with a Spinner, see the
- * <a href="{@docRoot}guide/topics/ui/controls/spinner.html">Spinners</a> guide.
- * </p>
- * <p class="note"><strong>Note:</strong>
- * If you are considering using array adapter with a ListView, consider using
- * {@link android.support.v7.widget.RecyclerView} instead.
- * RecyclerView offers similar features with better performance and more flexibility than
- * ListView provides.
- * See the
- * <a href="https://developer.android.com/guide/topics/ui/layout/recyclerview.html">
- * Recycler View</a> guide.</p>
+ * A concrete BaseAdapter that is backed by an array of arbitrary
+ * objects.  By default this class expects that the provided resource id references
+ * a single TextView.  If you want to use a more complex layout, use the constructors that
+ * also takes a field id.  That field id should reference a TextView in the larger layout
+ * resource.
+ *
+ * <p>However the TextView is referenced, it will be filled with the toString() of each object in
+ * the array. You can add lists or arrays of custom objects. Override the toString() method
+ * of your objects to determine what text will be displayed for the item in the list.
+ *
+ * <p>To use something other than TextViews for the array display, for instance, ImageViews,
+ * or to have some of data besides toString() results fill the views,
+ * override {@link #getView(int, View, ViewGroup)} to return the type of view you want.
  */
 public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSpinnerAdapter {
     /**
@@ -100,11 +81,6 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
      * The content of this list is referred to as "the array" in the documentation.
      */
     private List<T> mObjects;
-
-    /**
-     * Indicates whether the contents of {@link #mObjects} came from static resources.
-     */
-    private boolean mObjectsFromResources;
 
     /**
      * If the inflated resource is not a TextView, {@code mFieldId} is used to find
@@ -201,16 +177,10 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
      */
     public ArrayAdapter(@NonNull Context context, @LayoutRes int resource,
             @IdRes int textViewResourceId, @NonNull List<T> objects) {
-        this(context, resource, textViewResourceId, objects, false);
-    }
-
-    private ArrayAdapter(@NonNull Context context, @LayoutRes int resource,
-            @IdRes int textViewResourceId, @NonNull List<T> objects, boolean objsFromResources) {
         mContext = context;
         mInflater = LayoutInflater.from(context);
         mResource = mDropDownResource = resource;
         mObjects = objects;
-        mObjectsFromResources = objsFromResources;
         mFieldId = textViewResourceId;
     }
 
@@ -226,7 +196,6 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
             } else {
                 mObjects.add(object);
             }
-            mObjectsFromResources = false;
         }
         if (mNotifyOnChange) notifyDataSetChanged();
     }
@@ -252,7 +221,6 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
             } else {
                 mObjects.addAll(collection);
             }
-            mObjectsFromResources = false;
         }
         if (mNotifyOnChange) notifyDataSetChanged();
     }
@@ -269,7 +237,6 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
             } else {
                 Collections.addAll(mObjects, items);
             }
-            mObjectsFromResources = false;
         }
         if (mNotifyOnChange) notifyDataSetChanged();
     }
@@ -287,7 +254,6 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
             } else {
                 mObjects.add(index, object);
             }
-            mObjectsFromResources = false;
         }
         if (mNotifyOnChange) notifyDataSetChanged();
     }
@@ -304,7 +270,6 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
             } else {
                 mObjects.remove(object);
             }
-            mObjectsFromResources = false;
         }
         if (mNotifyOnChange) notifyDataSetChanged();
     }
@@ -319,7 +284,6 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
             } else {
                 mObjects.clear();
             }
-            mObjectsFromResources = false;
         }
         if (mNotifyOnChange) notifyDataSetChanged();
     }
@@ -424,7 +388,7 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
                 text = (TextView) view;
             } else {
                 //  Otherwise, find the TextView field within the layout
-                text = view.findViewById(mFieldId);
+                text = (TextView) view.findViewById(mFieldId);
 
                 if (text == null) {
                     throw new RuntimeException("Failed to find view with ID "
@@ -506,7 +470,7 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
     public static @NonNull ArrayAdapter<CharSequence> createFromResource(@NonNull Context context,
             @ArrayRes int textArrayResId, @LayoutRes int textViewResId) {
         final CharSequence[] strings = context.getResources().getTextArray(textArrayResId);
-        return new ArrayAdapter<>(context, textViewResId, 0, Arrays.asList(strings), true);
+        return new ArrayAdapter<>(context, textViewResId, strings);
     }
 
     @Override
@@ -515,31 +479,6 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
             mFilter = new ArrayFilter();
         }
         return mFilter;
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * @return values from the string array used by {@link #createFromResource(Context, int, int)},
-     * or {@code null} if object was created otherwsie or if contents were dynamically changed after
-     * creation.
-     */
-    @Override
-    public CharSequence[] getAutofillOptions() {
-        // First check if app developer explicitly set them.
-        final CharSequence[] explicitOptions = super.getAutofillOptions();
-        if (explicitOptions != null) {
-            return explicitOptions;
-        }
-
-        // Otherwise, only return options that came from static resources.
-        if (!mObjectsFromResources || mObjects == null || mObjects.isEmpty()) {
-            return null;
-        }
-        final int size = mObjects.size();
-        final CharSequence[] options = new CharSequence[size];
-        mObjects.toArray(options);
-        return options;
     }
 
     /**

@@ -19,7 +19,7 @@ package com.android.systemui.stackdivider;
 import static android.app.ActivityManager.StackId.DOCKED_STACK_ID;
 import static android.view.WindowManager.DOCKED_INVALID;
 
-import android.app.ActivityManager;
+import android.app.ActivityManagerNative;
 import android.graphics.Rect;
 import android.os.RemoteException;
 import android.util.Log;
@@ -72,7 +72,7 @@ public class WindowManagerProxy {
                 mTmpRect5.set(mTempOtherInsetRect);
             }
             try {
-                ActivityManager.getService()
+                ActivityManagerNative.getDefault()
                         .resizeDockedStack(mTmpRect1,
                                 mTmpRect2.isEmpty() ? null : mTmpRect2,
                                 mTmpRect3.isEmpty() ? null : mTmpRect3,
@@ -88,7 +88,7 @@ public class WindowManagerProxy {
         @Override
         public void run() {
             try {
-                ActivityManager.getService().moveTasksToFullscreenStack(
+                ActivityManagerNative.getDefault().moveTasksToFullscreenStack(
                         DOCKED_STACK_ID, false /* onTop */);
             } catch (RemoteException e) {
                 Log.w(TAG, "Failed to remove stack: " + e);
@@ -100,7 +100,7 @@ public class WindowManagerProxy {
         @Override
         public void run() {
             try {
-                ActivityManager.getService().resizeStack(
+                ActivityManagerNative.getDefault().resizeStack(
                         DOCKED_STACK_ID, null, true, true, false, -1);
             } catch (RemoteException e) {
                 Log.w(TAG, "Failed to resize stack: " + e);
@@ -124,7 +124,7 @@ public class WindowManagerProxy {
         @Override
         public void run() {
             try {
-                ActivityManager.getService().swapDockedAndFullscreenStack();
+                ActivityManagerNative.getDefault().swapDockedAndFullscreenStack();
             } catch (RemoteException e) {
                 Log.w(TAG, "Failed to resize stack: " + e);
             }

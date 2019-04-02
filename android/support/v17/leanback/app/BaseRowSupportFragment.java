@@ -1,3 +1,5 @@
+/* This file is auto-generated from BaseRowFragment.java.  DO NOT MODIFY. */
+
 /*
  * Copyright (C) 2014 The Android Open Source Project
  *
@@ -13,6 +15,7 @@
  */
 package android.support.v17.leanback.app;
 
+import android.support.v4.app.Fragment;
 import android.os.Bundle;
 import android.support.v17.leanback.widget.ItemBridgeAdapter;
 import android.support.v17.leanback.widget.ListRow;
@@ -21,7 +24,6 @@ import android.support.v17.leanback.widget.OnChildViewHolderSelectedListener;
 import android.support.v17.leanback.widget.PresenterSelector;
 import android.support.v17.leanback.widget.Row;
 import android.support.v17.leanback.widget.VerticalGridView;
-import android.support.v4.app.Fragment;
 import android.support.v7.widget.RecyclerView;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -35,7 +37,7 @@ abstract class BaseRowSupportFragment extends Fragment {
     private ObjectAdapter mAdapter;
     VerticalGridView mVerticalGridView;
     private PresenterSelector mPresenterSelector;
-    final ItemBridgeAdapter mBridgeAdapter = new ItemBridgeAdapter();
+    ItemBridgeAdapter mBridgeAdapter;
     int mSelectedPosition = -1;
     private boolean mPendingTransitionPrepare;
     private LateSelectionObserver mLateSelectionObserver = new LateSelectionObserver();
@@ -47,10 +49,8 @@ abstract class BaseRowSupportFragment extends Fragment {
                 @Override
                 public void onChildViewHolderSelected(RecyclerView parent,
                         RecyclerView.ViewHolder view, int position, int subposition) {
-                    if (!mLateSelectionObserver.mIsLateSelection) {
-                        mSelectedPosition = position;
-                        onRowSelected(parent, view, position, subposition);
-                    }
+                    mSelectedPosition = position;
+                    onRowSelected(parent, view, position, subposition);
                 }
             };
 
@@ -79,7 +79,9 @@ abstract class BaseRowSupportFragment extends Fragment {
         if (savedInstanceState != null) {
             mSelectedPosition = savedInstanceState.getInt(CURRENT_SELECTED_POSITION, -1);
         }
-        setAdapterAndSelection();
+        if (mBridgeAdapter != null) {
+            setAdapterAndSelection();
+        }
         mVerticalGridView.setOnChildViewHolderSelectedListener(mRowSelectedListener);
     }
 
@@ -124,15 +126,7 @@ abstract class BaseRowSupportFragment extends Fragment {
     }
 
     void setAdapterAndSelection() {
-        if (mAdapter == null) {
-            // delay until ItemBridgeAdapter has wrappedAdapter. Once we assign ItemBridgeAdapter
-            // to RecyclerView, it will not be allowed to change "hasStableId" to true.
-            return;
-        }
-        if (mVerticalGridView.getAdapter() != mBridgeAdapter) {
-            // avoid extra layout if ItemBridgeAdapter was already set.
-            mVerticalGridView.setAdapter(mBridgeAdapter);
-        }
+        mVerticalGridView.setAdapter(mBridgeAdapter);
         // We don't set the selected position unless we've data in the adapter.
         boolean lateSelection = mBridgeAdapter.getItemCount() == 0 && mSelectedPosition >= 0;
         if (lateSelection) {
@@ -171,8 +165,7 @@ abstract class BaseRowSupportFragment extends Fragment {
     }
 
     /**
-     * Sets the adapter that represents a list of rows.
-     * @param rowsAdapter Adapter that represents list of rows.
+     * Sets the adapter for the fragment.
      */
     public final void setAdapter(ObjectAdapter rowsAdapter) {
         mAdapter = rowsAdapter;
@@ -180,18 +173,16 @@ abstract class BaseRowSupportFragment extends Fragment {
     }
 
     /**
-     * Returns the Adapter that represents list of rows.
-     * @return Adapter that represents list of rows.
+     * Returns the list of rows.
      */
     public final ObjectAdapter getAdapter() {
         return mAdapter;
     }
 
     /**
-     * Returns the RecyclerView.Adapter that wraps {@link #getAdapter()}.
-     * @return The RecyclerView.Adapter that wraps {@link #getAdapter()}.
+     * Returns the bridge adapter.
      */
-    public final ItemBridgeAdapter getBridgeAdapter() {
+    final ItemBridgeAdapter getBridgeAdapter() {
         return mBridgeAdapter;
     }
 
@@ -218,7 +209,7 @@ abstract class BaseRowSupportFragment extends Fragment {
             return;
         }
         mSelectedPosition = position;
-        if (mVerticalGridView != null) {
+        if(mVerticalGridView != null && mVerticalGridView.getAdapter() != null) {
             if (mLateSelectionObserver.mIsLateSelection) {
                 return;
             }
@@ -230,14 +221,22 @@ abstract class BaseRowSupportFragment extends Fragment {
         }
     }
 
-    public final VerticalGridView getVerticalGridView() {
+    final VerticalGridView getVerticalGridView() {
         return mVerticalGridView;
     }
 
     void updateAdapter() {
-        mBridgeAdapter.setAdapter(mAdapter);
-        mBridgeAdapter.setPresenter(mPresenterSelector);
+        if (mBridgeAdapter != null) {
+            // detach observer from ObjectAdapter
+            mLateSelectionObserver.clear();
+            mBridgeAdapter.clear();
+            mBridgeAdapter = null;
+        }
 
+        if (mAdapter != null) {
+            // If presenter selector is null, adapter ps will be used
+            mBridgeAdapter = new ItemBridgeAdapter(mAdapter, mPresenterSelector);
+        }
         if (mVerticalGridView != null) {
             setAdapterAndSelection();
         }

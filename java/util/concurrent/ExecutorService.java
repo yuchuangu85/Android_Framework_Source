@@ -1,33 +1,4 @@
 /*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -149,6 +120,8 @@ public interface ExecutorService extends Executor {
      * <p>This method does not wait for previously submitted tasks to
      * complete execution.  Use {@link #awaitTermination awaitTermination}
      * to do that.
+     *
+     * 关闭方法，调用后执行之前提交的任务，不再接受新的任务
      */
     void shutdown();
 
@@ -166,12 +139,16 @@ public interface ExecutorService extends Executor {
      * implementations will cancel via {@link Thread#interrupt}, so any
      * task that fails to respond to interrupts may never terminate.
      *
+     * 从语义上可以看出是立即停止的意思，将暂停所有等待处理的任务并返回这些任务的列表
+     *
      * @return list of tasks that never commenced execution
      */
     List<Runnable> shutdownNow();
 
     /**
      * Returns {@code true} if this executor has been shut down.
+     *
+     * 判断执行器是否已经关闭
      *
      * @return {@code true} if this executor has been shut down
      */
@@ -182,6 +159,8 @@ public interface ExecutorService extends Executor {
      * Note that {@code isTerminated} is never {@code true} unless
      * either {@code shutdown} or {@code shutdownNow} was called first.
      *
+     * 关闭后所有任务是否都已完成
+     *
      * @return {@code true} if all tasks have completed following shut down
      */
     boolean isTerminated();
@@ -190,6 +169,8 @@ public interface ExecutorService extends Executor {
      * Blocks until all tasks have completed execution after a shutdown
      * request, or the timeout occurs, or the current thread is
      * interrupted, whichever happens first.
+     *
+     * 中断
      *
      * @param timeout the maximum time to wait
      * @param unit the time unit of the timeout argument
@@ -216,6 +197,8 @@ public interface ExecutorService extends Executor {
      * for example, {@link java.security.PrivilegedAction} to
      * {@link Callable} form so they can be submitted.
      *
+     * 提交一个Callable任务
+     *
      * @param task the task to submit
      * @param <T> the type of the task's result
      * @return a Future representing pending completion of the task
@@ -229,6 +212,8 @@ public interface ExecutorService extends Executor {
      * Submits a Runnable task for execution and returns a Future
      * representing that task. The Future's {@code get} method will
      * return the given result upon successful completion.
+     *
+     * 提交一个Runable任务，result要返回的结果
      *
      * @param task the task to submit
      * @param result the result to return
@@ -244,6 +229,8 @@ public interface ExecutorService extends Executor {
      * Submits a Runnable task for execution and returns a Future
      * representing that task. The Future's {@code get} method will
      * return {@code null} upon <em>successful</em> completion.
+     *
+     * 提交一个任务
      *
      * @param task the task to submit
      * @return a Future representing pending completion of the task
@@ -262,6 +249,8 @@ public interface ExecutorService extends Executor {
      * terminated either normally or by throwing an exception.
      * The results of this method are undefined if the given
      * collection is modified while this operation is in progress.
+     *
+     * 执行所有给定的任务，当所有任务完成，返回保持任务状态和结果的Future列表
      *
      * @param tasks the collection of tasks
      * @param <T> the type of the values returned from the tasks
@@ -288,6 +277,8 @@ public interface ExecutorService extends Executor {
      * terminated either normally or by throwing an exception.
      * The results of this method are undefined if the given
      * collection is modified while this operation is in progress.
+     *
+     * 执行给定的任务，当所有任务完成或超时期满时（无论哪个首先发生），返回保持任务状态和结果的 Future 列表。
      *
      * @param tasks the collection of tasks
      * @param timeout the maximum time to wait
@@ -317,6 +308,8 @@ public interface ExecutorService extends Executor {
      * The results of this method are undefined if the given
      * collection is modified while this operation is in progress.
      *
+     * 执行给定的任务，如果某个任务已成功完成（也就是未抛出异常），则返回其结果。
+     *
      * @param tasks the collection of tasks
      * @param <T> the type of the values returned from the tasks
      * @return the result returned by one of the tasks
@@ -339,6 +332,8 @@ public interface ExecutorService extends Executor {
      * completed are cancelled.
      * The results of this method are undefined if the given
      * collection is modified while this operation is in progress.
+     *
+     * 执行给定的任务，如果在给定的超时期满前某个任务已成功完成（也就是未抛出异常），则返回其结果。
      *
      * @param tasks the collection of tasks
      * @param timeout the maximum time to wait

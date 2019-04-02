@@ -16,11 +16,8 @@
 
 package android.view;
 
-import android.content.Context;
 import android.graphics.Rect;
 import android.graphics.Region;
-import android.os.Build;
-import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -52,9 +49,7 @@ public final class ViewTreeObserver {
     private CopyOnWriteArray<OnWindowShownListener> mOnWindowShownListeners;
 
     // These listeners cannot be mutated during dispatch
-    private boolean mInDispatchOnDraw;
     private ArrayList<OnDrawListener> mOnDrawListeners;
-    private static boolean sIllegalOnDrawModificationIsFatal;
 
     /** Remains false until #dispatchOnWindowShown() is called. If a listener registers after
      * that the listener will be immediately called. */
@@ -332,9 +327,7 @@ public final class ViewTreeObserver {
     /**
      * Creates a new ViewTreeObserver. This constructor should not be called
      */
-    ViewTreeObserver(Context context) {
-        sIllegalOnDrawModificationIsFatal =
-                context.getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.O;
+    ViewTreeObserver() {
     }
 
     /**
@@ -382,14 +375,6 @@ public final class ViewTreeObserver {
                 mOnPreDrawListeners.addAll(observer.mOnPreDrawListeners);
             } else {
                 mOnPreDrawListeners = observer.mOnPreDrawListeners;
-            }
-        }
-
-        if (observer.mOnDrawListeners != null) {
-            if (mOnDrawListeners != null) {
-                mOnDrawListeners.addAll(observer.mOnDrawListeners);
-            } else {
-                mOnDrawListeners = observer.mOnDrawListeners;
             }
         }
 
@@ -672,15 +657,6 @@ public final class ViewTreeObserver {
             mOnDrawListeners = new ArrayList<OnDrawListener>();
         }
 
-        if (mInDispatchOnDraw) {
-            IllegalStateException ex = new IllegalStateException(
-                    "Cannot call addOnDrawListener inside of onDraw");
-            if (sIllegalOnDrawModificationIsFatal) {
-                throw ex;
-            } else {
-                Log.e("ViewTreeObserver", ex.getMessage(), ex);
-            }
-        }
         mOnDrawListeners.add(listener);
     }
 
@@ -699,15 +675,6 @@ public final class ViewTreeObserver {
         checkIsAlive();
         if (mOnDrawListeners == null) {
             return;
-        }
-        if (mInDispatchOnDraw) {
-            IllegalStateException ex = new IllegalStateException(
-                    "Cannot call removeOnDrawListener inside of onDraw");
-            if (sIllegalOnDrawModificationIsFatal) {
-                throw ex;
-            } else {
-                Log.e("ViewTreeObserver", ex.getMessage(), ex);
-            }
         }
         mOnDrawListeners.remove(victim);
     }
@@ -1009,13 +976,11 @@ public final class ViewTreeObserver {
      */
     public final void dispatchOnDraw() {
         if (mOnDrawListeners != null) {
-            mInDispatchOnDraw = true;
             final ArrayList<OnDrawListener> listeners = mOnDrawListeners;
             int numListeners = listeners.size();
             for (int i = 0; i < numListeners; ++i) {
                 listeners.get(i).onDraw();
             }
-            mInDispatchOnDraw = false;
         }
     }
 

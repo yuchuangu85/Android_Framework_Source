@@ -13,19 +13,17 @@
  */
 package android.support.v17.leanback.transition;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.content.Context;
-import android.support.annotation.RequiresApi;
 import android.support.annotation.RestrictTo;
 import android.transition.Slide;
 import android.util.AttributeSet;
 
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+
 /**
  * @hide
  */
-@RequiresApi(21)
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public class SlideNoPropagation extends Slide {
 
     public SlideNoPropagation() {

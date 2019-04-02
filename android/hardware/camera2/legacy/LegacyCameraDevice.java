@@ -223,25 +223,6 @@ public class LegacyCameraDevice implements AutoCloseable {
         }
 
         @Override
-        public void onRequestQueueEmpty() {
-            mResultHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    if (DEBUG) {
-                        Log.d(TAG, "doing onRequestQueueEmpty callback");
-                    }
-                    try {
-                        mDeviceCallbacks.onRequestQueueEmpty();
-                    } catch (RemoteException e) {
-                        throw new IllegalStateException(
-                                "Received remote exception during onRequestQueueEmpty callback: ",
-                                e);
-                    }
-                }
-            });
-        }
-
-        @Override
         public void onCaptureResult(final CameraMetadataNative result, final RequestHolder holder) {
             final CaptureResultExtras extras = getExtrasFromRequest(holder);
 
@@ -263,8 +244,7 @@ public class LegacyCameraDevice implements AutoCloseable {
         }
 
         @Override
-        public void onRepeatingRequestError(final long lastFrameNumber,
-                final int repeatingRequestId) {
+        public void onRepeatingRequestError(final long lastFrameNumber) {
             mResultHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -272,8 +252,7 @@ public class LegacyCameraDevice implements AutoCloseable {
                         Log.d(TAG, "doing onRepeatingRequestError callback.");
                     }
                     try {
-                        mDeviceCallbacks.onRepeatingRequestError(lastFrameNumber,
-                                repeatingRequestId);
+                        mDeviceCallbacks.onRepeatingRequestError(lastFrameNumber);
                     } catch (RemoteException e) {
                         throw new IllegalStateException(
                                 "Received remote exception during onRepeatingRequestError " +
@@ -369,7 +348,9 @@ public class LegacyCameraDevice implements AutoCloseable {
 
                     Size[] sizes = streamConfigurations.getOutputSizes(surfaceType);
                     if (sizes == null) {
-                        if (surfaceType == ImageFormat.PRIVATE) {
+                        // WAR: Override default format to IMPLEMENTATION_DEFINED for b/9487482
+                        if ((surfaceType >= LegacyMetadataMapper.HAL_PIXEL_FORMAT_RGBA_8888 &&
+                            surfaceType <= LegacyMetadataMapper.HAL_PIXEL_FORMAT_BGRA_8888)) {
 
                             // YUV_420_888 is always present in LEGACY for all
                             // IMPLEMENTATION_DEFINED output sizes, and is publicly visible in the
@@ -668,16 +649,7 @@ public class LegacyCameraDevice implements AutoCloseable {
      */
     public static int detectSurfaceType(Surface surface) throws BufferQueueAbandonedException {
         checkNotNull(surface);
-        int surfaceType = nativeDetectSurfaceType(surface);
-
-        // TODO: remove this override since the default format should be
-        // ImageFormat.PRIVATE. b/9487482
-        if ((surfaceType >= LegacyMetadataMapper.HAL_PIXEL_FORMAT_RGBA_8888 &&
-                surfaceType <= LegacyMetadataMapper.HAL_PIXEL_FORMAT_BGRA_8888)) {
-            surfaceType = ImageFormat.PRIVATE;
-        }
-
-        return LegacyExceptionUtils.throwOnError(surfaceType);
+        return LegacyExceptionUtils.throwOnError(nativeDetectSurfaceType(surface));
     }
 
     /**

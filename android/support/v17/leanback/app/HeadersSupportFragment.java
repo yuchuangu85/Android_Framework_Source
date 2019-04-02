@@ -1,3 +1,5 @@
+/* This file is auto-generated from HeadersFragment.java.  DO NOT MODIFY. */
+
 /*
  * Copyright (C) 2014 The Android Open Source Project
  *
@@ -34,19 +36,12 @@ import android.support.v17.leanback.widget.SectionRow;
 import android.support.v17.leanback.widget.VerticalGridView;
 import android.support.v7.widget.RecyclerView;
 import android.view.View;
-import android.view.View.OnLayoutChangeListener;
 import android.view.ViewGroup;
+import android.view.View.OnLayoutChangeListener;
 import android.widget.FrameLayout;
 
 /**
- * An fragment containing a list of row headers. Implementation must support three types of rows:
- * <ul>
- *     <li>{@link DividerRow} rendered by {@link DividerPresenter}.</li>
- *     <li>{@link Row} rendered by {@link RowHeaderPresenter}.</li>
- *     <li>{@link SectionRow} rendered by {@link RowHeaderPresenter}.</li>
- * </ul>
- * Use {@link #setPresenterSelector(PresenterSelector)} in subclass constructor to customize
- * Presenters. App may override {@link BrowseSupportFragment#onCreateHeadersSupportFragment()}.
+ * An internal fragment containing a list of row headers.
  */
 public class HeadersSupportFragment extends BaseRowSupportFragment {
 
@@ -91,7 +86,6 @@ public class HeadersSupportFragment extends BaseRowSupportFragment {
 
     public HeadersSupportFragment() {
         setPresenterSelector(sHeaderPresenter);
-        FocusHighlightHelper.setupHeaderItemFocusHighlight(getBridgeAdapter());
     }
 
     public void setOnHeaderClickedListener(OnHeaderClickedListener listener) {
@@ -166,6 +160,9 @@ public class HeadersSupportFragment extends BaseRowSupportFragment {
         if (listView == null) {
             return;
         }
+        if (getBridgeAdapter() != null) {
+            FocusHighlightHelper.setupHeaderItemFocusHighlight(listView);
+        }
         if (mBackgroundColorSet) {
             listView.setBackgroundColor(mBackgroundColor);
             updateFadingEdgeToBrandColor(mBackgroundColor);
@@ -234,8 +231,13 @@ public class HeadersSupportFragment extends BaseRowSupportFragment {
     void updateAdapter() {
         super.updateAdapter();
         ItemBridgeAdapter adapter = getBridgeAdapter();
-        adapter.setAdapterListener(mAdapterListener);
-        adapter.setWrapper(mWrapper);
+        if (adapter != null) {
+            adapter.setAdapterListener(mAdapterListener);
+            adapter.setWrapper(mWrapper);
+        }
+        if (adapter != null && getVerticalGridView() != null) {
+            FocusHighlightHelper.setupHeaderItemFocusHighlight(getVerticalGridView());
+        }
     }
 
     void setBackgroundColor(int color) {

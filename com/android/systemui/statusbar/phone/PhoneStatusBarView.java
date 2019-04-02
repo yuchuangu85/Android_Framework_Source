@@ -24,20 +24,16 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
 
-import com.android.systemui.BatteryMeterView;
 import com.android.systemui.DejankUtils;
-import com.android.systemui.Dependency;
 import com.android.systemui.EventLogTags;
 import com.android.systemui.R;
-import com.android.systemui.statusbar.policy.DarkIconDispatcher;
-import com.android.systemui.statusbar.policy.DarkIconDispatcher.DarkReceiver;
 
 public class PhoneStatusBarView extends PanelBar {
     private static final String TAG = "PhoneStatusBarView";
-    private static final boolean DEBUG = StatusBar.DEBUG;
+    private static final boolean DEBUG = PhoneStatusBar.DEBUG;
     private static final boolean DEBUG_GESTURES = false;
 
-    StatusBar mBar;
+    PhoneStatusBar mBar;
 
     boolean mIsFullyOpenedPanel = false;
     private final PhoneStatusBarTransitions mBarTransitions;
@@ -52,7 +48,6 @@ public class PhoneStatusBarView extends PanelBar {
             }
         }
     };
-    private DarkReceiver mBattery;
 
     public PhoneStatusBarView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -64,7 +59,7 @@ public class PhoneStatusBarView extends PanelBar {
         return mBarTransitions;
     }
 
-    public void setBar(StatusBar bar) {
+    public void setBar(PhoneStatusBar bar) {
         mBar = bar;
     }
 
@@ -75,20 +70,6 @@ public class PhoneStatusBarView extends PanelBar {
     @Override
     public void onFinishInflate() {
         mBarTransitions.init();
-        mBattery = findViewById(R.id.battery);
-    }
-
-    @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        // Always have Battery meters in the status bar observe the dark/light modes.
-        Dependency.get(DarkIconDispatcher.class).addDarkReceiver(mBattery);
-    }
-
-    @Override
-    protected void onDetachedFromWindow() {
-        super.onDetachedFromWindow();
-        Dependency.get(DarkIconDispatcher.class).removeDarkReceiver(mBattery);
     }
 
     @Override
@@ -121,12 +102,12 @@ public class PhoneStatusBarView extends PanelBar {
     public void onPanelCollapsed() {
         super.onPanelCollapsed();
         // Close the status bar in the next frame so we can show the end of the animation.
-        post(mHideExpandedRunnable);
+        DejankUtils.postAfterTraversal(mHideExpandedRunnable);
         mIsFullyOpenedPanel = false;
     }
 
     public void removePendingHideExpandedRunnables() {
-        removeCallbacks(mHideExpandedRunnable);
+        DejankUtils.removeCallbacks(mHideExpandedRunnable);
     }
 
     @Override
@@ -188,6 +169,9 @@ public class PhoneStatusBarView extends PanelBar {
     public void panelScrimMinFractionChanged(float minFraction) {
         if (mMinFraction != minFraction) {
             mMinFraction = minFraction;
+            if (minFraction != 0.0f) {
+                mScrimController.animateNextChange();
+            }
             updateScrimFraction();
         }
     }
@@ -200,11 +184,7 @@ public class PhoneStatusBarView extends PanelBar {
     }
 
     private void updateScrimFraction() {
-        float scrimFraction = mPanelFraction;
-        if (mMinFraction < 1.0f) {
-            scrimFraction = Math.max((mPanelFraction - mMinFraction) / (1.0f - mMinFraction),
-                    0);
-        }
+        float scrimFraction = Math.max(mPanelFraction, mMinFraction);
         mScrimController.setPanelExpansion(scrimFraction);
     }
 

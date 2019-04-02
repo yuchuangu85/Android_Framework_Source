@@ -23,12 +23,9 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.net.MatchAllNetworkSpecifier;
 import android.net.NetworkCapabilities;
 import android.net.NetworkFactory;
 import android.net.NetworkRequest;
-import android.net.NetworkSpecifier;
-import android.net.StringNetworkSpecifier;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -36,16 +33,22 @@ import android.os.Registrant;
 import android.os.RegistrantList;
 import android.os.RemoteException;
 import android.telephony.Rlog;
+import android.text.TextUtils;
 import android.util.LocalLog;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.CommandsInterface;
+import com.android.internal.telephony.IOnSubscriptionsChangedListener;
+import com.android.internal.telephony.ITelephonyRegistry;
 import com.android.internal.telephony.dataconnection.DcRequest;
 import com.android.internal.util.IndentingPrintWriter;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.lang.IllegalArgumentException;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
@@ -145,7 +148,7 @@ public class PhoneSwitcher extends Handler {
         netCap.addCapability(NetworkCapabilities.NET_CAPABILITY_EIMS);
         netCap.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED);
         netCap.addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
-        netCap.setNetworkSpecifier(new MatchAllNetworkSpecifier());
+        netCap.setNetworkSpecifier(NetworkCapabilities.MATCH_ALL_REQUESTS_NETWORK_SPECIFIER);
 
         NetworkFactory networkFactory = new PhoneSwitcherNetworkRequestListener(looper, context,
                 netCap, this);
@@ -336,10 +339,7 @@ public class PhoneSwitcher extends Handler {
         state.active = false;
         log("deactivate " + phoneId);
         state.lastRequested = System.currentTimeMillis();
-        // Skip ALLOW_DATA for single SIM device
-        if (mNumPhones > 1) {
-            mCommandsInterfaces[phoneId].setDataAllowed(false, null);
-        }
+        mCommandsInterfaces[phoneId].setDataAllowed(false, null);
         mActivePhoneRegistrants[phoneId].notifyRegistrants();
     }
 
@@ -349,10 +349,7 @@ public class PhoneSwitcher extends Handler {
         state.active = true;
         log("activate " + phoneId);
         state.lastRequested = System.currentTimeMillis();
-        // Skip ALLOW_DATA for single SIM device
-        if (mNumPhones > 1) {
-            mCommandsInterfaces[phoneId].setDataAllowed(true, null);
-        }
+        mCommandsInterfaces[phoneId].setDataAllowed(true, null);
         mActivePhoneRegistrants[phoneId].notifyRegistrants();
     }
 
@@ -367,30 +364,18 @@ public class PhoneSwitcher extends Handler {
 
     private void onResendDataAllowed(Message msg) {
         final int phoneId = msg.arg1;
-        // Skip ALLOW_DATA for single SIM device
-        if (mNumPhones > 1) {
-            mCommandsInterfaces[phoneId].setDataAllowed(mPhoneStates[phoneId].active, null);
-        }
+        mCommandsInterfaces[phoneId].setDataAllowed(mPhoneStates[phoneId].active, null);
     }
 
     private int phoneIdForRequest(NetworkRequest netRequest) {
-        NetworkSpecifier specifier = netRequest.networkCapabilities.getNetworkSpecifier();
+        String specifier = netRequest.networkCapabilities.getNetworkSpecifier();
         int subId;
 
-        if (specifier == null) {
+        if (TextUtils.isEmpty(specifier)) {
             subId = mDefaultDataSubscription;
-        } else if (specifier instanceof StringNetworkSpecifier) {
-            try {
-                subId = Integer.parseInt(((StringNetworkSpecifier) specifier).specifier);
-            } catch (NumberFormatException e) {
-                Rlog.e(LOG_TAG, "NumberFormatException on "
-                        + ((StringNetworkSpecifier) specifier).specifier);
-                subId = INVALID_SUBSCRIPTION_ID;
-            }
         } else {
-            subId = INVALID_SUBSCRIPTION_ID;
+            subId = Integer.parseInt(specifier);
         }
-
         int phoneId = INVALID_PHONE_INDEX;
         if (subId == INVALID_SUBSCRIPTION_ID) return phoneId;
 

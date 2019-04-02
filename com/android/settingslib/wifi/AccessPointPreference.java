@@ -13,54 +13,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License
  */
+
 package com.android.settingslib.wifi;
 
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.content.res.Resources;
-import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.StateListDrawable;
-import android.net.NetworkBadging;
 import android.net.wifi.WifiConfiguration;
 import android.os.Looper;
 import android.os.UserHandle;
-import android.support.annotation.VisibleForTesting;
 import android.support.v7.preference.Preference;
 import android.support.v7.preference.PreferenceViewHolder;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.SparseArray;
-import android.widget.ImageView;
 import android.widget.TextView;
-
 import com.android.settingslib.R;
-import com.android.settingslib.TronUtils;
-import com.android.settingslib.Utils;
 
 public class AccessPointPreference extends Preference {
 
     private static final int[] STATE_SECURED = {
             R.attr.state_encrypted
     };
+    private static final int[] STATE_NONE = {};
 
-    private static final int[] STATE_METERED = {
-            R.attr.state_metered
-    };
+    private static int[] wifi_signal_attributes = { R.attr.wifi_signal };
 
-    private static final int[] FRICTION_ATTRS = {
-            R.attr.wifi_friction
-    };
-
-    private static final int[] WIFI_CONNECTION_STRENGTH = {
-            R.string.accessibility_no_wifi,
-            R.string.accessibility_wifi_one_bar,
-            R.string.accessibility_wifi_two_bars,
-            R.string.accessibility_wifi_three_bars,
-            R.string.accessibility_wifi_signal_full
-    };
-
-    private final StateListDrawable mFrictionSld;
+    private final StateListDrawable mWifiSld;
     private final int mBadgePadding;
     private final UserBadgeCache mBadgeCache;
     private TextView mTitleView;
@@ -71,25 +51,18 @@ public class AccessPointPreference extends Preference {
     private int mLevel;
     private CharSequence mContentDescription;
     private int mDefaultIconResId;
-    private int mWifiSpeed = NetworkBadging.BADGING_NONE;
 
-    public static String generatePreferenceKey(AccessPoint accessPoint) {
-        StringBuilder builder = new StringBuilder();
-
-        if (TextUtils.isEmpty(accessPoint.getSsidStr())) {
-            builder.append(accessPoint.getBssid());
-        } else {
-            builder.append(accessPoint.getSsidStr());
-        }
-
-        builder.append(',').append(accessPoint.getSecurity());
-        return builder.toString();
-    }
+    static final int[] WIFI_CONNECTION_STRENGTH = {
+            R.string.accessibility_wifi_one_bar,
+            R.string.accessibility_wifi_two_bars,
+            R.string.accessibility_wifi_three_bars,
+            R.string.accessibility_wifi_signal_full
+    };
 
     // Used for dummy pref.
     public AccessPointPreference(Context context, AttributeSet attrs) {
         super(context, attrs);
-        mFrictionSld = null;
+        mWifiSld = null;
         mBadgePadding = 0;
         mBadgeCache = null;
     }
@@ -97,21 +70,14 @@ public class AccessPointPreference extends Preference {
     public AccessPointPreference(AccessPoint accessPoint, Context context, UserBadgeCache cache,
             boolean forSavedNetworks) {
         super(context);
-        setWidgetLayoutResource(R.layout.access_point_friction_widget);
         mBadgeCache = cache;
         mAccessPoint = accessPoint;
         mForSavedNetworks = forSavedNetworks;
         mAccessPoint.setTag(this);
         mLevel = -1;
 
-        TypedArray frictionSld;
-        try {
-            frictionSld = context.getTheme().obtainStyledAttributes(FRICTION_ATTRS);
-        } catch (Resources.NotFoundException e) {
-            // Fallback for platforms that do not need friction icon resources.
-            frictionSld = null;
-        }
-        mFrictionSld = frictionSld != null ? (StateListDrawable) frictionSld.getDrawable(0) : null;
+        mWifiSld = (StateListDrawable) context.getTheme()
+                .obtainStyledAttributes(wifi_signal_attributes).getDrawable(0);
 
         // Distance from the end of the title at which this AP's user badge should sit.
         mBadgePadding = context.getResources()
@@ -122,7 +88,6 @@ public class AccessPointPreference extends Preference {
     public AccessPointPreference(AccessPoint accessPoint, Context context, UserBadgeCache cache,
             int iconResId, boolean forSavedNetworks) {
         super(context);
-        setWidgetLayoutResource(R.layout.access_point_friction_widget);
         mBadgeCache = cache;
         mAccessPoint = accessPoint;
         mForSavedNetworks = forSavedNetworks;
@@ -130,14 +95,8 @@ public class AccessPointPreference extends Preference {
         mLevel = -1;
         mDefaultIconResId = iconResId;
 
-        TypedArray frictionSld;
-        try {
-            frictionSld = context.getTheme().obtainStyledAttributes(FRICTION_ATTRS);
-        } catch (Resources.NotFoundException e) {
-            // Fallback for platforms that do not need friction icon resources.
-            frictionSld = null;
-        }
-        mFrictionSld = frictionSld != null ? (StateListDrawable) frictionSld.getDrawable(0) : null;
+        mWifiSld = (StateListDrawable) context.getTheme()
+                .obtainStyledAttributes(wifi_signal_attributes).getDrawable(0);
 
         // Distance from the end of the title at which this AP's user badge should sit.
         mBadgePadding = context.getResources()
@@ -160,53 +119,37 @@ public class AccessPointPreference extends Preference {
             drawable.setLevel(mLevel);
         }
 
-        mTitleView = (TextView) view.findViewById(android.R.id.title);
+        mTitleView = (TextView) view.findViewById(com.android.internal.R.id.title);
         if (mTitleView != null) {
             // Attach to the end of the title view
             mTitleView.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, mBadge, null);
             mTitleView.setCompoundDrawablePadding(mBadgePadding);
         }
         view.itemView.setContentDescription(mContentDescription);
-
-        ImageView frictionImageView = (ImageView) view.findViewById(R.id.friction_icon);
-        bindFrictionImage(frictionImageView);
     }
 
     protected void updateIcon(int level, Context context) {
         if (level == -1) {
             safeSetDefaultIcon();
-            return;
-        }
-        TronUtils.logWifiSettingsSpeed(context, mWifiSpeed);
-
-        // TODO(b/62355275): Revert this to N code after deleting NetworkBadging API
-        Drawable drawable = NetworkBadging.getWifiIcon(
-                level, NetworkBadging.BADGING_NONE, getContext().getTheme());
-        if (!mForSavedNetworks && drawable != null) {
-            drawable.setTint(Utils.getColorAttr(context, android.R.attr.colorControlNormal));
-            setIcon(drawable);
         } else {
-            safeSetDefaultIcon();
+            if (getIcon() == null) {
+                // To avoid a drawing race condition, we first set the state (SECURE/NONE) and then
+                // set the icon (drawable) to that state's drawable.
+                // If sld is null then we are indexing and therefore do not have access to
+                // (nor need to display) the drawable.
+                if (mWifiSld != null) {
+                    mWifiSld.setState((mAccessPoint.getSecurity() != AccessPoint.SECURITY_NONE)
+                            ? STATE_SECURED
+                            : STATE_NONE);
+                    Drawable drawable = mWifiSld.getCurrent();
+                    if (!mForSavedNetworks && drawable != null) {
+                        setIcon(drawable);
+                        return;
+                    }
+                }
+                safeSetDefaultIcon();
+            }
         }
-    }
-
-    /**
-     * Binds the friction icon drawable using a StateListDrawable.
-     *
-     * <p>Friction icons will be rebound when notifyChange() is called, and therefore
-     * do not need to be managed in refresh()</p>.
-     */
-    private void bindFrictionImage(ImageView frictionImageView) {
-        if (frictionImageView == null || mFrictionSld == null) {
-            return;
-        }
-        if (mAccessPoint.getSecurity() != AccessPoint.SECURITY_NONE) {
-            mFrictionSld.setState(STATE_SECURED);
-        } else if (mAccessPoint.isMetered()) {
-            mFrictionSld.setState(STATE_METERED);
-        }
-        Drawable drawable = mFrictionSld.getCurrent();
-        frictionImageView.setImageDrawable(drawable);
     }
 
     private void safeSetDefaultIcon() {
@@ -231,23 +174,32 @@ public class AccessPointPreference extends Preference {
      * Updates the title and summary; may indirectly call notifyChanged().
      */
     public void refresh() {
-        setTitle(this, mAccessPoint, mForSavedNetworks);
+        if (mForSavedNetworks) {
+            setTitle(mAccessPoint.getConfigName());
+        } else {
+            setTitle(mAccessPoint.getSsid());
+        }
+
         final Context context = getContext();
         int level = mAccessPoint.getLevel();
-        int wifiSpeed = mAccessPoint.getSpeed();
-        if (level != mLevel || wifiSpeed != mWifiSpeed) {
+        if (level != mLevel) {
             mLevel = level;
-            mWifiSpeed = wifiSpeed;
             updateIcon(mLevel, context);
             notifyChanged();
         }
-
         updateBadge(context);
 
         setSummary(mForSavedNetworks ? mAccessPoint.getSavedNetworkSummary()
                 : mAccessPoint.getSettingsSummary());
 
-        mContentDescription = buildContentDescription(getContext(), this /* pref */, mAccessPoint);
+        mContentDescription = getTitle();
+        if (getSummary() != null) {
+            mContentDescription = TextUtils.concat(mContentDescription, ",", getSummary());
+        }
+        if (level >= 0 && level < WIFI_CONNECTION_STRENGTH.length) {
+            mContentDescription = TextUtils.concat(mContentDescription, ",",
+                    getContext().getString(WIFI_CONNECTION_STRENGTH[level]));
+        }
     }
 
     @Override
@@ -258,36 +210,6 @@ public class AccessPointPreference extends Preference {
         } else {
             super.notifyChanged();
         }
-    }
-
-    @VisibleForTesting
-    static void setTitle(AccessPointPreference preference, AccessPoint ap, boolean savedNetworks) {
-        if (savedNetworks) {
-            preference.setTitle(ap.getConfigName());
-        } else {
-            preference.setTitle(ap.getSsidStr());
-        }
-    }
-
-    /**
-     * Helper method to generate content description string.
-     */
-    @VisibleForTesting
-    static CharSequence buildContentDescription(Context context, Preference pref, AccessPoint ap) {
-        CharSequence contentDescription = pref.getTitle();
-        final CharSequence summary = pref.getSummary();
-        if (!TextUtils.isEmpty(summary)) {
-            contentDescription = TextUtils.concat(contentDescription, ",", summary);
-        }
-        int level = ap.getLevel();
-        if (level >= 0 && level < WIFI_CONNECTION_STRENGTH.length) {
-            contentDescription = TextUtils.concat(contentDescription, ",",
-                    context.getString(WIFI_CONNECTION_STRENGTH[level]));
-        }
-        return TextUtils.concat(contentDescription, ",",
-                ap.getSecurity() == AccessPoint.SECURITY_NONE
-                        ? context.getString(R.string.accessibility_wifi_security_type_none)
-                        : context.getString(R.string.accessibility_wifi_security_type_secured));
     }
 
     public void onLevelChanged() {

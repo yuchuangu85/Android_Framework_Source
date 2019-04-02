@@ -18,7 +18,6 @@ package com.android.server.input;
 
 import android.graphics.Region;
 import android.view.InputChannel;
-import android.view.IWindow;
 
 /**
  * Functions as a handle for a window that can receive input.
@@ -36,9 +35,6 @@ public final class InputWindowHandle {
 
     // The window manager's window state.
     public final Object windowState;
-
-    // The client window.
-    public final IWindow clientWindow;
 
     // The input channel associated with the window.
     public InputChannel inputChannel;
@@ -97,10 +93,9 @@ public final class InputWindowHandle {
     private native void nativeDispose();
 
     public InputWindowHandle(InputApplicationHandle inputApplicationHandle,
-            Object windowState, IWindow clientWindow, int displayId) {
+            Object windowState, int displayId) {
         this.inputApplicationHandle = inputApplicationHandle;
         this.windowState = windowState;
-        this.clientWindow = clientWindow;
         this.displayId = displayId;
     }
 

@@ -16,8 +16,6 @@
 
 package android.support.v14.preference;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.support.annotation.RestrictTo;
@@ -31,6 +29,8 @@ import android.view.accessibility.AccessibilityManager;
 import android.widget.Checkable;
 import android.widget.CompoundButton;
 import android.widget.Switch;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * A {@link android.support.v7.preference.Preference} that provides a two-state toggleable option.
@@ -206,7 +206,7 @@ public class SwitchPreference extends TwoStatePreference {
     /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     @Override
     protected void performClick(View view) {
         super.performClick(view);

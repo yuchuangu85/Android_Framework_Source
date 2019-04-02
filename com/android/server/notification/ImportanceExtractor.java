@@ -41,7 +41,9 @@ public class ImportanceExtractor implements NotificationSignalExtractor {
             if (DBG) Slog.d(TAG, "missing config");
             return null;
         }
-        record.setUserImportance(record.getChannel().getImportance());
+
+        record.setUserImportance(
+                mConfig.getImportance(record.sbn.getPackageName(), record.sbn.getUid()));
 
         return null;
     }

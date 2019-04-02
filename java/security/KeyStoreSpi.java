@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2006, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,12 +34,11 @@ import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 
 import javax.crypto.SecretKey;
-
 import javax.security.auth.callback.*;
 
 /**
  * This class defines the <i>Service Provider Interface</i> (<b>SPI</b>)
- * for the {@code KeyStore} class.
+ * for the <code>KeyStore</code> class.
  * All the abstract methods in this class must be implemented by each
  * cryptographic service provider who wishes to supply the implementation
  * of a keystore for a particular keystore type.
@@ -57,9 +56,9 @@ public abstract class KeyStoreSpi {
     /**
      * Returns the key associated with the given alias, using the given
      * password to recover it.  The key must have been associated with
-     * the alias by a call to {@code setKeyEntry},
-     * or by a call to {@code setEntry} with a
-     * {@code PrivateKeyEntry} or {@code SecretKeyEntry}.
+     * the alias by a call to <code>setKeyEntry</code>,
+     * or by a call to <code>setEntry</code> with a
+     * <code>PrivateKeyEntry</code> or <code>SecretKeyEntry</code>.
      *
      * @param alias the alias name
      * @param password the password for recovering the key
@@ -78,9 +77,9 @@ public abstract class KeyStoreSpi {
     /**
      * Returns the certificate chain associated with the given alias.
      * The certificate chain must have been associated with the alias
-     * by a call to {@code setKeyEntry},
-     * or by a call to {@code setEntry} with a
-     * {@code PrivateKeyEntry}.
+     * by a call to <code>setKeyEntry</code>,
+     * or by a call to <code>setEntry</code> with a
+     * <code>PrivateKeyEntry</code>.
      *
      * @param alias the alias name
      *
@@ -94,15 +93,15 @@ public abstract class KeyStoreSpi {
      * Returns the certificate associated with the given alias.
      *
      * <p> If the given alias name identifies an entry
-     * created by a call to {@code setCertificateEntry},
-     * or created by a call to {@code setEntry} with a
-     * {@code TrustedCertificateEntry},
+     * created by a call to <code>setCertificateEntry</code>,
+     * or created by a call to <code>setEntry</code> with a
+     * <code>TrustedCertificateEntry</code>,
      * then the trusted certificate contained in that entry is returned.
      *
      * <p> If the given alias name identifies an entry
-     * created by a call to {@code setKeyEntry},
-     * or created by a call to {@code setEntry} with a
-     * {@code PrivateKeyEntry},
+     * created by a call to <code>setKeyEntry</code>,
+     * or created by a call to <code>setEntry</code> with a
+     * <code>PrivateKeyEntry</code>,
      * then the first element of the certificate chain in that entry
      * (if a chain exists) is returned.
      *
@@ -127,7 +126,7 @@ public abstract class KeyStoreSpi {
      * Assigns the given key to the given alias, protecting it with the given
      * password.
      *
-     * <p>If the given key is of type {@code java.security.PrivateKey},
+     * <p>If the given key is of type <code>java.security.PrivateKey</code>,
      * it must be accompanied by a certificate chain certifying the
      * corresponding public key.
      *
@@ -140,7 +139,7 @@ public abstract class KeyStoreSpi {
      * @param password the password to protect the key
      * @param chain the certificate chain for the corresponding public
      * key (only required if the given key is of type
-     * {@code java.security.PrivateKey}).
+     * <code>java.security.PrivateKey</code>).
      *
      * @exception KeyStoreException if the given key cannot be protected, or
      * this operation fails for some other reason
@@ -155,7 +154,7 @@ public abstract class KeyStoreSpi {
      * alias.
      *
      * <p>If the protected key is of type
-     * {@code java.security.PrivateKey},
+     * <code>java.security.PrivateKey</code>,
      * it must be accompanied by a certificate chain certifying the
      * corresponding public key.
      *
@@ -167,7 +166,7 @@ public abstract class KeyStoreSpi {
      * @param key the key (in protected format) to be associated with the alias
      * @param chain the certificate chain for the corresponding public
      * key (only useful if the protected key is of type
-     * {@code java.security.PrivateKey}).
+     * <code>java.security.PrivateKey</code>).
      *
      * @exception KeyStoreException if this operation fails.
      */
@@ -179,9 +178,9 @@ public abstract class KeyStoreSpi {
      * Assigns the given certificate to the given alias.
      *
      * <p> If the given alias identifies an existing entry
-     * created by a call to {@code setCertificateEntry},
-     * or created by a call to {@code setEntry} with a
-     * {@code TrustedCertificateEntry},
+     * created by a call to <code>setCertificateEntry</code>,
+     * or created by a call to <code>setEntry</code> with a
+     * <code>TrustedCertificateEntry</code>,
      * the trusted certificate in the existing entry
      * is overridden by the given certificate.
      *
@@ -231,9 +230,9 @@ public abstract class KeyStoreSpi {
 
     /**
      * Returns true if the entry identified by the given alias
-     * was created by a call to {@code setKeyEntry},
-     * or created by a call to {@code setEntry} with a
-     * {@code PrivateKeyEntry} or a {@code SecretKeyEntry}.
+     * was created by a call to <code>setKeyEntry</code>,
+     * or created by a call to <code>setEntry</code> with a
+     * <code>PrivateKeyEntry</code> or a <code>SecretKeyEntry</code>.
      *
      * @param alias the alias for the keystore entry to be checked
      *
@@ -244,9 +243,9 @@ public abstract class KeyStoreSpi {
 
     /**
      * Returns true if the entry identified by the given alias
-     * was created by a call to {@code setCertificateEntry},
-     * or created by a call to {@code setEntry} with a
-     * {@code TrustedCertificateEntry}.
+     * was created by a call to <code>setCertificateEntry</code>,
+     * or created by a call to <code>setEntry</code> with a
+     * <code>TrustedCertificateEntry</code>.
      *
      * @param alias the alias for the keystore entry to be checked
      *
@@ -261,15 +260,15 @@ public abstract class KeyStoreSpi {
      *
      * <p>This method attempts to match the given certificate with each
      * keystore entry. If the entry being considered was
-     * created by a call to {@code setCertificateEntry},
-     * or created by a call to {@code setEntry} with a
-     * {@code TrustedCertificateEntry},
+     * created by a call to <code>setCertificateEntry</code>,
+     * or created by a call to <code>setEntry</code> with a
+     * <code>TrustedCertificateEntry</code>,
      * then the given certificate is compared to that entry's certificate.
      *
      * <p> If the entry being considered was
-     * created by a call to {@code setKeyEntry},
-     * or created by a call to {@code setEntry} with a
-     * {@code PrivateKeyEntry},
+     * created by a call to <code>setKeyEntry</code>,
+     * or created by a call to <code>setEntry</code> with a
+     * <code>PrivateKeyEntry</code>,
      * then the given certificate is compared to the first
      * element of that entry's certificate chain.
      *
@@ -298,14 +297,14 @@ public abstract class KeyStoreSpi {
 
     /**
      * Stores this keystore using the given
-     * {@code KeyStore.LoadStoreParmeter}.
+     * <code>KeyStore.LoadStoreParmeter</code>.
      *
-     * @param param the {@code KeyStore.LoadStoreParmeter}
+     * @param param the <code>KeyStore.LoadStoreParmeter</code>
      *          that specifies how to store the keystore,
-     *          which may be {@code null}
+     *          which may be <code>null</code>
      *
      * @exception IllegalArgumentException if the given
-     *          {@code KeyStore.LoadStoreParmeter}
+     *          <code>KeyStore.LoadStoreParmeter</code>
      *          input is not recognized
      * @exception IOException if there was an I/O problem with data
      * @exception NoSuchAlgorithmException if the appropriate data integrity
@@ -331,17 +330,17 @@ public abstract class KeyStoreSpi {
      * then integrity checking is not performed.
      *
      * @param stream the input stream from which the keystore is loaded,
-     * or {@code null}
+     * or <code>null</code>
      * @param password the password used to check the integrity of
      * the keystore, the password used to unlock the keystore,
-     * or {@code null}
+     * or <code>null</code>
      *
      * @exception IOException if there is an I/O or format problem with the
      * keystore data, if a password is required but not given,
      * or if the given password was incorrect. If the error is due to a
      * wrong password, the {@link Throwable#getCause cause} of the
-     * {@code IOException} should be an
-     * {@code UnrecoverableKeyException}
+     * <code>IOException</code> should be an
+     * <code>UnrecoverableKeyException</code>
      * @exception NoSuchAlgorithmException if the algorithm used to check
      * the integrity of the keystore cannot be found
      * @exception CertificateException if any of the certificates in the
@@ -352,24 +351,24 @@ public abstract class KeyStoreSpi {
 
     /**
      * Loads the keystore using the given
-     * {@code KeyStore.LoadStoreParameter}.
+     * <code>KeyStore.LoadStoreParameter</code>.
      *
      * <p> Note that if this KeyStore has already been loaded, it is
      * reinitialized and loaded again from the given parameter.
      *
-     * @param param the {@code KeyStore.LoadStoreParameter}
+     * @param param the <code>KeyStore.LoadStoreParameter</code>
      *          that specifies how to load the keystore,
-     *          which may be {@code null}
+     *          which may be <code>null</code>
      *
      * @exception IllegalArgumentException if the given
-     *          {@code KeyStore.LoadStoreParameter}
+     *          <code>KeyStore.LoadStoreParameter</code>
      *          input is not recognized
      * @exception IOException if there is an I/O or format problem with the
      *          keystore data. If the error is due to an incorrect
-     *         {@code ProtectionParameter} (e.g. wrong password)
+     *         <code>ProtectionParameter</code> (e.g. wrong password)
      *         the {@link Throwable#getCause cause} of the
-     *         {@code IOException} should be an
-     *         {@code UnrecoverableKeyException}
+     *         <code>IOException</code> should be an
+     *         <code>UnrecoverableKeyException</code>
      * @exception NoSuchAlgorithmException if the algorithm used to check
      *          the integrity of the keystore cannot be found
      * @exception CertificateException if any of the certificates in the
@@ -420,25 +419,25 @@ public abstract class KeyStoreSpi {
     }
 
     /**
-     * Gets a {@code KeyStore.Entry} for the specified alias
+     * Gets a <code>KeyStore.Entry</code> for the specified alias
      * with the specified protection parameter.
      *
-     * @param alias get the {@code KeyStore.Entry} for this alias
-     * @param protParam the {@code ProtectionParameter}
-     *          used to protect the {@code Entry},
-     *          which may be {@code null}
+     * @param alias get the <code>KeyStore.Entry</code> for this alias
+     * @param protParam the <code>ProtectionParameter</code>
+     *          used to protect the <code>Entry</code>,
+     *          which may be <code>null</code>
      *
-     * @return the {@code KeyStore.Entry} for the specified alias,
-     *          or {@code null} if there is no such entry
+     * @return the <code>KeyStore.Entry</code> for the specified alias,
+     *          or <code>null</code> if there is no such entry
      *
      * @exception KeyStoreException if the operation failed
      * @exception NoSuchAlgorithmException if the algorithm for recovering the
      *          entry cannot be found
      * @exception UnrecoverableEntryException if the specified
-     *          {@code protParam} were insufficient or invalid
+     *          <code>protParam</code> were insufficient or invalid
      * @exception UnrecoverableKeyException if the entry is a
-     *          {@code PrivateKeyEntry} or {@code SecretKeyEntry}
-     *          and the specified {@code protParam} does not contain
+     *          <code>PrivateKeyEntry</code> or <code>SecretKeyEntry</code>
+     *          and the specified <code>protParam</code> does not contain
      *          the information needed to recover the key (e.g. wrong password)
      *
      * @since 1.5
@@ -452,59 +451,50 @@ public abstract class KeyStoreSpi {
             return null;
         }
 
-        if (protParam == null) {
-            if (engineIsCertificateEntry(alias)) {
-                return new KeyStore.TrustedCertificateEntry
-                                (engineGetCertificate(alias));
-            // Android-removed: Allow access to entries with no password.
-            // } else {
-            //    throw new UnrecoverableKeyException
-            //            ("requested entry requires a password");
-            }
+        if (protParam != null &&
+                !(protParam instanceof KeyStore.PasswordProtection)) {
+            throw new UnsupportedOperationException();
         }
 
-        // Android-changed: Add protParam == null to allow access to entries with no password.
-        if ((protParam == null) || protParam instanceof KeyStore.PasswordProtection) {
-            if (engineIsCertificateEntry(alias)) {
+        if (engineIsCertificateEntry(alias)) {
+            if (protParam == null) {
+                return new KeyStore.TrustedCertificateEntry
+                        (engineGetCertificate(alias));
+            } else {
                 throw new UnsupportedOperationException
                     ("trusted certificate entries are not password-protected");
-            } else if (engineIsKeyEntry(alias)) {
-                // Android-changed: Allow access to entries with no password.
-                // KeyStore.PasswordProtection pp =
-                //         (KeyStore.PasswordProtection)protParam;
-                // char[] password = pp.getPassword();
-                char[] password = null;
-                if (protParam != null) {
-                    KeyStore.PasswordProtection pp =
-                        (KeyStore.PasswordProtection)protParam;
-                    password = pp.getPassword();
-                }
-                Key key = engineGetKey(alias, password);
-                if (key instanceof PrivateKey) {
-                    Certificate[] chain = engineGetCertificateChain(alias);
-                    return new KeyStore.PrivateKeyEntry((PrivateKey)key, chain);
-                } else if (key instanceof SecretKey) {
-                    return new KeyStore.SecretKeyEntry((SecretKey)key);
-                }
             }
+        } else if (engineIsKeyEntry(alias)) {
+          char[] password = null;
+          if (protParam != null) {
+              KeyStore.PasswordProtection pp =
+                      (KeyStore.PasswordProtection)protParam;
+              password = pp.getPassword();
+          }
+          Key key = engineGetKey(alias, password);
+          if (key instanceof PrivateKey) {
+              Certificate[] chain = engineGetCertificateChain(alias);
+              return new KeyStore.PrivateKeyEntry((PrivateKey)key, chain);
+          } else if (key instanceof SecretKey) {
+              return new KeyStore.SecretKeyEntry((SecretKey)key);
+          }
         }
-
         throw new UnsupportedOperationException();
     }
 
     /**
-     * Saves a {@code KeyStore.Entry} under the specified alias.
+     * Saves a <code>KeyStore.Entry</code> under the specified alias.
      * The specified protection parameter is used to protect the
-     * {@code Entry}.
+     * <code>Entry</code>.
      *
      * <p> If an entry already exists for the specified alias,
      * it is overridden.
      *
-     * @param alias save the {@code KeyStore.Entry} under this alias
-     * @param entry the {@code Entry} to save
-     * @param protParam the {@code ProtectionParameter}
-     *          used to protect the {@code Entry},
-     *          which may be {@code null}
+     * @param alias save the <code>KeyStore.Entry</code> under this alias
+     * @param entry the <code>Entry</code> to save
+     * @param protParam the <code>ProtectionParameter</code>
+     *          used to protect the <code>Entry</code>,
+     *          which may be <code>null</code>
      *
      * @exception KeyStoreException if this operation fails
      *
@@ -524,7 +514,6 @@ public abstract class KeyStoreSpi {
             pProtect = (KeyStore.PasswordProtection)protParam;
         }
 
-        // BEGIN Android-changed: Allow access to entries with no password.
         char[] password = (pProtect == null) ? null : pProtect.getPassword();
         // set entry
         if (entry instanceof KeyStore.TrustedCertificateEntry) {
@@ -547,23 +536,22 @@ public abstract class KeyStoreSpi {
                 (Certificate[])null);
             return;
         }
-        // END Android-changed: Allow access to entries with no password.
 
         throw new KeyStoreException
                 ("unsupported entry type: " + entry.getClass().getName());
     }
 
     /**
-     * Determines if the keystore {@code Entry} for the specified
-     * {@code alias} is an instance or subclass of the specified
-     * {@code entryClass}.
+     * Determines if the keystore <code>Entry</code> for the specified
+     * <code>alias</code> is an instance or subclass of the specified
+     * <code>entryClass</code>.
      *
      * @param alias the alias name
      * @param entryClass the entry class
      *
-     * @return true if the keystore {@code Entry} for the specified
-     *          {@code alias} is an instance or subclass of the
-     *          specified {@code entryClass}, false otherwise
+     * @return true if the keystore <code>Entry</code> for the specified
+     *          <code>alias</code> is an instance or subclass of the
+     *          specified <code>entryClass</code>, false otherwise
      *
      * @since 1.5
      */

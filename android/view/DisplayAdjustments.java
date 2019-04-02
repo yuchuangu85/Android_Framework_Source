@@ -26,20 +26,18 @@ public class DisplayAdjustments {
     public static final DisplayAdjustments DEFAULT_DISPLAY_ADJUSTMENTS = new DisplayAdjustments();
 
     private volatile CompatibilityInfo mCompatInfo = CompatibilityInfo.DEFAULT_COMPATIBILITY_INFO;
-    private Configuration mConfiguration;
+    private Configuration mConfiguration = Configuration.EMPTY;
 
     public DisplayAdjustments() {
     }
 
     public DisplayAdjustments(Configuration configuration) {
-        mConfiguration = new Configuration(configuration != null
-                ? configuration : Configuration.EMPTY);
+        mConfiguration = configuration;
     }
 
     public DisplayAdjustments(DisplayAdjustments daj) {
         setCompatibilityInfo(daj.mCompatInfo);
-        mConfiguration = new Configuration(daj.mConfiguration != null
-                ? daj.mConfiguration : Configuration.EMPTY);
+        mConfiguration = daj.mConfiguration;
     }
 
     public void setCompatibilityInfo(CompatibilityInfo compatInfo) {
@@ -64,7 +62,7 @@ public class DisplayAdjustments {
             throw new IllegalArgumentException(
                     "setConfiguration: Cannot modify DEFAULT_DISPLAY_ADJUSTMENTS");
         }
-        mConfiguration.setTo(configuration != null ? configuration : Configuration.EMPTY);
+        mConfiguration = configuration != null ? configuration : Configuration.EMPTY;
     }
 
     public Configuration getConfiguration() {

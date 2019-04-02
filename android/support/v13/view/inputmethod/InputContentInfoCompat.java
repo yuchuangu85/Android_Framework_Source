@@ -18,11 +18,9 @@ package android.support.v13.view.inputmethod;
 
 import android.content.ClipDescription;
 import android.net.Uri;
-import android.os.Build;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.annotation.RequiresApi;
-import android.view.inputmethod.InputContentInfo;
+import android.support.v4.os.BuildCompat;
 
 /**
  * Helper for accessing features in InputContentInfo introduced after API level 13 in a backwards
@@ -48,7 +46,7 @@ public final class InputContentInfoCompat {
         void releasePermission();
     }
 
-    private static final class InputContentInfoCompatBaseImpl
+    private final static class BaseInputContentInfoCompatImpl
             implements InputContentInfoCompatImpl {
         @NonNull
         private final Uri mContentUri;
@@ -57,7 +55,7 @@ public final class InputContentInfoCompat {
         @Nullable
         private final Uri mLinkUri;
 
-        InputContentInfoCompatBaseImpl(@NonNull Uri contentUri,
+        public BaseInputContentInfoCompatImpl(@NonNull Uri contentUri,
                 @NonNull ClipDescription description, @Nullable Uri linkUri) {
             mContentUri = contentUri;
             mDescription = description;
@@ -99,37 +97,36 @@ public final class InputContentInfoCompat {
         }
     }
 
-    @RequiresApi(25)
-    private static final class InputContentInfoCompatApi25Impl
+    private final static class Api25InputContentInfoCompatImpl
             implements InputContentInfoCompatImpl {
         @NonNull
-        final InputContentInfo mObject;
+        final Object mObject;
 
-        InputContentInfoCompatApi25Impl(@NonNull Object inputContentInfo) {
-            mObject = (InputContentInfo) inputContentInfo;
+        public Api25InputContentInfoCompatImpl(@NonNull Object inputContentInfo) {
+            mObject = inputContentInfo;
         }
 
-        InputContentInfoCompatApi25Impl(@NonNull Uri contentUri,
+        public Api25InputContentInfoCompatImpl(@NonNull Uri contentUri,
                 @NonNull ClipDescription description, @Nullable Uri linkUri) {
-            mObject = new InputContentInfo(contentUri, description, linkUri);
+            mObject = InputContentInfoCompatApi25.create(contentUri, description, linkUri);
         }
 
         @Override
         @NonNull
         public Uri getContentUri() {
-            return mObject.getContentUri();
+            return InputContentInfoCompatApi25.getContentUri(mObject);
         }
 
         @Override
         @NonNull
         public ClipDescription getDescription() {
-            return mObject.getDescription();
+            return InputContentInfoCompatApi25.getDescription(mObject);
         }
 
         @Override
         @Nullable
         public Uri getLinkUri() {
-            return mObject.getLinkUri();
+            return InputContentInfoCompatApi25.getLinkUri(mObject);
         }
 
         @Override
@@ -140,12 +137,12 @@ public final class InputContentInfoCompat {
 
         @Override
         public void requestPermission() {
-            mObject.requestPermission();
+            InputContentInfoCompatApi25.requestPermission(mObject);
         }
 
         @Override
         public void releasePermission() {
-            mObject.releasePermission();
+            InputContentInfoCompatApi25.releasePermission(mObject);
         }
     }
 
@@ -166,10 +163,10 @@ public final class InputContentInfoCompat {
      */
     public InputContentInfoCompat(@NonNull Uri contentUri,
             @NonNull ClipDescription description, @Nullable Uri linkUri) {
-        if (Build.VERSION.SDK_INT >= 25) {
-            mImpl = new InputContentInfoCompatApi25Impl(contentUri, description, linkUri);
+        if (BuildCompat.isAtLeastNMR1()) {
+            mImpl = new Api25InputContentInfoCompatImpl(contentUri, description, linkUri);
         } else {
-            mImpl = new InputContentInfoCompatBaseImpl(contentUri, description, linkUri);
+            mImpl = new BaseInputContentInfoCompatImpl(contentUri, description, linkUri);
         }
     }
 
@@ -218,10 +215,10 @@ public final class InputContentInfoCompat {
         if (inputContentInfo == null) {
             return null;
         }
-        if (Build.VERSION.SDK_INT < 25) {
+        if (!BuildCompat.isAtLeastNMR1()) {
             return null;
         }
-        return new InputContentInfoCompat(new InputContentInfoCompatApi25Impl(inputContentInfo));
+        return new InputContentInfoCompat(new Api25InputContentInfoCompatImpl(inputContentInfo));
     }
 
     /**

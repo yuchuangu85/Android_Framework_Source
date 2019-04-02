@@ -25,8 +25,8 @@ import android.hardware.usb.UsbInterface;
 import android.media.AudioSystem;
 import android.media.IAudioService;
 import android.media.midi.MidiDeviceInfo;
-import android.os.Bundle;
 import android.os.FileObserver;
+import android.os.Bundle;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
@@ -41,7 +41,10 @@ import com.android.server.audio.AudioService;
 import libcore.io.IoUtils;
 
 import java.io.File;
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.HashMap;
+import java.util.ArrayList;
 
 /**
  * UsbAlsaManager manages USB audio and MIDI devices.
@@ -64,9 +67,6 @@ public final class UsbAlsaManager {
 
     private final HashMap<UsbDevice,UsbAudioDevice>
         mAudioDevices = new HashMap<UsbDevice,UsbAudioDevice>();
-
-    private boolean mIsInputHeadset; // as reported by UsbDescriptorParser
-    private boolean mIsOutputHeadset; // as reported by UsbDescriptorParser
 
     private final HashMap<UsbDevice,UsbMidiDevice>
         mMidiDevices = new HashMap<UsbDevice,UsbMidiDevice>();
@@ -187,34 +187,24 @@ public final class UsbAlsaManager {
         try {
             // Playback Device
             if (audioDevice.mHasPlayback) {
-                int device;
-                if (mIsOutputHeadset) {
-                    device = AudioSystem.DEVICE_OUT_USB_HEADSET;
-                } else {
-                    device = (audioDevice == mAccessoryAudioDevice
-                        ? AudioSystem.DEVICE_OUT_USB_ACCESSORY
-                        : AudioSystem.DEVICE_OUT_USB_DEVICE);
-                }
+                int device = (audioDevice == mAccessoryAudioDevice ?
+                        AudioSystem.DEVICE_OUT_USB_ACCESSORY :
+                        AudioSystem.DEVICE_OUT_USB_DEVICE);
                 if (DEBUG) {
                     Slog.i(TAG, "pre-call device:0x" + Integer.toHexString(device) +
-                            " addr:" + address + " name:" + audioDevice.getDeviceName());
+                            " addr:" + address + " name:" + audioDevice.mDeviceName);
                 }
                 mAudioService.setWiredDeviceConnectionState(
-                        device, state, address, audioDevice.getDeviceName(), TAG);
+                        device, state, address, audioDevice.mDeviceName, TAG);
             }
 
             // Capture Device
             if (audioDevice.mHasCapture) {
-                int device;
-                if (mIsInputHeadset) {
-                    device = AudioSystem.DEVICE_IN_USB_HEADSET;
-                } else {
-                    device = (audioDevice == mAccessoryAudioDevice
-                        ? AudioSystem.DEVICE_IN_USB_ACCESSORY
-                        : AudioSystem.DEVICE_IN_USB_DEVICE);
-                }
+               int device = (audioDevice == mAccessoryAudioDevice ?
+                        AudioSystem.DEVICE_IN_USB_ACCESSORY :
+                        AudioSystem.DEVICE_IN_USB_DEVICE);
                 mAudioService.setWiredDeviceConnectionState(
-                        device, state, address, audioDevice.getDeviceName(), TAG);
+                        device, state, address, audioDevice.mDeviceName, TAG);
             }
         } catch (RemoteException e) {
             Slog.e(TAG, "RemoteException in setWiredDeviceConnectionState");
@@ -229,23 +219,23 @@ public final class UsbAlsaManager {
         AlsaDevice testDevice = new AlsaDevice(type, card, device);
 
         // This value was empirically determined.
-        final int kWaitTimeMs = 2500;
+        final int kWaitTime = 2500; // ms
 
         synchronized(mAlsaDevices) {
-            long timeoutMs = SystemClock.elapsedRealtime() + kWaitTimeMs;
+            long timeout = SystemClock.elapsedRealtime() + kWaitTime;
             do {
                 if (mAlsaDevices.values().contains(testDevice)) {
                     return testDevice;
                 }
-                long waitTimeMs = timeoutMs - SystemClock.elapsedRealtime();
-                if (waitTimeMs > 0) {
+                long waitTime = timeout - SystemClock.elapsedRealtime();
+                if (waitTime > 0) {
                     try {
-                        mAlsaDevices.wait(waitTimeMs);
+                        mAlsaDevices.wait(waitTime);
                     } catch (InterruptedException e) {
                         Slog.d(TAG, "usb: InterruptedException while waiting for ALSA file.");
                     }
                 }
-            } while (timeoutMs > SystemClock.elapsedRealtime());
+            } while (timeout > SystemClock.elapsedRealtime());
         }
 
         Slog.e(TAG, "waitForAlsaDevice failed for " + testDevice);
@@ -342,9 +332,10 @@ public final class UsbAlsaManager {
         UsbAudioDevice audioDevice =
                 new UsbAudioDevice(card, device, hasPlayback, hasCapture, deviceClass);
         AlsaCardsParser.AlsaCardRecord cardRecord = mCardsParser.getCardRecordFor(card);
-        audioDevice.setDeviceNameAndDescription(cardRecord.mCardName, cardRecord.mCardDescription);
+        audioDevice.mDeviceName = cardRecord.mCardName;
+        audioDevice.mDeviceDescription = cardRecord.mCardDescription;
 
-        notifyDeviceState(audioDevice, true /*enabled*/);
+        notifyDeviceState(audioDevice, true);
 
         return audioDevice;
     }
@@ -356,15 +347,11 @@ public final class UsbAlsaManager {
         return selectAudioCard(mCardsParser.getDefaultCard());
     }
 
-    /* package */ void usbDeviceAdded(UsbDevice usbDevice,
-            boolean isInputHeadset, boolean isOutputHeadset) {
-        if (DEBUG) {
-            Slog.d(TAG, "deviceAdded(): " + usbDevice.getManufacturerName()
-                    + " nm:" + usbDevice.getProductName());
+    /* package */ void usbDeviceAdded(UsbDevice usbDevice) {
+       if (DEBUG) {
+          Slog.d(TAG, "deviceAdded(): " + usbDevice.getManufacturerName() +
+                  " nm:" + usbDevice.getProductName());
         }
-
-        mIsInputHeadset = isInputHeadset;
-        mIsOutputHeadset = isOutputHeadset;
 
         // Is there an audio interface in there?
         boolean isAudioDevice = false;
@@ -458,7 +445,7 @@ public final class UsbAlsaManager {
         Slog.i(TAG, "USB Audio Device Removed: " + audioDevice);
         if (audioDevice != null) {
             if (audioDevice.mHasPlayback || audioDevice.mHasCapture) {
-                notifyDeviceState(audioDevice, false /*enabled*/);
+                notifyDeviceState(audioDevice, false);
 
                 // if there any external devices left, select one of them
                 selectDefaultDevice();
@@ -477,9 +464,9 @@ public final class UsbAlsaManager {
         if (enabled) {
             mAccessoryAudioDevice = new UsbAudioDevice(card, device, true, false,
                     UsbAudioDevice.kAudioDeviceClass_External);
-            notifyDeviceState(mAccessoryAudioDevice, true /*enabled*/);
+            notifyDeviceState(mAccessoryAudioDevice, true);
         } else if (mAccessoryAudioDevice != null) {
-            notifyDeviceState(mAccessoryAudioDevice, false /*enabled*/);
+            notifyDeviceState(mAccessoryAudioDevice, false);
             mAccessoryAudioDevice = null;
         }
     }
@@ -510,8 +497,6 @@ public final class UsbAlsaManager {
     //
     // Devices List
     //
-/*
-    //import java.util.ArrayList;
     public ArrayList<UsbAudioDevice> getConnectedDevices() {
         ArrayList<UsbAudioDevice> devices = new ArrayList<UsbAudioDevice>(mAudioDevices.size());
         for (HashMap.Entry<UsbDevice,UsbAudioDevice> entry : mAudioDevices.entrySet()) {
@@ -519,12 +504,10 @@ public final class UsbAlsaManager {
         }
         return devices;
     }
-*/
 
     //
     // Logging
     //
-    // called by UsbService.dump
     public void dump(IndentingPrintWriter pw) {
         pw.println("USB Audio Devices:");
         for (UsbDevice device : mAudioDevices.keySet()) {
@@ -536,7 +519,6 @@ public final class UsbAlsaManager {
         }
     }
 
-/*
     public void logDevicesList(String title) {
       if (DEBUG) {
           for (HashMap.Entry<UsbDevice,UsbAudioDevice> entry : mAudioDevices.entrySet()) {
@@ -546,19 +528,15 @@ public final class UsbAlsaManager {
               Slog.i(TAG, "" + entry.getValue());
           }
       }
-    }
-*/
+  }
 
-    // This logs a more terse (and more readable) version of the devices list
-/*
-    public void logDevices(String title) {
+  // This logs a more terse (and more readable) version of the devices list
+  public void logDevices(String title) {
       if (DEBUG) {
           Slog.i(TAG, title);
           for (HashMap.Entry<UsbDevice,UsbAudioDevice> entry : mAudioDevices.entrySet()) {
               Slog.i(TAG, entry.getValue().toShortString());
           }
       }
-    }
-*/
-
+  }
 }

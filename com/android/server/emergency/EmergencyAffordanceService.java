@@ -219,7 +219,6 @@ public class EmergencyAffordanceService extends SystemService {
         List<SubscriptionInfo> activeSubscriptionInfoList =
                 mSubscriptionManager.getActiveSubscriptionInfoList();
         if (activeSubscriptionInfoList == null) {
-            setSimNeedsEmergencyAffordance(neededNow);
             return neededNow;
         }
         for (SubscriptionInfo info : activeSubscriptionInfoList) {
@@ -246,25 +245,23 @@ public class EmergencyAffordanceService extends SystemService {
                 }
             }
         }
-        setSimNeedsEmergencyAffordance(neededNow);
+        if (neededNow != neededBefore) {
+            setSimNeedsEmergencyAffordance(neededNow);
+        }
         return neededNow;
     }
 
     private void setSimNeedsEmergencyAffordance(boolean simNeedsEmergencyAffordance) {
-        if (simNeededAffordanceBefore() != simNeedsEmergencyAffordance) {
-            Settings.Global.putInt(mContext.getContentResolver(),
-                    EMERGENCY_SIM_INSERTED_SETTING,
-                    simNeedsEmergencyAffordance ? 1 : 0);
-        }
-        if (simNeedsEmergencyAffordance != mSimNeedsEmergencyAffordance) {
-            mSimNeedsEmergencyAffordance = simNeedsEmergencyAffordance;
-            updateEmergencyAffordanceNeeded();
-        }
+        mSimNeedsEmergencyAffordance = simNeedsEmergencyAffordance;
+        Settings.Global.putInt(mContext.getContentResolver(),
+                EMERGENCY_SIM_INSERTED_SETTING,
+                simNeedsEmergencyAffordance ? 1 : 0);
+        updateEmergencyAffordanceNeeded();
     }
 
     private boolean simNeededAffordanceBefore() {
         return Settings.Global.getInt(mContext.getContentResolver(),
-                EMERGENCY_SIM_INSERTED_SETTING, 0) != 0;
+                "emergency_sim_inserted_before", 0) != 0;
     }
 
     private boolean handleUpdateCellInfo() {

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,7 +44,7 @@ import java.io.ObjectStreamField;
  * as returned values.
  * <p>
  * The <i>wildcard</i> is a special local IP address. It usually means "any"
- * and can only be used for {@code bind} operations.
+ * and can only be used for <code>bind</code> operations.
  *
  * @see java.net.Socket
  * @see java.net.ServerSocket
@@ -164,8 +164,8 @@ public class InetSocketAddress
      * and the port number a specified value.
      * <p>
      * A valid port value is between 0 and 65535.
-     * A port number of {@code zero} will let the system pick up an
-     * ephemeral port in a {@code bind} operation.
+     * A port number of <code>zero</code> will let the system pick up an
+     * ephemeral port in a <code>bind</code> operation.
      * <p>
      * @param   port    The port number
      * @throws IllegalArgumentException if the port parameter is outside the specified
@@ -180,10 +180,10 @@ public class InetSocketAddress
      * Creates a socket address from an IP address and a port number.
      * <p>
      * A valid port value is between 0 and 65535.
-     * A port number of {@code zero} will let the system pick up an
-     * ephemeral port in a {@code bind} operation.
+     * A port number of <code>zero</code> will let the system pick up an
+     * ephemeral port in a <code>bind</code> operation.
      * <P>
-     * A {@code null} address will assign the <i>wildcard</i> address.
+     * A <code>null</code> address will assign the <i>wildcard</i> address.
      * <p>
      * @param   addr    The IP address
      * @param   port    The port number
@@ -193,8 +193,9 @@ public class InetSocketAddress
     public InetSocketAddress(InetAddress addr, int port) {
         holder = new InetSocketAddressHolder(
                         null,
-                        // Android-changed: Return IPv4 address
-                        // addr == null ? InetAddress.anyLocalAddress() : addr,
+                        /* ----- BEGIN android -----
+                           Return IPv4 address
+                           addr == null ? InetAddress.anyLocalAddress() : addr,*/
                         addr == null ? Inet6Address.ANY : addr,
                         checkPort(port));
     }
@@ -206,13 +207,13 @@ public class InetSocketAddress
      * An attempt will be made to resolve the hostname into an InetAddress.
      * If that attempt fails, the address will be flagged as <I>unresolved</I>.
      * <p>
-     * If there is a security manager, its {@code checkConnect} method
+     * If there is a security manager, its <code>checkConnect</code> method
      * is called with the host name as its argument to check the permissiom
      * to resolve it. This could result in a SecurityException.
      * <P>
      * A valid port value is between 0 and 65535.
-     * A port number of {@code zero} will let the system pick up an
-     * ephemeral port in a {@code bind} operation.
+     * A port number of <code>zero</code> will let the system pick up an
+     * ephemeral port in a <code>bind</code> operation.
      * <P>
      * @param   hostname the Host name
      * @param   port    The port number
@@ -248,8 +249,8 @@ public class InetSocketAddress
      * The address will be flagged as <I>unresolved</I>.
      * <p>
      * A valid port value is between 0 and 65535.
-     * A port number of {@code zero} will let the system pick up an
-     * ephemeral port in a {@code bind} operation.
+     * A port number of <code>zero</code> will let the system pick up an
+     * ephemeral port in a <code>bind</code> operation.
      * <P>
      * @param   host    the Host name
      * @param   port    The port number
@@ -257,7 +258,7 @@ public class InetSocketAddress
      *                  the range of valid port values, or if the hostname
      *                  parameter is <TT>null</TT>.
      * @see     #isUnresolved()
-     * @return  a {@code InetSocketAddress} representing the unresolved
+     * @return  a <code>InetSocketAddress</code> representing the unresolved
      *          socket address
      * @since 1.5
      */
@@ -337,16 +338,16 @@ public class InetSocketAddress
 
     /**
      *
-     * Gets the {@code InetAddress}.
+     * Gets the <code>InetAddress</code>.
      *
-     * @return the InetAdress or {@code null} if it is unresolved.
+     * @return the InetAdress or <code>null</code> if it is unresolved.
      */
     public final InetAddress getAddress() {
         return holder.getAddress();
     }
 
     /**
-     * Gets the {@code hostname}.
+     * Gets the <code>hostname</code>.
      * Note: This method may trigger a name service reverse lookup if the
      * address was created with a literal IP address.
      *
@@ -371,8 +372,8 @@ public class InetSocketAddress
     /**
      * Checks whether the address has been resolved or not.
      *
-     * @return {@code true} if the hostname couldn't be resolved into
-     *          an {@code InetAddress}.
+     * @return <code>true</code> if the hostname couldn't be resolved into
+     *          an <code>InetAddress</code>.
      */
     public final boolean isUnresolved() {
         return holder.isUnresolved();
@@ -393,11 +394,11 @@ public class InetSocketAddress
 
     /**
      * Compares this object against the specified object.
-     * The result is {@code true} if and only if the argument is
-     * not {@code null} and it represents the same address as
+     * The result is <code>true</code> if and only if the argument is
+     * not <code>null</code> and it represents the same address as
      * this object.
      * <p>
-     * Two instances of {@code InetSocketAddress} represent the same
+     * Two instances of <code>InetSocketAddress</code> represent the same
      * address if both the InetAddresses (or hostnames if it is unresolved) and port
      * numbers are equal.
      * If both addresses are unresolved, then the hostname & the port number
@@ -407,8 +408,8 @@ public class InetSocketAddress
      * considered equal.
      *
      * @param   obj   the object to compare against.
-     * @return  {@code true} if the objects are the same;
-     *          {@code false} otherwise.
+     * @return  <code>true</code> if the objects are the same;
+     *          <code>false</code> otherwise.
      * @see java.net.InetAddress#equals(java.lang.Object)
      */
     @Override

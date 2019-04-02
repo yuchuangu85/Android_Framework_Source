@@ -216,8 +216,7 @@ import java.util.Set;
         mCurrentEncoding = DEFAULT_ENCODING;
         mCurrentCharset = DEFAULT_CHARSET;
 
-        // allow parsing of vcards that have mime data leading up to BEGIN:VCARD
-        boolean allowGarbage = true;
+        boolean allowGarbage = false;
         if (!readBeginVCard(allowGarbage)) {
             return false;
         }

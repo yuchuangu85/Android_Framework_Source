@@ -80,7 +80,6 @@ public class ListPreferenceDialogFragment extends PreferenceDialogFragment {
 
         builder.setSingleChoiceItems(mEntries, mClickedDialogEntryIndex,
                 new DialogInterface.OnClickListener() {
-                    @Override
                     public void onClick(DialogInterface dialog, int which) {
                         mClickedDialogEntryIndex = which;
 

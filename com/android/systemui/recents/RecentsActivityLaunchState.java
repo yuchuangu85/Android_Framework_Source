@@ -29,10 +29,6 @@ public class RecentsActivityLaunchState {
 
     public boolean launchedWithAltTab;
     public boolean launchedFromApp;
-    // Set if the activity that we launched from entered PiP during the transition into Recents
-    public boolean launchedFromPipApp;
-    // Set if the next activity that quick-switch will launch is the PiP activity
-    public boolean launchedWithNextPipApp;
     public boolean launchedFromBlacklistedApp;
     public boolean launchedFromHome;
     public boolean launchedViaDragGesture;
@@ -45,8 +41,6 @@ public class RecentsActivityLaunchState {
         launchedFromHome = false;
         launchedFromApp = false;
         launchedFromBlacklistedApp = false;
-        launchedFromPipApp = false;
-        launchedWithNextPipApp = false;
         launchedToTaskId = -1;
         launchedWithAltTab = false;
         launchedViaDragGesture = false;
@@ -56,7 +50,7 @@ public class RecentsActivityLaunchState {
     /**
      * Returns the task to focus given the current launch state.
      */
-    public int getInitialFocusTaskIndex(int numTasks, boolean useGridLayout) {
+    public int getInitialFocusTaskIndex(int numTasks) {
         RecentsDebugFlags debugFlags = Recents.getDebugFlags();
         RecentsActivityLaunchState launchState = Recents.getConfiguration().getLaunchState();
         if (launchedFromApp) {
@@ -69,11 +63,6 @@ public class RecentsActivityLaunchState {
             if (launchState.launchedFromBlacklistedApp) {
                 // If we are launching from a blacklisted app, focus the front most task so that the
                 // next tap will launch the task
-                return numTasks - 1;
-            }
-
-            if (useGridLayout) {
-                // If coming from another app to the grid layout, focus the front most task
                 return numTasks - 1;
             }
 

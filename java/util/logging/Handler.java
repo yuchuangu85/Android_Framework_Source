@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -47,20 +47,12 @@ import java.io.UnsupportedEncodingException;
 
 public abstract class Handler {
     private static final int offValue = Level.OFF.intValue();
-    private final LogManager manager = LogManager.getLogManager();
-
-    // We're using volatile here to avoid synchronizing getters, which
-    // would prevent other threads from calling isLoggable()
-    // while publish() is executing.
-    // On the other hand, setters will be synchronized to exclude concurrent
-    // execution with more complex methods, such as StreamHandler.publish().
-    // We wouldn't want 'level' to be changed by another thread in the middle
-    // of the execution of a 'publish' call.
-    private volatile Filter filter;
-    private volatile Formatter formatter;
-    private volatile Level logLevel = Level.ALL;
-    private volatile ErrorManager errorManager = new ErrorManager();
-    private volatile String encoding;
+    private LogManager manager = LogManager.getLogManager();
+    private Filter filter;
+    private Formatter formatter;
+    private Level logLevel = Level.ALL;
+    private ErrorManager errorManager = new ErrorManager();
+    private String encoding;
 
     // Package private support for security checking.  When sealed
     // is true, we access check updates to the class.
@@ -118,7 +110,7 @@ public abstract class Handler {
      * @exception  SecurityException  if a security manager exists and if
      *             the caller does not have <tt>LoggingPermission("control")</tt>.
      */
-    public synchronized void setFormatter(Formatter newFormatter) throws SecurityException {
+    public void setFormatter(Formatter newFormatter) throws SecurityException {
         checkPermission();
         // Check for a null pointer:
         newFormatter.getClass();
@@ -146,7 +138,7 @@ public abstract class Handler {
      * @exception  UnsupportedEncodingException if the named encoding is
      *          not supported.
      */
-    public synchronized void setEncoding(String encoding)
+    public void setEncoding(String encoding)
                         throws SecurityException, java.io.UnsupportedEncodingException {
         checkPermission();
         if (encoding != null) {
@@ -182,7 +174,7 @@ public abstract class Handler {
      * @exception  SecurityException  if a security manager exists and if
      *             the caller does not have <tt>LoggingPermission("control")</tt>.
      */
-    public synchronized void setFilter(Filter newFilter) throws SecurityException {
+    public void setFilter(Filter newFilter) throws SecurityException {
         checkPermission();
         filter = newFilter;
     }
@@ -206,7 +198,7 @@ public abstract class Handler {
      * @exception  SecurityException  if a security manager exists and if
      *             the caller does not have <tt>LoggingPermission("control")</tt>.
      */
-    public synchronized void setErrorManager(ErrorManager em) {
+    public void setErrorManager(ErrorManager em) {
         checkPermission();
         if (em == null) {
            throw new NullPointerException();
@@ -217,7 +209,6 @@ public abstract class Handler {
     /**
      * Retrieves the ErrorManager for this Handler.
      *
-     * @return the ErrorManager for this Handler
      * @exception  SecurityException  if a security manager exists and if
      *             the caller does not have <tt>LoggingPermission("control")</tt>.
      */
@@ -272,7 +263,7 @@ public abstract class Handler {
      * than this level will be discarded.
      * @return  the level of messages being logged.
      */
-    public Level getLevel() {
+    public synchronized Level getLevel() {
         return logLevel;
     }
 
@@ -290,11 +281,11 @@ public abstract class Handler {
      *
      */
     public boolean isLoggable(LogRecord record) {
-        final int levelValue = getLevel().intValue();
+        int levelValue = getLevel().intValue();
         if (record.getLevel().intValue() < levelValue || levelValue == offValue) {
             return false;
         }
-        final Filter filter = getFilter();
+        Filter filter = getFilter();
         if (filter == null) {
             return true;
         }

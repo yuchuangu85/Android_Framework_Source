@@ -210,4 +210,3 @@ public abstract class SNIServerName {
         return sb.toString();
     }
 }
-

@@ -38,7 +38,6 @@ import android.app.AppGlobals;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.IPackageManager;
 import android.content.res.CompatibilityInfo;
-import android.content.res.Configuration;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -198,19 +197,18 @@ public final class CompatModePackages {
     }
 
     public CompatibilityInfo compatibilityInfoForPackageLocked(ApplicationInfo ai) {
-        final Configuration globalConfig = mService.getGlobalConfiguration();
-        CompatibilityInfo ci = new CompatibilityInfo(ai, globalConfig.screenLayout,
-                globalConfig.smallestScreenWidthDp,
+        CompatibilityInfo ci = new CompatibilityInfo(ai, mService.mConfiguration.screenLayout,
+                mService.mConfiguration.smallestScreenWidthDp,
                 (getPackageFlags(ai.packageName)&COMPAT_FLAG_ENABLED) != 0);
         //Slog.i(TAG, "*********** COMPAT FOR PKG " + ai.packageName + ": " + ci);
         return ci;
     }
 
     public int computeCompatModeLocked(ApplicationInfo ai) {
-        final boolean enabled = (getPackageFlags(ai.packageName)&COMPAT_FLAG_ENABLED) != 0;
-        final Configuration globalConfig = mService.getGlobalConfiguration();
-        final CompatibilityInfo info = new CompatibilityInfo(ai, globalConfig.screenLayout,
-                globalConfig.smallestScreenWidthDp, enabled);
+        boolean enabled = (getPackageFlags(ai.packageName)&COMPAT_FLAG_ENABLED) != 0;
+        CompatibilityInfo info = new CompatibilityInfo(ai,
+                mService.mConfiguration.screenLayout,
+                mService.mConfiguration.smallestScreenWidthDp, enabled);
         if (info.alwaysSupportsScreen()) {
             return ActivityManager.COMPAT_MODE_NEVER;
         }
@@ -385,8 +383,7 @@ public final class CompatModePackages {
             }
 
             if (starting != null) {
-                starting.ensureActivityConfigurationLocked(0 /* globalChanges */,
-                        false /* preserveWindow */);
+                stack.ensureActivityConfigurationLocked(starting, 0, false);
                 // And we need to make sure at this point that all other activities
                 // are made visible with the correct configuration.
                 stack.ensureActivitiesVisibleLocked(starting, 0, !PRESERVE_WINDOWS);
@@ -411,9 +408,8 @@ public final class CompatModePackages {
             out.startTag(null, "compat-packages");
 
             final IPackageManager pm = AppGlobals.getPackageManager();
-            final Configuration globalConfig = mService.getGlobalConfiguration();
-            final int screenLayout = globalConfig.screenLayout;
-            final int smallestScreenWidthDp = globalConfig.smallestScreenWidthDp;
+            final int screenLayout = mService.mConfiguration.screenLayout;
+            final int smallestScreenWidthDp = mService.mConfiguration.smallestScreenWidthDp;
             final Iterator<Map.Entry<String, Integer>> it = pkgs.entrySet().iterator();
             while (it.hasNext()) {
                 Map.Entry<String, Integer> entry = it.next();

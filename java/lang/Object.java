@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1994, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2010, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,8 +25,6 @@
  */
 
 package java.lang;
-
-import dalvik.annotation.optimization.FastNative;
 
 /**
  * Class {@code Object} is the root of the class hierarchy.
@@ -59,7 +57,8 @@ public class Object {
      *
      * @return The {@code Class} object that represents the runtime
      *         class of this object.
-     * @jls 15.8.2 Class Literals
+     * @see    Class Literals, section 15.8.2 of
+     *         <cite>The Java&trade; Language Specification</cite>.
      */
     public final Class<?> getClass() {
       return shadow$_klass_;
@@ -94,33 +93,22 @@ public class Object {
      * objects. (This is typically implemented by converting the internal
      * address of the object into an integer, but this implementation
      * technique is not required by the
-     * Java&trade; programming language.)
+     * Java<font size="-2"><sup>TM</sup></font> programming language.)
      *
      * @return  a hash code value for this object.
      * @see     java.lang.Object#equals(java.lang.Object)
      * @see     java.lang.System#identityHashCode
      */
     public int hashCode() {
-        return identityHashCode(this);
-    }
-
-    // Android-changed: add a local helper for identityHashCode.
-    // Package-private to be used by j.l.System. We do the implementation here
-    // to avoid Object.hashCode doing a clinit check on j.l.System, and also
-    // to avoid leaking shadow$_monitor_ outside of this class.
-    /* package-private */ static int identityHashCode(Object obj) {
-        int lockWord = obj.shadow$_monitor_;
+        int lockWord = shadow$_monitor_;
         final int lockWordStateMask = 0xC0000000;  // Top 2 bits.
         final int lockWordStateHash = 0x80000000;  // Top 2 bits are value 2 (kStateHash).
         final int lockWordHashMask = 0x0FFFFFFF;  // Low 28 bits.
         if ((lockWord & lockWordStateMask) == lockWordStateHash) {
             return lockWord & lockWordHashMask;
         }
-        return identityHashCodeNative(obj);
+        return System.identityHashCode(this);
     }
-
-    @FastNative
-    private static native int identityHashCodeNative(Object obj);
 
     /**
      * Indicates whether some other object is "equal to" this one.
@@ -225,7 +213,7 @@ public class Object {
      * exception at run time.
      *
      * @return     a clone of this instance.
-     * @throws  CloneNotSupportedException  if the object's class does not
+     * @exception  CloneNotSupportedException  if the object's class does not
      *               support the {@code Cloneable} interface. Subclasses
      *               that override the {@code clone} method can also
      *               throw this exception to indicate that an instance cannot
@@ -244,7 +232,6 @@ public class Object {
     /*
      * Native helper method for cloning.
      */
-    @FastNative
     private native Object internalClone();
 
 
@@ -300,12 +287,11 @@ public class Object {
      * <p>
      * Only one thread at a time can own an object's monitor.
      *
-     * @throws  IllegalMonitorStateException  if the current thread is not
+     * @exception  IllegalMonitorStateException  if the current thread is not
      *               the owner of this object's monitor.
      * @see        java.lang.Object#notifyAll()
      * @see        java.lang.Object#wait()
      */
-    @FastNative
     public final native void notify();
 
     /**
@@ -325,12 +311,11 @@ public class Object {
      * description of the ways in which a thread can become the owner of
      * a monitor.
      *
-     * @throws  IllegalMonitorStateException  if the current thread is not
+     * @exception  IllegalMonitorStateException  if the current thread is not
      *               the owner of this object's monitor.
      * @see        java.lang.Object#notify()
      * @see        java.lang.Object#wait()
      */
-    @FastNative
     public final native void notifyAll();
 
     /**
@@ -406,11 +391,11 @@ public class Object {
      * a monitor.
      *
      * @param      millis   the maximum time to wait in milliseconds.
-     * @throws  IllegalArgumentException      if the value of timeout is
+     * @exception  IllegalArgumentException      if the value of timeout is
      *               negative.
-     * @throws  IllegalMonitorStateException  if the current thread is not
+     * @exception  IllegalMonitorStateException  if the current thread is not
      *               the owner of the object's monitor.
-     * @throws  InterruptedException if any thread interrupted the
+     * @exception  InterruptedException if any thread interrupted the
      *             current thread before or while the current thread
      *             was waiting for a notification.  The <i>interrupted
      *             status</i> of the current thread is cleared when
@@ -473,18 +458,17 @@ public class Object {
      * @param      millis   the maximum time to wait in milliseconds.
      * @param      nanos      additional time, in nanoseconds range
      *                       0-999999.
-     * @throws  IllegalArgumentException      if the value of timeout is
+     * @exception  IllegalArgumentException      if the value of timeout is
      *                      negative or the value of nanos is
      *                      not in the range 0-999999.
-     * @throws  IllegalMonitorStateException  if the current thread is not
+     * @exception  IllegalMonitorStateException  if the current thread is not
      *               the owner of this object's monitor.
-     * @throws  InterruptedException if any thread interrupted the
+     * @exception  InterruptedException if any thread interrupted the
      *             current thread before or while the current thread
      *             was waiting for a notification.  The <i>interrupted
      *             status</i> of the current thread is cleared when
      *             this exception is thrown.
      */
-    @FastNative
     public final native void wait(long millis, int nanos) throws InterruptedException;
 
     /**
@@ -515,9 +499,9 @@ public class Object {
      * description of the ways in which a thread can become the owner of
      * a monitor.
      *
-     * @throws  IllegalMonitorStateException  if the current thread is not
+     * @exception  IllegalMonitorStateException  if the current thread is not
      *               the owner of the object's monitor.
-     * @throws  InterruptedException if any thread interrupted the
+     * @exception  InterruptedException if any thread interrupted the
      *             current thread before or while the current thread
      *             was waiting for a notification.  The <i>interrupted
      *             status</i> of the current thread is cleared when
@@ -525,7 +509,6 @@ public class Object {
      * @see        java.lang.Object#notify()
      * @see        java.lang.Object#notifyAll()
      */
-    @FastNative
     public final native void wait() throws InterruptedException;
 
     /**
@@ -535,7 +518,7 @@ public class Object {
      * system resources or to perform other cleanup.
      * <p>
      * The general contract of {@code finalize} is that it is invoked
-     * if and when the Java&trade; virtual
+     * if and when the Java<font size="-2"><sup>TM</sup></font> virtual
      * machine has determined that there is no longer any
      * means by which this object can be accessed by any thread that has
      * not yet died, except as a result of an action taken by the
@@ -574,9 +557,6 @@ public class Object {
      * ignored.
      *
      * @throws Throwable the {@code Exception} raised by this method
-     * @see java.lang.ref.WeakReference
-     * @see java.lang.ref.PhantomReference
-     * @jls 12.6 Finalization of Class Instances
      */
     protected void finalize() throws Throwable { }
 }

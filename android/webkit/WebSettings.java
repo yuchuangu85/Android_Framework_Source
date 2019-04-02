@@ -81,7 +81,6 @@ public abstract class WebSettings {
      *
      * @deprecated Use {@link WebSettings#setTextZoom(int)} and {@link WebSettings#getTextZoom()} instead.
      */
-    @Deprecated
     public enum TextSize {
         SMALLEST(50),
         SMALLER(75),
@@ -411,16 +410,8 @@ public abstract class WebSettings {
     public abstract  boolean getUseWebViewBackgroundForOverscrollBackground();
 
     /**
-     * Sets whether the WebView should save form data. In Android O, the
-     * platform has implemented a fully functional Autofill feature to store
-     * form data. Therefore, the Webview form data save feature is disabled.
-     *
-     * Note that the feature will continue to be supported on older versions of
-     * Android as before.
-     *
-     * This function does not have any effect.
+     * Sets whether the WebView should save form data. The default is true.
      */
-    @Deprecated
     public abstract  void setSaveFormData(boolean save);
 
     /**
@@ -429,7 +420,6 @@ public abstract class WebSettings {
      * @return whether the WebView saves form data
      * @see #setSaveFormData
      */
-    @Deprecated
     public abstract boolean getSaveFormData();
 
     /**
@@ -486,7 +476,6 @@ public abstract class WebSettings {
      * @param t the text size as a {@link TextSize} value
      * @deprecated Use {@link #setTextZoom} instead.
      */
-    @Deprecated
     public synchronized void setTextSize(TextSize t) {
         setTextZoom(t.value);
     }
@@ -500,7 +489,6 @@ public abstract class WebSettings {
      * @see #setTextSize
      * @deprecated Use {@link #getTextZoom} instead.
      */
-    @Deprecated
     public synchronized TextSize getTextSize() {
         TextSize closestSize = null;
         int smallestDelta = Integer.MAX_VALUE;
@@ -545,7 +533,6 @@ public abstract class WebSettings {
      * @see #setDefaultZoom
      * @deprecated Will only return the default value.
      */
-    @Deprecated
     public abstract ZoomDensity getDefaultZoom();
 
     /**
@@ -1384,34 +1371,6 @@ public abstract class WebSettings {
      * offscreen but attached to a window.
      */
     public abstract boolean getOffscreenPreRaster();
-
-
-    /**
-     * Sets whether Safe Browsing is enabled. Safe browsing allows WebView to
-     * protect against malware and phishing attacks by verifying the links.
-     *
-     * <p>
-     * Safe browsing is disabled by default. The recommended way to enable Safe browsing is using a
-     * manifest tag to change the default value to enabled for all WebViews (read <a
-     * href="{@docRoot}reference/android/webkit/WebView.html">general Safe Browsing info</a>).
-     * </p>
-     *
-     * <p>
-     * This API overrides the manifest tag value for this WebView.
-     * </p>
-     *
-     * @param enabled Whether Safe browsing is enabled.
-     */
-    public abstract void setSafeBrowsingEnabled(boolean enabled);
-
-    /**
-     * Gets whether Safe browsing is enabled.
-     * See {@link #setSafeBrowsingEnabled}.
-     *
-     * @return true if Safe browsing is enabled and false otherwise.
-     */
-    public abstract boolean getSafeBrowsingEnabled();
-
 
     /**
      * @hide

@@ -17,16 +17,41 @@
 package android.support.v4.os;
 
 import android.content.Context;
-import android.os.Build;
-import android.os.UserManager;
 
 /**
- * Helper for accessing features in {@link android.os.UserManager} in a backwards compatible
- * fashion.
+ * Helper for accessing features in {@link android.os.UserManager}
+ * introduced after API level 4 in a backwards compatible fashion.
  */
 public class UserManagerCompat {
-
     private UserManagerCompat() {
+    }
+
+    /**
+     * Return whether the calling user is running in a "locked" state. A user is
+     * unlocked only after they've entered their credentials (such as a lock
+     * pattern or PIN), and credential-encrypted private app data storage is
+     * available.
+     *
+     * @removed
+     * @deprecated Removed. Do not use.
+     */
+    @Deprecated
+    public static boolean isUserRunningAndLocked(Context context) {
+        return !isUserUnlocked(context);
+    }
+
+    /**
+     * Return whether the calling user is running in an "unlocked" state. A user
+     * is unlocked only after they've entered their credentials (such as a lock
+     * pattern or PIN), and credential-encrypted private app data storage is
+     * available.
+     *
+     * @removed
+     * @deprecated Removed. Do not use.
+     */
+    @Deprecated
+    public static boolean isUserRunningAndUnlocked(Context context) {
+        return isUserUnlocked(context);
     }
 
     /**
@@ -36,11 +61,10 @@ public class UserManagerCompat {
      * available.
      */
     public static boolean isUserUnlocked(Context context) {
-        if (Build.VERSION.SDK_INT >= 24) {
-            return context.getSystemService(UserManager.class).isUserUnlocked();
+        if (BuildCompat.isAtLeastN()) {
+            return UserManagerCompatApi24.isUserUnlocked(context);
         } else {
             return true;
         }
     }
-
 }

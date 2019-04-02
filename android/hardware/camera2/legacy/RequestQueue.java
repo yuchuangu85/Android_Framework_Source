@@ -18,6 +18,7 @@ package android.hardware.camera2.legacy;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.utils.SubmitInfo;
 import android.util.Log;
+import android.util.Pair;
 
 import java.util.ArrayDeque;
 import java.util.List;
@@ -40,28 +41,6 @@ public class RequestQueue {
     private int mCurrentRequestId = 0;
     private final List<Long> mJpegSurfaceIds;
 
-    public final class RequestQueueEntry {
-        private final BurstHolder mBurstHolder;
-        private final Long mFrameNumber;
-        private final boolean mQueueEmpty;
-
-        public BurstHolder getBurstHolder() {
-            return mBurstHolder;
-        }
-        public Long getFrameNumber() {
-            return mFrameNumber;
-        }
-        public boolean isQueueEmpty() {
-            return mQueueEmpty;
-        }
-
-        public RequestQueueEntry(BurstHolder burstHolder, Long frameNumber, boolean queueEmpty) {
-            mBurstHolder = burstHolder;
-            mFrameNumber = frameNumber;
-            mQueueEmpty = queueEmpty;
-        }
-    }
-
     public RequestQueue(List<Long> jpegSurfaceIds) {
         mJpegSurfaceIds = jpegSurfaceIds;
     }
@@ -71,12 +50,10 @@ public class RequestQueue {
      *
      * <p>If a repeating burst is returned, it will not be removed.</p>
      *
-     * @return an entry containing the next burst, the current frame number, and flag about whether
-     * request queue becomes empty. Null if no burst exists.
+     * @return a pair containing the next burst and the current frame number, or null if none exist.
      */
-    public synchronized RequestQueueEntry getNext() {
+    public synchronized Pair<BurstHolder, Long> getNext() {
         BurstHolder next = mRequestQueue.poll();
-        boolean queueEmptied = (next != null && mRequestQueue.size() == 0);
         if (next == null && mRepeatingRequest != null) {
             next = mRepeatingRequest;
             mCurrentRepeatingFrameNumber = mCurrentFrameNumber +
@@ -87,7 +64,7 @@ public class RequestQueue {
             return null;
         }
 
-        RequestQueueEntry ret =  new RequestQueueEntry(next, mCurrentFrameNumber, queueEmptied);
+        Pair<BurstHolder, Long> ret =  new Pair<BurstHolder, Long>(next, mCurrentFrameNumber);
         mCurrentFrameNumber += next.getNumberOfRequests();
         return ret;
     }

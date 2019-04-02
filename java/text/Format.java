@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -58,7 +58,7 @@ import java.io.Serializable;
  * no separator in between, and in this case the <code>parseObject</code> could
  * not tell which digits belong to which number.
  *
- * <h3>Subclassing</h3>
+ * <h4>Subclassing</h4>
  *
  * <p>
  * The Java Platform provides three specialized subclasses of <code>Format</code>--
@@ -258,7 +258,7 @@ public abstract class Format implements Serializable, Cloneable {
             return super.clone();
         } catch (CloneNotSupportedException e) {
             // will never happen
-            throw new InternalError(e);
+            return null;
         }
     }
 
@@ -281,7 +281,7 @@ public abstract class Format implements Serializable, Cloneable {
     }
 
     /**
-     * Creates an <code>AttributedCharacterIterator</code> containing the
+     * Creates an <code>AttributedCharacterIterator</code> containg the
      * concatenated contents of the passed in
      * <code>AttributedCharacterIterator</code>s.
      *
@@ -370,7 +370,7 @@ public abstract class Format implements Serializable, Cloneable {
      * Delegates should NOT assume that the <code>Format</code> will notify
      * the delegate of fields in any particular order.
      *
-     * @see FieldPosition#getFieldDelegate
+     * @see FieldPosition.Delegate
      * @see CharacterIteratorFieldDelegate
      */
     interface FieldDelegate {

@@ -69,7 +69,7 @@ import java.lang.ref.WeakReference;
  * </pre><p>
  * Then configure the menu and set the route selector for the chooser.
  * </p><pre>
- * public class MyActivity extends AppCompatActivity {
+ * public class MyActivity extends ActionBarActivity {
  *     private MediaRouter mRouter;
  *     private MediaRouter.Callback mCallback;
  *     private MediaRouteSelector mSelector;

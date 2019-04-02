@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -66,6 +66,7 @@ import sun.security.jca.GetInstance.Instance;
  * algorithm-independent <code>init</code> methods, it is up to the
  * provider what to do about the algorithm-specific parameters (if any) to be
  * associated with each of the keys.
+ * <p>
  *
  * <li><b>Algorithm-Specific Initialization</b>
  * <p>For situations where a set of algorithm-specific parameters already
@@ -85,70 +86,70 @@ import sun.security.jca.GetInstance.Instance;
  *
  * <p> Android provides the following <code>KeyGenerator</code> algorithms:
  * <table>
- *   <thead>
- *     <tr>
- *       <th>Algorithm</th>
- *       <th>Supported API Levels</th>
- *     </tr>
- *   </thead>
- *   <tbody>
- *     <tr>
- *       <td>AES</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr class="deprecated">
- *       <td>AESWRAP</td>
- *       <td>1-8</td>
- *     </tr>
- *     <tr>
- *       <td>ARC4</td>
- *       <td>14+</td>
- *     </tr>
- *     <tr>
- *       <td>BLOWFISH</td>
- *       <td>10+</td>
- *     </tr>
- *     <tr>
- *       <td>DES</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>DESede</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr class="deprecated">
- *       <td>DESedeWRAP</td>
- *       <td>1-8</td>
- *     </tr>
- *     <tr>
- *       <td>HmacMD5</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>HmacSHA1</td>
- *       <td>11+</td>
- *     </tr>
- *     <tr>
- *       <td>HmacSHA224</td>
- *       <td>1-8,22+</td>
- *     </tr>
- *     <tr>
- *       <td>HmacSHA256</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>HmacSHA384</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr>
- *       <td>HmacSHA512</td>
- *       <td>1+</td>
- *     </tr>
- *     <tr class="deprecated">
- *       <td>RC4</td>
- *       <td>10-13</td>
- *     </tr>
- *   </tbody>
+ *     <thead>
+ *         <tr>
+ *             <th>Name</th>
+ *             <th>Supported (API Levels)</th>
+ *         </tr>
+ *     </thead>
+ *     <tbody>
+ *         <tr>
+ *             <td>AES</td>
+ *             <td>1+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>AESWRAP</td>
+ *             <td>1&ndash;8</td>
+ *         </tr>
+ *         <tr>
+ *             <td>ARC4</td>
+ *             <td>14+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>Blowfish</td>
+ *             <td>10+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>DES</td>
+ *             <td>1+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>DESede</td>
+ *             <td>1+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>DESedeWRAP</td>
+ *             <td>1&ndash;8</td>
+ *         </tr>
+ *         <tr>
+ *             <td>HmacMD5</td>
+ *             <td>1+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>HmacSHA1</td>
+ *             <td>1+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>HmacSHA224</td>
+ *             <td>1&ndash;8,22+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>HmacSHA256</td>
+ *             <td>1+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>HmacSHA384</td>
+ *             <td>1+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>HmacSHA512</td>
+ *             <td>1+</td>
+ *         </tr>
+ *         <tr>
+ *             <td>RC4</td>
+ *             <td>10&ndash;13</td>
+ *         </tr>
+ *     </tbody>
  * </table>
  *
  * These algorithms are described in the <a href=
@@ -163,14 +164,6 @@ import sun.security.jca.GetInstance.Instance;
  */
 
 public class KeyGenerator {
-
-    // Android-removed: this debugging mechanism is not used in Android.
-    /*
-    private static final Debug pdebug =
-                        Debug.getInstance("provider", "Provider");
-    private static final boolean skipDebug =
-        Debug.isOn("engine=") && !Debug.isOn("keygenerator");
-    */
 
     // see java.security.KeyPairGenerator for failover notes
 
@@ -190,7 +183,7 @@ public class KeyGenerator {
 
     private final Object lock = new Object();
 
-    private Iterator<Service> serviceIterator;
+    private Iterator serviceIterator;
 
     private int initType;
     private int initKeySize;
@@ -209,20 +202,11 @@ public class KeyGenerator {
         this.spi = keyGenSpi;
         this.provider = provider;
         this.algorithm = algorithm;
-
-        // Android-removed: this debugging mechanism is not used in Android.
-        /*
-        if (!skipDebug && pdebug != null) {
-            pdebug.println("KeyGenerator." + algorithm + " algorithm from: " +
-                this.provider.getName());
-        }
-        */
     }
 
     private KeyGenerator(String algorithm) throws NoSuchAlgorithmException {
         this.algorithm = algorithm;
-        List<Service> list =
-                GetInstance.getServices("KeyGenerator", algorithm);
+        List list = GetInstance.getServices("KeyGenerator", algorithm);
         serviceIterator = list.iterator();
         initType = I_NONE;
         // fetch and instantiate initial spi
@@ -230,14 +214,6 @@ public class KeyGenerator {
             throw new NoSuchAlgorithmException
                 (algorithm + " KeyGenerator not available");
         }
-
-        // Android-removed: this debugging mechanism is not used in Android.
-        /*
-        if (!skipDebug && pdebug != null) {
-            pdebug.println("KeyGenerator." + algorithm + " algorithm from: " +
-                this.provider.getName());
-        }
-        */
     }
 
     /**
@@ -400,7 +376,7 @@ public class KeyGenerator {
                 return null;
             }
             while (serviceIterator.hasNext()) {
-                Service s = serviceIterator.next();
+                Service s = (Service)serviceIterator.next();
                 if (JceSecurity.canUseProvider(s.getProvider()) == false) {
                     continue;
                 }
@@ -477,7 +453,7 @@ public class KeyGenerator {
      *
      * <p> If this key generator requires any random bytes, it will get them
      * using the
-     * {@link java.security.SecureRandom}
+     * {@link SecureRandom <code>SecureRandom</code>}
      * implementation of the highest-priority installed
      * provider as the source of randomness.
      * (If none of the installed providers supply an implementation of
@@ -542,7 +518,7 @@ public class KeyGenerator {
      *
      * <p> If this key generator requires any random bytes, it will get them
      * using the
-     * {@link java.security.SecureRandom}
+     * {@link SecureRandom <code>SecureRandom</code>}
      * implementation of the highest-priority installed
      * provider as the source of randomness.
      * (If none of the installed providers supply an implementation of

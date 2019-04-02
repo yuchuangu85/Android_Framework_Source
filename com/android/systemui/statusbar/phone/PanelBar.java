@@ -46,10 +46,6 @@ public abstract class PanelBar extends FrameLayout {
         mState = state;
     }
 
-    public int getState() {
-        return mState;
-    }
-
     public PanelBar(Context context, AttributeSet attrs) {
         super(context, attrs);
     }
@@ -122,7 +118,7 @@ public abstract class PanelBar extends FrameLayout {
         boolean fullyOpened = false;
         if (SPEW) LOG("panelExpansionChanged: start state=%d", mState);
         PanelView pv = mPanel;
-        pv.setVisibility(expanded ? VISIBLE : INVISIBLE);
+        pv.setVisibility(expanded ? View.VISIBLE : View.INVISIBLE);
         // adjust any other panels that may be partially visible
         if (expanded) {
             if (mState == STATE_CLOSED) {
@@ -168,10 +164,6 @@ public abstract class PanelBar extends FrameLayout {
 
     public void onPanelPeeked() {
         if (DEBUG) LOG("onPanelPeeked");
-    }
-
-    public boolean isClosed() {
-        return mState == STATE_CLOSED;
     }
 
     public void onPanelCollapsed() {

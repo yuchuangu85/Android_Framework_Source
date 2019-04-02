@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2006, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,7 +44,7 @@ import java.util.Vector;
  */
 public
 class SequenceInputStream extends InputStream {
-    Enumeration<? extends InputStream> e;
+    Enumeration e;
     InputStream in;
 
     /**
@@ -85,7 +85,7 @@ class SequenceInputStream extends InputStream {
      * @param   s2   the second input stream to read.
      */
     public SequenceInputStream(InputStream s1, InputStream s2) {
-        Vector<InputStream> v = new Vector<>(2);
+        Vector  v = new Vector(2);
 
         v.addElement(s1);
         v.addElement(s2);
@@ -135,7 +135,7 @@ class SequenceInputStream extends InputStream {
      * @since   JDK1.1
      */
     public int available() throws IOException {
-        if (in == null) {
+        if(in == null) {
             return 0; // no way to signal EOF from available()
         }
         return in.available();
@@ -160,14 +160,15 @@ class SequenceInputStream extends InputStream {
      * @exception  IOException  if an I/O error occurs.
      */
     public int read() throws IOException {
-        while (in != null) {
-            int c = in.read();
-            if (c != -1) {
-                return c;
-            }
-            nextStream();
+        if (in == null) {
+            return -1;
         }
-        return -1;
+        int c = in.read();
+        if (c == -1) {
+            nextStream();
+            return read();
+        }
+        return c;
     }
 
     /**
@@ -203,14 +204,13 @@ class SequenceInputStream extends InputStream {
         } else if (len == 0) {
             return 0;
         }
-        do {
-            int n = in.read(b, off, len);
-            if (n > 0) {
-                return n;
-            }
+
+        int n = in.read(b, off, len);
+        if (n <= 0) {
             nextStream();
-        } while (in != null);
-        return -1;
+            return read(b, off, len);
+        }
+        return n;
     }
 
     /**

@@ -16,20 +16,19 @@
 
 package android.support.v7.widget;
 
+import java.util.List;
+
+import android.support.v7.widget.AdapterHelper.UpdateOp;
 import static android.support.v7.widget.AdapterHelper.UpdateOp.ADD;
 import static android.support.v7.widget.AdapterHelper.UpdateOp.MOVE;
 import static android.support.v7.widget.AdapterHelper.UpdateOp.REMOVE;
 import static android.support.v7.widget.AdapterHelper.UpdateOp.UPDATE;
 
-import android.support.v7.widget.AdapterHelper.UpdateOp;
-
-import java.util.List;
-
 class OpReorderer {
 
     final Callback mCallback;
 
-    OpReorderer(Callback callback) {
+    public OpReorderer(Callback callback) {
         mCallback = callback;
     }
 
@@ -73,8 +72,8 @@ class OpReorderer {
             }
         } else {
             moveIsBackwards = true;
-            if (removeOp.positionStart == moveOp.itemCount + 1
-                    && removeOp.itemCount == moveOp.positionStart - moveOp.itemCount) {
+            if (removeOp.positionStart == moveOp.itemCount + 1 &&
+                    removeOp.itemCount == moveOp.positionStart - moveOp.itemCount) {
                 revertedMove = true;
             }
         }
@@ -84,7 +83,7 @@ class OpReorderer {
             removeOp.positionStart--;
         } else if (moveOp.itemCount < removeOp.positionStart + removeOp.itemCount) {
             // move is removed.
-            removeOp.itemCount--;
+            removeOp.itemCount --;
             moveOp.cmd = REMOVE;
             moveOp.itemCount = 1;
             if (removeOp.itemCount == 0) {
@@ -230,7 +229,7 @@ class OpReorderer {
         return -1;
     }
 
-    interface Callback {
+    static interface Callback {
 
         UpdateOp obtainUpdateOp(int cmd, int startPosition, int itemCount, Object payload);
 

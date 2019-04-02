@@ -18,7 +18,6 @@ package com.android.systemui.statusbar.phone;
 
 import android.app.ActivityManager;
 import android.content.Context;
-import android.os.Handler;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.util.Slog;
@@ -27,7 +26,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
-import android.view.WindowInsets;
 import android.view.accessibility.AccessibilityEvent;
 
 import com.android.internal.widget.LockPatternUtils;
@@ -39,7 +37,6 @@ import com.android.keyguard.R;
 import com.android.keyguard.ViewMediatorCallback;
 import com.android.systemui.DejankUtils;
 import com.android.systemui.classifier.FalsingManager;
-import com.android.systemui.keyguard.DismissCallbackRegistry;
 
 import static com.android.keyguard.KeyguardHostView.OnDismissAction;
 import static com.android.keyguard.KeyguardSecurityModel.SecurityMode;
@@ -51,38 +48,34 @@ public class KeyguardBouncer {
 
     final static private String TAG = "KeyguardBouncer";
 
-    protected final Context mContext;
-    protected final ViewMediatorCallback mCallback;
-    protected final LockPatternUtils mLockPatternUtils;
-    protected final ViewGroup mContainer;
-    private final FalsingManager mFalsingManager;
-    private final DismissCallbackRegistry mDismissCallbackRegistry;
-    private final Handler mHandler;
+    protected Context mContext;
+    protected ViewMediatorCallback mCallback;
+    protected LockPatternUtils mLockPatternUtils;
+    protected ViewGroup mContainer;
+    private StatusBarWindowManager mWindowManager;
     protected KeyguardHostView mKeyguardView;
     protected ViewGroup mRoot;
     private boolean mShowingSoon;
     private int mBouncerPromptReason;
-    private final KeyguardUpdateMonitorCallback mUpdateMonitorCallback =
+    private FalsingManager mFalsingManager;
+    private KeyguardUpdateMonitorCallback mUpdateMonitorCallback =
             new KeyguardUpdateMonitorCallback() {
                 @Override
                 public void onStrongAuthStateChanged(int userId) {
                     mBouncerPromptReason = mCallback.getBouncerPromptReason();
                 }
             };
-    private final Runnable mRemoveViewRunnable = this::removeView;
-    private int mStatusBarHeight;
 
     public KeyguardBouncer(Context context, ViewMediatorCallback callback,
-            LockPatternUtils lockPatternUtils, ViewGroup container,
-            DismissCallbackRegistry dismissCallbackRegistry) {
+            LockPatternUtils lockPatternUtils, StatusBarWindowManager windowManager,
+            ViewGroup container) {
         mContext = context;
         mCallback = callback;
         mLockPatternUtils = lockPatternUtils;
         mContainer = container;
+        mWindowManager = windowManager;
         KeyguardUpdateMonitor.getInstance(mContext).registerCallback(mUpdateMonitorCallback);
         mFalsingManager = FalsingManager.getInstance(mContext);
-        mDismissCallbackRegistry = dismissCallbackRegistry;
-        mHandler = new Handler();
     }
 
     public void show(boolean resetSecuritySelection) {
@@ -103,13 +96,12 @@ public class KeyguardBouncer {
         }
 
         final int activeUserId = ActivityManager.getCurrentUser();
-        final boolean isSystemUser =
-                UserManager.isSplitSystemUser() && activeUserId == UserHandle.USER_SYSTEM;
-        final boolean allowDismissKeyguard = !isSystemUser && activeUserId == keyguardUserId;
-
+        final boolean allowDismissKeyguard =
+                !(UserManager.isSplitSystemUser() && activeUserId == UserHandle.USER_SYSTEM)
+                && activeUserId == keyguardUserId;
         // If allowed, try to dismiss the Keyguard. If no security auth (password/pin/pattern) is
         // set, this will dismiss the whole Keyguard. Otherwise, show the bouncer.
-        if (allowDismissKeyguard && mKeyguardView.dismiss(activeUserId)) {
+        if (allowDismissKeyguard && mKeyguardView.dismiss()) {
             return;
         }
 
@@ -130,9 +122,7 @@ public class KeyguardBouncer {
             mRoot.setVisibility(View.VISIBLE);
             mKeyguardView.onResume();
             showPromptReason(mBouncerPromptReason);
-            // We might still be collapsed and the view didn't have time to layout yet or still
-            // be small, let's wait on the predraw to do the animation in that case.
-            if (mKeyguardView.getHeight() != 0 && mKeyguardView.getHeight() != mStatusBarHeight) {
+            if (mKeyguardView.getHeight() != 0) {
                 mKeyguardView.startAppearAnimation();
             } else {
                 mKeyguardView.getViewTreeObserver().addOnPreDrawListener(
@@ -178,23 +168,16 @@ public class KeyguardBouncer {
     }
 
     public void hide(boolean destroyView) {
-        if (isShowing()) {
-            mDismissCallbackRegistry.notifyDismissCancelled();
-        }
         mFalsingManager.onBouncerHidden();
         cancelShowRunnable();
         if (mKeyguardView != null) {
             mKeyguardView.cancelDismissAction();
             mKeyguardView.cleanUp();
         }
-        if (mRoot != null) {
+        if (destroyView) {
+            removeView();
+        } else if (mRoot != null) {
             mRoot.setVisibility(View.INVISIBLE);
-            if (destroyView) {
-
-                // We have a ViewFlipper that unregisters a broadcast when being detached, which may
-                // be slow because of AM lock contention during unlocking. We can delay it a bit.
-                mHandler.postDelayed(mRemoveViewRunnable, 50);
-            }
         }
     }
 
@@ -238,31 +221,19 @@ public class KeyguardBouncer {
     }
 
     protected void ensureView() {
-        // Removal of the view might be deferred to reduce unlock latency,
-        // in this case we need to force the removal, otherwise we'll
-        // end up in an unpredictable state.
-        boolean forceRemoval = mHandler.hasCallbacks(mRemoveViewRunnable);
-        if (mRoot == null || forceRemoval) {
+        if (mRoot == null) {
             inflateView();
         }
     }
 
     protected void inflateView() {
         removeView();
-        mHandler.removeCallbacks(mRemoveViewRunnable);
         mRoot = (ViewGroup) LayoutInflater.from(mContext).inflate(R.layout.keyguard_bouncer, null);
-        mKeyguardView = mRoot.findViewById(R.id.keyguard_host_view);
+        mKeyguardView = (KeyguardHostView) mRoot.findViewById(R.id.keyguard_host_view);
         mKeyguardView.setLockPatternUtils(mLockPatternUtils);
         mKeyguardView.setViewMediatorCallback(mCallback);
         mContainer.addView(mRoot, mContainer.getChildCount());
-        mStatusBarHeight = mRoot.getResources().getDimensionPixelOffset(
-                com.android.systemui.R.dimen.status_bar_height);
         mRoot.setVisibility(View.INVISIBLE);
-
-        final WindowInsets rootInsets = mRoot.getRootWindowInsets();
-        if (rootInsets != null) {
-            mRoot.dispatchApplyWindowInsets(rootInsets);
-        }
     }
 
     protected void removeView() {
@@ -319,6 +290,6 @@ public class KeyguardBouncer {
 
     public void notifyKeyguardAuthenticated(boolean strongAuth) {
         ensureView();
-        mKeyguardView.finish(strongAuth, KeyguardUpdateMonitor.getCurrentUser());
+        mKeyguardView.finish(strongAuth);
     }
 }

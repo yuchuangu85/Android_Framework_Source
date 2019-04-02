@@ -26,14 +26,13 @@ import android.graphics.ColorFilter;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
-import android.support.annotation.NonNull;
-import android.support.annotation.VisibleForTesting;
+
+import com.android.setupwizardlib.annotations.VisibleForTesting;
 
 import java.lang.ref.SoftReference;
 
@@ -103,7 +102,7 @@ public class GlifPatternDrawable extends Drawable {
     }
 
     @Override
-    public void draw(@NonNull Canvas canvas) {
+    public void draw(Canvas canvas) {
         final Rect bounds = getBounds();
         int drawableWidth = bounds.width();
         int drawableHeight = bounds.height();
@@ -228,7 +227,7 @@ public class GlifPatternDrawable extends Drawable {
             p.close();
 
             p = sPatternPaths[5] = new Path();
-            p.moveTo(178.44286f, 766.8571f);
+            p.moveTo(178.44286f, 766.85714f);
             p.lineTo(308.7f, 768f);
             p.cubicTo(381.7f, 604.6f, 481.6f, 344.3f, 562.2f, 0f);
             p.lineTo(0f, 0f);
@@ -287,7 +286,7 @@ public class GlifPatternDrawable extends Drawable {
 
     @Override
     public int getOpacity() {
-        return PixelFormat.UNKNOWN;
+        return 0;
     }
 
     /**

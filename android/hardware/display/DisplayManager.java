@@ -18,23 +18,24 @@ package android.hardware.display;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.SystemApi;
-import android.annotation.SystemService;
 import android.content.Context;
-import android.graphics.Point;
 import android.media.projection.MediaProjection;
 import android.os.Handler;
 import android.util.SparseArray;
 import android.view.Display;
 import android.view.Surface;
-import android.view.WindowManagerPolicy;
 
 import java.util.ArrayList;
 
 /**
  * Manages the properties of attached displays.
+ * <p>
+ * Get an instance of this class by calling
+ * {@link android.content.Context#getSystemService(java.lang.String)
+ * Context.getSystemService()} with the argument
+ * {@link android.content.Context#DISPLAY_SERVICE}.
+ * </p>
  */
-@SystemService(Context.DISPLAY_SERVICE)
 public final class DisplayManager {
     private static final String TAG = "DisplayManager";
     private static final boolean DEBUG = false;
@@ -107,14 +108,13 @@ public final class DisplayManager {
      * </p>
      *
      * <p>
-     * A private virtual display belongs to the application that created it.  Only the a owner of a
-     * private virtual display and the apps that are already on that display are allowed to place
-     * windows upon it.  The private virtual display also does not participate in display mirroring:
-     * it will neither receive mirrored content from another display nor allow its own content to be
-     * mirrored elsewhere.  More precisely, the only processes that are allowed to enumerate or
-     * interact with the private display are those that have the same UID as the application that
-     * originally created the private virtual display or as the activities that are already on that
-     * display.
+     * A private virtual display belongs to the application that created it.
+     * Only the a owner of a private virtual display is allowed to place windows upon it.
+     * The private virtual display also does not participate in display mirroring: it will
+     * neither receive mirrored content from another display nor allow its own content to
+     * be mirrored elsewhere.  More precisely, the only processes that are allowed to
+     * enumerate or interact with the private display are those that have the same UID as the
+     * application that originally created the private virtual display.
      * </p>
      *
      * @see #createVirtualDisplay
@@ -234,63 +234,6 @@ public final class DisplayManager {
      */
     public static final int VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR = 1 << 4;
 
-    /**
-     * Virtual display flag: Allows content to be displayed on private virtual displays when
-     * keyguard is shown but is insecure.
-     *
-     * <p>
-     * This might be used in a case when the content of a virtual display is captured and sent to an
-     * external hardware display that is not visible to the system directly. This flag will allow
-     * the continued display of content while other displays will be covered by a keyguard which
-     * doesn't require providing credentials to unlock. This means that there is either no password
-     * or other authentication method set, or the device is in a trusted state -
-     * {@link android.service.trust.TrustAgentService} has available and active trust agent.
-     * </p><p>
-     * This flag can only be applied to private displays as defined by the
-     * {@link Display#FLAG_PRIVATE} display flag. It is mutually exclusive with
-     * {@link #VIRTUAL_DISPLAY_FLAG_PUBLIC}. If both flags are specified then this flag's behavior
-     * will not be applied.
-     * </p>
-     *
-     * @see #createVirtualDisplay
-     * @see WindowManagerPolicy#isKeyguardSecure(int)
-     * @see WindowManagerPolicy#isKeyguardTrustedLw()
-     * @hide
-     */
-    // TODO: Update name and documentation and un-hide the flag. Don't change the value before that.
-    public static final int VIRTUAL_DISPLAY_FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD = 1 << 5;
-
-    /**
-     * Virtual display flag: Specifies that the virtual display can be associated with a
-     * touchpad device that matches its uniqueId.
-     *
-     * @see #createVirtualDisplay
-     * @hide
-     */
-    public static final int VIRTUAL_DISPLAY_FLAG_SUPPORTS_TOUCH = 1 << 6;
-
-    /**
-     * Virtual display flag: Indicates that the orientation of this display device is coupled to
-     * the rotation of its associated logical display.
-     *
-     * @see #createVirtualDisplay
-     * @hide
-     */
-    public static final int VIRTUAL_DISPLAY_FLAG_ROTATES_WITH_CONTENT = 1 << 7;
-
-    /**
-     * Virtual display flag: Indicates that the contents will be destroyed once
-     * the display is removed.
-     *
-     * Public virtual displays without this flag will move their content to main display
-     * stack once they're removed. Private vistual displays will always destroy their
-     * content on removal even without this flag.
-     *
-     * @see #createVirtualDisplay
-     * @hide
-     */
-    public static final int VIRTUAL_DISPLAY_FLAG_DESTROY_CONTENT_ON_REMOVAL = 1 << 8;
-
     /** @hide */
     public DisplayManager(Context context) {
         mContext = context;
@@ -380,12 +323,8 @@ public final class DisplayManager {
     private Display getOrCreateDisplayLocked(int displayId, boolean assumeValid) {
         Display display = mDisplays.get(displayId);
         if (display == null) {
-            // TODO: We cannot currently provide any override configurations for metrics on displays
-            // other than the display the context is associated with.
-            final Context context = mContext.getDisplay().getDisplayId() == displayId
-                    ? mContext : mContext.getApplicationContext();
-
-            display = mGlobal.getCompatibleDisplay(displayId, context.getResources());
+            display = mGlobal.getCompatibleDisplay(displayId,
+                    mContext.getDisplayAdjustments(displayId));
             if (display != null) {
                 mDisplays.put(displayId, display);
             }
@@ -587,31 +526,16 @@ public final class DisplayManager {
     public VirtualDisplay createVirtualDisplay(@NonNull String name,
             int width, int height, int densityDpi, @Nullable Surface surface, int flags,
             @Nullable VirtualDisplay.Callback callback, @Nullable Handler handler) {
-        return createVirtualDisplay(null /* projection */, name, width, height, densityDpi, surface,
-                flags, callback, handler, null /* uniqueId */);
+        return createVirtualDisplay(null,
+                name, width, height, densityDpi, surface, flags, callback, handler);
     }
 
     /** @hide */
     public VirtualDisplay createVirtualDisplay(@Nullable MediaProjection projection,
             @NonNull String name, int width, int height, int densityDpi, @Nullable Surface surface,
-            int flags, @Nullable VirtualDisplay.Callback callback, @Nullable Handler handler,
-            @Nullable String uniqueId) {
+            int flags, @Nullable VirtualDisplay.Callback callback, @Nullable Handler handler) {
         return mGlobal.createVirtualDisplay(mContext, projection,
-                name, width, height, densityDpi, surface, flags, callback, handler, uniqueId);
-    }
-
-    /**
-     * Gets the stable device display size, in pixels.
-     *
-     * This should really only be used for things like server-side filtering of available
-     * applications. Most applications don't need the level of stability guaranteed by this and
-     * should instead query either the size of the display they're currently running on or the
-     * size of the default display.
-     * @hide
-     */
-    @SystemApi
-    public Point getStableDisplaySize() {
-        return mGlobal.getStableDisplaySize();
+                name, width, height, densityDpi, surface, flags, callback, handler);
     }
 
     /**

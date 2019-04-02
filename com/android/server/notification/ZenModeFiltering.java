@@ -104,6 +104,9 @@ public class ZenModeFiltering {
     }
 
     public boolean shouldIntercept(int zen, ZenModeConfig config, NotificationRecord record) {
+        if (isSystem(record)) {
+            return false;
+        }
         switch (zen) {
             case Global.ZEN_MODE_NO_INTERRUPTIONS:
                 // #notevenalarms
@@ -172,6 +175,10 @@ public class ZenModeFiltering {
             return true;
         }
         return false;
+    }
+
+    private static boolean isSystem(NotificationRecord record) {
+        return record.isCategory(Notification.CATEGORY_SYSTEM);
     }
 
     private static boolean isAlarm(NotificationRecord record) {

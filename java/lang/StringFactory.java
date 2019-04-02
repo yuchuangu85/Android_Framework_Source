@@ -17,7 +17,6 @@
 
 package java.lang;
 
-import dalvik.annotation.optimization.FastNative;
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
@@ -54,7 +53,6 @@ public final class StringFactory {
         return newStringFromBytes(data, offset, byteCount, Charset.defaultCharset());
     }
 
-    @FastNative
     public static native String newStringFromBytes(byte[] data, int high, int offset, int byteCount);
 
     public static String newStringFromBytes(byte[] data, int offset, int byteCount, String charsetName) throws UnsupportedEncodingException {
@@ -221,10 +219,8 @@ outer:
     }
 
     // The char array passed as {@code java_data} must not be a null reference.
-    @FastNative
     static native String newStringFromChars(int offset, int charCount, char[] data);
 
-    @FastNative
     public static native String newStringFromString(String toCopy);
 
     public static String newStringFromStringBuffer(StringBuffer stringBuffer) {

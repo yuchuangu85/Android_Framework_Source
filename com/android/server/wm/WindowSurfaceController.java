@@ -16,7 +16,6 @@
 
 package com.android.server.wm;
 
-import static android.os.Trace.TRACE_TAG_WINDOW_MANAGER;
 import static com.android.server.wm.WindowManagerDebugConfig.SHOW_SURFACE_ALLOC;
 import static com.android.server.wm.WindowManagerDebugConfig.SHOW_TRANSACTIONS;
 import static com.android.server.wm.WindowManagerDebugConfig.SHOW_LIGHT_TRANSACTIONS;
@@ -24,15 +23,16 @@ import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_SURFACE_TRACE
 import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_VISIBILITY;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WITH_CLASS_NAME;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
+import static android.view.Surface.SCALING_MODE_FREEZE;
 import static android.view.Surface.SCALING_MODE_SCALE_TO_WINDOW;
 
+import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.graphics.PointF;
 import android.graphics.Rect;
 import android.graphics.Region;
 import android.os.IBinder;
 import android.os.Debug;
-import android.os.Trace;
 import android.view.Surface;
 import android.view.SurfaceControl;
 import android.view.SurfaceSession;
@@ -41,7 +41,6 @@ import android.view.Surface.OutOfResourcesException;
 
 import android.util.Slog;
 
-import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 
@@ -50,20 +49,13 @@ class WindowSurfaceController {
 
     final WindowStateAnimator mAnimator;
 
-    private SurfaceControlWithBackground mSurfaceControl;
+    private SurfaceControl mSurfaceControl;
 
-    // Should only be set from within setShown().
     private boolean mSurfaceShown = false;
     private float mSurfaceX = 0;
     private float mSurfaceY = 0;
     private float mSurfaceW = 0;
     private float mSurfaceH = 0;
-
-    // Initialize to the identity matrix.
-    private float mLastDsdx = 1;
-    private float mLastDtdx = 0;
-    private float mLastDsdy = 0;
-    private float mLastDtdy = 1;
 
     private float mSurfaceAlpha = 0;
 
@@ -78,13 +70,8 @@ class WindowSurfaceController {
     private boolean mHiddenForOtherReasons = true;
     private final String title;
 
-    private final WindowManagerService mService;
-
-    private final int mWindowType;
-    private final Session mWindowSession;
-
-    public WindowSurfaceController(SurfaceSession s, String name, int w, int h, int format,
-            int flags, WindowStateAnimator animator, int windowType, int ownerUid) {
+    public WindowSurfaceController(SurfaceSession s,
+            String name, int w, int h, int format, int flags, WindowStateAnimator animator) {
         mAnimator = animator;
 
         mSurfaceW = w;
@@ -92,51 +79,31 @@ class WindowSurfaceController {
 
         title = name;
 
-        mService = animator.mService;
-        final WindowState win = animator.mWin;
-        mWindowType = windowType;
-        mWindowSession = win.mSession;
-
-        Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "new SurfaceControl");
-        mSurfaceControl = new SurfaceControlWithBackground(
-                s, name, w, h, format, flags, windowType, ownerUid, this);
-        Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
-
-        if (mService.mRoot.mSurfaceTraceEnabled) {
-            mSurfaceControl = new RemoteSurfaceTrace(
-                    mService.mRoot.mSurfaceTraceFd.getFileDescriptor(), mSurfaceControl, win);
+        // For opaque child windows placed under parent windows,
+        // we use a special SurfaceControl which mirrors commands
+        // to a black-out layer placed one Z-layer below the surface.
+        // This prevents holes to whatever app/wallpaper is underneath.
+        if (animator.mWin.isChildWindow() &&
+                animator.mWin.mSubLayer < 0 &&
+                animator.mWin.mAppToken != null) {
+            mSurfaceControl = new SurfaceControlWithBackground(s,
+                    name, w, h, format, flags, animator.mWin.mAppToken);
+        } else if (DEBUG_SURFACE_TRACE) {
+            mSurfaceControl = new SurfaceTrace(
+                    s, name, w, h, format, flags);
+        } else {
+            mSurfaceControl = new SurfaceControl(
+                    s, name, w, h, format, flags);
         }
     }
 
-    void installRemoteTrace(FileDescriptor fd) {
-        mSurfaceControl = new RemoteSurfaceTrace(fd, mSurfaceControl, mAnimator.mWin);
-    }
 
-    void removeRemoteTrace() {
-        mSurfaceControl = new SurfaceControlWithBackground(mSurfaceControl);
-    }
-
-
-    private void logSurface(String msg, RuntimeException where) {
+    void logSurface(String msg, RuntimeException where) {
         String str = "  SURFACE " + msg + ": " + title;
         if (where != null) {
             Slog.i(TAG, str, where);
         } else {
             Slog.i(TAG, str);
-        }
-    }
-
-    void reparentChildrenInTransaction(WindowSurfaceController other) {
-        if (SHOW_TRANSACTIONS) Slog.i(TAG, "REPARENT from: " + this + " to: " + other);
-        if ((mSurfaceControl != null) && (other.mSurfaceControl != null)) {
-            mSurfaceControl.reparentChildren(other.getHandle());
-        }
-    }
-
-    void detachChildren() {
-        if (SHOW_TRANSACTIONS) Slog.i(TAG, "SEVER CHILDREN");
-        if (mSurfaceControl != null) {
-            mSurfaceControl.detachChildren();
         }
     }
 
@@ -149,14 +116,39 @@ class WindowSurfaceController {
     }
 
     private void hideSurface() {
-        if (mSurfaceControl == null) {
-            return;
+        if (mSurfaceControl != null) {
+            mSurfaceShown = false;
+            try {
+                mSurfaceControl.hide();
+            } catch (RuntimeException e) {
+                Slog.w(TAG, "Exception hiding surface in " + this);
+            }
         }
-        setShown(false);
+    }
+
+    void setPositionAndLayer(float left, float top, int layerStack, int layer) {
+        SurfaceControl.openTransaction();
         try {
-            mSurfaceControl.hide();
-        } catch (RuntimeException e) {
-            Slog.w(TAG, "Exception hiding surface in " + this);
+            mSurfaceX = left;
+            mSurfaceY = top;
+
+            try {
+                if (SHOW_TRANSACTIONS) logSurface(
+                        "POS (setPositionAndLayer) @ (" + left + "," + top + ")", null);
+                mSurfaceControl.setPosition(left, top);
+                mSurfaceControl.setLayerStack(layerStack);
+
+                mSurfaceControl.setLayer(layer);
+                mSurfaceControl.setAlpha(0);
+                mSurfaceShown = false;
+            } catch (RuntimeException e) {
+                Slog.w(TAG, "Error creating surface in " + this, e);
+                mAnimator.reclaimSomeSurfaceMemory("create-init", true);
+            }
+        } finally {
+            SurfaceControl.closeTransaction();
+            if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG,
+                    "<<< CLOSE TRANSACTION setPositionAndLayer");
         }
     }
 
@@ -171,7 +163,7 @@ class WindowSurfaceController {
         } catch (RuntimeException e) {
             Slog.w(TAG, "Error destroying surface in: " + this, e);
         } finally {
-            setShown(false);
+            mSurfaceShown = false;
             mSurfaceControl = null;
         }
     }
@@ -238,26 +230,12 @@ class WindowSurfaceController {
 
     void setLayer(int layer) {
         if (mSurfaceControl != null) {
-            mService.openSurfaceTransaction();
+            SurfaceControl.openTransaction();
             try {
-                if (mAnimator.mWin.usesRelativeZOrdering()) {
-                    mSurfaceControl.setRelativeLayer(
-                            mAnimator.mWin.getParentWindow()
-                            .mWinAnimator.mSurfaceController.mSurfaceControl.getHandle(),
-                            -1);
-                } else {
-                    mSurfaceLayer = layer;
-                    mSurfaceControl.setLayer(layer);
-                }
+                mSurfaceControl.setLayer(layer);
             } finally {
-                mService.closeSurfaceTransaction();
+                SurfaceControl.closeTransaction();
             }
-        }
-    }
-
-    void setLayerStackInTransaction(int layerStack) {
-        if (mSurfaceControl != null) {
-            mSurfaceControl.setLayerStack(layerStack);
         }
     }
 
@@ -286,34 +264,24 @@ class WindowSurfaceController {
         mSurfaceControl.setGeometryAppliesWithResize();
     }
 
-    void setMatrixInTransaction(float dsdx, float dtdx, float dtdy, float dsdy,
+    void setMatrixInTransaction(float dsdx, float dtdx, float dsdy, float dtdy,
             boolean recoveringMemory) {
-        final boolean matrixChanged = mLastDsdx != dsdx || mLastDtdx != dtdx ||
-                                      mLastDtdy != dtdy || mLastDsdy != dsdy;
-        if (!matrixChanged) {
-            return;
-        }
-
-        mLastDsdx = dsdx;
-        mLastDtdx = dtdx;
-        mLastDtdy = dtdy;
-        mLastDsdy = dsdy;
-
         try {
             if (SHOW_TRANSACTIONS) logSurface(
-                    "MATRIX [" + dsdx + "," + dtdx + "," + dtdy + "," + dsdy + "]", null);
+                    "MATRIX [" + dsdx + "," + dtdx + "," + dsdy + "," + dtdy + "]", null);
             mSurfaceControl.setMatrix(
-                    dsdx, dtdx, dtdy, dsdy);
+                    dsdx, dtdx, dsdy, dtdy);
         } catch (RuntimeException e) {
             // If something goes wrong with the surface (such
             // as running out of memory), don't take down the
             // entire system.
             Slog.e(TAG, "Error setting matrix on surface surface" + title
-                    + " MATRIX [" + dsdx + "," + dtdx + "," + dtdy + "," + dsdy + "]", null);
+                    + " MATRIX [" + dsdx + "," + dtdx + "," + dsdy + "," + dtdy + "]", null);
             if (!recoveringMemory) {
                 mAnimator.reclaimSomeSurfaceMemory("matrix", true);
             }
         }
+        return;
     }
 
     boolean setSizeInTransaction(int width, int height, boolean recoveringMemory) {
@@ -342,19 +310,17 @@ class WindowSurfaceController {
         return false;
     }
 
-    boolean prepareToShowInTransaction(float alpha,
-            float dsdx, float dtdx, float dsdy,
+    boolean prepareToShowInTransaction(float alpha, int layer, float dsdx, float dtdx, float dsdy,
             float dtdy, boolean recoveringMemory) {
         if (mSurfaceControl != null) {
             try {
                 mSurfaceAlpha = alpha;
                 mSurfaceControl.setAlpha(alpha);
-                mLastDsdx = dsdx;
-                mLastDtdx = dtdx;
-                mLastDsdy = dsdy;
-                mLastDtdy = dtdy;
+                mSurfaceLayer = layer;
+                mSurfaceControl.setLayer(layer);
                 mSurfaceControl.setMatrix(
                         dsdx, dtdx, dsdy, dtdy);
+
             } catch (RuntimeException e) {
                 Slog.w(TAG, "Error updating surface in " + title, e);
                 if (!recoveringMemory) {
@@ -372,11 +338,11 @@ class WindowSurfaceController {
             return;
         }
         if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG, ">>> OPEN TRANSACTION setTransparentRegion");
-        mService.openSurfaceTransaction();
+        SurfaceControl.openTransaction();
         try {
             mSurfaceControl.setTransparentRegionHint(region);
         } finally {
-            mService.closeSurfaceTransaction();
+            SurfaceControl.closeTransaction();
             if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG,
                     "<<< CLOSE TRANSACTION setTransparentRegion");
         }
@@ -390,11 +356,11 @@ class WindowSurfaceController {
             return;
         }
         if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG, ">>> OPEN TRANSACTION setOpaqueLocked");
-        mService.openSurfaceTransaction();
+        SurfaceControl.openTransaction();
         try {
             mSurfaceControl.setOpaque(isOpaque);
         } finally {
-            mService.closeSurfaceTransaction();
+            SurfaceControl.closeTransaction();
             if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG, "<<< CLOSE TRANSACTION setOpaqueLocked");
         }
     }
@@ -407,17 +373,13 @@ class WindowSurfaceController {
             return;
         }
         if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG, ">>> OPEN TRANSACTION setSecureLocked");
-        mService.openSurfaceTransaction();
+        SurfaceControl.openTransaction();
         try {
             mSurfaceControl.setSecure(isSecure);
         } finally {
-            mService.closeSurfaceTransaction();
+            SurfaceControl.closeTransaction();
             if (SHOW_LIGHT_TRANSACTIONS) Slog.i(TAG, "<<< CLOSE TRANSACTION setSecureLocked");
         }
-    }
-
-    void getContainerRect(Rect rect) {
-        mAnimator.getContainerRect(rect);
     }
 
     boolean showRobustlyInTransaction() {
@@ -446,7 +408,7 @@ class WindowSurfaceController {
 
     private boolean showSurface() {
         try {
-            setShown(true);
+            mSurfaceShown = true;
             mSurfaceControl.show();
             return true;
         } catch (RuntimeException e) {
@@ -496,6 +458,10 @@ class WindowSurfaceController {
         return mSurfaceControl.getHandle();
     }
 
+    boolean getTransformToDisplayInverse() {
+        return mSurfaceControl.getTransformToDisplayInverse();
+    }
+
     void getSurface(Surface outSurface) {
         outSurface.copyFrom(mSurfaceControl);
     }
@@ -510,12 +476,6 @@ class WindowSurfaceController {
 
     void setShown(boolean surfaceShown) {
         mSurfaceShown = surfaceShown;
-
-        mService.updateNonSystemOverlayWindowsVisibilityIfNeeded(mAnimator.mWin, surfaceShown);
-
-        if (mWindowSession != null) {
-            mWindowSession.onWindowSurfaceVisibilityChanged(this, mSurfaceShown, mWindowType);
-        }
     }
 
     float getX() {
@@ -545,10 +505,7 @@ class WindowSurfaceController {
         pw.print(" rect=("); pw.print(mSurfaceX);
         pw.print(","); pw.print(mSurfaceY);
         pw.print(") "); pw.print(mSurfaceW);
-        pw.print(" x "); pw.print(mSurfaceH);
-        pw.print(" transform=("); pw.print(mLastDsdx); pw.print(", ");
-        pw.print(mLastDtdx); pw.print(", "); pw.print(mLastDsdy);
-        pw.print(", "); pw.print(mLastDtdy); pw.println(")");
+        pw.print(" x "); pw.println(mSurfaceH);
     }
 
     @Override
@@ -573,21 +530,9 @@ class WindowSurfaceController {
         private float mDsdx, mDtdx, mDsdy, mDtdy;
         private final String mName;
 
-        public SurfaceTrace(SurfaceSession s, String name, int w, int h, int format, int flags,
-                        int windowType, int ownerUid)
-                    throws OutOfResourcesException {
-            super(s, name, w, h, format, flags, windowType, ownerUid);
-            mName = name != null ? name : "Not named";
-            mSize.set(w, h);
-            if (LOG_SURFACE_TRACE) Slog.v(SURFACE_TAG, "ctor: " + this + ". Called by "
-                    + Debug.getCallers(3));
-            synchronized (sSurfaces) {
-                sSurfaces.add(0, this);
-            }
-        }
-
         public SurfaceTrace(SurfaceSession s,
-                        String name, int w, int h, int format, int flags) {
+                       String name, int w, int h, int format, int flags)
+                   throws OutOfResourcesException {
             super(s, name, w, h, format, flags);
             mName = name != null ? name : "Not named";
             mSize.set(w, h);
@@ -811,6 +756,144 @@ class WindowSurfaceController {
                     + " crop=" + mWindowCrop.toShortString()
                     + " opaque=" + mIsOpaque
                     + " (" + mDsdx + "," + mDtdx + "," + mDsdy + "," + mDtdy + ")";
+        }
+    }
+
+    class SurfaceControlWithBackground extends SurfaceControl {
+        private SurfaceControl mBackgroundControl;
+        private boolean mOpaque = true;
+        private boolean mAppForcedInvisible = false;
+        private AppWindowToken mAppToken;
+        public boolean mVisible = false;
+        public int mLayer = -1;
+
+        public SurfaceControlWithBackground(SurfaceSession s,
+                        String name, int w, int h, int format, int flags,
+                        AppWindowToken token)
+                   throws OutOfResourcesException {
+            super(s, name, w, h, format, flags);
+            mBackgroundControl = new SurfaceControl(s, name, w, h,
+                    PixelFormat.OPAQUE, flags | SurfaceControl.FX_SURFACE_DIM);
+            mOpaque = (flags & SurfaceControl.OPAQUE) != 0;
+            mAppToken = token;
+
+            mAppToken.addSurfaceViewBackground(this);
+        }
+
+        @Override
+        public void setAlpha(float alpha) {
+            super.setAlpha(alpha);
+            mBackgroundControl.setAlpha(alpha);
+        }
+
+        @Override
+        public void setLayer(int zorder) {
+            super.setLayer(zorder);
+            mBackgroundControl.setLayer(zorder - 1);
+            if (mLayer != zorder) {
+                mLayer = zorder;
+                mAppToken.updateSurfaceViewBackgroundVisibilities();
+            }
+        }
+
+        @Override
+        public void setPosition(float x, float y) {
+            super.setPosition(x, y);
+            mBackgroundControl.setPosition(x, y);
+        }
+
+        @Override
+        public void setSize(int w, int h) {
+            super.setSize(w, h);
+            mBackgroundControl.setSize(w, h);
+        }
+
+        @Override
+        public void setWindowCrop(Rect crop) {
+            super.setWindowCrop(crop);
+            mBackgroundControl.setWindowCrop(crop);
+        }
+
+        @Override
+        public void setFinalCrop(Rect crop) {
+            super.setFinalCrop(crop);
+            mBackgroundControl.setFinalCrop(crop);
+        }
+
+        @Override
+        public void setLayerStack(int layerStack) {
+            super.setLayerStack(layerStack);
+            mBackgroundControl.setLayerStack(layerStack);
+        }
+
+        @Override
+        public void setOpaque(boolean isOpaque) {
+            super.setOpaque(isOpaque);
+            mOpaque = isOpaque;
+            updateBackgroundVisibility(mAppForcedInvisible);
+        }
+
+        @Override
+        public void setSecure(boolean isSecure) {
+            super.setSecure(isSecure);
+        }
+
+        @Override
+        public void setMatrix(float dsdx, float dtdx, float dsdy, float dtdy) {
+            super.setMatrix(dsdx, dtdx, dsdy, dtdy);
+            mBackgroundControl.setMatrix(dsdx, dtdx, dsdy, dtdy);
+        }
+
+        @Override
+        public void hide() {
+            super.hide();
+            if (mVisible) {
+                mVisible = false;
+                mAppToken.updateSurfaceViewBackgroundVisibilities();
+            }
+        }
+
+        @Override
+        public void show() {
+            super.show();
+            if (!mVisible) {
+                mVisible = true;
+                mAppToken.updateSurfaceViewBackgroundVisibilities();
+            }
+        }
+
+        @Override
+        public void destroy() {
+            super.destroy();
+            mBackgroundControl.destroy();
+            mAppToken.removeSurfaceViewBackground(this);
+         }
+
+        @Override
+        public void release() {
+            super.release();
+            mBackgroundControl.release();
+        }
+
+        @Override
+        public void setTransparentRegionHint(Region region) {
+            super.setTransparentRegionHint(region);
+            mBackgroundControl.setTransparentRegionHint(region);
+        }
+
+        @Override
+        public void deferTransactionUntil(IBinder handle, long frame) {
+            super.deferTransactionUntil(handle, frame);
+            mBackgroundControl.deferTransactionUntil(handle, frame);
+        }
+
+        void updateBackgroundVisibility(boolean forcedInvisible) {
+            mAppForcedInvisible = forcedInvisible;
+            if (mOpaque && mVisible && !mAppForcedInvisible) {
+                mBackgroundControl.show();
+            } else {
+                mBackgroundControl.hide();
+            }
         }
     }
 }

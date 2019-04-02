@@ -16,7 +16,7 @@
 
 package com.android.keyguard;
 
-import android.app.ActivityManager;
+import android.app.ActivityManagerNative;
 import android.app.ActivityOptions;
 import android.content.Context;
 import android.content.Intent;
@@ -34,10 +34,10 @@ import android.view.ViewConfiguration;
 import android.widget.Button;
 
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.internal.logging.MetricsProto.MetricsEvent;
 import com.android.internal.telephony.IccCardConstants.State;
 import com.android.internal.widget.LockPatternUtils;
-import com.android.internal.util.EmergencyAffordanceManager;
+import com.android.internal.policy.EmergencyAffordanceManager;
 
 /**
  * This class implements a smart emergency button that updates itself based
@@ -171,7 +171,7 @@ public class EmergencyButton extends Button {
         // should be the equivalent to the old userActivity(EMERGENCY_CALL_TIMEOUT)
         mPowerManager.userActivity(SystemClock.uptimeMillis(), true);
         try {
-            ActivityManager.getService().stopSystemLockTaskMode();
+            ActivityManagerNative.getDefault().stopSystemLockTaskMode();
         } catch (RemoteException e) {
             Slog.w(LOG_TAG, "Failed to stop app pinning");
         }

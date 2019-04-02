@@ -88,7 +88,7 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
                         // the user proved presence via some other way to the trust agent.
                         Log.i(TAG, "TrustAgent dismissed Keyguard.");
                     }
-                    dismiss(false /* authenticated */, userId);
+                    dismiss(false /* authenticated */);
                 } else {
                     mViewMediatorCallback.playTrustedSound();
                 }
@@ -143,7 +143,7 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
     @Override
     protected void onFinishInflate() {
         mSecurityContainer =
-                findViewById(R.id.keyguard_security_container);
+                (KeyguardSecurityContainer) findViewById(R.id.keyguard_security_container);
         mLockPatternUtils = new LockPatternUtils(mContext);
         mSecurityContainer.setLockPatternUtils(mLockPatternUtils);
         mSecurityContainer.setSecurityCallback(this);
@@ -176,17 +176,17 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
     }
 
     /**
-     * Dismisses the keyguard by going to the next screen or making it gone.
-     * @param targetUserId a user that needs to be the foreground user at the dismissal completion.
-     * @return True if the keyguard is done.
+     *  Dismisses the keyguard by going to the next screen or making it gone.
+     *
+     *  @return True if the keyguard is done.
      */
-    public boolean dismiss(int targetUserId) {
-        return dismiss(false, targetUserId);
+    public boolean dismiss() {
+        return dismiss(false);
     }
 
     public boolean handleBackKey() {
         if (mSecurityContainer.getCurrentSecuritySelection() != SecurityMode.None) {
-            mSecurityContainer.dismiss(false, KeyguardUpdateMonitor.getCurrentUser());
+            mSecurityContainer.dismiss(false);
             return true;
         }
         return false;
@@ -207,8 +207,8 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
     }
 
     @Override
-    public boolean dismiss(boolean authenticated, int targetUserId) {
-        return mSecurityContainer.showNextSecurityScreenOrFinish(authenticated, targetUserId);
+    public boolean dismiss(boolean authenticated) {
+        return mSecurityContainer.showNextSecurityScreenOrFinish(authenticated);
     }
 
     /**
@@ -217,10 +217,9 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
      *
      * @param strongAuth whether the user has authenticated with strong authentication like
      *                   pattern, password or PIN but not by trust agents or fingerprint
-     * @param targetUserId a user that needs to be the foreground user at the dismissal completion.
      */
     @Override
-    public void finish(boolean strongAuth, int targetUserId) {
+    public void finish(boolean strongAuth) {
         // If there's a pending runnable because the user interacted with a widget
         // and we're leaving keyguard, then run it.
         boolean deferKeyguardDone = false;
@@ -231,9 +230,9 @@ public class KeyguardHostView extends FrameLayout implements SecurityCallback {
         }
         if (mViewMediatorCallback != null) {
             if (deferKeyguardDone) {
-                mViewMediatorCallback.keyguardDonePending(strongAuth, targetUserId);
+                mViewMediatorCallback.keyguardDonePending(strongAuth);
             } else {
-                mViewMediatorCallback.keyguardDone(strongAuth, targetUserId);
+                mViewMediatorCallback.keyguardDone(strongAuth);
             }
         }
     }

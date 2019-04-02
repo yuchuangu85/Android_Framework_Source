@@ -16,15 +16,12 @@
 
 package android.support.v4.app;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.app.Activity;
-import android.arch.lifecycle.Lifecycle;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.content.res.Configuration;
-import android.os.Build;
+import android.content.res.Resources;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -33,6 +30,7 @@ import android.support.annotation.CallSuper;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.RestrictTo;
+import android.support.v4.media.session.MediaControllerCompat;
 import android.support.v4.util.SimpleArrayMap;
 import android.support.v4.util.SparseArrayCompat;
 import android.util.AttributeSet;
@@ -41,11 +39,13 @@ import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.util.Collection;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Base class for activities that want to use the support-based
@@ -62,11 +62,21 @@ import java.util.Collection;
  * <li> <p>When using the <code>&lt;fragment></code> tag, this implementation can not
  * use the parent view's ID as the new fragment's ID.  You must explicitly
  * specify an ID (or tag) in the <code>&lt;fragment></code>.</p>
+ * <li> <p>Prior to Honeycomb (3.0), an activity's state was saved before pausing.
+ * Fragments are a significant amount of new state, and dynamic enough that one
+ * often wants them to change between pausing and stopping.  These classes
+ * throw an exception if you try to change the fragment state after it has been
+ * saved, to avoid accidental loss of UI state.  However this is too restrictive
+ * prior to Honeycomb, where the state is saved before pausing.  To address this,
+ * when running on platforms prior to Honeycomb an exception will not be thrown
+ * if you change fragments between the state save and the activity being stopped.
+ * This means that in some cases if the activity is restored from its last saved
+ * state, this may be a snapshot slightly before what the user last saw.</p>
  * </ul>
  */
-public class FragmentActivity extends BaseFragmentActivityApi16 implements
+public class FragmentActivity extends BaseFragmentActivityJB implements
         ActivityCompat.OnRequestPermissionsResultCallback,
-        ActivityCompat.RequestPermissionsRequestCodeValidator {
+        ActivityCompatApi23.RequestPermissionsRequestCodeValidator {
     private static final String TAG = "FragmentActivity";
 
     static final String FRAGMENTS_TAG = "android:support:fragments";
@@ -74,6 +84,9 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
     static final String ALLOCATED_REQUEST_INDICIES_TAG = "android:support:request_indicies";
     static final String REQUEST_FRAGMENT_WHO_TAG = "android:support:request_fragment_who";
     static final int MAX_NUM_PENDING_FRAGMENT_ACTIVITY_RESULTS = 0xffff - 1;
+
+    // This is the SDK API version of Honeycomb (3.0).
+    private static final int HONEYCOMB = 11;
 
     static final int MSG_REALLY_STOPPED = 1;
     static final int MSG_RESUME_PENDING = 2;
@@ -101,10 +114,11 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
 
     boolean mCreated;
     boolean mResumed;
-    boolean mStopped = true;
-    boolean mReallyStopped = true;
+    boolean mStopped;
+    boolean mReallyStopped;
     boolean mRetaining;
 
+    boolean mOptionsMenuInvalidated;
     boolean mRequestedPermissionsFromFragment;
 
     // A hint for the next candidate request index. Request indicies are ints between 0 and 2^16-1
@@ -123,6 +137,8 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
         FragmentManagerNonConfig fragments;
         SimpleArrayMap<String, LoaderManager> loaders;
     }
+
+    MediaControllerCompat mMediaController;
 
     // ------------------------------------------------------------------------
     // HOOKS INTO ACTIVITY
@@ -162,18 +178,43 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
      */
     @Override
     public void onBackPressed() {
-        FragmentManager fragmentManager = mFragments.getSupportFragmentManager();
-        final boolean isStateSaved = fragmentManager.isStateSaved();
-        if (isStateSaved && Build.VERSION.SDK_INT <= Build.VERSION_CODES.N_MR1) {
-            // Older versions will throw an exception from the framework
-            // FragmentManager.popBackStackImmediate(), so we'll just
-            // return here. The Activity is likely already on its way out
-            // since the fragmentManager has already been saved.
-            return;
-        }
-        if (isStateSaved || !fragmentManager.popBackStackImmediate()) {
+        if (!mFragments.getSupportFragmentManager().popBackStackImmediate()) {
             super.onBackPressed();
         }
+    }
+
+    /**
+     * Sets a {@link MediaControllerCompat} for later retrieval via
+     * {@link #getSupportMediaController()}.
+     *
+     * <p>On API 21 and later, this controller will be tied to the window of the activity and
+     * media key and volume events which are received while the Activity is in the foreground
+     * will be forwarded to the controller and used to invoke transport controls or adjust the
+     * volume. Prior to API 21, the global handling of media key and volume events through an
+     * active {@link android.support.v4.media.session.MediaSessionCompat} and media button receiver
+     * will still be respected.</p>
+     *
+     * @param mediaController The controller for the session which should receive
+     *     media keys and volume changes on API 21 and later.
+     * @see #getSupportMediaController()
+     * @see #setMediaController(android.media.session.MediaController)
+     */
+    final public void setSupportMediaController(MediaControllerCompat mediaController) {
+        mMediaController = mediaController;
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            ActivityCompatApi21.setMediaController(this, mediaController.getMediaController());
+        }
+    }
+
+    /**
+     * Retrieves the current {@link MediaControllerCompat} for sending media key and volume events.
+     *
+     * @return The controller which should receive events.
+     * @see #setSupportMediaController(MediaControllerCompat)
+     * @see #getMediaController()
+     */
+    final public MediaControllerCompat getSupportMediaController() {
+        return mMediaController;
     }
 
     /**
@@ -239,7 +280,6 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
      *
      * @param isInMultiWindowMode True if the activity is in multi-window mode.
      */
-    @Override
     @CallSuper
     public void onMultiWindowModeChanged(boolean isInMultiWindowMode) {
         mFragments.dispatchMultiWindowModeChanged(isInMultiWindowMode);
@@ -254,7 +294,6 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
      *
      * @param isInPictureInPictureMode True if the activity is in picture-in-picture mode.
      */
-    @Override
     @CallSuper
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode) {
         mFragments.dispatchPictureInPictureModeChanged(isInPictureInPictureMode);
@@ -267,16 +306,6 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         mFragments.dispatchConfigurationChanged(newConfig);
-    }
-
-    /**
-     * Returns the Lifecycle of the provider.
-     *
-     * @return The lifecycle of the provider.
-     */
-    @Override
-    public Lifecycle getLifecycle() {
-        return super.getLifecycle();
     }
 
     /**
@@ -332,7 +361,13 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
         if (featureId == Window.FEATURE_OPTIONS_PANEL) {
             boolean show = super.onCreatePanelMenu(featureId, menu);
             show |= mFragments.dispatchCreateOptionsMenu(menu, getMenuInflater());
-            return show;
+            if (android.os.Build.VERSION.SDK_INT >= HONEYCOMB) {
+                return show;
+            }
+            // Prior to Honeycomb, the framework can't invalidate the options
+            // menu, so we must always say we have one in case the app later
+            // invalidates it and needs to have it shown.
+            return true;
         }
         return super.onCreatePanelMenu(featureId, menu);
     }
@@ -432,7 +467,6 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
     /**
      * Hook in to note that fragment state is no longer saved.
      */
-    @Override
     public void onStateNotSaved() {
         mFragments.noteStateNotSaved();
     }
@@ -481,6 +515,11 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
     @Override
     public boolean onPreparePanel(int featureId, View view, Menu menu) {
         if (featureId == Window.FEATURE_OPTIONS_PANEL && menu != null) {
+            if (mOptionsMenuInvalidated) {
+                mOptionsMenuInvalidated = false;
+                menu.clear();
+                onCreatePanelMenu(featureId, menu);
+            }
             boolean goforit = onPrepareOptionsPanel(view, menu);
             goforit |= mFragments.dispatchPrepareOptionsMenu(menu);
             return goforit;
@@ -491,7 +530,7 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
     /**
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     protected boolean onPrepareOptionsPanel(View view, Menu menu) {
         return super.onPreparePanel(Window.FEATURE_OPTIONS_PANEL, view, menu);
     }
@@ -529,7 +568,6 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        markState(getSupportFragmentManager(), Lifecycle.State.CREATED);
         Parcelable p = mFragments.saveAllState();
         if (p != null) {
             outState.putParcelable(FRAGMENTS_TAG, p);
@@ -584,7 +622,6 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
         super.onStop();
 
         mStopped = true;
-        markState(getSupportFragmentManager(), Lifecycle.State.CREATED);
         mHandler.sendEmptyMessage(MSG_REALLY_STOPPED);
 
         mFragments.dispatchStop();
@@ -619,12 +656,18 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
      * <p>Invalidate the activity's options menu. This will cause relevant presentations
      * of the menu to fully update via calls to onCreateOptionsMenu and
      * onPrepareOptionsMenu the next time the menu is requested.
-     *
-     * @deprecated Call {@link Activity#invalidateOptionsMenu} directly.
      */
-    @Deprecated
     public void supportInvalidateOptionsMenu() {
-        invalidateOptionsMenu();
+        if (android.os.Build.VERSION.SDK_INT >= HONEYCOMB) {
+            // If we are running on HC or greater, we can use the framework
+            // API to invalidate the options menu.
+            ActivityCompatHoneycomb.invalidateOptionsMenu(this);
+            return;
+        }
+
+        // Whoops, older platform...  we'll use a hack, to manually rebuild
+        // the options menu the next time it is prepared.
+        mOptionsMenuInvalidated = true;
     }
 
     /**
@@ -637,9 +680,11 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
      * closed for you after you return.
      * @param args additional arguments to the dump request.
      */
-    @Override
     public void dump(String prefix, FileDescriptor fd, PrintWriter writer, String[] args) {
-        super.dump(prefix, fd, writer, args);
+        if (android.os.Build.VERSION.SDK_INT >= HONEYCOMB) {
+            // XXX This can only work if we can call the super-class impl. :/
+            //ActivityCompatHoneycomb.dump(this, prefix, fd, writer, args);
+        }
         writer.print(prefix); writer.print("Local FragmentActivity ");
                 writer.print(Integer.toHexString(System.identityHashCode(this)));
                 writer.println(" State:");
@@ -651,6 +696,95 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
                 writer.println(mReallyStopped);
         mFragments.dumpLoaders(innerPrefix, fd, writer, args);
         mFragments.getSupportFragmentManager().dump(prefix, fd, writer, args);
+        writer.print(prefix); writer.println("View Hierarchy:");
+        dumpViewHierarchy(prefix + "  ", writer, getWindow().getDecorView());
+    }
+
+    private static String viewToString(View view) {
+        StringBuilder out = new StringBuilder(128);
+        out.append(view.getClass().getName());
+        out.append('{');
+        out.append(Integer.toHexString(System.identityHashCode(view)));
+        out.append(' ');
+        switch (view.getVisibility()) {
+            case View.VISIBLE: out.append('V'); break;
+            case View.INVISIBLE: out.append('I'); break;
+            case View.GONE: out.append('G'); break;
+            default: out.append('.'); break;
+        }
+        out.append(view.isFocusable() ? 'F' : '.');
+        out.append(view.isEnabled() ? 'E' : '.');
+        out.append(view.willNotDraw() ? '.' : 'D');
+        out.append(view.isHorizontalScrollBarEnabled()? 'H' : '.');
+        out.append(view.isVerticalScrollBarEnabled() ? 'V' : '.');
+        out.append(view.isClickable() ? 'C' : '.');
+        out.append(view.isLongClickable() ? 'L' : '.');
+        out.append(' ');
+        out.append(view.isFocused() ? 'F' : '.');
+        out.append(view.isSelected() ? 'S' : '.');
+        out.append(view.isPressed() ? 'P' : '.');
+        out.append(' ');
+        out.append(view.getLeft());
+        out.append(',');
+        out.append(view.getTop());
+        out.append('-');
+        out.append(view.getRight());
+        out.append(',');
+        out.append(view.getBottom());
+        final int id = view.getId();
+        if (id != View.NO_ID) {
+            out.append(" #");
+            out.append(Integer.toHexString(id));
+            final Resources r = view.getResources();
+            if (id != 0 && r != null) {
+                try {
+                    String pkgname;
+                    switch (id&0xff000000) {
+                        case 0x7f000000:
+                            pkgname="app";
+                            break;
+                        case 0x01000000:
+                            pkgname="android";
+                            break;
+                        default:
+                            pkgname = r.getResourcePackageName(id);
+                            break;
+                    }
+                    String typename = r.getResourceTypeName(id);
+                    String entryname = r.getResourceEntryName(id);
+                    out.append(" ");
+                    out.append(pkgname);
+                    out.append(":");
+                    out.append(typename);
+                    out.append("/");
+                    out.append(entryname);
+                } catch (Resources.NotFoundException e) {
+                }
+            }
+        }
+        out.append("}");
+        return out.toString();
+    }
+
+    private void dumpViewHierarchy(String prefix, PrintWriter writer, View view) {
+        writer.print(prefix);
+        if (view == null) {
+            writer.println("null");
+            return;
+        }
+        writer.println(viewToString(view));
+        if (!(view instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup grp = (ViewGroup)view;
+        final int N = grp.getChildCount();
+        if (N <= 0) {
+            return;
+        }
+        prefix = prefix + "  ";
+        for (int i=0; i<N; i++) {
+            dumpViewHierarchy(prefix, writer, grp.getChildAt(i));
+        }
     }
 
     void doReallyStop(boolean retaining) {
@@ -959,17 +1093,6 @@ public class FragmentActivity extends BaseFragmentActivityApi16 implements
         public boolean onHasView() {
             final Window w = getWindow();
             return (w != null && w.peekDecorView() != null);
-        }
-    }
-
-    private static void markState(FragmentManager manager, Lifecycle.State state) {
-        Collection<Fragment> fragments = manager.getFragments();
-        for (Fragment fragment : fragments) {
-            if (fragment == null) {
-                continue;
-            }
-            fragment.mLifecycleRegistry.markState(state);
-            markState(fragment.getChildFragmentManager(), state);
         }
     }
 }

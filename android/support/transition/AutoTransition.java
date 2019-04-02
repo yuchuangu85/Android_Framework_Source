@@ -16,16 +16,11 @@
 
 package android.support.transition;
 
-import android.content.Context;
-import android.util.AttributeSet;
-
 /**
  * Utility class for creating a default transition that automatically fades,
  * moves, and resizes views during a scene change.
  *
- * <p>An AutoTransition can be described in a resource file by using the
- * tag <code>autoTransition</code>, along with the other standard
- * attributes of {@link Transition}.</p>
+ * <p>Unlike the platform version, this does not support use in XML resources.</p>
  */
 public class AutoTransition extends TransitionSet {
 
@@ -35,15 +30,6 @@ public class AutoTransition extends TransitionSet {
      * targets, and finally fades in appearing targets.
      */
     public AutoTransition() {
-        init();
-    }
-
-    public AutoTransition(Context context, AttributeSet attrs) {
-        super(context, attrs);
-        init();
-    }
-
-    private void init() {
         setOrdering(ORDERING_SEQUENTIAL);
         addTransition(new Fade(Fade.OUT)).
                 addTransition(new ChangeBounds()).

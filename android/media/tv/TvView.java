@@ -22,11 +22,9 @@ import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.graphics.Canvas;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
-import android.graphics.RectF;
 import android.graphics.Region;
 import android.media.PlaybackParams;
 import android.media.tv.TvInputManager.Session;
@@ -200,7 +198,6 @@ public class TvView extends ViewGroup {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.CHANGE_HDMI_CEC_ACTIVE_SOURCE)
     public void setMain() {
         synchronized (sMainTvViewLock) {
             sMainTvView = new WeakReference<>(this);
@@ -681,8 +678,7 @@ public class TvView extends ViewGroup {
         // Other app may have shown its own main TvView.
         // Set main again to regain main session.
         synchronized (sMainTvViewLock) {
-            if (hasFocus && this == sMainTvView.get() && mSession != null
-                    && checkChangeHdmiCecActiveSourcePermission()) {
+            if (hasFocus && this == sMainTvView.get() && mSession != null) {
                 mSession.setMain();
             }
         }
@@ -780,8 +776,8 @@ public class TvView extends ViewGroup {
         mSurface = null;
         mSurfaceView = new SurfaceView(getContext(), mAttrs, mDefStyleAttr) {
             @Override
-            protected void updateSurface() {
-                super.updateSurface();
+            protected void updateWindow(boolean force, boolean redrawNeeded) {
+                super.updateWindow(force, redrawNeeded);
                 relayoutSessionOverlayView();
             }};
         // The surface view's content should be treated as secure all the time.
@@ -842,18 +838,10 @@ public class TvView extends ViewGroup {
     }
 
     private Rect getViewFrameOnScreen() {
-        Rect frame = new Rect();
-        getGlobalVisibleRect(frame);
-        RectF frameF = new RectF(frame);
-        getMatrix().mapRect(frameF);
-        frameF.round(frame);
-        return frame;
-    }
-
-    private boolean checkChangeHdmiCecActiveSourcePermission() {
-        return getContext().checkSelfPermission(
-                android.Manifest.permission.CHANGE_HDMI_CEC_ACTIVE_SOURCE)
-                        == PackageManager.PERMISSION_GRANTED;
+        int[] location = new int[2];
+        getLocationOnScreen(location);
+        return new Rect(location[0], location[1],
+                location[0] + getWidth(), location[1] + getHeight());
     }
 
     /**
@@ -1088,8 +1076,7 @@ public class TvView extends ViewGroup {
                 mPendingAppPrivateCommands.clear();
 
                 synchronized (sMainTvViewLock) {
-                    if (hasWindowFocus() && TvView.this == sMainTvView.get()
-                            && checkChangeHdmiCecActiveSourcePermission()) {
+                    if (hasWindowFocus() && TvView.this == sMainTvView.get()) {
                         mSession.setMain();
                     }
                 }

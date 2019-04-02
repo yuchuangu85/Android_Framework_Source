@@ -26,7 +26,8 @@ import android.widget.ListView;
 import android.widget.HeaderViewListAdapter;
 
 import java.util.ArrayList;
-import java.util.function.Predicate;
+
+import com.android.internal.util.Predicate;
 
 public class WatchHeaderListView extends ListView {
     private View mTopPanel;
@@ -91,20 +92,18 @@ public class WatchHeaderListView extends ListView {
     }
 
     @Override
-    protected <T extends View> T findViewByPredicateTraversal(
-            Predicate<View> predicate, View childToSkip) {
+    protected View findViewByPredicateTraversal(Predicate<View> predicate, View childToSkip) {
         View v = super.findViewByPredicateTraversal(predicate, childToSkip);
         if (v == null && mTopPanel != null && mTopPanel != childToSkip
                 && !mTopPanel.isRootNamespace()) {
-            return (T) mTopPanel.findViewByPredicate(predicate);
+            return mTopPanel.findViewByPredicate(predicate);
         }
-        return (T) v;
+        return v;
     }
 
     @Override
     public int getHeaderViewsCount() {
-        return mTopPanel == null ? super.getHeaderViewsCount()
-                : super.getHeaderViewsCount() + (mTopPanel.getVisibility() == GONE ? 0 : 1);
+        return mTopPanel == null ? super.getHeaderViewsCount() : super.getHeaderViewsCount() + 1;
     }
 
     private void wrapAdapterIfNecessary() {
@@ -134,7 +133,7 @@ public class WatchHeaderListView extends ListView {
         }
 
         private int getTopPanelCount() {
-            return (mTopPanel == null || mTopPanel.getVisibility() == GONE) ? 0 : 1;
+            return mTopPanel == null ? 0 : 1;
         }
 
         @Override
@@ -144,19 +143,33 @@ public class WatchHeaderListView extends ListView {
 
         @Override
         public boolean areAllItemsEnabled() {
-            return getTopPanelCount() == 0 && super.areAllItemsEnabled();
+            return mTopPanel == null && super.areAllItemsEnabled();
         }
 
         @Override
         public boolean isEnabled(int position) {
-            int topPanelCount = getTopPanelCount();
-            return position < topPanelCount ? false : super.isEnabled(position - topPanelCount);
+            if (mTopPanel != null) {
+                if (position == 0) {
+                    return false;
+                } else {
+                    return super.isEnabled(position - 1);
+                }
+            }
+
+            return super.isEnabled(position);
         }
 
         @Override
         public Object getItem(int position) {
-            int topPanelCount = getTopPanelCount();
-            return position < topPanelCount ? null : super.getItem(position - topPanelCount);
+            if (mTopPanel != null) {
+                if (position == 0) {
+                    return null;
+                } else {
+                    return super.getItem(position - 1);
+                }
+            }
+
+            return super.getItem(position);
         }
 
         @Override
@@ -174,9 +187,15 @@ public class WatchHeaderListView extends ListView {
 
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
-            int topPanelCount = getTopPanelCount();
-            return position < topPanelCount
-                    ? mTopPanel : super.getView(position - topPanelCount, convertView, parent);
+            if (mTopPanel != null) {
+                if (position == 0) {
+                    return mTopPanel;
+                } else {
+                    return super.getView(position - 1, convertView, parent);
+                }
+            }
+
+            return super.getView(position, convertView, parent);
         }
 
         @Override

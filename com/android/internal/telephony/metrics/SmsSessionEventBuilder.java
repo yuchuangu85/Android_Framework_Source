@@ -16,12 +16,12 @@
 
 package com.android.internal.telephony.metrics;
 
-import com.android.internal.telephony.nano.TelephonyProto.ImsCapabilities;
-import com.android.internal.telephony.nano.TelephonyProto.ImsConnectionState;
-import com.android.internal.telephony.nano.TelephonyProto.RilDataCall;
-import com.android.internal.telephony.nano.TelephonyProto.SmsSession;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyServiceState;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonySettings;
+import com.android.internal.telephony.TelephonyProto.ImsCapabilities;
+import com.android.internal.telephony.TelephonyProto.ImsConnectionState;
+import com.android.internal.telephony.TelephonyProto.RilDataCall;
+import com.android.internal.telephony.TelephonyProto.SmsSession;
+import com.android.internal.telephony.TelephonyProto.TelephonyServiceState;
+import com.android.internal.telephony.TelephonyProto.TelephonySettings;
 
 public class SmsSessionEventBuilder {
     SmsSession.Event mEvent = new SmsSession.Event();
@@ -31,26 +31,26 @@ public class SmsSessionEventBuilder {
     }
 
     public SmsSessionEventBuilder(int type) {
-        mEvent.type = type;
+        mEvent.setType(type);
     }
 
     public SmsSessionEventBuilder setDelay(int delay) {
-        mEvent.delay = delay;
+        mEvent.setDelay(delay);
         return this;
     }
 
     public SmsSessionEventBuilder setTech(int tech) {
-        mEvent.tech = tech;
+        mEvent.setTech(tech);
         return this;
     }
 
     public SmsSessionEventBuilder setErrorCode(int code) {
-        mEvent.errorCode = code;
+        mEvent.setErrorCode(code);
         return this;
     }
 
     public SmsSessionEventBuilder setRilErrno(int errno) {
-        mEvent.error = errno;
+        mEvent.setError(errno);
         return this;
     }
 
@@ -80,12 +80,12 @@ public class SmsSessionEventBuilder {
     }
 
     public SmsSessionEventBuilder setRilRequestId(int id) {
-        mEvent.rilRequestId = id;
+        mEvent.setRilRequestId(id);
         return this;
     }
 
     public SmsSessionEventBuilder setFormat(int format) {
-        mEvent.format = format;
+        mEvent.setFormat(format);
         return this;
     }
 }

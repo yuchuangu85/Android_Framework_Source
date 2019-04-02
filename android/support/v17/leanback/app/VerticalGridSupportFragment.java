@@ -1,3 +1,5 @@
+/* This file is auto-generated from VerticalGridFragment.java.  DO NOT MODIFY. */
+
 /*
  * Copyright (C) 2014 The Android Open Source Project
  *
@@ -13,12 +15,9 @@
  */
 package android.support.v17.leanback.app;
 
-import android.os.Bundle;
 import android.support.v17.leanback.R;
 import android.support.v17.leanback.transition.TransitionHelper;
-import android.support.v17.leanback.util.StateMachine.State;
 import android.support.v17.leanback.widget.BrowseFrameLayout;
-import android.support.v17.leanback.widget.ObjectAdapter;
 import android.support.v17.leanback.widget.OnChildLaidOutListener;
 import android.support.v17.leanback.widget.OnItemViewClickedListener;
 import android.support.v17.leanback.widget.OnItemViewSelectedListener;
@@ -26,6 +25,8 @@ import android.support.v17.leanback.widget.Presenter;
 import android.support.v17.leanback.widget.Row;
 import android.support.v17.leanback.widget.RowPresenter;
 import android.support.v17.leanback.widget.VerticalGridPresenter;
+import android.support.v17.leanback.widget.ObjectAdapter;
+import android.os.Bundle;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -38,7 +39,7 @@ import android.view.ViewGroup;
  * an {@link ObjectAdapter}.
  */
 public class VerticalGridSupportFragment extends BaseSupportFragment {
-    static final String TAG = "VerticalGF";
+    static final String TAG = "VerticalGridSupportFragment";
     static boolean DEBUG = false;
 
     private ObjectAdapter mAdapter;
@@ -48,29 +49,6 @@ public class VerticalGridSupportFragment extends BaseSupportFragment {
     private OnItemViewClickedListener mOnItemViewClickedListener;
     private Object mSceneAfterEntranceTransition;
     private int mSelectedPosition = -1;
-
-    /**
-     * State to setEntranceTransitionState(false)
-     */
-    final State STATE_SET_ENTRANCE_START_STATE = new State("SET_ENTRANCE_START_STATE") {
-        @Override
-        public void run() {
-            setEntranceTransitionState(false);
-        }
-    };
-
-    @Override
-    void createStateMachineStates() {
-        super.createStateMachineStates();
-        mStateMachine.addState(STATE_SET_ENTRANCE_START_STATE);
-    }
-
-    @Override
-    void createStateMachineTransitions() {
-        super.createStateMachineTransitions();
-        mStateMachine.addTransition(STATE_ENTRANCE_ON_PREPARED,
-                STATE_SET_ENTRANCE_START_STATE, EVT_ON_CREATEVIEW);
-    }
 
     /**
      * Sets the grid presenter.
@@ -184,8 +162,13 @@ public class VerticalGridSupportFragment extends BaseSupportFragment {
         ViewGroup gridFrame = (ViewGroup) root.findViewById(R.id.grid_frame);
         installTitleView(inflater, gridFrame, savedInstanceState);
         getProgressBarManager().setRootView(root);
+        return root;
+    }
 
-        ViewGroup gridDock = (ViewGroup) root.findViewById(R.id.browse_grid_dock);
+    @Override
+    public void onViewCreated(View view, Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        ViewGroup gridDock = (ViewGroup) view.findViewById(R.id.browse_grid_dock);
         mGridViewHolder = mGridPresenter.onCreateViewHolder(gridDock);
         gridDock.addView(mGridViewHolder.view);
         mGridViewHolder.getGridView().setOnChildLaidOutListener(mChildLaidOutListener);
@@ -198,7 +181,6 @@ public class VerticalGridSupportFragment extends BaseSupportFragment {
         });
 
         updateAdapter();
-        return root;
     }
 
     private void setupFocusSearchListener() {
@@ -211,6 +193,9 @@ public class VerticalGridSupportFragment extends BaseSupportFragment {
     public void onStart() {
         super.onStart();
         setupFocusSearchListener();
+        if (isEntranceTransitionEnabled()) {
+            setEntranceTransitionState(false);
+        }
     }
 
     @Override
@@ -240,7 +225,7 @@ public class VerticalGridSupportFragment extends BaseSupportFragment {
 
     @Override
     protected Object createEntranceTransition() {
-        return TransitionHelper.loadTransition(getContext(),
+        return TransitionHelper.loadTransition(getActivity(),
                 R.transition.lb_vertical_grid_entrance_transition);
     }
 

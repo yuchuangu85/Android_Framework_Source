@@ -204,17 +204,6 @@ public final class ContentValues implements Parcelable {
     }
 
     /**
-     * Indicates whether this collection is empty.
-     *
-     * @return true iff size == 0
-     * {@hide}
-     * TODO: consider exposing this new method publicly
-     */
-    public boolean isEmpty() {
-        return mValues.isEmpty();
-    }
-
-    /**
      * Remove a single value.
      *
      * @param key the name of the value to remove
@@ -425,11 +414,7 @@ public final class ContentValues implements Parcelable {
             return (Boolean) value;
         } catch (ClassCastException e) {
             if (value instanceof CharSequence) {
-                // Note that we also check against 1 here because SQLite's internal representation
-                // for booleans is an integer with a value of 0 or 1. Without this check, boolean
-                // values obtained via DatabaseUtils#cursorRowToContentValues will always return
-                // false.
-                return Boolean.valueOf(value.toString()) || "1".equals(value);
+                return Boolean.valueOf(value.toString());
             } else if (value instanceof Number) {
                 return ((Number) value).intValue() != 0;
             } else {

@@ -23,21 +23,26 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.support.annotation.NonNull;
-import android.support.annotation.RequiresApi;
+import android.support.v4.os.BuildCompat;
 
 import java.util.Arrays;
 
 /**
- * Helper for accessing features in {@link Fragment} in a backwards compatible fashion.
+ * Helper for accessing features in {@link Fragment} introduced after
+ * API level 13 in a backwards compatible fashion.
  */
 public class FragmentCompat {
     interface FragmentCompatImpl {
+        void setMenuVisibility(Fragment f, boolean visible);
         void setUserVisibleHint(Fragment f, boolean deferStart);
         void requestPermissions(Fragment fragment, String[] permissions, int requestCode);
         boolean shouldShowRequestPermissionRationale(Fragment fragment, String permission);
     }
 
-    static class FragmentCompatBaseImpl implements FragmentCompatImpl {
+    static class BaseFragmentCompatImpl implements FragmentCompatImpl {
+        @Override
+        public void setMenuVisibility(Fragment f, boolean visible) {
+        }
         @Override
         public void setUserVisibleHint(Fragment f, boolean deferStart) {
         }
@@ -75,45 +80,51 @@ public class FragmentCompat {
         }
     }
 
-    @RequiresApi(15)
-    static class FragmentCompatApi15Impl extends FragmentCompatBaseImpl {
+    static class ICSFragmentCompatImpl extends BaseFragmentCompatImpl {
         @Override
-        public void setUserVisibleHint(Fragment f, boolean deferStart) {
-            f.setUserVisibleHint(deferStart);
+        public void setMenuVisibility(Fragment f, boolean visible) {
+            FragmentCompatICS.setMenuVisibility(f, visible);
         }
     }
 
-    @RequiresApi(23)
-    static class FragmentCompatApi23Impl extends FragmentCompatApi15Impl {
+    static class ICSMR1FragmentCompatImpl extends ICSFragmentCompatImpl {
+        @Override
+        public void setUserVisibleHint(Fragment f, boolean deferStart) {
+            FragmentCompatICSMR1.setUserVisibleHint(f, deferStart);
+        }
+    }
+
+    static class MncFragmentCompatImpl extends ICSMR1FragmentCompatImpl {
         @Override
         public void requestPermissions(Fragment fragment, String[] permissions, int requestCode) {
-            fragment.requestPermissions(permissions, requestCode);
+            FragmentCompat23.requestPermissions(fragment, permissions, requestCode);
         }
 
         @Override
         public boolean shouldShowRequestPermissionRationale(Fragment fragment, String permission) {
-            return fragment.shouldShowRequestPermissionRationale(permission);
+            return FragmentCompat23.shouldShowRequestPermissionRationale(fragment, permission);
         }
     }
 
-    @RequiresApi(24)
-    static class FragmentCompatApi24Impl extends FragmentCompatApi23Impl {
+    static class NFragmentCompatImpl extends MncFragmentCompatImpl {
         @Override
         public void setUserVisibleHint(Fragment f, boolean deferStart) {
-            f.setUserVisibleHint(deferStart);
+            FragmentCompatApi24.setUserVisibleHint(f, deferStart);
         }
     }
 
     static final FragmentCompatImpl IMPL;
     static {
-        if (Build.VERSION.SDK_INT >= 24) {
-            IMPL = new FragmentCompatApi24Impl();
+        if (BuildCompat.isAtLeastN()) {
+            IMPL = new NFragmentCompatImpl();
         } else if (Build.VERSION.SDK_INT >= 23) {
-            IMPL = new FragmentCompatApi23Impl();
+            IMPL = new MncFragmentCompatImpl();
         } else if (android.os.Build.VERSION.SDK_INT >= 15) {
-            IMPL = new FragmentCompatApi15Impl();
+            IMPL = new ICSMR1FragmentCompatImpl();
+        } else if (android.os.Build.VERSION.SDK_INT >= 14) {
+            IMPL = new ICSFragmentCompatImpl();
         } else {
-            IMPL = new FragmentCompatBaseImpl();
+            IMPL = new BaseFragmentCompatImpl();
         }
     }
 
@@ -143,12 +154,9 @@ public class FragmentCompat {
     /**
      * Call {@link Fragment#setMenuVisibility(boolean) Fragment.setMenuVisibility(boolean)}
      * if running on an appropriate version of the platform.
-     *
-     * @deprecated Use {@link Fragment#setMenuVisibility(boolean)} directly.
      */
-    @Deprecated
     public static void setMenuVisibility(Fragment f, boolean visible) {
-        f.setMenuVisibility(visible);
+        IMPL.setMenuVisibility(f, visible);
     }
 
     /**

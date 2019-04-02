@@ -28,6 +28,7 @@ import android.support.v4.graphics.drawable.DrawableCompat;
 import android.support.v4.view.ActionProvider;
 import android.support.v4.view.GravityCompat;
 import android.support.v7.appcompat.R;
+import android.support.v7.transition.ActionBarTransition;
 import android.support.v7.view.ActionBarPolicy;
 import android.support.v7.view.menu.ActionMenuItemView;
 import android.support.v7.view.menu.BaseMenuPresenter;
@@ -226,6 +227,10 @@ class ActionMenuPresenter extends BaseMenuPresenter
 
     @Override
     public void updateMenuView(boolean cleared) {
+        final ViewGroup menuViewParent = (ViewGroup) ((View) mMenuView).getParent();
+        if (menuViewParent != null) {
+            ActionBarTransition.beginDelayedTransition(menuViewParent);
+        }
         super.updateMenuView(cleared);
 
         ((View) mMenuView).requestLayout();
@@ -279,7 +284,6 @@ class ActionMenuPresenter extends BaseMenuPresenter
         return super.filterLeftoverView(parent, childIndex);
     }
 
-    @Override
     public boolean onSubMenuSelected(SubMenuBuilder subMenu) {
         if (!subMenu.hasVisibleItems()) return false;
 
@@ -413,7 +417,6 @@ class ActionMenuPresenter extends BaseMenuPresenter
         return mReserveOverflow;
     }
 
-    @Override
     public boolean flagActionItems() {
         final ArrayList<MenuItemImpl> visibleItems;
         final int itemsSize;
@@ -622,12 +625,10 @@ class ActionMenuPresenter extends BaseMenuPresenter
 
         public static final Parcelable.Creator<SavedState> CREATOR
                 = new Parcelable.Creator<SavedState>() {
-            @Override
             public SavedState createFromParcel(Parcel in) {
                 return new SavedState(in);
             }
 
-            @Override
             public SavedState[] newArray(int size) {
                 return new SavedState[size];
             }
@@ -645,8 +646,6 @@ class ActionMenuPresenter extends BaseMenuPresenter
             setFocusable(true);
             setVisibility(VISIBLE);
             setEnabled(true);
-
-            TooltipCompat.setTooltipText(this, getContentDescription());
 
             setOnTouchListener(new ForwardingListener(this) {
                 @Override
@@ -796,7 +795,6 @@ class ActionMenuPresenter extends BaseMenuPresenter
             mPopup = popup;
         }
 
-        @Override
         public void run() {
             if (mMenu != null) {
                 mMenu.changeMenuMode();

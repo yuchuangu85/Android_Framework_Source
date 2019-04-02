@@ -20,7 +20,7 @@ import com.android.i18n.phonenumbers.NumberParseException;
 import com.android.i18n.phonenumbers.PhoneNumberUtil;
 import com.android.i18n.phonenumbers.PhoneNumberUtil.PhoneNumberFormat;
 import com.android.i18n.phonenumbers.Phonenumber.PhoneNumber;
-import com.android.i18n.phonenumbers.ShortNumberInfo;
+import com.android.i18n.phonenumbers.ShortNumberUtil;
 
 import android.content.Context;
 import android.content.Intent;
@@ -29,7 +29,6 @@ import android.database.Cursor;
 import android.location.CountryDetector;
 import android.net.Uri;
 import android.os.SystemProperties;
-import android.os.PersistableBundle;
 import android.provider.Contacts;
 import android.provider.ContactsContract;
 import android.telecom.PhoneAccount;
@@ -1140,8 +1139,6 @@ public class PhoneNumberUtils
 
     private static final String KOREA_ISO_COUNTRY_CODE = "KR";
 
-    private static final String JAPAN_ISO_COUNTRY_CODE = "JP";
-
     /**
      * Breaks the given number down and formats it according to the rules
      * for the country the number is from.
@@ -1440,35 +1437,6 @@ public class PhoneNumberUtils
     }
 
     /**
-     * Determines if a {@param phoneNumber} is international if dialed from
-     * {@param defaultCountryIso}.
-     *
-     * @param phoneNumber The phone number.
-     * @param defaultCountryIso The current country ISO.
-     * @return {@code true} if the number is international, {@code false} otherwise.
-     * @hide
-     */
-    public static boolean isInternationalNumber(String phoneNumber, String defaultCountryIso) {
-        // If no phone number is provided, it can't be international.
-        if (TextUtils.isEmpty(phoneNumber)) {
-            return false;
-        }
-
-        // If it starts with # or * its not international.
-        if (phoneNumber.startsWith("#") || phoneNumber.startsWith("*")) {
-            return false;
-        }
-
-        PhoneNumberUtil util = PhoneNumberUtil.getInstance();
-        try {
-            PhoneNumber pn = util.parseAndKeepRawInput(phoneNumber, defaultCountryIso);
-            return pn.getCountryCode() != util.getCountryCodeForRegion(defaultCountryIso);
-        } catch (NumberParseException e) {
-            return false;
-        }
-    }
-
-    /**
      * Format a phone number.
      * <p>
      * If the given number doesn't have the country code, the phone will be
@@ -1491,25 +1459,15 @@ public class PhoneNumberUtils
         String result = null;
         try {
             PhoneNumber pn = util.parseAndKeepRawInput(phoneNumber, defaultCountryIso);
-
-            if (KOREA_ISO_COUNTRY_CODE.equalsIgnoreCase(defaultCountryIso) &&
+            /**
+             * Need to reformat any local Korean phone numbers (when the user is in Korea) with
+             * country code to corresponding national format which would replace the leading
+             * +82 with 0.
+             */
+            if (KOREA_ISO_COUNTRY_CODE.equals(defaultCountryIso) &&
                     (pn.getCountryCode() == util.getCountryCodeForRegion(KOREA_ISO_COUNTRY_CODE)) &&
                     (pn.getCountryCodeSource() ==
                             PhoneNumber.CountryCodeSource.FROM_NUMBER_WITH_PLUS_SIGN)) {
-                /**
-                 * Need to reformat any local Korean phone numbers (when the user is in Korea) with
-                 * country code to corresponding national format which would replace the leading
-                 * +82 with 0.
-                 */
-                result = util.format(pn, PhoneNumberUtil.PhoneNumberFormat.NATIONAL);
-            } else if (JAPAN_ISO_COUNTRY_CODE.equalsIgnoreCase(defaultCountryIso) &&
-                    pn.getCountryCode() == util.getCountryCodeForRegion(JAPAN_ISO_COUNTRY_CODE) &&
-                    (pn.getCountryCodeSource() ==
-                            PhoneNumber.CountryCodeSource.FROM_NUMBER_WITH_PLUS_SIGN)) {
-                /**
-                 * Need to reformat Japanese phone numbers (when user is in Japan) with the national
-                 * dialing format.
-                 */
                 result = util.format(pn, PhoneNumberUtil.PhoneNumberFormat.NATIONAL);
             } else {
                 result = util.formatInOriginalFormat(pn, defaultCountryIso);
@@ -1625,7 +1583,7 @@ public class PhoneNumberUtils
     //
     // Australia: Short codes are six or eight digits in length, starting with the prefix "19"
     //            followed by an additional four or six digits and two.
-    // Czechia: Codes are seven digits in length for MO and five (not billed) or
+    // Czech Republic: Codes are seven digits in length for MO and five (not billed) or
     //            eight (billed) for MT direction
     //
     // see http://en.wikipedia.org/wiki/Short_code#Regional_differences for reference
@@ -1902,7 +1860,7 @@ public class PhoneNumberUtils
         number = extractNetworkPortionAlt(number);
 
         String emergencyNumbers = "";
-        int slotId = SubscriptionManager.getSlotIndex(subId);
+        int slotId = SubscriptionManager.getSlotId(subId);
 
         // retrieve the list of emergency numbers
         // check read-write ecclist property first
@@ -1960,11 +1918,11 @@ public class PhoneNumberUtils
 
         // No ecclist system property, so use our own list.
         if (defaultCountryIso != null) {
-            ShortNumberInfo info = ShortNumberInfo.getInstance();
+            ShortNumberUtil util = new ShortNumberUtil();
             if (useExactMatch) {
-                return info.isEmergencyNumber(number, defaultCountryIso);
+                return util.isEmergencyNumber(number, defaultCountryIso);
             } else {
-                return info.connectsToEmergencyNumber(number, defaultCountryIso);
+                return util.connectsToEmergencyNumber(number, defaultCountryIso);
             }
         }
 
@@ -2148,7 +2106,7 @@ public class PhoneNumberUtils
      *   number provided by the RIL and SIM card. The caller must have
      *   the READ_PHONE_STATE credential.
      *
-     * @param context {@link Context}.
+     * @param context a non-null {@link Context}.
      * @param subId the subscription id of the SIM.
      * @param number the number to look up.
      * @return true if the number is in the list of voicemail. False
@@ -2157,54 +2115,25 @@ public class PhoneNumberUtils
      * @hide
      */
     public static boolean isVoiceMailNumber(Context context, int subId, String number) {
-        String vmNumber, mdn;
+        String vmNumber;
         try {
             final TelephonyManager tm;
             if (context == null) {
                 tm = TelephonyManager.getDefault();
-                if (DBG) log("isVoiceMailNumber: default tm");
             } else {
                 tm = TelephonyManager.from(context);
-                if (DBG) log("isVoiceMailNumber: tm from context");
             }
             vmNumber = tm.getVoiceMailNumber(subId);
-            mdn = tm.getLine1Number(subId);
-            if (DBG) log("isVoiceMailNumber: mdn=" + mdn + ", vmNumber=" + vmNumber
-                    + ", number=" + number);
         } catch (SecurityException ex) {
-            if (DBG) log("isVoiceMailNumber: SecurityExcpetion caught");
             return false;
         }
         // Strip the separators from the number before comparing it
         // to the list.
         number = extractNetworkPortionAlt(number);
-        if (TextUtils.isEmpty(number)) {
-            if (DBG) log("isVoiceMailNumber: number is empty after stripping");
-            return false;
-        }
 
-        // check if the carrier considers MDN to be an additional voicemail number
-        boolean compareWithMdn = false;
-        if (context != null) {
-            CarrierConfigManager configManager = (CarrierConfigManager)
-                    context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
-            if (configManager != null) {
-                PersistableBundle b = configManager.getConfigForSubId(subId);
-                if (b != null) {
-                    compareWithMdn = b.getBoolean(CarrierConfigManager.
-                            KEY_MDN_IS_ADDITIONAL_VOICEMAIL_NUMBER_BOOL);
-                    if (DBG) log("isVoiceMailNumber: compareWithMdn=" + compareWithMdn);
-                }
-            }
-        }
-
-        if (compareWithMdn) {
-            if (DBG) log("isVoiceMailNumber: treating mdn as additional vm number");
-            return compare(number, vmNumber) || compare(number, mdn);
-        } else {
-            if (DBG) log("isVoiceMailNumber: returning regular compare");
-            return compare(number, vmNumber);
-        }
+        // compare tolerates null so we need to make sure that we
+        // don't return true when both are null.
+        return !TextUtils.isEmpty(number) && compare(number, vmNumber);
     }
 
     /**
@@ -2540,11 +2469,11 @@ public class PhoneNumberUtils
     }
 
     // Split a phone number like "+20(123)-456#" using spaces, ignoring anything that is not
-    // a digit or the characters * and #, to produce a result like "20 123 456#".
+    // a digit, to produce a result like "20 123 456".
     private static String splitAtNonNumerics(CharSequence number) {
         StringBuilder sb = new StringBuilder(number.length());
         for (int i = 0; i < number.length(); i++) {
-            sb.append(PhoneNumberUtils.is12Key(number.charAt(i))
+            sb.append(PhoneNumberUtils.isISODigit(number.charAt(i))
                     ? number.charAt(i)
                     : " ");
         }
@@ -3098,20 +3027,34 @@ public class PhoneNumberUtils
     /*
      * The config held calling number conversion map, expected to convert to emergency number.
      */
-    private static String[] sConvertToEmergencyMap = null;
+    private static final String[] CONVERT_TO_EMERGENCY_MAP = Resources.getSystem().getStringArray(
+            com.android.internal.R.array.config_convert_to_emergency_number_map);
+    /**
+     * Check whether conversion to emergency number is enabled
+     *
+     * @return {@code true} when conversion to emergency numbers is enabled,
+     *         {@code false} otherwise
+     *
+     * @hide
+     */
+    public static boolean isConvertToEmergencyNumberEnabled() {
+        return CONVERT_TO_EMERGENCY_MAP != null && CONVERT_TO_EMERGENCY_MAP.length > 0;
+    }
 
     /**
      * Converts to emergency number based on the conversion map.
      * The conversion map is declared as config_convert_to_emergency_number_map.
      *
-     * @param context a context to use for accessing resources
+     * Make sure {@link #isConvertToEmergencyNumberEnabled} is true before calling
+     * this function.
+     *
      * @return The converted emergency number if the number matches conversion map,
      * otherwise original number.
      *
      * @hide
      */
-    public static String convertToEmergencyNumber(Context context, String number) {
-        if (context == null || TextUtils.isEmpty(number)) {
+    public static String convertToEmergencyNumber(String number) {
+        if (TextUtils.isEmpty(number)) {
             return number;
         }
 
@@ -3122,17 +3065,7 @@ public class PhoneNumberUtils
             return number;
         }
 
-        if (sConvertToEmergencyMap == null) {
-            sConvertToEmergencyMap = context.getResources().getStringArray(
-                    com.android.internal.R.array.config_convert_to_emergency_number_map);
-        }
-
-        // The conversion map is not defined (this is default). Skip conversion.
-        if (sConvertToEmergencyMap == null || sConvertToEmergencyMap.length == 0 ) {
-            return number;
-        }
-
-        for (String convertMap : sConvertToEmergencyMap) {
+        for (String convertMap : CONVERT_TO_EMERGENCY_MAP) {
             if (DBG) log("convertToEmergencyNumber: " + convertMap);
             String[] entry = null;
             String[] filterNumbers = null;

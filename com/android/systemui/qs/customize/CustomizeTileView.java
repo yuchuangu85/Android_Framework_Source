@@ -19,8 +19,8 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.TextView;
 import com.android.systemui.R;
-import com.android.systemui.plugins.qs.QSIconView;
-import com.android.systemui.qs.tileimpl.QSTileView;
+import com.android.systemui.qs.QSIconView;
+import com.android.systemui.qs.QSTileView;
 import libcore.util.Objects;
 
 public class CustomizeTileView extends QSTileView {
@@ -35,13 +35,19 @@ public class CustomizeTileView extends QSTileView {
     protected void createLabel() {
         super.createLabel();
         mLabelMinLines = mLabel.getMinLines();
-        mAppLabel = findViewById(R.id.app_label);
+        View view = LayoutInflater.from(mContext).inflate(R.layout.qs_tile_label, null);
+        mAppLabel = (TextView) view.findViewById(R.id.tile_label);
         mAppLabel.setAlpha(.6f);
+        mAppLabel.setSingleLine(true);
+        addView(view);
     }
 
     public void setShowAppLabel(boolean showAppLabel) {
         mAppLabel.setVisibility(showAppLabel ? View.VISIBLE : View.GONE);
         mLabel.setSingleLine(showAppLabel);
+        if (!showAppLabel) {
+            mLabel.setMinLines(mLabelMinLines);
+        }
     }
 
     public void setAppLabel(CharSequence label) {

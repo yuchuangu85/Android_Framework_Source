@@ -37,9 +37,4 @@ public class FrameworkNetworkSecurityPolicy extends libcore.net.NetworkSecurityP
     public boolean isCleartextTrafficPermitted(String hostname) {
         return isCleartextTrafficPermitted();
     }
-
-    @Override
-    public boolean isCertificateTransparencyVerificationRequired(String hostname) {
-        return false;
-    }
 }

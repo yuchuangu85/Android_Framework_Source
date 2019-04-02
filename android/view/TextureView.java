@@ -371,11 +371,11 @@ public class TextureView extends View {
 
     HardwareLayer getHardwareLayer() {
         if (mLayer == null) {
-            if (mAttachInfo == null || mAttachInfo.mThreadedRenderer == null) {
+            if (mAttachInfo == null || mAttachInfo.mHardwareRenderer == null) {
                 return null;
             }
 
-            mLayer = mAttachInfo.mThreadedRenderer.createTextureLayer();
+            mLayer = mAttachInfo.mHardwareRenderer.createTextureLayer();
             boolean createNewSurface = (mSurface == null);
             if (createNewSurface) {
                 // Create a new SurfaceTexture for the layer.

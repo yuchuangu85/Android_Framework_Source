@@ -16,14 +16,13 @@
 
 package android.support.v7.widget;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 import static android.support.v4.graphics.ColorUtils.compositeColors;
 import static android.support.v7.content.res.AppCompatResources.getColorStateList;
 import static android.support.v7.widget.ThemeUtils.getDisabledThemeAttrColor;
 import static android.support.v7.widget.ThemeUtils.getThemeAttrColor;
 import static android.support.v7.widget.ThemeUtils.getThemeAttrColorStateList;
 
-import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
@@ -38,7 +37,6 @@ import android.support.annotation.ColorInt;
 import android.support.annotation.DrawableRes;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.annotation.RequiresApi;
 import android.support.annotation.RestrictTo;
 import android.support.graphics.drawable.AnimatedVectorDrawableCompat;
 import android.support.graphics.drawable.VectorDrawableCompat;
@@ -47,10 +45,10 @@ import android.support.v4.graphics.drawable.DrawableCompat;
 import android.support.v4.util.ArrayMap;
 import android.support.v4.util.LongSparseArray;
 import android.support.v4.util.LruCache;
-import android.support.v4.util.SparseArrayCompat;
 import android.support.v7.appcompat.R;
 import android.util.AttributeSet;
 import android.util.Log;
+import android.util.SparseArray;
 import android.util.TypedValue;
 import android.util.Xml;
 
@@ -63,7 +61,7 @@ import java.util.WeakHashMap;
 /**
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public final class AppCompatDrawableManager {
 
     private interface InflateDelegate {
@@ -71,7 +69,7 @@ public final class AppCompatDrawableManager {
                 @NonNull AttributeSet attrs, @Nullable Resources.Theme theme);
     }
 
-    private static final String TAG = "AppCompatDrawableManag";
+    private static final String TAG = "AppCompatDrawableManager";
     private static final boolean DEBUG = false;
     private static final PorterDuff.Mode DEFAULT_MODE = PorterDuff.Mode.SRC_IN;
     private static final String SKIP_DRAWABLE_TAG = "appcompat_skip_skip";
@@ -89,12 +87,16 @@ public final class AppCompatDrawableManager {
     }
 
     private static void installDefaultInflateDelegates(@NonNull AppCompatDrawableManager manager) {
+        final int sdk = Build.VERSION.SDK_INT;
         // This sdk version check will affect src:appCompat code path.
         // Although VectorDrawable exists in Android framework from Lollipop, AppCompat will use the
         // VectorDrawableCompat before Nougat to utilize the bug fixes in VectorDrawableCompat.
-        if (Build.VERSION.SDK_INT < 24) {
+        if (sdk < 24) {
             manager.addDelegate("vector", new VdcInflateDelegate());
-            manager.addDelegate("animated-vector", new AvdcInflateDelegate());
+            if (sdk >= 11) {
+                // AnimatedVectorDrawableCompat only works on API v11+
+                manager.addDelegate("animated-vector", new AvdcInflateDelegate());
+            }
         }
     }
 
@@ -170,9 +172,9 @@ public final class AppCompatDrawableManager {
             R.drawable.abc_btn_radio_material
     };
 
-    private WeakHashMap<Context, SparseArrayCompat<ColorStateList>> mTintLists;
+    private WeakHashMap<Context, SparseArray<ColorStateList>> mTintLists;
     private ArrayMap<String, InflateDelegate> mDelegates;
-    private SparseArrayCompat<String> mKnownDrawableIdTags;
+    private SparseArray<String> mKnownDrawableIdTags;
 
     private final Object mDrawableCacheLock = new Object();
     private final WeakHashMap<Context, LongSparseArray<WeakReference<Drawable.ConstantState>>>
@@ -317,7 +319,7 @@ public final class AppCompatDrawableManager {
                 }
             } else {
                 // Create an id cache as we'll need one later
-                mKnownDrawableIdTags = new SparseArrayCompat<>();
+                mKnownDrawableIdTags = new SparseArray<>();
             }
 
             if (mTypedValue == null) {
@@ -342,7 +344,7 @@ public final class AppCompatDrawableManager {
             if (tv.string != null && tv.string.toString().endsWith(".xml")) {
                 // If the resource is an XML file, let's try and parse it
                 try {
-                    @SuppressLint("ResourceType") final XmlPullParser parser = res.getXml(resId);
+                    final XmlPullParser parser = res.getXml(resId);
                     final AttributeSet attrs = Xml.asAttributeSet(parser);
                     int type;
                     while ((type = parser.next()) != XmlPullParser.START_TAG &&
@@ -419,7 +421,7 @@ public final class AppCompatDrawableManager {
                     cache = new LongSparseArray<>();
                     mDrawableCaches.put(context, cache);
                 }
-                cache.put(key, new WeakReference<>(cs));
+                cache.put(key, new WeakReference<ConstantState>(cs));
             }
             return true;
         }
@@ -519,8 +521,17 @@ public final class AppCompatDrawableManager {
     }
 
     ColorStateList getTintList(@NonNull Context context, @DrawableRes int resId) {
+        return getTintList(context, resId, null);
+    }
+
+    ColorStateList getTintList(@NonNull Context context, @DrawableRes int resId,
+            @Nullable ColorStateList customTint) {
+        // We only want to use the cache for the standard tints, not ones created using custom
+        // tints
+        final boolean useCache = customTint == null;
+
         // Try the cache first (if it exists)
-        ColorStateList tint = getTintListFromCache(context, resId);
+        ColorStateList tint = useCache ? getTintListFromCache(context, resId) : null;
 
         if (tint == null) {
             // ...if the cache did not contain a color state list, try and create one
@@ -529,13 +540,13 @@ public final class AppCompatDrawableManager {
             } else if (resId == R.drawable.abc_switch_track_mtrl_alpha) {
                 tint = getColorStateList(context, R.color.abc_tint_switch_track);
             } else if (resId == R.drawable.abc_switch_thumb_material) {
-                tint = createSwitchThumbColorStateList(context);
+                tint = getColorStateList(context, R.color.abc_tint_switch_thumb);
             } else if (resId == R.drawable.abc_btn_default_mtrl_shape) {
-                tint = createDefaultButtonColorStateList(context);
+                tint = createDefaultButtonColorStateList(context, customTint);
             } else if (resId == R.drawable.abc_btn_borderless_material) {
-                tint = createBorderlessButtonColorStateList(context);
+                tint = createBorderlessButtonColorStateList(context, customTint);
             } else if (resId == R.drawable.abc_btn_colored_material) {
-                tint = createColoredButtonColorStateList(context);
+                tint = createColoredButtonColorStateList(context, customTint);
             } else if (resId == R.drawable.abc_spinner_mtrl_am_alpha
                     || resId == R.drawable.abc_spinner_textfield_background_material) {
                 tint = getColorStateList(context, R.color.abc_tint_spinner);
@@ -549,7 +560,7 @@ public final class AppCompatDrawableManager {
                 tint = getColorStateList(context, R.color.abc_tint_seek_thumb);
             }
 
-            if (tint != null) {
+            if (useCache && tint != null) {
                 addTintListToCache(context, resId, tint);
             }
         }
@@ -558,7 +569,7 @@ public final class AppCompatDrawableManager {
 
     private ColorStateList getTintListFromCache(@NonNull Context context, @DrawableRes int resId) {
         if (mTintLists != null) {
-            final SparseArrayCompat<ColorStateList> tints = mTintLists.get(context);
+            final SparseArray<ColorStateList> tints = mTintLists.get(context);
             return tints != null ? tints.get(resId) : null;
         }
         return null;
@@ -569,31 +580,34 @@ public final class AppCompatDrawableManager {
         if (mTintLists == null) {
             mTintLists = new WeakHashMap<>();
         }
-        SparseArrayCompat<ColorStateList> themeTints = mTintLists.get(context);
+        SparseArray<ColorStateList> themeTints = mTintLists.get(context);
         if (themeTints == null) {
-            themeTints = new SparseArrayCompat<>();
+            themeTints = new SparseArray<>();
             mTintLists.put(context, themeTints);
         }
         themeTints.append(resId, tintList);
     }
 
-    private ColorStateList createDefaultButtonColorStateList(@NonNull Context context) {
+    private ColorStateList createDefaultButtonColorStateList(@NonNull Context context,
+            @Nullable ColorStateList customTint) {
         return createButtonColorStateList(context,
-                getThemeAttrColor(context, R.attr.colorButtonNormal));
+                getThemeAttrColor(context, R.attr.colorButtonNormal), customTint);
     }
 
-    private ColorStateList createBorderlessButtonColorStateList(@NonNull Context context) {
+    private ColorStateList createBorderlessButtonColorStateList(@NonNull Context context,
+            @Nullable ColorStateList customTint) {
         // We ignore the custom tint for borderless buttons
-        return createButtonColorStateList(context, Color.TRANSPARENT);
+        return createButtonColorStateList(context, Color.TRANSPARENT, null);
     }
 
-    private ColorStateList createColoredButtonColorStateList(@NonNull Context context) {
+    private ColorStateList createColoredButtonColorStateList(@NonNull Context context,
+            @Nullable ColorStateList customTint) {
         return createButtonColorStateList(context,
-                getThemeAttrColor(context, R.attr.colorAccent));
+                getThemeAttrColor(context, R.attr.colorAccent), customTint);
     }
 
     private ColorStateList createButtonColorStateList(@NonNull final Context context,
-            @ColorInt final int baseColor) {
+            @ColorInt final int baseColor, final @Nullable ColorStateList tint) {
         final int[][] states = new int[4][];
         final int[] colors = new int[4];
         int i = 0;
@@ -603,67 +617,23 @@ public final class AppCompatDrawableManager {
 
         // Disabled state
         states[i] = ThemeUtils.DISABLED_STATE_SET;
-        colors[i] = disabledColor;
+        colors[i] = tint == null ? disabledColor : tint.getColorForState(states[i], 0);
         i++;
 
         states[i] = ThemeUtils.PRESSED_STATE_SET;
-        colors[i] = compositeColors(colorControlHighlight, baseColor);
+        colors[i] = compositeColors(colorControlHighlight,
+                tint == null ? baseColor : tint.getColorForState(states[i], 0));
         i++;
 
         states[i] = ThemeUtils.FOCUSED_STATE_SET;
-        colors[i] = compositeColors(colorControlHighlight, baseColor);
+        colors[i] = compositeColors(colorControlHighlight,
+                tint == null ? baseColor : tint.getColorForState(states[i], 0));
         i++;
 
         // Default enabled state
         states[i] = ThemeUtils.EMPTY_STATE_SET;
-        colors[i] = baseColor;
+        colors[i] = tint == null ? baseColor : tint.getColorForState(states[i], 0);
         i++;
-
-        return new ColorStateList(states, colors);
-    }
-
-    private ColorStateList createSwitchThumbColorStateList(Context context) {
-        final int[][] states = new int[3][];
-        final int[] colors = new int[3];
-        int i = 0;
-
-        final ColorStateList thumbColor = getThemeAttrColorStateList(context,
-                R.attr.colorSwitchThumbNormal);
-
-        if (thumbColor != null && thumbColor.isStateful()) {
-            // If colorSwitchThumbNormal is a valid ColorStateList, extract the default and
-            // disabled colors from it
-
-            // Disabled state
-            states[i] = ThemeUtils.DISABLED_STATE_SET;
-            colors[i] = thumbColor.getColorForState(states[i], 0);
-            i++;
-
-            states[i] = ThemeUtils.CHECKED_STATE_SET;
-            colors[i] = getThemeAttrColor(context, R.attr.colorControlActivated);
-            i++;
-
-            // Default enabled state
-            states[i] = ThemeUtils.EMPTY_STATE_SET;
-            colors[i] = thumbColor.getDefaultColor();
-            i++;
-        } else {
-            // Else we'll use an approximation using the default disabled alpha
-
-            // Disabled state
-            states[i] = ThemeUtils.DISABLED_STATE_SET;
-            colors[i] = getDisabledThemeAttrColor(context, R.attr.colorSwitchThumbNormal);
-            i++;
-
-            states[i] = ThemeUtils.CHECKED_STATE_SET;
-            colors[i] = getThemeAttrColor(context, R.attr.colorControlActivated);
-            i++;
-
-            // Default enabled state
-            states[i] = ThemeUtils.EMPTY_STATE_SET;
-            colors[i] = getThemeAttrColor(context, R.attr.colorSwitchThumbNormal);
-            i++;
-        }
 
         return new ColorStateList(states, colors);
     }
@@ -780,7 +750,6 @@ public final class AppCompatDrawableManager {
         }
     }
 
-    @RequiresApi(11)
     private static class AvdcInflateDelegate implements InflateDelegate {
         AvdcInflateDelegate() {
         }

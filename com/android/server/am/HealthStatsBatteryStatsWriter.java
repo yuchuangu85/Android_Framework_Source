@@ -46,7 +46,6 @@ public class HealthStatsBatteryStatsWriter {
     /**
      * Writes the contents of a BatteryStats.Uid into a HealthStatsWriter.
      */
-    @SuppressWarnings("deprecation")
     public void writeUid(HealthStatsWriter uidWriter, BatteryStats bs, BatteryStats.Uid uid) {
         int N;
         BatteryStats.Timer timer;
@@ -366,7 +365,8 @@ public class HealthStatsBatteryStatsWriter {
                 uid.getSystemCpuTimeUs(STATS_SINCE_UNPLUGGED)/1000);
 
         // MEASUREMENT_CPU_POWER_MAMS
-        uidWriter.addMeasurement(UidHealthStats.MEASUREMENT_CPU_POWER_MAMS, 0);
+        uidWriter.addMeasurement(UidHealthStats.MEASUREMENT_CPU_POWER_MAMS,
+                uid.getCpuPowerMaUs(STATS_SINCE_UNPLUGGED)/1000);
     }
 
     /**

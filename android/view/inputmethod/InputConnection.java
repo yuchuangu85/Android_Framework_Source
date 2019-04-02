@@ -18,7 +18,6 @@ package android.view.inputmethod;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.inputmethodservice.InputMethodService;
 import android.os.Bundle;
 import android.os.Handler;
 import android.view.KeyCharacterMap;
@@ -752,19 +751,13 @@ public interface InputConnection {
     public boolean clearMetaKeyStates(int states);
 
     /**
-     * Called back when the connected IME switches between fullscreen and normal modes.
+     * Called by the IME to tell the client when it switches between
+     * fullscreen and normal modes. This will normally be called for
+     * you by the standard implementation of
+     * {@link android.inputmethodservice.InputMethodService}.
      *
-     * <p>Note: On {@link android.os.Build.VERSION_CODES#O} and later devices, input methods are no
-     * longer allowed to directly call this method at any time. To signal this event in the target
-     * application, input methods should always call
-     * {@link InputMethodService#updateFullscreenMode()} instead. This approach should work on API
-     * {@link android.os.Build.VERSION_CODES#N_MR1} and prior devices.</p>
-     *
-     * @return For editor authors, the return value will always be ignored. For IME authors, this
-     *         always returns {@code true} on {@link android.os.Build.VERSION_CODES#N_MR1} and prior
-     *         devices and {@code false} on {@link android.os.Build.VERSION_CODES#O} and later
-     *         devices.
-     * @see InputMethodManager#isFullscreenMode()
+     * @return true on success, false if the input connection is no longer
+     * valid.
      */
     public boolean reportFullscreenMode(boolean enabled);
 

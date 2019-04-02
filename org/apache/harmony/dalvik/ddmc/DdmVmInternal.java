@@ -16,8 +16,6 @@
 
 package org.apache.harmony.dalvik.ddmc;
 
-import dalvik.annotation.optimization.FastNative;
-
 /**
  * Declarations for some VM-internal DDM stuff.
  */
@@ -42,7 +40,6 @@ public class DdmVmInternal {
      * @return true on success.  false if 'when' is bad or if there was
      *         an internal error.
      */
-    @FastNative
     native public static boolean heapInfoNotify(int when);
 
     /**
@@ -77,13 +74,11 @@ public class DdmVmInternal {
      * Return a boolean indicating whether or not the "recent allocation"
      * feature is currently enabled.
      */
-    @FastNative
     native public static boolean getRecentAllocationStatus();
 
     /**
      * Fill a buffer with data on recent heap allocations.
      */
-    @FastNative
     native public static byte[] getRecentAllocations();
 }
 

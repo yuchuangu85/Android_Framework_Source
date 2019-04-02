@@ -46,7 +46,7 @@ import java.util.ArrayList;
  * After creating the view, the function {@link #setPhoneWindow} needs to be called to make
  * the connection to it's owning PhoneWindow.
  * Note: At this time the application can change various attributes of the DecorView which
- * will break things (in subtle/unexpected ways):
+ * will break things (in settle/unexpected ways):
  * <ul>
  * <li>setOutlineProvider</li>
  * <li>setSurfaceFormat</li>
@@ -81,6 +81,9 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
 
     // True if the window is being dragged.
     private boolean mDragging = false;
+
+    // True when the left mouse button got released while dragging.
+    private boolean mLeftMouseButtonReleased;
 
     private boolean mOverlayWithAppContent = false;
 
@@ -184,8 +187,6 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
         // input device we are listening to.
         final int x = (int) e.getX();
         final int y = (int) e.getY();
-        final boolean fromMouse = e.getToolType(e.getActionIndex()) == MotionEvent.TOOL_TYPE_MOUSE;
-        final boolean primaryButton = (e.getButtonState() & MotionEvent.BUTTON_PRIMARY) != 0;
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 if (!mShow) {
@@ -194,7 +195,8 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
                 }
                 // Checking for a drag action is started if we aren't dragging already and the
                 // starting event is either a left mouse button or any other input device.
-                if (!fromMouse || primaryButton) {
+                if (((e.getToolType(e.getActionIndex()) != MotionEvent.TOOL_TYPE_MOUSE ||
+                        (e.getButtonState() & MotionEvent.BUTTON_PRIMARY) != 0))) {
                     mCheckForDragging = true;
                     mTouchDownX = x;
                     mTouchDownY = y;
@@ -202,13 +204,19 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
                 break;
 
             case MotionEvent.ACTION_MOVE:
-                if (!mDragging && mCheckForDragging && (fromMouse || passedSlop(x, y))) {
+                if (!mDragging && mCheckForDragging && passedSlop(x, y)) {
                     mCheckForDragging = false;
                     mDragging = true;
+                    mLeftMouseButtonReleased = false;
                     startMovingTask(e.getRawX(), e.getRawY());
-                    // After the above call the framework will take over the input.
-                    // This handler will receive ACTION_CANCEL soon (possible after a few spurious
-                    // ACTION_MOVE events which are safe to ignore).
+                } else if (mDragging && !mLeftMouseButtonReleased) {
+                    if (e.getToolType(e.getActionIndex()) == MotionEvent.TOOL_TYPE_MOUSE &&
+                            (e.getButtonState() & MotionEvent.BUTTON_PRIMARY) == 0) {
+                        // There is no separate mouse button up call and if the user mixes mouse
+                        // button drag actions, we stop dragging once he releases the button.
+                        mLeftMouseButtonReleased = true;
+                        break;
+                    }
                 }
                 break;
 
@@ -408,8 +416,7 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
         if (mClickTarget == mMaximize) {
             maximizeWindow();
         } else if (mClickTarget == mClose) {
-            mOwner.dispatchOnWindowDismissed(
-                    true /*finishTask*/, false /*suppressWindowTransition*/);
+            mOwner.dispatchOnWindowDismissed(true /*finishTask*/);
         }
         return true;
     }

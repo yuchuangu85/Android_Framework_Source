@@ -127,7 +127,7 @@ public abstract class PagerAdapter {
 
     /**
      * Called to inform the adapter of which item is currently considered to
-     * be the "primary", that is the one show to the user as the current page.
+     * be the "primary(主要的)", that is the one show to the user as the current page.
      *
      * @param container The containing View from which the page will be removed.
      * @param position The page position that is now the primary.
@@ -325,7 +325,7 @@ public abstract class PagerAdapter {
     }
 
     /**
-     * Returns the proportional width of a given page as a percentage of the
+     * Returns the proportional(成比例的) width of a given page as a percentage of the
      * ViewPager's measured width from (0.f-1.f]
      *
      * @param position The position of the page requested

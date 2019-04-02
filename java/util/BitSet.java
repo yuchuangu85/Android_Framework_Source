@@ -189,7 +189,6 @@ public class BitSet implements Cloneable, java.io.Serializable {
      * @param longs a long array containing a little-endian representation
      *        of a sequence of bits to be used as the initial bits of the
      *        new bit set
-     * @return a {@code BitSet} containing all the bits in the long array
      * @since 1.7
      */
     public static BitSet valueOf(long[] longs) {
@@ -213,8 +212,6 @@ public class BitSet implements Cloneable, java.io.Serializable {
      * @param lb a long buffer containing a little-endian representation
      *        of a sequence of bits between its position and limit, to be
      *        used as the initial bits of the new bit set
-     * @return a {@code BitSet} containing all the bits in the buffer in the
-     *         specified range
      * @since 1.7
      */
     public static BitSet valueOf(LongBuffer lb) {
@@ -240,7 +237,6 @@ public class BitSet implements Cloneable, java.io.Serializable {
      * @param bytes a byte array containing a little-endian
      *        representation of a sequence of bits to be used as the
      *        initial bits of the new bit set
-     * @return a {@code BitSet} containing all the bits in the byte array
      * @since 1.7
      */
     public static BitSet valueOf(byte[] bytes) {
@@ -261,8 +257,6 @@ public class BitSet implements Cloneable, java.io.Serializable {
      * @param bb a byte buffer containing a little-endian representation
      *        of a sequence of bits between its position and limit, to be
      *        used as the initial bits of the new bit set
-     * @return a {@code BitSet} containing all the bits in the buffer in the
-     *         specified range
      * @since 1.7
      */
     public static BitSet valueOf(ByteBuffer bb) {
@@ -696,9 +690,6 @@ public class BitSet implements Cloneable, java.io.Serializable {
      *  <pre> {@code
      * for (int i = bs.nextSetBit(0); i >= 0; i = bs.nextSetBit(i+1)) {
      *     // operate on index i here
-     *     if (i == Integer.MAX_VALUE) {
-     *         break; // or (i+1) would overflow
-     *     }
      * }}</pre>
      *
      * @param  fromIndex the index to start checking from (inclusive)
@@ -1103,7 +1094,7 @@ public class BitSet implements Cloneable, java.io.Serializable {
             result.checkInvariants();
             return result;
         } catch (CloneNotSupportedException e) {
-            throw new InternalError(e);
+            throw new InternalError();
         }
     }
 
@@ -1167,10 +1158,10 @@ public class BitSet implements Cloneable, java.io.Serializable {
      * <p>Example:
      * <pre>
      * BitSet drPepper = new BitSet();</pre>
-     * Now {@code drPepper.toString()} returns "{@code {}}".
+     * Now {@code drPepper.toString()} returns "{@code {}}".<p>
      * <pre>
      * drPepper.set(2);</pre>
-     * Now {@code drPepper.toString()} returns "{@code {2}}".
+     * Now {@code drPepper.toString()} returns "{@code {2}}".<p>
      * <pre>
      * drPepper.set(4);
      * drPepper.set(10);</pre>
@@ -1189,12 +1180,10 @@ public class BitSet implements Cloneable, java.io.Serializable {
         int i = nextSetBit(0);
         if (i != -1) {
             b.append(i);
-            while (true) {
-                if (++i < 0) break;
-                if ((i = nextSetBit(i)) < 0) break;
+            for (i = nextSetBit(i+1); i >= 0; i = nextSetBit(i+1)) {
                 int endOfRun = nextClearBit(i);
                 do { b.append(", ").append(i); }
-                while (++i != endOfRun);
+                while (++i < endOfRun);
             }
         }
 

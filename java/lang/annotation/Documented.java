@@ -33,6 +33,8 @@ package java.lang.annotation;
  * Documented, its annotations become part of the public API
  * of the annotated elements.
  *
+ * 将此注解包含在Javadoc中
+ *
  * @author  Joshua Bloch
  * @since 1.5
  */

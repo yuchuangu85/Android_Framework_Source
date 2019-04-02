@@ -16,18 +16,17 @@
 
 package com.android.internal.telephony.metrics;
 
-import static com.android.internal.telephony.nano.TelephonyProto.ImsCapabilities;
-import static com.android.internal.telephony.nano.TelephonyProto.ImsConnectionState;
-import static com.android.internal.telephony.nano.TelephonyProto.RilDataCall;
-import static com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent;
-import static com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.ModemRestart;
-import static com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilDeactivateDataCall;
-import static com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCall;
-import static com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCallResponse;
-import static com.android.internal.telephony.nano.TelephonyProto.TelephonyServiceState;
-import static com.android.internal.telephony.nano.TelephonyProto.TelephonySettings;
-
 import android.os.SystemClock;
+
+import static com.android.internal.telephony.TelephonyProto.ImsCapabilities;
+import static com.android.internal.telephony.TelephonyProto.ImsConnectionState;
+import static com.android.internal.telephony.TelephonyProto.RilDataCall;
+import static com.android.internal.telephony.TelephonyProto.TelephonyEvent;
+import static com.android.internal.telephony.TelephonyProto.TelephonyEvent.RilDeactivateDataCall;
+import static com.android.internal.telephony.TelephonyProto.TelephonyEvent.RilSetupDataCall;
+import static com.android.internal.telephony.TelephonyProto.TelephonyEvent.RilSetupDataCallResponse;
+import static com.android.internal.telephony.TelephonyProto.TelephonyServiceState;
+import static com.android.internal.telephony.TelephonyProto.TelephonySettings;
 
 public class TelephonyEventBuilder {
     private final TelephonyEvent mEvent = new TelephonyEvent();
@@ -41,79 +40,73 @@ public class TelephonyEventBuilder {
     }
 
     public TelephonyEventBuilder(long timestamp, int phoneId) {
-        mEvent.timestampMillis = timestamp;
-        mEvent.phoneId = phoneId;
+        mEvent.setTimestampMillis(timestamp);
+        mEvent.setPhoneId(phoneId);
     }
 
     public TelephonyEventBuilder setSettings(TelephonySettings settings) {
-        mEvent.type = TelephonyEvent.Type.SETTINGS_CHANGED;
+        mEvent.setType(TelephonyEvent.Type.SETTINGS_CHANGED);
         mEvent.settings = settings;
         return this;
     }
 
     public TelephonyEventBuilder setServiceState(TelephonyServiceState state) {
-        mEvent.type = TelephonyEvent.Type.RIL_SERVICE_STATE_CHANGED;
+        mEvent.setType(TelephonyEvent.Type.RIL_SERVICE_STATE_CHANGED);
         mEvent.serviceState = state;
         return this;
     }
 
     public TelephonyEventBuilder setImsConnectionState(ImsConnectionState state) {
-        mEvent.type = TelephonyEvent.Type.IMS_CONNECTION_STATE_CHANGED;
+        mEvent.setType(TelephonyEvent.Type.IMS_CONNECTION_STATE_CHANGED);
         mEvent.imsConnectionState = state;
         return this;
     }
 
     public TelephonyEventBuilder setImsCapabilities(ImsCapabilities capabilities) {
-        mEvent.type = TelephonyEvent.Type.IMS_CAPABILITIES_CHANGED;
+        mEvent.setType(TelephonyEvent.Type.IMS_CAPABILITIES_CHANGED);
         mEvent.imsCapabilities = capabilities;
         return this;
     }
 
     public TelephonyEventBuilder setDataStallRecoveryAction(int action) {
-        mEvent.type = TelephonyEvent.Type.DATA_STALL_ACTION;
-        mEvent.dataStallAction = action;
+        mEvent.setType(TelephonyEvent.Type.DATA_STALL_ACTION);
+        mEvent.setDataStallAction(action);
         return this;
     }
 
     public TelephonyEventBuilder setSetupDataCall(RilSetupDataCall request) {
-        mEvent.type = TelephonyEvent.Type.DATA_CALL_SETUP;
+        mEvent.setType(TelephonyEvent.Type.DATA_CALL_SETUP);
         mEvent.setupDataCall = request;
         return this;
     }
 
     public TelephonyEventBuilder setSetupDataCallResponse(RilSetupDataCallResponse rsp) {
-        mEvent.type = TelephonyEvent.Type.DATA_CALL_SETUP_RESPONSE;
+        mEvent.setType(TelephonyEvent.Type.DATA_CALL_SETUP_RESPONSE);
         mEvent.setupDataCallResponse = rsp;
         return this;
     }
 
     public TelephonyEventBuilder setDeactivateDataCall(RilDeactivateDataCall request) {
-        mEvent.type = TelephonyEvent.Type.DATA_CALL_DEACTIVATE;
+        mEvent.setType(TelephonyEvent.Type.DATA_CALL_DEACTIVATE);
         mEvent.deactivateDataCall = request;
         return this;
     }
 
     public TelephonyEventBuilder setDeactivateDataCallResponse(int errno) {
-        mEvent.type = TelephonyEvent.Type.DATA_CALL_DEACTIVATE_RESPONSE;
-        mEvent.error = errno;
+        mEvent.setType(TelephonyEvent.Type.DATA_CALL_DEACTIVATE_RESPONSE);
+        mEvent.setError(errno);
         return this;
     }
 
     public TelephonyEventBuilder setDataCalls(RilDataCall[] dataCalls) {
-        mEvent.type = TelephonyEvent.Type.DATA_CALL_LIST_CHANGED;
+        mEvent.setType(TelephonyEvent.Type.DATA_CALL_LIST_CHANGED);
         mEvent.dataCalls = dataCalls;
         return this;
     }
 
     public TelephonyEventBuilder setNITZ(long timestamp) {
-        mEvent.type = TelephonyEvent.Type.NITZ_TIME;
-        mEvent.nitzTimestampMillis = timestamp;
-        return this;
-    }
-
-    public TelephonyEventBuilder setModemRestart(ModemRestart modemRestart) {
-        mEvent.type = TelephonyEvent.Type.MODEM_RESTART;
-        mEvent.modemRestart = modemRestart;
+        mEvent.setType(TelephonyEvent.Type.NITZ_TIME);
+        mEvent.setNitzTimestampMillis(timestamp);
         return this;
     }
 }

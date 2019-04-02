@@ -19,13 +19,11 @@ import android.Manifest;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
-import android.annotation.TestApi;
 import android.app.Dialog;
 import android.app.Service;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.Resources;
 import android.graphics.drawable.Icon;
 import android.os.Handler;
 import android.os.IBinder;
@@ -35,8 +33,6 @@ import android.os.RemoteException;
 import android.view.View;
 import android.view.View.OnAttachStateChangeListener;
 import android.view.WindowManager;
-
-import com.android.internal.R;
 
 /**
  * A TileService provides the user a tile that can be added to Quick Settings.
@@ -80,13 +76,8 @@ import com.android.internal.R;
 public class TileService extends Service {
 
     /**
-     * An activity that provides a user interface for adjusting TileService
-     * preferences. Optional but recommended for apps that implement a
-     * TileService.
-     * <p>
-     * This intent may also define a {@link Intent#EXTRA_COMPONENT_NAME} value
-     * to indicate the {@link ComponentName} that caused the preferences to be
-     * opened.
+     * An activity that provides a user interface for adjusting TileService preferences.
+     * Optional but recommended for apps that implement a TileService.
      */
     @SdkConstant(SdkConstantType.INTENT_CATEGORY)
     public static final String ACTION_QS_TILE_PREFERENCES
@@ -137,7 +128,7 @@ public class TileService extends Service {
     /**
      * @hide
      */
-    public static final String EXTRA_STATE = "state";
+    public static final String EXTRA_COMPONENT = "android.service.quicksettings.extra.COMPONENT";
 
     private final H mHandler = new H(Looper.getMainLooper());
 
@@ -427,15 +418,6 @@ public class TileService extends Service {
     }
 
     /**
-     * @return True if the device supports quick settings and its assocated APIs.
-     * @hide
-     */
-    @TestApi
-    public static boolean isQuickSettingsSupported() {
-        return Resources.getSystem().getBoolean(R.bool.config_quickSettingsSupported);
-    }
-
-    /**
      * Requests that a tile be put in the listening state so it can send an update.
      *
      * This method is only applicable to tiles that have {@link #META_DATA_ACTIVE_TILE} defined
@@ -443,8 +425,7 @@ public class TileService extends Service {
      */
     public static final void requestListeningState(Context context, ComponentName component) {
         Intent intent = new Intent(ACTION_REQUEST_LISTENING);
-        intent.putExtra(Intent.EXTRA_COMPONENT_NAME, component);
-        intent.setPackage("com.android.systemui");
+        intent.putExtra(EXTRA_COMPONENT, component);
         context.sendBroadcast(intent, Manifest.permission.BIND_QUICK_SETTINGS_TILE);
     }
 }

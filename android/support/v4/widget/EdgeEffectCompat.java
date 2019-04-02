@@ -18,41 +18,142 @@ package android.support.v4.widget;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
-import android.widget.EdgeEffect;
 
 /**
- * Helper for accessing {@link android.widget.EdgeEffect}.
+ * Helper for accessing {@link android.widget.EdgeEffect} introduced after
+ * API level 4 in a backwards compatible fashion.
  *
- * This class is used to access {@link android.widget.EdgeEffect} on platform versions
- * that support it. When running on older platforms it will result in no-ops. It should
- * be used by views that wish to use the standard Android visual effects at the edges
+ * This class is used to access {@link android.widget.EdgeEffect} on platform versions     
+ * that support it. When running on older platforms it will result in no-ops. It should     
+ * be used by views that wish to use the standard Android visual effects at the edges       
  * of scrolling containers.
  */
 public final class EdgeEffectCompat {
-    private EdgeEffect mEdgeEffect;
+    private Object mEdgeEffect;
 
-    private static final EdgeEffectBaseImpl IMPL;
+    private static final EdgeEffectImpl IMPL;
 
     static {
         if (Build.VERSION.SDK_INT >= 21) {
-            IMPL = new EdgeEffectApi21Impl();
+            IMPL = new EdgeEffectLollipopImpl(); // Lollipop
+        } else if (Build.VERSION.SDK_INT >= 14) { // ICS
+            IMPL = new EdgeEffectIcsImpl();
         } else {
-            IMPL = new EdgeEffectBaseImpl();
+            IMPL = new BaseEdgeEffectImpl();
         }
     }
 
-    static class EdgeEffectBaseImpl {
-        public void onPull(EdgeEffect edgeEffect, float deltaDistance, float displacement) {
-            edgeEffect.onPull(deltaDistance);
-        }
+    interface EdgeEffectImpl {
+        public Object newEdgeEffect(Context context);
+        public void setSize(Object edgeEffect, int width, int height);
+        public boolean isFinished(Object edgeEffect);
+        public void finish(Object edgeEffect);
+        public boolean onPull(Object edgeEffect, float deltaDistance);
+        public boolean onRelease(Object edgeEffect);
+        public boolean onAbsorb(Object edgeEffect, int velocity);
+        public boolean draw(Object edgeEffect, Canvas canvas);
+        public boolean onPull(Object edgeEffect, float deltaDistance, float displacement);
     }
 
-    @RequiresApi(21)
-    static class EdgeEffectApi21Impl extends EdgeEffectBaseImpl {
+    /**
+     * Null implementation to use pre-ICS
+     */
+    static class BaseEdgeEffectImpl implements EdgeEffectImpl {
         @Override
-        public void onPull(EdgeEffect edgeEffect, float deltaDistance, float displacement) {
-            edgeEffect.onPull(deltaDistance, displacement);
+        public Object newEdgeEffect(Context context) {
+            return null;
+        }
+
+        @Override
+        public void setSize(Object edgeEffect, int width, int height) {
+        }
+
+        @Override
+        public boolean isFinished(Object edgeEffect) {
+            return true;
+        }
+
+        @Override
+        public void finish(Object edgeEffect) {
+        }
+
+        @Override
+        public boolean onPull(Object edgeEffect, float deltaDistance) {
+            return false;
+        }
+
+        @Override
+        public boolean onRelease(Object edgeEffect) {
+            return false;
+        }
+
+        @Override
+        public boolean onAbsorb(Object edgeEffect, int velocity) {
+            return false;
+        }
+
+        @Override
+        public boolean draw(Object edgeEffect, Canvas canvas) {
+            return false;
+        }
+
+        @Override
+        public boolean onPull(Object edgeEffect, float deltaDistance, float displacement) {
+            return false;
+        }
+    }
+
+    static class EdgeEffectIcsImpl implements EdgeEffectImpl {
+        @Override
+        public Object newEdgeEffect(Context context) {
+            return EdgeEffectCompatIcs.newEdgeEffect(context);
+        }
+
+        @Override
+        public void setSize(Object edgeEffect, int width, int height) {
+            EdgeEffectCompatIcs.setSize(edgeEffect, width, height);
+        }
+
+        @Override
+        public boolean isFinished(Object edgeEffect) {
+            return EdgeEffectCompatIcs.isFinished(edgeEffect);
+        }
+
+        @Override
+        public void finish(Object edgeEffect) {
+            EdgeEffectCompatIcs.finish(edgeEffect);
+        }
+
+        @Override
+        public boolean onPull(Object edgeEffect, float deltaDistance) {
+            return EdgeEffectCompatIcs.onPull(edgeEffect, deltaDistance);
+        }
+
+        @Override
+        public boolean onRelease(Object edgeEffect) {
+            return EdgeEffectCompatIcs.onRelease(edgeEffect);
+        }
+
+        @Override
+        public boolean onAbsorb(Object edgeEffect, int velocity) {
+            return EdgeEffectCompatIcs.onAbsorb(edgeEffect, velocity);
+        }
+
+        @Override
+        public boolean draw(Object edgeEffect, Canvas canvas) {
+            return EdgeEffectCompatIcs.draw(edgeEffect, canvas);
+        }
+
+        @Override
+        public boolean onPull(Object edgeEffect, float deltaDistance, float displacement) {
+            return EdgeEffectCompatIcs.onPull(edgeEffect, deltaDistance);
+        }
+    }
+
+    static class EdgeEffectLollipopImpl extends EdgeEffectIcsImpl {
+        @Override
+        public boolean onPull(Object edgeEffect, float deltaDistance, float displacement) {
+            return EdgeEffectCompatLollipop.onPull(edgeEffect, deltaDistance, displacement);
         }
     }
 
@@ -63,12 +164,9 @@ public final class EdgeEffectCompat {
      * on the newly constructed object will be mocked/no-ops.</p>
      *
      * @param context Context to use for theming the effect
-     *
-     * @deprecated Use {@link EdgeEffect} constructor directly.
      */
-    @Deprecated
     public EdgeEffectCompat(Context context) {
-        mEdgeEffect = new EdgeEffect(context);
+        mEdgeEffect = IMPL.newEdgeEffect(context);
     }
 
     /**
@@ -76,12 +174,9 @@ public final class EdgeEffectCompat {
      *
      * @param width Effect width in pixels
      * @param height Effect height in pixels
-     *
-     * @deprecated Use {@link EdgeEffect#setSize(int, int)} directly.
      */
-    @Deprecated
     public void setSize(int width, int height) {
-        mEdgeEffect.setSize(width, height);
+        IMPL.setSize(mEdgeEffect, width, height);
     }
 
     /**
@@ -90,23 +185,17 @@ public final class EdgeEffectCompat {
      * drawing pass to continue the animation.
      *
      * @return true if animation is finished, false if drawing should continue on the next frame.
-     *
-     * @deprecated Use {@link EdgeEffect#isFinished()} directly.
      */
-    @Deprecated
     public boolean isFinished() {
-        return mEdgeEffect.isFinished();
+        return IMPL.isFinished(mEdgeEffect);
     }
 
     /**
      * Immediately finish the current animation.
      * After this call {@link #isFinished()} will return true.
-     *
-     * @deprecated Use {@link EdgeEffect#finish()} directly.
      */
-    @Deprecated
     public void finish() {
-        mEdgeEffect.finish();
+        IMPL.finish(mEdgeEffect);
     }
 
     /**
@@ -119,13 +208,11 @@ public final class EdgeEffectCompat {
      *                      1.f (full length of the view) or negative values to express change
      *                      back toward the edge reached to initiate the effect.
      * @return true if the host view should call invalidate, false if it should not.
-     *
-     * @deprecated Use {@link #onPull(EdgeEffect, float, float)}.
+     * @deprecated use {@link #onPull(float, float)}
      */
     @Deprecated
     public boolean onPull(float deltaDistance) {
-        mEdgeEffect.onPull(deltaDistance);
-        return true;
+        return IMPL.onPull(mEdgeEffect, deltaDistance);
     }
 
     /**
@@ -134,9 +221,6 @@ public final class EdgeEffectCompat {
      * The host view should always {@link android.view.View#invalidate()} if this method
      * returns true and draw the results accordingly.
      *
-     * Views using {@link EdgeEffect} should favor {@link EdgeEffect#onPull(float, float)} when
-     * the displacement of the pull point is known.
-     *
      * @param deltaDistance Change in distance since the last call. Values may be 0 (no change) to
      *                      1.f (full length of the view) or negative values to express change
      *                      back toward the edge reached to initiate the effect.
@@ -144,34 +228,9 @@ public final class EdgeEffectCompat {
      *                     initiating the pull. In the case of touch this is the finger position.
      *                     Values may be from 0-1.
      * @return true if the host view should call invalidate, false if it should not.
-     *
-     * @deprecated Use {@link EdgeEffect#onPull(float)} directly.
      */
-    @Deprecated
     public boolean onPull(float deltaDistance, float displacement) {
-        IMPL.onPull(mEdgeEffect, deltaDistance, displacement);
-        return true;
-    }
-
-    /**
-     * A view should call this when content is pulled away from an edge by the user.
-     * This will update the state of the current visual effect and its associated animation.
-     * The host view should always {@link android.view.View#invalidate()} after call this method
-     * and draw the results accordingly.
-     *
-     * @param edgeEffect The EdgeEffect that is attached to the view that is getting pulled away
-     *                   from an edge by the user.
-     * @param deltaDistance Change in distance since the last call. Values may be 0 (no change) to
-     *                      1.f (full length of the view) or negative values to express change
-     *                      back toward the edge reached to initiate the effect.
-     * @param displacement The displacement from the starting side of the effect of the point
-     *                     initiating the pull. In the case of touch this is the finger position.
-     *                     Values may be from 0-1.
-     *
-     * @see {@link EdgeEffect#onPull(float, float)}
-     */
-    public static void onPull(EdgeEffect edgeEffect, float deltaDistance, float displacement) {
-        IMPL.onPull(edgeEffect, deltaDistance, displacement);
+        return IMPL.onPull(mEdgeEffect, deltaDistance, displacement);
     }
 
     /**
@@ -181,13 +240,9 @@ public final class EdgeEffectCompat {
      * returns true and thereby draw the results accordingly.
      *
      * @return true if the host view should invalidate, false if it should not.
-     *
-     * @deprecated Use {@link EdgeEffect#onRelease()} directly.
      */
-    @Deprecated
     public boolean onRelease() {
-        mEdgeEffect.onRelease();
-        return mEdgeEffect.isFinished();
+        return IMPL.onRelease(mEdgeEffect);
     }
 
     /**
@@ -200,13 +255,9 @@ public final class EdgeEffectCompat {
      *
      * @param velocity Velocity at impact in pixels per second.
      * @return true if the host view should invalidate, false if it should not.
-     *
-     * @deprecated Use {@link EdgeEffect#onAbsorb(int)} directly.
      */
-    @Deprecated
     public boolean onAbsorb(int velocity) {
-        mEdgeEffect.onAbsorb(velocity);
-        return true;
+        return IMPL.onAbsorb(mEdgeEffect, velocity);
     }
 
     /**
@@ -218,11 +269,8 @@ public final class EdgeEffectCompat {
      * @param canvas Canvas to draw into
      * @return true if drawing should continue beyond this frame to continue the
      *         animation
-     *
-     * @deprecated Use {@link EdgeEffect#draw(Canvas)} directly.
      */
-    @Deprecated
     public boolean draw(Canvas canvas) {
-        return mEdgeEffect.draw(canvas);
+        return IMPL.draw(mEdgeEffect, canvas);
     }
 }

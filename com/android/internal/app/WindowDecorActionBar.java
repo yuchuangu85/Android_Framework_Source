@@ -16,6 +16,13 @@
 
 package com.android.internal.app;
 
+import android.animation.ValueAnimator;
+import android.content.res.TypedArray;
+import android.view.View.OnFocusChangeListener;
+import android.view.ViewGroup;
+import android.view.ViewParent;
+import android.widget.Toolbar;
+
 import com.android.internal.R;
 import com.android.internal.view.ActionBarPolicy;
 import com.android.internal.view.menu.MenuBuilder;
@@ -32,7 +39,6 @@ import android.animation.Animator.AnimatorListener;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
-import android.animation.ValueAnimator;
 import android.app.ActionBar;
 import android.app.Activity;
 import android.app.Dialog;
@@ -40,7 +46,6 @@ import android.app.FragmentTransaction;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
-import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
 import android.util.TypedValue;
 import android.view.ActionMode;
@@ -50,12 +55,10 @@ import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
-import android.view.ViewParent;
 import android.view.Window;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.animation.AnimationUtils;
 import android.widget.SpinnerAdapter;
-import android.widget.Toolbar;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -965,6 +968,12 @@ public class WindowDecorActionBar extends ActionBar implements
             return true;
         }
         return false;
+    }
+
+    /** @hide */
+    @Override
+    public boolean requestFocus() {
+        return requestFocus(mDecorToolbar.getViewGroup());
     }
 
     /**

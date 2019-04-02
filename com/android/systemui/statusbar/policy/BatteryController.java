@@ -17,14 +17,11 @@
 package com.android.systemui.statusbar.policy;
 
 import com.android.systemui.DemoMode;
-import com.android.systemui.Dumpable;
-import com.android.systemui.statusbar.policy.BatteryController.BatteryStateChangeCallback;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 
-public interface BatteryController extends DemoMode, Dumpable,
-        CallbackController<BatteryStateChangeCallback> {
+public interface BatteryController extends DemoMode {
     /**
      * Prints the current state of the {@link BatteryController} to the given {@link PrintWriter}.
      */
@@ -40,12 +37,15 @@ public interface BatteryController extends DemoMode, Dumpable,
      */
     boolean isPowerSave();
 
+    void addStateChangedCallback(BatteryStateChangeCallback cb);
+    void removeStateChangedCallback(BatteryStateChangeCallback cb);
+
     /**
      * A listener that will be notified whenever a change in battery level or power save mode
      * has occurred.
      */
     interface BatteryStateChangeCallback {
-        default void onBatteryLevelChanged(int level, boolean pluggedIn, boolean charging) {}
-        default void onPowerSaveChanged(boolean isPowerSave) {}
+        void onBatteryLevelChanged(int level, boolean pluggedIn, boolean charging);
+        void onPowerSaveChanged(boolean isPowerSave);
     }
 }

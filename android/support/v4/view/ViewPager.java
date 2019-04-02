@@ -23,6 +23,7 @@ import android.database.DataSetObserver;
 import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -32,8 +33,12 @@ import android.support.annotation.DrawableRes;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.os.ParcelableCompat;
+import android.support.v4.os.ParcelableCompatCreatorCallbacks;
 import android.support.v4.view.accessibility.AccessibilityEventCompat;
 import android.support.v4.view.accessibility.AccessibilityNodeInfoCompat;
+import android.support.v4.view.accessibility.AccessibilityRecordCompat;
+import android.support.v4.widget.EdgeEffectCompat;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.FocusFinder;
@@ -48,7 +53,6 @@ import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.animation.Interpolator;
-import android.widget.EdgeEffect;
 import android.widget.Scroller;
 
 import java.lang.annotation.ElementType;
@@ -56,6 +60,7 @@ import java.lang.annotation.Inherited;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -65,7 +70,7 @@ import java.util.List;
  * Layout manager that allows the user to flip left and right
  * through pages of data.  You supply an implementation of a
  * {@link PagerAdapter} to generate the pages that the view shows.
- *
+ * <p>
  * <p>ViewPager is most often used in conjunction with {@link android.app.Fragment},
  * which is a convenient way to supply and manage the lifecycle of each page.
  * There are standard adapters implemented for using fragments with the ViewPager,
@@ -74,11 +79,11 @@ import java.util.List;
  * {@link android.support.v4.app.FragmentStatePagerAdapter}; each of these
  * classes have simple code showing how to build a full user interface
  * with them.
- *
+ * <p>
  * <p>Views which are annotated with the {@link DecorView} annotation are treated as
  * part of the view pagers 'decor'. Each decor view's position can be controlled via
  * its {@code android:layout_gravity} attribute. For example:
- *
+ * <p>
  * <pre>
  * &lt;android.support.v4.view.ViewPager
  *     android:layout_width=&quot;match_parent&quot;
@@ -91,13 +96,17 @@ import java.util.List;
  *
  * &lt;/android.support.v4.view.ViewPager&gt;
  * </pre>
- *
+ * <p>
  * <p>For more information about how to use ViewPager, read <a
  * href="{@docRoot}training/implementing-navigation/lateral.html">Creating Swipe Views with
  * Tabs</a>.</p>
- *
- * <p>You can find examples of using ViewPager in the API 4+ Support Demos and API 13+ Support Demos
- * sample code.
+ * <p>
+ * <p>Below is a more complicated example of ViewPager, using it in conjunction
+ * with {@link android.app.ActionBar} tabs.  You can find other examples of using
+ * ViewPager in the API 4+ Support Demos and API 13+ Support Demos sample code.
+ * <p>
+ * {@sample frameworks/support/samples/Support13Demos/src/com/example/android/supportv13/app/ActionBarTabsPager.java
+ * complete}
  */
 public class ViewPager extends ViewGroup {
     private static final String TAG = "ViewPager";
@@ -113,8 +122,8 @@ public class ViewPager extends ViewGroup {
 
     private static final int MIN_FLING_VELOCITY = 400; // dips
 
-    static final int[] LAYOUT_ATTRS = new int[] {
-        android.R.attr.layout_gravity
+    static final int[] LAYOUT_ATTRS = new int[]{
+            android.R.attr.layout_gravity
     };
 
     /**
@@ -124,20 +133,23 @@ public class ViewPager extends ViewGroup {
     private int mExpectedAdapterCount;
 
     static class ItemInfo {
-        Object object;
-        int position;
-        boolean scrolling;
+        Object object;      // childView
+        int position;       // childView在Adapter中的位置
+        boolean scrolling;  // 是否在滚动
+        // childView占的Viewpager宽度的比例[0-1]，默认是1，这个值来可以设置让一个Viewpager显示多少个childView
         float widthFactor;
-        float offset;
+        float offset;       // pager偏移量
     }
 
-    private static final Comparator<ItemInfo> COMPARATOR = new Comparator<ItemInfo>(){
+    // 页面排序
+    private static final Comparator<ItemInfo> COMPARATOR = new Comparator<ItemInfo>() {
         @Override
         public int compare(ItemInfo lhs, ItemInfo rhs) {
             return lhs.position - rhs.position;
         }
     };
 
+    // 插值器，就是根据不同的时间控制滑动速度
     private static final Interpolator sInterpolator = new Interpolator() {
         @Override
         public float getInterpolation(float t) {
@@ -146,11 +158,13 @@ public class ViewPager extends ViewGroup {
         }
     };
 
+    // 表示已经缓存的页面信息
     private final ArrayList<ItemInfo> mItems = new ArrayList<ItemInfo>();
     private final ItemInfo mTempItem = new ItemInfo();
 
     private final Rect mTempRect = new Rect();
 
+    // 页面适配器
     PagerAdapter mAdapter;
     int mCurItem;   // Index of currently displayed page.
     private int mRestoredCurItem = -1;
@@ -170,7 +184,9 @@ public class ViewPager extends ViewGroup {
     // Offsets of the first and last items, if known.
     // Set during population, used to determine if we are at the beginning
     // or end of the pager data set during touch scrolling.
+    // 第一个页卡的滑动偏移量
     private float mFirstOffset = -Float.MAX_VALUE;
+    // 最后一个页卡的偏移量
     private float mLastOffset = Float.MAX_VALUE;
 
     private int mChildWidthMeasureSpec;
@@ -197,6 +213,7 @@ public class ViewPager extends ViewGroup {
     /**
      * ID of the active pointer. This is used to retain consistency during
      * drags/flings if multiple pointers are used.
+     * 触摸手指的id。多点触摸时使用
      */
     private int mActivePointerId = INVALID_POINTER;
     /**
@@ -207,6 +224,7 @@ public class ViewPager extends ViewGroup {
 
     /**
      * Determines speed during touch scrolling
+     * 滑动速度追踪器
      */
     private VelocityTracker mVelocityTracker;
     private int mMinimumVelocity;
@@ -222,8 +240,8 @@ public class ViewPager extends ViewGroup {
     private boolean mFakeDragging;
     private long mFakeDragBeginTime;
 
-    private EdgeEffect mLeftEdge;
-    private EdgeEffect mRightEdge;
+    private EdgeEffectCompat mLeftEdge;
+    private EdgeEffectCompat mRightEdge;
 
     private boolean mFirstLayout = true;
     private boolean mNeedCalculatePageOffsets = false;
@@ -236,6 +254,7 @@ public class ViewPager extends ViewGroup {
     private List<OnAdapterChangeListener> mAdapterChangeListeners;
     private PageTransformer mPageTransformer;
     private int mPageTransformerLayerType;
+    private Method mSetChildrenDrawingOrderEnabled;
 
     private static final int DRAW_ORDER_DEFAULT = 0;
     private static final int DRAW_ORDER_FORWARD = 1;
@@ -248,17 +267,17 @@ public class ViewPager extends ViewGroup {
      * Indicates that the pager is in an idle, settled state. The current page
      * is fully in view and no animation is in progress.
      */
-    public static final int SCROLL_STATE_IDLE = 0;
+    public static final int SCROLL_STATE_IDLE = 0;// 空闲
 
     /**
      * Indicates that the pager is currently being dragged by the user.
      */
-    public static final int SCROLL_STATE_DRAGGING = 1;
+    public static final int SCROLL_STATE_DRAGGING = 1;// 拖动
 
     /**
      * Indicates that the pager is in the process of settling to a final position.
      */
-    public static final int SCROLL_STATE_SETTLING = 2;
+    public static final int SCROLL_STATE_SETTLING = 2;// 滑动结束
 
     private final Runnable mEndScrollRunnable = new Runnable() {
         @Override
@@ -279,9 +298,9 @@ public class ViewPager extends ViewGroup {
          * This method will be invoked when the current page is scrolled, either as part
          * of a programmatically initiated smooth scroll or a user initiated touch scroll.
          *
-         * @param position Position index of the first page currently being displayed.
-         *                 Page position+1 will be visible if positionOffset is nonzero.
-         * @param positionOffset Value from [0, 1) indicating the offset from the page at position.
+         * @param position             Position index of the first page currently being displayed.
+         *                             Page position+1 will be visible if positionOffset is nonzero.
+         * @param positionOffset       Value from [0, 1) indicating the offset from the page at position.
          * @param positionOffsetPixels Value in pixels indicating the offset from position.
          */
         void onPageScrolled(int position, float positionOffset, int positionOffsetPixels);
@@ -300,6 +319,7 @@ public class ViewPager extends ViewGroup {
          * or when it is fully stopped/idle.
          *
          * @param state The new scroll state.
+         *
          * @see ViewPager#SCROLL_STATE_IDLE
          * @see ViewPager#SCROLL_STATE_DRAGGING
          * @see ViewPager#SCROLL_STATE_SETTLING
@@ -333,7 +353,7 @@ public class ViewPager extends ViewGroup {
      * A PageTransformer is invoked whenever a visible/attached page is scrolled.
      * This offers an opportunity for the application to apply a custom transformation
      * to the page views using animation properties.
-     *
+     * <p>
      * <p>As property animation is only supported as of Android 3.0 and forward,
      * setting a PageTransformer on a ViewPager on earlier platform versions will
      * be ignored.</p>
@@ -342,7 +362,7 @@ public class ViewPager extends ViewGroup {
         /**
          * Apply a property transformation to the given page.
          *
-         * @param page Apply the transformation to this page
+         * @param page     Apply the transformation to this page
          * @param position Position of page relative to the current front-and-center
          *                 position of the pager. 0 is front and center. 1 is one full
          *                 page position to the right, and -1 is one page position to the left.
@@ -362,16 +382,16 @@ public class ViewPager extends ViewGroup {
          * @param newAdapter the newly set adapter
          */
         void onAdapterChanged(@NonNull ViewPager viewPager,
-                @Nullable PagerAdapter oldAdapter, @Nullable PagerAdapter newAdapter);
+                              @Nullable PagerAdapter oldAdapter, @Nullable PagerAdapter newAdapter);
     }
 
     /**
      * Annotation which allows marking of views to be decoration views when added to a view
      * pager.
-     *
+     * <p>
      * <p>Views marked with this annotation can be added to the view pager with a layout resource.
      * An example being {@link PagerTitleStrip}.</p>
-     *
+     * <p>
      * <p>You can also control whether a view is a decor view but setting
      * {@link LayoutParams#isDecor} on the child's layout params.</p>
      */
@@ -397,14 +417,14 @@ public class ViewPager extends ViewGroup {
         setFocusable(true);
         final Context context = getContext();
         mScroller = new Scroller(context, sInterpolator);
-        final ViewConfiguration configuration = ViewConfiguration.get(context);
-        final float density = context.getResources().getDisplayMetrics().density;
+        final ViewConfiguration configuration = ViewConfiguration.get(context);// 标准常量
+        final float density = context.getResources().getDisplayMetrics().density;// 屏幕密度
 
-        mTouchSlop = configuration.getScaledPagingTouchSlop();
-        mMinimumVelocity = (int) (MIN_FLING_VELOCITY * density);
+        mTouchSlop = configuration.getScaledPagingTouchSlop();// 最小滑动阈值
+        mMinimumVelocity = (int) (MIN_FLING_VELOCITY * density);// 允许执行一个fling手势的最大速度
         mMaximumVelocity = configuration.getScaledMaximumFlingVelocity();
-        mLeftEdge = new EdgeEffect(context);
-        mRightEdge = new EdgeEffect(context);
+        mLeftEdge = new EdgeEffectCompat(context);
+        mRightEdge = new EdgeEffectCompat(context);
 
         mFlingDistance = (int) (MIN_DISTANCE_FOR_FLING * density);
         mCloseEnough = (int) (CLOSE_ENOUGH * density);
@@ -418,13 +438,14 @@ public class ViewPager extends ViewGroup {
                     ViewCompat.IMPORTANT_FOR_ACCESSIBILITY_YES);
         }
 
+        // 兼容帮助类
         ViewCompat.setOnApplyWindowInsetsListener(this,
                 new android.support.v4.view.OnApplyWindowInsetsListener() {
                     private final Rect mTempRect = new Rect();
 
                     @Override
                     public WindowInsetsCompat onApplyWindowInsets(final View v,
-                            final WindowInsetsCompat originalInsets) {
+                                                                  final WindowInsetsCompat originalInsets) {
                         // First let the ViewPager itself try and consume them...
                         final WindowInsetsCompat applied =
                                 ViewCompat.onApplyWindowInsets(v, originalInsets);
@@ -497,47 +518,74 @@ public class ViewPager extends ViewGroup {
      * @param adapter Adapter to use
      */
     public void setAdapter(PagerAdapter adapter) {
+        // 如果已经设置过PagerAdapter，即mAdapter != null，做一些清理工作
         if (mAdapter != null) {
+            // 清除观察者
             mAdapter.setViewPagerObserver(null);
+            // 回调startUpdate函数，告诉PagerAdapter开始更新要显示的页面
             mAdapter.startUpdate(this);
+            // 如果之前保存有页面，则将之前所有的页面destroy掉
             for (int i = 0; i < mItems.size(); i++) {
                 final ItemInfo ii = mItems.get(i);
                 mAdapter.destroyItem(this, ii.position, ii.object);
             }
+            // 回调finishUpdate，告诉PagerAdapter结束更新
             mAdapter.finishUpdate(this);
+            // 将所有的页面清除
             mItems.clear();
+            // 将所有的非Decor View移除，即将页面移除
             removeNonDecorViews();
+            // 当前的显示页面重置到第一个
             mCurItem = 0;
+            // 滑动重置到(0,0)位置
             scrollTo(0, 0);
         }
 
+        // 保存上一次的PagerAdapter
         final PagerAdapter oldAdapter = mAdapter;
+        // 设置mAdapter为新的PagerAdapter
         mAdapter = adapter;
+        // 设置期望的适配器中的页面数量为0个
         mExpectedAdapterCount = 0;
 
+        // 如果设置的PagerAdapter不为null
         if (mAdapter != null) {
+            // 确保观察者不为null，观察者主要是用于监视数据源的内容发生变化
             if (mObserver == null) {
                 mObserver = new PagerObserver();
             }
+            // 将观察者设置到PagerAdapter中
             mAdapter.setViewPagerObserver(mObserver);
             mPopulatePending = false;
+            // 保存上一次是否是第一次Layout
             final boolean wasFirstLayout = mFirstLayout;
+            // 设定当前为第一次Layout
             mFirstLayout = true;
+            // 更新期望的数据源中页面个数
             mExpectedAdapterCount = mAdapter.getCount();
+            // 如果有数据需要恢复
             if (mRestoredCurItem >= 0) {
+                // 回调PagerAdapter的restoreState函数
                 mAdapter.restoreState(mRestoredAdapterState, mRestoredClassLoader);
                 setCurrentItemInternal(mRestoredCurItem, false, true);
+                // 标记无需再恢复
                 mRestoredCurItem = -1;
                 mRestoredAdapterState = null;
                 mRestoredClassLoader = null;
-            } else if (!wasFirstLayout) {
+            } else if (!wasFirstLayout) {// 如果在此之前不是第一次Layout
+                // 由于ViewPager并不是将所有页面作为页卡，
+                // 而是最多缓存用户指定缓存个数*2（左右两边，可能左边或右边没有那么多页面）
+                // 因此需要创建和销毁页面，populate主要工作就是这些
                 populate();
             } else {
+                // 重新布局（Layout）
                 requestLayout();
             }
         }
 
         // Dispatch the change to any listeners
+        // 如果PagerAdapter发生变化，并且设置了OnAdapterChangeListener监听器
+        // 则回调OnAdapterChangeListener的onAdapterChanged函数
         if (mAdapterChangeListeners != null && !mAdapterChangeListeners.isEmpty()) {
             for (int i = 0, count = mAdapterChangeListeners.size(); i < count; i++) {
                 mAdapterChangeListeners.get(i).onAdapterChanged(this, oldAdapter, adapter);
@@ -608,7 +656,7 @@ public class ViewPager extends ViewGroup {
     /**
      * Set the currently selected page.
      *
-     * @param item Item index to select
+     * @param item         Item index to select
      * @param smoothScroll True to smoothly scroll to the new item, false to transition immediately
      */
     public void setCurrentItem(int item, boolean smoothScroll) {
@@ -665,7 +713,7 @@ public class ViewPager extends ViewGroup {
     }
 
     private void scrollToItem(int item, boolean smoothScroll, int velocity,
-            boolean dispatchSelected) {
+                              boolean dispatchSelected) {
         final ItemInfo curInfo = infoForPosition(item);
         int destX = 0;
         if (curInfo != null) {
@@ -679,6 +727,7 @@ public class ViewPager extends ViewGroup {
                 dispatchOnPageSelected(item);
             }
         } else {
+            //是否需要分发OnPageSelected回调
             if (dispatchSelected) {
                 dispatchOnPageSelected(item);
             }
@@ -705,7 +754,7 @@ public class ViewPager extends ViewGroup {
     /**
      * Add a listener that will be invoked whenever the page changes or is incrementally
      * scrolled. See {@link OnPageChangeListener}.
-     *
+     * <p>
      * <p>Components that add a listener should take care to remove it when finished.
      * Other components that take ownership of a view may call {@link #clearOnPageChangeListeners()}
      * to remove all attached listeners.</p>
@@ -744,49 +793,75 @@ public class ViewPager extends ViewGroup {
      * Sets a {@link PageTransformer} that will be called for each attached page whenever
      * the scroll position is changed. This allows the application to apply custom property
      * transformations to each page, overriding the default sliding behavior.
-     *
-     * <p><em>Note:</em> By default, calling this method will cause contained pages to use
-     * {@link View#LAYER_TYPE_HARDWARE}. This layer type allows custom alpha transformations,
+     * <p>
+     * <p><em>Note:</em> Prior to Android 3.0 the property animation APIs did not exist.
+     * As a result, setting a PageTransformer prior to Android 3.0 (API 11) will have no effect.
+     * By default, calling this method will cause contained pages to use
+     * {@link ViewCompat#LAYER_TYPE_HARDWARE}. This layer type allows custom alpha transformations,
      * but it will cause issues if any of your pages contain a {@link android.view.SurfaceView}
      * and you have not called {@link android.view.SurfaceView#setZOrderOnTop(boolean)} to put that
      * {@link android.view.SurfaceView} above your app content. To disable this behavior, call
-     * {@link #setPageTransformer(boolean,PageTransformer,int)} and pass
-     * {@link View#LAYER_TYPE_NONE} for {@code pageLayerType}.</p>
+     * {@link #setPageTransformer(boolean, PageTransformer, int)} and pass
+     * {@link ViewCompat#LAYER_TYPE_NONE} for {@code pageLayerType}.</p>
      *
      * @param reverseDrawingOrder true if the supplied PageTransformer requires page views
      *                            to be drawn from last to first instead of first to last.
-     * @param transformer PageTransformer that will modify each page's animation properties
+     * @param transformer         PageTransformer that will modify each page's animation properties
      */
     public void setPageTransformer(boolean reverseDrawingOrder, PageTransformer transformer) {
-        setPageTransformer(reverseDrawingOrder, transformer, View.LAYER_TYPE_HARDWARE);
+        setPageTransformer(reverseDrawingOrder, transformer, ViewCompat.LAYER_TYPE_HARDWARE);
     }
 
     /**
      * Sets a {@link PageTransformer} that will be called for each attached page whenever
      * the scroll position is changed. This allows the application to apply custom property
      * transformations to each page, overriding the default sliding behavior.
+     * <p>
+     * <p><em>Note:</em> Prior to Android 3.0 ({@link Build.VERSION_CODES#HONEYCOMB API 11}),
+     * the property animation APIs did not exist. As a result, setting a PageTransformer prior
+     * to API 11 will have no effect.</p>
      *
      * @param reverseDrawingOrder true if the supplied PageTransformer requires page views
      *                            to be drawn from last to first instead of first to last.
-     * @param transformer PageTransformer that will modify each page's animation properties
-     * @param pageLayerType View layer type that should be used for ViewPager pages. It should be
-     *                      either {@link View#LAYER_TYPE_HARDWARE},
-     *                      {@link View#LAYER_TYPE_SOFTWARE}, or
-     *                      {@link View#LAYER_TYPE_NONE}.
+     * @param transformer         PageTransformer that will modify each page's animation properties
+     * @param pageLayerType       View layer type that should be used for ViewPager pages. It should be
+     *                            either {@link ViewCompat#LAYER_TYPE_HARDWARE},
+     *                            {@link ViewCompat#LAYER_TYPE_SOFTWARE}, or
+     *                            {@link ViewCompat#LAYER_TYPE_NONE}.
      */
     public void setPageTransformer(boolean reverseDrawingOrder, PageTransformer transformer,
-            int pageLayerType) {
-        final boolean hasTransformer = transformer != null;
-        final boolean needsPopulate = hasTransformer != (mPageTransformer != null);
-        mPageTransformer = transformer;
-        setChildrenDrawingOrderEnabled(hasTransformer);
-        if (hasTransformer) {
-            mDrawingOrder = reverseDrawingOrder ? DRAW_ORDER_REVERSE : DRAW_ORDER_FORWARD;
-            mPageTransformerLayerType = pageLayerType;
-        } else {
-            mDrawingOrder = DRAW_ORDER_DEFAULT;
+                                   int pageLayerType) {
+        if (Build.VERSION.SDK_INT >= 11) {
+            final boolean hasTransformer = transformer != null;
+            final boolean needsPopulate = hasTransformer != (mPageTransformer != null);
+            mPageTransformer = transformer;
+            setChildrenDrawingOrderEnabledCompat(hasTransformer);
+            if (hasTransformer) {
+                mDrawingOrder = reverseDrawingOrder ? DRAW_ORDER_REVERSE : DRAW_ORDER_FORWARD;
+                mPageTransformerLayerType = pageLayerType;
+            } else {
+                mDrawingOrder = DRAW_ORDER_DEFAULT;
+            }
+            if (needsPopulate) populate();
         }
-        if (needsPopulate) populate();
+    }
+
+    void setChildrenDrawingOrderEnabledCompat(boolean enable) {
+        if (Build.VERSION.SDK_INT >= 7) {
+            if (mSetChildrenDrawingOrderEnabled == null) {
+                try {
+                    mSetChildrenDrawingOrderEnabled = ViewGroup.class.getDeclaredMethod(
+                            "setChildrenDrawingOrderEnabled", new Class[]{Boolean.TYPE});
+                } catch (NoSuchMethodException e) {
+                    Log.e(TAG, "Can't find setChildrenDrawingOrderEnabled", e);
+                }
+            }
+            try {
+                mSetChildrenDrawingOrderEnabled.invoke(this, enable);
+            } catch (Exception e) {
+                Log.e(TAG, "Error changing children drawing order", e);
+            }
+        }
     }
 
     @Override
@@ -801,6 +876,7 @@ public class ViewPager extends ViewGroup {
      * Set a separate OnPageChangeListener for internal use by the support library.
      *
      * @param listener Listener to set
+     *
      * @return The old listener that was set, if any.
      */
     OnPageChangeListener setInternalPageChangeListener(OnPageChangeListener listener) {
@@ -814,6 +890,7 @@ public class ViewPager extends ViewGroup {
      * current page in the view hierarchy in an idle state. Defaults to 1.
      *
      * @return How many pages will be kept offscreen on either side
+     *
      * @see #setOffscreenPageLimit(int)
      */
     public int getOffscreenPageLimit() {
@@ -824,14 +901,14 @@ public class ViewPager extends ViewGroup {
      * Set the number of pages that should be retained to either side of the
      * current page in the view hierarchy in an idle state. Pages beyond this
      * limit will be recreated from the adapter when needed.
-     *
+     * <p>
      * <p>This is offered as an optimization. If you know in advance the number
      * of pages you will need to support or have lazy-loading mechanisms in place
      * on your pages, tweaking this setting can have benefits in perceived smoothness
      * of paging animations and interaction. If you have a small number of pages (3-4)
      * that you can keep active all at once, less time will be spent in layout for
      * newly created view subtrees as the user pages back and forth.</p>
-     *
+     * <p>
      * <p>You should keep this limit low, especially if your pages have complex layouts.
      * This setting defaults to 1.</p>
      *
@@ -853,6 +930,7 @@ public class ViewPager extends ViewGroup {
      * Set the margin between pages.
      *
      * @param marginPixels Distance between adjacent pages in pixels
+     *
      * @see #getPageMargin()
      * @see #setPageMarginDrawable(Drawable)
      * @see #setPageMarginDrawable(int)
@@ -917,7 +995,7 @@ public class ViewPager extends ViewGroup {
     // of travel has on the overall snap duration.
     float distanceInfluenceForSnapDuration(float f) {
         f -= 0.5f; // center the values about 0.
-        f *= 0.3f * (float) Math.PI / 2.0f;
+        f *= 0.3f * Math.PI / 2.0f;
         return (float) Math.sin(f);
     }
 
@@ -934,8 +1012,8 @@ public class ViewPager extends ViewGroup {
     /**
      * Like {@link View#scrollBy}, but scroll smoothly instead of immediately.
      *
-     * @param x the number of pixels to scroll by on the X axis
-     * @param y the number of pixels to scroll by on the Y axis
+     * @param x        the number of pixels to scroll by on the X axis
+     * @param y        the number of pixels to scroll by on the Y axis
      * @param velocity the velocity associated with a fling, if applicable. (0 otherwise)
      */
     void smoothScrollTo(int x, int y, int velocity) {
@@ -999,8 +1077,8 @@ public class ViewPager extends ViewGroup {
     ItemInfo addNewItem(int position, int index) {
         ItemInfo ii = new ItemInfo();
         ii.position = position;
-        ii.object = mAdapter.instantiateItem(this, position);
-        ii.widthFactor = mAdapter.getPageWidth(position);
+        ii.object = mAdapter.instantiateItem(this, position);// 通过Adapter创建一个childView
+        ii.widthFactor = mAdapter.getPageWidth(position);// 默认返回1.0f
         if (index < 0 || index >= mItems.size()) {
             mItems.add(ii);
         } else {
@@ -1080,6 +1158,7 @@ public class ViewPager extends ViewGroup {
         }
     }
 
+    // 填充
     void populate() {
         populate(mCurItem);
     }
@@ -1087,12 +1166,14 @@ public class ViewPager extends ViewGroup {
     void populate(int newCurrentItem) {
         ItemInfo oldCurInfo = null;
         if (mCurItem != newCurrentItem) {
-            oldCurInfo = infoForPosition(mCurItem);
-            mCurItem = newCurrentItem;
+            oldCurInfo = infoForPosition(mCurItem);// 获取旧的ItemInfo
+            mCurItem = newCurrentItem;// 更新新的当前位置
         }
 
         if (mAdapter == null) {
-            sortChildDrawingOrder();
+            // 对页卡的绘制顺序进行排序，优先绘制DecorView
+            // 再按照position从小到大排序
+            sortChildDrawingOrder();// 排序
             return;
         }
 
@@ -1100,8 +1181,12 @@ public class ViewPager extends ViewGroup {
         // on creating views from the time the user releases their finger to
         // fling to a new position until we have finished the scroll to
         // that position, avoiding glitches from happening at that point.
+        // 如果我们正在等待populate,那么在用户手指抬起切换到新的位置期间应该推迟创建页卡，
+        // 直到滚动到最终位置再去创建，以免在这个期间出现差错
         if (mPopulatePending) {
             if (DEBUG) Log.i(TAG, "populate is pending, skipping for now...");
+            // 对页卡的绘制顺序进行排序，优先绘制Decor View
+            // 再按照position从小到大排序
             sortChildDrawingOrder();
             return;
         }
@@ -1109,17 +1194,28 @@ public class ViewPager extends ViewGroup {
         // Also, don't populate until we are attached to a window.  This is to
         // avoid trying to populate before we have restored our view hierarchy
         // state and conflicting with what is restored.
+        // 同样，在ViewPager没有attached到window之前，不要populate.
+        // 这是因为如果我们在恢复View的层次结构之前进行populate，可能会与要恢复的内容有冲突
         if (getWindowToken() == null) {
             return;
         }
 
+        // 回调PagerAdapter的startUpdate函数，
+        // 告诉PagerAdapter开始更新要显示的页面
         mAdapter.startUpdate(this);
 
+        // mOffscreenPageLimit就是setOffscreenPageLimit方法设置的值
+        // 也就是单侧缓存数量（整个ViewPager含有的Item是（2 * mOffscreenPageLimit + 1）），
+        // 其他要滑动过程中加载，超过缓存数量的需要销毁
         final int pageLimit = mOffscreenPageLimit;
+        // mItems的长度就是 2 * pageLimit + 1
         final int startPos = Math.max(0, mCurItem - pageLimit);
         final int N = mAdapter.getCount();
+        // 确保最后的位置小于等于数据源中数据个数-1，
+        // 如果用户设置了缓存页面数量，第一个页面为当前页面加缓存页面数量
         final int endPos = Math.min(N - 1, mCurItem + pageLimit);
 
+        // 判断用户是否增减了数据源的元素，如果增减了且没有调用notifyDataSetChanged，则抛出异常
         if (N != mExpectedAdapterCount) {
             String resName;
             try {
@@ -1136,6 +1232,7 @@ public class ViewPager extends ViewGroup {
         }
 
         // Locate the currently focused item or add it if needed.
+        // 遍历列表查找是否有获取焦点的页面ItemInfo
         int curIndex = -1;
         ItemInfo curItem = null;
         for (curIndex = 0; curIndex < mItems.size(); curIndex++) {
@@ -1146,6 +1243,7 @@ public class ViewPager extends ViewGroup {
             }
         }
 
+        // 如果没有获取焦点页面则创建一个ItemInfo加入
         if (curItem == null && N > 0) {
             curItem = addNewItem(mCurItem, curIndex);
         }
@@ -1155,39 +1253,59 @@ public class ViewPager extends ViewGroup {
         // If we have no current item we have no work to do.
         if (curItem != null) {
             float extraWidthLeft = 0.f;
-            int itemIndex = curIndex - 1;
+            int itemIndex = curIndex - 1;// 当前ItemInfo的左侧页面的索引
+            // 如果当前页面左边有页面，则将左边页面对应的ItemInfo取出，否则左边页面的ItemInfo为null
             ItemInfo ii = itemIndex >= 0 ? mItems.get(itemIndex) : null;
+            // 保存显示区域的宽度
             final int clientWidth = getClientWidth();
+            // 算出左边页面需要的宽度，注意，这里的宽度是指实际宽度与可视区域宽度比例，
+            // 即实际宽度 = leftWidthNeeded * clientWidth
             final float leftWidthNeeded = clientWidth <= 0 ? 0 :
                     2.f - curItem.widthFactor + (float) getPaddingLeft() / (float) clientWidth;
+            // 从当前页面左边第一个页面开始往左进行遍历
             for (int pos = mCurItem - 1; pos >= 0; pos--) {
+                // 如果左边的宽度超过了所需的宽度，并且当前当前页面位置比第一个缓存页面位置小
+                // 这说明这个页面需要Destroy掉
                 if (extraWidthLeft >= leftWidthNeeded && pos < startPos) {
-                    if (ii == null) {
+                    if (ii == null) {// 如果左侧已经没有页面了则停止循环
                         break;
                     }
+                    // 将当前页面destroy掉
                     if (pos == ii.position && !ii.scrolling) {
                         mItems.remove(itemIndex);
+                        // 回调PagerAdapter的destroyItem
                         mAdapter.destroyItem(this, pos, ii.object);
                         if (DEBUG) {
                             Log.i(TAG, "populate() - destroyItem() with pos: " + pos
                                     + " view: " + ((View) ii.object));
                         }
+                        // 由于mItems删除了一个元素
+                        // 需要将索引减一
                         itemIndex--;
                         curIndex--;
                         ii = itemIndex >= 0 ? mItems.get(itemIndex) : null;
                     }
                 } else if (ii != null && pos == ii.position) {
+                    // 如果当前位置是需要缓存的位置，并且这个位置上的页面已经存在
+                    // 则将左边宽度加上当前位置的页面
                     extraWidthLeft += ii.widthFactor;
-                    itemIndex--;
+                    itemIndex--;// 继续左移一位
+                    // ii设置为当前遍历的页面的左边一个页面
                     ii = itemIndex >= 0 ? mItems.get(itemIndex) : null;
                 } else {
+                    // 如果当前位置是需要缓存，并且这个位置没有页面
+                    // 需要添加一个ItemInfo,而addNewItem是通过PagerAdapter的instantiateItem获取对象
                     ii = addNewItem(pos, itemIndex + 1);
+                    // 将左边宽度加上当前位置的页面
                     extraWidthLeft += ii.widthFactor;
+                    // 由于新加了一个元素，当前的索引号需要加1
                     curIndex++;
+                    // ii设置为当前遍历的页面的左边一个页面
                     ii = itemIndex >= 0 ? mItems.get(itemIndex) : null;
                 }
             }
 
+            // 调整右侧位置
             float extraWidthRight = curItem.widthFactor;
             itemIndex = curIndex + 1;
             if (extraWidthRight < 2.f) {
@@ -1221,6 +1339,7 @@ public class ViewPager extends ViewGroup {
                 }
             }
 
+            // 计算mItems中的偏移参数
             calculatePageOffsets(curItem, curIndex, oldCurInfo);
         }
 
@@ -1231,12 +1350,14 @@ public class ViewPager extends ViewGroup {
             }
         }
 
+        // 回调PagerAdapter的setPrimaryItem，告诉PagerAdapter当前显示的页面
         mAdapter.setPrimaryItem(this, mCurItem, curItem != null ? curItem.object : null);
-
+        // 回调PagerAdapter的finishUpdate，告诉PagerAdapter页面更新结束
         mAdapter.finishUpdate(this);
 
         // Check width measurement of current pages and drawing sort order.
         // Update LayoutParams as needed.
+        // 检查页面的宽度是否测量，如果页面的LayoutParams数据没有设定，则去重新设定好
         final int childCount = getChildCount();
         for (int i = 0; i < childCount; i++) {
             final View child = getChildAt(i);
@@ -1251,8 +1372,10 @@ public class ViewPager extends ViewGroup {
                 }
             }
         }
+        // 重新对页面排序
         sortChildDrawingOrder();
 
+        // 如果ViewPager被设定为可获焦的，则将当前显示的页面设定为获焦
         if (hasFocus()) {
             View currentFocused = findFocus();
             ItemInfo ii = currentFocused != null ? infoForAnyChild(currentFocused) : null;
@@ -1299,7 +1422,7 @@ public class ViewPager extends ViewGroup {
                 ItemInfo ii = null;
                 float offset = oldCurInfo.offset + oldCurInfo.widthFactor + marginOffset;
                 for (int pos = oldCurPosition + 1;
-                        pos <= curItem.position && itemIndex < mItems.size(); pos++) {
+                     pos <= curItem.position && itemIndex < mItems.size(); pos++) {
                     ii = mItems.get(itemIndex);
                     while (pos > ii.position && itemIndex < mItems.size() - 1) {
                         itemIndex++;
@@ -1319,7 +1442,7 @@ public class ViewPager extends ViewGroup {
                 ItemInfo ii = null;
                 float offset = oldCurInfo.offset;
                 for (int pos = oldCurPosition - 1;
-                        pos >= curItem.position && itemIndex >= 0; pos--) {
+                     pos >= curItem.position && itemIndex >= 0; pos--) {
                     ii = mItems.get(itemIndex);
                     while (pos < ii.position && itemIndex > 0) {
                         itemIndex--;
@@ -1401,21 +1524,18 @@ public class ViewPager extends ViewGroup {
                     + " position=" + position + "}";
         }
 
-        public static final Creator<SavedState> CREATOR = new ClassLoaderCreator<SavedState>() {
-            @Override
-            public SavedState createFromParcel(Parcel in, ClassLoader loader) {
-                return new SavedState(in, loader);
-            }
+        public static final Parcelable.Creator<SavedState> CREATOR = ParcelableCompat.newCreator(
+                new ParcelableCompatCreatorCallbacks<SavedState>() {
+                    @Override
+                    public SavedState createFromParcel(Parcel in, ClassLoader loader) {
+                        return new SavedState(in, loader);
+                    }
 
-            @Override
-            public SavedState createFromParcel(Parcel in) {
-                return new SavedState(in, null);
-            }
-            @Override
-            public SavedState[] newArray(int size) {
-                return new SavedState[size];
-            }
-        };
+                    @Override
+                    public SavedState[] newArray(int size) {
+                        return new SavedState[size];
+                    }
+                });
 
         SavedState(Parcel in, ClassLoader loader) {
             super(in, loader);
@@ -1542,8 +1662,9 @@ public class ViewPager extends ViewGroup {
         // For simple implementation, our internal size is always 0.
         // We depend on the container to specify the layout size of
         // our view.  We can't really know what it is since we will be
-        // adding and removing different arbitrary views and do not
+        // adding and removing different arbitrary(任意的) views and do not
         // want the layout to change as this happens.
+        // 设置尺寸信息，默认为0
         setMeasuredDimension(getDefaultSize(0, widthMeasureSpec),
                 getDefaultSize(0, heightMeasureSpec));
 
@@ -1552,51 +1673,68 @@ public class ViewPager extends ViewGroup {
         mGutterSize = Math.min(maxGutterSize, mDefaultGutterSize);
 
         // Children are just made to fill our space.
+        // Viewpager默认只显示一个childView
         int childWidthSize = measuredWidth - getPaddingLeft() - getPaddingRight();
         int childHeightSize = getMeasuredHeight() - getPaddingTop() - getPaddingBottom();
 
         /*
-         * Make sure all children have been properly measured. Decor views first.
-         * Right now we cheat and make this less complicated by assuming decor
-         * views won't intersect. We will pin to edges based on gravity.
+         * Make sure all children have been properly(正确的) measured. Decor views first.
+         * Right now we cheat and make this less complicated(复杂的) by assuming(假设) decor
+         * views won't intersect(相交). We will pin to edges based on gravity.
+         * 下面循环针对DecorView的，即用于装饰ViewPager的View
+         * 获取ViewPager中pager的数量不是适配器中的view数量（实际是一样的）
          */
         int size = getChildCount();
         for (int i = 0; i < size; ++i) {
+            // 获取Pager视图（不是适配器中view视图）
             final View child = getChildAt(i);
             if (child.getVisibility() != GONE) {
                 final LayoutParams lp = (LayoutParams) child.getLayoutParams();
                 if (lp != null && lp.isDecor) {
+                    // 获取水平方向和竖直方向的gravity
                     final int hgrav = lp.gravity & Gravity.HORIZONTAL_GRAVITY_MASK;
                     final int vgrav = lp.gravity & Gravity.VERTICAL_GRAVITY_MASK;
+                    // 默认宽高的模式是wrap_content
                     int widthMode = MeasureSpec.AT_MOST;
                     int heightMode = MeasureSpec.AT_MOST;
+                    // 判断是在竖直方向还是水平方向上占用空间
                     boolean consumeVertical = vgrav == Gravity.TOP || vgrav == Gravity.BOTTOM;
                     boolean consumeHorizontal = hgrav == Gravity.LEFT || hgrav == Gravity.RIGHT;
 
+                    // 如果竖直方向占用，那么宽度模式就是match_parent，竖直方向有DecorView决定
+                    // 水平方向同理
                     if (consumeVertical) {
                         widthMode = MeasureSpec.EXACTLY;
                     } else if (consumeHorizontal) {
                         heightMode = MeasureSpec.EXACTLY;
                     }
 
+                    // 默认宽高与pager的宽高一样，也就是只显示一个子view
                     int widthSize = childWidthSize;
                     int heightSize = childHeightSize;
+                    // 如果pager的宽度不是wrap_content，那么宽度模式就是EXACTLY(match_parent)，
+                    // 如果也不是match_parent，宽度就是pager的宽度
                     if (lp.width != LayoutParams.WRAP_CONTENT) {
                         widthMode = MeasureSpec.EXACTLY;
                         if (lp.width != LayoutParams.MATCH_PARENT) {
                             widthSize = lp.width;
                         }
                     }
+                    // 高度同上
                     if (lp.height != LayoutParams.WRAP_CONTENT) {
                         heightMode = MeasureSpec.EXACTLY;
                         if (lp.height != LayoutParams.MATCH_PARENT) {
                             heightSize = lp.height;
                         }
                     }
+                    // 有了宽度和高度的size和模型，就可以获取viewpager对应的规格（包含值和模型）
                     final int widthSpec = MeasureSpec.makeMeasureSpec(widthSize, widthMode);
                     final int heightSpec = MeasureSpec.makeMeasureSpec(heightSize, heightMode);
+                    // 测量pager
                     child.measure(widthSpec, heightSpec);
 
+                    // 如果DecorView占用了ViewPager的垂直方向的空间需要将页卡的竖直方向可用的空间
+                    // 减去DecorView的高度，同理，水平方向上也做同样的处理
                     if (consumeVertical) {
                         childHeightSize -= child.getMeasuredHeight();
                     } else if (consumeHorizontal) {
@@ -1606,6 +1744,7 @@ public class ViewPager extends ViewGroup {
             }
         }
 
+        // 获取页卡对应的宽高规格MeasureSpec（包括值和模型）
         mChildWidthMeasureSpec = MeasureSpec.makeMeasureSpec(childWidthSize, MeasureSpec.EXACTLY);
         mChildHeightMeasureSpec = MeasureSpec.makeMeasureSpec(childHeightSize, MeasureSpec.EXACTLY);
 
@@ -1614,7 +1753,7 @@ public class ViewPager extends ViewGroup {
         populate();
         mInLayout = false;
 
-        // Page views next.
+        // Page views next.再对页卡进行测量
         size = getChildCount();
         for (int i = 0; i < size; ++i) {
             final View child = getChildAt(i);
@@ -1624,7 +1763,11 @@ public class ViewPager extends ViewGroup {
                 }
 
                 final LayoutParams lp = (LayoutParams) child.getLayoutParams();
+                // 只针对页卡而不是DecorView进行测量
                 if (lp == null || !lp.isDecor) {
+                    // LayoutParams的widthFactor是取值为[0,1]的浮点数，
+                    // 用于表示页卡占ViewPager显示区域中页卡可用宽度的比例，
+                    // 即(childWidthSize * lp.widthFactor)表示当前页卡的实际宽度
                     final int widthSpec = MeasureSpec.makeMeasureSpec(
                             (int) (childWidthSize * lp.widthFactor), MeasureSpec.EXACTLY);
                     child.measure(widthSpec, mChildHeightMeasureSpec);
@@ -1684,70 +1827,85 @@ public class ViewPager extends ViewGroup {
 
         // First pass - decor views. We need to do this in two passes so that
         // we have the proper offsets for non-decor views later.
+        // 首先对DecorView进行layout，再对普通页卡进行layout，之所以先对DecorView布局，
+        // 是为了让普通页卡（页卡）能有合适的偏移
         for (int i = 0; i < count; i++) {
             final View child = getChildAt(i);
             if (child.getVisibility() != GONE) {
                 final LayoutParams lp = (LayoutParams) child.getLayoutParams();
                 int childLeft = 0;
                 int childTop = 0;
-                if (lp.isDecor) {
+                if (lp.isDecor) {// 只神队DecorView
                     final int hgrav = lp.gravity & Gravity.HORIZONTAL_GRAVITY_MASK;
                     final int vgrav = lp.gravity & Gravity.VERTICAL_GRAVITY_MASK;
+                    // 根据水平方向上的Gravity来确定childLeft和paddingLeft
                     switch (hgrav) {
-                        default:
+                        default:// 水平方向没有设置Gravity的时候默认为Parent的paddingRight
                             childLeft = paddingLeft;
                             break;
-                        case Gravity.LEFT:
+                        case Gravity.LEFT:// 在最左边
                             childLeft = paddingLeft;
                             paddingLeft += child.getMeasuredWidth();
                             break;
-                        case Gravity.CENTER_HORIZONTAL:
+                        case Gravity.CENTER_HORIZONTAL:// 水平居中
                             childLeft = Math.max((width - child.getMeasuredWidth()) / 2,
                                     paddingLeft);
                             break;
-                        case Gravity.RIGHT:
+                        case Gravity.RIGHT:// 最右侧
                             childLeft = width - paddingRight - child.getMeasuredWidth();
                             paddingRight += child.getMeasuredWidth();
                             break;
                     }
+                    // 根据竖直方向上的Gravity来确定childTop和paddingTop
                     switch (vgrav) {
-                        default:
+                        default:// 未设置
                             childTop = paddingTop;
                             break;
-                        case Gravity.TOP:
+                        case Gravity.TOP:// 顶部
                             childTop = paddingTop;
                             paddingTop += child.getMeasuredHeight();
                             break;
-                        case Gravity.CENTER_VERTICAL:
+                        case Gravity.CENTER_VERTICAL:// 垂直居中
                             childTop = Math.max((height - child.getMeasuredHeight()) / 2,
                                     paddingTop);
                             break;
-                        case Gravity.BOTTOM:
+                        case Gravity.BOTTOM:// 最底侧
                             childTop = height - paddingBottom - child.getMeasuredHeight();
                             paddingBottom += child.getMeasuredHeight();
                             break;
                     }
+                    // 上面计算的childLeft是相对ViewPager的左边计算的，
+                    // 还需要加上x方向已经滑动的距离scrollX
                     childLeft += scrollX;
+                    // 对DecorView
                     child.layout(childLeft, childTop,
                             childLeft + child.getMeasuredWidth(),
                             childTop + child.getMeasuredHeight());
+                    //累加DecorView的数量
                     decorCount++;
                 }
             }
         }
 
+        // 普通page的宽度
         final int childWidth = width - paddingLeft - paddingRight;
         // Page views. Do this once we have the right padding offsets from above.
+        // 下面针对普通页卡布局，在此之前我们已经得到正确的偏移量了
         for (int i = 0; i < count; i++) {
             final View child = getChildAt(i);
             if (child.getVisibility() != GONE) {
                 final LayoutParams lp = (LayoutParams) child.getLayoutParams();
                 ItemInfo ii;
+                // 此处将DecorView过滤掉，并且根据view从mItems中查找ItemInfo对象
+                // 如果ViewPager布局中添加了未实现Decor接口的控件，将不会被布局
+                // 因为无法从mItems中查找到ItemInfo对象
                 if (!lp.isDecor && (ii = infoForChild(child)) != null) {
+                    // 计算当前page的左边界偏移值，此处的offset会随着页面增加而增加
                     int loff = (int) (childWidth * ii.offset);
                     int childLeft = paddingLeft + loff;
                     int childTop = paddingTop;
-                    if (lp.needsMeasure) {
+                    // 当找个页面卡是在layout期间添加的需要测量
+                    if (lp.needsMeasure) {//如果需要重新测量，则重新测量之
                         // This was added during layout and needs measurement.
                         // Do it now that we know what we're working with.
                         lp.needsMeasure = false;
@@ -1764,19 +1922,23 @@ public class ViewPager extends ViewGroup {
                                 + ":" + childLeft + "," + childTop + " " + child.getMeasuredWidth()
                                 + "x" + child.getMeasuredHeight());
                     }
+                    // 对普通页面卡进行布局
                     child.layout(childLeft, childTop,
                             childLeft + child.getMeasuredWidth(),
                             childTop + child.getMeasuredHeight());
                 }
             }
         }
+        // 保存顶部底部padding和数量
         mTopPageBounds = paddingTop;
         mBottomPageBounds = height - paddingBottom;
         mDecorChildCount = decorCount;
 
+        //如果是首次布局，则会调用scrollToItem方法滑动到第一个页面位置
         if (mFirstLayout) {
             scrollToItem(mCurItem, false, 0, false);
         }
+        // 标记第一次布局完成
         mFirstLayout = false;
     }
 
@@ -1846,15 +2008,22 @@ public class ViewPager extends ViewGroup {
      * (e.g. super.onPageScrolled(position, offset, offsetPixels)) before onPageScrolled
      * returns.
      *
-     * @param position Position index of the first page currently being displayed.
-     *                 Page position+1 will be visible if positionOffset is nonzero.
-     * @param offset Value from [0, 1) indicating the offset from the page at position.
+     * @param position     Position index of the first page currently being displayed.
+     *                     Page position+1 will be visible if positionOffset is nonzero.
+     *                     表示当前是第几个页面
+     * @param offset       Value from [0, 1) indicating the offset from the page at position.
+     *                     表示当前页面移动的距离，其实就是个相对实际宽度比例值，取值为[0,1)。
+     *                     0表示整个页面在显示区域，1表示整个页面已经完全左移出显示区域。
      * @param offsetPixels Value in pixels indicating the offset from position.
+     *                     表示当前页面左移的像素个数。
      */
     @CallSuper
     protected void onPageScrolled(int position, float offset, int offsetPixels) {
         // Offset any decor views if needed - keep them on-screen at all times.
+        // 如果有DecorView，则需要使得它们时刻显示在屏幕中，不移出屏幕
         if (mDecorChildCount > 0) {
+            // 根据Gravity将DecorView摆放到指定位置。
+            // 这部分代码与onMeasure()方法中的原理一样，这里就不做解释了
             final int scrollX = getScrollX();
             int paddingLeft = getPaddingLeft();
             int paddingRight = getPaddingRight();
@@ -1893,8 +2062,10 @@ public class ViewPager extends ViewGroup {
             }
         }
 
+        // 分发页面滚动事件,类似于事件的分发
         dispatchOnPageScrolled(position, offset, offsetPixels);
 
+        // 如果mPageTransformer不为null，则不断去调用mPageTransformer的transformPage函数
         if (mPageTransformer != null) {
             final int scrollX = getScrollX();
             final int childCount = getChildCount();
@@ -1902,12 +2073,16 @@ public class ViewPager extends ViewGroup {
                 final View child = getChildAt(i);
                 final LayoutParams lp = (LayoutParams) child.getLayoutParams();
 
+                // 只针对页面进行处理
                 if (lp.isDecor) continue;
+                // 计算child位置
                 final float transformPos = (float) (child.getLeft() - scrollX) / getClientWidth();
+                // 调用transformPage
                 mPageTransformer.transformPage(child, transformPos);
             }
         }
 
+        // 标记ViewPager的onPageScrolled函数执行过
         mCalledSuper = true;
     }
 
@@ -2007,8 +2182,8 @@ public class ViewPager extends ViewGroup {
         final int childCount = getChildCount();
         for (int i = 0; i < childCount; i++) {
             final int layerType = enable
-                    ? mPageTransformerLayerType : View.LAYER_TYPE_NONE;
-            getChildAt(i).setLayerType(layerType, null);
+                    ? mPageTransformerLayerType : ViewCompat.LAYER_TYPE_NONE;
+            ViewCompat.setLayerType(getChildAt(i), layerType, null);
         }
     }
 
@@ -2020,31 +2195,39 @@ public class ViewPager extends ViewGroup {
          * scrolling there.
          */
 
-        final int action = ev.getAction() & MotionEvent.ACTION_MASK;
+        // 触摸动作
+        final int action = ev.getAction() & MotionEventCompat.ACTION_MASK;
 
         // Always take care of the touch gesture being complete.
+        // 时刻要注意触摸是否已经结束
         if (action == MotionEvent.ACTION_CANCEL || action == MotionEvent.ACTION_UP) {
             // Release the drag.
             if (DEBUG) Log.v(TAG, "Intercept done!");
+            // 重置一些跟判断是否拦截触摸相关变量
             resetTouch();
+            // 触摸结束，无需拦截
             return false;
         }
 
         // Nothing more to do here if we have decided whether or not we
         // are dragging.
+        // 如果当前不是按下事件，我们就判断一下，是否是在拖拽切换页面
         if (action != MotionEvent.ACTION_DOWN) {
+            // 如果当前是正在拽切换页面，直接拦截掉事件，后面无需再做拦截判断
             if (mIsBeingDragged) {
                 if (DEBUG) Log.v(TAG, "Intercept returning true!");
                 return true;
             }
+            // 如果标记为不允许拖拽切换页面，我们就不处理一切触摸事件
             if (mIsUnableToDrag) {
                 if (DEBUG) Log.v(TAG, "Intercept returning false!");
                 return false;
             }
         }
 
+        // 根据不同的动作进行处理
         switch (action) {
-            case MotionEvent.ACTION_MOVE: {
+            case MotionEvent.ACTION_MOVE: {// 如果是手指移动操作
                 /*
                  * mIsBeingDragged == false, otherwise the shortcut would have caught it. Check
                  * whether the user has moved far enough from his original down touch.
@@ -2054,47 +2237,66 @@ public class ViewPager extends ViewGroup {
                 * Locally do absolute value. mLastMotionY is set to the y value
                 * of the down event.
                 */
+                // 代码能执行到这里，就说明mIsBeingDragged==false，否则的话就已经执行结束了
+                // 使用触摸点Id，主要是为了处理多点触摸
                 final int activePointerId = mActivePointerId;
                 if (activePointerId == INVALID_POINTER) {
                     // If we don't have a valid id, the touch down wasn't on content.
+                    // 如果当前的触摸点id不是一个有效的Id，无需再做处理
                     break;
                 }
 
+                // 根据触摸点的id来区分不同的手指，我们只需关注一个手指就好
                 final int pointerIndex = ev.findPointerIndex(activePointerId);
+                // 根据这个手指的序号，来获取这个手指对应的x坐标
                 final float x = ev.getX(pointerIndex);
+                // 在x轴方向上移动的距离
                 final float dx = x - mLastMotionX;
+                // x轴方向的移动距离绝对值
                 final float xDiff = Math.abs(dx);
                 final float y = ev.getY(pointerIndex);
                 final float yDiff = Math.abs(y - mInitialMotionY);
                 if (DEBUG) Log.v(TAG, "Moved x to " + x + "," + y + " diff=" + xDiff + "," + yDiff);
 
+                // 判断当前显示的页面是否可以滑动，如果可以滑动，则将该事件丢给当前显示的页面处理
+                // isGutterDrag是判断是否在两个页面之间的缝隙内移动
+                // canScroll是判断页面是否可以滑动
                 if (dx != 0 && !isGutterDrag(mLastMotionX, dx)
                         && canScroll(this, false, (int) dx, (int) x, (int) y)) {
                     // Nested view has scrollable area under this point. Let it be handled there.
                     mLastMotionX = x;
                     mLastMotionY = y;
+                    // 标记ViewPager不去拦截事件
                     mIsUnableToDrag = true;
                     return false;
                 }
+                // 如果x移动距离大于最小距离，并且斜率小于0.5，表示在水平方向上的拖动
                 if (xDiff > mTouchSlop && xDiff * 0.5f > yDiff) {
                     if (DEBUG) Log.v(TAG, "Starting drag!");
+                    // 水平方向的移动，需要ViewPager去拦截
                     mIsBeingDragged = true;
+                    // 如果ViewPager还有父View，则还要向父View申请将触摸事件传递给ViewPager
                     requestParentDisallowInterceptTouchEvent(true);
+                    // 设置滚动状态
                     setScrollState(SCROLL_STATE_DRAGGING);
+                    // 保存当前位置
                     mLastMotionX = dx > 0
                             ? mInitialMotionX + mTouchSlop : mInitialMotionX - mTouchSlop;
                     mLastMotionY = y;
+                    // 启用缓存
                     setScrollingCacheEnabled(true);
-                } else if (yDiff > mTouchSlop) {
+                } else if (yDiff > mTouchSlop) {// 否则的话，表示是竖直方向上的移动
                     // The finger has moved enough in the vertical
                     // direction to be counted as a drag...  abort
                     // any attempt to drag horizontally, to work correctly
                     // with children that have scrolling containers.
                     if (DEBUG) Log.v(TAG, "Starting unable to drag!");
+                    // 竖直方向上的移动则不去拦截触摸事件
                     mIsUnableToDrag = true;
                 }
                 if (mIsBeingDragged) {
                     // Scroll to follow the motion event
+                    // 跟随手指一起滑动
                     if (performDrag(x)) {
                         ViewCompat.postInvalidateOnAnimation(this);
                     }
@@ -2102,28 +2304,38 @@ public class ViewPager extends ViewGroup {
                 break;
             }
 
-            case MotionEvent.ACTION_DOWN: {
+            case MotionEvent.ACTION_DOWN: {// 如果手指是按下操作
                 /*
                  * Remember location of down touch.
                  * ACTION_DOWN always refers to pointer index 0.
                  */
+                // 记录按下的点位置
                 mLastMotionX = mInitialMotionX = ev.getX();
                 mLastMotionY = mInitialMotionY = ev.getY();
+                // 第一个ACTION_DOWN事件对应的手指序号为0
                 mActivePointerId = ev.getPointerId(0);
+                // 重置允许拖拽切换页面
                 mIsUnableToDrag = false;
-
+                // 标记开始滚动
                 mIsScrollStarted = true;
+                // 手动调用计算滑动的偏移量
                 mScroller.computeScrollOffset();
+                // 如果当前滚动状态为正在将页面放置到最终位置，
+                // 且当前位置距离最终位置足够远
                 if (mScrollState == SCROLL_STATE_SETTLING
                         && Math.abs(mScroller.getFinalX() - mScroller.getCurrX()) > mCloseEnough) {
                     // Let the user 'catch' the pager as it animates.
+                    // 如果此时用户手指按下，则立马暂停滑动
                     mScroller.abortAnimation();
                     mPopulatePending = false;
                     populate();
                     mIsBeingDragged = true;
+                    // 如果ViewPager还有父View，则还要向父View申请将触摸事件传递给ViewPager
                     requestParentDisallowInterceptTouchEvent(true);
+                    // 设置当前状态为正在拖拽
                     setScrollState(SCROLL_STATE_DRAGGING);
                 } else {
+                    // 结束滚动
                     completeScroll(false);
                     mIsBeingDragged = false;
                 }
@@ -2136,11 +2348,12 @@ public class ViewPager extends ViewGroup {
                 break;
             }
 
-            case MotionEvent.ACTION_POINTER_UP:
+            case MotionEventCompat.ACTION_POINTER_UP:
                 onSecondaryPointerUp(ev);
                 break;
         }
 
+        // 添加速度追踪
         if (mVelocityTracker == null) {
             mVelocityTracker = VelocityTracker.obtain();
         }
@@ -2149,6 +2362,7 @@ public class ViewPager extends ViewGroup {
         /*
          * The only time we want to intercept motion events is if we are in the
          * drag mode.
+         * 只有在当前是拖拽切换页面时我们才会去拦截事件
          */
         return mIsBeingDragged;
     }
@@ -2181,7 +2395,7 @@ public class ViewPager extends ViewGroup {
         final int action = ev.getAction();
         boolean needsInvalidate = false;
 
-        switch (action & MotionEvent.ACTION_MASK) {
+        switch (action & MotionEventCompat.ACTION_MASK) {
             case MotionEvent.ACTION_DOWN: {
                 mScroller.abortAnimation();
                 mPopulatePending = false;
@@ -2238,7 +2452,8 @@ public class ViewPager extends ViewGroup {
                 if (mIsBeingDragged) {
                     final VelocityTracker velocityTracker = mVelocityTracker;
                     velocityTracker.computeCurrentVelocity(1000, mMaximumVelocity);
-                    int initialVelocity = (int) velocityTracker.getXVelocity(mActivePointerId);
+                    int initialVelocity = (int) VelocityTrackerCompat.getXVelocity(
+                            velocityTracker, mActivePointerId);
                     mPopulatePending = true;
                     final int width = getClientWidth();
                     final int scrollX = getScrollX();
@@ -2263,14 +2478,14 @@ public class ViewPager extends ViewGroup {
                     needsInvalidate = resetTouch();
                 }
                 break;
-            case MotionEvent.ACTION_POINTER_DOWN: {
-                final int index = ev.getActionIndex();
+            case MotionEventCompat.ACTION_POINTER_DOWN: {
+                final int index = MotionEventCompat.getActionIndex(ev);
                 final float x = ev.getX(index);
                 mLastMotionX = x;
                 mActivePointerId = ev.getPointerId(index);
                 break;
             }
-            case MotionEvent.ACTION_POINTER_UP:
+            case MotionEventCompat.ACTION_POINTER_UP:
                 onSecondaryPointerUp(ev);
                 mLastMotionX = ev.getX(ev.findPointerIndex(mActivePointerId));
                 break;
@@ -2285,9 +2500,7 @@ public class ViewPager extends ViewGroup {
         boolean needsInvalidate;
         mActivePointerId = INVALID_POINTER;
         endDrag();
-        mLeftEdge.onRelease();
-        mRightEdge.onRelease();
-        needsInvalidate = mLeftEdge.isFinished() || mRightEdge.isFinished();
+        needsInvalidate = mLeftEdge.onRelease() | mRightEdge.onRelease();
         return needsInvalidate;
     }
 
@@ -2327,15 +2540,13 @@ public class ViewPager extends ViewGroup {
         if (scrollX < leftBound) {
             if (leftAbsolute) {
                 float over = leftBound - scrollX;
-                mLeftEdge.onPull(Math.abs(over) / width);
-                needsInvalidate = true;
+                needsInvalidate = mLeftEdge.onPull(Math.abs(over) / width);
             }
             scrollX = leftBound;
         } else if (scrollX > rightBound) {
             if (rightAbsolute) {
                 float over = scrollX - rightBound;
-                mRightEdge.onPull(Math.abs(over) / width);
-                needsInvalidate = true;
+                needsInvalidate = mRightEdge.onPull(Math.abs(over) / width);
             }
             scrollX = rightBound;
         }
@@ -2349,7 +2560,7 @@ public class ViewPager extends ViewGroup {
 
     /**
      * @return Info about the page at the current scroll position.
-     *         This can be synthetic for a missing middle page; the 'object' field can be null.
+     * This can be synthetic for a missing middle page; the 'object' field can be null.
      */
     private ItemInfo infoForCurrentScrollPosition() {
         final int width = getClientWidth();
@@ -2421,7 +2632,7 @@ public class ViewPager extends ViewGroup {
         final int overScrollMode = getOverScrollMode();
         if (overScrollMode == View.OVER_SCROLL_ALWAYS
                 || (overScrollMode == View.OVER_SCROLL_IF_CONTENT_SCROLLS
-                        && mAdapter != null && mAdapter.getCount() > 1)) {
+                && mAdapter != null && mAdapter.getCount() > 1)) {
             if (!mLeftEdge.isFinished()) {
                 final int restoreCount = canvas.save();
                 final int height = getHeight() - getPaddingTop() - getPaddingBottom();
@@ -2501,13 +2712,13 @@ public class ViewPager extends ViewGroup {
 
     /**
      * Start a fake drag of the pager.
-     *
+     * <p>
      * <p>A fake drag can be useful if you want to synchronize the motion of the ViewPager
      * with the touch scrolling of another view, while still letting the ViewPager
      * control the snapping motion and fling behavior. (e.g. parallax-scrolling tabs.)
      * Call {@link #fakeDragBy(float)} to simulate the actual drag motion. Call
      * {@link #endFakeDrag()} to complete the fake drag and fling as necessary.
-     *
+     * <p>
      * <p>During a fake drag the ViewPager will ignore all touch events. If a real drag
      * is already in progress, this method will return false.
      *
@@ -2550,7 +2761,8 @@ public class ViewPager extends ViewGroup {
         if (mAdapter != null) {
             final VelocityTracker velocityTracker = mVelocityTracker;
             velocityTracker.computeCurrentVelocity(1000, mMaximumVelocity);
-            int initialVelocity = (int) velocityTracker.getXVelocity(mActivePointerId);
+            int initialVelocity = (int) VelocityTrackerCompat.getXVelocity(
+                    velocityTracker, mActivePointerId);
             mPopulatePending = true;
             final int width = getClientWidth();
             final int scrollX = getScrollX();
@@ -2571,6 +2783,7 @@ public class ViewPager extends ViewGroup {
      * Fake drag by an offset in pixels. You must have called {@link #beginFakeDrag()} first.
      *
      * @param xOffset Offset in pixels to drag by.
+     *
      * @see #beginFakeDrag()
      * @see #endFakeDrag()
      */
@@ -2633,7 +2846,7 @@ public class ViewPager extends ViewGroup {
     }
 
     private void onSecondaryPointerUp(MotionEvent ev) {
-        final int pointerIndex = ev.getActionIndex();
+        final int pointerIndex = MotionEventCompat.getActionIndex(ev);
         final int pointerId = ev.getPointerId(pointerIndex);
         if (pointerId == mActivePointerId) {
             // This was our active pointer going up. Choose a new
@@ -2676,10 +2889,10 @@ public class ViewPager extends ViewGroup {
      * Check if this ViewPager can be scrolled horizontally in a certain direction.
      *
      * @param direction Negative to check scrolling left, positive to check scrolling right.
+     *
      * @return Whether this ViewPager can be scrolled in the specified direction. It will always
-     *         return false if the specified direction is 0.
+     * return false if the specified direction is 0.
      */
-    @Override
     public boolean canScrollHorizontally(int direction) {
         if (mAdapter == null) {
             return false;
@@ -2699,12 +2912,13 @@ public class ViewPager extends ViewGroup {
     /**
      * Tests scrollability within child views of v given a delta of dx.
      *
-     * @param v View to test for horizontal scrollability
+     * @param v      View to test for horizontal scrollability
      * @param checkV Whether the view v passed should itself be checked for scrollability (true),
      *               or just its children (false).
-     * @param dx Delta scrolled in pixels
-     * @param x X coordinate of the active touch point
-     * @param y Y coordinate of the active touch point
+     * @param dx     Delta scrolled in pixels
+     * @param x      X coordinate of the active touch point
+     * @param y      Y coordinate of the active touch point
+     *
      * @return true if child views of v can be scrolled by delta of dx.
      */
     protected boolean canScroll(View v, boolean checkV, int dx, int x, int y) {
@@ -2721,13 +2935,13 @@ public class ViewPager extends ViewGroup {
                 if (x + scrollX >= child.getLeft() && x + scrollX < child.getRight()
                         && y + scrollY >= child.getTop() && y + scrollY < child.getBottom()
                         && canScroll(child, true, dx, x + scrollX - child.getLeft(),
-                                y + scrollY - child.getTop())) {
+                        y + scrollY - child.getTop())) {
                     return true;
                 }
             }
         }
 
-        return checkV && v.canScrollHorizontally(-dx);
+        return checkV && ViewCompat.canScrollHorizontally(v, -dx);
     }
 
     @Override
@@ -2742,6 +2956,7 @@ public class ViewPager extends ViewGroup {
      * it by the view hierarchy.
      *
      * @param event The key event to execute.
+     *
      * @return Return true if the event was handled, else false.
      */
     public boolean executeKeyEvent(KeyEvent event) {
@@ -2749,24 +2964,20 @@ public class ViewPager extends ViewGroup {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             switch (event.getKeyCode()) {
                 case KeyEvent.KEYCODE_DPAD_LEFT:
-                    if (event.hasModifiers(KeyEvent.META_ALT_ON)) {
-                        handled = pageLeft();
-                    } else {
-                        handled = arrowScroll(FOCUS_LEFT);
-                    }
+                    handled = arrowScroll(FOCUS_LEFT);
                     break;
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
-                    if (event.hasModifiers(KeyEvent.META_ALT_ON)) {
-                        handled = pageRight();
-                    } else {
-                        handled = arrowScroll(FOCUS_RIGHT);
-                    }
+                    handled = arrowScroll(FOCUS_RIGHT);
                     break;
                 case KeyEvent.KEYCODE_TAB:
-                    if (event.hasNoModifiers()) {
-                        handled = arrowScroll(FOCUS_FORWARD);
-                    } else if (event.hasModifiers(KeyEvent.META_SHIFT_ON)) {
-                        handled = arrowScroll(FOCUS_BACKWARD);
+                    if (Build.VERSION.SDK_INT >= 11) {
+                        // The focus finder had a bug handling FOCUS_FORWARD and FOCUS_BACKWARD
+                        // before Android 3.0. Ignore the tab key on those devices.
+                        if (KeyEventCompat.hasNoModifiers(event)) {
+                            handled = arrowScroll(FOCUS_FORWARD);
+                        } else if (KeyEventCompat.hasModifiers(event, KeyEvent.META_SHIFT_ON)) {
+                            handled = arrowScroll(FOCUS_BACKWARD);
+                        }
                     }
                     break;
             }
@@ -2779,6 +2990,7 @@ public class ViewPager extends ViewGroup {
      *
      * @param direction The direction corresponding to the arrow key that was pressed. It should be
      *                  either {@link View#FOCUS_LEFT} or {@link View#FOCUS_RIGHT}.
+     *
      * @return Whether the scrolling was handled successfully.
      */
     public boolean arrowScroll(int direction) {
@@ -2788,7 +3000,7 @@ public class ViewPager extends ViewGroup {
         } else if (currentFocused != null) {
             boolean isChild = false;
             for (ViewParent parent = currentFocused.getParent(); parent instanceof ViewGroup;
-                    parent = parent.getParent()) {
+                 parent = parent.getParent()) {
                 if (parent == this) {
                     isChild = true;
                     break;
@@ -2799,7 +3011,7 @@ public class ViewPager extends ViewGroup {
                 final StringBuilder sb = new StringBuilder();
                 sb.append(currentFocused.getClass().getSimpleName());
                 for (ViewParent parent = currentFocused.getParent(); parent instanceof ViewGroup;
-                        parent = parent.getParent()) {
+                     parent = parent.getParent()) {
                     sb.append(" => ").append(parent.getClass().getSimpleName());
                 }
                 Log.e(TAG, "arrowScroll tried to find focus based on non-child "
@@ -2955,7 +3167,7 @@ public class ViewPager extends ViewGroup {
      */
     @Override
     protected boolean onRequestFocusInDescendants(int direction,
-            Rect previouslyFocusedRect) {
+                                                  Rect previouslyFocusedRect) {
         int index;
         int increment;
         int end;
@@ -3032,11 +3244,14 @@ public class ViewPager extends ViewGroup {
         public void onInitializeAccessibilityEvent(View host, AccessibilityEvent event) {
             super.onInitializeAccessibilityEvent(host, event);
             event.setClassName(ViewPager.class.getName());
-            event.setScrollable(canScroll());
-            if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_SCROLLED && mAdapter != null) {
-                event.setItemCount(mAdapter.getCount());
-                event.setFromIndex(mCurItem);
-                event.setToIndex(mCurItem);
+            final AccessibilityRecordCompat recordCompat =
+                    AccessibilityEventCompat.asRecord(event);
+            recordCompat.setScrollable(canScroll());
+            if (event.getEventType() == AccessibilityEventCompat.TYPE_VIEW_SCROLLED
+                    && mAdapter != null) {
+                recordCompat.setItemCount(mAdapter.getCount());
+                recordCompat.setFromIndex(mCurItem);
+                recordCompat.setToIndex(mCurItem);
             }
         }
 
@@ -3064,13 +3279,15 @@ public class ViewPager extends ViewGroup {
                         setCurrentItem(mCurItem + 1);
                         return true;
                     }
-                } return false;
+                }
+                return false;
                 case AccessibilityNodeInfoCompat.ACTION_SCROLL_BACKWARD: {
                     if (canScrollHorizontally(-1)) {
                         setCurrentItem(mCurItem - 1);
                         return true;
                     }
-                } return false;
+                }
+                return false;
             }
             return false;
         }
@@ -3088,6 +3305,7 @@ public class ViewPager extends ViewGroup {
         public void onChanged() {
             dataSetChanged();
         }
+
         @Override
         public void onInvalidated() {
             dataSetChanged();
@@ -3100,8 +3318,10 @@ public class ViewPager extends ViewGroup {
      */
     public static class LayoutParams extends ViewGroup.LayoutParams {
         /**
-         * true if this view is a decoration on the pager itself and not
+         * true if this view is a decoration(装饰) on the pager itself and not
          * a view supplied by the adapter.
+         * <p>
+         * 该View是pager本身而不是用适配器添加的view
          */
         public boolean isDecor;
 

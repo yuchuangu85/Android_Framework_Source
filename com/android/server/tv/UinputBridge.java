@@ -63,7 +63,7 @@ public final class UinputBridge {
     @Override
     protected void finalize() throws Throwable {
         try {
-            if (mCloseGuard != null) {
+            if (mPtr != 0) {
                 mCloseGuard.warnIfOpen();
             }
             close(mToken);

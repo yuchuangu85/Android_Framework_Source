@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,6 +30,7 @@ import java.net.URL;
 import java.net.HttpURLConnection;
 import java.security.Principal;
 import java.security.cert.X509Certificate;
+import javax.security.auth.x500.X500Principal;
 
 /**
  * <code>HttpsURLConnection</code> extends <code>HttpURLConnection</code>
@@ -144,7 +145,8 @@ class HttpsURLConnection extends HttpURLConnection
             throws SSLPeerUnverifiedException {
 
         java.security.cert.Certificate[] certs = getServerCertificates();
-        return ((X509Certificate)certs[0]).getSubjectX500Principal();
+        return ((X500Principal)
+                ((X509Certificate)certs[0]).getSubjectX500Principal());
     }
 
     /**
@@ -172,16 +174,13 @@ class HttpsURLConnection extends HttpURLConnection
 
         java.security.cert.Certificate[] certs = getLocalCertificates();
         if (certs != null) {
-            return ((X509Certificate)certs[0]).getSubjectX500Principal();
+            return ((X500Principal)
+                ((X509Certificate)certs[0]).getSubjectX500Principal());
         } else {
             return null;
         }
     }
 
-    // BEGIN Android-changed: Use lazily-created OkHttp hostname verifier
-    // The RI default hostname verifier is a static member of the class, which means
-    // it's created when the class is initialized.  As well, its default verifier
-    // just fails all verification attempts, whereas we use OkHttp's verifier.
     /*
      * Holds the default instance so class preloading doesn't create an instance of
      * it.
@@ -211,7 +210,6 @@ class HttpsURLConnection extends HttpURLConnection
      * The <code>hostnameVerifier</code> for this object.
      */
     protected HostnameVerifier hostnameVerifier;
-    // END Android-changed: Use lazily-created OkHttp hostname verifier
 
     /**
      * Sets the default <code>HostnameVerifier</code> inherited by a
@@ -284,7 +282,6 @@ class HttpsURLConnection extends HttpURLConnection
      * @see #setDefaultHostnameVerifier(HostnameVerifier)
      */
     public HostnameVerifier getHostnameVerifier() {
-        // Android-added: Use the default verifier if none is set
         if (hostnameVerifier == null) {
             hostnameVerifier = NoPreloadHolder.defaultHostnameVerifier;
         }

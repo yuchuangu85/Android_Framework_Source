@@ -16,29 +16,26 @@
 
 package android.hardware.camera2;
 
+import android.annotation.RequiresPermission;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.RequiresPermission;
-import android.annotation.SystemService;
 import android.content.Context;
-import android.hardware.CameraInfo;
-import android.hardware.CameraStatus;
 import android.hardware.ICameraService;
 import android.hardware.ICameraServiceListener;
+import android.hardware.CameraInfo;
 import android.hardware.camera2.impl.CameraMetadataNative;
 import android.hardware.camera2.legacy.CameraDeviceUserShim;
 import android.hardware.camera2.legacy.LegacyMetadataMapper;
+import android.os.IBinder;
 import android.os.Binder;
 import android.os.DeadObjectException;
 import android.os.Handler;
-import android.os.IBinder;
 import android.os.Looper;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.ServiceSpecificException;
-import android.os.SystemProperties;
-import android.util.ArrayMap;
 import android.util.Log;
+import android.util.ArrayMap;
 
 import java.util.ArrayList;
 
@@ -46,11 +43,15 @@ import java.util.ArrayList;
  * <p>A system service manager for detecting, characterizing, and connecting to
  * {@link CameraDevice CameraDevices}.</p>
  *
+ * <p>You can get an instance of this class by calling
+ * {@link android.content.Context#getSystemService(String) Context.getSystemService()}.</p>
+ *
+ * <pre>CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);</pre>
+ *
  * <p>For more details about communicating with camera devices, read the Camera
  * developer guide or the {@link android.hardware.camera2 camera2}
  * package documentation.</p>
  */
-@SystemService(Context.CAMERA_SERVICE)
 public final class CameraManager {
 
     private static final String TAG = "CameraManager";
@@ -91,7 +92,11 @@ public final class CameraManager {
      */
     @NonNull
     public String[] getCameraIdList() throws CameraAccessException {
-        return CameraManagerGlobal.get().getCameraIdList();
+        synchronized (mLock) {
+            // ID list creation handles various known failures in device enumeration, so only
+            // exceptions it'll throw are unexpected, and should be propagated upward.
+            return getOrCreateDeviceIdListLocked().toArray(new String[0]);
+        }
     }
 
     /**
@@ -211,14 +216,20 @@ public final class CameraManager {
     public CameraCharacteristics getCameraCharacteristics(@NonNull String cameraId)
             throws CameraAccessException {
         CameraCharacteristics characteristics = null;
-        if (CameraManagerGlobal.sCameraServiceDisabled) {
-            throw new IllegalArgumentException("No cameras available on device");
-        }
+
         synchronized (mLock) {
+            if (!getOrCreateDeviceIdListLocked().contains(cameraId)) {
+                throw new IllegalArgumentException(String.format("Camera id %s does not match any" +
+                        " currently connected camera device", cameraId));
+            }
+
+            int id = Integer.parseInt(cameraId);
+
             /*
              * Get the camera characteristics from the camera service directly if it supports it,
              * otherwise get them from the legacy shim instead.
              */
+
             ICameraService cameraService = CameraManagerGlobal.get().getCameraService();
             if (cameraService == null) {
                 throw new CameraAccessException(CameraAccessException.CAMERA_DISCONNECTED,
@@ -228,8 +239,6 @@ public final class CameraManager {
                 if (!supportsCamera2ApiLocked(cameraId)) {
                     // Legacy backwards compatibility path; build static info from the camera
                     // parameters
-                    int id = Integer.parseInt(cameraId);
-
                     String parameters = cameraService.getLegacyParameters(id);
 
                     CameraInfo info = cameraService.getCameraInfo(id);
@@ -237,7 +246,7 @@ public final class CameraManager {
                     characteristics = LegacyMetadataMapper.createCharacteristics(parameters, info);
                 } else {
                     // Normal path: Get the camera characteristics directly from the camera service
-                    CameraMetadataNative info = cameraService.getCameraCharacteristics(cameraId);
+                    CameraMetadataNative info = cameraService.getCameraCharacteristics(id);
 
                     characteristics = new CameraCharacteristics(info);
                 }
@@ -290,10 +299,17 @@ public final class CameraManager {
                         cameraId,
                         callback,
                         handler,
-                        characteristics,
-                        mContext.getApplicationInfo().targetSdkVersion);
+                        characteristics);
 
             ICameraDeviceCallbacks callbacks = deviceImpl.getCallbacks();
+
+            int id;
+            try {
+                id = Integer.parseInt(cameraId);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Expected cameraId to be numeric, but it was: "
+                        + cameraId);
+            }
 
             try {
                 if (supportsCamera2ApiLocked(cameraId)) {
@@ -304,18 +320,10 @@ public final class CameraManager {
                             ICameraService.ERROR_DISCONNECTED,
                             "Camera service is currently unavailable");
                     }
-                    cameraUser = cameraService.connectDevice(callbacks, cameraId,
+                    cameraUser = cameraService.connectDevice(callbacks, id,
                             mContext.getOpPackageName(), uid);
                 } else {
                     // Use legacy camera implementation for HAL1 devices
-                    int id;
-                    try {
-                        id = Integer.parseInt(cameraId);
-                    } catch (NumberFormatException e) {
-                        throw new IllegalArgumentException("Expected cameraId to be numeric, but it was: "
-                                + cameraId);
-                    }
-
                     Log.i(TAG, "Using legacy camera HAL.");
                     cameraUser = CameraDeviceUserShim.connectBinderShim(callbacks, id);
                 }
@@ -465,9 +473,6 @@ public final class CameraManager {
                         "Handler argument is null, but no looper exists in the calling thread");
             }
         }
-        if (CameraManagerGlobal.sCameraServiceDisabled) {
-            throw new IllegalArgumentException("No cameras available on device");
-        }
 
         openCameraDeviceUserAsync(cameraId, callback, handler, clientUid);
     }
@@ -513,9 +518,6 @@ public final class CameraManager {
      */
     public void setTorchMode(@NonNull String cameraId, boolean enabled)
             throws CameraAccessException {
-        if (CameraManagerGlobal.sCameraServiceDisabled) {
-            throw new IllegalArgumentException("No cameras available on device");
-        }
         CameraManagerGlobal.get().setTorchMode(cameraId, enabled);
     }
 
@@ -670,6 +672,69 @@ public final class CameraManager {
     }
 
     /**
+     * Return or create the list of currently connected camera devices.
+     *
+     * <p>In case of errors connecting to the camera service, will return an empty list.</p>
+     */
+    private ArrayList<String> getOrCreateDeviceIdListLocked() throws CameraAccessException {
+        if (mDeviceIdList == null) {
+            int numCameras = 0;
+            ICameraService cameraService = CameraManagerGlobal.get().getCameraService();
+            ArrayList<String> deviceIdList = new ArrayList<>();
+
+            // If no camera service, then no devices
+            if (cameraService == null) {
+                return deviceIdList;
+            }
+
+            try {
+                numCameras = cameraService.getNumberOfCameras(CAMERA_TYPE_ALL);
+            } catch(ServiceSpecificException e) {
+                throwAsPublicException(e);
+            } catch (RemoteException e) {
+                // camera service just died - if no camera service, then no devices
+                return deviceIdList;
+            }
+
+            for (int i = 0; i < numCameras; ++i) {
+                // Non-removable cameras use integers starting at 0 for their
+                // identifiers
+                boolean isDeviceSupported = false;
+                try {
+                    CameraMetadataNative info = cameraService.getCameraCharacteristics(i);
+                    if (!info.isEmpty()) {
+                        isDeviceSupported = true;
+                    } else {
+                        throw new AssertionError("Expected to get non-empty characteristics");
+                    }
+                } catch(ServiceSpecificException e) {
+                    // DISCONNECTED means that the HAL reported an low-level error getting the
+                    // device info; ILLEGAL_ARGUMENT means that this devices is not supported.
+                    // Skip listing the device.  Other errors,
+                    // propagate exception onward
+                    if (e.errorCode != ICameraService.ERROR_DISCONNECTED ||
+                            e.errorCode != ICameraService.ERROR_ILLEGAL_ARGUMENT) {
+                        throwAsPublicException(e);
+                    }
+                } catch(RemoteException e) {
+                    // Camera service died - no devices to list
+                    deviceIdList.clear();
+                    return deviceIdList;
+                }
+
+                if (isDeviceSupported) {
+                    deviceIdList.add(String.valueOf(i));
+                } else {
+                    Log.w(TAG, "Error querying camera device " + i + " for listing.");
+                }
+
+            }
+            mDeviceIdList = deviceIdList;
+        }
+        return mDeviceIdList;
+    }
+
+    /**
      * Queries the camera service if it supports the camera2 api directly, or needs a shim.
      *
      * @param cameraId a non-{@code null} camera identifier
@@ -687,6 +752,8 @@ public final class CameraManager {
      * @return {@code true} if connecting will work for that device version.
      */
     private boolean supportsCameraApiLocked(String cameraId, int apiVersion) {
+        int id = Integer.parseInt(cameraId);
+
         /*
          * Possible return values:
          * - NO_ERROR => CameraX API is supported
@@ -700,7 +767,7 @@ public final class CameraManager {
             // If no camera service, no support
             if (cameraService == null) return false;
 
-            return cameraService.supportsCameraApi(cameraId, apiVersion);
+            return cameraService.supportsCameraApi(id, apiVersion);
         } catch (RemoteException e) {
             // Camera service is now down, no support for any API level
         }
@@ -754,9 +821,6 @@ public final class CameraManager {
         private CameraManagerGlobal() {
         }
 
-        public static final boolean sCameraServiceDisabled =
-                SystemProperties.getBoolean("config.disable_cameraservice", false);
-
         public static CameraManagerGlobal get() {
             return gCameraManager;
         }
@@ -776,7 +840,7 @@ public final class CameraManager {
         public ICameraService getCameraService() {
             synchronized(mLock) {
                 connectCameraServiceLocked();
-                if (mCameraService == null && !sCameraServiceDisabled) {
+                if (mCameraService == null) {
                     Log.e(TAG, "Camera service is unavailable");
                 }
                 return mCameraService;
@@ -791,7 +855,7 @@ public final class CameraManager {
          */
         private void connectCameraServiceLocked() {
             // Only reconnect if necessary
-            if (mCameraService != null || sCameraServiceDisabled) return;
+            if (mCameraService != null) return;
 
             Log.i(TAG, "Connecting to camera service");
 
@@ -816,10 +880,7 @@ public final class CameraManager {
             }
 
             try {
-                CameraStatus[] cameraStatuses = cameraService.addListener(this);
-                for (CameraStatus c : cameraStatuses) {
-                    onStatusChangedLocked(c.status, c.cameraId);
-                }
+                cameraService.addListener(this);
                 mCameraService = cameraService;
             } catch(ServiceSpecificException e) {
                 // Unexpected failure
@@ -827,36 +888,6 @@ public final class CameraManager {
             } catch (RemoteException e) {
                 // Camera service is now down, leave mCameraService as null
             }
-        }
-
-        /**
-         * Get a list of all camera IDs that are at least PRESENT; ignore devices that are
-         * NOT_PRESENT or ENUMERATING, since they cannot be used by anyone.
-         */
-        public String[] getCameraIdList() {
-            String[] cameraIds = null;
-            synchronized(mLock) {
-                // Try to make sure we have an up-to-date list of camera devices.
-                connectCameraServiceLocked();
-
-                int idCount = 0;
-                for (int i = 0; i < mDeviceStatus.size(); i++) {
-                    int status = mDeviceStatus.valueAt(i);
-                    if (status == ICameraServiceListener.STATUS_NOT_PRESENT ||
-                            status == ICameraServiceListener.STATUS_ENUMERATING) continue;
-                    idCount++;
-                }
-                cameraIds = new String[idCount];
-                idCount = 0;
-                for (int i = 0; i < mDeviceStatus.size(); i++) {
-                    int status = mDeviceStatus.valueAt(i);
-                    if (status == ICameraServiceListener.STATUS_NOT_PRESENT ||
-                            status == ICameraServiceListener.STATUS_ENUMERATING) continue;
-                    cameraIds[idCount] = mDeviceStatus.keyAt(i);
-                    idCount++;
-                }
-            }
-            return cameraIds;
         }
 
         public void setTorchMode(String cameraId, boolean enabled) throws CameraAccessException {
@@ -1142,9 +1173,9 @@ public final class CameraManager {
          * Callback from camera service notifying the process about camera availability changes
          */
         @Override
-        public void onStatusChanged(int status, String cameraId) throws RemoteException {
+        public void onStatusChanged(int status, int cameraId) throws RemoteException {
             synchronized(mLock) {
-                onStatusChangedLocked(status, cameraId);
+                onStatusChangedLocked(status, String.valueOf(cameraId));
             }
         }
 

@@ -142,6 +142,7 @@ public class UndoManager {
             mUndos.get(i).writeToParcel(p);
         }
         i = mRedos.size();
+        p.writeInt(i);
         while (i > 0) {
             p.writeInt(2);
             i--;

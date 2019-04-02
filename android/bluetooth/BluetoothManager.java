@@ -18,7 +18,6 @@ package android.bluetooth;
 
 import android.Manifest;
 import android.annotation.RequiresPermission;
-import android.annotation.SystemService;
 import android.content.Context;
 import android.os.RemoteException;
 import android.util.Log;
@@ -33,7 +32,10 @@ import java.util.List;
  * Use {@link android.content.Context#getSystemService(java.lang.String)}
  * with {@link Context#BLUETOOTH_SERVICE} to create an {@link BluetoothManager},
  * then call {@link #getAdapter} to obtain the {@link BluetoothAdapter}.
- * </p>
+ * <p>
+ * Alternately, you can just call the static helper
+ * {@link BluetoothAdapter#getDefaultAdapter()}.
+ *
  * <div class="special reference">
  * <h3>Developer Guides</h3>
  * <p>
@@ -46,7 +48,6 @@ import java.util.List;
  * @see Context#getSystemService
  * @see BluetoothAdapter#getDefaultAdapter()
  */
-@SystemService(Context.BLUETOOTH_SERVICE)
 public final class BluetoothManager {
     private static final String TAG = "BluetoothManager";
     private static final boolean DBG = true;
@@ -84,6 +85,8 @@ public final class BluetoothManager {
      * This can be used by applications like status bar which would just like
      * to know the state of Bluetooth.
      *
+     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
+     *
      * @param device Remote bluetooth device.
      * @param profile GATT or GATT_SERVER
      * @return State of the profile connection. One of
@@ -114,6 +117,8 @@ public final class BluetoothManager {
      * the connection state of Bluetooth for this profile.
      * This can be used by applications like status bar which would just like
      * to know the state of Bluetooth.
+     *
+     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
      *
      * @param profile GATT or GATT_SERVER
      * @return List of devices. The list will be empty on error.
@@ -153,6 +158,8 @@ public final class BluetoothManager {
      * the connection state of the local Bluetooth adapter for this profile.
      * This can be used by applications like status bar which would just like
      * to know the state of the local adapter.
+     *
+     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
      *
      * @param profile GATT or GATT_SERVER
      * @param states Array of states. States can be one of

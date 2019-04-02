@@ -23,7 +23,6 @@ import android.os.UserHandle;
 import android.util.Log;
 
 import java.lang.ref.WeakReference;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -331,14 +330,7 @@ public abstract class AbstractCursor implements CrossProcessCursor {
     public int getColumnIndexOrThrow(String columnName) {
         final int index = getColumnIndex(columnName);
         if (index < 0) {
-            String availableColumns = "";
-            try {
-                availableColumns = Arrays.toString(getColumnNames());
-            } catch (Exception e) {
-                Log.d(TAG, "Cannot collect column names for debug purposes", e);
-            }
-            throw new IllegalArgumentException("column '" + columnName
-                    + "' does not exist. Available columns: " + availableColumns);
+            throw new IllegalArgumentException("column '" + columnName + "' does not exist");
         }
         return index;
     }

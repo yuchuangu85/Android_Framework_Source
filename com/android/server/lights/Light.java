@@ -16,28 +16,25 @@
 
 package com.android.server.lights;
 
-import android.hardware.light.V2_0.Flash;
-import android.hardware.light.V2_0.Brightness;
-
 public abstract class Light {
-    public static final int LIGHT_FLASH_NONE = Flash.NONE;
-    public static final int LIGHT_FLASH_TIMED = Flash.TIMED;
-    public static final int LIGHT_FLASH_HARDWARE = Flash.HARDWARE;
+    public static final int LIGHT_FLASH_NONE = 0;
+    public static final int LIGHT_FLASH_TIMED = 1;
+    public static final int LIGHT_FLASH_HARDWARE = 2;
 
     /**
      * Light brightness is managed by a user setting.
      */
-    public static final int BRIGHTNESS_MODE_USER = Brightness.USER;
+    public static final int BRIGHTNESS_MODE_USER = 0;
 
     /**
      * Light brightness is managed by a light sensor.
      */
-    public static final int BRIGHTNESS_MODE_SENSOR = Brightness.SENSOR;
+    public static final int BRIGHTNESS_MODE_SENSOR = 1;
 
     /**
      * Low-persistence light mode.
      */
-    public static final int BRIGHTNESS_MODE_LOW_PERSISTENCE = Brightness.LOW_PERSISTENCE;
+    public static final int BRIGHTNESS_MODE_LOW_PERSISTENCE = 2;
 
     public abstract void setBrightness(int brightness);
     public abstract void setBrightness(int brightness, int brightnessMode);
@@ -46,5 +43,4 @@ public abstract class Light {
     public abstract void pulse();
     public abstract void pulse(int color, int onMS);
     public abstract void turnOff();
-    public abstract void setVrMode(boolean enabled);
 }

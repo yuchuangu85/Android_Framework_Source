@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,7 +33,6 @@ import java.io.FileDescriptor;
 
 import dalvik.system.BlockGuard;
 import dalvik.system.CloseGuard;
-import dalvik.system.SocketTagger;
 import sun.net.ConnectionResetException;
 import sun.net.NetHooks;
 import sun.net.ResourceManager;
@@ -49,19 +48,15 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
 {
     /* instance variable for SO_TIMEOUT */
     int timeout;   // timeout in millisec
-    // Android-removed: traffic class is set through socket
-    // private int trafficClass;
+    // traffic class
+    private int trafficClass;
 
     private boolean shut_rd = false;
     private boolean shut_wr = false;
 
     private SocketInputStream socketInputStream = null;
-    private SocketOutputStream socketOutputStream = null;
 
-    /* number of threads using the FileDescriptor */
-    protected int fdUseCount = 0;
-
-    /* lock when increment/decrementing fdUseCount */
+    /* lock when accessing fd */
     protected final Object fdLock = new Object();
 
     /* indicates a close is pending on the file descriptor */
@@ -86,6 +81,7 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
      */
     protected synchronized void create(boolean stream) throws IOException {
         this.stream = stream;
+
         if (!stream) {
             ResourceManager.beforeUdpCreate();
             try {
@@ -205,19 +201,17 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
         if (isClosedOrPending()) {
             throw new SocketException("Socket Closed");
         }
-        // Android-removed: Logic dealing with value type moved to socketSetOption.
-        /*
         boolean on = true;
         switch (opt) {
             /* check type safety b4 going native.  These should never
              * fail, since only java.Socket* has access to
              * PlainSocketImpl.setOption().
-             *
+             */
         case SO_LINGER:
             if (val == null || (!(val instanceof Integer) && !(val instanceof Boolean)))
                 throw new SocketException("Bad parameter for option");
             if (val instanceof Boolean) {
-                /* true only if disabling - enabling should be Integer *
+                /* true only if disabling - enabling should be Integer */
                 on = false;
             }
             break;
@@ -269,11 +263,6 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
             throw new SocketException("unrecognized TCP option: " + opt);
         }
         socketSetOption(opt, on, val);
-        */
-        if (opt == SO_TIMEOUT) {
-            timeout = (Integer) val;
-        }
-        socketSetOption(opt, val);
     }
     public Object getOption(int opt) throws SocketException {
         if (isClosedOrPending()) {
@@ -282,8 +271,6 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
         if (opt == SO_TIMEOUT) {
             return new Integer(timeout);
         }
-        // Android-removed: Logic dealing with value type moved to socketGetOption.
-        /*
         int ret = 0;
         /*
          * The native socketGetOption() knows about 3 options.
@@ -291,7 +278,7 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
          * to what we're asking.  A return of -1 means it understands
          * the option but its turned off.  It will raise a SocketException
          * if "opt" isn't one it understands.
-         *
+         */
 
         switch (opt) {
         case TCP_NODELAY:
@@ -315,16 +302,11 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
             ret = socketGetOption(opt, null);
             return new Integer(ret);
         case IP_TOS:
-            try {
-                ret = socketGetOption(opt, null);
-                if (ret == -1) { // ipv6 tos
-                    return trafficClass;
-                } else {
-                    return ret;
-                }
-            } catch (SocketException se) {
-                // TODO - should make better effort to read TOS or TCLASS
-                return trafficClass; // ipv6 tos
+            ret = socketGetOption(opt, null);
+            if (ret == -1) { // ipv6 tos
+                return new Integer(trafficClass);
+            } else {
+                return new Integer(ret);
             }
         case SO_KEEPALIVE:
             ret = socketGetOption(opt, null);
@@ -333,8 +315,6 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
         default:
             return null;
         }
-        */
-        return socketGetOption(opt);
     }
 
     /**
@@ -350,26 +330,21 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
             }
         }
         try {
-            acquireFD();
-            try {
-                BlockGuard.getThreadPolicy().onNetwork();
-                socketConnect(address, port, timeout);
-                /* socket may have been closed during poll/select */
-                synchronized (fdLock) {
-                    if (closePending) {
-                        throw new SocketException ("Socket closed");
-                    }
+            BlockGuard.getThreadPolicy().onNetwork();
+            socketConnect(address, port, timeout);
+            /* socket may have been closed during poll/select */
+            synchronized (fdLock) {
+                if (closePending) {
+                    throw new SocketException ("Socket closed");
                 }
-                // If we have a ref. to the Socket, then sets the flags
-                // created, bound & connected to true.
-                // This is normally done in Socket.connect() but some
-                // subclasses of Socket may call impl.connect() directly!
-                if (socket != null) {
-                    socket.setBound();
-                    socket.setConnected();
-                }
-            } finally {
-                releaseFD();
+            }
+            // If we have a ref. to the Socket, then sets the flags
+            // created, bound & connected to true.
+            // This is normally done in Socket.connect() but some
+            // subclasses of Socket may call impl.connect() directly!
+            if (socket != null) {
+                socket.setBound();
+                socket.setConnected();
             }
         } catch (IOException e) {
             close();
@@ -410,26 +385,22 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
      * @param s the connection
      */
     protected void accept(SocketImpl s) throws IOException {
-        acquireFD();
-        try {
-            BlockGuard.getThreadPolicy().onNetwork();
-            socketAccept(s);
-        } finally {
-            releaseFD();
-        }
+        BlockGuard.getThreadPolicy().onNetwork();
+        socketAccept(s);
     }
 
     /**
      * Gets an InputStream for this socket.
      */
     protected synchronized InputStream getInputStream() throws IOException {
-        synchronized (fdLock) {
-            if (isClosedOrPending())
-                throw new IOException("Socket Closed");
-            if (shut_rd)
-                throw new IOException("Socket input is shutdown");
-            if (socketInputStream == null)
-                socketInputStream = new SocketInputStream(this);
+        if (isClosedOrPending()) {
+            throw new IOException("Socket Closed");
+        }
+        if (shut_rd) {
+            throw new IOException("Socket input is shutdown");
+        }
+        if (socketInputStream == null) {
+            socketInputStream = new SocketInputStream(this);
         }
         return socketInputStream;
     }
@@ -442,15 +413,13 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
      * Gets an OutputStream for this socket.
      */
     protected synchronized OutputStream getOutputStream() throws IOException {
-        synchronized (fdLock) {
-            if (isClosedOrPending())
-                throw new IOException("Socket Closed");
-            if (shut_wr)
-                throw new IOException("Socket output is shutdown");
-            if (socketOutputStream == null)
-                socketOutputStream = new SocketOutputStream(this);
+        if (isClosedOrPending()) {
+            throw new IOException("Socket Closed");
         }
-        return socketOutputStream;
+        if (shut_wr) {
+            throw new IOException("Socket output is shutdown");
+        }
+        return new SocketOutputStream(this);
     }
 
     void setFileDescriptor(FileDescriptor fd) {
@@ -520,46 +489,12 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
                 if (!stream) {
                     ResourceManager.afterUdpClose();
                 }
-                // Android-changed:
-                // Socket should be untagged before the preclose. After preclose,
-                // socket will dup2-ed to marker_fd, therefore, it won't describe the same file.
-                // If closingPending is true, then the socket has been preclosed.
-                //
-                // Also, close the CloseGuard when the #close is called.
-                if (!closePending) {
-                    closePending = true;
-                    SocketTagger.get().untag(fd);
-                    guard.close();
-
-                    if (fdUseCount == 0) {
-                        /*
-                         * We close the FileDescriptor in two-steps - first the
-                         * "pre-close" which closes the socket but doesn't
-                         * release the underlying file descriptor. This operation
-                         * may be lengthy due to untransmitted data and a long
-                         * linger interval. Once the pre-close is done we do the
-                         * actual socket to release the fd.
-                         */
-                        try {
-                            socketPreClose();
-                        } finally {
-                            socketClose();
-                        }
-                        // Android-changed(http://b/26470377): Some Android code doesn't expect file
-                        // descriptor to be null. socketClose invalidates the fd by closing the fd.
-                        // fd = null;
-                        return;
-                    } else {
-                        /*
-                         * If a thread has acquired the fd and a close
-                         * isn't pending then use a deferred close.
-                         * Also decrement fdUseCount to signal the last
-                         * thread that releases the fd to close it.
-                         */
-                        fdUseCount--;
-                        socketPreClose();
-                    }
+                if (closePending) {
+                  return;
                 }
+                closePending = true;
+                socketClose();
+                return;
             }
         }
     }
@@ -567,8 +502,6 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
     void reset() throws IOException {
         if (fd != null && fd.valid()) {
             socketClose();
-            // Android-changed: Notified the CloseGuard object as the fd has been released.
-            guard.close();
         }
         super.reset();
     }
@@ -627,31 +560,7 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
      */
     FileDescriptor acquireFD() {
         synchronized (fdLock) {
-            fdUseCount++;
             return fd;
-        }
-    }
-
-    /*
-     * "Release" the FileDescriptor for this impl.
-     *
-     * If the use count goes to -1 then the socket is closed.
-     */
-    void releaseFD() {
-        synchronized (fdLock) {
-            fdUseCount--;
-            if (fdUseCount == -1) {
-                if (fd != null) {
-                    try {
-                        socketClose();
-                    } catch (IOException e) {
-                        // Android-changed(http://b/26470377): Some Android code doesn't expect file
-                        // descriptor to be null. socketClose invalidates the fd by closing the fd.
-                        // } finally {
-                        //     fd = null;
-                    }
-                }
-            }
         }
     }
 
@@ -679,7 +588,6 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
                 resetState = CONNECTION_RESET_PENDING;
             }
         }
-
     }
 
     /*
@@ -707,18 +615,12 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
     }
 
     /*
-     * "Pre-close" a socket by dup'ing the file descriptor - this enables
-     * the socket to be closed without releasing the file descriptor.
-     */
-    private void socketPreClose() throws IOException {
-        socketClose0(true);
-    }
-
-    /*
      * Close the socket (and release the file descriptor).
      */
     protected void socketClose() throws IOException {
-        socketClose0(false);
+        guard.close();
+
+        socketClose0();
     }
 
     abstract void socketCreate(boolean isServer) throws IOException;
@@ -732,19 +634,20 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
         throws IOException;
     abstract int socketAvailable()
         throws IOException;
-    abstract void socketClose0(boolean useDeferredClose)
+    abstract void socketClose0()
         throws IOException;
     abstract void socketShutdown(int howto)
         throws IOException;
-
-    // Android-changed: Method signature changed, socket{Get,Set}Option work directly with Object
-    // values.
-    abstract void socketSetOption(int cmd, Object value) throws SocketException;
-    abstract Object socketGetOption(int opt) throws SocketException;
-
+    abstract void socketSetOption(int cmd, boolean on, Object value)
+        throws SocketException;
+    abstract int socketGetOption(int opt, Object iaContainerObj) throws SocketException;
     abstract void socketSendUrgentData(int data)
         throws IOException;
 
     public final static int SHUT_RD = 0;
     public final static int SHUT_WR = 1;
+}
+
+class InetAddressContainer {
+    InetAddress addr;
 }

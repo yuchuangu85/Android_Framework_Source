@@ -16,58 +16,18 @@
 
 package android.support.v13.view.inputmethod;
 
-import android.support.annotation.RequiresApi;
-import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.v4.os.BuildCompat;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
 
 /**
  * Helper for accessing features in {@link EditorInfo} introduced after API level 13 in a backwards
  * compatible fashion.
  */
 public final class EditorInfoCompat {
-
-    /**
-     * Flag of {@link EditorInfo#imeOptions}: used to request that the IME does not update any
-     * personalized data such as typing history and personalized language model based on what the
-     * user typed on this text editing object.  Typical use cases are:
-     * <ul>
-     *     <li>When the application is in a special mode, where user's activities are expected to be
-     *     not recorded in the application's history.  Some web browsers and chat applications may
-     *     have this kind of modes.</li>
-     *     <li>When storing typing history does not make much sense.  Specifying this flag in typing
-     *     games may help to avoid typing history from being filled up with words that the user is
-     *     less likely to type in their daily life.  Another example is that when the application
-     *     already knows that the expected input is not a valid word (e.g. a promotion code that is
-     *     not a valid word in any natural language).</li>
-     * </ul>
-     *
-     * <p>Applications need to be aware that the flag is not a guarantee, and some IMEs may not
-     * respect it.</p>
-     */
-    public static final int IME_FLAG_NO_PERSONALIZED_LEARNING = 0x1000000;
-
-    /**
-     * Flag of {@link EditorInfo#imeOptions}: used to request an IME that is capable of inputting
-     * ASCII characters.
-     *
-     * <p>The intention of this flag is to ensure that the user can type Roman alphabet characters
-     * in a {@link android.widget.TextView}. It is typically used for an account ID or password
-     * input.</p>
-     *
-     * <p>In many cases, IMEs are already able to input ASCII even without being told so (such IMEs
-     * already respect this flag in a sense), but there are cases when this is not the default. For
-     * instance, users of languages using a different script like Arabic, Greek, Hebrew or Russian
-     * typically have a keyboard that can't input ASCII characters by default.</p>
-     *
-     * <p>Applications need to be aware that the flag is not a guarantee, and some IMEs may not
-     * respect it. However, it is strongly recommended for IME authors to respect this flag
-     * especially when their IME could end up with a state where only languages using non-ASCII are
-     * enabled.</p>
-     */
-    public static final int IME_FLAG_FORCE_ASCII = 0x80000000;
 
     private interface EditorInfoCompatImpl {
         void setContentMimeTypes(@NonNull EditorInfo editorInfo,
@@ -76,9 +36,9 @@ public final class EditorInfoCompat {
         String[] getContentMimeTypes(@NonNull EditorInfo editorInfo);
     }
 
-    private static final String[] EMPTY_STRING_ARRAY = new String[0];
+    private final static String[] EMPTY_STRING_ARRAY = new String[0];
 
-    private static final class EditorInfoCompatBaseImpl implements EditorInfoCompatImpl {
+    private final static class BaseEditorInfoCompatImpl implements EditorInfoCompatImpl {
         private static String CONTENT_MIME_TYPES_KEY =
                 "android.support.v13.view.inputmethod.EditorInfoCompat.CONTENT_MIME_TYPES";
 
@@ -102,28 +62,27 @@ public final class EditorInfoCompat {
         }
     }
 
-    @RequiresApi(25)
-    private static final class EditorInfoCompatApi25Impl implements EditorInfoCompatImpl {
+    private final static class Api25EditorInfoCompatImpl implements EditorInfoCompatImpl {
         @Override
         public void setContentMimeTypes(@NonNull EditorInfo editorInfo,
                 @Nullable String[] contentMimeTypes) {
-            editorInfo.contentMimeTypes = contentMimeTypes;
+            EditorInfoCompatApi25.setContentMimeTypes(editorInfo, contentMimeTypes);
         }
 
         @NonNull
         @Override
         public String[] getContentMimeTypes(@NonNull EditorInfo editorInfo) {
-            final String[] result = editorInfo.contentMimeTypes;
+            String[] result = EditorInfoCompatApi25.getContentMimeTypes(editorInfo);
             return result != null ? result : EMPTY_STRING_ARRAY;
         }
     }
 
     private static final EditorInfoCompatImpl IMPL;
     static {
-        if (Build.VERSION.SDK_INT >= 25) {
-            IMPL = new EditorInfoCompatApi25Impl();
+        if (BuildCompat.isAtLeastNMR1()) {
+            IMPL = new Api25EditorInfoCompatImpl();
         } else {
-            IMPL = new EditorInfoCompatBaseImpl();
+            IMPL = new BaseEditorInfoCompatImpl();
         }
     }
 
@@ -135,7 +94,7 @@ public final class EditorInfoCompat {
      * @param editorInfo the editor with which we associate supported MIME types
      * @param contentMimeTypes an array of MIME types. {@code null} and an empty array means that
      *                         {@link InputConnectionCompat#commitContent(
-     *                         InputConnection, EditorInfo, InputContentInfoCompat, int, Bundle)}
+     *                         InputConnection, EditorInfo, InputContentInfoCompat, int, Bundle)
      *                         is not supported on this Editor
      */
     public static void setContentMimeTypes(@NonNull EditorInfo editorInfo,

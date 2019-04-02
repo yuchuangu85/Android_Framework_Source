@@ -15,9 +15,8 @@
  */
 package android.databinding.tool.reflection;
 
-import org.jetbrains.annotations.Nullable;
-
 public class Callable {
+
     public enum Type {
         METHOD,
         FIELD
@@ -35,22 +34,18 @@ public class Callable {
 
     public final ModelClass resolvedType;
 
-    @Nullable
-    public final ModelMethod method;
-
     private final int mFlags;
 
     private final int mParameterCount;
 
     public Callable(Type type, String name, String setterName, ModelClass resolvedType,
-            int parameterCount, int flags, ModelMethod method) {
+                    int parameterCount, int flags) {
         this.type = type;
         this.name = name;
         this.resolvedType = resolvedType;
         mParameterCount = parameterCount;
         this.setterName = setterName;
         mFlags = flags;
-        this.method = method;
     }
 
     public String getTypeCodeName() {
@@ -86,7 +81,6 @@ public class Callable {
                 ", isDynamic=" + isDynamic() +
                 ", canBeInvalidated=" + canBeInvalidated() +
                 ", static=" + isStatic() +
-                ", method=" + method +
                 '}';
     }
 }

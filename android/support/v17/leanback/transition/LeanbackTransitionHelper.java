@@ -13,19 +13,23 @@
  */
 package android.support.v17.leanback.transition;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
+import android.animation.AnimatorInflater;
 import android.content.Context;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
 import android.support.annotation.RestrictTo;
 import android.support.v17.leanback.R;
+import android.view.Gravity;
+import android.view.View;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.Interpolator;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Helper class to load Leanback specific transition.
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public class LeanbackTransitionHelper {
 
     interface LeanbackTransitionHelperVersion {
@@ -37,7 +41,6 @@ public class LeanbackTransitionHelper {
      * Kitkat does not allow load custom transition from resource, calling
      * LeanbackTransitionHelperKitKat to build custom transition in code.
      */
-    @RequiresApi(19)
     static class LeanbackTransitionHelperKitKatImpl implements LeanbackTransitionHelperVersion {
 
         @Override

@@ -17,15 +17,83 @@
 
 package android.support.v4.view;
 
-import static android.os.Build.VERSION.SDK_INT;
-
 import android.graphics.Rect;
+import android.os.Build;
 import android.view.Gravity;
 
 /**
  * Compatibility shim for accessing newer functionality from {@link android.view.Gravity}.
  */
 public final class GravityCompat {
+    interface GravityCompatImpl {
+        int getAbsoluteGravity(int gravity, int layoutDirection);
+        void apply(int gravity, int w, int h, Rect container, Rect outRect, int layoutDirection);
+        void apply(int gravity, int w, int h, Rect container, int xAdj, int yAdj,
+                Rect outRect, int layoutDirection);
+        void applyDisplay(int gravity, Rect display, Rect inoutObj, int layoutDirection);
+    }
+
+    static class GravityCompatImplBase implements GravityCompatImpl {
+        @Override
+        public int getAbsoluteGravity(int gravity, int layoutDirection) {
+            // Just strip off the relative bit to get LEFT/RIGHT.
+            return gravity & ~RELATIVE_LAYOUT_DIRECTION;
+        }
+
+        @Override
+        public void apply(int gravity, int w, int h, Rect container, Rect outRect,
+                int layoutDirection) {
+            Gravity.apply(gravity, w, h, container, outRect);
+        }
+
+        @Override
+        public void apply(int gravity, int w, int h, Rect container, int xAdj, int yAdj,
+                Rect outRect, int layoutDirection) {
+            Gravity.apply(gravity, w, h, container, xAdj, yAdj, outRect);
+        }
+
+        @Override
+        public void applyDisplay(int gravity, Rect display, Rect inoutObj,
+                int layoutDirection) {
+            Gravity.applyDisplay(gravity, display, inoutObj);
+        }
+    }
+
+    static class GravityCompatImplJellybeanMr1 implements GravityCompatImpl {
+        @Override
+        public int getAbsoluteGravity(int gravity, int layoutDirection) {
+            return GravityCompatJellybeanMr1.getAbsoluteGravity(gravity, layoutDirection);
+        }
+
+        @Override
+        public void apply(int gravity, int w, int h, Rect container, Rect outRect,
+                int layoutDirection) {
+            GravityCompatJellybeanMr1.apply(gravity, w, h, container, outRect, layoutDirection);
+        }
+
+        @Override
+        public void apply(int gravity, int w, int h, Rect container, int xAdj, int yAdj,
+                Rect outRect, int layoutDirection) {
+            GravityCompatJellybeanMr1.apply(gravity, w, h, container, xAdj, yAdj, outRect,
+                    layoutDirection);
+        }
+
+        @Override
+        public void applyDisplay(int gravity, Rect display, Rect inoutObj, int layoutDirection) {
+            GravityCompatJellybeanMr1.applyDisplay(gravity, display, inoutObj, layoutDirection);
+        }
+    }
+
+    static final GravityCompatImpl IMPL;
+    static {
+        final int version = Build.VERSION.SDK_INT;
+        if (version >= 17) {
+            IMPL = new GravityCompatImplJellybeanMr1();
+        } else {
+            IMPL = new GravityCompatImplBase();
+        }
+    }
+
     /** Raw bit controlling whether the layout direction is relative or not (START/END instead of
      * absolute LEFT/RIGHT).
      */
@@ -61,11 +129,7 @@ public final class GravityCompat {
      */
     public static void apply(int gravity, int w, int h, Rect container,
             Rect outRect, int layoutDirection) {
-        if (SDK_INT >= 17) {
-            Gravity.apply(gravity, w, h, container, outRect, layoutDirection);
-        } else {
-            Gravity.apply(gravity, w, h, container, outRect);
-        }
+        IMPL.apply(gravity, w, h, container, outRect, layoutDirection);
     }
 
     /**
@@ -95,11 +159,7 @@ public final class GravityCompat {
      */
     public static void apply(int gravity, int w, int h, Rect container,
             int xAdj, int yAdj, Rect outRect, int layoutDirection) {
-        if (SDK_INT >= 17) {
-            Gravity.apply(gravity, w, h, container, xAdj, yAdj, outRect, layoutDirection);
-        } else {
-            Gravity.apply(gravity, w, h, container, xAdj, yAdj, outRect);
-        }
+        IMPL.apply(gravity, w, h, container, xAdj, yAdj, outRect, layoutDirection);
     }
 
     /**
@@ -123,11 +183,7 @@ public final class GravityCompat {
      * @see ViewCompat#LAYOUT_DIRECTION_RTL
      */
     public static void applyDisplay(int gravity, Rect display, Rect inoutObj, int layoutDirection) {
-        if (SDK_INT >= 17) {
-            Gravity.applyDisplay(gravity, display, inoutObj, layoutDirection);
-        } else {
-            Gravity.applyDisplay(gravity, display, inoutObj);
-        }
+        IMPL.applyDisplay(gravity, display, inoutObj, layoutDirection);
     }
 
     /**
@@ -142,12 +198,7 @@ public final class GravityCompat {
      * @return gravity converted to absolute (horizontal) values.
      */
     public static int getAbsoluteGravity(int gravity, int layoutDirection) {
-        if (SDK_INT >= 17) {
-            return Gravity.getAbsoluteGravity(gravity, layoutDirection);
-        } else {
-            // Just strip off the relative bit to get LEFT/RIGHT.
-            return gravity & ~RELATIVE_LAYOUT_DIRECTION;
-        }
+        return IMPL.getAbsoluteGravity(gravity, layoutDirection);
     }
 
     private GravityCompat() {}

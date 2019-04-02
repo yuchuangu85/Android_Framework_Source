@@ -25,6 +25,7 @@ public interface BaseOnItemViewClickedListener<T> {
      * @param rowViewHolder The view holder of the row which the clicked item belongs to.
      * @param row The row which the clicked item belongs to.
      */
-    void onItemClicked(Presenter.ViewHolder itemViewHolder, Object item,
+    public void onItemClicked(Presenter.ViewHolder itemViewHolder, Object item,
                               RowPresenter.ViewHolder rowViewHolder, T row);
+
 }

@@ -17,12 +17,10 @@
 package android.media;
 
 import android.annotation.IntDef;
-import android.annotation.NonNull;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
 
-import java.io.PrintWriter;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
@@ -54,59 +52,18 @@ public final class AudioRecordingConfiguration implements Parcelable {
     private final AudioFormat mDeviceFormat;
     private final AudioFormat mClientFormat;
 
-    @NonNull private final String mClientPackageName;
-    private final int mClientUid;
-
     private final int mPatchHandle;
 
     /**
      * @hide
      */
-    public AudioRecordingConfiguration(int uid, int session, int source, AudioFormat clientFormat,
-            AudioFormat devFormat, int patchHandle, String packageName) {
-        mClientUid = uid;
+    public AudioRecordingConfiguration(int session, int source, AudioFormat clientFormat,
+            AudioFormat devFormat, int patchHandle) {
         mSessionId = session;
         mClientSource = source;
         mClientFormat = clientFormat;
         mDeviceFormat = devFormat;
         mPatchHandle = patchHandle;
-        mClientPackageName = packageName;
-    }
-
-    /**
-     * @hide
-     * For AudioService dump
-     * @param pw
-     */
-    public void dump(PrintWriter pw) {
-        pw.println("  " + toLogFriendlyString(this));
-    }
-
-    /**
-     * @hide
-     */
-    public static String toLogFriendlyString(AudioRecordingConfiguration arc) {
-        return new String("session:" + arc.mSessionId
-                + " -- source:" + MediaRecorder.toLogFriendlyAudioSource(arc.mClientSource)
-                + " -- uid:" + arc.mClientUid
-                + " -- patch:" + arc.mPatchHandle
-                + " -- pack:" + arc.mClientPackageName
-                + " -- format client=" + arc.mClientFormat.toLogFriendlyString()
-                    + ", dev=" + arc.mDeviceFormat.toLogFriendlyString());
-    }
-
-    // Note that this method is called server side, so no "privileged" information is ever sent
-    // to a client that is not supposed to have access to it.
-    /**
-     * @hide
-     * Creates a copy of the recording configuration that is stripped of any data enabling
-     * identification of which application it is associated with ("anonymized").
-     * @param in
-     */
-    public static AudioRecordingConfiguration anonymizedCopy(AudioRecordingConfiguration in) {
-        return new AudioRecordingConfiguration( /*anonymized uid*/ -1,
-                in.mSessionId, in.mClientSource, in.mClientFormat,
-                in.mDeviceFormat, in.mPatchHandle, "" /*empty package name*/);
     }
 
     // matches the sources that return false in MediaRecorder.isSystemOnlyAudioSource(source)
@@ -161,30 +118,6 @@ public final class AudioRecordingConfiguration implements Parcelable {
      * @return the recording format
      */
     public AudioFormat getClientFormat() { return mClientFormat; }
-
-    /**
-     * @pending for SystemApi
-     * Returns the package name of the application performing the recording.
-     * Where there are multiple packages sharing the same user id through the "sharedUserId"
-     * mechanism, only the first one with that id will be returned
-     * (see {@link PackageManager#getPackagesForUid(int)}).
-     * <p>This information is only available if the caller has the
-     * {@link android.Manifest.permission.MODIFY_AUDIO_ROUTING} permission.
-     * <br>When called without the permission, the result is an empty string.
-     * @return the package name
-     */
-    public String getClientPackageName() { return mClientPackageName; }
-
-    /**
-     * @pending for SystemApi
-     * Returns the user id of the application performing the recording.
-     * <p>This information is only available if the caller has the
-     * {@link android.Manifest.permission.MODIFY_AUDIO_ROUTING}
-     * permission.
-     * <br>The result is -1 without the permission.
-     * @return the user id
-     */
-    public int getClientUid() { return mClientUid; }
 
     /**
      * Returns information about the audio input device used for this recording.
@@ -252,8 +185,6 @@ public final class AudioRecordingConfiguration implements Parcelable {
         mClientFormat.writeToParcel(dest, 0);
         mDeviceFormat.writeToParcel(dest, 0);
         dest.writeInt(mPatchHandle);
-        dest.writeString(mClientPackageName);
-        dest.writeInt(mClientUid);
     }
 
     private AudioRecordingConfiguration(Parcel in) {
@@ -262,8 +193,6 @@ public final class AudioRecordingConfiguration implements Parcelable {
         mClientFormat = AudioFormat.CREATOR.createFromParcel(in);
         mDeviceFormat = AudioFormat.CREATOR.createFromParcel(in);
         mPatchHandle = in.readInt();
-        mClientPackageName = in.readString();
-        mClientUid = in.readInt();
     }
 
     @Override
@@ -273,12 +202,10 @@ public final class AudioRecordingConfiguration implements Parcelable {
 
         AudioRecordingConfiguration that = (AudioRecordingConfiguration) o;
 
-        return ((mClientUid == that.mClientUid)
-                && (mSessionId == that.mSessionId)
+        return ((mSessionId == that.mSessionId)
                 && (mClientSource == that.mClientSource)
                 && (mPatchHandle == that.mPatchHandle)
                 && (mClientFormat.equals(that.mClientFormat))
-                && (mDeviceFormat.equals(that.mDeviceFormat))
-                && (mClientPackageName.equals(that.mClientPackageName)));
+                && (mDeviceFormat.equals(that.mDeviceFormat)));
     }
 }

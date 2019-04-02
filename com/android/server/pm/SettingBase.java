@@ -30,19 +30,10 @@ abstract class SettingBase {
         mPermissionsState = new PermissionsState();
     }
 
-    SettingBase(SettingBase orig) {
-        mPermissionsState = new PermissionsState();
-        doCopy(orig);
-    }
-
-    public void copyFrom(SettingBase orig) {
-        doCopy(orig);
-    }
-
-    private void doCopy(SettingBase orig) {
-        pkgFlags = orig.pkgFlags;
-        pkgPrivateFlags = orig.pkgPrivateFlags;
-        mPermissionsState.copyFrom(orig.mPermissionsState);
+    SettingBase(SettingBase base) {
+        pkgFlags = base.pkgFlags;
+        pkgPrivateFlags = base.pkgPrivateFlags;
+        mPermissionsState = new PermissionsState(base.mPermissionsState);
     }
 
     public PermissionsState getPermissionsState() {

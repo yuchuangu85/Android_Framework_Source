@@ -89,6 +89,7 @@ public class NumPadKey extends ViewGroup {
 
         setOnClickListener(mListener);
         setOnHoverListener(new LiftToActivateListener(context));
+        setAccessibilityDelegate(new ObscureSpeechDelegate(context));
 
         mEnableHaptics = new LockPatternUtils(context).isTactileFeedbackEnabled();
 
@@ -130,6 +131,14 @@ public class NumPadKey extends ViewGroup {
             doHapticKeyClick();
         }
         return super.onTouchEvent(event);
+    }
+
+    @Override
+    public void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+
+        // Reset the "announced headset" flag when detached.
+        ObscureSpeechDelegate.sAnnouncedHeadset = false;
     }
 
     @Override

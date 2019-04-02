@@ -67,15 +67,6 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
          *
          * @hide
          */
-        public Key(String name, Class<T> type, long vendorId) {
-            mKey = new CameraMetadataNative.Key<T>(name,  type, vendorId);
-        }
-
-        /**
-         * Visible for testing and vendor extensions only.
-         *
-         * @hide
-         */
         public Key(String name, Class<T> type) {
             mKey = new CameraMetadataNative.Key<T>(name,  type);
         }
@@ -105,15 +96,6 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
         @NonNull
         public String getName() {
             return mKey.getName();
-        }
-
-        /**
-         * Return vendor tag id.
-         *
-         * @hide
-         */
-        public long getVendorId() {
-            return mKey.getVendorId();
         }
 
         /**
@@ -177,7 +159,6 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      */
     public CameraCharacteristics(CameraMetadataNative properties) {
         mProperties = CameraMetadataNative.move(properties);
-        setNativeInstance(mProperties);
     }
 
     /**
@@ -246,7 +227,7 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
         }
 
         mKeys = Collections.unmodifiableList(
-                getKeys(getClass(), getKeyClass(), this, filterTags));
+                getKeysStatic(getClass(), getKeyClass(), this, filterTags));
         return mKeys;
     }
 
@@ -339,7 +320,7 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
                     "metadataClass must be a subclass of CameraMetadata");
         }
 
-        List<TKey> staticKeyList = getKeys(
+        List<TKey> staticKeyList = CameraCharacteristics.<TKey>getKeysStatic(
                 metadataClass, keyClass, /*instance*/null, filterTags);
         return Collections.unmodifiableList(staticKeyList);
     }

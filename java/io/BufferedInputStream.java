@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2010, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -50,17 +50,7 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 public
 class BufferedInputStream extends FilterInputStream {
 
-    // Android-changed: made final
-    private static final int DEFAULT_BUFFER_SIZE = 8192;
-
-    /**
-     * The maximum size of array to allocate.
-     * Some VMs reserve some header words in an array.
-     * Attempts to allocate larger arrays may result in
-     * OutOfMemoryError: Requested array size exceeds VM limit
-     */
-    // Android-changed: made final
-    private static final int MAX_BUFFER_SIZE = Integer.MAX_VALUE - 8;
+    private static int defaultBufferSize = 8192;
 
     /**
      * The internal buffer array where the data is stored. When necessary,
@@ -182,7 +172,7 @@ class BufferedInputStream extends FilterInputStream {
      * @param   in   the underlying input stream.
      */
     public BufferedInputStream(InputStream in) {
-        this(in, DEFAULT_BUFFER_SIZE);
+        this(in, defaultBufferSize);
     }
 
     /**
@@ -195,7 +185,7 @@ class BufferedInputStream extends FilterInputStream {
      *
      * @param   in     the underlying input stream.
      * @param   size   the buffer size.
-     * @exception IllegalArgumentException if {@code size <= 0}.
+     * @exception IllegalArgumentException if size <= 0.
      */
     public BufferedInputStream(InputStream in, int size) {
         super(in);
@@ -225,11 +215,8 @@ class BufferedInputStream extends FilterInputStream {
             } else if (buffer.length >= marklimit) {
                 markpos = -1;   /* buffer got too big, invalidate mark */
                 pos = 0;        /* drop buffer contents */
-            } else if (buffer.length >= MAX_BUFFER_SIZE) {
-                throw new OutOfMemoryError("Required array size too large");
             } else {            /* grow buffer */
-                int nsz = (pos <= MAX_BUFFER_SIZE - pos) ?
-                        pos * 2 : MAX_BUFFER_SIZE;
+                int nsz = pos * 2;
                 if (nsz > marklimit)
                     nsz = marklimit;
                 byte nbuf[] = new byte[nsz];

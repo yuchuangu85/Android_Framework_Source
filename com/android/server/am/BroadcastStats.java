@@ -47,7 +47,6 @@ public final class BroadcastStats {
     static final class ActionEntry {
         final String mAction;
         final ArrayMap<String, PackageEntry> mPackages = new ArrayMap<>();
-        final ArrayMap<String, ViolationEntry> mBackgroundCheckViolations = new ArrayMap<>();
         int mReceiveCount;
         int mSkipCount;
         long mTotalDispatchTime;
@@ -60,10 +59,6 @@ public final class BroadcastStats {
 
     static final class PackageEntry {
         int mSendCount;
-    }
-
-    static final class ViolationEntry {
-        int mCount;
     }
 
     public BroadcastStats() {
@@ -90,20 +85,6 @@ public final class BroadcastStats {
             ae.mPackages.put(srcPackage, pe);
         }
         pe.mSendCount++;
-    }
-
-    public void addBackgroundCheckViolation(String action, String targetPackage) {
-        ActionEntry ae = mActions.get(action);
-        if (ae == null) {
-            ae = new ActionEntry(action);
-            mActions.put(action, ae);
-        }
-        ViolationEntry ve = ae.mBackgroundCheckViolations.get(targetPackage);
-        if (ve == null) {
-            ve = new ViolationEntry();
-            ae.mBackgroundCheckViolations.put(targetPackage, ve);
-        }
-        ve.mCount++;
     }
 
     public boolean dumpStats(PrintWriter pw, String prefix, String dumpPackage) {
@@ -142,15 +123,6 @@ public final class BroadcastStats {
                 pw.print(pe.mSendCount);
                 pw.println(" times");
             }
-            for (int j=ae.mBackgroundCheckViolations.size()-1; j>=0; j--) {
-                pw.print(prefix);
-                pw.print("  Bg Check Violation ");
-                pw.print(ae.mBackgroundCheckViolations.keyAt(j));
-                pw.print(": ");
-                ViolationEntry ve = ae.mBackgroundCheckViolations.valueAt(j);
-                pw.print(ve.mCount);
-                pw.println(" times");
-            }
         }
         return printedSomething;
     }
@@ -184,14 +156,6 @@ public final class BroadcastStats {
                 PackageEntry pe = ae.mPackages.valueAt(j);
                 pw.print(",");
                 pw.print(pe.mSendCount);
-                pw.println();
-            }
-            for (int j=ae.mBackgroundCheckViolations.size()-1; j>=0; j--) {
-                pw.print("v,");
-                pw.print(ae.mBackgroundCheckViolations.keyAt(j));
-                ViolationEntry ve = ae.mBackgroundCheckViolations.valueAt(j);
-                pw.print(",");
-                pw.print(ve.mCount);
                 pw.println();
             }
         }

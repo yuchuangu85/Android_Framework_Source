@@ -143,7 +143,6 @@ public class TileServiceManager {
     }
 
     public void handleDestroy() {
-        setBindAllowed(false);
         mServices.getContext().unregisterReceiver(mUninstallReceiver);
         mStateManager.handleDestroy();
     }

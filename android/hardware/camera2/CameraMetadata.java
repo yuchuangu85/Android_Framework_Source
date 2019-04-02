@@ -52,7 +52,6 @@ public abstract class CameraMetadata<TKey> {
 
     private static final String TAG = "CameraMetadataAb";
     private static final boolean DEBUG = false;
-    private CameraMetadataNative mNativeInstance = null;
 
     /**
      * Set a camera metadata field to a value. The field definitions can be
@@ -90,13 +89,6 @@ public abstract class CameraMetadata<TKey> {
      /**
       * @hide
       */
-     protected void setNativeInstance(CameraMetadataNative nativeInstance) {
-        mNativeInstance = nativeInstance;
-     }
-
-     /**
-      * @hide
-      */
      protected abstract Class<TKey> getKeyClass();
 
     /**
@@ -116,7 +108,7 @@ public abstract class CameraMetadata<TKey> {
     public List<TKey> getKeys() {
         Class<CameraMetadata<TKey>> thisClass = (Class<CameraMetadata<TKey>>) getClass();
         return Collections.unmodifiableList(
-                getKeys(thisClass, getKeyClass(), this, /*filterTags*/null));
+                getKeysStatic(thisClass, getKeyClass(), this, /*filterTags*/null));
     }
 
     /**
@@ -134,7 +126,7 @@ public abstract class CameraMetadata<TKey> {
      * </p>
      */
      /*package*/ @SuppressWarnings("unchecked")
-    <TKey> ArrayList<TKey> getKeys(
+    static <TKey> ArrayList<TKey> getKeysStatic(
              Class<?> type, Class<TKey> keyClass,
              CameraMetadata<TKey> instance,
              int[] filterTags) {
@@ -181,31 +173,23 @@ public abstract class CameraMetadata<TKey> {
             }
         }
 
-        if (null == mNativeInstance) {
-            return keyList;
-        }
-
-        ArrayList<TKey> vendorKeys = mNativeInstance.getAllVendorKeys(keyClass);
+        ArrayList<TKey> vendorKeys = CameraMetadataNative.getAllVendorKeys(keyClass);
 
         if (vendorKeys != null) {
             for (TKey k : vendorKeys) {
                 String keyName;
-                long vendorId;
                 if (k instanceof CaptureRequest.Key<?>) {
                     keyName = ((CaptureRequest.Key<?>) k).getName();
-                    vendorId = ((CaptureRequest.Key<?>) k).getVendorId();
                 } else if (k instanceof CaptureResult.Key<?>) {
                     keyName = ((CaptureResult.Key<?>) k).getName();
-                    vendorId = ((CaptureResult.Key<?>) k).getVendorId();
                 } else if (k instanceof CameraCharacteristics.Key<?>) {
                     keyName = ((CameraCharacteristics.Key<?>) k).getName();
-                    vendorId = ((CameraCharacteristics.Key<?>) k).getVendorId();
                 } else {
                     continue;
                 }
 
                 if (filterTags == null || Arrays.binarySearch(filterTags,
-                        CameraMetadataNative.getTag(keyName, vendorId)) >= 0) {
+                        CameraMetadataNative.getTag(keyName)) >= 0) {
                     keyList.add(k);
                 }
             }
@@ -2011,7 +1995,6 @@ public abstract class CameraMetadata<TKey> {
      * @see CaptureRequest#CONTROL_SCENE_MODE
      * @deprecated Please refer to this API documentation to find the alternatives
      */
-    @Deprecated
     public static final int CONTROL_SCENE_MODE_HIGH_SPEED_VIDEO = 17;
 
     /**

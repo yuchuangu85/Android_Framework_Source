@@ -55,7 +55,7 @@ class ActionPresenterSelector extends PresenterSelector {
         }
     }
 
-    static class OneLineActionPresenter extends Presenter {
+    class OneLineActionPresenter extends Presenter {
         @Override
         public ViewHolder onCreateViewHolder(ViewGroup parent) {
             View v = LayoutInflater.from(parent.getContext())
@@ -77,7 +77,7 @@ class ActionPresenterSelector extends PresenterSelector {
         }
     }
 
-    static class TwoLineActionPresenter extends Presenter {
+    class TwoLineActionPresenter extends Presenter {
         @Override
         public ViewHolder onCreateViewHolder(ViewGroup parent) {
             View v = LayoutInflater.from(parent.getContext())

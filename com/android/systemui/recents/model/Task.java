@@ -17,7 +17,6 @@
 package com.android.systemui.recents.model;
 
 import android.app.ActivityManager;
-import android.app.ActivityManager.TaskThumbnail;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
@@ -46,7 +45,7 @@ public class Task {
     /* Task callbacks */
     public interface TaskCallbacks {
         /* Notifies when a task has been bound */
-        public void onTaskDataLoaded(Task task, ThumbnailData thumbnailData);
+        public void onTaskDataLoaded(Task task, ActivityManager.TaskThumbnailInfo thumbnailInfo);
         /* Notifies when a task has been unbound */
         public void onTaskDataUnloaded();
         /* Notifies when a task's stack id has changed. */
@@ -142,7 +141,7 @@ public class Task {
      * which can then fall back to the application icon.
      */
     public Drawable icon;
-    public ThumbnailData thumbnail;
+    public Bitmap thumbnail;
     @ViewDebug.ExportedProperty(category="recents")
     public String title;
     @ViewDebug.ExportedProperty(category="recents")
@@ -190,9 +189,6 @@ public class Task {
     @ViewDebug.ExportedProperty(category="recents")
     public ComponentName topActivity;
 
-    @ViewDebug.ExportedProperty(category="recents")
-    public boolean isLocked;
-
     private ArrayList<TaskCallbacks> mCallbacks = new ArrayList<>();
 
     public Task() {
@@ -200,11 +196,11 @@ public class Task {
     }
 
     public Task(TaskKey key, int affiliationTaskId, int affiliationColor, Drawable icon,
-            ThumbnailData thumbnail, String title, String titleDescription,
-            String dismissDescription, String appInfoDescription, int colorPrimary,
-            int colorBackground, boolean isLaunchTarget, boolean isStackTask, boolean isSystemApp,
-            boolean isDockable, Rect bounds, ActivityManager.TaskDescription taskDescription,
-            int resizeMode, ComponentName topActivity, boolean isLocked) {
+                Bitmap thumbnail, String title, String titleDescription, String dismissDescription,
+                String appInfoDescription, int colorPrimary, int colorBackground,
+                boolean isLaunchTarget, boolean isStackTask, boolean isSystemApp,
+                boolean isDockable, Rect bounds, ActivityManager.TaskDescription taskDescription,
+                int resizeMode, ComponentName topActivity) {
         boolean isInAffiliationGroup = (affiliationTaskId != key.id);
         boolean hasAffiliationGroupColor = isInAffiliationGroup && (affiliationColor != 0);
         this.key = key;
@@ -228,7 +224,6 @@ public class Task {
         this.isDockable = isDockable;
         this.resizeMode = resizeMode;
         this.topActivity = topActivity;
-        this.isLocked = isLocked;
     }
 
     /**
@@ -255,7 +250,6 @@ public class Task {
         this.isSystemApp = o.isSystemApp;
         this.isDockable = o.isDockable;
         this.resizeMode = o.resizeMode;
-        this.isLocked = o.isLocked;
         this.topActivity = o.topActivity;
     }
 
@@ -300,19 +294,20 @@ public class Task {
     }
 
     /** Notifies the callback listeners that this task has been loaded */
-    public void notifyTaskDataLoaded(ThumbnailData thumbnailData, Drawable applicationIcon) {
+    public void notifyTaskDataLoaded(Bitmap thumbnail, Drawable applicationIcon,
+            ActivityManager.TaskThumbnailInfo thumbnailInfo) {
         this.icon = applicationIcon;
-        this.thumbnail = thumbnailData;
+        this.thumbnail = thumbnail;
         int callbackCount = mCallbacks.size();
         for (int i = 0; i < callbackCount; i++) {
-            mCallbacks.get(i).onTaskDataLoaded(this, thumbnailData);
+            mCallbacks.get(i).onTaskDataLoaded(this, thumbnailInfo);
         }
     }
 
     /** Notifies the callback listeners that this task has been unloaded */
-    public void notifyTaskDataUnloaded(Drawable defaultApplicationIcon) {
+    public void notifyTaskDataUnloaded(Bitmap defaultThumbnail, Drawable defaultApplicationIcon) {
         icon = defaultApplicationIcon;
-        thumbnail = null;
+        thumbnail = defaultThumbnail;
         for (int i = mCallbacks.size() - 1; i >= 0; i--) {
             mCallbacks.get(i).onTaskDataUnloaded();
         }
@@ -359,9 +354,6 @@ public class Task {
         }
         if (isFreeformTask()) {
             writer.print(" freeform=Y");
-        }
-        if (isLocked) {
-            writer.print(" locked=Y");
         }
         writer.print(" "); writer.print(title);
         writer.println();

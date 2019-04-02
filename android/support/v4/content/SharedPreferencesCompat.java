@@ -17,6 +17,7 @@
 package android.support.v4.content;
 
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.support.annotation.NonNull;
 
 public final class SharedPreferencesCompat {

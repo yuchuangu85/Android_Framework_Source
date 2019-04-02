@@ -36,6 +36,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
@@ -440,6 +441,7 @@ public class BackgroundScanScheduler {
 
         schedule.max_ap_per_scan = 0;
         schedule.report_threshold_num_scans = getMaxBatch();
+        HashSet<Integer> hiddenNetworkIdSet = new HashSet<>();
 
         // set all buckets in schedule
         int bucketId = 0;
@@ -456,6 +458,12 @@ public class BackgroundScanScheduler {
                         && settings.maxScansToCache < schedule.report_threshold_num_scans) {
                     schedule.report_threshold_num_scans = settings.maxScansToCache;
                 }
+                // note hidden networks
+                if (settings.hiddenNetworkIds != null) {
+                    for (int j = 0; j < settings.hiddenNetworkIds.length; j++) {
+                        hiddenNetworkIdSet.add(settings.hiddenNetworkIds[j]);
+                    }
+                }
             }
             bucketId++;
         }
@@ -464,6 +472,13 @@ public class BackgroundScanScheduler {
 
         if (schedule.max_ap_per_scan == 0 || schedule.max_ap_per_scan > getMaxApPerScan()) {
             schedule.max_ap_per_scan = getMaxApPerScan();
+        }
+        if (hiddenNetworkIdSet.size() > 0) {
+            schedule.hiddenNetworkIds = new int[hiddenNetworkIdSet.size()];
+            int numHiddenNetworks = 0;
+            for (Integer hiddenNetworkId : hiddenNetworkIdSet) {
+                schedule.hiddenNetworkIds[numHiddenNetworks++] = hiddenNetworkId;
+            }
         }
 
         // update base period as gcd of periods
@@ -554,6 +569,7 @@ public class BackgroundScanScheduler {
         ScanSettings settings = new ScanSettings();
         settings.band = originalSettings.band;
         settings.channels = originalSettings.channels;
+        settings.hiddenNetworkIds = originalSettings.hiddenNetworkIds;
         settings.periodInMs = originalSettings.periodInMs;
         settings.reportEvents = originalSettings.reportEvents;
         settings.numBssidsPerScan = originalSettings.numBssidsPerScan;

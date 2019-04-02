@@ -24,9 +24,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
-import com.android.systemui.statusbar.stack.ExpandableViewState;
 import com.android.systemui.statusbar.stack.NotificationStackScrollLayout;
-import com.android.systemui.statusbar.stack.StackScrollState;
 
 import java.util.ArrayList;
 
@@ -38,7 +36,6 @@ public abstract class ExpandableView extends FrameLayout {
     protected OnHeightChangedListener mOnHeightChangedListener;
     private int mActualHeight;
     protected int mClipTopAmount;
-    protected int mClipBottomAmount;
     private boolean mDark;
     private ArrayList<View> mMatchParentViews = new ArrayList<View>();
     private static Rect mClipRect = new Rect();
@@ -47,8 +44,6 @@ public abstract class ExpandableView extends FrameLayout {
     private boolean mClipToActualHeight = true;
     private boolean mChangingPosition = false;
     private ViewGroup mTransientContainer;
-    private boolean mInShelf;
-    private boolean mTransformingInShelf;
 
     public ExpandableView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -151,21 +146,9 @@ public abstract class ExpandableView extends FrameLayout {
     }
 
     /**
-     * @return The minimum content height of this notification. This also respects the temporary
-     * states of the view.
+     * @return The minimum content height of this notification.
      */
     public int getMinHeight() {
-        return getMinHeight(false /* ignoreTemporaryStates */);
-    }
-
-    /**
-     * Get the minimum height of this view.
-     *
-     * @param ignoreTemporaryStates should temporary states be ignored like the guts or heads-up.
-     *
-     * @return The minimum height that this view needs.
-     */
-    public int getMinHeight(boolean ignoreTemporaryStates) {
         return getHeight();
     }
 
@@ -237,24 +220,8 @@ public abstract class ExpandableView extends FrameLayout {
         updateClipping();
     }
 
-    /**
-     * Set the amount the the notification is clipped on the bottom in addition to the regular
-     * clipping. This is mainly used to clip something in a non-animated way without changing the
-     * actual height of the notification and is purely visual.
-     *
-     * @param clipBottomAmount the amount to clip.
-     */
-    public void setClipBottomAmount(int clipBottomAmount) {
-        mClipBottomAmount = clipBottomAmount;
-        updateClipping();
-    }
-
     public int getClipTopAmount() {
         return mClipTopAmount;
-    }
-
-    public int getClipBottomAmount() {
-        return mClipBottomAmount;
     }
 
     public void setOnHeightChangedListener(OnHeightChangedListener listener) {
@@ -294,17 +261,8 @@ public abstract class ExpandableView extends FrameLayout {
 
     public abstract void performAddAnimation(long delay, long duration);
 
-    /**
-     * Set the notification appearance to be below the speed bump.
-     * @param below true if it is below.
-     */
     public void setBelowSpeedBump(boolean below) {
     }
-
-    public int getPinnedHeadsUpHeight() {
-        return getIntrinsicHeight();
-    }
-
 
     /**
      * Sets the translation of the view.
@@ -366,8 +324,10 @@ public abstract class ExpandableView extends FrameLayout {
     private void updateClipping() {
         if (mClipToActualHeight) {
             int top = getClipTopAmount();
-            mClipRect.set(0, top, getWidth(), Math.max(getActualHeight() + getExtraBottomPadding()
-                    - mClipBottomAmount, top));
+            if (top >= getActualHeight()) {
+                top = getActualHeight() - 1;
+            }
+            mClipRect.set(0, top, getWidth(), getActualHeight() + getExtraBottomPadding());
             setClipBounds(mClipRect);
         } else {
             setClipBounds(null);
@@ -416,9 +376,7 @@ public abstract class ExpandableView extends FrameLayout {
     }
 
     /**
-     * @return an amount between -1 and 1 of increased padding that this child needs. 1 means it
-     * needs a full increased padding while -1 means it needs no padding at all. For 0.0f the normal
-     * padding is applied.
+     * @return an amount between 0 and 1 of increased padding that this child needs
      */
     public float getIncreasedPaddingAmount() {
         return 0.0f;
@@ -479,46 +437,6 @@ public abstract class ExpandableView extends FrameLayout {
     }
 
     public void setActualHeightAnimating(boolean animating) {}
-
-    public ExpandableViewState createNewViewState(StackScrollState stackScrollState) {
-        return new ExpandableViewState();
-    }
-
-    /**
-     * @return whether the current view doesn't add height to the overall content. This means that
-     * if it is added to a list of items, it's content will still have the same height.
-     * An example is the notification shelf, that is always placed on top of another view.
-     */
-    public boolean hasNoContentHeight() {
-        return false;
-    }
-
-    /**
-     * @param inShelf whether the view is currently fully in the notification shelf.
-     */
-    public void setInShelf(boolean inShelf) {
-        mInShelf = inShelf;
-    }
-
-    public boolean isInShelf() {
-        return mInShelf;
-    }
-
-    /**
-     * @param transformingInShelf whether the view is currently transforming into the shelf in an
-     *                            animated way
-     */
-    public void setTransformingInShelf(boolean transformingInShelf) {
-        mTransformingInShelf = transformingInShelf;
-    }
-
-    public boolean isTransformingIntoShelf() {
-        return mTransformingInShelf;
-    }
-
-    public boolean isAboveShelf() {
-        return false;
-    }
 
     /**
      * A listener notifying when {@link #getActualHeight} changes.

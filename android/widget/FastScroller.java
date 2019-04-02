@@ -38,7 +38,6 @@ import android.util.Property;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
-import android.view.PointerIcon;
 import android.view.View;
 import android.view.View.MeasureSpec;
 import android.view.ViewConfiguration;
@@ -1440,13 +1439,6 @@ class FastScroller {
         }
 
         return false;
-    }
-
-    public PointerIcon onResolvePointerIcon(MotionEvent event, int pointerIndex) {
-        if (mState == STATE_DRAGGING || isPointInside(event.getX(), event.getY())) {
-            return PointerIcon.getSystemIcon(mList.getContext(), PointerIcon.TYPE_ARROW);
-        }
-        return null;
     }
 
     public boolean onTouchEvent(MotionEvent me) {

@@ -436,9 +436,8 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
         // super type of U an ArrayStoreException will be thrown.
         @SuppressWarnings("rawtypes")
         IntFunction rawGenerator = (IntFunction) generator;
-        // TODO(b/29399275): Eclipse compiler requires explicit (Node<A[]>) cast below.
-        return (A[]) Nodes.flatten((Node<A[]>) evaluateToArrayNode(rawGenerator), rawGenerator)
-                .asArray(rawGenerator);
+        return (A[]) Nodes.flatten(evaluateToArrayNode(rawGenerator), rawGenerator)
+                              .asArray(rawGenerator);
     }
 
     @Override

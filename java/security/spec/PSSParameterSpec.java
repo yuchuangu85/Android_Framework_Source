@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2006, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -47,7 +47,6 @@ import java.security.spec.MGF1ParameterSpec;
  * <pre>
  * OAEP-PSSDigestAlgorithms    ALGORITHM-IDENTIFIER ::= {
  *   { OID id-sha1 PARAMETERS NULL   }|
- *   { OID id-sha224 PARAMETERS NULL   }|
  *   { OID id-sha256 PARAMETERS NULL }|
  *   { OID id-sha384 PARAMETERS NULL }|
  *   { OID id-sha512 PARAMETERS NULL },
@@ -91,14 +90,14 @@ public class PSSParameterSpec implements AlgorithmParameterSpec {
     public static final PSSParameterSpec DEFAULT = new PSSParameterSpec();
 
     /**
-     * Constructs a new {@code PSSParameterSpec} as defined in
+     * Constructs a new <code>PSSParameterSpec</code> as defined in
      * the PKCS #1 standard using the default values.
      */
     private PSSParameterSpec() {
     }
 
     /**
-     * Creates a new {@code PSSParameterSpec} as defined in
+     * Creates a new <code>PSSParameterSpec</code> as defined in
      * the PKCS #1 standard using the specified message digest,
      * mask generation function, parameters for mask generation
      * function, salt length, and trailer field values.
@@ -111,10 +110,10 @@ public class PSSParameterSpec implements AlgorithmParameterSpec {
      * getMGFParameters().
      * @param saltLen the length of salt.
      * @param trailerField the value of the trailer field.
-     * @exception NullPointerException if {@code mdName},
-     * or {@code mgfName} is null.
-     * @exception IllegalArgumentException if {@code saltLen}
-     * or {@code trailerField} is less than 0.
+     * @exception NullPointerException if <code>mdName</code>,
+     * or <code>mgfName</code> is null.
+     * @exception IllegalArgumentException if <code>saltLen</code>
+     * or <code>trailerField</code> is less than 0.
      * @since 1.5
      */
     public PSSParameterSpec(String mdName, String mgfName,
@@ -143,13 +142,13 @@ public class PSSParameterSpec implements AlgorithmParameterSpec {
     }
 
     /**
-     * Creates a new {@code PSSParameterSpec}
+     * Creates a new <code>PSSParameterSpec</code>
      * using the specified salt length and other default values as
      * defined in PKCS#1.
      *
      * @param saltLen the length of salt in bits to be used in PKCS#1
      * PSS encoding.
-     * @exception IllegalArgumentException if {@code saltLen} is
+     * @exception IllegalArgumentException if <code>saltLen</code> is
      * less than 0.
      */
     public PSSParameterSpec(int saltLen) {

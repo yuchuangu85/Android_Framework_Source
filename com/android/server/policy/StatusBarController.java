@@ -56,8 +56,8 @@ public class StatusBarController extends BarController {
         }
 
         @Override
-        public int onAppTransitionStartingLocked(int transit, IBinder openToken,
-                IBinder closeToken, final Animation openAnimation, final Animation closeAnimation) {
+        public void onAppTransitionStartingLocked(IBinder openToken, IBinder closeToken,
+                final Animation openAnimation, final Animation closeAnimation) {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -71,11 +71,10 @@ public class StatusBarController extends BarController {
                     }
                 }
             });
-            return 0;
         }
 
         @Override
-        public void onAppTransitionCancelledLocked(int transit) {
+        public void onAppTransitionCancelledLocked() {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -110,14 +109,6 @@ public class StatusBarController extends BarController {
                 StatusBarManager.WINDOW_STATUS_BAR,
                 FLAG_TRANSLUCENT_STATUS,
                 View.STATUS_BAR_TRANSPARENT);
-    }
-
-
-    public void setTopAppHidesStatusBar(boolean hidesStatusBar) {
-        StatusBarManagerInternal statusbar = getStatusBarInternal();
-        if (statusbar != null) {
-            statusbar.setTopAppHidesStatusBar(hidesStatusBar);
-        }
     }
 
     @Override

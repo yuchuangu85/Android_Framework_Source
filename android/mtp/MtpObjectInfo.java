@@ -16,12 +16,7 @@
 
 package android.mtp;
 
-import android.annotation.NonNull;
-import android.os.Build;
-
 import com.android.internal.util.Preconditions;
-
-import dalvik.system.VMRuntime;
 
 /**
  * This class encapsulates information about an object on an MTP device.
@@ -45,10 +40,10 @@ public final class MtpObjectInfo {
     private int mAssociationType;
     private int mAssociationDesc;
     private int mSequenceNumber;
-    private String mName = "";
+    private String mName;
     private long mDateCreated;
     private long mDateModified;
-    private String mKeywords = "";
+    private String mKeywords;
 
     // only instantiated via JNI or via a builder
     private MtpObjectInfo() {
@@ -316,7 +311,7 @@ public final class MtpObjectInfo {
      *
      * @return the object's name
      */
-    public final @NonNull String getName() {
+    public final String getName() {
         return mName;
     }
 
@@ -345,7 +340,7 @@ public final class MtpObjectInfo {
      *
      * @return the object's keyword list
      */
-    public final @NonNull String getKeywords() {
+    public final String getKeywords() {
         return mKeywords;
     }
 
@@ -440,20 +435,12 @@ public final class MtpObjectInfo {
             return this;
         }
 
-        public Builder setKeywords(@NonNull String value) {
-            if (VMRuntime.getRuntime().getTargetSdkVersion() > Build.VERSION_CODES.N_MR1) {
-                Preconditions.checkNotNull(value);
-            } else if (value == null) {
-                // Before N_MR1 we accept null value and it was regarded as an empty string in
-                // MtpDevice#sendObjectInfo.
-                value = "";
-            }
+        public Builder setKeywords(String value) {
             mObjectInfo.mKeywords = value;
             return this;
         }
 
-        public Builder setName(@NonNull String value) {
-            Preconditions.checkNotNull(value);
+        public Builder setName(String value) {
             mObjectInfo.mName = value;
             return this;
         }

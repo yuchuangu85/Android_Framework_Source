@@ -60,13 +60,6 @@ final class SerialCallbackContext {
         return desc;
     }
 
-    public void check() throws NotActiveException {
-        if (thread != null && thread != Thread.currentThread()) {
-            throw new NotActiveException(
-                "expected thread: " + thread + ", but got: " + Thread.currentThread());
-        }
-    }
-
     private void checkAndSetUsed() throws NotActiveException {
         if (thread != Thread.currentThread()) {
              throw new NotActiveException(

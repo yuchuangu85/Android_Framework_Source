@@ -16,24 +16,29 @@
 
 package android.support.v7.widget;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
+import android.os.Build;
 import android.os.SystemClock;
 import android.support.annotation.RestrictTo;
+import android.support.v4.view.MotionEventCompat;
+import android.support.v4.view.ViewCompat;
 import android.support.v7.view.menu.ShowableListMenu;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.View.OnAttachStateChangeListener;
 import android.view.ViewConfiguration;
 import android.view.ViewParent;
+import android.view.ViewTreeObserver.OnGlobalLayoutListener;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+
 
 /**
  * Abstract class that forwards touch events to a {@link ShowableListMenu}.
  *
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
-public abstract class ForwardingListener
-        implements View.OnTouchListener, View.OnAttachStateChangeListener {
+@RestrictTo(GROUP_ID)
+public abstract class ForwardingListener implements View.OnTouchListener {
 
     /** Scaled touch slop, used for detecting movement outside bounds. */
     private final float mScaledTouchSlop;
@@ -67,13 +72,45 @@ public abstract class ForwardingListener
     public ForwardingListener(View src) {
         mSrc = src;
         src.setLongClickable(true);
-        src.addOnAttachStateChangeListener(this);
+
+        if (Build.VERSION.SDK_INT >= 12) {
+            addDetachListenerApi12(src);
+        } else {
+            addDetachListenerBase(src);
+        }
 
         mScaledTouchSlop = ViewConfiguration.get(src.getContext()).getScaledTouchSlop();
         mTapTimeout = ViewConfiguration.getTapTimeout();
 
         // Use a medium-press timeout. Halfway between tap and long-press.
         mLongPressTimeout = (mTapTimeout + ViewConfiguration.getLongPressTimeout()) / 2;
+    }
+
+    private void addDetachListenerApi12(View src) {
+        src.addOnAttachStateChangeListener(new OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View v) {}
+
+            @Override
+            public void onViewDetachedFromWindow(View v) {
+                onDetachedFromWindow();
+            }
+        });
+    }
+
+    private void addDetachListenerBase(View src) {
+        src.getViewTreeObserver().addOnGlobalLayoutListener(new OnGlobalLayoutListener() {
+            boolean mIsAttached = ViewCompat.isAttachedToWindow(mSrc);
+
+            @Override
+            public void onGlobalLayout() {
+                final boolean wasAttached = mIsAttached;
+                mIsAttached = ViewCompat.isAttachedToWindow(mSrc);
+                if (wasAttached && !mIsAttached) {
+                    onDetachedFromWindow();
+                }
+            }
+        });
     }
 
     /**
@@ -111,12 +148,7 @@ public abstract class ForwardingListener
         return forwarding || wasForwarding;
     }
 
-    @Override
-    public void onViewAttachedToWindow(View v) {
-    }
-
-    @Override
-    public void onViewDetachedFromWindow(View v) {
+    private void onDetachedFromWindow() {
         mForwarding = false;
         mActivePointerId = MotionEvent.INVALID_POINTER_ID;
 
@@ -171,7 +203,7 @@ public abstract class ForwardingListener
             return false;
         }
 
-        final int actionMasked = srcEvent.getActionMasked();
+        final int actionMasked = MotionEventCompat.getActionMasked(srcEvent);
         switch (actionMasked) {
             case MotionEvent.ACTION_DOWN:
                 mActivePointerId = srcEvent.getPointerId(0);
@@ -276,7 +308,7 @@ public abstract class ForwardingListener
         dstEvent.recycle();
 
         // Always cancel forwarding when the touch stream ends.
-        final int action = srcEvent.getActionMasked();
+        final int action = MotionEventCompat.getActionMasked(srcEvent);
         final boolean keepForwarding = action != MotionEvent.ACTION_UP
                 && action != MotionEvent.ACTION_CANCEL;
 

@@ -15,17 +15,21 @@
  */
 package android.databinding.testapp;
 
+import android.databinding.testapp.BaseDataBinderTest;
 import android.databinding.testapp.databinding.RootTagBinding;
-import android.test.UiThreadTest;
 
 public class RootTag extends BaseDataBinderTest<RootTagBinding> {
     public RootTag() {
         super(RootTagBinding.class);
     }
 
-    @UiThreadTest
-    public void testRootTagSet() throws Throwable {
+    @Override
+    protected void setUp() throws Exception {
+        super.setUp();
         initBinder();
+    }
+
+    public void testRootTagSet() throws Throwable {
         mBinder.executePendingBindings();
         assertEquals("foo", mBinder.textView1.getTag());
         assertEquals("hello world", mBinder.textView1.getText().toString());

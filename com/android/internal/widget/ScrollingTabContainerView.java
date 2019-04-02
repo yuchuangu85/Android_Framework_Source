@@ -40,6 +40,7 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
 /**
  * This widget implements the dynamic action bar tab behavior that can change
@@ -359,7 +360,7 @@ public class ScrollingTabContainerView extends HorizontalScrollView
         tabView.getTab().select();
     }
 
-    private class TabView extends LinearLayout {
+    private class TabView extends LinearLayout implements OnLongClickListener {
         private ActionBar.Tab mTab;
         private TextView mTextView;
         private ImageView mIconView;
@@ -471,8 +472,33 @@ public class ScrollingTabContainerView extends HorizontalScrollView
                 if (mIconView != null) {
                     mIconView.setContentDescription(tab.getContentDescription());
                 }
-                setTooltipText(hasText? null : tab.getContentDescription());
+
+                if (!hasText && !TextUtils.isEmpty(tab.getContentDescription())) {
+                    setOnLongClickListener(this);
+                } else {
+                    setOnLongClickListener(null);
+                    setLongClickable(false);
+                }
             }
+        }
+
+        public boolean onLongClick(View v) {
+            final int[] screenPos = new int[2];
+            getLocationOnScreen(screenPos);
+
+            final Context context = getContext();
+            final int width = getWidth();
+            final int height = getHeight();
+            final int screenWidth = context.getResources().getDisplayMetrics().widthPixels;
+
+            Toast cheatSheet = Toast.makeText(context, mTab.getContentDescription(),
+                    Toast.LENGTH_SHORT);
+            // Show under the tab
+            cheatSheet.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL,
+                    (screenPos[0] + width / 2) - screenWidth / 2, height);
+
+            cheatSheet.show();
+            return true;
         }
 
         public ActionBar.Tab getTab() {

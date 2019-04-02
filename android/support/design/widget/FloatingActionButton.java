@@ -16,8 +16,7 @@
 
 package android.support.design.widget;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
+import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
@@ -35,6 +34,7 @@ import android.support.annotation.RestrictTo;
 import android.support.annotation.VisibleForTesting;
 import android.support.design.R;
 import android.support.design.widget.FloatingActionButtonImpl.InternalVisibilityChangedListener;
+import android.support.v4.content.res.ConfigurationHelper;
 import android.support.v4.view.ViewCompat;
 import android.support.v7.widget.AppCompatImageHelper;
 import android.util.AttributeSet;
@@ -48,6 +48,8 @@ import android.widget.ImageView;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.List;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Floating action buttons are used for a special type of promoted action. They are distinguished
@@ -121,7 +123,7 @@ public class FloatingActionButton extends VisibilityAwareImageButton {
     private static final int AUTO_MINI_LARGEST_SCREEN_WIDTH = 470;
 
     /** @hide */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     @Retention(RetentionPolicy.SOURCE)
     @IntDef({SIZE_MINI, SIZE_NORMAL, SIZE_AUTO})
     public @interface Size {}
@@ -248,7 +250,6 @@ public class FloatingActionButton extends VisibilityAwareImageButton {
      *
      * @param tint the tint to apply, may be {@code null} to clear tint
      */
-    @Override
     public void setBackgroundTintList(@Nullable ColorStateList tint) {
         if (mBackgroundTint != tint) {
             mBackgroundTint = tint;
@@ -278,7 +279,6 @@ public class FloatingActionButton extends VisibilityAwareImageButton {
      * @param tintMode the blending mode used to apply the tint, may be
      *                 {@code null} to clear tint
      */
-    @Override
     public void setBackgroundTintMode(@Nullable PorterDuff.Mode tintMode) {
         if (mBackgroundTintMode != tintMode) {
             mBackgroundTintMode = tintMode;
@@ -439,8 +439,8 @@ public class FloatingActionButton extends VisibilityAwareImageButton {
         switch (size) {
             case SIZE_AUTO:
                 // If we're set to auto, grab the size from resources and refresh
-                final int width = res.getConfiguration().screenWidthDp;
-                final int height = res.getConfiguration().screenHeightDp;
+                final int width = ConfigurationHelper.getScreenWidthDp(res);
+                final int height = ConfigurationHelper.getScreenHeightDp(res);
                 return Math.max(width, height) < AUTO_MINI_LARGEST_SCREEN_WIDTH
                         ? getSizeDimension(SIZE_MINI)
                         : getSizeDimension(SIZE_NORMAL);
@@ -470,6 +470,7 @@ public class FloatingActionButton extends VisibilityAwareImageButton {
         getImpl().onDrawableStateChanged(getDrawableState());
     }
 
+    @TargetApi(Build.VERSION_CODES.HONEYCOMB)
     @Override
     public void jumpDrawablesToCurrentState() {
         super.jumpDrawablesToCurrentState();
@@ -529,15 +530,10 @@ public class FloatingActionButton extends VisibilityAwareImageButton {
 
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
-        switch (ev.getAction()) {
-            case MotionEvent.ACTION_DOWN:
-                // Skipping the gesture if it doesn't start in in the FAB 'content' area
-                if (getContentRect(mTouchArea)
-                        && !mTouchArea.contains((int) ev.getX(), (int) ev.getY())) {
-                    return false;
-                }
-                break;
+        if(getContentRect(mTouchArea) && !mTouchArea.contains((int) ev.getX(), (int) ev.getY())) {
+            return false;
         }
+
         return super.onTouchEvent(ev);
     }
 
@@ -796,10 +792,16 @@ public class FloatingActionButton extends VisibilityAwareImageButton {
     }
 
     private FloatingActionButtonImpl createImpl() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            return new FloatingActionButtonLollipop(this, new ShadowDelegateImpl());
+        final int sdk = Build.VERSION.SDK_INT;
+        if (sdk >= 21) {
+            return new FloatingActionButtonLollipop(this, new ShadowDelegateImpl(),
+                    ViewUtils.DEFAULT_ANIMATOR_CREATOR);
+        } else if (sdk >= 14) {
+            return new FloatingActionButtonIcs(this, new ShadowDelegateImpl(),
+                    ViewUtils.DEFAULT_ANIMATOR_CREATOR);
         } else {
-            return new FloatingActionButtonImpl(this, new ShadowDelegateImpl());
+            return new FloatingActionButtonGingerbread(this, new ShadowDelegateImpl(),
+                    ViewUtils.DEFAULT_ANIMATOR_CREATOR);
         }
     }
 

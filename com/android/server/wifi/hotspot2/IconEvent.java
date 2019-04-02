@@ -4,13 +4,11 @@ public class IconEvent {
     private final long mBSSID;
     private final String mFileName;
     private final int mSize;
-    private final byte[] mData;
 
-    public IconEvent(long bssid, String fileName, int size, byte[] data) {
+    public IconEvent(long bssid, String fileName, int size) {
         mBSSID = bssid;
         mFileName = fileName;
         mSize = size;
-        mData = data;
     }
 
     public long getBSSID() {
@@ -23,10 +21,6 @@ public class IconEvent {
 
     public int getSize() {
         return mSize;
-    }
-
-    public byte[] getData() {
-        return mData;
     }
 
     @Override

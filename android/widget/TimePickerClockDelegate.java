@@ -16,17 +16,13 @@
 
 package android.widget;
 
-import android.annotation.IntDef;
 import android.annotation.Nullable;
-import android.annotation.TestApi;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
-import android.icu.text.DecimalFormatSymbols;
 import android.os.Parcelable;
 import android.text.SpannableStringBuilder;
-import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.text.format.DateUtils;
 import android.text.style.TtsSpan;
@@ -42,16 +38,12 @@ import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
-import android.view.inputmethod.InputMethodManager;
 import android.widget.RadialTimePickerView.OnValueSelectedListener;
-import android.widget.TextInputTimePickerView.OnValueTypedListener;
 
 import com.android.internal.R;
 import com.android.internal.widget.NumericTextView;
 import com.android.internal.widget.NumericTextView.OnValueChangedListener;
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import java.util.Calendar;
 
 /**
@@ -64,13 +56,6 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
      * hour / minute fields to the radial picker.
      */
     private static final long DELAY_COMMIT_MILLIS = 2000;
-
-    @IntDef({FROM_EXTERNAL_API, FROM_RADIAL_PICKER, FROM_INPUT_PICKER})
-    @Retention(RetentionPolicy.SOURCE)
-    private @interface ChangeSource {}
-    private static final int FROM_EXTERNAL_API = 0;
-    private static final int FROM_RADIAL_PICKER = 1;
-    private static final int FROM_INPUT_PICKER = 2;
 
     // Index used by RadialPickerLayout
     private static final int HOUR_INDEX = RadialTimePickerView.HOURS;
@@ -92,15 +77,6 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
     private final RadialTimePickerView mRadialTimePickerView;
     private final TextView mSeparatorView;
 
-    private boolean mRadialPickerModeEnabled = true;
-    private final ImageButton mRadialTimePickerModeButton;
-    private final String mRadialTimePickerModeEnabledDescription;
-    private final String mTextInputPickerModeEnabledDescription;
-    private final View mRadialTimePickerHeader;
-    private final View mTextInputPickerHeader;
-
-    private final TextInputTimePickerView mTextInputPickerView;
-
     private final Calendar mTempCalendar;
 
     // Accessibility strings.
@@ -112,11 +88,7 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
     private int mCurrentHour;
     private int mCurrentMinute;
     private boolean mIs24Hour;
-
-    // The portrait layout puts AM/PM at the right by default.
-    private boolean mIsAmPmAtLeft = false;
-    // The landscape layouts put AM/PM at the bottom by default.
-    private boolean mIsAmPmAtTop = false;
+    private boolean mIsAmPmAtStart;
 
     // Localization data.
     private boolean mHourFormatShowLeadingZero;
@@ -143,9 +115,8 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
         final int layoutResourceId = a.getResourceId(R.styleable.TimePicker_internalLayout,
                 R.layout.time_picker_material);
         final View mainView = inflater.inflate(layoutResourceId, delegator);
-        mainView.setSaveFromParentEnabled(false);
-        mRadialTimePickerHeader = mainView.findViewById(R.id.time_header);
-        mRadialTimePickerHeader.setOnTouchListener(new NearestTouchDelegate());
+        final View headerView = mainView.findViewById(R.id.time_header);
+        headerView.setOnTouchListener(new NearestTouchDelegate());
 
         // Set up hour/minute labels.
         mHourView = (NumericTextView) mainView.findViewById(R.id.hours);
@@ -198,8 +169,6 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
             headerTextColor = a.getColorStateList(R.styleable.TimePicker_headerTextColor);
         }
 
-        mTextInputPickerHeader = mainView.findViewById(R.id.input_header);
-
         if (headerTextColor != null) {
             mHourView.setTextColor(headerTextColor);
             mSeparatorView.setTextColor(headerTextColor);
@@ -210,10 +179,7 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
 
         // Set up header background, if available.
         if (a.hasValueOrEmpty(R.styleable.TimePicker_headerBackground)) {
-            mRadialTimePickerHeader.setBackground(a.getDrawable(
-                    R.styleable.TimePicker_headerBackground));
-            mTextInputPickerHeader.setBackground(a.getDrawable(
-                    R.styleable.TimePicker_headerBackground));
+            headerView.setBackground(a.getDrawable(R.styleable.TimePicker_headerBackground));
         }
 
         a.recycle();
@@ -221,22 +187,6 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
         mRadialTimePickerView = (RadialTimePickerView) mainView.findViewById(R.id.radial_picker);
         mRadialTimePickerView.applyAttributes(attrs, defStyleAttr, defStyleRes);
         mRadialTimePickerView.setOnValueSelectedListener(mOnValueSelectedListener);
-
-        mTextInputPickerView = (TextInputTimePickerView) mainView.findViewById(R.id.input_mode);
-        mTextInputPickerView.setListener(mOnValueTypedListener);
-
-        mRadialTimePickerModeButton =
-                (ImageButton) mainView.findViewById(R.id.toggle_mode);
-        mRadialTimePickerModeButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                toggleRadialPickerMode();
-            }
-        });
-        mRadialTimePickerModeEnabledDescription = context.getResources().getString(
-                R.string.time_picker_radial_mode_description);
-        mTextInputPickerModeEnabledDescription = context.getResources().getString(
-                R.string.time_picker_text_input_mode_description);
 
         mAllowAutoAdvance = true;
 
@@ -247,38 +197,6 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
         final int currentHour = mTempCalendar.get(Calendar.HOUR_OF_DAY);
         final int currentMinute = mTempCalendar.get(Calendar.MINUTE);
         initialize(currentHour, currentMinute, mIs24Hour, HOUR_INDEX);
-    }
-
-    private void toggleRadialPickerMode() {
-        if (mRadialPickerModeEnabled) {
-            mRadialTimePickerView.setVisibility(View.GONE);
-            mRadialTimePickerHeader.setVisibility(View.GONE);
-            mTextInputPickerHeader.setVisibility(View.VISIBLE);
-            mTextInputPickerView.setVisibility(View.VISIBLE);
-            mRadialTimePickerModeButton.setImageResource(R.drawable.btn_clock_material);
-            mRadialTimePickerModeButton.setContentDescription(
-                    mRadialTimePickerModeEnabledDescription);
-            mRadialPickerModeEnabled = false;
-        } else {
-            mRadialTimePickerView.setVisibility(View.VISIBLE);
-            mRadialTimePickerHeader.setVisibility(View.VISIBLE);
-            mTextInputPickerHeader.setVisibility(View.GONE);
-            mTextInputPickerView.setVisibility(View.GONE);
-            mRadialTimePickerModeButton.setImageResource(R.drawable.btn_keyboard_key_material);
-            mRadialTimePickerModeButton.setContentDescription(
-                    mTextInputPickerModeEnabledDescription);
-            updateTextInputPicker();
-            InputMethodManager imm = InputMethodManager.peekInstance();
-            if (imm != null) {
-                imm.hideSoftInputFromWindow(mDelegator.getWindowToken(), 0);
-            }
-            mRadialPickerModeEnabled = true;
-        }
-    }
-
-    @Override
-    public boolean validateInput() {
-        return mTextInputPickerView.validateInput();
     }
 
     /**
@@ -330,16 +248,9 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
         final int maxHour = (mIs24Hour ? 23 : 11) + minHour;
         mHourView.setRange(minHour, maxHour);
         mHourView.setShowLeadingZeroes(mHourFormatShowLeadingZero);
-
-        final String[] digits = DecimalFormatSymbols.getInstance(mLocale).getDigitStrings();
-        int maxCharLength = 0;
-        for (int i = 0; i < 10; i++) {
-            maxCharLength = Math.max(maxCharLength, digits[i].length());
-        }
-        mTextInputPickerView.setHourFormat(maxCharLength * 2);
     }
 
-    static final CharSequence obtainVerbatim(String text) {
+    private static final CharSequence obtainVerbatim(String text) {
         return new SpannableStringBuilder().append(text,
                 new TtsSpan.VerbatimBuilder(text).build(), 0);
     }
@@ -421,14 +332,8 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
         updateHeaderSeparator();
         updateHeaderMinute(mCurrentMinute, false);
         updateRadialPicker(index);
-        updateTextInputPicker();
 
         mDelegator.invalidate();
-    }
-
-    private void updateTextInputPicker() {
-        mTextInputPickerView.updateTextInputValues(getLocalizedHour(mCurrentHour), mCurrentMinute,
-                mCurrentHour < 12 ? AM : PM, mIs24Hour, mHourFormatStartsAtZero);
     }
 
     private void updateRadialPicker(int index) {
@@ -440,78 +345,34 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
         if (mIs24Hour) {
             mAmPmLayout.setVisibility(View.GONE);
         } else {
-            // Find the location of AM/PM based on locale information.
+            // Ensure that AM/PM layout is in the correct position.
             final String dateTimePattern = DateFormat.getBestDateTimePattern(mLocale, "hm");
             final boolean isAmPmAtStart = dateTimePattern.startsWith("a");
-            setAmPmStart(isAmPmAtStart);
+            setAmPmAtStart(isAmPmAtStart);
+
             updateAmPmLabelStates(mCurrentHour < 12 ? AM : PM);
         }
     }
 
-    private void setAmPmStart(boolean isAmPmAtStart) {
-        final RelativeLayout.LayoutParams params =
-                (RelativeLayout.LayoutParams) mAmPmLayout.getLayoutParams();
-        if (params.getRule(RelativeLayout.RIGHT_OF) != 0
-                || params.getRule(RelativeLayout.LEFT_OF) != 0) {
-            // Horizontal mode, with AM/PM appearing to left/right of hours and minutes.
-            final boolean isAmPmAtLeft;
-            if (TextUtils.getLayoutDirectionFromLocale(mLocale) == View.LAYOUT_DIRECTION_LTR) {
-                isAmPmAtLeft = isAmPmAtStart;
-            } else {
-                isAmPmAtLeft = !isAmPmAtStart;
-            }
-            if (mIsAmPmAtLeft == isAmPmAtLeft) {
-                // AM/PM is already at the correct location. No change needed.
-                return;
+    private void setAmPmAtStart(boolean isAmPmAtStart) {
+        if (mIsAmPmAtStart != isAmPmAtStart) {
+            mIsAmPmAtStart = isAmPmAtStart;
+
+            final RelativeLayout.LayoutParams params =
+                    (RelativeLayout.LayoutParams) mAmPmLayout.getLayoutParams();
+            if (params.getRule(RelativeLayout.RIGHT_OF) != 0 ||
+                    params.getRule(RelativeLayout.LEFT_OF) != 0) {
+                if (isAmPmAtStart) {
+                    params.removeRule(RelativeLayout.RIGHT_OF);
+                    params.addRule(RelativeLayout.LEFT_OF, mHourView.getId());
+                } else {
+                    params.removeRule(RelativeLayout.LEFT_OF);
+                    params.addRule(RelativeLayout.RIGHT_OF, mMinuteView.getId());
+                }
             }
 
-            if (isAmPmAtLeft) {
-                params.removeRule(RelativeLayout.RIGHT_OF);
-                params.addRule(RelativeLayout.LEFT_OF, mHourView.getId());
-            } else {
-                params.removeRule(RelativeLayout.LEFT_OF);
-                params.addRule(RelativeLayout.RIGHT_OF, mMinuteView.getId());
-            }
-            mIsAmPmAtLeft = isAmPmAtLeft;
-        } else if (params.getRule(RelativeLayout.BELOW) != 0
-                || params.getRule(RelativeLayout.ABOVE) != 0) {
-            // Vertical mode, with AM/PM appearing to top/bottom of hours and minutes.
-            if (mIsAmPmAtTop == isAmPmAtStart) {
-                // AM/PM is already at the correct location. No change needed.
-                return;
-            }
-
-            final int otherViewId;
-            if (isAmPmAtStart) {
-                otherViewId = params.getRule(RelativeLayout.BELOW);
-                params.removeRule(RelativeLayout.BELOW);
-                params.addRule(RelativeLayout.ABOVE, otherViewId);
-            } else {
-                otherViewId = params.getRule(RelativeLayout.ABOVE);
-                params.removeRule(RelativeLayout.ABOVE);
-                params.addRule(RelativeLayout.BELOW, otherViewId);
-            }
-
-            // Switch the top and bottom paddings on the other view.
-            final View otherView = mRadialTimePickerHeader.findViewById(otherViewId);
-            final int top = otherView.getPaddingTop();
-            final int bottom = otherView.getPaddingBottom();
-            final int left = otherView.getPaddingLeft();
-            final int right = otherView.getPaddingRight();
-            otherView.setPadding(left, bottom, right, top);
-
-            mIsAmPmAtTop = isAmPmAtStart;
+            mAmPmLayout.setLayoutParams(params);
         }
-
-        mAmPmLayout.setLayoutParams(params);
-    }
-
-    @Override
-    public void setDate(int hour, int minute) {
-        setHourInternal(hour, FROM_EXTERNAL_API, true, false);
-        setMinuteInternal(minute, FROM_EXTERNAL_API, false);
-
-        onTimeChanged();
     }
 
     /**
@@ -519,32 +380,25 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
      */
     @Override
     public void setHour(int hour) {
-        setHourInternal(hour, FROM_EXTERNAL_API, true, true);
+        setHourInternal(hour, false, true);
     }
 
-    private void setHourInternal(int hour, @ChangeSource int source, boolean announce,
-            boolean notify) {
+    private void setHourInternal(int hour, boolean isFromPicker, boolean announce) {
         if (mCurrentHour == hour) {
             return;
         }
 
-        resetAutofilledValue();
         mCurrentHour = hour;
         updateHeaderHour(hour, announce);
         updateHeaderAmPm();
 
-        if (source != FROM_RADIAL_PICKER) {
+        if (!isFromPicker) {
             mRadialTimePickerView.setCurrentHour(hour);
             mRadialTimePickerView.setAmOrPm(hour < 12 ? AM : PM);
         }
-        if (source != FROM_INPUT_PICKER) {
-            updateTextInputPicker();
-        }
 
         mDelegator.invalidate();
-        if (notify) {
-            onTimeChanged();
-        }
+        onTimeChanged();
     }
 
     /**
@@ -569,29 +423,23 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
      */
     @Override
     public void setMinute(int minute) {
-        setMinuteInternal(minute, FROM_EXTERNAL_API, true);
+        setMinuteInternal(minute, false);
     }
 
-    private void setMinuteInternal(int minute, @ChangeSource int source, boolean notify) {
+    private void setMinuteInternal(int minute, boolean isFromPicker) {
         if (mCurrentMinute == minute) {
             return;
         }
 
-        resetAutofilledValue();
         mCurrentMinute = minute;
         updateHeaderMinute(minute, true);
 
-        if (source != FROM_RADIAL_PICKER) {
+        if (!isFromPicker) {
             mRadialTimePickerView.setCurrentMinute(minute);
-        }
-        if (source != FROM_INPUT_PICKER) {
-            updateTextInputPicker();
         }
 
         mDelegator.invalidate();
-        if (notify) {
-            onTimeChanged();
-        }
+        onTimeChanged();
     }
 
     /**
@@ -627,6 +475,11 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
     @Override
     public boolean is24Hour() {
         return mIs24Hour;
+    }
+
+    @Override
+    public void setOnTimeChangedListener(TimePicker.OnTimeChangedListener callback) {
+        mOnTimeChangedListener = callback;
     }
 
     @Override
@@ -690,34 +543,6 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
         event.getText().add(selectedTime + " " + selectionMode);
     }
 
-    /** @hide */
-    @Override
-    @TestApi
-    public View getHourView() {
-        return mHourView;
-    }
-
-    /** @hide */
-    @Override
-    @TestApi
-    public View getMinuteView() {
-        return mMinuteView;
-    }
-
-    /** @hide */
-    @Override
-    @TestApi
-    public View getAmView() {
-        return mAmLabel;
-    }
-
-    /** @hide */
-    @Override
-    @TestApi
-    public View getPmView() {
-        return mPmLabel;
-    }
-
     /**
      * @return the index of the current item showing
      */
@@ -732,9 +557,6 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
         mDelegator.sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_SELECTED);
         if (mOnTimeChangedListener != null) {
             mOnTimeChangedListener.onTimeChanged(mDelegator, getHour(), getMinute());
-        }
-        if (mAutoFillChangeListener != null) {
-            mAutoFillChangeListener.onTimeChanged(mDelegator, getHour(), getMinute());
         }
     }
 
@@ -815,7 +637,6 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
             separatorText = Character.toString(bestDateTimePattern.charAt(hIndex + 1));
         }
         mSeparatorView.setText(separatorText);
-        mTextInputPickerView.updateSeparator(separatorText);
     }
 
     static private int lastIndexOfAny(String str, char[] any) {
@@ -867,7 +688,7 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
 
         if (mRadialTimePickerView.setAmOrPm(amOrPm)) {
             mCurrentHour = getHour();
-            updateTextInputPicker();
+
             if (mOnTimeChangedListener != null) {
                 mOnTimeChangedListener.onTimeChanged(mDelegator, getHour(), getMinute());
             }
@@ -878,14 +699,10 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
     private final OnValueSelectedListener mOnValueSelectedListener = new OnValueSelectedListener() {
         @Override
         public void onValueSelected(int pickerType, int newValue, boolean autoAdvance) {
-            boolean valueChanged = false;
             switch (pickerType) {
                 case RadialTimePickerView.HOURS:
-                    if (getHour() != newValue) {
-                        valueChanged = true;
-                    }
                     final boolean isTransition = mAllowAutoAdvance && autoAdvance;
-                    setHourInternal(newValue, FROM_RADIAL_PICKER, !isTransition, true);
+                    setHourInternal(newValue, true, !isTransition);
                     if (isTransition) {
                         setCurrentItemShowing(MINUTE_INDEX, true, false);
 
@@ -894,32 +711,12 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
                     }
                     break;
                 case RadialTimePickerView.MINUTES:
-                    if (getMinute() != newValue) {
-                        valueChanged = true;
-                    }
-                    setMinuteInternal(newValue, FROM_RADIAL_PICKER, true);
+                    setMinuteInternal(newValue, true);
                     break;
             }
 
-            if (mOnTimeChangedListener != null && valueChanged) {
+            if (mOnTimeChangedListener != null) {
                 mOnTimeChangedListener.onTimeChanged(mDelegator, getHour(), getMinute());
-            }
-        }
-    };
-
-    private final OnValueTypedListener mOnValueTypedListener = new OnValueTypedListener() {
-        @Override
-        public void onValueChanged(int pickerType, int newValue) {
-            switch (pickerType) {
-                case TextInputTimePickerView.HOURS:
-                    setHourInternal(newValue, FROM_INPUT_PICKER, false, true);
-                    break;
-                case TextInputTimePickerView.MINUTES:
-                    setMinuteInternal(newValue, FROM_INPUT_PICKER, true);
-                    break;
-                case TextInputTimePickerView.AMPM:
-                    setAmOrPm(newValue);
-                    break;
             }
         }
     };

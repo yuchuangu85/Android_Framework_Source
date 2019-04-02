@@ -17,6 +17,7 @@
 package android.net.metrics;
 
 import android.annotation.IntDef;
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.SparseArray;
@@ -29,6 +30,7 @@ import java.lang.annotation.RetentionPolicy;
 /**
  * {@hide}
  */
+@SystemApi
 public final class NetworkEvent implements Parcelable {
 
     public static final int NETWORK_CONNECTED            = 1;
@@ -39,11 +41,7 @@ public final class NetworkEvent implements Parcelable {
     public static final int NETWORK_UNLINGER             = 6;
     public static final int NETWORK_DISCONNECTED         = 7;
 
-    public static final int NETWORK_FIRST_VALIDATION_SUCCESS      = 8;
-    public static final int NETWORK_REVALIDATION_SUCCESS          = 9;
-    public static final int NETWORK_FIRST_VALIDATION_PORTAL_FOUND = 10;
-    public static final int NETWORK_REVALIDATION_PORTAL_FOUND     = 11;
-
+    /** {@hide} */
     @IntDef(value = {
             NETWORK_CONNECTED,
             NETWORK_VALIDATED,
@@ -52,10 +50,6 @@ public final class NetworkEvent implements Parcelable {
             NETWORK_LINGER,
             NETWORK_UNLINGER,
             NETWORK_DISCONNECTED,
-            NETWORK_FIRST_VALIDATION_SUCCESS,
-            NETWORK_REVALIDATION_SUCCESS,
-            NETWORK_FIRST_VALIDATION_PORTAL_FOUND,
-            NETWORK_REVALIDATION_PORTAL_FOUND,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface EventType {}
@@ -64,12 +58,14 @@ public final class NetworkEvent implements Parcelable {
     public final @EventType int eventType;
     public final long durationMs;
 
+    /** {@hide} */
     public NetworkEvent(int netId, @EventType int eventType, long durationMs) {
         this.netId = netId;
         this.eventType = eventType;
         this.durationMs = durationMs;
     }
 
+    /** {@hide} */
     public NetworkEvent(int netId, @EventType int eventType) {
         this(netId, eventType, 0);
     }
@@ -102,6 +98,15 @@ public final class NetworkEvent implements Parcelable {
             return new NetworkEvent[size];
         }
     };
+
+    public static void logEvent(int netId, int eventType) {
+    }
+
+    public static void logValidated(int netId, long durationMs) {
+    }
+
+    public static void logCaptivePortalFound(int netId, long durationMs) {
+    }
 
     @Override
     public String toString() {

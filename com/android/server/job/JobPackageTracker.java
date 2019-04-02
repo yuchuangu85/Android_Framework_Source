@@ -17,13 +17,11 @@
 package com.android.server.job;
 
 import android.app.job.JobInfo;
-import android.app.job.JobParameters;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.text.format.DateFormat;
 import android.util.ArrayMap;
 import android.util.SparseArray;
-import android.util.SparseIntArray;
 import android.util.TimeUtils;
 import com.android.internal.util.RingBufferIndices;
 import com.android.server.job.controllers.JobStatus;
@@ -38,29 +36,22 @@ public final class JobPackageTracker {
 
     private static final int EVENT_BUFFER_SIZE = 100;
 
-    public static final int EVENT_CMD_MASK = 0xff;
-    public static final int EVENT_STOP_REASON_SHIFT = 8;
-    public static final int EVENT_STOP_REASON_MASK = 0xff << EVENT_STOP_REASON_SHIFT;
     public static final int EVENT_NULL = 0;
     public static final int EVENT_START_JOB = 1;
     public static final int EVENT_STOP_JOB = 2;
-    public static final int EVENT_START_PERIODIC_JOB = 3;
-    public static final int EVENT_STOP_PERIODIC_JOB = 4;
 
     private final RingBufferIndices mEventIndices = new RingBufferIndices(EVENT_BUFFER_SIZE);
     private final int[] mEventCmds = new int[EVENT_BUFFER_SIZE];
     private final long[] mEventTimes = new long[EVENT_BUFFER_SIZE];
     private final int[] mEventUids = new int[EVENT_BUFFER_SIZE];
     private final String[] mEventTags = new String[EVENT_BUFFER_SIZE];
-    private final int[] mEventJobIds = new int[EVENT_BUFFER_SIZE];
 
-    public void addEvent(int cmd, int uid, String tag, int jobId, int stopReason) {
+    public void addEvent(int cmd, int uid, String tag) {
         int index = mEventIndices.add();
-        mEventCmds[index] = cmd | ((stopReason<<EVENT_STOP_REASON_SHIFT) & EVENT_STOP_REASON_MASK);
+        mEventCmds[index] = cmd;
         mEventTimes[index] = SystemClock.elapsedRealtime();
         mEventUids[index] = uid;
         mEventTags[index] = tag;
-        mEventJobIds[index] = jobId;
     }
 
     DataSet mCurDataSet = new DataSet();
@@ -82,7 +73,6 @@ public final class JobPackageTracker {
         int pendingNesting;
         int pendingCount;
         boolean hadPending;
-        final SparseIntArray stopReasons = new SparseIntArray();
 
         public long getActiveTime(long now) {
             long time = pastActiveTime;
@@ -185,14 +175,12 @@ public final class JobPackageTracker {
             pe.activeNesting++;
         }
 
-        void decActive(int uid, String pkg, long now, int stopReason) {
+        void decActive(int uid, String pkg, long now) {
             PackageEntry pe = getOrCreateEntry(uid, pkg);
             if (pe.activeNesting == 1) {
                 pe.pastActiveTime += now - pe.activeStartTime;
             }
             pe.activeNesting--;
-            int count = pe.stopReasons.get(stopReason, 0);
-            pe.stopReasons.put(stopReason, count+1);
         }
 
         void incActiveTop(int uid, String pkg, long now) {
@@ -204,14 +192,12 @@ public final class JobPackageTracker {
             pe.activeTopNesting++;
         }
 
-        void decActiveTop(int uid, String pkg, long now, int stopReason) {
+        void decActiveTop(int uid, String pkg, long now) {
             PackageEntry pe = getOrCreateEntry(uid, pkg);
             if (pe.activeTopNesting == 1) {
                 pe.pastActiveTopTime += now - pe.activeTopStartTime;
             }
             pe.activeTopNesting--;
-            int count = pe.stopReasons.get(stopReason, 0);
-            pe.stopReasons.put(stopReason, count+1);
         }
 
         void finish(DataSet next, long now) {
@@ -271,11 +257,6 @@ public final class JobPackageTracker {
                         outPe.pastPendingTime += now - pe.pendingStartTime;
                         outPe.hadPending = true;
                     }
-                    for (int k = pe.stopReasons.size()-1; k >= 0; k--) {
-                        int type = pe.stopReasons.keyAt(k);
-                        outPe.stopReasons.put(type, outPe.stopReasons.get(type, 0)
-                                + pe.stopReasons.valueAt(k));
-                    }
                 }
             }
             if (mMaxTotalActive > out.mMaxTotalActive) {
@@ -327,8 +308,7 @@ public final class JobPackageTracker {
                     pw.print(prefix); pw.print("  ");
                     UserHandle.formatUid(pw, uid);
                     pw.print(" / "); pw.print(uidMap.keyAt(j));
-                    pw.println(":");
-                    pw.print(prefix); pw.print("   ");
+                    pw.print(":");
                     printDuration(pw, period, pe.getPendingTime(now), pe.pendingCount, "pending");
                     printDuration(pw, period, pe.getActiveTime(now), pe.activeCount, "active");
                     printDuration(pw, period, pe.getActiveTopTime(now), pe.activeTopCount,
@@ -343,18 +323,6 @@ public final class JobPackageTracker {
                         pw.print(" (active-top)");
                     }
                     pw.println();
-                    if (pe.stopReasons.size() > 0) {
-                        pw.print(prefix); pw.print("    ");
-                        for (int k = 0; k < pe.stopReasons.size(); k++) {
-                            if (k > 0) {
-                                pw.print(", ");
-                            }
-                            pw.print(pe.stopReasons.valueAt(k));
-                            pw.print("x ");
-                            pw.print(JobParameters.getReasonName(pe.stopReasons.keyAt(k)));
-                        }
-                        pw.println();
-                    }
                 }
             }
             pw.print(prefix); pw.print("  Max concurrency: ");
@@ -377,7 +345,6 @@ public final class JobPackageTracker {
 
     public void notePending(JobStatus job) {
         final long now = SystemClock.uptimeMillis();
-        job.madePending = now;
         rebatchIfNeeded(now);
         mCurDataSet.incPending(job.getSourceUid(), job.getSourcePackageName(), now);
     }
@@ -390,28 +357,24 @@ public final class JobPackageTracker {
 
     public void noteActive(JobStatus job) {
         final long now = SystemClock.uptimeMillis();
-        job.madeActive = now;
         rebatchIfNeeded(now);
         if (job.lastEvaluatedPriority >= JobInfo.PRIORITY_TOP_APP) {
             mCurDataSet.incActiveTop(job.getSourceUid(), job.getSourcePackageName(), now);
         } else {
             mCurDataSet.incActive(job.getSourceUid(), job.getSourcePackageName(), now);
         }
-        addEvent(job.getJob().isPeriodic() ? EVENT_START_PERIODIC_JOB :  EVENT_START_JOB,
-                job.getSourceUid(), job.getBatteryName(), job.getJobId(), 0);
+        addEvent(EVENT_START_JOB, job.getSourceUid(), job.getBatteryName());
     }
 
-    public void noteInactive(JobStatus job, int stopReason) {
+    public void noteInactive(JobStatus job) {
         final long now = SystemClock.uptimeMillis();
         if (job.lastEvaluatedPriority >= JobInfo.PRIORITY_TOP_APP) {
-            mCurDataSet.decActiveTop(job.getSourceUid(), job.getSourcePackageName(), now,
-                    stopReason);
+            mCurDataSet.decActiveTop(job.getSourceUid(), job.getSourcePackageName(), now);
         } else {
-            mCurDataSet.decActive(job.getSourceUid(), job.getSourcePackageName(), now, stopReason);
+            mCurDataSet.decActive(job.getSourceUid(), job.getSourcePackageName(), now);
         }
         rebatchIfNeeded(now);
-        addEvent(job.getJob().isPeriodic() ? EVENT_STOP_JOB :  EVENT_STOP_PERIODIC_JOB,
-                job.getSourceUid(), job.getBatteryName(), job.getJobId(), stopReason);
+        addEvent(EVENT_STOP_JOB, job.getSourceUid(), job.getBatteryName());
     }
 
     public void noteConcurrency(int totalActive, int fgActive) {
@@ -474,37 +437,27 @@ public final class JobPackageTracker {
         for (int i=0; i<size; i++) {
             final int index = mEventIndices.indexOf(i);
             final int uid = mEventUids[index];
-            if (filterUid != -1 && filterUid != UserHandle.getAppId(uid)) {
+            if (filterUid != -1 && filterUid != UserHandle.getAppId(filterUid)) {
                 continue;
             }
-            final int cmd = mEventCmds[index] & EVENT_CMD_MASK;
+            final int cmd = mEventCmds[index];
             if (cmd == EVENT_NULL) {
                 continue;
             }
             final String label;
-            switch (cmd) {
-                case EVENT_START_JOB:           label = "  START"; break;
-                case EVENT_STOP_JOB:            label = "   STOP"; break;
-                case EVENT_START_PERIODIC_JOB:  label = "START-P"; break;
-                case EVENT_STOP_PERIODIC_JOB:   label = " STOP-P"; break;
-                default:                        label = "     ??"; break;
+            switch (mEventCmds[index]) {
+                case EVENT_START_JOB:           label = "START"; break;
+                case EVENT_STOP_JOB:            label = " STOP"; break;
+                default:                        label = "   ??"; break;
             }
             pw.print(prefix);
             TimeUtils.formatDuration(mEventTimes[index]-now, pw, TimeUtils.HUNDRED_DAY_FIELD_LEN);
             pw.print(" ");
             pw.print(label);
-            pw.print(": #");
+            pw.print(": ");
             UserHandle.formatUid(pw, uid);
-            pw.print("/");
-            pw.print(mEventJobIds[index]);
             pw.print(" ");
-            pw.print(mEventTags[index]);
-            if (cmd == EVENT_STOP_JOB || cmd == EVENT_STOP_PERIODIC_JOB) {
-                pw.print(" ");
-                pw.print(JobParameters.getReasonName((mEventCmds[index] & EVENT_STOP_REASON_MASK)
-                        >> EVENT_STOP_REASON_SHIFT));
-            }
-            pw.println();
+            pw.println(mEventTags[index]);
         }
         return true;
     }

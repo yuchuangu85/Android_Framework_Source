@@ -23,8 +23,6 @@ import android.databinding.tool.util.Preconditions;
 import android.databinding.tool.writer.KCode;
 import android.databinding.tool.writer.LayoutBinderWriterKt;
 
-import com.google.common.collect.Lists;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -80,8 +78,12 @@ public class IdentifierExpr extends Expr {
     }
 
     @Override
-    protected KCode generateCode() {
-        return new KCode(LayoutBinderWriterKt.scopedName(this));
+    protected KCode generateCode(boolean expand) {
+        if (expand) {
+            return new KCode(LayoutBinderWriterKt.getFieldName(this));
+        } else {
+            return new KCode(LayoutBinderWriterKt.getExecutePendingLocalName(this));
+        }
     }
 
     public void setDeclared() {
@@ -98,20 +100,7 @@ public class IdentifierExpr extends Expr {
     }
 
     @Override
-    public Expr generateInverse(ExprModel model, Expr value, String bindingClassName) {
-        String thisType = bindingClassName + ".this";
-        Expr target = model.builtInVariable(thisType, bindingClassName, thisType);
-        return model.methodCall(target, LayoutBinderWriterKt.getSetterName(this),
-                Lists.newArrayList(value));
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.identifier(mName);
-    }
-
-    @Override
-    public String toString() {
-        return mName;
+    public KCode toInverseCode(KCode value) {
+        return new KCode().app(LayoutBinderWriterKt.getSetterName(this)).app("(", value).app(");");
     }
 }

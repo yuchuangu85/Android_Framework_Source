@@ -17,7 +17,7 @@
 package com.android.server.dreams;
 
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.internal.logging.MetricsProto.MetricsEvent;
 
 import android.content.ComponentName;
 import android.content.Context;
@@ -43,9 +43,6 @@ import android.view.WindowManagerGlobal;
 
 import java.io.PrintWriter;
 import java.util.NoSuchElementException;
-
-import static android.view.Display.DEFAULT_DISPLAY;
-import static android.view.WindowManager.LayoutParams.TYPE_DREAM;
 
 /**
  * Internal controller for starting and stopping the current dream and managing related state.
@@ -141,7 +138,7 @@ final class DreamController {
                     mCurrentDream.mCanDoze ? MetricsEvent.DOZING : MetricsEvent.DREAMING);
 
             try {
-                mIWindowManager.addWindowToken(token, TYPE_DREAM, DEFAULT_DISPLAY);
+                mIWindowManager.addWindowToken(token, WindowManager.LayoutParams.TYPE_DREAM);
             } catch (RemoteException ex) {
                 Slog.e(TAG, "Unable to add window token for dream.", ex);
                 stopDream(true /*immediate*/);
@@ -239,7 +236,7 @@ final class DreamController {
             oldDream.releaseWakeLockIfNeeded();
 
             try {
-                mIWindowManager.removeWindowToken(oldDream.mToken, DEFAULT_DISPLAY);
+                mIWindowManager.removeWindowToken(oldDream.mToken);
             } catch (RemoteException ex) {
                 Slog.w(TAG, "Error removing window token for dream.", ex);
             }

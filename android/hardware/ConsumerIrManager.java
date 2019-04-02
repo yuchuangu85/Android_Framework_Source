@@ -16,17 +16,21 @@
 
 package android.hardware;
 
-import android.annotation.SystemService;
 import android.content.Context;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.os.ServiceManager.ServiceNotFoundException;
 import android.util.Log;
 
 /**
  * Class that operates consumer infrared on the device.
+ *
+ * <p>
+ * To obtain an instance of the system infrared transmitter, call
+ * {@link android.content.Context#getSystemService(java.lang.String)
+ * Context.getSystemService()} with
+ * {@link android.content.Context#CONSUMER_IR_SERVICE} as the argument.
+ * </p>
  */
-@SystemService(Context.CONSUMER_IR_SERVICE)
 public final class ConsumerIrManager {
     private static final String TAG = "ConsumerIr";
 
@@ -36,10 +40,10 @@ public final class ConsumerIrManager {
     /**
      * @hide to prevent subclassing from outside of the framework
      */
-    public ConsumerIrManager(Context context) throws ServiceNotFoundException {
+    public ConsumerIrManager(Context context) {
         mPackageName = context.getPackageName();
         mService = IConsumerIrService.Stub.asInterface(
-                ServiceManager.getServiceOrThrow(Context.CONSUMER_IR_SERVICE));
+                ServiceManager.getService(Context.CONSUMER_IR_SERVICE));
     }
 
     /**

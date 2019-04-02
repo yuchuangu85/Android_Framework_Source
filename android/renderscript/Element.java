@@ -1071,6 +1071,7 @@ public class Element extends BaseObj {
             mSize += mElements[ct].mSize * mArraySizes[ct];
         }
         updateVisibleSubElements();
+        guard.open("destroy");
     }
 
     Element(long id, RenderScript rs, DataType dt, DataKind dk, boolean norm, int size) {
@@ -1090,6 +1091,7 @@ public class Element extends BaseObj {
         mKind = dk;
         mNormalized = norm;
         mVectorSize = size;
+        guard.open("destroy");
     }
 
     Element(long id, RenderScript rs) {

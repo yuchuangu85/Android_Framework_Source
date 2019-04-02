@@ -182,7 +182,7 @@ public class CastControllerImpl implements CastController {
                 Log.w(TAG, "Projection is no longer active: " + projection);
             }
         } else {
-            mMediaRouter.getFallbackRoute().select();
+            mMediaRouter.getDefaultRoute().select();
         }
     }
 

@@ -61,9 +61,8 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
     private final static int MAX_REDIRECTS = 20;
 
     public MediaHTTPConnection() {
-        CookieHandler cookieHandler = CookieHandler.getDefault();
-        if (cookieHandler == null) {
-            Log.w(TAG, "MediaHTTPConnection: Unexpected. No CookieHandler found.");
+        if (CookieHandler.getDefault() == null) {
+            CookieHandler.setDefault(new CookieManager());
         }
 
         native_setup();
@@ -136,13 +135,7 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
 
     private void teardownConnection() {
         if (mConnection != null) {
-            if (mInputStream != null) {
-                try {
-                    mInputStream.close();
-                } catch (IOException e) {
-                }
-                mInputStream = null;
-            }
+            mInputStream = null;
 
             mConnection.disconnect();
             mConnection = null;
@@ -304,7 +297,8 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
             mCurrentOffset = offset;
         } catch (IOException e) {
             mTotalSize = -1;
-            teardownConnection();
+            mInputStream = null;
+            mConnection = null;
             mCurrentOffset = -1;
 
             throw e;

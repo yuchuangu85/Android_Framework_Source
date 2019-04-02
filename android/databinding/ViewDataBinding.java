@@ -570,99 +570,29 @@ public abstract class ViewDataBinding extends BaseObservable {
     }
 
     /** @hide */
-    protected static boolean parse(String str, boolean fallback) {
-        if (str == null) {
-            return fallback;
-        }
-        return Boolean.parseBoolean(str);
-    }
-
-    /** @hide */
-    protected static byte parse(String str, byte fallback) {
-        try {
-            return Byte.parseByte(str);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    /** @hide */
-    protected static short parse(String str, short fallback) {
-        try {
-            return Short.parseShort(str);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    /** @hide */
-    protected static int parse(String str, int fallback) {
-        try {
-            return Integer.parseInt(str);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    /** @hide */
-    protected static long parse(String str, long fallback) {
-        try {
-            return Long.parseLong(str);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    /** @hide */
-    protected static float parse(String str, float fallback) {
-        try {
-            return Float.parseFloat(str);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    /** @hide */
-    protected static double parse(String str, double fallback) {
-        try {
-            return Double.parseDouble(str);
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    /** @hide */
-    protected static char parse(String str, char fallback) {
-        if (str == null || str.isEmpty()) {
-            return fallback;
-        }
-        return str.charAt(0);
-    }
-
-    /** @hide */
-    protected static int getColorFromResource(View view, int resourceId) {
+    protected int getColorFromResource(int resourceId) {
         if (VERSION.SDK_INT >= VERSION_CODES.M) {
-            return view.getContext().getColor(resourceId);
+            return getRoot().getContext().getColor(resourceId);
         } else {
-            return view.getResources().getColor(resourceId);
+            return getRoot().getResources().getColor(resourceId);
         }
     }
 
     /** @hide */
-    protected static ColorStateList getColorStateListFromResource(View view, int resourceId) {
+    protected ColorStateList getColorStateListFromResource(int resourceId) {
         if (VERSION.SDK_INT >= VERSION_CODES.M) {
-            return view.getContext().getColorStateList(resourceId);
+            return getRoot().getContext().getColorStateList(resourceId);
         } else {
-            return view.getResources().getColorStateList(resourceId);
+            return getRoot().getResources().getColorStateList(resourceId);
         }
     }
 
     /** @hide */
-    protected static Drawable getDrawableFromResource(View view, int resourceId) {
+    protected Drawable getDrawableFromResource(int resourceId) {
         if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            return view.getContext().getDrawable(resourceId);
+            return getRoot().getContext().getDrawable(resourceId);
         } else {
-            return view.getResources().getDrawable(resourceId);
+            return getRoot().getResources().getDrawable(resourceId);
         }
     }
 
@@ -989,8 +919,7 @@ public abstract class ViewDataBinding extends BaseObservable {
         if (existingBinding != null) {
             return;
         }
-        Object objTag = view.getTag();
-        final String tag = (objTag instanceof String) ? (String) objTag : null;
+        final String tag = (String) view.getTag();
         boolean isBound = false;
         if (isRoot && tag != null && tag.startsWith("layout")) {
             final int underscoreIndex = tag.lastIndexOf('_');
@@ -1033,9 +962,9 @@ public abstract class ViewDataBinding extends BaseObservable {
             for (int i = 0; i < count; i++) {
                 final View child = viewGroup.getChildAt(i);
                 boolean isInclude = false;
-                if (indexInIncludes >= 0 && child.getTag() instanceof String) {
+                if (indexInIncludes >= 0) {
                     String childTag = (String) child.getTag();
-                    if (childTag.endsWith("_0") &&
+                    if (childTag != null && childTag.endsWith("_0") &&
                             childTag.startsWith("layout") && childTag.indexOf('/') > 0) {
                         // This *could* be an include. Test against the expected includes.
                         int includeIndex = findIncludeIndex(childTag, minInclude,
@@ -1095,8 +1024,7 @@ public abstract class ViewDataBinding extends BaseObservable {
         int max = firstIncludedIndex;
         for (int i = firstIncludedIndex + 1; i < count; i++) {
             final View view = viewGroup.getChildAt(i);
-            final Object objTag = view.getTag();
-            final String tag = objTag instanceof String ? (String) view.getTag() : null;
+            final String tag = (String) view.getTag();
             if (tag != null && tag.startsWith(tagBase)) {
                 if (tag.length() == firstViewTag.length() && tag.charAt(tag.length() - 1) == '0') {
                     return max; // Found another instance of the include

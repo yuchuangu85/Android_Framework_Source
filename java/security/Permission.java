@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2009, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,27 +25,19 @@
 
 package java.security;
 
-// Android-changed: Stubbed the implementation.  Android doesn't support SecurityManager.
-// See comments in java.lang.SecurityManager for details.
 /**
  * Legacy security code; do not use.
  */
 
 public abstract class Permission implements Guard, java.io.Serializable {
 
-    private String name;
-
-    public Permission(String name) {
-        this.name = name;
-    }
+    public Permission(String name) { }
 
     public void checkGuard(Object object) throws SecurityException { }
 
     public abstract boolean implies(Permission permission);
 
-    public final String getName() {
-        return name;
-    }
+    public final String getName() { return null; }
 
     public abstract String getActions();
 

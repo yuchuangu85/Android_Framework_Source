@@ -17,6 +17,15 @@
 package android.telecom;
 
 import android.annotation.SystemApi;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.content.res.Resources.NotFoundException;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Bundle;
@@ -28,6 +37,7 @@ import java.lang.String;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.MissingResourceException;
 
 /**
  * Represents a distinct method to place or receive a phone call. Apps which can place calls and
@@ -40,15 +50,6 @@ import java.util.List;
  * implementation Telecom will use to interact with the app.
  */
 public final class PhoneAccount implements Parcelable {
-
-    /**
-     * {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which determines the
-     * sort order for {@link PhoneAccount}s from the same
-     * {@link android.telecom.ConnectionService}.
-     * @hide
-     */
-    public static final String EXTRA_SORT_ORDER =
-            "android.telecom.extra.SORT_ORDER";
 
     /**
      * {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which determines the
@@ -75,67 +76,6 @@ public final class PhoneAccount implements Parcelable {
      */
     public static final String EXTRA_CALL_SUBJECT_CHARACTER_ENCODING =
             "android.telecom.extra.CALL_SUBJECT_CHARACTER_ENCODING";
-
-     /**
-     * Indicating flag for phone account whether to use voip audio mode for voip calls
-     * @hide
-     */
-    public static final String EXTRA_ALWAYS_USE_VOIP_AUDIO_MODE =
-            "android.telecom.extra.ALWAYS_USE_VOIP_AUDIO_MODE";
-
-    /**
-     * Boolean {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which
-     * indicates whether this {@link PhoneAccount} is capable of supporting a request to handover a
-     * connection (see {@link android.telecom.Call#EVENT_REQUEST_HANDOVER}) to this
-     * {@link PhoneAccount} from a {@link PhoneAccount} specifying
-     * {@link #EXTRA_SUPPORTS_HANDOVER_FROM}.
-     * <p>
-     * A handover request is initiated by the user from the default dialer app to indicate a desire
-     * to handover a call from one {@link PhoneAccount}/{@link ConnectionService} to another.
-     * @hide
-     */
-    public static final String EXTRA_SUPPORTS_HANDOVER_TO =
-            "android.telecom.extra.SUPPORTS_HANDOVER_TO";
-
-    /**
-     * Boolean {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which
-     * indicates whether this {@link PhoneAccount} supports using a fallback if video calling is
-     * not available. This extra is for device level support, {@link
-     * android.telephony.CarrierConfigManager#KEY_ALLOW_VIDEO_CALLING_FALLBACK_BOOL} should also
-     * be checked to ensure it is not disabled by individual carrier.
-     *
-     * @hide
-     */
-    public static final String EXTRA_SUPPORTS_VIDEO_CALLING_FALLBACK =
-            "android.telecom.extra.SUPPORTS_VIDEO_CALLING_FALLBACK";
-
-    /**
-     * Boolean {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which
-     * indicates whether this {@link PhoneAccount} is capable of supporting a request to handover a
-     * connection from this {@link PhoneAccount} to another {@link PhoneAccount}.
-     * (see {@link android.telecom.Call#EVENT_REQUEST_HANDOVER}) which specifies
-     * {@link #EXTRA_SUPPORTS_HANDOVER_TO}.
-     * <p>
-     * A handover request is initiated by the user from the default dialer app to indicate a desire
-     * to handover a call from one {@link PhoneAccount}/{@link ConnectionService} to another.
-     * @hide
-     */
-    public static final String EXTRA_SUPPORTS_HANDOVER_FROM =
-            "android.telecom.extra.SUPPORTS_HANDOVER_FROM";
-
-
-    /**
-     * Boolean {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which
-     * indicates whether a Self-Managed {@link PhoneAccount} should log its calls to the call log.
-     * Self-Managed {@link PhoneAccount}s are responsible for their own notifications, so the system
-     * will not create a notification when a missed call is logged.
-     * <p>
-     * By default, Self-Managed {@link PhoneAccount}s do not log their calls to the call log.
-     * Setting this extra to {@code true} provides a means for them to log their calls.
-     * @hide
-     */
-    public static final String EXTRA_LOG_SELF_MANAGED_CALLS =
-            "android.telecom.extra.LOG_SELF_MANAGED_CALLS";
 
     /**
      * Flag indicating that this {@code PhoneAccount} can act as a connection manager for
@@ -174,10 +114,7 @@ public final class PhoneAccount implements Parcelable {
     public static final int CAPABILITY_SIM_SUBSCRIPTION = 0x4;
 
     /**
-     * Flag indicating that this {@code PhoneAccount} is currently able to place video calls.
-     * <p>
-     * See also {@link #CAPABILITY_SUPPORTS_VIDEO_CALLING} which indicates whether the
-     * {@code PhoneAccount} supports placing video calls.
+     * Flag indicating that this {@code PhoneAccount} is capable of placing video calls.
      * <p>
      * See {@link #getCapabilities}
      */
@@ -242,50 +179,6 @@ public final class PhoneAccount implements Parcelable {
     public static final int CAPABILITY_EMERGENCY_VIDEO_CALLING = 0x200;
 
     /**
-     * Flag indicating that this {@link PhoneAccount} supports video calling.
-     * This is not an indication that the {@link PhoneAccount} is currently able to make a video
-     * call, but rather that it has the ability to make video calls (but not necessarily at this
-     * time).
-     * <p>
-     * Whether a {@link PhoneAccount} can make a video call is ultimately controlled by
-     * {@link #CAPABILITY_VIDEO_CALLING}, which indicates whether the {@link PhoneAccount} is
-     * currently capable of making a video call.  Consider a case where, for example, a
-     * {@link PhoneAccount} supports making video calls (e.g.
-     * {@link #CAPABILITY_SUPPORTS_VIDEO_CALLING}), but a current lack of network connectivity
-     * prevents video calls from being made (e.g. {@link #CAPABILITY_VIDEO_CALLING}).
-     * <p>
-     * See {@link #getCapabilities}
-     */
-    public static final int CAPABILITY_SUPPORTS_VIDEO_CALLING = 0x400;
-
-    /**
-     * Flag indicating that this {@link PhoneAccount} is responsible for managing its own
-     * {@link Connection}s.  This type of {@link PhoneAccount} is ideal for use with standalone
-     * calling apps which do not wish to use the default phone app for {@link Connection} UX,
-     * but which want to leverage the call and audio routing capabilities of the Telecom framework.
-     * <p>
-     * When set, {@link Connection}s created by the self-managed {@link ConnectionService} will not
-     * be surfaced to implementations of the {@link InCallService} API.  Thus it is the
-     * responsibility of a self-managed {@link ConnectionService} to provide a user interface for
-     * its {@link Connection}s.
-     * <p>
-     * Self-managed {@link Connection}s will, however, be displayed on connected Bluetooth devices.
-     */
-    public static final int CAPABILITY_SELF_MANAGED = 0x800;
-
-    /**
-     * Flag indicating that this {@link PhoneAccount} is capable of making a call with an
-     * RTT (Real-time text) session.
-     * When set, Telecom will attempt to open an RTT session on outgoing calls that specify
-     * that they should be placed with an RTT session , and the in-call app will be displayed
-     * with text entry fields for RTT. Likewise, the in-call app can request that an RTT
-     * session be opened during a call if this bit is set.
-     */
-    public static final int CAPABILITY_RTT = 0x1000;
-
-    /* NEXT CAPABILITY: 0x2000 */
-
-    /**
      * URI scheme for telephone number URIs.
      */
     public static final String SCHEME_TEL = "tel";
@@ -324,7 +217,6 @@ public final class PhoneAccount implements Parcelable {
     private final CharSequence mLabel;
     private final CharSequence mShortDescription;
     private final List<String> mSupportedUriSchemes;
-    private final int mSupportedAudioRoutes;
     private final Icon mIcon;
     private final Bundle mExtras;
     private boolean mIsEnabled;
@@ -334,12 +226,10 @@ public final class PhoneAccount implements Parcelable {
      * Helper class for creating a {@link PhoneAccount}.
      */
     public static class Builder {
-
         private PhoneAccountHandle mAccountHandle;
         private Uri mAddress;
         private Uri mSubscriptionAddress;
         private int mCapabilities;
-        private int mSupportedAudioRoutes = CallAudioState.ROUTE_ALL;
         private int mHighlightColor = NO_HIGHLIGHT_COLOR;
         private CharSequence mLabel;
         private CharSequence mShortDescription;
@@ -376,19 +266,6 @@ public final class PhoneAccount implements Parcelable {
             mIsEnabled = phoneAccount.isEnabled();
             mExtras = phoneAccount.getExtras();
             mGroupId = phoneAccount.getGroupId();
-            mSupportedAudioRoutes = phoneAccount.getSupportedAudioRoutes();
-        }
-
-        /**
-         * Sets the label. See {@link PhoneAccount#getLabel()}.
-         *
-         * @param label The label of the phone account.
-         * @return The builder.
-         * @hide
-         */
-        public Builder setLabel(CharSequence label) {
-            this.mLabel = label;
-            return this;
         }
 
         /**
@@ -534,18 +411,6 @@ public final class PhoneAccount implements Parcelable {
         }
 
         /**
-         * Sets the audio routes supported by this {@link PhoneAccount}.
-         *
-         * @param routes bit mask of available routes.
-         * @return The builder.
-         * @hide
-         */
-        public Builder setSupportedAudioRoutes(int routes) {
-            mSupportedAudioRoutes = routes;
-            return this;
-        }
-
-        /**
          * Creates an instance of a {@link PhoneAccount} based on the current builder settings.
          *
          * @return The {@link PhoneAccount}.
@@ -567,7 +432,6 @@ public final class PhoneAccount implements Parcelable {
                     mShortDescription,
                     mSupportedUriSchemes,
                     mExtras,
-                    mSupportedAudioRoutes,
                     mIsEnabled,
                     mGroupId);
         }
@@ -584,7 +448,6 @@ public final class PhoneAccount implements Parcelable {
             CharSequence shortDescription,
             List<String> supportedUriSchemes,
             Bundle extras,
-            int supportedAudioRoutes,
             boolean isEnabled,
             String groupId) {
         mAccountHandle = account;
@@ -597,7 +460,6 @@ public final class PhoneAccount implements Parcelable {
         mShortDescription = shortDescription;
         mSupportedUriSchemes = Collections.unmodifiableList(supportedUriSchemes);
         mExtras = extras;
-        mSupportedAudioRoutes = supportedAudioRoutes;
         mIsEnabled = isEnabled;
         mGroupId = groupId;
     }
@@ -671,17 +533,6 @@ public final class PhoneAccount implements Parcelable {
     }
 
     /**
-     * Determines if this {@code PhoneAccount} has routes specified by the passed in bit mask.
-     *
-     * @param route The routes to check.
-     * @return {@code true} if the phone account has the routes.
-     * @hide
-     */
-    public boolean hasAudioRoutes(int routes) {
-        return (mSupportedAudioRoutes & routes) == routes;
-    }
-
-    /**
      * A short label describing a {@code PhoneAccount}.
      *
      * @return A label for this {@code PhoneAccount}.
@@ -718,15 +569,6 @@ public final class PhoneAccount implements Parcelable {
      */
     public Bundle getExtras() {
         return mExtras;
-    }
-
-    /**
-     * The audio routes supported by this {@code PhoneAccount}.
-     *
-     * @hide
-     */
-    public int getSupportedAudioRoutes() {
-        return mSupportedAudioRoutes;
     }
 
     /**
@@ -801,14 +643,6 @@ public final class PhoneAccount implements Parcelable {
         mIsEnabled = isEnabled;
     }
 
-    /**
-     * @return {@code true} if the {@link PhoneAccount} is self-managed, {@code false} otherwise.
-     * @hide
-     */
-    public boolean isSelfManaged() {
-        return (mCapabilities & CAPABILITY_SELF_MANAGED) == CAPABILITY_SELF_MANAGED;
-    }
-
     //
     // Parcelable implementation
     //
@@ -853,7 +687,6 @@ public final class PhoneAccount implements Parcelable {
         out.writeByte((byte) (mIsEnabled ? 1 : 0));
         out.writeBundle(mExtras);
         out.writeString(mGroupId);
-        out.writeInt(mSupportedAudioRoutes);
     }
 
     public static final Creator<PhoneAccount> CREATOR
@@ -898,7 +731,6 @@ public final class PhoneAccount implements Parcelable {
         mIsEnabled = in.readByte() == 1;
         mExtras = in.readBundle();
         mGroupId = in.readString();
-        mSupportedAudioRoutes = in.readInt();
     }
 
     @Override
@@ -908,9 +740,7 @@ public final class PhoneAccount implements Parcelable {
                 .append("] PhoneAccount: ")
                 .append(mAccountHandle)
                 .append(" Capabilities: ")
-                .append(capabilitiesToString())
-                .append(" Audio Routes: ")
-                .append(audioRoutesToString())
+                .append(capabilitiesToString(mCapabilities))
                 .append(" Schemes: ");
         for (String scheme : mSupportedUriSchemes) {
             sb.append(scheme)
@@ -930,14 +760,8 @@ public final class PhoneAccount implements Parcelable {
      * @param capabilities The capabilities bitmask.
      * @return String representation of the capabilities bitmask.
      */
-    private String capabilitiesToString() {
+    private String capabilitiesToString(int capabilities) {
         StringBuilder sb = new StringBuilder();
-        if (hasCapabilities(CAPABILITY_SELF_MANAGED)) {
-            sb.append("SelfManaged ");
-        }
-        if (hasCapabilities(CAPABILITY_SUPPORTS_VIDEO_CALLING)) {
-            sb.append("SuppVideo ");
-        }
         if (hasCapabilities(CAPABILITY_VIDEO_CALLING)) {
             sb.append("Video ");
         }
@@ -968,25 +792,6 @@ public final class PhoneAccount implements Parcelable {
         if (hasCapabilities(CAPABILITY_SIM_SUBSCRIPTION)) {
             sb.append("SimSub ");
         }
-        return sb.toString();
-    }
-
-    private String audioRoutesToString() {
-        StringBuilder sb = new StringBuilder();
-
-        if (hasAudioRoutes(CallAudioState.ROUTE_BLUETOOTH)) {
-            sb.append("B");
-        }
-        if (hasAudioRoutes(CallAudioState.ROUTE_EARPIECE)) {
-            sb.append("E");
-        }
-        if (hasAudioRoutes(CallAudioState.ROUTE_SPEAKER)) {
-            sb.append("S");
-        }
-        if (hasAudioRoutes(CallAudioState.ROUTE_WIRED_HEADSET)) {
-            sb.append("W");
-        }
-
         return sb.toString();
     }
 }

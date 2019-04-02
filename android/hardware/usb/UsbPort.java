@@ -16,11 +16,10 @@
 
 package android.hardware.usb;
 
-import android.hardware.usb.V1_0.Constants;
+import com.android.internal.util.Preconditions;
+
 import android.os.Parcel;
 import android.os.Parcelable;
-
-import com.android.internal.util.Preconditions;
 
 /**
  * Represents a physical USB port and describes its characteristics.
@@ -34,7 +33,6 @@ public final class UsbPort implements Parcelable {
     private final String mId;
     private final int mSupportedModes;
 
-    public static final int MODE_NONE = Constants.PortMode.NONE;
     /**
      * Mode bit: This USB port can act as a downstream facing port (host).
      * <p>
@@ -42,7 +40,7 @@ public final class UsbPort implements Parcelable {
      * combination of roles (and possibly others as well).
      * </p>
      */
-    public static final int MODE_DFP = Constants.PortMode.DFP;
+    public static final int MODE_DFP = 1 << 0;
 
     /**
      * Mode bit: This USB port can act as an upstream facing port (device).
@@ -51,7 +49,7 @@ public final class UsbPort implements Parcelable {
      * combination of roles (and possibly others as well).
      * </p>
      */
-    public static final int MODE_UFP = Constants.PortMode.UFP;
+    public static final int MODE_UFP = 1 << 1;
 
     /**
      * Mode bit: This USB port can act either as an downstream facing port (host) or as
@@ -62,55 +60,29 @@ public final class UsbPort implements Parcelable {
      * combination of roles (and possibly others as well).
      * </p>
      */
-    public static final int MODE_DUAL = Constants.PortMode.DRP;
-
-    /**
-     * Mode bit: This USB port can support USB Type-C Audio accessory.
-     */
-    public static final int MODE_AUDIO_ACCESSORY =
-            android.hardware.usb.V1_1.Constants.PortMode_1_1.AUDIO_ACCESSORY;
-
-    /**
-     * Mode bit: This USB port can support USB Type-C debug accessory.
-     */
-    public static final int MODE_DEBUG_ACCESSORY =
-            android.hardware.usb.V1_1.Constants.PortMode_1_1.DEBUG_ACCESSORY;
-
-    /**
-     * Power role: This USB port does not have a power role.
-     */
-    public static final int POWER_ROLE_NONE = Constants.PortPowerRole.NONE;
+    public static final int MODE_DUAL = MODE_DFP | MODE_UFP;
 
     /**
      * Power role: This USB port can act as a source (provide power).
      */
-    public static final int POWER_ROLE_SOURCE = Constants.PortPowerRole.SOURCE;
+    public static final int POWER_ROLE_SOURCE = 1;
 
     /**
      * Power role: This USB port can act as a sink (receive power).
      */
-    public static final int POWER_ROLE_SINK = Constants.PortPowerRole.SINK;
-
-    /**
-     * Power role: This USB port does not have a data role.
-     */
-    public static final int DATA_ROLE_NONE = Constants.PortDataRole.NONE;
+    public static final int POWER_ROLE_SINK = 2;
 
     /**
      * Data role: This USB port can act as a host (access data services).
      */
-    public static final int DATA_ROLE_HOST = Constants.PortDataRole.HOST;
+    public static final int DATA_ROLE_HOST = 1;
 
     /**
      * Data role: This USB port can act as a device (offer data services).
      */
-    public static final int DATA_ROLE_DEVICE = Constants.PortDataRole.DEVICE;
+    public static final int DATA_ROLE_DEVICE = 2;
 
-    private static final int NUM_DATA_ROLES = Constants.PortDataRole.NUM_DATA_ROLES;
-    /**
-     * Points to the first power role in the IUsb HAL.
-     */
-    private static final int POWER_ROLE_OFFSET = Constants.PortPowerRole.NONE;
+    private static final int NUM_DATA_ROLES = 3;
 
     /** @hide */
     public UsbPort(String id, int supportedModes) {
@@ -147,50 +119,37 @@ public final class UsbPort implements Parcelable {
      * in a bit-field.
      *
      * @param powerRole The desired power role: {@link UsbPort#POWER_ROLE_SOURCE}
-     *                  or {@link UsbPort#POWER_ROLE_SINK}, or 0 if no power role.
-     * @param dataRole  The desired data role: {@link UsbPort#DATA_ROLE_HOST}
-     *                  or {@link UsbPort#DATA_ROLE_DEVICE}, or 0 if no data role.
+     * or {@link UsbPort#POWER_ROLE_SINK}, or 0 if no power role.
+     * @param dataRole The desired data role: {@link UsbPort#DATA_ROLE_HOST}
+     * or {@link UsbPort#DATA_ROLE_DEVICE}, or 0 if no data role.
      * @hide
      */
     public static int combineRolesAsBit(int powerRole, int dataRole) {
         checkRoles(powerRole, dataRole);
-        final int index = ((powerRole - POWER_ROLE_OFFSET) * NUM_DATA_ROLES) + dataRole;
+        final int index = powerRole * NUM_DATA_ROLES + dataRole;
         return 1 << index;
     }
 
     /** @hide */
     public static String modeToString(int mode) {
-        StringBuilder modeString = new StringBuilder();
-        if (mode == MODE_NONE) {
-            return "none";
+        switch (mode) {
+            case 0:
+                return "none";
+            case MODE_DFP:
+                return "dfp";
+            case MODE_UFP:
+                return "ufp";
+            case MODE_DUAL:
+                return "dual";
+            default:
+                return Integer.toString(mode);
         }
-
-        if ((mode & MODE_DUAL) == MODE_DUAL) {
-            modeString.append("dual, ");
-        } else {
-            if ((mode & MODE_DFP) == MODE_DFP) {
-                modeString.append("dfp, ");
-            } else if ((mode & MODE_UFP) == MODE_UFP) {
-                modeString.append("ufp, ");
-            }
-        }
-        if ((mode & MODE_AUDIO_ACCESSORY) == MODE_AUDIO_ACCESSORY) {
-            modeString.append("audio_acc, ");
-        }
-        if ((mode & MODE_DEBUG_ACCESSORY) == MODE_DEBUG_ACCESSORY) {
-            modeString.append("debug_acc, ");
-        }
-
-        if (modeString.length() == 0) {
-            return Integer.toString(mode);
-        }
-        return modeString.substring(0, modeString.length() - 2);
     }
 
     /** @hide */
     public static String powerRoleToString(int role) {
         switch (role) {
-            case POWER_ROLE_NONE:
+            case 0:
                 return "no-power";
             case POWER_ROLE_SOURCE:
                 return "source";
@@ -204,7 +163,7 @@ public final class UsbPort implements Parcelable {
     /** @hide */
     public static String dataRoleToString(int role) {
         switch (role) {
-            case DATA_ROLE_NONE:
+            case 0:
                 return "no-data";
             case DATA_ROLE_HOST:
                 return "host";
@@ -224,7 +183,7 @@ public final class UsbPort implements Parcelable {
         while (combo != 0) {
             final int index = Integer.numberOfTrailingZeros(combo);
             combo &= ~(1 << index);
-            final int powerRole = (index / NUM_DATA_ROLES + POWER_ROLE_OFFSET);
+            final int powerRole = index / NUM_DATA_ROLES;
             final int dataRole = index % NUM_DATA_ROLES;
             if (first) {
                 first = false;
@@ -241,36 +200,10 @@ public final class UsbPort implements Parcelable {
     }
 
     /** @hide */
-    public static void checkMode(int powerRole) {
-        Preconditions.checkArgumentInRange(powerRole, Constants.PortMode.NONE,
-                Constants.PortMode.NUM_MODES - 1, "portMode");
-    }
-
-    /** @hide */
-    public static void checkPowerRole(int dataRole) {
-        Preconditions.checkArgumentInRange(dataRole, Constants.PortPowerRole.NONE,
-                Constants.PortPowerRole.NUM_POWER_ROLES - 1, "powerRole");
-    }
-
-    /** @hide */
-    public static void checkDataRole(int mode) {
-        Preconditions.checkArgumentInRange(mode, Constants.PortDataRole.NONE,
-                Constants.PortDataRole.NUM_DATA_ROLES - 1, "powerRole");
-    }
-
-    /** @hide */
     public static void checkRoles(int powerRole, int dataRole) {
-        Preconditions.checkArgumentInRange(powerRole, POWER_ROLE_NONE, POWER_ROLE_SINK,
-                "powerRole");
-        Preconditions.checkArgumentInRange(dataRole, DATA_ROLE_NONE, DATA_ROLE_DEVICE, "dataRole");
+        Preconditions.checkArgumentInRange(powerRole, 0, POWER_ROLE_SINK, "powerRole");
+        Preconditions.checkArgumentInRange(dataRole, 0, DATA_ROLE_DEVICE, "dataRole");
     }
-
-    /** @hide */
-    public boolean isModeSupported(int mode) {
-        if ((mSupportedModes & mode) == mode) return true;
-        return false;
-    }
-
 
     @Override
     public String toString() {
@@ -290,16 +223,16 @@ public final class UsbPort implements Parcelable {
 
     public static final Parcelable.Creator<UsbPort> CREATOR =
             new Parcelable.Creator<UsbPort>() {
-                @Override
-                public UsbPort createFromParcel(Parcel in) {
-                    String id = in.readString();
-                    int supportedModes = in.readInt();
-                    return new UsbPort(id, supportedModes);
-                }
+        @Override
+        public UsbPort createFromParcel(Parcel in) {
+            String id = in.readString();
+            int supportedModes = in.readInt();
+            return new UsbPort(id, supportedModes);
+        }
 
-                @Override
-                public UsbPort[] newArray(int size) {
-                    return new UsbPort[size];
-                }
-            };
+        @Override
+        public UsbPort[] newArray(int size) {
+            return new UsbPort[size];
+        }
+    };
 }

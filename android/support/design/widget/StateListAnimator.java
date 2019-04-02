@@ -16,9 +16,6 @@
 
 package android.support.design.widget;
 
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
-import android.animation.ValueAnimator;
 import android.util.StateSet;
 
 import java.util.ArrayList;
@@ -28,17 +25,17 @@ final class StateListAnimator {
     private final ArrayList<Tuple> mTuples = new ArrayList<>();
 
     private Tuple mLastMatch = null;
-    ValueAnimator mRunningAnimator = null;
+    ValueAnimatorCompat mRunningAnimator = null;
 
-    private final ValueAnimator.AnimatorListener mAnimationListener =
-            new AnimatorListenerAdapter() {
-                @Override
-                public void onAnimationEnd(Animator animator) {
-                    if (mRunningAnimator == animator) {
-                        mRunningAnimator = null;
-                    }
-                }
-            };
+    private final ValueAnimatorCompat.AnimatorListener mAnimationListener
+            = new ValueAnimatorCompat.AnimatorListenerAdapter() {
+        @Override
+        public void onAnimationEnd(ValueAnimatorCompat animator) {
+            if (mRunningAnimator == animator) {
+                mRunningAnimator = null;
+            }
+        }
+    };
 
     /**
      * Associates the given Animation with the provided drawable state specs so that it will be run
@@ -47,7 +44,7 @@ final class StateListAnimator {
      * @param specs    The drawable state specs to match against
      * @param animator The animator to run when the specs match
      */
-    public void addState(int[] specs, ValueAnimator animator) {
+    public void addState(int[] specs, ValueAnimatorCompat animator) {
         Tuple tuple = new Tuple(specs, animator);
         animator.addListener(mAnimationListener);
         mTuples.add(tuple);
@@ -106,9 +103,9 @@ final class StateListAnimator {
 
     static class Tuple {
         final int[] mSpecs;
-        final ValueAnimator mAnimator;
+        final ValueAnimatorCompat mAnimator;
 
-        Tuple(int[] specs, ValueAnimator animator) {
+        Tuple(int[] specs, ValueAnimatorCompat animator) {
             mSpecs = specs;
             mAnimator = animator;
         }

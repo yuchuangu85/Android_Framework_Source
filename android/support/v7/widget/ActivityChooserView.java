@@ -16,8 +16,6 @@
 
 package android.support.v7.widget;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -25,12 +23,10 @@ import android.content.pm.ResolveInfo;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.database.DataSetObserver;
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.support.annotation.RestrictTo;
 import android.support.v4.view.ActionProvider;
-import android.support.v4.view.accessibility.AccessibilityNodeInfoCompat;
+import android.support.v4.view.ViewCompat;
 import android.support.v7.appcompat.R;
 import android.support.v7.view.menu.ShowableListMenu;
 import android.util.AttributeSet;
@@ -39,13 +35,14 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.ViewTreeObserver.OnGlobalLayoutListener;
-import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.PopupWindow;
 import android.widget.TextView;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * This class is a view for choosing an activity for handling a given {@link Intent}.
@@ -70,7 +67,7 @@ import android.widget.TextView;
  *
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public class ActivityChooserView extends ViewGroup implements
         ActivityChooserModel.ActivityChooserModelClient {
 
@@ -235,23 +232,16 @@ public class ActivityChooserView extends ViewGroup implements
 
         mCallbacks = new Callbacks();
 
-        mActivityChooserContent = findViewById(R.id.activity_chooser_view_content);
+        mActivityChooserContent = (LinearLayoutCompat) findViewById(R.id.activity_chooser_view_content);
         mActivityChooserContentBackground = mActivityChooserContent.getBackground();
 
-        mDefaultActivityButton = findViewById(R.id.default_activity_button);
+        mDefaultActivityButton = (FrameLayout) findViewById(R.id.default_activity_button);
         mDefaultActivityButton.setOnClickListener(mCallbacks);
         mDefaultActivityButton.setOnLongClickListener(mCallbacks);
         mDefaultActivityButtonImage = (ImageView) mDefaultActivityButton.findViewById(R.id.image);
 
-        final FrameLayout expandButton = findViewById(R.id.expand_activities_button);
+        final FrameLayout expandButton = (FrameLayout) findViewById(R.id.expand_activities_button);
         expandButton.setOnClickListener(mCallbacks);
-        expandButton.setAccessibilityDelegate(new AccessibilityDelegate() {
-            @Override
-            public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                AccessibilityNodeInfoCompat.wrap(info).setCanOpenPopup(true);
-            }
-        });
         expandButton.setOnTouchListener(new ForwardingListener(expandButton) {
             @Override
             public ShowableListMenu getPopup() {
@@ -335,7 +325,7 @@ public class ActivityChooserView extends ViewGroup implements
      * Set the provider hosting this view, if applicable.
      * @hide Internal use only
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public void setProvider(ActionProvider provider) {
         mProvider = provider;
     }
@@ -395,7 +385,6 @@ public class ActivityChooserView extends ViewGroup implements
             }
             popupWindow.getListView().setContentDescription(getContext().getString(
                     R.string.abc_activitychooserview_choose_application));
-            popupWindow.getListView().setSelector(new ColorDrawable(Color.TRANSPARENT));
         }
     }
 
@@ -542,7 +531,7 @@ public class ActivityChooserView extends ViewGroup implements
         // Default activity button.
         final int activityCount = mAdapter.getActivityCount();
         final int historySize = mAdapter.getHistorySize();
-        if (activityCount == 1 || (activityCount > 1 && historySize > 0)) {
+        if (activityCount==1 || activityCount > 1 && historySize > 0) {
             mDefaultActivityButton.setVisibility(VISIBLE);
             ResolveInfo activity = mAdapter.getDefaultActivity();
             PackageManager packageManager = getContext().getPackageManager();
@@ -773,9 +762,9 @@ public class ActivityChooserView extends ViewGroup implements
                     titleView.setText(activity.loadLabel(packageManager));
                     // Highlight the default.
                     if (mShowDefaultActivity && position == 0 && mHighlightDefaultActivity) {
-                        convertView.setActivated(true);
+                        ViewCompat.setActivated(convertView, true);
                     } else {
-                        convertView.setActivated(false);
+                        ViewCompat.setActivated(convertView, false);
                     }
                     return convertView;
                 default:
@@ -856,7 +845,7 @@ public class ActivityChooserView extends ViewGroup implements
      * Allows us to set the background using TintTypedArray
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public static class InnerLayout extends LinearLayoutCompat {
 
         private static final int[] TINT_ATTRS = {

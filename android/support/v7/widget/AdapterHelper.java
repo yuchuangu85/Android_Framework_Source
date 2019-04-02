@@ -23,6 +23,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import static android.support.v7.widget.RecyclerView.*;
+
 /**
  * Helper class that can enqueue and process adapter update operations.
  * <p>
@@ -43,9 +45,9 @@ import java.util.List;
  */
 class AdapterHelper implements OpReorderer.Callback {
 
-    static final int POSITION_TYPE_INVISIBLE = 0;
+    final static int POSITION_TYPE_INVISIBLE = 0;
 
-    static final int POSITION_TYPE_NEW_OR_LAID_OUT = 1;
+    final static int POSITION_TYPE_NEW_OR_LAID_OUT = 1;
 
     private static final boolean DEBUG = false;
 
@@ -136,7 +138,7 @@ class AdapterHelper implements OpReorderer.Callback {
         int type = -1;
         for (int position = op.positionStart; position < tmpEnd; position++) {
             boolean typeChanged = false;
-            RecyclerView.ViewHolder vh = mCallback.findViewHolder(position);
+            ViewHolder vh = mCallback.findViewHolder(position);
             if (vh != null || canFindInPreLayout(position)) {
                 // If a ViewHolder exists or this is a newly added item, we can defer this update
                 // to post layout stage.
@@ -189,7 +191,7 @@ class AdapterHelper implements OpReorderer.Callback {
         int tmpEnd = op.positionStart + op.itemCount;
         int type = -1;
         for (int position = op.positionStart; position < tmpEnd; position++) {
-            RecyclerView.ViewHolder vh = mCallback.findViewHolder(position);
+            ViewHolder vh = mCallback.findViewHolder(position);
             if (vh != null || canFindInPreLayout(position)) { // deferred
                 if (type == POSITION_TYPE_INVISIBLE) {
                     UpdateOp newOp = obtainUpdateOp(UpdateOp.UPDATE, tmpStart, tmpCount,
@@ -286,7 +288,7 @@ class AdapterHelper implements OpReorderer.Callback {
                 if (op.cmd == UpdateOp.UPDATE) {
                     offsetPositionForPartial += tmpCnt;
                 }
-                tmpStart = updatedPos; // need to remove previously dispatched
+                tmpStart = updatedPos;// need to remove previously dispatched
                 tmpCnt = 1;
             }
         }
@@ -585,7 +587,7 @@ class AdapterHelper implements OpReorderer.Callback {
 
     public int applyPendingUpdatesToPosition(int position) {
         final int size = mPendingUpdates.size();
-        for (int i = 0; i < size; i++) {
+        for (int i = 0; i < size; i ++) {
             UpdateOp op = mPendingUpdates.get(i);
             switch (op.cmd) {
                 case UpdateOp.ADD:
@@ -604,7 +606,7 @@ class AdapterHelper implements OpReorderer.Callback {
                     break;
                 case UpdateOp.MOVE:
                     if (op.positionStart == position) {
-                        position = op.itemCount; //position end
+                        position = op.itemCount;//position end
                     } else {
                         if (op.positionStart < position) {
                             position -= 1;
@@ -672,7 +674,7 @@ class AdapterHelper implements OpReorderer.Callback {
         public String toString() {
             return Integer.toHexString(System.identityHashCode(this))
                     + "[" + cmdToString() + ",s:" + positionStart + "c:" + itemCount
-                    + ",p:" + payload + "]";
+                    +",p:"+payload + "]";
         }
 
         @Override
@@ -754,9 +756,9 @@ class AdapterHelper implements OpReorderer.Callback {
     /**
      * Contract between AdapterHelper and RecyclerView.
      */
-    interface Callback {
+    static interface Callback {
 
-        RecyclerView.ViewHolder findViewHolder(int position);
+        ViewHolder findViewHolder(int position);
 
         void offsetPositionsForRemovingInvisible(int positionStart, int itemCount);
 

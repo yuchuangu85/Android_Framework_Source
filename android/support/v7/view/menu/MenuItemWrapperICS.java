@@ -16,17 +16,15 @@
 
 package android.support.v7.view.menu;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
+import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.ColorStateList;
-import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
-import android.support.annotation.RequiresApi;
+import android.os.Build;
 import android.support.annotation.RestrictTo;
 import android.support.v4.internal.view.SupportMenuItem;
 import android.support.v4.view.ActionProvider;
+import android.support.v4.view.MenuItemCompat;
 import android.support.v7.view.CollapsibleActionView;
 import android.util.Log;
 import android.view.ContextMenu;
@@ -37,12 +35,14 @@ import android.widget.FrameLayout;
 
 import java.lang.reflect.Method;
 
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+
 /**
  * Wraps a support {@link SupportMenuItem} as a framework {@link android.view.MenuItem}
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
-@RequiresApi(14)
+@RestrictTo(GROUP_ID)
+@TargetApi(Build.VERSION_CODES.ICE_CREAM_SANDWICH)
 public class MenuItemWrapperICS extends BaseMenuWrapper<SupportMenuItem> implements MenuItem {
     static final String LOG_TAG = "MenuItemWrapper";
 
@@ -131,21 +131,8 @@ public class MenuItemWrapperICS extends BaseMenuWrapper<SupportMenuItem> impleme
     }
 
     @Override
-    public MenuItem setShortcut(char numericChar, char alphaChar, int numericModifiers,
-            int alphaModifiers) {
-        mWrappedObject.setShortcut(numericChar, alphaChar, numericModifiers, alphaModifiers);
-        return this;
-    }
-
-    @Override
     public MenuItem setNumericShortcut(char numericChar) {
         mWrappedObject.setNumericShortcut(numericChar);
-        return this;
-    }
-
-    @Override
-    public MenuItem setNumericShortcut(char numericChar, int numericModifiers) {
-        mWrappedObject.setNumericShortcut(numericChar, numericModifiers);
         return this;
     }
 
@@ -155,30 +142,14 @@ public class MenuItemWrapperICS extends BaseMenuWrapper<SupportMenuItem> impleme
     }
 
     @Override
-    public int getNumericModifiers() {
-        return mWrappedObject.getNumericModifiers();
-    }
-
-    @Override
     public MenuItem setAlphabeticShortcut(char alphaChar) {
         mWrappedObject.setAlphabeticShortcut(alphaChar);
         return this;
     }
 
     @Override
-    public MenuItem setAlphabeticShortcut(char alphaChar, int alphaModifiers) {
-        mWrappedObject.setAlphabeticShortcut(alphaChar, alphaModifiers);
-        return this;
-    }
-
-    @Override
     public char getAlphabeticShortcut() {
         return mWrappedObject.getAlphabeticShortcut();
-    }
-
-    @Override
-    public int getAlphabeticModifiers() {
-        return mWrappedObject.getAlphabeticModifiers();
     }
 
     @Override
@@ -321,53 +292,9 @@ public class MenuItemWrapperICS extends BaseMenuWrapper<SupportMenuItem> impleme
 
     @Override
     public MenuItem setOnActionExpandListener(MenuItem.OnActionExpandListener listener) {
-        mWrappedObject.setOnActionExpandListener(listener != null
-                ? new OnActionExpandListenerWrapper(listener) : null);
+        mWrappedObject.setSupportOnActionExpandListener(listener != null ?
+                new OnActionExpandListenerWrapper(listener) : null);
         return this;
-    }
-
-    @Override
-    public MenuItem setContentDescription(CharSequence contentDescription) {
-        mWrappedObject.setContentDescription(contentDescription);
-        return this;
-    }
-
-    @Override
-    public CharSequence getContentDescription() {
-        return mWrappedObject.getContentDescription();
-    }
-
-    @Override
-    public MenuItem setTooltipText(CharSequence tooltipText) {
-        mWrappedObject.setTooltipText(tooltipText);
-        return this;
-    }
-
-    @Override
-    public CharSequence getTooltipText() {
-        return mWrappedObject.getTooltipText();
-    }
-
-    @Override
-    public MenuItem setIconTintList(ColorStateList tint) {
-        mWrappedObject.setIconTintList(tint);
-        return this;
-    }
-
-    @Override
-    public ColorStateList getIconTintList() {
-        return mWrappedObject.getIconTintList();
-    }
-
-    @Override
-    public MenuItem setIconTintMode(PorterDuff.Mode tintMode) {
-        mWrappedObject.setIconTintMode(tintMode);
-        return this;
-    }
-
-    @Override
-    public PorterDuff.Mode getIconTintMode() {
-        return mWrappedObject.getIconTintMode();
     }
 
     public void setExclusiveCheckable(boolean checkable) {
@@ -400,7 +327,7 @@ public class MenuItemWrapperICS extends BaseMenuWrapper<SupportMenuItem> impleme
     }
 
     private class OnActionExpandListenerWrapper extends BaseWrapper<MenuItem.OnActionExpandListener>
-            implements MenuItem.OnActionExpandListener {
+            implements MenuItemCompat.OnActionExpandListener {
 
         OnActionExpandListenerWrapper(MenuItem.OnActionExpandListener object) {
             super(object);

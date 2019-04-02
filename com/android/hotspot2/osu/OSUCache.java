@@ -81,8 +81,6 @@ public class OSUCache {
         for (ScanResult scanResult : scanResults) {
             AnqpInformationElement[] osuInfo = scanResult.anqpElements;
             if (osuInfo != null && osuInfo.length > 0) {
-                Log.d(OSUManager.TAG, scanResult.SSID +
-                        " has " + osuInfo.length + " ANQP elements");
                 putResult(scanResult, osuInfo);
             }
         }
@@ -91,8 +89,6 @@ public class OSUCache {
 
     private void putResult(ScanResult scanResult, AnqpInformationElement[] elements) {
         for (AnqpInformationElement ie : elements) {
-            Log.d(OSUManager.TAG, String.format("ANQP IE %d vid %x size %d", ie.getElementId(),
-                    ie.getVendorId(), ie.getPayload().length));
             if (ie.getElementId() == AnqpInformationElement.HS_OSU_PROVIDERS
                     && ie.getVendorId() == AnqpInformationElement.HOTSPOT20_VENDOR_ID) {
                 try {
@@ -110,7 +106,6 @@ public class OSUCache {
     }
 
     private void putProviders(ScanResult scanResult, HSOsuProvidersElement osuProviders) {
-        Log.d(OSUManager.TAG, osuProviders.getProviders().size() + " OSU providers in element");
         for (OSUProvider provider : osuProviders.getProviders()) {
             // Make a predictive put
             ScanResult existing = mBatchedOSUs.put(provider, scanResult);
@@ -131,14 +126,13 @@ public class OSUCache {
                 mCache.put(entry.getKey(), new ScanInstance(entry.getValue(), mInstant));
                 changes++;
                 if (current == null) {
-                    Log.d(OSUManager.TAG,
-                            "Add OSU " + entry.getKey() + " from " + entry.getValue().SSID);
+                    Log.d("ZXZ", "Add OSU " + entry.getKey() + " from " + entry.getValue().SSID);
                 } else {
-                    Log.d(OSUManager.TAG, "Update OSU " + entry.getKey() + " with " +
+                    Log.d("ZXZ", "Update OSU " + entry.getKey() + " with " +
                             entry.getValue().SSID + " to " + current);
                 }
             } else {
-                Log.d(OSUManager.TAG, "Existing OSU " + entry.getKey() + ", "
+                Log.d("ZXZ", "Existing OSU " + entry.getKey() + ", "
                         + current.getInstant() + " -> " + mInstant);
                 current.updateInstant(mInstant);
             }
@@ -146,7 +140,7 @@ public class OSUCache {
 
         for (Map.Entry<OSUProvider, ScanInstance> entry : aged.entrySet()) {
             if (mInstant - entry.getValue().getInstant() > SCAN_BATCH_HISTORY_SIZE) {
-                Log.d(OSUManager.TAG, "Remove OSU " + entry.getKey() + ", "
+                Log.d("ZXZ", "Remove OSU " + entry.getKey() + ", "
                         + entry.getValue().getInstant() + " @ " + mInstant);
                 mCache.remove(entry.getKey());
                 changes++;

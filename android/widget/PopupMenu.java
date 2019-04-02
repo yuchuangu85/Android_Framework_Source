@@ -16,8 +16,12 @@
 
 package android.widget;
 
+import com.android.internal.R;
+import com.android.internal.view.menu.MenuBuilder;
+import com.android.internal.view.menu.MenuPopupHelper;
+import com.android.internal.view.menu.ShowableListMenu;
+
 import android.annotation.MenuRes;
-import android.annotation.TestApi;
 import android.content.Context;
 import android.view.Gravity;
 import android.view.Menu;
@@ -25,11 +29,6 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.View.OnTouchListener;
-
-import com.android.internal.R;
-import com.android.internal.view.menu.MenuBuilder;
-import com.android.internal.view.menu.MenuPopupHelper;
-import com.android.internal.view.menu.ShowableListMenu;
 
 /**
  * A PopupMenu displays a {@link Menu} in a modal popup window anchored to a
@@ -281,20 +280,5 @@ public class PopupMenu {
          * @param menu the popup menu that was dismissed
          */
         void onDismiss(PopupMenu menu);
-    }
-
-    /**
-     * Returns the {@link ListView} representing the list of menu items in the currently showing
-     * menu.
-     *
-     * @return The view representing the list of menu items.
-     * @hide
-     */
-    @TestApi
-    public ListView getMenuListView() {
-        if (!mPopup.isShowing()) {
-            return null;
-        }
-        return mPopup.getPopup().getListView();
     }
 }

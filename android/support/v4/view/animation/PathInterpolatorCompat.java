@@ -19,7 +19,6 @@ package android.support.v4.view.animation;
 import android.graphics.Path;
 import android.os.Build;
 import android.view.animation.Interpolator;
-import android.view.animation.PathInterpolator;
 
 /**
  * Helper for creating path-based {@link Interpolator} instances. On API 21 or newer, the
@@ -46,9 +45,9 @@ public final class PathInterpolatorCompat {
      */
     public static Interpolator create(Path path) {
         if (Build.VERSION.SDK_INT >= 21) {
-            return new PathInterpolator(path);
+            return PathInterpolatorCompatApi21.create(path);
         }
-        return new PathInterpolatorApi14(path);
+        return PathInterpolatorCompatBase.create(path);
     }
 
     /**
@@ -61,9 +60,9 @@ public final class PathInterpolatorCompat {
      */
     public static Interpolator create(float controlX, float controlY) {
         if (Build.VERSION.SDK_INT >= 21) {
-            return new PathInterpolator(controlX, controlY);
+            return PathInterpolatorCompatApi21.create(controlX, controlY);
         }
-        return new PathInterpolatorApi14(controlX, controlY);
+        return PathInterpolatorCompatBase.create(controlX, controlY);
     }
 
     /**
@@ -79,8 +78,8 @@ public final class PathInterpolatorCompat {
     public static Interpolator create(float controlX1, float controlY1,
             float controlX2, float controlY2) {
         if (Build.VERSION.SDK_INT >= 21) {
-            return new PathInterpolator(controlX1, controlY1, controlX2, controlY2);
+            return PathInterpolatorCompatApi21.create(controlX1, controlY1, controlX2, controlY2);
         }
-        return new PathInterpolatorApi14(controlX1, controlY1, controlX2, controlY2);
+        return PathInterpolatorCompatBase.create(controlX1, controlY1, controlX2, controlY2);
     }
 }

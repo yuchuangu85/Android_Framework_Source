@@ -31,8 +31,8 @@ import android.view.ViewGroup;
  * typically more static fragments to be paged through, such as a set of tabs.
  * The fragment of each page the user visits will be kept in memory, though its
  * view hierarchy may be destroyed when not visible.  This can result in using
- * a significant amount of memory since fragment instances can hold on to an
- * arbitrary amount of state.  For larger sets of pages, consider
+ * a significant(重要的) amount of memory since fragment instances can hold on to an
+ * arbitrary(任意的) amount of state.  For larger sets of pages, consider
  * {@link FragmentStatePagerAdapter}.
  *
  * <p>When using FragmentPagerAdapter the host ViewPager must have a
@@ -83,7 +83,6 @@ public abstract class FragmentPagerAdapter extends PagerAdapter {
         }
     }
 
-    @SuppressWarnings("ReferenceEquality")
     @Override
     public Object instantiateItem(ViewGroup container, int position) {
         if (mCurTransaction == null) {
@@ -122,7 +121,6 @@ public abstract class FragmentPagerAdapter extends PagerAdapter {
         mCurTransaction.detach((Fragment)object);
     }
 
-    @SuppressWarnings("ReferenceEquality")
     @Override
     public void setPrimaryItem(ViewGroup container, int position, Object object) {
         Fragment fragment = (Fragment)object;

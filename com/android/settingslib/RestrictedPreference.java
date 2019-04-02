@@ -19,6 +19,7 @@ package com.android.settingslib;
 import android.content.Context;
 import android.os.UserHandle;
 import android.support.v4.content.res.TypedArrayUtils;
+import android.support.v7.preference.Preference;
 import android.support.v7.preference.PreferenceManager;
 import android.support.v7.preference.PreferenceViewHolder;
 import android.util.AttributeSet;
@@ -30,12 +31,13 @@ import static com.android.settingslib.RestrictedLockUtils.EnforcedAdmin;
  * Preference class that supports being disabled by a user restriction
  * set by a device admin.
  */
-public class RestrictedPreference extends TwoTargetPreference {
+public class RestrictedPreference extends Preference {
     RestrictedPreferenceHelper mHelper;
 
     public RestrictedPreference(Context context, AttributeSet attrs,
             int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
+        setWidgetLayoutResource(R.layout.restricted_icon);
         mHelper = new RestrictedPreferenceHelper(context, this, attrs);
     }
 
@@ -51,16 +53,6 @@ public class RestrictedPreference extends TwoTargetPreference {
 
     public RestrictedPreference(Context context) {
         this(context, null);
-    }
-
-    @Override
-    protected int getSecondTargetResId() {
-        return R.layout.restricted_icon;
-    }
-
-    @Override
-    protected boolean shouldHideSecondTarget() {
-        return !isDisabledByAdmin();
     }
 
     @Override

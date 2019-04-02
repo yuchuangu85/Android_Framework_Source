@@ -16,11 +16,8 @@
 
 package android.hardware.usb;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
-import com.android.internal.util.Preconditions;
 
 /**
  * A class representing a configuration on a {@link UsbDevice}.
@@ -38,20 +35,20 @@ import com.android.internal.util.Preconditions;
 public class UsbConfiguration implements Parcelable {
 
     private final int mId;
-    private final @Nullable String mName;
+    private final String mName;
     private final int mAttributes;
     private final int mMaxPower;
-
-    /** All interfaces for this config, only null during creation */
-    private @Nullable Parcelable[] mInterfaces;
+    private Parcelable[] mInterfaces;
 
     /**
      * Mask for "self-powered" bit in the configuration's attributes.
+     * @see #getAttributes
      */
     private static final int ATTR_SELF_POWERED = 1 << 6;
 
     /**
      * Mask for "remote wakeup" bit in the configuration's attributes.
+     * @see #getAttributes
      */
     private static final int ATTR_REMOTE_WAKEUP = 1 << 5;
 
@@ -59,7 +56,7 @@ public class UsbConfiguration implements Parcelable {
      * UsbConfiguration should only be instantiated by UsbService implementation
      * @hide
      */
-    public UsbConfiguration(int id, @Nullable String name, int attributes, int maxPower) {
+    public UsbConfiguration(int id, String name, int attributes, int maxPower) {
         mId = id;
         mName = name;
         mAttributes = attributes;
@@ -79,9 +76,9 @@ public class UsbConfiguration implements Parcelable {
     /**
      * Returns the configuration's name.
      *
-     * @return the configuration's name, or {@code null} if the property could not be read
+     * @return the configuration's name
      */
-    public @Nullable String getName() {
+    public String getName() {
         return mName;
     }
 
@@ -128,7 +125,7 @@ public class UsbConfiguration implements Parcelable {
      *
      * @return the interface
      */
-    public @NonNull UsbInterface getInterface(int index) {
+    public UsbInterface getInterface(int index) {
         return (UsbInterface)mInterfaces[index];
     }
 
@@ -136,8 +133,8 @@ public class UsbConfiguration implements Parcelable {
      * Only used by UsbService implementation
      * @hide
      */
-    public void setInterfaces(@NonNull Parcelable[] interfaces) {
-        mInterfaces = Preconditions.checkArrayElementsNotNull(interfaces, "interfaces");
+    public void setInterfaces(Parcelable[] interfaces) {
+        mInterfaces = interfaces;
     }
 
     @Override

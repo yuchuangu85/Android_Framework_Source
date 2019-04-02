@@ -24,15 +24,11 @@ import android.os.Message;
 import android.util.Log;
 
 import com.android.server.wifi.Clock;
-import com.android.server.wifi.WifiMonitor;
 import com.android.server.wifi.WifiNative;
-
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
 
 /**
  * WifiScanner implementation that takes advantage of the gscan HAL API
- * The gscan API is used to perform background scans and wificond is used for oneshot scans.
+ * The gscan API is used to perform background scans and wpa_supplicant is used for onehot scans.
  * @see com.android.server.wifi.scanner.WifiScannerImpl for more details on each method.
  */
 public class HalWifiScannerImpl extends WifiScannerImpl implements Handler.Callback {
@@ -41,15 +37,17 @@ public class HalWifiScannerImpl extends WifiScannerImpl implements Handler.Callb
 
     private final WifiNative mWifiNative;
     private final ChannelHelper mChannelHelper;
-    private final WificondScannerImpl mWificondScannerDelegate;
+    private final SupplicantWifiScannerImpl mSupplicantScannerDelegate;
+    private final boolean mHalBasedPnoSupported;
 
-    public HalWifiScannerImpl(Context context, WifiNative wifiNative, WifiMonitor wifiMonitor,
-                              Looper looper, Clock clock) {
+    public HalWifiScannerImpl(Context context, WifiNative wifiNative, Looper looper, Clock clock) {
         mWifiNative = wifiNative;
         mChannelHelper = new HalChannelHelper(wifiNative);
-        mWificondScannerDelegate =
-                new WificondScannerImpl(context, wifiNative, wifiMonitor, mChannelHelper,
-                        looper, clock);
+        mSupplicantScannerDelegate =
+                new SupplicantWifiScannerImpl(context, wifiNative, mChannelHelper, looper, clock);
+
+        // We are not going to support HAL ePNO currently.
+        mHalBasedPnoSupported = false;
     }
 
     @Override
@@ -60,12 +58,12 @@ public class HalWifiScannerImpl extends WifiScannerImpl implements Handler.Callb
 
     @Override
     public void cleanup() {
-        mWificondScannerDelegate.cleanup();
+        mSupplicantScannerDelegate.cleanup();
     }
 
     @Override
     public boolean getScanCapabilities(WifiNative.ScanCapabilities capabilities) {
-        return mWifiNative.getBgScanCapabilities(capabilities);
+        return mWifiNative.getScanCapabilities(capabilities);
     }
 
     @Override
@@ -75,12 +73,12 @@ public class HalWifiScannerImpl extends WifiScannerImpl implements Handler.Callb
 
     public boolean startSingleScan(WifiNative.ScanSettings settings,
             WifiNative.ScanEventHandler eventHandler) {
-        return mWificondScannerDelegate.startSingleScan(settings, eventHandler);
+        return mSupplicantScannerDelegate.startSingleScan(settings, eventHandler);
     }
 
     @Override
     public WifiScanner.ScanData getLatestSingleScanResults() {
-        return mWificondScannerDelegate.getLatestSingleScanResults();
+        return mSupplicantScannerDelegate.getLatestSingleScanResults();
     }
 
     @Override
@@ -91,52 +89,85 @@ public class HalWifiScannerImpl extends WifiScannerImpl implements Handler.Callb
                     + ",eventHandler=" + eventHandler);
             return false;
         }
-        return mWifiNative.startBgScan(settings, eventHandler);
+        return mWifiNative.startScan(settings, eventHandler);
     }
 
     @Override
     public void stopBatchedScan() {
-        mWifiNative.stopBgScan();
+        mWifiNative.stopScan();
     }
 
     @Override
     public void pauseBatchedScan() {
-        mWifiNative.pauseBgScan();
+        mWifiNative.pauseScan();
     }
 
     @Override
     public void restartBatchedScan() {
-        mWifiNative.restartBgScan();
+        mWifiNative.restartScan();
     }
 
     @Override
     public WifiScanner.ScanData[] getLatestBatchedScanResults(boolean flush) {
-        return mWifiNative.getBgScanResults();
+        return mWifiNative.getScanResults(flush);
     }
 
     @Override
     public boolean setHwPnoList(WifiNative.PnoSettings settings,
             WifiNative.PnoEventHandler eventHandler) {
-        return mWificondScannerDelegate.setHwPnoList(settings, eventHandler);
+        if (mHalBasedPnoSupported) {
+            return mWifiNative.setPnoList(settings, eventHandler);
+        } else {
+            return mSupplicantScannerDelegate.setHwPnoList(settings, eventHandler);
+        }
     }
 
     @Override
     public boolean resetHwPnoList() {
-        return mWificondScannerDelegate.resetHwPnoList();
+        if (mHalBasedPnoSupported) {
+            return mWifiNative.resetPnoList();
+        } else {
+            return mSupplicantScannerDelegate.resetHwPnoList();
+        }
     }
 
     @Override
     public boolean isHwPnoSupported(boolean isConnectedPno) {
-        return mWificondScannerDelegate.isHwPnoSupported(isConnectedPno);
+        if (mHalBasedPnoSupported) {
+            return true;
+        } else {
+            return mSupplicantScannerDelegate.isHwPnoSupported(isConnectedPno);
+        }
     }
 
     @Override
     public boolean shouldScheduleBackgroundScanForHwPno() {
-        return mWificondScannerDelegate.shouldScheduleBackgroundScanForHwPno();
+        if (mHalBasedPnoSupported) {
+            return true;
+        } else {
+            return mSupplicantScannerDelegate.shouldScheduleBackgroundScanForHwPno();
+        }
     }
 
     @Override
-    protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        mWificondScannerDelegate.dump(fd, pw, args);
+    public boolean setHotlist(WifiScanner.HotlistSettings settings,
+            WifiNative.HotlistEventHandler eventHandler) {
+        return mWifiNative.setHotlist(settings, eventHandler);
+    }
+
+    @Override
+    public void resetHotlist() {
+        mWifiNative.resetHotlist();
+    }
+
+    @Override
+    public boolean trackSignificantWifiChange(WifiScanner.WifiChangeSettings settings,
+            WifiNative.SignificantWifiChangeEventHandler handler) {
+        return mWifiNative.trackSignificantWifiChange(settings, handler);
+    }
+
+    @Override
+    public void untrackSignificantWifiChange() {
+        mWifiNative.untrackSignificantWifiChange();
     }
 }

@@ -16,16 +16,17 @@
 
 package com.android.server.fingerprint;
 
-import android.hardware.biometrics.fingerprint.V2_1.IBiometricsFingerprint;
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.internal.logging.MetricsProto.MetricsEvent;
 
 import android.content.Context;
 import android.hardware.fingerprint.Fingerprint;
 import android.hardware.fingerprint.FingerprintManager;
+import android.hardware.fingerprint.IFingerprintDaemon;
 import android.hardware.fingerprint.IFingerprintServiceReceiver;
 import android.os.IBinder;
 import android.os.RemoteException;
+import android.system.ErrnoException;
 import android.util.Slog;
 
 /**
@@ -34,12 +35,8 @@ import android.util.Slog;
 public abstract class AuthenticationClient extends ClientMonitor {
     private long mOpId;
 
-    public abstract int handleFailedAttempt();
+    public abstract boolean handleFailedAttempt();
     public abstract void resetFailedAttempts();
-
-    public static final int LOCKOUT_NONE = 0;
-    public static final int LOCKOUT_TIMED = 1;
-    public static final int LOCKOUT_PERMANENT = 2;
 
     public AuthenticationClient(Context context, long halDeviceId, IBinder token,
             IFingerprintServiceReceiver receiver, int targetUserId, int groupId, long opId,
@@ -79,27 +76,24 @@ public abstract class AuthenticationClient extends ClientMonitor {
         }
         if (!authenticated) {
             if (receiver != null) {
-                vibrateError();
+                FingerprintUtils.vibrateFingerprintError(getContext());
             }
             // allow system-defined limit of number of attempts before giving up
-            int lockoutMode =  handleFailedAttempt();
-            if (lockoutMode != LOCKOUT_NONE) {
+            boolean inLockoutMode =  handleFailedAttempt();
+            // send lockout event in case driver doesn't enforce it.
+            if (inLockoutMode) {
                 try {
-                    Slog.w(TAG, "Forcing lockout (fp driver code should do this!), mode(" +
-                            lockoutMode + ")");
-                    stop(false);
-                    int errorCode = lockoutMode == LOCKOUT_TIMED ?
-                            FingerprintManager.FINGERPRINT_ERROR_LOCKOUT :
-                            FingerprintManager.FINGERPRINT_ERROR_LOCKOUT_PERMANENT;
-                    receiver.onError(getHalDeviceId(), errorCode, 0 /* vendorCode */);
+                    Slog.w(TAG, "Forcing lockout (fp driver code should do this!)");
+                    receiver.onError(getHalDeviceId(),
+                            FingerprintManager.FINGERPRINT_ERROR_LOCKOUT);
                 } catch (RemoteException e) {
                     Slog.w(TAG, "Failed to notify lockout:", e);
                 }
             }
-            result |= lockoutMode != LOCKOUT_NONE; // in a lockout mode
+            result |= inLockoutMode;
         } else {
             if (receiver != null) {
-                vibrateSuccess();
+                FingerprintUtils.vibrateFingerprintSuccess(getContext());
             }
             result |= true; // we have a valid fingerprint, done
             resetFailedAttempts();
@@ -112,9 +106,9 @@ public abstract class AuthenticationClient extends ClientMonitor {
      */
     @Override
     public int start() {
-        IBiometricsFingerprint daemon = getFingerprintDaemon();
+        IFingerprintDaemon daemon = getFingerprintDaemon();
         if (daemon == null) {
-            Slog.w(TAG, "start authentication: no fingerprint HAL!");
+            Slog.w(TAG, "start authentication: no fingeprintd!");
             return ERROR_ESRCH;
         }
         try {
@@ -122,7 +116,7 @@ public abstract class AuthenticationClient extends ClientMonitor {
             if (result != 0) {
                 Slog.w(TAG, "startAuthentication failed, result=" + result);
                 MetricsLogger.histogram(getContext(), "fingeprintd_auth_start_error", result);
-                onError(FingerprintManager.FINGERPRINT_ERROR_HW_UNAVAILABLE, 0 /* vendorCode */);
+                onError(FingerprintManager.FINGERPRINT_ERROR_HW_UNAVAILABLE);
                 return result;
             }
             if (DEBUG) Slog.w(TAG, "client " + getOwnerString() + " is authenticating...");
@@ -135,17 +129,13 @@ public abstract class AuthenticationClient extends ClientMonitor {
 
     @Override
     public int stop(boolean initiatedByClient) {
-        if (mAlreadyCancelled) {
-            Slog.w(TAG, "stopAuthentication: already cancelled!");
-            return 0;
-        }
-        IBiometricsFingerprint daemon = getFingerprintDaemon();
+        IFingerprintDaemon daemon = getFingerprintDaemon();
         if (daemon == null) {
-            Slog.w(TAG, "stopAuthentication: no fingerprint HAL!");
+            Slog.w(TAG, "stopAuthentication: no fingeprintd!");
             return ERROR_ESRCH;
         }
         try {
-            final int result = daemon.cancel();
+            final int result = daemon.cancelAuthentication();
             if (result != 0) {
                 Slog.w(TAG, "stopAuthentication failed, result=" + result);
                 return result;
@@ -155,24 +145,23 @@ public abstract class AuthenticationClient extends ClientMonitor {
             Slog.e(TAG, "stopAuthentication failed", e);
             return ERROR_ESRCH;
         }
-        mAlreadyCancelled = true;
         return 0; // success
     }
 
     @Override
-    public boolean onEnrollResult(int fingerId, int groupId, int remaining) {
+    public boolean onEnrollResult(int fingerId, int groupId, int rem) {
         if (DEBUG) Slog.w(TAG, "onEnrollResult() called for authenticate!");
         return true; // Invalid for Authenticate
     }
 
     @Override
-    public boolean onRemoved(int fingerId, int groupId, int remaining) {
+    public boolean onRemoved(int fingerId, int groupId) {
         if (DEBUG) Slog.w(TAG, "onRemoved() called for authenticate!");
         return true; // Invalid for Authenticate
     }
 
     @Override
-    public boolean onEnumerationResult(int fingerId, int groupId, int remaining) {
+    public boolean onEnumerationResult(int fingerId, int groupId) {
         if (DEBUG) Slog.w(TAG, "onEnumerationResult() called for authenticate!");
         return true; // Invalid for Authenticate
     }

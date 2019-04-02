@@ -590,10 +590,6 @@ public class GLES30 extends GLES20 {
 
     // C function void glGetBufferPointerv ( GLenum target, GLenum pname, GLvoid** params )
 
-    /**
-     * The {@link java.nio.Buffer} instance returned by this method is guaranteed
-     * to be an instance of {@link java.nio.ByteBuffer}.
-     */
     public static native java.nio.Buffer glGetBufferPointerv(
         int target,
         int pname
@@ -765,10 +761,6 @@ public class GLES30 extends GLES20 {
 
     // C function GLvoid * glMapBufferRange ( GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access )
 
-    /**
-     * The {@link java.nio.Buffer} instance returned by this method is guaranteed
-     * to be an instance of {@link java.nio.ByteBuffer}.
-     */
     public static native java.nio.Buffer glMapBufferRange(
         int target,
         int offset,

@@ -17,13 +17,10 @@ package android.service.carrier;
 import android.annotation.CallSuper;
 import android.app.Service;
 import android.content.Intent;
-import android.os.Bundle;
 import android.os.IBinder;
 import android.os.PersistableBundle;
 import android.os.RemoteException;
-import android.os.ResultReceiver;
 import android.os.ServiceManager;
-import android.util.Log;
 
 import com.android.internal.telephony.ITelephonyRegistry;
 
@@ -50,8 +47,6 @@ import com.android.internal.telephony.ITelephonyRegistry;
  * }</pre>
  */
 public abstract class CarrierService extends Service {
-
-    private static final String LOG_TAG = "CarrierService";
 
     public static final String CARRIER_SERVICE_INTERFACE = "android.service.carrier.CarrierService";
 
@@ -112,12 +107,12 @@ public abstract class CarrierService extends Service {
      * <p>
      * Requires Permission:
      *   {@link android.Manifest.permission#MODIFY_PHONE_STATE MODIFY_PHONE_STATE}
-     * or the calling app has carrier privileges.
+     * Or the calling app has carrier privileges.
+     *   @see {@link android.telephony.TelephonyManager#hasCarrierPrivileges}
      *
      * @param active Whether the carrier network change is or shortly will be
      *               active. Set this value to true to begin showing
      *               alternative UI and false to stop.
-     * @see android.telephony.TelephonyManager#hasCarrierPrivileges
      */
     public final void notifyCarrierNetworkChange(boolean active) {
         try {
@@ -138,26 +133,11 @@ public abstract class CarrierService extends Service {
     /**
      * A wrapper around ICarrierService that forwards calls to implementations of
      * {@link CarrierService}.
-     * @hide
      */
-    public class ICarrierServiceWrapper extends ICarrierService.Stub {
-        /** @hide */
-        public static final int RESULT_OK = 0;
-        /** @hide */
-        public static final int RESULT_ERROR = 1;
-        /** @hide */
-        public static final String KEY_CONFIG_BUNDLE = "config_bundle";
-
+    private class ICarrierServiceWrapper extends ICarrierService.Stub {
         @Override
-        public void getCarrierConfig(CarrierIdentifier id, ResultReceiver result) {
-            try {
-                Bundle data = new Bundle();
-                data.putParcelable(KEY_CONFIG_BUNDLE, CarrierService.this.onLoadConfig(id));
-                result.send(RESULT_OK, data);
-            } catch (Exception e) {
-                Log.e(LOG_TAG, "Error in onLoadConfig: " + e.getMessage(), e);
-                result.send(RESULT_ERROR, null);
-            }
+        public PersistableBundle getCarrierConfig(CarrierIdentifier id) {
+            return CarrierService.this.onLoadConfig(id);
         }
     }
 }

@@ -16,13 +16,13 @@
 
 package android.view;
 
+import dalvik.system.CloseGuard;
+
 import android.os.Looper;
 import android.os.MessageQueue;
-import android.util.LongSparseArray;
 import android.util.Pools.Pool;
 import android.util.Pools.SimplePool;
-
-import dalvik.system.CloseGuard;
+import android.util.LongSparseArray;
 
 import java.lang.ref.WeakReference;
 

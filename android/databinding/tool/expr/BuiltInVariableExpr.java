@@ -49,7 +49,7 @@ public class BuiltInVariableExpr extends IdentifierExpr {
     }
 
     @Override
-    protected KCode generateCode() {
+    protected KCode generateCode(boolean expand) {
         if (mAccessCode == null) {
             return new KCode().app(mName);
         } else {
@@ -64,10 +64,5 @@ public class BuiltInVariableExpr extends IdentifierExpr {
     @Override
     public String getInvertibleError() {
         return "Built-in variables may not be the target of two-way binding";
-    }
-
-    @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.builtInVariable(mName, mUserDefinedType, mAccessCode);
     }
 }

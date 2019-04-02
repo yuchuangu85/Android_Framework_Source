@@ -29,6 +29,7 @@ import android.view.View;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -77,14 +78,22 @@ public class FragmentController {
      * Returns the number of active fragments.
      */
     public int getActiveFragmentsCount() {
-        return mHost.mFragmentManager.getActiveFragmentCount();
+        final List<Fragment> actives = mHost.mFragmentManager.mActive;
+        return actives == null ? 0 : actives.size();
     }
 
     /**
      * Returns the list of active fragments.
      */
     public List<Fragment> getActiveFragments(List<Fragment> actives) {
-        return mHost.mFragmentManager.getActiveFragments();
+        if (mHost.mFragmentManager.mActive == null) {
+            return null;
+        }
+        if (actives == null) {
+            actives = new ArrayList<Fragment>(getActiveFragmentsCount());
+        }
+        actives.addAll(mHost.mFragmentManager.mActive);
+        return actives;
     }
 
     /**

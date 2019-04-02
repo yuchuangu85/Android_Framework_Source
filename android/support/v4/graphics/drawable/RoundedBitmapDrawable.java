@@ -27,7 +27,6 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
-import android.support.annotation.RequiresApi;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 
@@ -41,7 +40,6 @@ import android.view.Gravity;
  * {@link android.graphics.Canvas}.
  * </p>
  */
-@RequiresApi(9)
 public abstract class RoundedBitmapDrawable extends Drawable {
     private static final int DEFAULT_PAINT_FLAGS =
             Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG;
@@ -276,7 +274,6 @@ public abstract class RoundedBitmapDrawable extends Drawable {
         }
     }
 
-    @Override
     public int getAlpha() {
         return mPaint.getAlpha();
     }
@@ -287,7 +284,6 @@ public abstract class RoundedBitmapDrawable extends Drawable {
         invalidateSelf();
     }
 
-    @Override
     public ColorFilter getColorFilter() {
         return mPaint.getColorFilter();
     }

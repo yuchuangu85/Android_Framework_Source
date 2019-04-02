@@ -1,8 +1,6 @@
 package android.os;
 
-import android.os.WorkSourceProto;
 import android.util.Log;
-import android.util.proto.ProtoOutputStream;
 
 import java.util.Arrays;
 
@@ -298,7 +296,7 @@ public class WorkSource implements Parcelable {
                 break;
             }
             if (mUids[i] == uid) {
-                int diff = mNames[i].compareTo(name);
+                int diff = mNames[i].compareTo(name); 
                 if (diff > 0) {
                     break;
                 }
@@ -692,20 +690,6 @@ public class WorkSource implements Parcelable {
         }
         result.append("}");
         return result.toString();
-    }
-
-    /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
-        final long workSourceToken = proto.start(fieldId);
-        for (int i = 0; i < mNum; i++) {
-            final long contentProto = proto.start(WorkSourceProto.WORK_SOURCE_CONTENTS);
-            proto.write(WorkSourceProto.WorkSourceContentProto.UID, mUids[i]);
-            if (mNames != null) {
-                proto.write(WorkSourceProto.WorkSourceContentProto.NAME, mNames[i]);
-            }
-            proto.end(contentProto);
-        }
-        proto.end(workSourceToken);
     }
 
     public static final Parcelable.Creator<WorkSource> CREATOR

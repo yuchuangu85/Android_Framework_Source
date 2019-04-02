@@ -399,7 +399,7 @@ public final class RemoteConference {
      */
     public void disconnect() {
         try {
-            mConnectionService.disconnect(mId, null /*Session.Info*/);
+            mConnectionService.disconnect(mId);
         } catch (RemoteException e) {
         }
     }
@@ -414,7 +414,7 @@ public final class RemoteConference {
     public void separate(RemoteConnection connection) {
         if (mChildConnections.contains(connection)) {
             try {
-                mConnectionService.splitFromConference(connection.getId(), null /*Session.Info*/);
+                mConnectionService.splitFromConference(connection.getId());
             } catch (RemoteException e) {
             }
         }
@@ -432,7 +432,7 @@ public final class RemoteConference {
      */
     public void merge() {
         try {
-            mConnectionService.mergeConference(mId, null /*Session.Info*/);
+            mConnectionService.mergeConference(mId);
         } catch (RemoteException e) {
         }
     }
@@ -448,7 +448,7 @@ public final class RemoteConference {
      */
     public void swap() {
         try {
-            mConnectionService.swapConference(mId, null /*Session.Info*/);
+            mConnectionService.swapConference(mId);
         } catch (RemoteException e) {
         }
     }
@@ -458,7 +458,7 @@ public final class RemoteConference {
      */
     public void hold() {
         try {
-            mConnectionService.hold(mId, null /*Session.Info*/);
+            mConnectionService.hold(mId);
         } catch (RemoteException e) {
         }
     }
@@ -468,7 +468,7 @@ public final class RemoteConference {
      */
     public void unhold() {
         try {
-            mConnectionService.unhold(mId, null /*Session.Info*/);
+            mConnectionService.unhold(mId);
         } catch (RemoteException e) {
         }
     }
@@ -491,7 +491,7 @@ public final class RemoteConference {
      */
     public void playDtmfTone(char digit) {
         try {
-            mConnectionService.playDtmfTone(mId, digit, null /*Session.Info*/);
+            mConnectionService.playDtmfTone(mId, digit);
         } catch (RemoteException e) {
         }
     }
@@ -503,7 +503,7 @@ public final class RemoteConference {
      */
     public void stopDtmfTone() {
         try {
-            mConnectionService.stopDtmfTone(mId, null /*Session.Info*/);
+            mConnectionService.stopDtmfTone(mId);
         } catch (RemoteException e) {
         }
     }
@@ -528,7 +528,7 @@ public final class RemoteConference {
      */
     public void setCallAudioState(CallAudioState state) {
         try {
-            mConnectionService.onCallAudioStateChanged(mId, state, null /*Session.Info*/);
+            mConnectionService.onCallAudioStateChanged(mId, state);
         } catch (RemoteException e) {
         }
     }

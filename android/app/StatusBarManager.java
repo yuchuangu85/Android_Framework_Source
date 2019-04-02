@@ -18,7 +18,6 @@
 package android.app;
 
 import android.annotation.IntDef;
-import android.annotation.SystemService;
 import android.content.Context;
 import android.os.Binder;
 import android.os.RemoteException;
@@ -37,7 +36,6 @@ import java.lang.annotation.RetentionPolicy;
  *
  * @hide
  */
-@SystemService(Context.STATUS_BAR_SERVICE)
 public class StatusBarManager {
 
     public static final int DISABLE_EXPAND = View.STATUS_BAR_DISABLE_EXPAND;
@@ -94,7 +92,6 @@ public class StatusBarManager {
 
     public static final int CAMERA_LAUNCH_SOURCE_WIGGLE = 0;
     public static final int CAMERA_LAUNCH_SOURCE_POWER_DOUBLE_TAP = 1;
-    public static final int CAMERA_LAUNCH_SOURCE_LIFT_TRIGGER = 2;
 
     private Context mContext;
     private IStatusBarService mService;

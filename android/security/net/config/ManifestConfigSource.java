@@ -32,7 +32,6 @@ public class ManifestConfigSource implements ConfigSource {
     private final int mApplicationInfoFlags;
     private final int mTargetSdkVersion;
     private final int mConfigResourceId;
-    private final int mTargetSandboxVesrsion;
 
     private ConfigSource mConfigSource;
 
@@ -43,7 +42,6 @@ public class ManifestConfigSource implements ConfigSource {
         mApplicationInfoFlags = info.flags;
         mTargetSdkVersion = info.targetSdkVersion;
         mConfigResourceId = info.networkSecurityConfigRes;
-        mTargetSandboxVesrsion = info.targetSandboxVersion;
     }
 
     @Override
@@ -71,18 +69,14 @@ public class ManifestConfigSource implements ConfigSource {
                             + " debugBuild: " + debugBuild);
                 }
                 source = new XmlConfigSource(mContext, mConfigResourceId, debugBuild,
-                        mTargetSdkVersion, mTargetSandboxVesrsion);
+                        mTargetSdkVersion);
             } else {
                 if (DBG) {
                     Log.d(LOG_TAG, "No Network Security Config specified, using platform default");
                 }
-                // the legacy FLAG_USES_CLEARTEXT_TRAFFIC is not supported for Ephemeral apps, they
-                // should use the network security config.
                 boolean usesCleartextTraffic =
-                        (mApplicationInfoFlags & ApplicationInfo.FLAG_USES_CLEARTEXT_TRAFFIC) != 0
-                        && mTargetSandboxVesrsion < 2;
-                source = new DefaultConfigSource(usesCleartextTraffic, mTargetSdkVersion,
-                        mTargetSandboxVesrsion);
+                        (mApplicationInfoFlags & ApplicationInfo.FLAG_USES_CLEARTEXT_TRAFFIC) != 0;
+                source = new DefaultConfigSource(usesCleartextTraffic, mTargetSdkVersion);
             }
             mConfigSource = source;
             return mConfigSource;
@@ -93,10 +87,8 @@ public class ManifestConfigSource implements ConfigSource {
 
         private final NetworkSecurityConfig mDefaultConfig;
 
-        public DefaultConfigSource(boolean usesCleartextTraffic, int targetSdkVersion,
-                int targetSandboxVesrsion) {
-            mDefaultConfig = NetworkSecurityConfig.getDefaultBuilder(targetSdkVersion,
-                    targetSandboxVesrsion)
+        public DefaultConfigSource(boolean usesCleartextTraffic, int targetSdkVersion) {
+            mDefaultConfig = NetworkSecurityConfig.getDefaultBuilder(targetSdkVersion)
                     .setCleartextTrafficPermitted(usesCleartextTraffic)
                     .build();
         }

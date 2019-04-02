@@ -11,22 +11,17 @@ package com.android.hotspot2.osu;
  * subscription-server.r2-testbed-rks   IN      A       10.123.107.107
  */
 
-import android.content.Context;
-import android.content.Intent;
 import android.net.Network;
 import android.util.Log;
 
 import com.android.hotspot2.OMADMAdapter;
 import com.android.hotspot2.est.ESTHandler;
-import com.android.hotspot2.flow.OSUInfo;
-import com.android.hotspot2.flow.PlatformAdapter;
 import com.android.hotspot2.omadm.OMAConstants;
 import com.android.hotspot2.omadm.OMANode;
 import com.android.hotspot2.osu.commands.BrowserURI;
 import com.android.hotspot2.osu.commands.ClientCertInfo;
 import com.android.hotspot2.osu.commands.GetCertData;
 import com.android.hotspot2.osu.commands.MOData;
-import com.android.hotspot2.osu.service.RedirectListener;
 import com.android.hotspot2.pps.Credential;
 import com.android.hotspot2.pps.HomeSP;
 import com.android.hotspot2.pps.UpdateInfo;
@@ -43,7 +38,6 @@ import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -54,46 +48,38 @@ import javax.net.ssl.KeyManager;
 
 public class OSUClient {
     private static final String TAG = "OSUCLT";
+    private static final String TTLS_OSU =
+            "https://osu-server.r2-testbed-rks.wi-fi.org:9447/OnlineSignup/services/newUser/digest";
+    private static final String TLS_OSU =
+            "https://osu-server.r2-testbed-rks.wi-fi.org:9446/OnlineSignup/services/newUser/certificate";
 
     private final OSUInfo mOSUInfo;
     private final URL mURL;
     private final KeyStore mKeyStore;
-    private final Context mContext;
-    private volatile HTTPHandler mHTTPHandler;
-    private volatile RedirectListener mRedirectListener;
 
-    public OSUClient(OSUInfo osuInfo, KeyStore ks, Context context) throws MalformedURLException {
+    public OSUClient(OSUInfo osuInfo, KeyStore ks) throws MalformedURLException {
         mOSUInfo = osuInfo;
         mURL = new URL(osuInfo.getOSUProvider().getOSUServer());
         mKeyStore = ks;
-        mContext = context;
     }
 
-    public OSUClient(String osu, KeyStore ks, Context context) throws MalformedURLException {
+    public OSUClient(String osu, KeyStore ks) throws MalformedURLException {
         mOSUInfo = null;
         mURL = new URL(osu);
         mKeyStore = ks;
-        mContext = context;
     }
 
-    public OSUInfo getOSUInfo() {
-        return mOSUInfo;
-    }
-
-    public void provision(PlatformAdapter platformAdapter, Network network, KeyManager km)
+    public void provision(OSUManager osuManager, Network network, KeyManager km)
             throws IOException, GeneralSecurityException {
         try (HTTPHandler httpHandler = new HTTPHandler(StandardCharsets.UTF_8,
-                OSUSocketFactory.getSocketFactory(mKeyStore, null,
-                        OSUFlowManager.FlowType.Provisioning, network, mURL, km, true))) {
-
-            mHTTPHandler = httpHandler;
+                OSUSocketFactory.getSocketFactory(mKeyStore, null, OSUManager.FLOW_PROVISIONING,
+                        network, mURL, km, true))) {
 
             SPVerifier spVerifier = new SPVerifier(mOSUInfo);
             spVerifier.verify(httpHandler.getOSUCertificate(mURL));
 
-            URL redirectURL = prepareUserInput(platformAdapter,
-                    mOSUInfo.getName(Locale.getDefault()));
-            OMADMAdapter omadmAdapter = getOMADMAdapter();
+            URL redirectURL = osuManager.prepareUserInput(mOSUInfo.getName(Locale.getDefault()));
+            OMADMAdapter omadmAdapter = osuManager.getOMADMAdapter();
 
             String regRequest = SOAPBuilder.buildPostDevDataResponse(RequestReason.SubRegistration,
                     null,
@@ -149,7 +135,7 @@ public class OSUClient {
                 throw new IOException("Bad or missing session ID in webURL");
             }
 
-            if (!startUserInput(new URL(webURL), network)) {
+            if (!osuManager.startUserInput(new URL(webURL), network)) {
                 throw new IOException("User session failed");
             }
 
@@ -173,8 +159,8 @@ public class OSUClient {
                 moData = (MOData) provResponse.getCommandData();
             } else {
                 try (ESTHandler estHandler = new ESTHandler((GetCertData) provResponse.
-                        getCommandData(), network, getOMADMAdapter(),
-                        km, mKeyStore, null, OSUFlowManager.FlowType.Provisioning)) {
+                        getCommandData(), network, osuManager.getOMADMAdapter(),
+                        km, mKeyStore, null, OSUManager.FLOW_PROVISIONING)) {
                     estHandler.execute(false);
                     certs.put(OSUCertType.CA, estHandler.getCACerts());
                     certs.put(OSUCertType.Client, estHandler.getClientCerts());
@@ -211,19 +197,16 @@ public class OSUClient {
             }
 
             retrieveCerts(moData.getMOTree().getRoot(), certs, network, km, mKeyStore);
-            platformAdapter.provisioningComplete(mOSUInfo, moData, certs, clientKey, network);
+            osuManager.provisioningComplete(mOSUInfo, moData, certs, clientKey, network);
         }
     }
 
-    public void remediate(PlatformAdapter platformAdapter, Network network, KeyManager km,
-            HomeSP homeSP, OSUFlowManager.FlowType flowType)
+    public void remediate(OSUManager osuManager, Network network, KeyManager km, HomeSP homeSP,
+                          int flowType)
             throws IOException, GeneralSecurityException {
         try (HTTPHandler httpHandler = createHandler(network, homeSP, km, flowType)) {
-
-            mHTTPHandler = httpHandler;
-
-            URL redirectURL = prepareUserInput(platformAdapter, homeSP.getFriendlyName());
-            OMADMAdapter omadmAdapter = getOMADMAdapter();
+            URL redirectURL = osuManager.prepareUserInput(homeSP.getFriendlyName());
+            OMADMAdapter omadmAdapter = osuManager.getOMADMAdapter();
 
             String regRequest = SOAPBuilder.buildPostDevDataResponse(RequestReason.SubRemediation,
                     null,
@@ -250,7 +233,7 @@ public class OSUClient {
                             redirectURL.toString(),
                             omadmAdapter.getMO(OMAConstants.DevInfoURN),
                             omadmAdapter.getMO(OMAConstants.DevDetailURN),
-                            platformAdapter.getMOTree(homeSP));
+                            osuManager.getMOTree(homeSP));
 
                     Log.d(TAG, "Upload MO: " + ulMessage);
 
@@ -262,7 +245,7 @@ public class OSUClient {
                 }
 
                 if (pddResponse.getExecCommand() == ExecCommand.Browser) {
-                    if (flowType == OSUFlowManager.FlowType.Policy) {
+                    if (flowType == OSUManager.FLOW_POLICY) {
                         throw new IOException("Browser launch requested in policy flow");
                     }
                     String webURL = ((BrowserURI) pddResponse.getCommandData()).getURI();
@@ -273,7 +256,7 @@ public class OSUClient {
                         throw new IOException("Bad or missing session ID in webURL");
                     }
 
-                    if (!startUserInput(new URL(webURL), network)) {
+                    if (!osuManager.startUserInput(new URL(webURL), network)) {
                         throw new IOException("User session failed");
                     }
 
@@ -292,7 +275,7 @@ public class OSUClient {
                 } else if (pddResponse.getExecCommand() == ExecCommand.GetCert) {
                     certs = new HashMap<>();
                     try (ESTHandler estHandler = new ESTHandler((GetCertData) pddResponse.
-                            getCommandData(), network, getOMADMAdapter(),
+                            getCommandData(), network, osuManager.getOMADMAdapter(),
                             km, mKeyStore, homeSP, flowType)) {
                         estHandler.execute(true);
                         certs.put(OSUCertType.CA, estHandler.getCACerts());
@@ -364,55 +347,17 @@ public class OSUClient {
             // There's a chicken and egg here: If the config is saved before sending update complete
             // the network is lost and the remediation flow fails.
             try {
-                platformAdapter.remediationComplete(homeSP, mods, certs, clientKey,
-                        flowType == OSUFlowManager.FlowType.Policy);
+                osuManager.remediationComplete(homeSP, mods, certs, clientKey);
             } catch (IOException | GeneralSecurityException e) {
-                platformAdapter.provisioningFailed(homeSP.getFriendlyName(), e.getMessage());
+                osuManager.provisioningFailed(homeSP.getFriendlyName(), e.getMessage(), homeSP,
+                        OSUManager.FLOW_REMEDIATION);
                 error = OSUError.CommandFailed;
             }
         }
     }
 
-    private OMADMAdapter getOMADMAdapter() {
-        return OMADMAdapter.getInstance(mContext);
-    }
-
-    private URL prepareUserInput(PlatformAdapter platformAdapter, String spName)
-            throws IOException {
-        mRedirectListener = new RedirectListener(platformAdapter, spName);
-        return mRedirectListener.getURL();
-    }
-
-    private boolean startUserInput(URL target, Network network)
-            throws IOException {
-        mRedirectListener.startService();
-
-        Intent intent = new Intent(mContext, OSUWebView.class);
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        intent.putExtra(OSUWebView.OSU_NETWORK, network);
-        intent.putExtra(OSUWebView.OSU_URL, target.toString());
-        mContext.startActivity(intent);
-
-        return mRedirectListener.waitForUser();
-    }
-
-    public void close(boolean abort) {
-        if (mRedirectListener != null) {
-            mRedirectListener.abort();
-            mRedirectListener = null;
-        }
-        if (abort) {
-            try {
-                mHTTPHandler.close();
-            } catch (IOException ioe) {
-                /**/
-            }
-        }
-    }
-
-    private HTTPHandler createHandler(Network network, HomeSP homeSP, KeyManager km,
-            OSUFlowManager.FlowType flowType)
-            throws GeneralSecurityException, IOException {
+    private HTTPHandler createHandler(Network network, HomeSP homeSP,
+                                      KeyManager km, int flowType) throws GeneralSecurityException, IOException {
         Credential credential = homeSP.getCredential();
 
         Log.d(TAG, "Credential method " + credential.getEAPMethod().getEAPMethodID());
@@ -421,7 +366,7 @@ public class OSUClient {
                 String user;
                 byte[] password;
                 UpdateInfo subscriptionUpdate;
-                if (flowType == OSUFlowManager.FlowType.Policy) {
+                if (flowType == OSUManager.FLOW_POLICY) {
                     subscriptionUpdate = homeSP.getPolicy() != null ?
                             homeSP.getPolicy().getPolicyUpdate() : null;
                 } else {
@@ -493,8 +438,8 @@ public class OSUClient {
         for (String urlString : urls) {
             URL url = new URL(urlString);
             HTTPHandler httpHandler = new HTTPHandler(StandardCharsets.UTF_8,
-                    OSUSocketFactory.getSocketFactory(ks, null,
-                            OSUFlowManager.FlowType.Provisioning, network, url, km, false));
+                    OSUSocketFactory.getSocketFactory(ks, null, OSUManager.FLOW_PROVISIONING,
+                            network, url, km, false));
 
             certs.add((X509Certificate) certFactory.generateCertificate(httpHandler.doGet(url)));
         }
@@ -511,7 +456,7 @@ public class OSUClient {
             case "?":
                 for (OMANode node : root.getChildren()) {
                     if (!node.isLeaf()) {
-                        nodes = Collections.singletonList(node);
+                        nodes = Arrays.asList(node);
                         break;
                     }
                 }
@@ -520,7 +465,7 @@ public class OSUClient {
                 nodes = root.getChildren();
                 break;
             default:
-                nodes = Collections.singletonList(root.getChild(name));
+                nodes = Arrays.asList(root.getChild(name));
                 break;
         }
 

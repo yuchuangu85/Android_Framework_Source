@@ -43,13 +43,9 @@ import android.printservice.PrintService;
 import android.util.Slog;
 import android.util.TimedRemoteCaller;
 
-import com.android.internal.annotations.GuardedBy;
-import com.android.internal.os.TransferPipe;
-
 import libcore.io.IoUtils;
 
 import java.io.FileDescriptor;
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
 import java.util.List;
@@ -72,7 +68,7 @@ final class RemotePrintSpooler {
     private static final boolean DEBUG = false;
 
     private static final long BIND_SPOOLER_SERVICE_TIMEOUT =
-            (Build.IS_ENG) ? 120000 : 10000;
+            ("eng".equals(Build.TYPE)) ? 120000 : 10000;
 
     private final Object mLock = new Object();
 
@@ -112,10 +108,6 @@ final class RemotePrintSpooler {
     private boolean mDestroyed;
 
     private boolean mCanUnbind;
-
-    /** Whether a thread is currently trying to {@link #bindLocked() bind to the print service} */
-    @GuardedBy("mLock")
-    private boolean mIsBinding;
 
     public static interface PrintSpoolerCallbacks {
         public void onPrintJobQueued(PrintJobInfo printJob);
@@ -169,8 +161,10 @@ final class RemotePrintSpooler {
         try {
             return mGetPrintJobInfosCaller.getPrintJobInfos(getRemoteInstanceLazy(),
                     componentName, state, appId);
-        } catch (RemoteException | TimeoutException | InterruptedException e) {
-            Slog.e(LOG_TAG, "Error getting print jobs.", e);
+        } catch (RemoteException re) {
+            Slog.e(LOG_TAG, "Error getting print jobs.", re);
+        } catch (TimeoutException te) {
+            Slog.e(LOG_TAG, "Error getting print jobs.", te);
         } finally {
             if (DEBUG) {
                 Slog.i(LOG_TAG, "[user: " + mUserHandle.getIdentifier() + "] getPrintJobInfos()");
@@ -191,8 +185,10 @@ final class RemotePrintSpooler {
         }
         try {
             getRemoteInstanceLazy().createPrintJob(printJob);
-        } catch (RemoteException | TimeoutException | InterruptedException e) {
-            Slog.e(LOG_TAG, "Error creating print job.", e);
+        } catch (RemoteException re) {
+            Slog.e(LOG_TAG, "Error creating print job.", re);
+        } catch (TimeoutException te) {
+            Slog.e(LOG_TAG, "Error creating print job.", te);
         } finally {
             if (DEBUG) {
                 Slog.i(LOG_TAG, "[user: " + mUserHandle.getIdentifier() + "] createPrintJob()");
@@ -212,8 +208,10 @@ final class RemotePrintSpooler {
         }
         try {
             getRemoteInstanceLazy().writePrintJobData(fd, printJobId);
-        } catch (RemoteException | TimeoutException | InterruptedException e) {
-            Slog.e(LOG_TAG, "Error writing print job data.", e);
+        } catch (RemoteException re) {
+            Slog.e(LOG_TAG, "Error writing print job data.", re);
+        } catch (TimeoutException te) {
+            Slog.e(LOG_TAG, "Error writing print job data.", te);
         } finally {
             if (DEBUG) {
                 Slog.i(LOG_TAG, "[user: " + mUserHandle.getIdentifier() + "] writePrintJobData()");
@@ -237,8 +235,10 @@ final class RemotePrintSpooler {
         try {
             return mGetPrintJobInfoCaller.getPrintJobInfo(getRemoteInstanceLazy(),
                     printJobId, appId);
-        } catch (RemoteException | TimeoutException | InterruptedException e) {
-            Slog.e(LOG_TAG, "Error getting print job info.", e);
+        } catch (RemoteException re) {
+            Slog.e(LOG_TAG, "Error getting print job info.", re);
+        } catch (TimeoutException te) {
+            Slog.e(LOG_TAG, "Error getting print job info.", te);
         } finally {
             if (DEBUG) {
                 Slog.i(LOG_TAG, "[user: " + mUserHandle.getIdentifier() + "] getPrintJobInfo()");
@@ -260,8 +260,10 @@ final class RemotePrintSpooler {
         try {
             return mSetPrintJobStatusCaller.setPrintJobState(getRemoteInstanceLazy(),
                     printJobId, state, error);
-        } catch (RemoteException | TimeoutException | InterruptedException e) {
-            Slog.e(LOG_TAG, "Error setting print job state.", e);
+        } catch (RemoteException re) {
+            Slog.e(LOG_TAG, "Error setting print job state.", re);
+        } catch (TimeoutException te) {
+            Slog.e(LOG_TAG, "Error setting print job state.", te);
         } finally {
             if (DEBUG) {
                 Slog.i(LOG_TAG, "[user: " + mUserHandle.getIdentifier() + "] setPrintJobState()");
@@ -289,7 +291,7 @@ final class RemotePrintSpooler {
         }
         try {
             getRemoteInstanceLazy().setProgress(printJobId, progress);
-        } catch (RemoteException | TimeoutException | InterruptedException re) {
+        } catch (RemoteException|TimeoutException re) {
             Slog.e(LOG_TAG, "Error setting progress.", re);
         } finally {
             if (DEBUG) {
@@ -316,8 +318,8 @@ final class RemotePrintSpooler {
         }
         try {
             getRemoteInstanceLazy().setStatus(printJobId, status);
-        } catch (RemoteException | TimeoutException | InterruptedException e) {
-            Slog.e(LOG_TAG, "Error setting status.", e);
+        } catch (RemoteException|TimeoutException re) {
+            Slog.e(LOG_TAG, "Error setting status.", re);
         } finally {
             if (DEBUG) {
                 Slog.i(LOG_TAG, "[user: " + mUserHandle.getIdentifier() + "] setStatus()");
@@ -345,8 +347,8 @@ final class RemotePrintSpooler {
         }
         try {
             getRemoteInstanceLazy().setStatusRes(printJobId, status, appPackageName);
-        } catch (RemoteException | TimeoutException | InterruptedException e) {
-            Slog.e(LOG_TAG, "Error setting status.", e);
+        } catch (RemoteException|TimeoutException re) {
+            Slog.e(LOG_TAG, "Error setting status.", re);
         } finally {
             if (DEBUG) {
                 Slog.i(LOG_TAG, "[user: " + mUserHandle.getIdentifier() + "] setStatus()");
@@ -375,7 +377,7 @@ final class RemotePrintSpooler {
         try {
             mCustomPrinterIconLoadedCaller.onCustomPrinterIconLoaded(getRemoteInstanceLazy(),
                     printerId, icon);
-        } catch (RemoteException | TimeoutException | InterruptedException re) {
+        } catch (RemoteException|TimeoutException re) {
             Slog.e(LOG_TAG, "Error loading new custom printer icon.", re);
         } finally {
             if (DEBUG) {
@@ -407,8 +409,8 @@ final class RemotePrintSpooler {
         try {
             return mGetCustomPrinterIconCaller.getCustomPrinterIcon(getRemoteInstanceLazy(),
                     printerId);
-        } catch (RemoteException | TimeoutException | InterruptedException e) {
-            Slog.e(LOG_TAG, "Error getting custom printer icon.", e);
+        } catch (RemoteException|TimeoutException re) {
+            Slog.e(LOG_TAG, "Error getting custom printer icon.", re);
             return null;
         } finally {
             if (DEBUG) {
@@ -433,8 +435,8 @@ final class RemotePrintSpooler {
         }
         try {
             mClearCustomPrinterIconCache.clearCustomPrinterIconCache(getRemoteInstanceLazy());
-        } catch (RemoteException | TimeoutException | InterruptedException e) {
-            Slog.e(LOG_TAG, "Error clearing custom printer icon cache.", e);
+        } catch (RemoteException|TimeoutException re) {
+            Slog.e(LOG_TAG, "Error clearing custom printer icon cache.", re);
         } finally {
             if (DEBUG) {
                 Slog.i(LOG_TAG,
@@ -457,8 +459,10 @@ final class RemotePrintSpooler {
         try {
             return mSetPrintJobTagCaller.setPrintJobTag(getRemoteInstanceLazy(),
                     printJobId, tag);
-        } catch (RemoteException | TimeoutException | InterruptedException e) {
-            Slog.e(LOG_TAG, "Error setting print job tag.", e);
+        } catch (RemoteException re) {
+            Slog.e(LOG_TAG, "Error setting print job tag.", re);
+        } catch (TimeoutException te) {
+            Slog.e(LOG_TAG, "Error setting print job tag.", te);
         } finally {
             if (DEBUG) {
                 Slog.i(LOG_TAG, "[user: " + mUserHandle.getIdentifier() + "] setPrintJobTag()");
@@ -480,8 +484,10 @@ final class RemotePrintSpooler {
         try {
             getRemoteInstanceLazy().setPrintJobCancelling(printJobId,
                     cancelling);
-        } catch (RemoteException | TimeoutException | InterruptedException e) {
-            Slog.e(LOG_TAG, "Error setting print job cancelling.", e);
+        } catch (RemoteException re) {
+            Slog.e(LOG_TAG, "Error setting print job cancelling.", re);
+        } catch (TimeoutException te) {
+            Slog.e(LOG_TAG, "Error setting print job cancelling.", te);
         } finally {
             if (DEBUG) {
                 Slog.i(LOG_TAG, "[user: " + mUserHandle.getIdentifier()
@@ -507,8 +513,8 @@ final class RemotePrintSpooler {
         }
         try {
             getRemoteInstanceLazy().pruneApprovedPrintServices(servicesToKeep);
-        } catch (RemoteException | TimeoutException | InterruptedException e) {
-            Slog.e(LOG_TAG, "Error pruning approved print services.", e);
+        } catch (RemoteException|TimeoutException re) {
+            Slog.e(LOG_TAG, "Error pruning approved print services.", re);
         } finally {
             if (DEBUG) {
                 Slog.i(LOG_TAG, "[user: " + mUserHandle.getIdentifier()
@@ -529,7 +535,9 @@ final class RemotePrintSpooler {
         }
         try {
             getRemoteInstanceLazy().removeObsoletePrintJobs();
-        } catch (RemoteException | TimeoutException | InterruptedException te) {
+        } catch (RemoteException re) {
+            Slog.e(LOG_TAG, "Error removing obsolete print jobs .", re);
+        } catch (TimeoutException te) {
             Slog.e(LOG_TAG, "Error removing obsolete print jobs .", te);
         } finally {
             if (DEBUG) {
@@ -564,11 +572,13 @@ final class RemotePrintSpooler {
                     .append((mRemoteInstance != null) ? "true" : "false").println();
 
             pw.flush();
+
             try {
-                TransferPipe.dumpAsync(getRemoteInstanceLazy().asBinder(), fd,
-                        new String[] { prefix });
-            } catch (IOException | TimeoutException | RemoteException | InterruptedException e) {
-                pw.println("Failed to dump remote instance: " + e);
+                getRemoteInstanceLazy().asBinder().dump(fd, new String[]{prefix});
+            } catch (TimeoutException te) {
+                /* ignore */
+            } catch (RemoteException re) {
+                /* ignore */
             }
         }
     }
@@ -584,7 +594,7 @@ final class RemotePrintSpooler {
         mCallbacks.onPrintJobStateChanged(printJob);
     }
 
-    private IPrintSpooler getRemoteInstanceLazy() throws TimeoutException, InterruptedException {
+    private IPrintSpooler getRemoteInstanceLazy() throws TimeoutException {
         synchronized (mLock) {
             if (mRemoteInstance != null) {
                 return mRemoteInstance;
@@ -594,50 +604,43 @@ final class RemotePrintSpooler {
         }
     }
 
-    private void bindLocked() throws TimeoutException, InterruptedException {
-        while (mIsBinding) {
-            mLock.wait();
-        }
-
+    private void bindLocked() throws TimeoutException {
         if (mRemoteInstance != null) {
             return;
         }
-
-        mIsBinding = true;
-
         if (DEBUG) {
             Slog.i(LOG_TAG, "[user: " + mUserHandle.getIdentifier() + "] bindLocked() " +
                     (mIsLowPriority ? "low priority" : ""));
         }
 
-        try {
-            int flags;
-            if (mIsLowPriority) {
-                flags = Context.BIND_AUTO_CREATE;
-            } else {
-                flags = Context.BIND_AUTO_CREATE | Context.BIND_FOREGROUND_SERVICE;
-            }
-
-            mContext.bindServiceAsUser(mIntent, mServiceConnection, flags, mUserHandle);
-
-            final long startMillis = SystemClock.uptimeMillis();
-            while (true) {
-                if (mRemoteInstance != null) {
-                    break;
-                }
-                final long elapsedMillis = SystemClock.uptimeMillis() - startMillis;
-                final long remainingMillis = BIND_SPOOLER_SERVICE_TIMEOUT - elapsedMillis;
-                if (remainingMillis <= 0) {
-                    throw new TimeoutException("Cannot get spooler!");
-                }
-                mLock.wait(remainingMillis);
-            }
-
-            mCanUnbind = true;
-        } finally {
-            mIsBinding = false;
-            mLock.notifyAll();
+        int flags;
+        if (mIsLowPriority) {
+            flags = Context.BIND_AUTO_CREATE;
+        } else {
+            flags = Context.BIND_AUTO_CREATE | Context.BIND_FOREGROUND_SERVICE;
         }
+
+        mContext.bindServiceAsUser(mIntent, mServiceConnection, flags, mUserHandle);
+
+        final long startMillis = SystemClock.uptimeMillis();
+        while (true) {
+            if (mRemoteInstance != null) {
+                break;
+            }
+            final long elapsedMillis = SystemClock.uptimeMillis() - startMillis;
+            final long remainingMillis = BIND_SPOOLER_SERVICE_TIMEOUT - elapsedMillis;
+            if (remainingMillis <= 0) {
+                throw new TimeoutException("Cannot get spooler!");
+            }
+            try {
+                mLock.wait(remainingMillis);
+            } catch (InterruptedException ie) {
+                /* ignore */
+            }
+        }
+
+        mCanUnbind = true;
+        mLock.notifyAll();
     }
 
     private void unbindLocked() {

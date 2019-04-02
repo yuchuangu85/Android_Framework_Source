@@ -18,8 +18,6 @@ package android.support.v17.leanback.widget;
  */
 public interface OnActionClickedListener {
 
-    /**
-     * Callback fired when the host fragment receives an action.
-     */
-    void onActionClicked(Action action);
+    public void onActionClicked(Action action);
+
 }

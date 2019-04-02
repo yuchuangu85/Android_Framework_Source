@@ -20,9 +20,6 @@ import android.annotation.Nullable;
 import android.content.Context;
 import android.graphics.Rect;
 import android.util.AttributeSet;
-import android.view.View;
-import android.view.accessibility.AccessibilityNodeInfo;
-import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.RemoteViews;
 
@@ -31,7 +28,6 @@ import android.widget.RemoteViews;
  */
 @RemoteViews.RemoteView
 public class NotificationExpandButton extends ImageView {
-
     public NotificationExpandButton(Context context) {
         super(context);
     }
@@ -62,11 +58,5 @@ public class NotificationExpandButton extends ImageView {
         rect.right = rect.left + touchTargetSize;
         rect.top = rect.centerY() - touchTargetSize / 2;
         rect.bottom = rect.top + touchTargetSize;
-    }
-
-    @Override
-    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
-        super.onInitializeAccessibilityNodeInfo(info);
-        info.setClassName(Button.class.getName());
     }
 }

@@ -28,37 +28,23 @@ public class BitmapShader extends Shader {
      * @hide
      */
     @SuppressWarnings({"FieldCanBeLocal", "UnusedDeclaration"})
-    public Bitmap mBitmap;
+    public final Bitmap mBitmap;
 
-    private int mTileX;
-    private int mTileY;
+    private TileMode mTileX;
+    private TileMode mTileY;
 
     /**
      * Call this to create a new shader that will draw with a bitmap.
      *
-     * @param bitmap The bitmap to use inside the shader
-     * @param tileX The tiling mode for x to draw the bitmap in.
-     * @param tileY The tiling mode for y to draw the bitmap in.
+     * @param bitmap            The bitmap to use inside the shader
+     * @param tileX             The tiling mode for x to draw the bitmap in.
+     * @param tileY             The tiling mode for y to draw the bitmap in.
      */
-    public BitmapShader(@NonNull Bitmap bitmap, @NonNull TileMode tileX, @NonNull TileMode tileY) {
-        this(bitmap, tileX.nativeInt, tileY.nativeInt);
-    }
-
-    private BitmapShader(Bitmap bitmap, int tileX, int tileY) {
-        if (bitmap == null) {
-            throw new IllegalArgumentException("Bitmap must be non-null");
-        }
-        if (bitmap == mBitmap && tileX == mTileX && tileY == mTileY) {
-            return;
-        }
+    public BitmapShader(@NonNull Bitmap bitmap, TileMode tileX, TileMode tileY) {
         mBitmap = bitmap;
         mTileX = tileX;
         mTileY = tileY;
-    }
-
-    @Override
-    long createNativeInstance(long nativeMatrix) {
-        return nativeCreate(nativeMatrix, mBitmap, mTileX, mTileY);
+        init(nativeCreate(bitmap, tileX.nativeInt, tileY.nativeInt));
     }
 
     /**
@@ -71,6 +57,6 @@ public class BitmapShader extends Shader {
         return copy;
     }
 
-    private static native long nativeCreate(long nativeMatrix, Bitmap bitmap,
-            int shaderTileModeX, int shaderTileModeY);
+    private static native long nativeCreate(Bitmap bitmap, int shaderTileModeX,
+            int shaderTileModeY);
 }

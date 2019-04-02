@@ -21,7 +21,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Resources;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -33,6 +32,8 @@ import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
+import static com.android.server.am.ActivityManagerService.IS_USER_BUILD;
+
 final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListener {
 
     private final ActivityManagerService mService;
@@ -40,6 +41,7 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
     private final ProcessRecord mProc;
     private final boolean mRepeating;
     private final boolean mIsRestartable;
+
     private CharSequence mName;
 
     static int CANT_SHOW = -1;
@@ -104,26 +106,27 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        final FrameLayout frame = findViewById(android.R.id.custom);
+        final FrameLayout frame = (FrameLayout) findViewById(android.R.id.custom);
         final Context context = getContext();
         LayoutInflater.from(context).inflate(
                 com.android.internal.R.layout.app_error_dialog, frame, true);
 
+        boolean hasRestart = !mRepeating && mIsRestartable;
         final boolean hasReceiver = mProc.errorReportReceiver != null;
 
-        final TextView restart = findViewById(com.android.internal.R.id.aerr_restart);
+        final TextView restart = (TextView) findViewById(com.android.internal.R.id.aerr_restart);
         restart.setOnClickListener(this);
-        restart.setVisibility(mIsRestartable ? View.VISIBLE : View.GONE);
-        final TextView report = findViewById(com.android.internal.R.id.aerr_report);
+        restart.setVisibility(hasRestart ? View.VISIBLE : View.GONE);
+        final TextView report = (TextView) findViewById(com.android.internal.R.id.aerr_report);
         report.setOnClickListener(this);
         report.setVisibility(hasReceiver ? View.VISIBLE : View.GONE);
-        final TextView close = findViewById(com.android.internal.R.id.aerr_close);
-        close.setVisibility(mRepeating ? View.VISIBLE : View.GONE);
+        final TextView close = (TextView) findViewById(com.android.internal.R.id.aerr_close);
+        close.setVisibility(!hasRestart ? View.VISIBLE : View.GONE);
         close.setOnClickListener(this);
 
-        boolean showMute = !Build.IS_USER && Settings.Global.getInt(context.getContentResolver(),
+        boolean showMute = !IS_USER_BUILD && Settings.Global.getInt(context.getContentResolver(),
                 Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0;
-        final TextView mute = findViewById(com.android.internal.R.id.aerr_mute);
+        final TextView mute = (TextView) findViewById(com.android.internal.R.id.aerr_mute);
         mute.setOnClickListener(this);
         mute.setVisibility(showMute ? View.VISIBLE : View.GONE);
 
@@ -145,7 +148,18 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
 
     private final Handler mHandler = new Handler() {
         public void handleMessage(Message msg) {
-            setResult(msg.what);
+            final int result = msg.what;
+
+            synchronized (mService) {
+                if (mProc != null && mProc.crashDialog == AppErrorDialog.this) {
+                    mProc.crashDialog = null;
+                }
+            }
+            mResult.set(result);
+
+            // Make sure we don't have time timeout still hanging around.
+            removeMessages(TIMEOUT);
+
             dismiss();
         }
     };
@@ -154,21 +168,9 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
     public void dismiss() {
         if (!mResult.mHasResult) {
             // We are dismissing and the result has not been set...go ahead and set.
-            setResult(FORCE_QUIT);
+            mResult.set(FORCE_QUIT);
         }
         super.dismiss();
-    }
-
-    private void setResult(int result) {
-        synchronized (mService) {
-            if (mProc != null && mProc.crashDialog == AppErrorDialog.this) {
-                mProc.crashDialog = null;
-            }
-        }
-        mResult.set(result);
-
-        // Make sure we don't have time timeout still hanging around.
-        mHandler.removeMessages(TIMEOUT);
     }
 
     @Override

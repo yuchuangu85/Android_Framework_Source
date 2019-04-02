@@ -78,7 +78,6 @@ public final class ProgressBarManager {
             mProgressBarView.setVisibility(View.INVISIBLE);
         } else if (mProgressBarView != null) {
             rootView.removeView(mProgressBarView);
-            mProgressBarView = null;
         }
 
         mHandler.removeCallbacks(runnable);

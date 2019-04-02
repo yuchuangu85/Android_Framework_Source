@@ -37,9 +37,4 @@ public class ConfigNetworkSecurityPolicy extends libcore.net.NetworkSecurityPoli
     public boolean isCleartextTrafficPermitted(String hostname) {
         return mConfig.isCleartextTrafficPermitted(hostname);
     }
-
-    @Override
-    public boolean isCertificateTransparencyVerificationRequired(String hostname) {
-        return false;
-    }
 }

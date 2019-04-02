@@ -29,6 +29,7 @@ public class PagedTileLayout extends ViewPager implements QSTileLayout {
     private PageIndicator mPageIndicator;
 
     private int mNumPages;
+    private View mDecorGroup;
     private PageListener mPageListener;
 
     private int mPosition;
@@ -144,12 +145,12 @@ public class PagedTileLayout extends ViewPager implements QSTileLayout {
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
-        mPages.add((TilePage) LayoutInflater.from(getContext())
-                .inflate(R.layout.qs_paged_page, this, false));
-    }
+        mPageIndicator = (PageIndicator) findViewById(R.id.page_indicator);
+        mDecorGroup = findViewById(R.id.page_decor);
+        ((LayoutParams) mDecorGroup.getLayoutParams()).isDecor = true;
 
-    public void setPageIndicator(PageIndicator indicator) {
-        mPageIndicator = indicator;
+        mPages.add((TilePage) LayoutInflater.from(mContext)
+                .inflate(R.layout.qs_paged_page, this, false));
     }
 
     @Override
@@ -195,7 +196,7 @@ public class PagedTileLayout extends ViewPager implements QSTileLayout {
                 if (++index == mPages.size()) {
                     if (DEBUG) Log.d(TAG, "Adding page for "
                             + tile.tile.getClass().getSimpleName());
-                    mPages.add((TilePage) LayoutInflater.from(getContext())
+                    mPages.add((TilePage) LayoutInflater.from(mContext)
                             .inflate(R.layout.qs_paged_page, this, false));
                 }
             }
@@ -210,7 +211,7 @@ public class PagedTileLayout extends ViewPager implements QSTileLayout {
             }
             if (DEBUG) Log.d(TAG, "Size: " + mNumPages);
             mPageIndicator.setNumPages(mNumPages);
-            mPageIndicator.setVisibility(mNumPages > 1 ? View.VISIBLE : View.GONE);
+            mDecorGroup.setVisibility(mNumPages > 1 ? View.VISIBLE : View.GONE);
             setAdapter(mAdapter);
             mAdapter.notifyDataSetChanged();
             setCurrentItem(0, false);
@@ -242,7 +243,8 @@ public class PagedTileLayout extends ViewPager implements QSTileLayout {
                 maxHeight = height;
             }
         }
-        setMeasuredDimension(getMeasuredWidth(), maxHeight + getPaddingBottom());
+        setMeasuredDimension(getMeasuredWidth(), maxHeight
+                + (mDecorGroup.getVisibility() != View.GONE ? mDecorGroup.getMeasuredHeight() : 0));
     }
 
     private final Runnable mDistribute = new Runnable() {
@@ -263,6 +265,7 @@ public class PagedTileLayout extends ViewPager implements QSTileLayout {
         public TilePage(Context context, AttributeSet attrs) {
             super(context, attrs);
             updateResources();
+            setContentDescription(mContext.getString(R.string.accessibility_desc_quick_settings));
         }
 
         @Override
@@ -279,7 +282,8 @@ public class PagedTileLayout extends ViewPager implements QSTileLayout {
         private int getRows() {
             final Resources res = getContext().getResources();
             if (res.getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT) {
-                return res.getInteger(R.integer.quick_settings_num_rows_portrait);
+                // Always have 3 rows in portrait.
+                return 3;
             }
             return Math.max(1, res.getInteger(R.integer.quick_settings_num_rows));
         }

@@ -55,8 +55,9 @@ public abstract class GnssNavigationMessageProvider
     }
 
     public void onGpsEnabledChanged() {
-        tryUpdateRegistrationWithService();
-        updateResult();
+        if (tryUpdateRegistrationWithService()) {
+            updateResult();
+        }
     }
 
     @Override

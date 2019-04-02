@@ -34,7 +34,7 @@ public class RestoreDescription implements Parcelable {
     private final String mPackageName;
     private final int mDataType;
 
-    private static final String NO_MORE_PACKAGES_SENTINEL = "NO_MORE_PACKAGES";
+    private static final String NO_MORE_PACKAGES_SENTINEL = "";
 
     /**
      * Return this constant RestoreDescription from BackupTransport.nextRestorePackage()

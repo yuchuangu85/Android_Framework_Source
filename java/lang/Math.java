@@ -25,9 +25,7 @@
  */
 
 package java.lang;
-import dalvik.annotation.optimization.FastNative;
 import java.util.Random;
-
 import sun.misc.FloatConsts;
 import sun.misc.DoubleConsts;
 
@@ -54,50 +52,34 @@ import sun.misc.DoubleConsts;
  *
  * <p>The quality of implementation specifications concern two
  * properties, accuracy of the returned result and monotonicity of the
- * method.  Accuracy of the floating-point {@code Math} methods is
- * measured in terms of <i>ulps</i>, units in the last place.  For a
- * given floating-point format, an {@linkplain #ulp(double) ulp} of a
- * specific real number value is the distance between the two
- * floating-point values bracketing that numerical value.  When
- * discussing the accuracy of a method as a whole rather than at a
- * specific argument, the number of ulps cited is for the worst-case
- * error at any argument.  If a method always has an error less than
- * 0.5 ulps, the method always returns the floating-point number
- * nearest the exact result; such a method is <i>correctly
- * rounded</i>.  A correctly rounded method is generally the best a
- * floating-point approximation can be; however, it is impractical for
- * many floating-point methods to be correctly rounded.  Instead, for
- * the {@code Math} class, a larger error bound of 1 or 2 ulps is
- * allowed for certain methods.  Informally, with a 1 ulp error bound,
- * when the exact result is a representable number, the exact result
- * should be returned as the computed result; otherwise, either of the
- * two floating-point values which bracket the exact result may be
- * returned.  For exact results large in magnitude, one of the
- * endpoints of the bracket may be infinite.  Besides accuracy at
- * individual arguments, maintaining proper relations between the
- * method at different arguments is also important.  Therefore, most
- * methods with more than 0.5 ulp errors are required to be
- * <i>semi-monotonic</i>: whenever the mathematical function is
- * non-decreasing, so is the floating-point approximation, likewise,
- * whenever the mathematical function is non-increasing, so is the
- * floating-point approximation.  Not all approximations that have 1
- * ulp accuracy will automatically meet the monotonicity requirements.
- *
- * <p>
- * The platform uses signed two's complement integer arithmetic with
- * int and long primitive types.  The developer should choose
- * the primitive type to ensure that arithmetic operations consistently
- * produce correct results, which in some cases means the operations
- * will not overflow the range of values of the computation.
- * The best practice is to choose the primitive type and algorithm to avoid
- * overflow. In cases where the size is {@code int} or {@code long} and
- * overflow errors need to be detected, the methods {@code addExact},
- * {@code subtractExact}, {@code multiplyExact}, and {@code toIntExact}
- * throw an {@code ArithmeticException} when the results overflow.
- * For other arithmetic operations such as divide, absolute value,
- * increment, decrement, and negation overflow occurs only with
- * a specific minimum or maximum value and should be checked against
- * the minimum or maximum as appropriate.
+ * method.  Accuracy of the floating-point {@code Math} methods
+ * is measured in terms of <i>ulps</i>, units in the last place.  For
+ * a given floating-point format, an ulp of a specific real number
+ * value is the distance between the two floating-point values
+ * bracketing that numerical value.  When discussing the accuracy of a
+ * method as a whole rather than at a specific argument, the number of
+ * ulps cited is for the worst-case error at any argument.  If a
+ * method always has an error less than 0.5 ulps, the method always
+ * returns the floating-point number nearest the exact result; such a
+ * method is <i>correctly rounded</i>.  A correctly rounded method is
+ * generally the best a floating-point approximation can be; however,
+ * it is impractical for many floating-point methods to be correctly
+ * rounded.  Instead, for the {@code Math} class, a larger error
+ * bound of 1 or 2 ulps is allowed for certain methods.  Informally,
+ * with a 1 ulp error bound, when the exact result is a representable
+ * number, the exact result should be returned as the computed result;
+ * otherwise, either of the two floating-point values which bracket
+ * the exact result may be returned.  For exact results large in
+ * magnitude, one of the endpoints of the bracket may be infinite.
+ * Besides accuracy at individual arguments, maintaining proper
+ * relations between the method at different arguments is also
+ * important.  Therefore, most methods with more than 0.5 ulp errors
+ * are required to be <i>semi-monotonic</i>: whenever the mathematical
+ * function is non-decreasing, so is the floating-point approximation,
+ * likewise, whenever the mathematical function is non-increasing, so
+ * is the floating-point approximation.  Not all approximations that
+ * have 1 ulp accuracy will automatically meet the monotonicity
+ * requirements.
  *
  * @author  unascribed
  * @author  Joseph D. Darcy
@@ -137,7 +119,6 @@ public final class Math {
      * @param   a   an angle, in radians.
      * @return  the sine of the argument.
      */
-    @FastNative
     public static native double sin(double a);
 
     /**
@@ -151,7 +132,6 @@ public final class Math {
      * @param   a   an angle, in radians.
      * @return  the cosine of the argument.
      */
-    @FastNative
     public static native double cos(double a);
 
     /**
@@ -167,7 +147,6 @@ public final class Math {
      * @param   a   an angle, in radians.
      * @return  the tangent of the argument.
      */
-    @FastNative
     public static native double tan(double a);
 
     /**
@@ -184,7 +163,6 @@ public final class Math {
      * @param   a   the value whose arc sine is to be returned.
      * @return  the arc sine of the argument.
      */
-    @FastNative
     public static native double asin(double a);
 
     /**
@@ -199,7 +177,6 @@ public final class Math {
      * @param   a   the value whose arc cosine is to be returned.
      * @return  the arc cosine of the argument.
      */
-    @FastNative
     public static native double acos(double a);
 
     /**
@@ -215,7 +192,6 @@ public final class Math {
      * @param   a   the value whose arc tangent is to be returned.
      * @return  the arc tangent of the argument.
      */
-    @FastNative
     public static native double atan(double a);
 
     /**
@@ -264,7 +240,6 @@ public final class Math {
      * @return  the value <i>e</i><sup>{@code a}</sup>,
      *          where <i>e</i> is the base of the natural logarithms.
      */
-    @FastNative
     public static native double exp(double a);
 
     /**
@@ -284,7 +259,6 @@ public final class Math {
      * @return  the value ln&nbsp;{@code a}, the natural logarithm of
      *          {@code a}.
      */
-    @FastNative
     public static native double log(double a);
 
     /**
@@ -308,7 +282,6 @@ public final class Math {
      * @return  the base 10 logarithm of  {@code a}.
      * @since 1.5
      */
-    @FastNative
     public static native double log10(double a);
 
     /**
@@ -328,7 +301,6 @@ public final class Math {
      * @return  the positive square root of {@code a}.
      *          If the argument is NaN or less than zero, the result is NaN.
      */
-    @FastNative
     public static native double sqrt(double a);
 
 
@@ -358,7 +330,6 @@ public final class Math {
      * @return  the cube root of {@code a}.
      * @since 1.5
      */
-    @FastNative
     public static native double cbrt(double a);
 
     /**
@@ -383,7 +354,6 @@ public final class Math {
      * @return  the remainder when {@code f1} is divided by
      *          {@code f2}.
      */
-    @FastNative
     public static native double IEEEremainder(double f1, double f2);
 
     /**
@@ -405,7 +375,6 @@ public final class Math {
      *          floating-point value that is greater than or equal to
      *          the argument and is equal to a mathematical integer.
      */
-    @FastNative
     public static native double ceil(double a);
 
     /**
@@ -423,7 +392,6 @@ public final class Math {
      *          floating-point value that less than or equal to the argument
      *          and is equal to a mathematical integer.
      */
-    @FastNative
     public static native double floor(double a);
 
     /**
@@ -441,7 +409,6 @@ public final class Math {
      * @return  the closest floating-point value to {@code a} that is
      *          equal to a mathematical integer.
      */
-    @FastNative
     public static native double rint(double a);
 
     /**
@@ -496,7 +463,6 @@ public final class Math {
      *          in polar coordinates that corresponds to the point
      *          (<i>x</i>,&nbsp;<i>y</i>) in Cartesian coordinates.
      */
-    @FastNative
     public static native double atan2(double y, double x);
 
     /**
@@ -622,7 +588,6 @@ public final class Math {
      * @param   b   the exponent.
      * @return  the value {@code a}<sup>{@code b}</sup>.
      */
-    @FastNative
     public static native double pow(double a, double b);
 
     /**
@@ -723,8 +688,8 @@ public final class Math {
         }
     }
 
-    private static final class RandomNumberGeneratorHolder {
-        static final Random randomNumberGenerator = new Random();
+    private static class NoImagePreloadHolder {
+        private static final Random INSTANCE = new Random();
     }
 
     /**
@@ -751,7 +716,7 @@ public final class Math {
      * @see Random#nextDouble()
      */
     public static double random() {
-        return RandomNumberGeneratorHolder.randomNumberGenerator.nextDouble();
+        return NoImagePreloadHolder.INSTANCE.nextDouble();
     }
 
     /**
@@ -761,21 +726,14 @@ public final class Math {
      * @hide for internal use only.
      */
     public static void setRandomSeedInternal(long seed) {
-        RandomNumberGeneratorHolder.randomNumberGenerator.setSeed(seed);
+        NoImagePreloadHolder.INSTANCE.setSeed(seed);
     }
 
     /**
      * @hide for internal use only.
      */
     public static int randomIntInternal() {
-        return RandomNumberGeneratorHolder.randomNumberGenerator.nextInt();
-    }
-
-    /**
-     * @hide for internal use only.
-     */
-    public static long randomLongInternal() {
-        return RandomNumberGeneratorHolder.randomNumberGenerator.nextLong();
+        return NoImagePreloadHolder.INSTANCE.nextInt();
     }
 
     /**
@@ -1221,10 +1179,7 @@ public final class Math {
      * @return  the absolute value of the argument.
      */
     public static float abs(float a) {
-        // Note, as a "quality of implementation", rather than pure "spec compliance",
-        // we require that Math.abs() clears the sign bit (but changes nothing else)
-        // for all numbers, including NaN (signaling NaN may become quiet though).
-        return Float.intBitsToFloat(0x7fffffff & Float.floatToRawIntBits(a));
+        return (a <= 0.0F) ? 0.0F - a : a;
     }
 
     /**
@@ -1243,10 +1198,7 @@ public final class Math {
      * @return  the absolute value of the argument.
      */
     public static double abs(double a) {
-        // Note, as a "quality of implementation", rather than pure "spec compliance",
-        // we require that Math.abs() clears the sign bit (but changes nothing else)
-        // for all numbers, including NaN (signaling NaN may become quiet though).
-        return Double.longBitsToDouble(0x7fffffffffffffffL & Double.doubleToRawLongBits(a));
+        return (a <= 0.0D) ? 0.0D - a : a;
     }
 
     /**
@@ -1277,9 +1229,8 @@ public final class Math {
         return (a >= b) ? a : b;
     }
 
-    // Use raw bit-wise conversions on guaranteed non-NaN arguments.
-    private static long negativeZeroFloatBits  = Float.floatToRawIntBits(-0.0f);
-    private static long negativeZeroDoubleBits = Double.doubleToRawLongBits(-0.0d);
+    private static long negativeZeroFloatBits = Float.floatToIntBits(-0.0f);
+    private static long negativeZeroDoubleBits = Double.doubleToLongBits(-0.0d);
 
     /**
      * Returns the greater of two {@code float} values.  That is,
@@ -1296,12 +1247,9 @@ public final class Math {
      * @return  the larger of {@code a} and {@code b}.
      */
     public static float max(float a, float b) {
-        if (a != a)
-            return a;   // a is NaN
-        if ((a == 0.0f) &&
-            (b == 0.0f) &&
-            (Float.floatToRawIntBits(a) == negativeZeroFloatBits)) {
-            // Raw conversion ok since NaN can't map to -0.0.
+        if (a != a) return a;   // a is NaN
+        if ((a == 0.0f) && (b == 0.0f)
+            && (Float.floatToIntBits(a) == negativeZeroFloatBits)) {
             return b;
         }
         return (a >= b) ? a : b;
@@ -1322,12 +1270,9 @@ public final class Math {
      * @return  the larger of {@code a} and {@code b}.
      */
     public static double max(double a, double b) {
-        if (a != a)
-            return a;   // a is NaN
-        if ((a == 0.0d) &&
-            (b == 0.0d) &&
-            (Double.doubleToRawLongBits(a) == negativeZeroDoubleBits)) {
-            // Raw conversion ok since NaN can't map to -0.0.
+        if (a != a) return a;   // a is NaN
+        if ((a == 0.0d) && (b == 0.0d)
+            && (Double.doubleToLongBits(a) == negativeZeroDoubleBits)) {
             return b;
         }
         return (a >= b) ? a : b;
@@ -1376,12 +1321,9 @@ public final class Math {
      * @return  the smaller of {@code a} and {@code b}.
      */
     public static float min(float a, float b) {
-        if (a != a)
-            return a;   // a is NaN
-        if ((a == 0.0f) &&
-            (b == 0.0f) &&
-            (Float.floatToRawIntBits(b) == negativeZeroFloatBits)) {
-            // Raw conversion ok since NaN can't map to -0.0.
+        if (a != a) return a;   // a is NaN
+        if ((a == 0.0f) && (b == 0.0f)
+            && (Float.floatToIntBits(b) == negativeZeroFloatBits)) {
             return b;
         }
         return (a <= b) ? a : b;
@@ -1402,23 +1344,20 @@ public final class Math {
      * @return  the smaller of {@code a} and {@code b}.
      */
     public static double min(double a, double b) {
-        if (a != a)
-            return a;   // a is NaN
-        if ((a == 0.0d) &&
-            (b == 0.0d) &&
-            (Double.doubleToRawLongBits(b) == negativeZeroDoubleBits)) {
-            // Raw conversion ok since NaN can't map to -0.0.
+        if (a != a) return a;   // a is NaN
+        if ((a == 0.0d) && (b == 0.0d)
+            && (Double.doubleToLongBits(b) == negativeZeroDoubleBits)) {
             return b;
         }
         return (a <= b) ? a : b;
     }
 
     /**
-     * Returns the size of an ulp of the argument.  An ulp, unit in
-     * the last place, of a {@code double} value is the positive
-     * distance between this floating-point value and the {@code
-     * double} value next larger in magnitude.  Note that for non-NaN
-     * <i>x</i>, <code>ulp(-<i>x</i>) == ulp(<i>x</i>)</code>.
+     * Returns the size of an ulp of the argument.  An ulp of a
+     * {@code double} value is the positive distance between this
+     * floating-point value and the {@code double} value next
+     * larger in magnitude.  Note that for non-NaN <i>x</i>,
+     * <code>ulp(-<i>x</i>) == ulp(<i>x</i>)</code>.
      *
      * <p>Special Cases:
      * <ul>
@@ -1437,39 +1376,15 @@ public final class Math {
      * @since 1.5
      */
     public static double ulp(double d) {
-        int exp = getExponent(d);
-
-        switch(exp) {
-        case DoubleConsts.MAX_EXPONENT+1:       // NaN or infinity
-            return Math.abs(d);
-
-        case DoubleConsts.MIN_EXPONENT-1:       // zero or subnormal
-            return Double.MIN_VALUE;
-
-        default:
-            assert exp <= DoubleConsts.MAX_EXPONENT && exp >= DoubleConsts.MIN_EXPONENT;
-
-            // ulp(x) is usually 2^(SIGNIFICAND_WIDTH-1)*(2^ilogb(x))
-            exp = exp - (DoubleConsts.SIGNIFICAND_WIDTH-1);
-            if (exp >= DoubleConsts.MIN_EXPONENT) {
-                return powerOfTwoD(exp);
-            }
-            else {
-                // return a subnormal result; left shift integer
-                // representation of Double.MIN_VALUE appropriate
-                // number of positions
-                return Double.longBitsToDouble(1L <<
-                (exp - (DoubleConsts.MIN_EXPONENT - (DoubleConsts.SIGNIFICAND_WIDTH-1)) ));
-            }
-        }
+        return sun.misc.FpUtils.ulp(d);
     }
 
     /**
-     * Returns the size of an ulp of the argument.  An ulp, unit in
-     * the last place, of a {@code float} value is the positive
-     * distance between this floating-point value and the {@code
-     * float} value next larger in magnitude.  Note that for non-NaN
-     * <i>x</i>, <code>ulp(-<i>x</i>) == ulp(<i>x</i>)</code>.
+     * Returns the size of an ulp of the argument.  An ulp of a
+     * {@code float} value is the positive distance between this
+     * floating-point value and the {@code float} value next
+     * larger in magnitude.  Note that for non-NaN <i>x</i>,
+     * <code>ulp(-<i>x</i>) == ulp(<i>x</i>)</code>.
      *
      * <p>Special Cases:
      * <ul>
@@ -1488,31 +1403,7 @@ public final class Math {
      * @since 1.5
      */
     public static float ulp(float f) {
-        int exp = getExponent(f);
-
-        switch(exp) {
-        case FloatConsts.MAX_EXPONENT+1:        // NaN or infinity
-            return Math.abs(f);
-
-        case FloatConsts.MIN_EXPONENT-1:        // zero or subnormal
-            return FloatConsts.MIN_VALUE;
-
-        default:
-            assert exp <= FloatConsts.MAX_EXPONENT && exp >= FloatConsts.MIN_EXPONENT;
-
-            // ulp(x) is usually 2^(SIGNIFICAND_WIDTH-1)*(2^ilogb(x))
-            exp = exp - (FloatConsts.SIGNIFICAND_WIDTH-1);
-            if (exp >= FloatConsts.MIN_EXPONENT) {
-                return powerOfTwoF(exp);
-            }
-            else {
-                // return a subnormal result; left shift integer
-                // representation of FloatConsts.MIN_VALUE appropriate
-                // number of positions
-                return Float.intBitsToFloat(1 <<
-                (exp - (FloatConsts.MIN_EXPONENT - (FloatConsts.SIGNIFICAND_WIDTH-1)) ));
-            }
-        }
+        return sun.misc.FpUtils.ulp(f);
     }
 
     /**
@@ -1533,7 +1424,7 @@ public final class Math {
      * @since 1.5
      */
     public static double signum(double d) {
-        return (d == 0.0 || Double.isNaN(d))?d:copySign(1.0, d);
+        return sun.misc.FpUtils.signum(d);
     }
 
     /**
@@ -1554,7 +1445,7 @@ public final class Math {
      * @since 1.5
      */
     public static float signum(float f) {
-        return (f == 0.0f || Float.isNaN(f))?f:copySign(1.0f, f);
+        return sun.misc.FpUtils.signum(f);
     }
 
     /**
@@ -1582,7 +1473,6 @@ public final class Math {
      * @return  The hyperbolic sine of {@code x}.
      * @since 1.5
      */
-    @FastNative
     public static native double sinh(double x);
 
     /**
@@ -1609,7 +1499,6 @@ public final class Math {
      * @return  The hyperbolic cosine of {@code x}.
      * @since 1.5
      */
-    @FastNative
     public static native double cosh(double x);
 
     /**
@@ -1648,7 +1537,6 @@ public final class Math {
      * @return  The hyperbolic tangent of {@code x}.
      * @since 1.5
      */
-    @FastNative
     public static native double tanh(double x);
 
     /**
@@ -1676,7 +1564,6 @@ public final class Math {
      * without intermediate overflow or underflow
      * @since 1.5
      */
-    @FastNative
     public static native double hypot(double x, double y);
 
     /**
@@ -1713,7 +1600,6 @@ public final class Math {
      * @return  the value <i>e</i><sup>{@code x}</sup>&nbsp;-&nbsp;1.
      * @since 1.5
      */
-    @FastNative
     public static native double expm1(double x);
 
     /**
@@ -1749,7 +1635,6 @@ public final class Math {
      * log of {@code x}&nbsp;+&nbsp;1
      * @since 1.5
      */
-    @FastNative
     public static native double log1p(double x);
 
     /**
@@ -1768,11 +1653,7 @@ public final class Math {
      * @since 1.6
      */
     public static double copySign(double magnitude, double sign) {
-        return Double.longBitsToDouble((Double.doubleToRawLongBits(sign) &
-                                        (DoubleConsts.SIGN_BIT_MASK)) |
-                                       (Double.doubleToRawLongBits(magnitude) &
-                                        (DoubleConsts.EXP_BIT_MASK |
-                                         DoubleConsts.SIGNIF_BIT_MASK)));
+        return sun.misc.FpUtils.rawCopySign(magnitude, sign);
     }
 
     /**
@@ -1791,11 +1672,7 @@ public final class Math {
      * @since 1.6
      */
     public static float copySign(float magnitude, float sign) {
-        return Float.intBitsToFloat((Float.floatToRawIntBits(sign) &
-                                     (FloatConsts.SIGN_BIT_MASK)) |
-                                    (Float.floatToRawIntBits(magnitude) &
-                                     (FloatConsts.EXP_BIT_MASK |
-                                      FloatConsts.SIGNIF_BIT_MASK)));
+        return sun.misc.FpUtils.rawCopySign(magnitude, sign);
     }
 
     /**
@@ -1813,13 +1690,7 @@ public final class Math {
      * @since 1.6
      */
     public static int getExponent(float f) {
-        /*
-         * Bitwise convert f to integer, mask out exponent bits, shift
-         * to the right and then subtract out float's bias adjust to
-         * get true exponent value
-         */
-        return ((Float.floatToRawIntBits(f) & FloatConsts.EXP_BIT_MASK) >>
-                (FloatConsts.SIGNIFICAND_WIDTH - 1)) - FloatConsts.EXP_BIAS;
+        return sun.misc.FpUtils.getExponent(f);
     }
 
     /**
@@ -1837,13 +1708,7 @@ public final class Math {
      * @since 1.6
      */
     public static int getExponent(double d) {
-        /*
-         * Bitwise convert d to long, mask out exponent bits, shift
-         * to the right and then subtract out double's bias adjust to
-         * get true exponent value.
-         */
-        return (int)(((Double.doubleToRawLongBits(d) & DoubleConsts.EXP_BIT_MASK) >>
-                      (DoubleConsts.SIGNIFICAND_WIDTH - 1)) - DoubleConsts.EXP_BIAS);
+        return sun.misc.FpUtils.getExponent(d);
     }
 
     /**
@@ -1887,63 +1752,7 @@ public final class Math {
      * @since 1.6
      */
     public static double nextAfter(double start, double direction) {
-        /*
-         * The cases:
-         *
-         * nextAfter(+infinity, 0)  == MAX_VALUE
-         * nextAfter(+infinity, +infinity)  == +infinity
-         * nextAfter(-infinity, 0)  == -MAX_VALUE
-         * nextAfter(-infinity, -infinity)  == -infinity
-         *
-         * are naturally handled without any additional testing
-         */
-
-        // First check for NaN values
-        if (Double.isNaN(start) || Double.isNaN(direction)) {
-            // return a NaN derived from the input NaN(s)
-            return start + direction;
-        } else if (start == direction) {
-            return direction;
-        } else {        // start > direction or start < direction
-            // Add +0.0 to get rid of a -0.0 (+0.0 + -0.0 => +0.0)
-            // then bitwise convert start to integer.
-            long transducer = Double.doubleToRawLongBits(start + 0.0d);
-
-            /*
-             * IEEE 754 floating-point numbers are lexicographically
-             * ordered if treated as signed- magnitude integers .
-             * Since Java's integers are two's complement,
-             * incrementing" the two's complement representation of a
-             * logically negative floating-point value *decrements*
-             * the signed-magnitude representation. Therefore, when
-             * the integer representation of a floating-point values
-             * is less than zero, the adjustment to the representation
-             * is in the opposite direction than would be expected at
-             * first .
-             */
-            if (direction > start) { // Calculate next greater value
-                transducer = transducer + (transducer >= 0L ? 1L:-1L);
-            } else  { // Calculate next lesser value
-                assert direction < start;
-                if (transducer > 0L)
-                    --transducer;
-                else
-                    if (transducer < 0L )
-                        ++transducer;
-                    /*
-                     * transducer==0, the result is -MIN_VALUE
-                     *
-                     * The transition from zero (implicitly
-                     * positive) to the smallest negative
-                     * signed magnitude value must be done
-                     * explicitly.
-                     */
-                    else
-                        transducer = DoubleConsts.SIGN_BIT_MASK | 1L;
-            }
-
-            return Double.longBitsToDouble(transducer);
-        }
+        return sun.misc.FpUtils.nextAfter(start, direction);
     }
 
     /**
@@ -1986,63 +1795,7 @@ public final class Math {
      * @since 1.6
      */
     public static float nextAfter(float start, double direction) {
-        /*
-         * The cases:
-         *
-         * nextAfter(+infinity, 0)  == MAX_VALUE
-         * nextAfter(+infinity, +infinity)  == +infinity
-         * nextAfter(-infinity, 0)  == -MAX_VALUE
-         * nextAfter(-infinity, -infinity)  == -infinity
-         *
-         * are naturally handled without any additional testing
-         */
-
-        // First check for NaN values
-        if (Float.isNaN(start) || Double.isNaN(direction)) {
-            // return a NaN derived from the input NaN(s)
-            return start + (float)direction;
-        } else if (start == direction) {
-            return (float)direction;
-        } else {        // start > direction or start < direction
-            // Add +0.0 to get rid of a -0.0 (+0.0 + -0.0 => +0.0)
-            // then bitwise convert start to integer.
-            int transducer = Float.floatToRawIntBits(start + 0.0f);
-
-            /*
-             * IEEE 754 floating-point numbers are lexicographically
-             * ordered if treated as signed- magnitude integers .
-             * Since Java's integers are two's complement,
-             * incrementing" the two's complement representation of a
-             * logically negative floating-point value *decrements*
-             * the signed-magnitude representation. Therefore, when
-             * the integer representation of a floating-point values
-             * is less than zero, the adjustment to the representation
-             * is in the opposite direction than would be expected at
-             * first.
-             */
-            if (direction > start) {// Calculate next greater value
-                transducer = transducer + (transducer >= 0 ? 1:-1);
-            } else  { // Calculate next lesser value
-                assert direction < start;
-                if (transducer > 0)
-                    --transducer;
-                else
-                    if (transducer < 0 )
-                        ++transducer;
-                    /*
-                     * transducer==0, the result is -MIN_VALUE
-                     *
-                     * The transition from zero (implicitly
-                     * positive) to the smallest negative
-                     * signed magnitude value must be done
-                     * explicitly.
-                     */
-                    else
-                        transducer = FloatConsts.SIGN_BIT_MASK | 1;
-            }
-
-            return Float.intBitsToFloat(transducer);
-        }
+        return sun.misc.FpUtils.nextAfter(start, direction);
     }
 
     /**
@@ -2071,13 +1824,7 @@ public final class Math {
      * @since 1.6
      */
     public static double nextUp(double d) {
-        if( Double.isNaN(d) || d == Double.POSITIVE_INFINITY)
-            return d;
-        else {
-            d += 0.0d;
-            return Double.longBitsToDouble(Double.doubleToRawLongBits(d) +
-                                           ((d >= 0.0d)?+1L:-1L));
-        }
+        return sun.misc.FpUtils.nextUp(d);
     }
 
     /**
@@ -2106,15 +1853,8 @@ public final class Math {
      * @since 1.6
      */
     public static float nextUp(float f) {
-        if( Float.isNaN(f) || f == FloatConsts.POSITIVE_INFINITY)
-            return f;
-        else {
-            f += 0.0f;
-            return Float.intBitsToFloat(Float.floatToRawIntBits(f) +
-                                        ((f >= 0.0f)?+1:-1));
-        }
+        return sun.misc.FpUtils.nextUp(f);
     }
-
     /**
      * Returns the floating-point value adjacent to {@code d} in
      * the direction of negative infinity.  This method is
@@ -2190,7 +1930,7 @@ public final class Math {
     }
 
     /**
-     * Returns {@code d} &times;
+     * Return {@code d} &times;
      * 2<sup>{@code scaleFactor}</sup> rounded as if performed
      * by a single correctly rounded floating-point multiply to a
      * member of the double value set.  See the Java
@@ -2220,84 +1960,11 @@ public final class Math {
      * @since 1.6
      */
     public static double scalb(double d, int scaleFactor) {
-        /*
-         * This method does not need to be declared strictfp to
-         * compute the same correct result on all platforms.  When
-         * scaling up, it does not matter what order the
-         * multiply-store operations are done; the result will be
-         * finite or overflow regardless of the operation ordering.
-         * However, to get the correct result when scaling down, a
-         * particular ordering must be used.
-         *
-         * When scaling down, the multiply-store operations are
-         * sequenced so that it is not possible for two consecutive
-         * multiply-stores to return subnormal results.  If one
-         * multiply-store result is subnormal, the next multiply will
-         * round it away to zero.  This is done by first multiplying
-         * by 2 ^ (scaleFactor % n) and then multiplying several
-         * times by by 2^n as needed where n is the exponent of number
-         * that is a covenient power of two.  In this way, at most one
-         * real rounding error occurs.  If the double value set is
-         * being used exclusively, the rounding will occur on a
-         * multiply.  If the double-extended-exponent value set is
-         * being used, the products will (perhaps) be exact but the
-         * stores to d are guaranteed to round to the double value
-         * set.
-         *
-         * It is _not_ a valid implementation to first multiply d by
-         * 2^MIN_EXPONENT and then by 2 ^ (scaleFactor %
-         * MIN_EXPONENT) since even in a strictfp program double
-         * rounding on underflow could occur; e.g. if the scaleFactor
-         * argument was (MIN_EXPONENT - n) and the exponent of d was a
-         * little less than -(MIN_EXPONENT - n), meaning the final
-         * result would be subnormal.
-         *
-         * Since exact reproducibility of this method can be achieved
-         * without any undue performance burden, there is no
-         * compelling reason to allow double rounding on underflow in
-         * scalb.
-         */
-
-        // magnitude of a power of two so large that scaling a finite
-        // nonzero value by it would be guaranteed to over or
-        // underflow; due to rounding, scaling down takes takes an
-        // additional power of two which is reflected here
-        final int MAX_SCALE = DoubleConsts.MAX_EXPONENT + -DoubleConsts.MIN_EXPONENT +
-                              DoubleConsts.SIGNIFICAND_WIDTH + 1;
-        int exp_adjust = 0;
-        int scale_increment = 0;
-        double exp_delta = Double.NaN;
-
-        // Make sure scaling factor is in a reasonable range
-
-        if(scaleFactor < 0) {
-            scaleFactor = Math.max(scaleFactor, -MAX_SCALE);
-            scale_increment = -512;
-            exp_delta = twoToTheDoubleScaleDown;
-        }
-        else {
-            scaleFactor = Math.min(scaleFactor, MAX_SCALE);
-            scale_increment = 512;
-            exp_delta = twoToTheDoubleScaleUp;
-        }
-
-        // Calculate (scaleFactor % +/-512), 512 = 2^9, using
-        // technique from "Hacker's Delight" section 10-2.
-        int t = (scaleFactor >> 9-1) >>> 32 - 9;
-        exp_adjust = ((scaleFactor + t) & (512 -1)) - t;
-
-        d *= powerOfTwoD(exp_adjust);
-        scaleFactor -= exp_adjust;
-
-        while(scaleFactor != 0) {
-            d *= exp_delta;
-            scaleFactor -= scale_increment;
-        }
-        return d;
+        return sun.misc.FpUtils.scalb(d, scaleFactor);
     }
 
     /**
-     * Returns {@code f} &times;
+     * Return {@code f} &times;
      * 2<sup>{@code scaleFactor}</sup> rounded as if performed
      * by a single correctly rounded floating-point multiply to a
      * member of the float value set.  See the Java
@@ -2327,49 +1994,6 @@ public final class Math {
      * @since 1.6
      */
     public static float scalb(float f, int scaleFactor) {
-        // magnitude of a power of two so large that scaling a finite
-        // nonzero value by it would be guaranteed to over or
-        // underflow; due to rounding, scaling down takes takes an
-        // additional power of two which is reflected here
-        final int MAX_SCALE = FloatConsts.MAX_EXPONENT + -FloatConsts.MIN_EXPONENT +
-                              FloatConsts.SIGNIFICAND_WIDTH + 1;
-
-        // Make sure scaling factor is in a reasonable range
-        scaleFactor = Math.max(Math.min(scaleFactor, MAX_SCALE), -MAX_SCALE);
-
-        /*
-         * Since + MAX_SCALE for float fits well within the double
-         * exponent range and + float -> double conversion is exact
-         * the multiplication below will be exact. Therefore, the
-         * rounding that occurs when the double product is cast to
-         * float will be the correctly rounded float result.  Since
-         * all operations other than the final multiply will be exact,
-         * it is not necessary to declare this method strictfp.
-         */
-        return (float)((double)f*powerOfTwoD(scaleFactor));
-    }
-
-    // Constants used in scalb
-    static double twoToTheDoubleScaleUp = powerOfTwoD(512);
-    static double twoToTheDoubleScaleDown = powerOfTwoD(-512);
-
-    /**
-     * Returns a floating-point power of two in the normal range.
-     */
-    static double powerOfTwoD(int n) {
-        assert(n >= DoubleConsts.MIN_EXPONENT && n <= DoubleConsts.MAX_EXPONENT);
-        return Double.longBitsToDouble((((long)n + (long)DoubleConsts.EXP_BIAS) <<
-                                        (DoubleConsts.SIGNIFICAND_WIDTH-1))
-                                       & DoubleConsts.EXP_BIT_MASK);
-    }
-
-    /**
-     * Returns a floating-point power of two in the normal range.
-     */
-    static float powerOfTwoF(int n) {
-        assert(n >= FloatConsts.MIN_EXPONENT && n <= FloatConsts.MAX_EXPONENT);
-        return Float.intBitsToFloat(((n + FloatConsts.EXP_BIAS) <<
-                                     (FloatConsts.SIGNIFICAND_WIDTH-1))
-                                    & FloatConsts.EXP_BIT_MASK);
+        return sun.misc.FpUtils.scalb(f, scaleFactor);
     }
 }

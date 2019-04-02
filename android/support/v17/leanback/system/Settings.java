@@ -16,18 +16,17 @@
 
 package android.support.v17.leanback.system;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Resources;
-import android.os.Build;
 import android.support.annotation.RestrictTo;
 import android.support.v17.leanback.widget.ShadowOverlayContainer;
 import android.util.Log;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Provides various preferences affecting Leanback runtime behavior.
@@ -44,14 +43,11 @@ public class Settings {
     private static final String ACTION_PARTNER_CUSTOMIZATION =
             "android.support.v17.leanback.action.PARTNER_CUSTOMIZATION";
 
-    public static final String PREFER_STATIC_SHADOWS = "PREFER_STATIC_SHADOWS";
-
-    public static final String OUTLINE_CLIPPING_DISABLED = "OUTLINE_CLIPPING_DISABLED";
+    static public final String PREFER_STATIC_SHADOWS = "PREFER_STATIC_SHADOWS";
 
     static private Settings sInstance;
 
     private boolean mPreferStaticShadows;
-    private boolean mOutlineClippingDisabled;
 
     /**
      * Returns the singleton Settings instance.
@@ -66,25 +62,16 @@ public class Settings {
     private Settings(Context context) {
         if (DEBUG) Log.v(TAG, "generating preferences");
         Customizations customizations = getCustomizations(context);
-        generateSetting(customizations);
+        generateShadowSetting(customizations);
     }
 
     /**
      * Returns true if static shadows are recommended.
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public boolean preferStaticShadows() {
         return mPreferStaticShadows;
-    }
-
-    /**
-     * Returns true if view outline is disabled on low power chipset.
-     * @hide
-     */
-    @RestrictTo(LIBRARY_GROUP)
-    public boolean isOutlineClippingDisabled() {
-        return mOutlineClippingDisabled;
     }
 
     /**
@@ -105,13 +92,11 @@ public class Settings {
     boolean getOrSetBoolean(String key, boolean set, boolean value) {
         if (key.compareTo(PREFER_STATIC_SHADOWS) == 0) {
             return set ? (mPreferStaticShadows = value) : mPreferStaticShadows;
-        } else if (key.compareTo(OUTLINE_CLIPPING_DISABLED) == 0) {
-            return set ? (mOutlineClippingDisabled = value) : mOutlineClippingDisabled;
         }
         throw new IllegalArgumentException("Invalid key");
     }
 
-    private void generateSetting(Customizations customizations) {
+    private void generateShadowSetting(Customizations customizations) {
         if (ShadowOverlayContainer.supportsDynamicShadow()) {
             mPreferStaticShadows = false;
             if (customizations != null) {
@@ -122,18 +107,8 @@ public class Settings {
             mPreferStaticShadows = true;
         }
 
-        if (Build.VERSION.SDK_INT >= 21) {
-            mOutlineClippingDisabled = false;
-            if (customizations != null) {
-                mOutlineClippingDisabled = customizations.getBoolean(
-                        "leanback_outline_clipping_disabled", mOutlineClippingDisabled);
-            }
-        } else {
-            mOutlineClippingDisabled = true;
-        }
         if (DEBUG) Log.v(TAG, "generated preference " + PREFER_STATIC_SHADOWS + ": "
-                + mPreferStaticShadows + " "
-                + OUTLINE_CLIPPING_DISABLED + " : " + mOutlineClippingDisabled);
+                + mPreferStaticShadows);
     }
 
     static class Customizations {
@@ -154,9 +129,8 @@ public class Settings {
     private Customizations getCustomizations(Context context) {
         final PackageManager pm = context.getPackageManager();
         final Intent intent = new Intent(ACTION_PARTNER_CUSTOMIZATION);
-        if (DEBUG) {
-            Log.v(TAG, "getting oem customizations by intent: " + ACTION_PARTNER_CUSTOMIZATION);
-        }
+        if (DEBUG) Log.v(TAG, "getting oem customizations by intent: " +
+                ACTION_PARTNER_CUSTOMIZATION);
 
         Resources resources = null;
         String packageName = null;
@@ -177,7 +151,7 @@ public class Settings {
     }
 
     private static boolean isSystemApp(ResolveInfo info) {
-        return (info.activityInfo != null
-                && (info.activityInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0);
+        return (info.activityInfo != null &&
+                (info.activityInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0);
     }
 }

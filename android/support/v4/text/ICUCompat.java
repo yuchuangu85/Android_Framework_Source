@@ -17,45 +17,46 @@
 package android.support.v4.text;
 
 import android.os.Build;
-import android.support.annotation.Nullable;
-import android.util.Log;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.Locale;
 
 public final class ICUCompat {
-    private static final String TAG = "ICUCompat";
 
-    private static Method sGetScriptMethod;
-    private static Method sAddLikelySubtagsMethod;
+    interface ICUCompatImpl {
+        public String maximizeAndGetScript(Locale locale);
+    }
+
+    static class ICUCompatImplBase implements ICUCompatImpl {
+        @Override
+        public String maximizeAndGetScript(Locale locale) {
+            return null;
+        }
+    }
+
+    static class ICUCompatImplIcs implements ICUCompatImpl {
+        @Override
+        public String maximizeAndGetScript(Locale locale) {
+            return ICUCompatIcs.maximizeAndGetScript(locale);
+        }
+    }
+
+    static class ICUCompatImplLollipop implements ICUCompatImpl {
+        @Override
+        public String maximizeAndGetScript(Locale locale) {
+            return ICUCompatApi23.maximizeAndGetScript(locale);
+        }
+    }
+
+    private static final ICUCompatImpl IMPL;
 
     static {
-        if (Build.VERSION.SDK_INT >= 21) {
-            try {
-                // This class should always exist on API-21 since it's CTS tested.
-                final Class<?> clazz = Class.forName("libcore.icu.ICU");
-                sAddLikelySubtagsMethod = clazz.getMethod("addLikelySubtags",
-                        new Class[]{ Locale.class });
-            } catch (Exception e) {
-                throw new IllegalStateException(e);
-            }
+        final int version = Build.VERSION.SDK_INT;
+        if (version >= 21) {
+            IMPL = new ICUCompatImplLollipop();
+        } else if (version >= 14) {
+            IMPL = new ICUCompatImplIcs();
         } else {
-            try {
-                final Class<?> clazz = Class.forName("libcore.icu.ICU");
-                if (clazz != null) {
-                    sGetScriptMethod = clazz.getMethod("getScript",
-                            new Class[]{ String.class });
-                    sAddLikelySubtagsMethod = clazz.getMethod("addLikelySubtags",
-                            new Class[]{ String.class });
-                }
-            } catch (Exception e) {
-                sGetScriptMethod = null;
-                sAddLikelySubtagsMethod = null;
-
-                // Nothing we can do here, we just log the exception
-                Log.w(TAG, e);
-            }
+            IMPL = new ICUCompatImplBase();
         }
     }
 
@@ -80,62 +81,10 @@ public final class ICUCompat {
      * "sh" maximizes to "sr_Latn_RS" (Note this will not reverse.)
      * "zh_Hani" maximizes to "zh_Hans_CN" (Note this will not reverse.)
      *
-     * @return The script for a given Locale if ICU library is available, otherwise null.
+     * @return
      */
-    @Nullable
     public static String maximizeAndGetScript(Locale locale) {
-        if (Build.VERSION.SDK_INT >= 21) {
-            try {
-                final Object[] args = new Object[] { locale };
-                return ((Locale) sAddLikelySubtagsMethod.invoke(null, args)).getScript();
-            } catch (InvocationTargetException e) {
-                Log.w(TAG, e);
-            } catch (IllegalAccessException e) {
-                Log.w(TAG, e);
-            }
-            return locale.getScript();
-        } else {
-            final String localeWithSubtags = addLikelySubtags(locale);
-            if (localeWithSubtags != null) {
-                return getScript(localeWithSubtags);
-            }
-
-            return null;
-        }
-    }
-
-    private static String getScript(String localeStr) {
-        try {
-            if (sGetScriptMethod != null) {
-                final Object[] args = new Object[] { localeStr };
-                return (String) sGetScriptMethod.invoke(null, args);
-            }
-        } catch (IllegalAccessException e) {
-            // Nothing we can do here, we just log the exception
-            Log.w(TAG, e);
-        } catch (InvocationTargetException e) {
-            // Nothing we can do here, we just log the exception
-            Log.w(TAG, e);
-        }
-        return null;
-    }
-
-    private static String addLikelySubtags(Locale locale) {
-        final String localeStr = locale.toString();
-        try {
-            if (sAddLikelySubtagsMethod != null) {
-                final Object[] args = new Object[] { localeStr };
-                return (String) sAddLikelySubtagsMethod.invoke(null, args);
-            }
-        } catch (IllegalAccessException e) {
-            // Nothing we can do here, we just log the exception
-            Log.w(TAG, e);
-        } catch (InvocationTargetException e) {
-            // Nothing we can do here, we just log the exception
-            Log.w(TAG, e);
-        }
-
-        return localeStr;
+        return IMPL.maximizeAndGetScript(locale);
     }
 
     private ICUCompat() {}

@@ -16,9 +16,9 @@
 
 package android.support.v4.internal.view;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.support.annotation.RestrictTo;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Subclass of {@link SupportMenu} for sub menus.
@@ -29,6 +29,6 @@ import android.support.annotation.RestrictTo;
  * @see android.view.SubMenu
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public interface SupportSubMenu extends SupportMenu, android.view.SubMenu {
 }

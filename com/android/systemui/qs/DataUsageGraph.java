@@ -45,10 +45,10 @@ public class DataUsageGraph extends View {
     public DataUsageGraph(Context context, AttributeSet attrs) {
         super(context, attrs);
         final Resources res = context.getResources();
-        mTrackColor = Utils.getDefaultColor(context, R.color.data_usage_graph_track);
-        mWarningColor = Utils.getDefaultColor(context, R.color.data_usage_graph_warning);
+        mTrackColor = context.getColor(R.color.data_usage_graph_track);
         mUsageColor = Utils.getColorAccent(context);
-        mOverlimitColor = Utils.getColorError(context);
+        mOverlimitColor = context.getColor(R.color.system_warning_color);
+        mWarningColor = context.getColor(R.color.data_usage_graph_warning);
         mMarkerWidth = res.getDimensionPixelSize(R.dimen.data_usage_graph_marker_width);
     }
 

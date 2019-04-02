@@ -18,7 +18,6 @@ package android.widget;
 
 import android.annotation.NonNull;
 import android.content.Context;
-import android.content.res.Configuration;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Rect;
@@ -129,8 +128,6 @@ public class HorizontalScrollView extends FrameLayout {
     private int mOverscrollDistance;
     private int mOverflingDistance;
 
-    private float mHorizontalScrollFactor;
-
     /**
      * ID of the active pointer. This is used to retain consistency during
      * drags/flings if multiple pointers are used.
@@ -168,10 +165,6 @@ public class HorizontalScrollView extends FrameLayout {
         setFillViewport(a.getBoolean(android.R.styleable.HorizontalScrollView_fillViewport, false));
 
         a.recycle();
-
-        if (context.getResources().getConfiguration().uiMode == Configuration.UI_MODE_TYPE_WATCH) {
-            setRevealOnFocusHint(false);
-        }
     }
 
     @Override
@@ -224,7 +217,6 @@ public class HorizontalScrollView extends FrameLayout {
         mMaximumVelocity = configuration.getScaledMaximumFlingVelocity();
         mOverscrollDistance = configuration.getScaledOverscrollDistance();
         mOverflingDistance = configuration.getScaledOverflingDistance();
-        mHorizontalScrollFactor = configuration.getScaledHorizontalScrollFactor();
     }
 
     @Override
@@ -727,35 +719,30 @@ public class HorizontalScrollView extends FrameLayout {
 
     @Override
     public boolean onGenericMotionEvent(MotionEvent event) {
-        switch (event.getAction()) {
-            case MotionEvent.ACTION_SCROLL: {
-                if (!mIsBeingDragged) {
-                    final float axisValue;
-                    if (event.isFromSource(InputDevice.SOURCE_CLASS_POINTER)) {
+        if ((event.getSource() & InputDevice.SOURCE_CLASS_POINTER) != 0) {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_SCROLL: {
+                    if (!mIsBeingDragged) {
+                        final float hscroll;
                         if ((event.getMetaState() & KeyEvent.META_SHIFT_ON) != 0) {
-                            axisValue = -event.getAxisValue(MotionEvent.AXIS_VSCROLL);
+                            hscroll = -event.getAxisValue(MotionEvent.AXIS_VSCROLL);
                         } else {
-                            axisValue = event.getAxisValue(MotionEvent.AXIS_HSCROLL);
+                            hscroll = event.getAxisValue(MotionEvent.AXIS_HSCROLL);
                         }
-                    } else if (event.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER)) {
-                        axisValue = event.getAxisValue(MotionEvent.AXIS_SCROLL);
-                    } else {
-                        axisValue = 0;
-                    }
-
-                    final int delta = Math.round(axisValue * mHorizontalScrollFactor);
-                    if (delta != 0) {
-                        final int range = getScrollRange();
-                        int oldScrollX = mScrollX;
-                        int newScrollX = oldScrollX + delta;
-                        if (newScrollX < 0) {
-                            newScrollX = 0;
-                        } else if (newScrollX > range) {
-                            newScrollX = range;
-                        }
-                        if (newScrollX != oldScrollX) {
-                            super.scrollTo(newScrollX, mScrollY);
-                            return true;
+                        if (hscroll != 0) {
+                            final int delta = (int) (hscroll * getHorizontalScrollFactor());
+                            final int range = getScrollRange();
+                            int oldScrollX = mScrollX;
+                            int newScrollX = oldScrollX + delta;
+                            if (newScrollX < 0) {
+                                newScrollX = 0;
+                            } else if (newScrollX > range) {
+                                newScrollX = range;
+                            }
+                            if (newScrollX != oldScrollX) {
+                                super.scrollTo(newScrollX, mScrollY);
+                                return true;
+                            }
                         }
                     }
                 }
@@ -1443,13 +1430,11 @@ public class HorizontalScrollView extends FrameLayout {
 
     @Override
     public void requestChildFocus(View child, View focused) {
-        if (focused != null && focused.getRevealOnFocusHint()) {
-            if (!mIsLayoutDirty) {
-                scrollToChild(focused);
-            } else {
-                // The child may not be laid out yet, we can't compute the scroll yet
-                mChildToScrollTo = focused;
-            }
+        if (!mIsLayoutDirty) {
+            scrollToChild(focused);
+        } else {
+            // The child may not be laid out yet, we can't compute the scroll yet
+            mChildToScrollTo = focused;
         }
         super.requestChildFocus(child, focused);
     }

@@ -26,7 +26,6 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CoderResult;
 import java.nio.charset.CodingErrorAction;
-import java.util.Arrays;
 import java.util.Locale;
 
 /**
@@ -48,14 +47,6 @@ public class WifiSsid implements Parcelable {
     public static final String NONE = "<unknown ssid>";
 
     private WifiSsid() {
-    }
-
-    public static WifiSsid createFromByteArray(byte ssid[]) {
-        WifiSsid wifiSsid = new WifiSsid();
-        if (ssid != null) {
-            wifiSsid.octets.write(ssid, 0/* the start offset */, ssid.length);;
-        }
-        return wifiSsid;
     }
 
     public static WifiSsid createFromAsciiEncoded(String asciiEncoded) {
@@ -188,23 +179,6 @@ public class WifiSsid implements Parcelable {
             return NONE;
         }
         return out.toString();
-    }
-
-    @Override
-    public boolean equals(Object thatObject) {
-        if (this == thatObject) {
-            return true;
-        }
-        if (!(thatObject instanceof WifiSsid)) {
-            return false;
-        }
-        WifiSsid that = (WifiSsid) thatObject;
-        return Arrays.equals(octets.toByteArray(), that.octets.toByteArray());
-    }
-
-    @Override
-    public int hashCode() {
-        return Arrays.hashCode(octets.toByteArray());
     }
 
     private boolean isArrayAllZeroes(byte[] ssidBytes) {

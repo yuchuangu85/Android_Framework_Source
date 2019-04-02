@@ -19,6 +19,7 @@ package android.support.v7.preference;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.XmlResourceParser;
+import android.os.Build;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.util.AttributeSet;
@@ -62,8 +63,12 @@ class PreferenceInflater {
 
     private void init(PreferenceManager preferenceManager) {
         mPreferenceManager = preferenceManager;
-        setDefaultPackages(new String[] {"android.support.v14.preference.",
-                "android.support.v7.preference."});
+        if (Build.VERSION.SDK_INT >= 14) {
+            setDefaultPackages(new String[] {"android.support.v14.preference.",
+                    "android.support.v7.preference."});
+        } else {
+            setDefaultPackages(new String[] {"android.support.v7.preference."});
+        }
     }
 
     /**

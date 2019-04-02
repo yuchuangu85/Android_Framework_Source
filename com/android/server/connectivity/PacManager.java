@@ -15,7 +15,6 @@
  */
 package com.android.server.connectivity;
 
-import android.annotation.WorkerThread;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
@@ -26,7 +25,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.net.ProxyInfo;
-import android.net.TrafficStats;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -75,7 +73,7 @@ public class PacManager {
     public static final String KEY_PROXY = "keyProxy";
     private String mCurrentPac;
     @GuardedBy("mProxyLock")
-    private volatile Uri mPacUrl = Uri.EMPTY;
+    private Uri mPacUrl = Uri.EMPTY;
 
     private AlarmManager mAlarmManager;
     @GuardedBy("mProxyLock")
@@ -88,37 +86,29 @@ public class PacManager {
     private int mCurrentDelay;
     private int mLastPort;
 
-    private volatile boolean mHasSentBroadcast;
-    private volatile boolean mHasDownloaded;
+    private boolean mHasSentBroadcast;
+    private boolean mHasDownloaded;
 
     private Handler mConnectivityHandler;
     private int mProxyMessage;
 
     /**
-     * Used for locking when setting mProxyService and all references to mCurrentPac.
+     * Used for locking when setting mProxyService and all references to mPacUrl or mCurrentPac.
      */
     private final Object mProxyLock = new Object();
 
-    /**
-     * Runnable to download PAC script.
-     * The behavior relies on the assamption it always run on mNetThread to guarantee that the
-     * latest data fetched from mPacUrl is stored in mProxyService.
-     */
     private Runnable mPacDownloader = new Runnable() {
         @Override
-        @WorkerThread
         public void run() {
             String file;
-            final Uri pacUrl = mPacUrl;
-            if (Uri.EMPTY.equals(pacUrl)) return;
-            final int oldTag = TrafficStats.getAndSetThreadStatsTag(TrafficStats.TAG_SYSTEM_PAC);
-            try {
-                file = get(pacUrl);
-            } catch (IOException ioe) {
-                file = null;
-                Log.w(TAG, "Failed to load PAC file: " + ioe);
-            } finally {
-                TrafficStats.setThreadStatsTag(oldTag);
+            synchronized (mProxyLock) {
+                if (Uri.EMPTY.equals(mPacUrl)) return;
+                try {
+                    file = get(mPacUrl);
+                } catch (IOException ioe) {
+                    file = null;
+                    Log.w(TAG, "Failed to load PAC file: " + ioe);
+                }
             }
             if (file != null) {
                 synchronized (mProxyLock) {
@@ -181,7 +171,9 @@ public class PacManager {
                 // Allow to send broadcast, nothing to do.
                 return false;
             }
-            mPacUrl = proxy.getPacFileUrl();
+            synchronized (mProxyLock) {
+                mPacUrl = proxy.getPacFileUrl();
+            }
             mCurrentDelay = DELAY_1;
             mHasSentBroadcast = false;
             mHasDownloaded = false;

@@ -16,11 +16,6 @@
 
 package android.os;
 
-import android.annotation.IntDef;
-
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-
 /**
  * Interface for classes whose instances can be written to
  * and restored from a {@link Parcel}.  Classes implementing the Parcelable
@@ -58,14 +53,6 @@ import java.lang.annotation.RetentionPolicy;
  * }</pre>
  */
 public interface Parcelable {
-    /** @hide */
-    @IntDef(flag = true, prefix = { "PARCELABLE_" }, value = {
-            PARCELABLE_WRITE_RETURN_VALUE,
-            PARCELABLE_ELIDE_DUPLICATES,
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface WriteFlags {}
-
     /**
      * Flag for use with {@link #writeToParcel}: the object being written
      * is a return value, that is the result of a function such as
@@ -92,13 +79,6 @@ public interface Parcelable {
      * marshalled.
      */
 
-    /** @hide */
-    @IntDef(flag = true, prefix = { "CONTENTS_" }, value = {
-            CONTENTS_FILE_DESCRIPTOR,
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface ContentsFlags {}
-
     /**
      * Descriptor bit used with {@link #describeContents()}: indicates that
      * the Parcelable object's flattened representation includes a file descriptor.
@@ -116,8 +96,10 @@ public interface Parcelable {
      *  
      * @return a bitmask indicating the set of special object types marshaled
      * by this Parcelable object instance.
+     *
+     * @see #CONTENTS_FILE_DESCRIPTOR
      */
-    public @ContentsFlags int describeContents();
+    public int describeContents();
     
     /**
      * Flatten this object in to a Parcel.
@@ -126,7 +108,7 @@ public interface Parcelable {
      * @param flags Additional flags about how the object should be written.
      * May be 0 or {@link #PARCELABLE_WRITE_RETURN_VALUE}.
      */
-    public void writeToParcel(Parcel dest, @WriteFlags int flags);
+    public void writeToParcel(Parcel dest, int flags);
 
     /**
      * Interface that must be implemented and provided as a public CREATOR

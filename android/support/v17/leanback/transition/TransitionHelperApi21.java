@@ -14,9 +14,8 @@
 package android.support.v17.leanback.transition;
 
 import android.R;
+import android.app.Fragment;
 import android.content.Context;
-import android.graphics.Rect;
-import android.support.annotation.RequiresApi;
 import android.transition.ChangeTransform;
 import android.transition.Transition;
 import android.transition.TransitionManager;
@@ -25,7 +24,6 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.animation.AnimationUtils;
 
-@RequiresApi(21)
 final class TransitionHelperApi21 {
 
     TransitionHelperApi21() {
@@ -53,16 +51,8 @@ final class TransitionHelperApi21 {
         return window.getSharedElementEnterTransition();
     }
 
-    public static void setSharedElementEnterTransition(Window window, Object transition) {
-        window.setSharedElementEnterTransition((Transition) transition);
-    }
-
     public static Object getSharedElementReturnTransition(Window window) {
         return window.getSharedElementReturnTransition();
-    }
-
-    public static void setSharedElementReturnTransition(Window window, Object transition) {
-        window.setSharedElementReturnTransition((Transition) transition);
     }
 
     public static Object getSharedElementExitTransition(Window window) {
@@ -77,16 +67,8 @@ final class TransitionHelperApi21 {
         return window.getEnterTransition();
     }
 
-    public static void setEnterTransition(Window window, Object transition) {
-        window.setEnterTransition((Transition) transition);
-    }
-
     public static Object getReturnTransition(Window window) {
         return window.getReturnTransition();
-    }
-
-    public static void setReturnTransition(Window window, Object transition) {
-        window.setReturnTransition((Transition) transition);
     }
 
     public static Object getExitTransition(Window window) {
@@ -126,20 +108,5 @@ final class TransitionHelperApi21 {
 
     public static void setTransitionGroup(ViewGroup viewGroup, boolean transitionGroup) {
         viewGroup.setTransitionGroup(transitionGroup);
-    }
-
-    public static void setEpicenterCallback(Object transitionObject,
-            final TransitionEpicenterCallback callback) {
-        Transition transition = (Transition) transitionObject;
-        if (callback == null) {
-            transition.setEpicenterCallback(null);
-        } else {
-            transition.setEpicenterCallback(new Transition.EpicenterCallback() {
-                @Override
-                public Rect onGetEpicenter(Transition transition) {
-                    return callback.onGetEpicenter(transition);
-                }
-            });
-        }
     }
 }

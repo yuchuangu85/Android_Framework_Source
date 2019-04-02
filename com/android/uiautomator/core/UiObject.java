@@ -808,7 +808,7 @@ public class UiObject {
      *
      * @return Rect
      * @throws UiObjectNotFoundException
-     * @see #getBounds()
+     * @see {@link #getBounds()}
      * @since API Level 17
      */
     public Rect getVisibleBounds() throws UiObjectNotFoundException {

@@ -22,13 +22,7 @@ import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.printservice.PrintService;
-
 import com.android.internal.util.Preconditions;
-
-import java.net.InetAddress;
-import java.net.UnknownHostException;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * A recommendation to install a {@link PrintService print service}.
@@ -43,8 +37,8 @@ public final class RecommendationInfo implements Parcelable {
     /** Display name of the print service. */
     private @NonNull final CharSequence mName;
 
-    /** Printers the print service would discover if installed. */
-    @NonNull private final List<InetAddress> mDiscoveredPrinters;
+    /** Number of printers the print service would discover if installed. */
+    private @IntRange(from = 0) final int mNumDiscoveredPrinters;
 
     /** If the service detects printer from multiple vendors. */
     private final boolean mRecommendsMultiVendorService;
@@ -54,60 +48,16 @@ public final class RecommendationInfo implements Parcelable {
      *
      * @param packageName                  Package name of the print service
      * @param name                         Display name of the print service
-     * @param discoveredPrinters           The {@link InetAddress addresses} of the discovered
-     *                                     printers. Cannot be null or empty.
-     * @param recommendsMultiVendorService If the service detects printer from multiple vendor
-     */
-    public RecommendationInfo(@NonNull CharSequence packageName, @NonNull CharSequence name,
-            @NonNull List<InetAddress> discoveredPrinters, boolean recommendsMultiVendorService) {
-        mPackageName = Preconditions.checkStringNotEmpty(packageName);
-        mName = Preconditions.checkStringNotEmpty(name);
-        mDiscoveredPrinters = Preconditions.checkCollectionElementsNotNull(discoveredPrinters,
-                    "discoveredPrinters");
-        mRecommendsMultiVendorService = recommendsMultiVendorService;
-    }
-
-    /**
-     * Create a new recommendation.
-     *
-     * @param packageName                  Package name of the print service
-     * @param name                         Display name of the print service
      * @param numDiscoveredPrinters        Number of printers the print service would discover if
      *                                     installed
      * @param recommendsMultiVendorService If the service detects printer from multiple vendor
-     *
-     * @deprecated Use {@link RecommendationInfo(String, String, List<InetAddress>, boolean)}
-     *             instead
      */
-    @Deprecated
     public RecommendationInfo(@NonNull CharSequence packageName, @NonNull CharSequence name,
             @IntRange(from = 0) int numDiscoveredPrinters, boolean recommendsMultiVendorService) {
-        throw new IllegalArgumentException("This constructor has been deprecated");
-    }
-
-    /**
-     * Read a list of blobs from the parcel and return it as a list of {@link InetAddress
-     * addresses}.
-     *
-     * @param parcel the parcel to read the blobs from
-     *
-     * @return The list of {@link InetAddress addresses} or null if no printers were found.
-     *
-     * @see #writeToParcel(Parcel, int)
-     */
-    @NonNull private static ArrayList<InetAddress> readDiscoveredPrinters(@NonNull Parcel parcel) {
-        int numDiscoveredPrinters = parcel.readInt();
-        ArrayList<InetAddress> discoveredPrinters = new ArrayList<>(numDiscoveredPrinters);
-
-        for (int i = 0; i < numDiscoveredPrinters; i++) {
-            try {
-                discoveredPrinters.add(InetAddress.getByAddress(parcel.readBlob()));
-            } catch (UnknownHostException e) {
-                throw new IllegalArgumentException(e);
-            }
-        }
-
-        return discoveredPrinters;
+        mPackageName = Preconditions.checkStringNotEmpty(packageName);
+        mName = Preconditions.checkStringNotEmpty(name);
+        mNumDiscoveredPrinters = Preconditions.checkArgumentNonnegative(numDiscoveredPrinters);
+        mRecommendsMultiVendorService = recommendsMultiVendorService;
     }
 
     /**
@@ -118,7 +68,7 @@ public final class RecommendationInfo implements Parcelable {
      * @see #CREATOR
      */
     private RecommendationInfo(@NonNull Parcel parcel) {
-        this(parcel.readCharSequence(), parcel.readCharSequence(), readDiscoveredPrinters(parcel),
+        this(parcel.readCharSequence(), parcel.readCharSequence(), parcel.readInt(),
                 parcel.readByte() != 0);
     }
 
@@ -137,17 +87,10 @@ public final class RecommendationInfo implements Parcelable {
     }
 
     /**
-     * @return The {@link InetAddress address} of the printers the print service would detect.
-     */
-    @NonNull public List<InetAddress> getDiscoveredPrinters() {
-        return mDiscoveredPrinters;
-    }
-
-    /**
      * @return The number of printer the print service would detect.
      */
     public int getNumDiscoveredPrinters() {
-        return mDiscoveredPrinters.size();
+        return mNumDiscoveredPrinters;
     }
 
     /**
@@ -166,14 +109,7 @@ public final class RecommendationInfo implements Parcelable {
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeCharSequence(mPackageName);
         dest.writeCharSequence(mName);
-
-        int numDiscoveredPrinters = mDiscoveredPrinters.size();
-        dest.writeInt(numDiscoveredPrinters);
-
-        for (InetAddress printer : mDiscoveredPrinters) {
-            dest.writeBlob(printer.getAddress());
-        }
-
+        dest.writeInt(mNumDiscoveredPrinters);
         dest.writeByte((byte) (mRecommendsMultiVendorService ? 1 : 0));
     }
 

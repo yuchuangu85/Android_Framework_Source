@@ -16,8 +16,6 @@
 
 package android.support.v7.preference;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
@@ -26,12 +24,12 @@ import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.RestrictTo;
 import android.support.annotation.XmlRes;
 import android.support.v4.app.DialogFragment;
 import android.support.v4.app.Fragment;
+import android.support.v4.view.ViewCompat;
 import android.support.v7.preference.internal.AbstractMultiSelectListPreference;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
@@ -40,6 +38,8 @@ import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Shows a hierarchy of {@link Preference} objects as
@@ -197,8 +197,7 @@ public abstract class PreferenceFragmentCompat extends Fragment implements
          * @param pref The preference requesting the dialog.
          * @return true if the dialog creation has been handled.
          */
-        boolean onPreferenceDisplayDialog(@NonNull PreferenceFragmentCompat caller,
-                Preference pref);
+        boolean onPreferenceDisplayDialog(PreferenceFragmentCompat caller, Preference pref);
     }
 
     @Override
@@ -207,7 +206,7 @@ public abstract class PreferenceFragmentCompat extends Fragment implements
         final TypedValue tv = new TypedValue();
         getActivity().getTheme().resolveAttribute(R.attr.preferenceTheme, tv, true);
         final int theme = tv.resourceId;
-        if (theme == 0) {
+        if (theme <= 0) {
             throw new IllegalStateException("Must specify preferenceTheme in theme");
         }
         mStyledContext = new ContextThemeWrapper(getActivity(), theme);
@@ -252,8 +251,6 @@ public abstract class PreferenceFragmentCompat extends Fragment implements
                 R.styleable.PreferenceFragmentCompat_android_divider);
         final int dividerHeight = a.getDimensionPixelSize(
                 R.styleable.PreferenceFragmentCompat_android_dividerHeight, -1);
-        final boolean allowDividerAfterLastItem = a.getBoolean(
-                R.styleable.PreferenceFragmentCompat_allowDividerAfterLastItem, true);
 
         a.recycle();
 
@@ -288,7 +285,6 @@ public abstract class PreferenceFragmentCompat extends Fragment implements
         if (dividerHeight != -1) {
             setDividerHeight(dividerHeight);
         }
-        mDividerDecoration.setAllowDividerAfterLastItem(allowDividerAfterLastItem);
 
         listContainer.addView(mList);
         mHandler.post(mRequestFocus);
@@ -549,12 +545,12 @@ public abstract class PreferenceFragmentCompat extends Fragment implements
     }
 
     /** @hide */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     protected void onBindPreferences() {
     }
 
     /** @hide */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     protected void onUnbindPreferences() {
     }
 
@@ -656,7 +652,7 @@ public abstract class PreferenceFragmentCompat extends Fragment implements
      * @return Fragment to possibly use as a callback
      * @hide
      */
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public Fragment getCallbackFragment() {
         return null;
     }
@@ -772,7 +768,6 @@ public abstract class PreferenceFragmentCompat extends Fragment implements
 
         private Drawable mDivider;
         private int mDividerHeight;
-        private boolean mAllowDividerAfterLastItem = true;
 
         @Override
         public void onDrawOver(Canvas c, RecyclerView parent, RecyclerView.State state) {
@@ -784,7 +779,7 @@ public abstract class PreferenceFragmentCompat extends Fragment implements
             for (int childViewIndex = 0; childViewIndex < childCount; childViewIndex++) {
                 final View view = parent.getChildAt(childViewIndex);
                 if (shouldDrawDividerBelow(view, parent)) {
-                    int top = (int) view.getY() + view.getHeight();
+                    int top = (int) ViewCompat.getY(view) + view.getHeight();
                     mDivider.setBounds(0, top, width, top + mDividerHeight);
                     mDivider.draw(c);
                 }
@@ -806,7 +801,7 @@ public abstract class PreferenceFragmentCompat extends Fragment implements
             if (!dividerAllowedBelow) {
                 return false;
             }
-            boolean nextAllowed = mAllowDividerAfterLastItem;
+            boolean nextAllowed = true;
             int index = parent.indexOfChild(view);
             if (index < parent.getChildCount() - 1) {
                 final View nextView = parent.getChildAt(index + 1);
@@ -830,10 +825,6 @@ public abstract class PreferenceFragmentCompat extends Fragment implements
         public void setDividerHeight(int dividerHeight) {
             mDividerHeight = dividerHeight;
             mList.invalidateItemDecorations();
-        }
-
-        public void setAllowDividerAfterLastItem(boolean allowDividerAfterLastItem) {
-            mAllowDividerAfterLastItem = allowDividerAfterLastItem;
         }
     }
 }

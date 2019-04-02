@@ -72,13 +72,13 @@ public final class hc_textparseintolistofelements extends DOMTestCase {
       java.util.List result = new java.util.ArrayList();
       
       java.util.List expectedNormal = new java.util.ArrayList();
-      expectedNormal.add("\u03b2"); // Android-changed: GREEK LOWER CASE BETA
+      expectedNormal.add("\u03b2"); // android-changed: GREEK LOWER CASE BETA
       expectedNormal.add(" Dallas, ");
-      expectedNormal.add("\u03b3"); // Android-changed: GREEK LOWER CASE GAMMA
+      expectedNormal.add("\u03b3"); // android-changed: GREEK LOWER CASE GAMMA
       expectedNormal.add("\n 98554");
       
       java.util.List expectedExpanded = new java.util.ArrayList();
-      expectedExpanded.add("\u03b2 Dallas, \u03b3\n 98554"); // Android-changed: GREEK LOWER CASE BETA, GREEK LOWER CASE GAMMA
+      expectedExpanded.add("\u03b2 Dallas, \u03b3\n 98554"); // android-changed: GREEK LOWER CASE BETA, GREEK LOWER CASE GAMMA
       
       doc = (Document) load("hc_staff", false);
       elementList = doc.getElementsByTagName("acronym");

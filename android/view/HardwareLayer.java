@@ -132,7 +132,7 @@ final class HardwareLayer {
     }
 
     public void setSurfaceTexture(SurfaceTexture surface) {
-        nSetSurfaceTexture(mFinalizer.get(), surface);
+        nSetSurfaceTexture(mFinalizer.get(), surface, false);
         mRenderer.pushLayerUpdate(this);
     }
 
@@ -148,6 +148,7 @@ final class HardwareLayer {
     private static native boolean nPrepare(long layerUpdater, int width, int height, boolean isOpaque);
     private static native void nSetLayerPaint(long layerUpdater, long paint);
     private static native void nSetTransform(long layerUpdater, long matrix);
-    private static native void nSetSurfaceTexture(long layerUpdater, SurfaceTexture surface);
+    private static native void nSetSurfaceTexture(long layerUpdater,
+            SurfaceTexture surface, boolean isAlreadyAttached);
     private static native void nUpdateSurfaceTexture(long layerUpdater);
 }

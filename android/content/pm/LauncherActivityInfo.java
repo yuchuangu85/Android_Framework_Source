@@ -20,10 +20,12 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.Resources;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.util.DisplayMetrics;
+import android.util.Log;
 
 /**
  * A representation of an activity that can belong to this user or a managed
@@ -87,7 +89,6 @@ public class LauncherActivityInfo {
      * @return The label for the activity.
      */
     public CharSequence getLabel() {
-        // TODO: Go through LauncherAppsService
         return mActivityInfo.loadLabel(mPm);
     }
 
@@ -100,7 +101,6 @@ public class LauncherActivityInfo {
      * @return The drawable associated with the activity.
      */
     public Drawable getIcon(int density) {
-        // TODO: Go through LauncherAppsService
         final int iconRes = mActivityInfo.getIconResource();
         Drawable icon = null;
         // Get the preferred density icon from the app's resources
@@ -144,9 +144,8 @@ public class LauncherActivityInfo {
      */
     public long getFirstInstallTime() {
         try {
-            // TODO: Go through LauncherAppsService
             return mPm.getPackageInfo(mActivityInfo.packageName,
-                    PackageManager.MATCH_UNINSTALLED_PACKAGES).firstInstallTime;
+                    PackageManager.GET_UNINSTALLED_PACKAGES).firstInstallTime;
         } catch (NameNotFoundException nnfe) {
             // Sorry, can't find package
             return 0;
@@ -171,6 +170,11 @@ public class LauncherActivityInfo {
     public Drawable getBadgedIcon(int density) {
         Drawable originalIcon = getIcon(density);
 
-        return mPm.getUserBadgedIcon(originalIcon, mUser);
+        if (originalIcon instanceof BitmapDrawable) {
+            return mPm.getUserBadgedIcon(originalIcon, mUser);
+        } else {
+            Log.e(TAG, "Unable to create badged icon for " + mActivityInfo);
+        }
+        return originalIcon;
     }
 }

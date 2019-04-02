@@ -16,12 +16,9 @@
 
 package com.android.printservice.recommendation;
 
+import android.annotation.IntRange;
 import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.annotation.StringRes;
-
-import java.net.InetAddress;
-import java.util.List;
 
 /**
  * Interface to be implemented by each print service plugin.
@@ -38,9 +35,9 @@ public interface PrintServicePlugin {
         /**
          * Announce that something changed and the UI for this plugin should be updated.
          *
-         * @param discoveredPrinters The printers discovered.
+         * @param numDiscoveredPrinters The number of printers discovered.
          */
-        void onChanged(@Nullable List<InetAddress> discoveredPrinters);
+        void onChanged(@IntRange(from = 0) int numDiscoveredPrinters);
     }
 
     /**

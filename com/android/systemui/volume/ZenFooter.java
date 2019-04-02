@@ -20,16 +20,12 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.provider.Settings.Global;
 import android.service.notification.ZenModeConfig;
-import android.transition.AutoTransition;
-import android.transition.TransitionManager;
 import android.util.AttributeSet;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import com.android.systemui.Prefs;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.policy.ZenModeController;
 
@@ -42,15 +38,12 @@ public class ZenFooter extends LinearLayout {
     private static final String TAG = Util.logTag(ZenFooter.class);
 
     private final Context mContext;
-    private final ConfigurableTexts mConfigurableTexts;
+    private final SpTexts mSpTexts;
 
     private ImageView mIcon;
     private TextView mSummaryLine1;
     private TextView mSummaryLine2;
     private TextView mEndNowButton;
-    private View mZenIntroduction;
-    private View mZenIntroductionConfirm;
-    private TextView mZenIntroductionMessage;
     private int mZen = -1;
     private ZenModeConfig mConfig;
     private ZenModeController mController;
@@ -58,7 +51,7 @@ public class ZenFooter extends LinearLayout {
     public ZenFooter(Context context, AttributeSet attrs) {
         super(context, attrs);
         mContext = context;
-        mConfigurableTexts = new ConfigurableTexts(mContext);
+        mSpTexts = new SpTexts(mContext);
         final LayoutTransition layoutTransition = new LayoutTransition();
         layoutTransition.setDuration(new ValueAnimator().getDuration() / 2);
         setLayoutTransition(layoutTransition);
@@ -67,31 +60,19 @@ public class ZenFooter extends LinearLayout {
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
-        mIcon = findViewById(R.id.volume_zen_icon);
-        mSummaryLine1 = findViewById(R.id.volume_zen_summary_line_1);
-        mSummaryLine2 = findViewById(R.id.volume_zen_summary_line_2);
-        mEndNowButton = findViewById(R.id.volume_zen_end_now);
-        mZenIntroduction = findViewById(R.id.zen_introduction);
-        mZenIntroductionMessage = findViewById(R.id.zen_introduction_message);
-        mConfigurableTexts.add(mZenIntroductionMessage, R.string.zen_alarms_introduction);
-        mZenIntroductionConfirm = findViewById(R.id.zen_introduction_confirm);
-        mZenIntroductionConfirm.setOnClickListener(new OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                confirmZenIntroduction();
-            }
-        });
-        Util.setVisOrGone(mZenIntroduction, shouldShowIntroduction());
-        mConfigurableTexts.add(mSummaryLine1);
-        mConfigurableTexts.add(mSummaryLine2);
-        mConfigurableTexts.add(mEndNowButton, R.string.volume_zen_end_now);
+        mIcon = (ImageView) findViewById(R.id.volume_zen_icon);
+        mSummaryLine1 = (TextView) findViewById(R.id.volume_zen_summary_line_1);
+        mSummaryLine2 = (TextView) findViewById(R.id.volume_zen_summary_line_2);
+        mEndNowButton = (TextView) findViewById(R.id.volume_zen_end_now);
+        mSpTexts.add(mSummaryLine1);
+        mSpTexts.add(mSummaryLine2);
+        mSpTexts.add(mEndNowButton);
     }
 
     public void init(final ZenModeController controller) {
         mEndNowButton.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
-                setZen(Global.ZEN_MODE_OFF);
                 controller.setZen(Global.ZEN_MODE_OFF, null, TAG);
             }
         });
@@ -100,7 +81,6 @@ public class ZenFooter extends LinearLayout {
         mController = controller;
         mController.addCallback(mZenCallback);
         update();
-        updateIntroduction();
     }
 
     public void cleanup() {
@@ -111,9 +91,6 @@ public class ZenFooter extends LinearLayout {
         if (mZen == zen) return;
         mZen = zen;
         update();
-        post(() -> {
-            updateIntroduction();
-        });
     }
 
     private void setConfig(ZenModeConfig config) {
@@ -122,9 +99,8 @@ public class ZenFooter extends LinearLayout {
         update();
     }
 
-    private void confirmZenIntroduction() {
-        Prefs.putBoolean(mContext, Prefs.Key.DND_CONFIRMED_ALARM_INTRODUCTION, true);
-        updateIntroduction();
+    public boolean isZen() {
+        return isZenPriority() || isZenAlarms() || isZenNone();
     }
 
     private boolean isZenPriority() {
@@ -153,18 +129,9 @@ public class ZenFooter extends LinearLayout {
         Util.setText(mSummaryLine2, line2);
     }
 
-    public boolean shouldShowIntroduction() {
-        final boolean confirmed =  Prefs.getBoolean(mContext,
-                Prefs.Key.DND_CONFIRMED_ALARM_INTRODUCTION, false);
-        return !confirmed && isZenAlarms();
-    }
-
-    public void updateIntroduction() {
-        Util.setVisOrGone(mZenIntroduction, shouldShowIntroduction());
-    }
-
     public void onConfigurationChanged() {
-        mConfigurableTexts.update();
+        Util.setText(mEndNowButton, mContext.getString(R.string.volume_zen_end_now));
+        mSpTexts.update();
     }
 
     private final ZenModeController.Callback mZenCallback = new ZenModeController.Callback() {

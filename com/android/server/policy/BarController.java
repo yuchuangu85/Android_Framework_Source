@@ -18,7 +18,6 @@ package com.android.server.policy;
 
 import android.app.StatusBarManager;
 import android.os.Handler;
-import android.os.Message;
 import android.os.SystemClock;
 import android.util.Slog;
 import android.view.View;
@@ -44,8 +43,6 @@ public class BarController {
 
     private static final int TRANSLUCENT_ANIMATION_DELAY_MS = 1000;
 
-    private static final int MSG_NAV_BAR_VISIBILITY_CHANGED = 1;
-
     protected final String mTag;
     private final int mTransientFlag;
     private final int mUnhideFlag;
@@ -66,8 +63,6 @@ public class BarController {
     private boolean mSetUnHideFlagWhenNextTransparent;
     private boolean mNoAnimationOnNextShow;
 
-    private OnBarVisibilityChangedListener mVisibilityChangeListener;
-
     public BarController(String tag, int transientFlag, int unhideFlag, int translucentFlag,
             int statusBarManagerId, int translucentWmFlag, int transparentFlag) {
         mTag = "BarController." + tag;
@@ -77,7 +72,7 @@ public class BarController {
         mStatusBarManagerId = statusBarManagerId;
         mTranslucentWmFlag = translucentWmFlag;
         mTransparentFlag = transparentFlag;
-        mHandler = new BarHandler();
+        mHandler = new Handler();
     }
 
     public void setWindow(WindowState win) {
@@ -158,22 +153,7 @@ public class BarController {
         mNoAnimationOnNextShow = false;
         final int state = computeStateLw(wasVis, wasAnim, mWin, change);
         final boolean stateChanged = updateStateLw(state);
-
-        if (change && (mVisibilityChangeListener != null)) {
-            mHandler.obtainMessage(MSG_NAV_BAR_VISIBILITY_CHANGED, show ? 1 : 0, 0).sendToTarget();
-        }
-
         return change || stateChanged;
-    }
-
-    void setOnBarVisibilityChangedListener(OnBarVisibilityChangedListener listener,
-            boolean invokeWithState) {
-        mVisibilityChangeListener = listener;
-        if (invokeWithState) {
-            // Optionally report the initial window state for initialization purposes
-            mHandler.obtainMessage(MSG_NAV_BAR_VISIBILITY_CHANGED,
-                    (mState == StatusBarManager.WINDOW_STATE_SHOWING) ? 1 : 0, 0).sendToTarget();
-        }
     }
 
     protected boolean skipAnimation() {
@@ -319,23 +299,5 @@ public class BarController {
             pw.print(prefix); pw.print("  "); pw.print("mTransientBar"); pw.print('=');
             pw.println(transientBarStateToString(mTransientBarState));
         }
-    }
-
-    private class BarHandler extends Handler {
-        @Override
-        public void handleMessage(Message msg) {
-            switch (msg.what) {
-                case MSG_NAV_BAR_VISIBILITY_CHANGED:
-                    final boolean visible = msg.arg1 != 0;
-                    if (mVisibilityChangeListener != null) {
-                        mVisibilityChangeListener.onBarVisibilityChanged(visible);
-                    }
-                    break;
-            }
-        }
-    }
-
-    interface OnBarVisibilityChangedListener {
-        void onBarVisibilityChanged(boolean visible);
     }
 }

@@ -36,22 +36,17 @@ public class UnaryExpr extends Expr {
 
     @Override
     protected String computeUniqueKey() {
-        return join(getOpStr(), getExpr().getUniqueKey());
+        return addTwoWay(join(getOpStr(), getExpr().getUniqueKey()));
     }
 
     @Override
-    public Expr generateInverse(ExprModel model, Expr value, String bindingClassName) {
-        return model.unary(mOp, getExpr().generateInverse(model, value, bindingClassName));
+    public KCode toInverseCode(KCode value) {
+        return getExpr().toInverseCode(new KCode().app(mOp, value));
     }
 
     @Override
-    public Expr cloneToModel(ExprModel model) {
-        return model.unary(mOp, getExpr().cloneToModel(model));
-    }
-
-    @Override
-    protected KCode generateCode() {
-        return new KCode().app(getOp(), getExpr().toCode());
+    protected KCode generateCode(boolean expand) {
+        return new KCode().app(getOp(), getExpr().toCode(expand));
     }
 
     @Override
@@ -80,10 +75,5 @@ public class UnaryExpr extends Expr {
 
     public Expr getExpr() {
         return getChildren().get(0);
-    }
-
-    @Override
-    public String toString() {
-        return mOp + getExpr();
     }
 }

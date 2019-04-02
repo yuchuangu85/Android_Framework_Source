@@ -30,7 +30,6 @@ import android.view.ViewStub;
 import android.widget.FrameLayout;
 
 import com.android.settingslib.animation.AppearAnimationUtils;
-import com.android.systemui.Dependency;
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
 import com.android.systemui.qs.tiles.UserDetailItemView;
@@ -57,10 +56,10 @@ public class KeyguardUserSwitcher {
     private boolean mAnimating;
 
     public KeyguardUserSwitcher(Context context, ViewStub userSwitcher,
-            KeyguardStatusBarView statusBarView, NotificationPanelView panelView) {
+            KeyguardStatusBarView statusBarView, NotificationPanelView panelView,
+            UserSwitcherController userSwitcherController) {
         boolean keyguardUserSwitcherEnabled =
                 context.getResources().getBoolean(R.bool.config_keyguardUserSwitcher) || ALWAYS_ON;
-        UserSwitcherController userSwitcherController = Dependency.get(UserSwitcherController.class);
         if (userSwitcherController != null && keyguardUserSwitcherEnabled) {
             mUserSwitcherContainer = (Container) userSwitcher.inflate();
             mBackground = new KeyguardUserSwitcherScrim(context);
@@ -129,7 +128,7 @@ public class KeyguardUserSwitcher {
         }
     }
 
-    private boolean hide(boolean animate) {
+    private void hide(boolean animate) {
         if (mUserSwitcher != null && mUserSwitcherContainer.getVisibility() == View.VISIBLE) {
             cancelAnimations();
             if (animate) {
@@ -138,9 +137,7 @@ public class KeyguardUserSwitcher {
                 mUserSwitcherContainer.setVisibility(View.GONE);
             }
             mStatusBarView.setKeyguardUserSwitcherShowing(false, animate);
-            return true;
         }
-        return false;
     }
 
     private void cancelAnimations() {
@@ -226,11 +223,10 @@ public class KeyguardUserSwitcher {
         }
     }
 
-    public boolean hideIfNotSimple(boolean animate) {
+    public void hideIfNotSimple(boolean animate) {
         if (mUserSwitcherContainer != null && !mUserSwitcherController.isSimpleUserSwitcher()) {
-            return hide(animate);
+            hide(animate);
         }
-        return false;
     }
 
     boolean isAnimating() {

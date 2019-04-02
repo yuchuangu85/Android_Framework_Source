@@ -16,8 +16,6 @@
 
 package com.android.server.power;
 
-import android.util.proto.ProtoOutputStream;
-
 /**
  * Low-level suspend blocker mechanism equivalent to holding a partial wake lock.
  *
@@ -42,6 +40,4 @@ interface SuspendBlocker {
      * The system may crash.
      */
     void release();
-
-    void writeToProto(ProtoOutputStream proto, long fieldId);
 }

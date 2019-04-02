@@ -19,7 +19,6 @@ package com.android.ims;
 import java.util.HashMap;
 import java.util.Map;
 
-import android.content.res.Resources;
 import android.os.AsyncResult;
 import android.os.Bundle;
 import android.os.Message;
@@ -150,7 +149,7 @@ public class ImsUt implements ImsUtInterface {
     public void queryCallForward(int condition, String number, Message result) {
         if (DBG) {
             log("queryCallForward :: Ut=" + miUt + ", condition=" + condition
-                    + ", number=" + Rlog.pii(TAG, number));
+                    + ", number=" + number);
         }
 
         synchronized(mLockObj) {
@@ -350,8 +349,8 @@ public class ImsUt implements ImsUtInterface {
             int serviceClass, int timeSeconds, Message result) {
         if (DBG) {
             log("updateCallForward :: Ut=" + miUt + ", action=" + action
-                    + ", condition=" + condition + ", number=" + Rlog.pii(TAG, number)
-                    + ", serviceClass=" + serviceClass + ", timeSeconds=" + timeSeconds);
+                    + ", condition=" + condition + ", number=" + number
+                    +  ", serviceClass=" + serviceClass + ", timeSeconds=" + timeSeconds);
         }
 
         synchronized(mLockObj) {
@@ -508,13 +507,6 @@ public class ImsUt implements ImsUtInterface {
         }
     }
 
-    /**
-     * @return returns true if the binder is alive, false otherwise.
-     */
-    public boolean isBinderAlive() {
-        return miUt.asBinder().isBinderAlive();
-    }
-
     public void transact(Bundle ssInfo, Message result) {
         if (DBG) {
             log("transact :: Ut=" + miUt + ", ssInfo=" + ssInfo);
@@ -547,8 +539,7 @@ public class ImsUt implements ImsUtInterface {
         // If ImsReasonInfo object does not have a String error code, use a
         // default error string.
         if (error.mExtraMessage == null) {
-            errorString = Resources.getSystem().getString(
-                    com.android.internal.R.string.mmiError);
+            errorString = new String("IMS UT exception");
         }
         else {
             errorString = new String(error.mExtraMessage);

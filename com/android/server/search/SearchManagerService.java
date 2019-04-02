@@ -17,6 +17,8 @@
 package com.android.server.search;
 
 import android.app.ActivityManager;
+import android.app.ActivityManagerNative;
+import android.app.AppGlobals;
 import android.app.IActivityManager;
 import android.app.ISearchManager;
 import android.app.SearchManager;
@@ -25,6 +27,7 @@ import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.database.ContentObserver;
@@ -35,14 +38,12 @@ import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.provider.Settings;
-import android.service.voice.VoiceInteractionService;
 import android.util.Log;
 import android.util.SparseArray;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.content.PackageMonitor;
 import com.android.internal.os.BackgroundThread;
-import com.android.internal.util.DumpUtils;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.LocalServices;
 import com.android.server.SystemService;
@@ -271,25 +272,24 @@ public class SearchManagerService extends ISearchManager.Stub {
         }
     }
 
-    // Check and return VIS component
     private ComponentName getLegacyAssistComponent(int userHandle) {
         try {
             userHandle = ActivityManager.handleIncomingUser(Binder.getCallingPid(),
-                    Binder.getCallingUid(), userHandle, true, false, "getLegacyAssistComponent",
-                    null);
-            PackageManager pm = mContext.getPackageManager();
-            Intent intentAssistProbe = new Intent(VoiceInteractionService.SERVICE_INTERFACE);
-            List<ResolveInfo> infoListVis = pm.queryIntentServicesAsUser(intentAssistProbe,
-                    PackageManager.MATCH_SYSTEM_ONLY, userHandle);
-            if (infoListVis == null || infoListVis.isEmpty()) {
-                return null;
-            } else {
-                ResolveInfo rInfo = infoListVis.get(0);
+                    Binder.getCallingUid(), userHandle, true, false, "getLegacyAssistComponent", null);
+            IPackageManager pm = AppGlobals.getPackageManager();
+            Intent assistIntent = new Intent(Intent.ACTION_ASSIST);
+            ResolveInfo info =
+                    pm.resolveIntent(assistIntent,
+                            assistIntent.resolveTypeIfNeeded(mContext.getContentResolver()),
+                            PackageManager.MATCH_DEFAULT_ONLY, userHandle);
+            if (info != null) {
                 return new ComponentName(
-                        rInfo.serviceInfo.applicationInfo.packageName,
-                        rInfo.serviceInfo.name);
-
+                        info.activityInfo.applicationInfo.packageName,
+                        info.activityInfo.name);
             }
+        } catch (RemoteException re) {
+            // Local call
+            Log.e(TAG, "RemoteException in getLegacyAssistComponent: " + re);
         } catch (Exception e) {
             Log.e(TAG, "Exception in getLegacyAssistComponent: " + e);
         }
@@ -304,15 +304,9 @@ public class SearchManagerService extends ISearchManager.Stub {
         }
         long ident = Binder.clearCallingIdentity();
         try {
-            Intent intent = new Intent(VoiceInteractionService.SERVICE_INTERFACE);
+            Intent intent = new Intent(Intent.ACTION_ASSIST);
             intent.setComponent(comp);
-
-            IActivityManager am = ActivityManager.getService();
-            if (args != null) {
-                args.putInt(Intent.EXTRA_KEY_EVENT, android.view.KeyEvent.KEYCODE_ASSIST);
-            }
-            intent.putExtras(args);
-
+            IActivityManager am = ActivityManagerNative.getDefault();
             return am.launchAssistIntent(intent, ActivityManager.ASSIST_CONTEXT_BASIC, hint,
                     userHandle, args);
         } catch (RemoteException e) {
@@ -324,7 +318,7 @@ public class SearchManagerService extends ISearchManager.Stub {
 
     @Override
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        if (!DumpUtils.checkDumpPermission(mContext, TAG, pw)) return;
+        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.DUMP, TAG);
 
         IndentingPrintWriter ipw = new IndentingPrintWriter(pw, "  ");
         synchronized (mSearchables) {

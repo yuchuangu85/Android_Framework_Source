@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2007, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,16 +45,8 @@ import java.security.*;
  */
 public abstract class SSLServerSocketFactory extends ServerSocketFactory
 {
-    // Android-changed: Renamed field.
-    // Some apps rely on changing this field via reflection, so we can't change the name
-    // without introducing app compatibility problems.  See http://b/62248930.
     private static SSLServerSocketFactory defaultServerSocketFactory;
 
-    // Android-changed: Check Security.getVersion() on each update.
-    // If the set of providers or other such things changes, it may change the default
-    // factory, so we track the version returned from Security.getVersion() instead of
-    // only having a flag that says if we've ever initialized the default.
-    // private static boolean propertyChecked;
     private static int lastVersion = -1;
 
     private static void log(String msg) {
@@ -85,7 +77,10 @@ public abstract class SSLServerSocketFactory extends ServerSocketFactory
      * @see SSLContext#getDefault
      */
     public static synchronized ServerSocketFactory getDefault() {
-        // Android-changed: Check Security.getVersion() on each update.
+        // Android-changed: Use security version instead of propertyChecked.
+        //
+        // We use the same lookup logic in SSLSocketFactory.getDefault(). Any changes
+        // made here must be mirrored in that class.
         if (defaultServerSocketFactory != null && lastVersion == Security.getVersion()) {
             return defaultServerSocketFactory;
         }
@@ -95,9 +90,8 @@ public abstract class SSLServerSocketFactory extends ServerSocketFactory
         defaultServerSocketFactory = null;
 
         String clsName = SSLSocketFactory.getSecurityProperty
-                                    ("ssl.ServerSocketFactory.provider");
+                ("ssl.ServerSocketFactory.provider");
         if (clsName != null) {
-            // Android-changed: Check if we already have an instance of the default factory class.
             // The instance for the default socket factory is checked for updates quite
             // often (for instance, every time a security provider is added). Which leads
             // to unnecessary overload and excessive error messages in case of class-loading
@@ -107,9 +101,10 @@ public abstract class SSLServerSocketFactory extends ServerSocketFactory
                 defaultServerSocketFactory = previousDefaultServerSocketFactory;
                 return defaultServerSocketFactory;
             }
+            Class cls = null;
             log("setting up default SSLServerSocketFactory");
             try {
-                Class<?> cls = null;
+                log("setting up default SSLServerSocketFactory");
                 try {
                     cls = Class.forName(clsName);
                 } catch (ClassNotFoundException e) {
@@ -120,33 +115,37 @@ public abstract class SSLServerSocketFactory extends ServerSocketFactory
                     }
 
                     if (cl != null) {
-                        // Android-changed: Use Class.forName() so the class gets initialized.
                         cls = Class.forName(clsName, true, cl);
                     }
                 }
                 log("class " + clsName + " is loaded");
-                SSLServerSocketFactory fac = (SSLServerSocketFactory)cls.newInstance();
+                SSLServerSocketFactory fac = (SSLServerSocketFactory) cls.newInstance();
                 log("instantiated an instance of class " + clsName);
                 defaultServerSocketFactory = fac;
-                return fac;
+                if (defaultServerSocketFactory != null) {
+                    return defaultServerSocketFactory;
+                }
             } catch (Exception e) {
                 log("SSLServerSocketFactory instantiation failed: " + e);
-                // Android-changed: Fallback to the default SSLContext on exception.
+                // Android-changed: Fallback to the default SSLContext if an exception
+                // is thrown during the initialization of ssl.ServerSocketFactory.provider.
             }
         }
 
         try {
-            // Android-changed: Allow for {@code null} SSLContext.getDefault.
             SSLContext context = SSLContext.getDefault();
             if (context != null) {
                 defaultServerSocketFactory = context.getServerSocketFactory();
-            } else {
-                defaultServerSocketFactory = new DefaultSSLServerSocketFactory(new IllegalStateException("No factory found."));
             }
-            return defaultServerSocketFactory;
         } catch (NoSuchAlgorithmException e) {
-            return new DefaultSSLServerSocketFactory(e);
         }
+
+        if (defaultServerSocketFactory == null) {
+            defaultServerSocketFactory = new DefaultSSLServerSocketFactory(
+                    new IllegalStateException("No ServerSocketFactory implementation found"));
+        }
+
+        return defaultServerSocketFactory;
     }
 
     /**
@@ -193,27 +192,23 @@ class DefaultSSLServerSocketFactory extends SSLServerSocketFactory {
             new SocketException(reason.toString()).initCause(reason);
     }
 
-    @Override
     public ServerSocket createServerSocket() throws IOException {
         return throwException();
     }
 
 
-    @Override
     public ServerSocket createServerSocket(int port)
     throws IOException
     {
         return throwException();
     }
 
-    @Override
     public ServerSocket createServerSocket(int port, int backlog)
     throws IOException
     {
         return throwException();
     }
 
-    @Override
     public ServerSocket
     createServerSocket(int port, int backlog, InetAddress ifAddress)
     throws IOException
@@ -221,12 +216,10 @@ class DefaultSSLServerSocketFactory extends SSLServerSocketFactory {
         return throwException();
     }
 
-    @Override
     public String [] getDefaultCipherSuites() {
         return new String[0];
     }
 
-    @Override
     public String [] getSupportedCipherSuites() {
         return new String[0];
     }

@@ -116,33 +116,30 @@ public class IccCardStatus {
         StringBuilder sb = new StringBuilder();
         sb.append("IccCardState {").append(mCardState).append(",")
         .append(mUniversalPinState)
-        .append(",num_apps=").append(mApplications.length);
-
-        sb.append(",gsm_id=").append(mGsmUmtsSubscriptionAppIndex);
-        if (mApplications != null
-                && mGsmUmtsSubscriptionAppIndex >= 0
-                && mGsmUmtsSubscriptionAppIndex < mApplications.length) {
+        .append(",num_apps=").append(mApplications.length)
+        .append(",gsm_id=").append(mGsmUmtsSubscriptionAppIndex);
+        if (mGsmUmtsSubscriptionAppIndex >=0
+                && mGsmUmtsSubscriptionAppIndex <CARD_MAX_APPS) {
             app = mApplications[mGsmUmtsSubscriptionAppIndex];
             sb.append(app == null ? "null" : app);
         }
 
         sb.append(",cdma_id=").append(mCdmaSubscriptionAppIndex);
-        if (mApplications != null
-                && mCdmaSubscriptionAppIndex >= 0
-                && mCdmaSubscriptionAppIndex < mApplications.length) {
+        if (mCdmaSubscriptionAppIndex >=0
+                && mCdmaSubscriptionAppIndex <CARD_MAX_APPS) {
             app = mApplications[mCdmaSubscriptionAppIndex];
             sb.append(app == null ? "null" : app);
         }
 
         sb.append(",ims_id=").append(mImsSubscriptionAppIndex);
-        if (mApplications != null
-                && mImsSubscriptionAppIndex >= 0
-                && mImsSubscriptionAppIndex < mApplications.length) {
+        if (mImsSubscriptionAppIndex >=0
+                && mImsSubscriptionAppIndex <CARD_MAX_APPS) {
             app = mApplications[mImsSubscriptionAppIndex];
             sb.append(app == null ? "null" : app);
         }
 
         sb.append("}");
+
         return sb.toString();
     }
 

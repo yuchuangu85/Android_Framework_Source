@@ -16,7 +16,8 @@
 
 package android.nfc;
 
-import android.annotation.RequiresPermission;
+import java.util.HashMap;
+
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
@@ -41,7 +42,6 @@ import android.os.ServiceManager;
 import android.util.Log;
 
 import java.io.IOException;
-import java.util.HashMap;
 
 /**
  * Represents the local NFC adapter.
@@ -626,23 +626,6 @@ public final class NfcAdapter {
     }
 
     /**
-     * Returns the binder interface to the NFC-DTA test interface.
-     * @hide
-     */
-    public INfcDta getNfcDtaInterface() {
-        if (mContext == null) {
-            throw new UnsupportedOperationException("You need a context on NfcAdapter to use the "
-                    + " NFC extras APIs");
-        }
-        try {
-            return sService.getNfcDtaInterface(mContext.getPackageName());
-        } catch (RemoteException e) {
-            attemptDeadServiceRecovery(e);
-            return null;
-        }
-    }
-
-    /**
      * NFC service dead - attempt best effort recovery
      * @hide
      */
@@ -742,7 +725,6 @@ public final class NfcAdapter {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean enable() {
         try {
             return sService.enable();
@@ -771,7 +753,6 @@ public final class NfcAdapter {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean disable() {
         try {
             return sService.disable(true);
@@ -786,7 +767,6 @@ public final class NfcAdapter {
      * @hide
     */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean disable(boolean persist) {
         try {
             return sService.disable(persist);
@@ -1572,7 +1552,6 @@ public final class NfcAdapter {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean enableNdefPush() {
         if (!sHasNfcFeature) {
             throw new UnsupportedOperationException();
@@ -1591,7 +1570,6 @@ public final class NfcAdapter {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean disableNdefPush() {
         synchronized (NfcAdapter.class) {
             if (!sHasNfcFeature) {
@@ -1758,7 +1736,6 @@ public final class NfcAdapter {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean addNfcUnlockHandler(final NfcUnlockHandler unlockHandler,
                                        String[] tagTechnologies) {
         synchronized (NfcAdapter.class) {
@@ -1808,7 +1785,6 @@ public final class NfcAdapter {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean removeNfcUnlockHandler(NfcUnlockHandler unlockHandler) {
         synchronized (NfcAdapter.class) {
             if (!sHasNfcFeature) {

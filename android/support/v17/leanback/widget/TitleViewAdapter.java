@@ -13,7 +13,11 @@
  */
 package android.support.v17.leanback.widget;
 
+import android.content.Context;
 import android.graphics.drawable.Drawable;
+import android.support.v17.leanback.R;
+import android.util.AttributeSet;
+import android.view.LayoutInflater;
 import android.view.View;
 
 /**
@@ -92,10 +96,6 @@ public abstract class TitleViewAdapter {
      * @param listener The listener to call when the search element is clicked.
      */
     public void setOnSearchClickedListener(View.OnClickListener listener) {
-        View view = getSearchAffordanceView();
-        if (view != null) {
-            view.setOnClickListener(listener);
-        }
     }
 
     /**

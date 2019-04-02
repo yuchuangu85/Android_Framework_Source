@@ -25,6 +25,7 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 
 public interface VolumeComponent extends DemoMode {
+    ZenModeController getZenController();
     void dismissNow();
     void onConfigurationChanged(Configuration newConfig);
     void dump(FileDescriptor fd, PrintWriter pw, String[] args);

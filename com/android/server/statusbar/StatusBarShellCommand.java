@@ -17,15 +17,13 @@ package com.android.server.statusbar;
 import android.content.ComponentName;
 import android.os.RemoteException;
 import android.os.ShellCommand;
-import android.service.quicksettings.TileService;
-
 import com.android.internal.statusbar.IStatusBarService;
 
 import java.io.PrintWriter;
 
 public class StatusBarShellCommand extends ShellCommand {
 
-    private final StatusBarManagerService mInterface;
+    private final IStatusBarService mInterface;
 
     public StatusBarShellCommand(StatusBarManagerService service) {
         mInterface = service;
@@ -50,12 +48,6 @@ public class StatusBarShellCommand extends ShellCommand {
                     return runRemoveTile();
                 case "click-tile":
                     return runClickTile();
-                case "check-support":
-                    final PrintWriter pw = getOutPrintWriter();
-                    pw.println(String.valueOf(TileService.isQuickSettingsSupported()));
-                    return 0;
-                case "get-status-icons":
-                    return runGetStatusIcons();
                 default:
                     return handleDefaultCommands(cmd);
             }
@@ -96,14 +88,6 @@ public class StatusBarShellCommand extends ShellCommand {
         return 0;
     }
 
-    private int runGetStatusIcons() {
-        final PrintWriter pw = getOutPrintWriter();
-        for (String icon : mInterface.getStatusBarIcons()) {
-            pw.println(icon);
-        }
-        return 0;
-    }
-
     @Override
     public void onHelp() {
         final PrintWriter pw = getOutPrintWriter();
@@ -128,12 +112,6 @@ public class StatusBarShellCommand extends ShellCommand {
         pw.println("");
         pw.println("  click-tile COMPONENT");
         pw.println("    Click on a TileService of the specified component");
-        pw.println("");
-        pw.println("  check-support");
-        pw.println("    Check if this device supports QS + APIs");
-        pw.println("");
-        pw.println("  get-status-icons");
-        pw.println("    Print the list of status bar icons and the order they appear in");
         pw.println("");
     }
 }

@@ -16,34 +16,39 @@
 
 package android.support.doclava;
 
-import org.gradle.external.javadoc.internal.AbstractJavadocOptionFileOption;
+import org.gradle.external.javadoc.JavadocOptionFileOption;
 import org.gradle.external.javadoc.internal.JavadocOptionFileWriterContext;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Iterator;
 
 /**
  * This class is used to hold complex argument(s) to doclava
  */
-public class DoclavaJavadocOptionFileOption extends
-        AbstractJavadocOptionFileOption<Iterable<String>> {
+public class DoclavaJavadocOptionFileOption implements JavadocOptionFileOption<Iterable<String>> {
+    private final String option;
+    private Iterable<String> args;
 
     public DoclavaJavadocOptionFileOption(String option) {
-        super(option, null);
+        this.option = option;
     }
 
-    public DoclavaJavadocOptionFileOption(String option, Iterable<String> value) {
-        super(option, value);
+    public Iterable<String> getValue() {
+        return args;
     }
 
-    @Override
+    public void setValue(Iterable<String> args) {
+        this.args = args;
+    }
+
+    public String getOption() {
+        return option;
+    }
+
     public void write(JavadocOptionFileWriterContext writerContext) throws IOException {
         writerContext.writeOptionHeader(getOption());
-
-        final Iterable<String> args = getValue();
         if (args != null) {
-            final Iterator<String> iter = args.iterator();
+            Iterator<String> iter = args.iterator();
             while (true) {
                 writerContext.writeValue(iter.next());
                 if (!iter.hasNext()) {
@@ -52,24 +57,6 @@ public class DoclavaJavadocOptionFileOption extends
                 writerContext.write(" ");
             }
         }
-
         writerContext.newLine();
-    }
-
-    /**
-     * @return a deep copy of the option
-     */
-    public DoclavaJavadocOptionFileOption duplicate() {
-        final Iterable<String> value = getValue();
-        final ArrayList<String> valueCopy;
-        if (value != null) {
-            valueCopy = new ArrayList<>();
-            for (String item : value) {
-                valueCopy.add(item);
-            }
-        } else {
-            valueCopy = null;
-        }
-        return new DoclavaJavadocOptionFileOption(getOption(), valueCopy);
     }
 }

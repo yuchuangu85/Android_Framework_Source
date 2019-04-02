@@ -19,7 +19,6 @@ package com.android.ims;
 /**
  * This class defines an identifier for each IMS service category.
  *
- * @deprecated Use {@link android.telephony.ims.feature.ImsFeature} definitions instead.
  * @hide
  */
 public class ImsServiceClass {

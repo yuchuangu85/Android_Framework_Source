@@ -29,14 +29,11 @@ import com.android.keyguard.KeyguardUpdateMonitor;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.KeyguardAffordanceView;
 import com.android.systemui.statusbar.policy.AccessibilityController;
-import com.android.systemui.statusbar.policy.UserInfoController.OnUserInfoChangedListener;
 
 /**
  * Manages the different states and animations of the unlock icon.
  */
-public class LockIcon extends KeyguardAffordanceView implements OnUserInfoChangedListener {
-
-    private static final int FP_DRAW_OFF_TIMEOUT = 800;
+public class LockIcon extends KeyguardAffordanceView {
 
     private static final int STATE_LOCKED = 0;
     private static final int STATE_LOCK_OPEN = 1;
@@ -50,14 +47,11 @@ public class LockIcon extends KeyguardAffordanceView implements OnUserInfoChange
     private boolean mDeviceInteractive;
     private boolean mScreenOn;
     private boolean mLastScreenOn;
-    private Drawable mUserAvatarIcon;
     private TrustDrawable mTrustDrawable;
     private final UnlockMethodCache mUnlockMethodCache;
     private AccessibilityController mAccessibilityController;
     private boolean mHasFingerPrintIcon;
     private int mDensity;
-
-    private final Runnable mDrawOffTimeout = () -> update(true /* forceUpdate */);
 
     public LockIcon(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -80,12 +74,6 @@ public class LockIcon extends KeyguardAffordanceView implements OnUserInfoChange
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
         mTrustDrawable.stop();
-    }
-
-    @Override
-    public void onUserInfoChanged(String name, Drawable picture, String userAccount) {
-        mUserAvatarIcon = picture;
-        update();
     }
 
     public void setTransientFpError(boolean transientFpError) {
@@ -128,39 +116,34 @@ public class LockIcon extends KeyguardAffordanceView implements OnUserInfoChange
         } else {
             mTrustDrawable.stop();
         }
+        // TODO: Real icon for facelock.
         int state = getState();
         boolean anyFingerprintIcon = state == STATE_FINGERPRINT || state == STATE_FINGERPRINT_ERROR;
         boolean useAdditionalPadding = anyFingerprintIcon;
         boolean trustHidden = anyFingerprintIcon;
         if (state != mLastState || mDeviceInteractive != mLastDeviceInteractive
                 || mScreenOn != mLastScreenOn || force) {
-            int iconAnimRes =
-                getAnimationResForTransition(mLastState, state, mLastDeviceInteractive,
+            boolean isAnim = true;
+            int iconRes = getAnimationResForTransition(mLastState, state, mLastDeviceInteractive,
                     mDeviceInteractive, mLastScreenOn, mScreenOn);
-            boolean isAnim = iconAnimRes != -1;
-            if (iconAnimRes == R.drawable.lockscreen_fingerprint_draw_off_animation) {
+            if (iconRes == R.drawable.lockscreen_fingerprint_draw_off_animation) {
                 anyFingerprintIcon = true;
                 useAdditionalPadding = true;
                 trustHidden = true;
-            } else if (iconAnimRes == R.drawable.trusted_state_to_error_animation) {
+            } else if (iconRes == R.drawable.trusted_state_to_error_animation) {
                 anyFingerprintIcon = true;
                 useAdditionalPadding = false;
                 trustHidden = true;
-            } else if (iconAnimRes == R.drawable.error_to_trustedstate_animation) {
+            } else if (iconRes == R.drawable.error_to_trustedstate_animation) {
                 anyFingerprintIcon = true;
                 useAdditionalPadding = false;
                 trustHidden = false;
             }
-
-            Drawable icon;
-            if (isAnim) {
-                // Load the animation resource.
-                icon = mContext.getDrawable(iconAnimRes);
-            } else {
-                // Load the static icon resource based on the current state.
-                icon = getIconForState(state, mScreenOn, mDeviceInteractive);
+            if (iconRes == -1) {
+                iconRes = getIconForState(state, mScreenOn, mDeviceInteractive);
+                isAnim = false;
             }
-
+            Drawable icon = mContext.getDrawable(iconRes);
             final AnimatedVectorDrawable animation = icon instanceof AnimatedVectorDrawable
                     ? (AnimatedVectorDrawable) icon
                     : null;
@@ -178,20 +161,16 @@ public class LockIcon extends KeyguardAffordanceView implements OnUserInfoChange
                     : 0);
             setRestingAlpha(
                     anyFingerprintIcon ? 1f : KeyguardAffordanceHelper.SWIPE_RESTING_ALPHA_AMOUNT);
-            setImageDrawable(icon, false);
+            setImageDrawable(icon);
+            String contentDescription = getResources().getString(anyFingerprintIcon
+                    ? R.string.accessibility_unlock_button_fingerprint
+                    : R.string.accessibility_unlock_button);
+            setContentDescription(contentDescription);
             mHasFingerPrintIcon = anyFingerprintIcon;
             if (animation != null && isAnim) {
                 animation.forceAnimationOnUI();
                 animation.start();
             }
-
-            if (iconAnimRes == R.drawable.lockscreen_fingerprint_draw_off_animation) {
-                removeCallbacks(mDrawOffTimeout);
-                postDelayed(mDrawOffTimeout, FP_DRAW_OFF_TIMEOUT);
-            } else {
-                removeCallbacks(mDrawOffTimeout);
-            }
-
             mLastState = state;
             mLastDeviceInteractive = mDeviceInteractive;
             mLastScreenOn = mScreenOn;
@@ -207,9 +186,9 @@ public class LockIcon extends KeyguardAffordanceView implements OnUserInfoChange
         if (mAccessibilityController == null) {
             return;
         }
-        boolean clickToUnlock = mAccessibilityController.isAccessibilityEnabled();
+        boolean clickToUnlock = mAccessibilityController.isTouchExplorationEnabled();
         boolean clickToForceLock = mUnlockMethodCache.isTrustManaged()
-                && !clickToUnlock;
+                && !mAccessibilityController.isAccessibilityEnabled();
         boolean longClickToForceLock = mUnlockMethodCache.isTrustManaged()
                 && !clickToForceLock;
         setClickable(clickToForceLock || clickToUnlock);
@@ -221,13 +200,13 @@ public class LockIcon extends KeyguardAffordanceView implements OnUserInfoChange
     public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
         super.onInitializeAccessibilityNodeInfo(info);
         if (mHasFingerPrintIcon) {
+            // Avoid that the button description is also spoken
+            info.setClassName(LockIcon.class.getName());
             AccessibilityNodeInfo.AccessibilityAction unlock
                     = new AccessibilityNodeInfo.AccessibilityAction(
                     AccessibilityNodeInfo.ACTION_CLICK,
                     getContext().getString(R.string.accessibility_unlock_without_fingerprint));
             info.addAction(unlock);
-            info.setHintText(getContext().getString(
-                    R.string.accessibility_waiting_for_fingerprint));
         }
     }
 
@@ -235,38 +214,25 @@ public class LockIcon extends KeyguardAffordanceView implements OnUserInfoChange
         mAccessibilityController = accessibilityController;
     }
 
-    private Drawable getIconForState(int state, boolean screenOn, boolean deviceInteractive) {
-        int iconRes;
+    private int getIconForState(int state, boolean screenOn, boolean deviceInteractive) {
         switch (state) {
             case STATE_LOCKED:
-                iconRes = R.drawable.ic_lock_24dp;
-                break;
+                return R.drawable.ic_lock_24dp;
             case STATE_LOCK_OPEN:
-                if (mUnlockMethodCache.isTrustManaged() && mUnlockMethodCache.isTrusted()
-                    && mUserAvatarIcon != null) {
-                    return mUserAvatarIcon;
-                } else {
-                    iconRes = R.drawable.ic_lock_open_24dp;
-                }
-                break;
+                return R.drawable.ic_lock_open_24dp;
             case STATE_FACE_UNLOCK:
-                iconRes = com.android.internal.R.drawable.ic_account_circle;
-                break;
+                return com.android.internal.R.drawable.ic_account_circle;
             case STATE_FINGERPRINT:
                 // If screen is off and device asleep, use the draw on animation so the first frame
                 // gets drawn.
-                iconRes = screenOn && deviceInteractive
+                return screenOn && deviceInteractive
                         ? R.drawable.ic_fingerprint
                         : R.drawable.lockscreen_fingerprint_draw_on_animation;
-                break;
             case STATE_FINGERPRINT_ERROR:
-                iconRes = R.drawable.ic_fingerprint_error;
-                break;
+                return R.drawable.ic_fingerprint_error;
             default:
                 throw new IllegalArgumentException();
         }
-
-        return mContext.getDrawable(iconRes);
     }
 
     private int getAnimationResForTransition(int oldState, int newState,

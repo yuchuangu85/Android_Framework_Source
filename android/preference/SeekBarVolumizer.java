@@ -142,13 +142,13 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
         final boolean zenMuted = isZenMuted();
         mSeekBar.setEnabled(!zenMuted);
         if (zenMuted) {
-            mSeekBar.setProgress(mLastAudibleStreamVolume, true);
+            mSeekBar.setProgress(mLastAudibleStreamVolume);
         } else if (mNotificationOrRing && mRingerMode == AudioManager.RINGER_MODE_VIBRATE) {
-            mSeekBar.setProgress(0, true);
+            mSeekBar.setProgress(0);
         } else if (mMuted) {
-            mSeekBar.setProgress(0, true);
+            mSeekBar.setProgress(0);
         } else {
-            mSeekBar.setProgress(mLastProgress > -1 ? mLastProgress : mOriginalStreamVolume, true);
+            mSeekBar.setProgress(mLastProgress > -1 ? mLastProgress : mOriginalStreamVolume);
         }
     }
 
@@ -206,7 +206,8 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
                     try {
                         mRingtone.setAudioAttributes(new AudioAttributes.Builder(mRingtone
                                 .getAudioAttributes())
-                                .setFlags(AudioAttributes.FLAG_BYPASS_MUTE)
+                                .setFlags(AudioAttributes.FLAG_BYPASS_INTERRUPTION_POLICY |
+                                        AudioAttributes.FLAG_BYPASS_MUTE)
                                 .build());
                         mRingtone.play();
                     } catch (Throwable e) {
@@ -312,13 +313,13 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
 
     public void muteVolume() {
         if (mVolumeBeforeMute != -1) {
-            mSeekBar.setProgress(mVolumeBeforeMute, true);
+            mSeekBar.setProgress(mVolumeBeforeMute);
             postSetVolume(mVolumeBeforeMute);
             postStartSample();
             mVolumeBeforeMute = -1;
         } else {
             mVolumeBeforeMute = mSeekBar.getProgress();
-            mSeekBar.setProgress(0, true);
+            mSeekBar.setProgress(0);
             postStopSample();
             postSetVolume(0);
         }
@@ -347,8 +348,8 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
             if (msg.what == UPDATE_SLIDER) {
                 if (mSeekBar != null) {
                     mLastProgress = msg.arg1;
-                    mLastAudibleStreamVolume = msg.arg2;
-                    final boolean muted = ((Boolean)msg.obj).booleanValue();
+                    mLastAudibleStreamVolume = Math.abs(msg.arg2);
+                    final boolean muted = msg.arg2 < 0;
                     if (muted != mMuted) {
                         mMuted = muted;
                         if (mCallback != null) {
@@ -361,7 +362,8 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
         }
 
         public void postUpdateSlider(int volume, int lastAudibleVolume, boolean mute) {
-            obtainMessage(UPDATE_SLIDER, volume, lastAudibleVolume, new Boolean(mute)).sendToTarget();
+            final int arg2 = lastAudibleVolume * (mute ? -1 : 1);
+            obtainMessage(UPDATE_SLIDER, volume, arg2).sendToTarget();
         }
     }
 

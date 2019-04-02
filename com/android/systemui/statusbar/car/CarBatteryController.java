@@ -78,10 +78,6 @@ public class CarBatteryController extends BroadcastReceiver implements BatteryCo
     public CarBatteryController(Context context) {
         mContext = context;
 
-        if (mAdapter == null) {
-           return;
-        }
-
         mAdapter.getProfileProxy(context.getApplicationContext(), mHfpServiceListener,
                 BluetoothProfile.HEADSET_CLIENT);
     }
@@ -99,7 +95,7 @@ public class CarBatteryController extends BroadcastReceiver implements BatteryCo
     }
 
     @Override
-    public void addCallback(BatteryController.BatteryStateChangeCallback cb) {
+    public void addStateChangedCallback(BatteryController.BatteryStateChangeCallback cb) {
         mChangeCallbacks.add(cb);
 
         // There is no way to know if the phone is plugged in or charging via bluetooth, so pass
@@ -109,7 +105,7 @@ public class CarBatteryController extends BroadcastReceiver implements BatteryCo
     }
 
     @Override
-    public void removeCallback(BatteryController.BatteryStateChangeCallback cb) {
+    public void removeStateChangedCallback(BatteryController.BatteryStateChangeCallback cb) {
         mChangeCallbacks.remove(cb);
     }
 

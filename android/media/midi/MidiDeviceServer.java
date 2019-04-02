@@ -18,10 +18,9 @@ package android.media.midi;
 
 import android.os.Binder;
 import android.os.IBinder;
+import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.RemoteException;
-import android.system.ErrnoException;
-import android.system.Os;
 import android.system.OsConstants;
 import android.util.Log;
 
@@ -32,7 +31,6 @@ import dalvik.system.CloseGuard;
 import libcore.io.IoUtils;
 
 import java.io.Closeable;
-import java.io.FileDescriptor;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -75,10 +73,6 @@ public final class MidiDeviceServer implements Closeable {
 
     private final Callback mCallback;
 
-    private final HashMap<IBinder, PortClient> mPortClients = new HashMap<IBinder, PortClient>();
-    private final HashMap<MidiInputPort, PortClient> mInputPortClients =
-            new HashMap<MidiInputPort, PortClient>();
-
     public interface Callback {
         /**
          * Called to notify when an our device status has changed
@@ -107,10 +101,6 @@ public final class MidiDeviceServer implements Closeable {
         }
 
         abstract void close();
-
-        MidiInputPort getInputPort() {
-            return null;
-        }
 
         @Override
         public void binderDied() {
@@ -162,29 +152,15 @@ public final class MidiDeviceServer implements Closeable {
             mInputPorts.remove(mInputPort);
             IoUtils.closeQuietly(mInputPort);
         }
-
-        @Override
-        MidiInputPort getInputPort() {
-            return mInputPort;
-        }
     }
 
-    private static FileDescriptor[] createSeqPacketSocketPair() throws IOException {
-        try {
-            final FileDescriptor fd0 = new FileDescriptor();
-            final FileDescriptor fd1 = new FileDescriptor();
-            Os.socketpair(OsConstants.AF_UNIX, OsConstants.SOCK_SEQPACKET, 0, fd0, fd1);
-            return new FileDescriptor[] { fd0, fd1 };
-        } catch (ErrnoException e) {
-            throw e.rethrowAsIOException();
-        }
-    }
+    private final HashMap<IBinder, PortClient> mPortClients = new HashMap<IBinder, PortClient>();
 
     // Binder interface stub for receiving connection requests from clients
     private final IMidiDeviceServer mServer = new IMidiDeviceServer.Stub() {
 
         @Override
-        public FileDescriptor openInputPort(IBinder token, int portNumber) {
+        public ParcelFileDescriptor openInputPort(IBinder token, int portNumber) {
             if (mDeviceInfo.isPrivate()) {
                 if (Binder.getCallingUid() != Process.myUid()) {
                     throw new SecurityException("Can't access private device from different UID");
@@ -203,7 +179,8 @@ public final class MidiDeviceServer implements Closeable {
                 }
 
                 try {
-                    FileDescriptor[] pair = createSeqPacketSocketPair();
+                    ParcelFileDescriptor[] pair = ParcelFileDescriptor.createSocketPair(
+                                                        OsConstants.SOCK_SEQPACKET);
                     MidiOutputPort outputPort = new MidiOutputPort(pair[0], portNumber);
                     mInputPortOutputPorts[portNumber] = outputPort;
                     outputPort.connect(mInputPortReceivers[portNumber]);
@@ -215,14 +192,14 @@ public final class MidiDeviceServer implements Closeable {
                     updateDeviceStatus();
                     return pair[1];
                 } catch (IOException e) {
-                    Log.e(TAG, "unable to create FileDescriptors in openInputPort");
+                    Log.e(TAG, "unable to create ParcelFileDescriptors in openInputPort");
                     return null;
                 }
             }
         }
 
         @Override
-        public FileDescriptor openOutputPort(IBinder token, int portNumber) {
+        public ParcelFileDescriptor openOutputPort(IBinder token, int portNumber) {
             if (mDeviceInfo.isPrivate()) {
                 if (Binder.getCallingUid() != Process.myUid()) {
                     throw new SecurityException("Can't access private device from different UID");
@@ -235,14 +212,9 @@ public final class MidiDeviceServer implements Closeable {
             }
 
             try {
-                FileDescriptor[] pair = createSeqPacketSocketPair();
+                ParcelFileDescriptor[] pair = ParcelFileDescriptor.createSocketPair(
+                                                    OsConstants.SOCK_SEQPACKET);
                 MidiInputPort inputPort = new MidiInputPort(pair[0], portNumber);
-                // Undo the default blocking-mode of the server-side socket for
-                // physical devices to avoid stalling the Java device handler if
-                // client app code gets stuck inside 'onSend' handler.
-                if (mDeviceInfo.getType() != MidiDeviceInfo.TYPE_VIRTUAL) {
-                    IoUtils.setBlocking(pair[0], false);
-                }
                 MidiDispatcher dispatcher = mOutputPortDispatchers[portNumber];
                 synchronized (dispatcher) {
                     dispatcher.getSender().connect(inputPort);
@@ -256,29 +228,19 @@ public final class MidiDeviceServer implements Closeable {
                 synchronized (mPortClients) {
                     mPortClients.put(token, client);
                 }
-                synchronized (mInputPortClients) {
-                    mInputPortClients.put(inputPort, client);
-                }
                 return pair[1];
             } catch (IOException e) {
-                Log.e(TAG, "unable to create FileDescriptors in openOutputPort");
+                Log.e(TAG, "unable to create ParcelFileDescriptors in openOutputPort");
                 return null;
             }
         }
 
         @Override
         public void closePort(IBinder token) {
-            MidiInputPort inputPort = null;
             synchronized (mPortClients) {
                 PortClient client = mPortClients.remove(token);
                 if (client != null) {
-                    inputPort = client.getInputPort();
                     client.close();
-                }
-            }
-            if (inputPort != null) {
-                synchronized (mInputPortClients) {
-                    mInputPortClients.remove(inputPort);
                 }
             }
         }
@@ -292,9 +254,9 @@ public final class MidiDeviceServer implements Closeable {
         }
 
         @Override
-        public int connectPorts(IBinder token, FileDescriptor fd,
+        public int connectPorts(IBinder token, ParcelFileDescriptor pfd,
                 int outputPortNumber) {
-            MidiInputPort inputPort = new MidiInputPort(fd, outputPortNumber);
+            MidiInputPort inputPort = new MidiInputPort(pfd, outputPortNumber);
             MidiDispatcher dispatcher = mOutputPortDispatchers[outputPortNumber];
             synchronized (dispatcher) {
                 dispatcher.getSender().connect(inputPort);
@@ -307,9 +269,6 @@ public final class MidiDeviceServer implements Closeable {
             OutputPortClient client = new OutputPortClient(token, inputPort);
             synchronized (mPortClients) {
                 mPortClients.put(token, client);
-            }
-            synchronized (mInputPortClients) {
-                mInputPortClients.put(inputPort, client);
             }
             return Process.myPid(); // for caller to detect same process ID
         }
@@ -344,7 +303,7 @@ public final class MidiDeviceServer implements Closeable {
 
         mOutputPortDispatchers = new MidiDispatcher[numOutputPorts];
         for (int i = 0; i < numOutputPorts; i++) {
-            mOutputPortDispatchers[i] = new MidiDispatcher(mInputPortFailureHandler);
+            mOutputPortDispatchers[i] = new MidiDispatcher();
         }
 
         mInputPortOpen = new boolean[mInputPortCount];
@@ -352,20 +311,6 @@ public final class MidiDeviceServer implements Closeable {
 
         mGuard.open("close");
     }
-
-    private final MidiDispatcher.MidiReceiverFailureHandler mInputPortFailureHandler =
-            new MidiDispatcher.MidiReceiverFailureHandler() {
-                public void onReceiverFailure(MidiReceiver receiver, IOException failure) {
-                    Log.e(TAG, "MidiInputPort failed to send data", failure);
-                    PortClient client = null;
-                    synchronized (mInputPortClients) {
-                        client = mInputPortClients.remove(receiver);
-                    }
-                    if (client != null) {
-                        client.close();
-                    }
-                }
-            };
 
     // Constructor for MidiDeviceService.onCreate()
     /* package */ MidiDeviceServer(IMidiManager midiManager, MidiReceiver[] inputPortReceivers,
@@ -429,10 +374,7 @@ public final class MidiDeviceServer implements Closeable {
     @Override
     protected void finalize() throws Throwable {
         try {
-            if (mGuard != null) {
-                mGuard.warnIfOpen();
-            }
-
+            mGuard.warnIfOpen();
             close();
         } finally {
             super.finalize();

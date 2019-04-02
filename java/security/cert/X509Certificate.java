@@ -673,13 +673,6 @@ implements X509Extension {
     public void verify(PublicKey key, Provider sigProvider)
         throws CertificateException, NoSuchAlgorithmException,
         InvalidKeyException, SignatureException {
-        // Android-changed: Use Certificate default implementation that
-        // throws UnsupportedOperationException.
-        // The method X509CertImpl calls this method, thus entering an
-        // infinite loop. This strange behaviour was checked to be not
-        // specific to libcore by running a test with vogar --mode=jvm
-        //
-        // X509CertImpl.verify(this, key, sigProvider);
-        super.verify(key, sigProvider);
+        X509CertImpl.verify(this, key, sigProvider);
     }
 }

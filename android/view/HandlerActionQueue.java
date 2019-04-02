@@ -16,9 +16,11 @@
 
 package android.view;
 
+import com.android.internal.util.GrowingArrayUtils;
+
 import android.os.Handler;
 
-import com.android.internal.util.GrowingArrayUtils;
+import java.util.ArrayList;
 
 /**
  * Class used to enqueue pending work from Views when no Handler is attached.

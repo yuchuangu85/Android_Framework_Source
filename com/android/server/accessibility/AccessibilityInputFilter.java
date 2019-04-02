@@ -17,7 +17,6 @@
 package com.android.server.accessibility;
 
 import android.content.Context;
-import android.os.Handler;
 import android.os.PowerManager;
 import android.util.Pools.SimplePool;
 import android.util.Slog;
@@ -30,8 +29,6 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.WindowManagerPolicy;
 import android.view.accessibility.AccessibilityEvent;
-
-import com.android.server.LocalServices;
 
 /**
  * This class is an input filter for implementing accessibility features such
@@ -80,6 +77,9 @@ class AccessibilityInputFilter extends InputFilter implements EventStreamTransfo
      */
     static final int FLAG_FEATURE_INJECT_MOTION_EVENTS = 0x00000010;
 
+    static final int FEATURES_AFFECTING_MOTION_EVENTS = FLAG_FEATURE_INJECT_MOTION_EVENTS
+            | FLAG_FEATURE_AUTOCLICK | FLAG_FEATURE_TOUCH_EXPLORATION
+            | FLAG_FEATURE_SCREEN_MAGNIFIER;
     /**
      * Flag for enabling the feature to control the screen magnifier. If
      * {@link #FLAG_FEATURE_SCREEN_MAGNIFIER} is set this flag is ignored
@@ -89,16 +89,6 @@ class AccessibilityInputFilter extends InputFilter implements EventStreamTransfo
      * @see #setUserAndEnabledFeatures(int, int)
      */
     static final int FLAG_FEATURE_CONTROL_SCREEN_MAGNIFIER = 0x00000020;
-
-    /**
-     * Flag for enabling the feature to trigger the screen magnifier
-     * from another on-device interaction.
-     */
-    static final int FLAG_FEATURE_TRIGGERED_SCREEN_MAGNIFIER = 0x00000040;
-
-    static final int FEATURES_AFFECTING_MOTION_EVENTS = FLAG_FEATURE_INJECT_MOTION_EVENTS
-            | FLAG_FEATURE_AUTOCLICK | FLAG_FEATURE_TOUCH_EXPLORATION
-            | FLAG_FEATURE_SCREEN_MAGNIFIER | FLAG_FEATURE_TRIGGERED_SCREEN_MAGNIFIER;
 
     private final Runnable mProcessBatchedEventsRunnable = new Runnable() {
         @Override
@@ -274,7 +264,6 @@ class AccessibilityInputFilter extends InputFilter implements EventStreamTransfo
 
     private void processKeyEvent(EventStreamState state, KeyEvent event, int policyFlags) {
         if (!state.shouldProcessKeyEvent(event)) {
-            super.onInputEvent(event, policyFlags);
             return;
         }
         mEventHandler.onKeyEvent(event, policyFlags);
@@ -390,12 +379,6 @@ class AccessibilityInputFilter extends InputFilter implements EventStreamTransfo
         }
     }
 
-    void notifyAccessibilityButtonClicked() {
-        if (mMagnificationGestureHandler != null) {
-            mMagnificationGestureHandler.notifyShortcutTriggered();
-        }
-    }
-
     private void enableFeatures() {
         resetStreamState();
 
@@ -410,14 +393,11 @@ class AccessibilityInputFilter extends InputFilter implements EventStreamTransfo
         }
 
         if ((mEnabledFeatures & FLAG_FEATURE_CONTROL_SCREEN_MAGNIFIER) != 0
-                || ((mEnabledFeatures & FLAG_FEATURE_SCREEN_MAGNIFIER) != 0)
-                || ((mEnabledFeatures & FLAG_FEATURE_TRIGGERED_SCREEN_MAGNIFIER) != 0)) {
+                || (mEnabledFeatures  & FLAG_FEATURE_SCREEN_MAGNIFIER) != 0) {
             final boolean detectControlGestures = (mEnabledFeatures
                     & FLAG_FEATURE_SCREEN_MAGNIFIER) != 0;
-            final boolean triggerable = (mEnabledFeatures
-                    & FLAG_FEATURE_TRIGGERED_SCREEN_MAGNIFIER) != 0;
             mMagnificationGestureHandler = new MagnificationGestureHandler(
-                    mContext, mAms, detectControlGestures, triggerable);
+                    mContext, mAms, detectControlGestures);
             addFirstEventHandler(mMagnificationGestureHandler);
         }
 
@@ -428,8 +408,7 @@ class AccessibilityInputFilter extends InputFilter implements EventStreamTransfo
         }
 
         if ((mEnabledFeatures & FLAG_FEATURE_FILTER_KEY_EVENTS) != 0) {
-            mKeyboardInterceptor = new KeyboardInterceptor(mAms,
-                    LocalServices.getService(WindowManagerPolicy.class));
+            mKeyboardInterceptor = new KeyboardInterceptor(mAms);
             addFirstEventHandler(mKeyboardInterceptor);
         }
     }

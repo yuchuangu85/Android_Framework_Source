@@ -16,25 +16,18 @@
 
 package android.appwidget;
 
-import android.annotation.BroadcastBehavior;
-import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.SdkConstant;
-import android.annotation.SystemService;
-import android.annotation.SdkConstant.SdkConstantType;
-import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentSender;
 import android.content.pm.ParceledListSlice;
-import android.content.pm.ShortcutInfo;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.util.DisplayMetrics;
+import android.util.TypedValue;
 import android.widget.RemoteViews;
 
 import com.android.internal.appwidget.IAppWidgetService;
@@ -52,7 +45,6 @@ import java.util.List;
  * <a href="{@docRoot}guide/topics/appwidgets/index.html">App Widgets</a> developer guide.</p>
  * </div>
  */
-@SystemService(Context.APPWIDGET_SERVICE)
 public class AppWidgetManager {
 
     /**
@@ -86,14 +78,12 @@ public class AppWidgetManager {
      *
      * @see #ACTION_APPWIDGET_CONFIGURE
      */
-    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_APPWIDGET_PICK = "android.appwidget.action.APPWIDGET_PICK";
 
     /**
      * Similar to ACTION_APPWIDGET_PICK, but used from keyguard
      * @hide
      */
-    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String
             ACTION_KEYGUARD_APPWIDGET_PICK = "android.appwidget.action.KEYGUARD_APPWIDGET_PICK";
 
@@ -140,7 +130,6 @@ public class AppWidgetManager {
      * @see #ACTION_APPWIDGET_CONFIGURE
      *
      */
-    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_APPWIDGET_BIND = "android.appwidget.action.APPWIDGET_BIND";
 
     /**
@@ -165,7 +154,6 @@ public class AppWidgetManager {
      * and not display this AppWidget, and you will receive a {@link #ACTION_APPWIDGET_DELETED}
      * broadcast.
      */
-    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_APPWIDGET_CONFIGURE = "android.appwidget.action.APPWIDGET_CONFIGURE";
 
     /**
@@ -299,8 +287,6 @@ public class AppWidgetManager {
      *
      * @see AppWidgetProvider#onUpdate AppWidgetProvider.onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds)
      */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @BroadcastBehavior(explicitOnly = true)
     public static final String ACTION_APPWIDGET_UPDATE = "android.appwidget.action.APPWIDGET_UPDATE";
 
     /**
@@ -313,8 +299,6 @@ public class AppWidgetManager {
      *      AppWidgetProvider.onAppWidgetOptionsChanged(Context context,
      *      AppWidgetManager appWidgetManager, int appWidgetId, Bundle newExtras)
      */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @BroadcastBehavior(explicitOnly = true)
     public static final String ACTION_APPWIDGET_OPTIONS_CHANGED = "android.appwidget.action.APPWIDGET_UPDATE_OPTIONS";
 
     /**
@@ -325,8 +309,6 @@ public class AppWidgetManager {
      *
      * @see AppWidgetProvider#onDeleted AppWidgetProvider.onDeleted(Context context, int[] appWidgetIds)
      */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @BroadcastBehavior(explicitOnly = true)
     public static final String ACTION_APPWIDGET_DELETED = "android.appwidget.action.APPWIDGET_DELETED";
 
     /**
@@ -337,8 +319,6 @@ public class AppWidgetManager {
      *
      * @see AppWidgetProvider#onEnabled AppWidgetProvider.onDisabled(Context context)
      */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @BroadcastBehavior(explicitOnly = true)
     public static final String ACTION_APPWIDGET_DISABLED = "android.appwidget.action.APPWIDGET_DISABLED";
 
     /**
@@ -351,8 +331,6 @@ public class AppWidgetManager {
      *
      * @see AppWidgetProvider#onEnabled AppWidgetProvider.onEnabled(Context context)
      */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @BroadcastBehavior(explicitOnly = true)
     public static final String ACTION_APPWIDGET_ENABLED = "android.appwidget.action.APPWIDGET_ENABLED";
 
     /**
@@ -384,8 +362,6 @@ public class AppWidgetManager {
      *
      * @see #ACTION_APPWIDGET_HOST_RESTORED
      */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @BroadcastBehavior(explicitOnly = true)
     public static final String ACTION_APPWIDGET_RESTORED
             = "android.appwidget.action.APPWIDGET_RESTORED";
 
@@ -423,8 +399,6 @@ public class AppWidgetManager {
      *
      * @see #ACTION_APPWIDGET_RESTORED
      */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @BroadcastBehavior(explicitOnly = true)
     public static final String ACTION_APPWIDGET_HOST_RESTORED
             = "android.appwidget.action.APPWIDGET_HOST_RESTORED";
 
@@ -438,17 +412,6 @@ public class AppWidgetManager {
      * {@sample frameworks/base/tests/appwidgets/AppWidgetHostTest/src/com/android/tests/appwidgethost/TestAppWidgetProvider.java getExtra_EXTRA_APPWIDGET_IDS}
      */
     public static final String EXTRA_APPWIDGET_OLD_IDS = "appWidgetOldIds";
-
-    /**
-     * An extra that can be passed to
-     * {@link #requestPinAppWidget(ComponentName, Bundle, PendingIntent)}. This would allow the
-     * launcher app to present a custom preview to the user.
-     *
-     * <p>
-     * The value should be a {@link RemoteViews} similar to what is used with
-     * {@link #updateAppWidget} calls.
-     */
-    public static final String EXTRA_APPWIDGET_PREVIEW = "appWidgetPreview";
 
     /**
      * Field for the manifest meta-data tag.
@@ -712,51 +675,19 @@ public class AppWidgetManager {
      * user may have a corporate profile. In this case the parent user profile has a
      * child profile, the corporate one.
      *
-     * @param profile The profile for which to get providers. Passing null is equivalent
-     *        to querying for only the calling user.
-     * @return The installed providers, or an empty list if none are found for the given user.
+     * @param profile The profile for which to get providers. Passing null is equivaled
+     *         to passing only the current user handle.
+     * @return The intalled providers.
      *
      * @see android.os.Process#myUserHandle()
      * @see android.os.UserManager#getUserProfiles()
      */
-    public @NonNull List<AppWidgetProviderInfo> getInstalledProvidersForProfile(
-            @Nullable UserHandle profile) {
+    public List<AppWidgetProviderInfo> getInstalledProvidersForProfile(@Nullable UserHandle profile) {
         if (mService == null) {
             return Collections.emptyList();
         }
         return getInstalledProvidersForProfile(AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN,
-                profile, null);
-    }
-
-    /**
-     * Gets the AppWidget providers for the given package and user profile. User
-     * profile can only be the current user or a profile of the current user. For
-     * example, the current user may have a corporate profile. In this case the
-     * parent user profile has a child profile, the corporate one.
-     *
-     * @param packageName The package for which to get providers. If null, this method is
-     *        equivalent to {@link #getInstalledProvidersForProfile(UserHandle)}.
-     * @param profile The profile for which to get providers. Passing null is equivalent
-     *        to querying for only the calling user.
-     * @return The installed providers, or an empty list if none are found for the given
-     *         package and user.
-     * @throws NullPointerException if the provided package name is null
-     *
-     * @see android.os.Process#myUserHandle()
-     * @see android.os.UserManager#getUserProfiles()
-     */
-    public @NonNull List<AppWidgetProviderInfo> getInstalledProvidersForPackage(
-            @NonNull String packageName, @Nullable UserHandle profile) {
-        if (packageName == null) {
-            throw new NullPointerException("A non-null package must be passed to this method. " +
-                    "If you want all widgets regardless of package, see " +
-                    "getInstalledProvidersForProfile(UserHandle)");
-        }
-        if (mService == null) {
-            return Collections.emptyList();
-        }
-        return getInstalledProvidersForProfile(AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN,
-                profile, packageName);
+                profile);
     }
 
     /**
@@ -767,7 +698,7 @@ public class AppWidgetManager {
             return Collections.emptyList();
         }
         return getInstalledProvidersForProfile(AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN,
-                null, null);
+                null);
     }
 
     /**
@@ -786,7 +717,7 @@ public class AppWidgetManager {
         if (mService == null) {
             return Collections.emptyList();
         }
-        return getInstalledProvidersForProfile(categoryFilter, null, null);
+        return getInstalledProvidersForProfile(categoryFilter, null);
     }
 
     /**
@@ -800,7 +731,6 @@ public class AppWidgetManager {
      * @param profile A profile of the current user which to be queried. The user
      *        is itself also a profile. If null, the providers only for the current user
      *        are returned.
-     * @param packageName If specified, will only return providers from the given package.
      * @return The intalled providers.
      *
      * @see android.os.Process#myUserHandle()
@@ -809,7 +739,7 @@ public class AppWidgetManager {
      * @hide
      */
     public List<AppWidgetProviderInfo> getInstalledProvidersForProfile(int categoryFilter,
-            @Nullable UserHandle profile, @Nullable String packageName) {
+            UserHandle profile) {
         if (mService == null) {
             return Collections.emptyList();
         }
@@ -820,13 +750,13 @@ public class AppWidgetManager {
 
         try {
             ParceledListSlice<AppWidgetProviderInfo> providers = mService.getInstalledProvidersForProfile(
-                    categoryFilter, profile.getIdentifier(), packageName);
+                    categoryFilter, profile.getIdentifier());
             if (providers == null) {
                 return Collections.emptyList();
             }
             for (AppWidgetProviderInfo info : providers.getList()) {
                 // Converting complex to dp.
-                info.updateDimensions(mDisplayMetrics);
+                convertSizesToPixels(info);
             }
             return providers.getList();
         } catch (RemoteException e) {
@@ -848,7 +778,7 @@ public class AppWidgetManager {
             AppWidgetProviderInfo info = mService.getAppWidgetInfo(mPackageName, appWidgetId);
             if (info != null) {
                 // Converting complex to dp.
-                info.updateDimensions(mDisplayMetrics);
+                convertSizesToPixels(info);
             }
             return info;
         } catch (RemoteException e) {
@@ -1138,65 +1068,15 @@ public class AppWidgetManager {
         }
     }
 
-    /**
-     * Return {@code TRUE} if the default launcher supports
-     * {@link #requestPinAppWidget(ComponentName, Bundle, PendingIntent)}
-     */
-    public boolean isRequestPinAppWidgetSupported() {
-        try {
-            return mService.isRequestPinAppWidgetSupported();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Only used during development. Can be deleted before release.
-     * @hide
-     */
-    public boolean requestPinAppWidget(@NonNull ComponentName provider,
-            @Nullable PendingIntent successCallback) {
-        return requestPinAppWidget(provider, null, successCallback);
-    }
-
-    /**
-     * Request to pin an app widget on the current launcher. It's up to the launcher to accept this
-     * request (optionally showing a user confirmation). If the request is accepted, the caller will
-     * get a confirmation with extra {@link #EXTRA_APPWIDGET_ID}.
-     *
-     * <p>When a request is denied by the user, the caller app will not get any response.
-     *
-     * <p>Only apps with a foreground activity or a foreground service can call it.  Otherwise
-     * it'll throw {@link IllegalStateException}.
-     *
-     * <p>It's up to the launcher how to handle previous pending requests when the same package
-     * calls this API multiple times in a row.  It may ignore the previous requests,
-     * for example.
-     *
-     * @param provider The {@link ComponentName} for the {@link
-     *    android.content.BroadcastReceiver BroadcastReceiver} provider for your AppWidget.
-     * @param extras In not null, this is passed to the launcher app. For eg {@link
-     *    #EXTRA_APPWIDGET_PREVIEW} can be used for a custom preview.
-     * @param successCallback If not null, this intent will be sent when the widget is created.
-     *
-     * @return {@code TRUE} if the launcher supports this feature. Note the API will return without
-     *    waiting for the user to respond, so getting {@code TRUE} from this API does *not* mean
-     *    the shortcut is pinned. {@code FALSE} if the launcher doesn't support this feature.
-     *
-     * @see android.content.pm.ShortcutManager#isRequestPinShortcutSupported()
-     * @see android.content.pm.ShortcutManager#requestPinShortcut(ShortcutInfo, IntentSender)
-     * @see #isRequestPinAppWidgetSupported()
-     *
-     * @throws IllegalStateException The caller doesn't have a foreground activity or a foreground
-     * service or when the user is locked.
-     */
-    public boolean requestPinAppWidget(@NonNull ComponentName provider,
-            @Nullable Bundle extras, @Nullable PendingIntent successCallback) {
-        try {
-            return mService.requestPinAppWidget(mPackageName, provider, extras,
-                    successCallback == null ? null : successCallback.getIntentSender());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+    private void convertSizesToPixels(AppWidgetProviderInfo info) {
+        // Converting complex to dp.
+        info.minWidth = TypedValue.complexToDimensionPixelSize(info.minWidth,
+                mDisplayMetrics);
+        info.minHeight = TypedValue.complexToDimensionPixelSize(info.minHeight,
+                mDisplayMetrics);
+        info.minResizeWidth = TypedValue.complexToDimensionPixelSize(info.minResizeWidth,
+                mDisplayMetrics);
+        info.minResizeHeight = TypedValue.complexToDimensionPixelSize(info.minResizeHeight,
+                mDisplayMetrics);
     }
 }

@@ -15,6 +15,7 @@ package android.support.v17.leanback.widget;
 
 import android.content.Context;
 import android.view.View;
+import android.view.ViewGroup.LayoutParams;
 
 /**
  * A wrapper class working with {@link ItemBridgeAdapter} to wrap item view in a

@@ -17,16 +17,9 @@
 package android.support.transition;
 
 import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
-import android.animation.ObjectAnimator;
-import android.content.Context;
-import android.content.res.TypedArray;
-import android.content.res.XmlResourceParser;
+import android.os.Build;
 import android.support.annotation.NonNull;
-import android.support.v4.content.res.TypedArrayUtils;
-import android.support.v4.view.ViewCompat;
-import android.util.AttributeSet;
-import android.util.Log;
+import android.support.annotation.Nullable;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -55,29 +48,23 @@ import android.view.ViewGroup;
  * created from a layout resource file}, then it is considered safe to un-parent
  * the starting scene view in order to fade it out.</p>
  *
- * <p>A Fade transition can be described in a resource file by using the
- * tag <code>fade</code>, along with the standard
- * attributes of {@code Fade} and {@link Transition}.</p>
+ * <p>Unlike the platform version, this does not support use in XML resources.</p>
  */
 public class Fade extends Visibility {
-
-    private static final String PROPNAME_TRANSITION_ALPHA = "android:fade:transitionAlpha";
-
-    private static final String LOG_TAG = "Fade";
 
     /**
      * Fading mode used in {@link #Fade(int)} to make the transition
      * operate on targets that are appearing. Maybe be combined with
      * {@link #OUT} to fade both in and out.
      */
-    public static final int IN = Visibility.MODE_IN;
+    public static final int IN = 0x1;
 
     /**
      * Fading mode used in {@link #Fade(int)} to make the transition
      * operate on targets that are disappearing. Maybe be combined with
      * {@link #IN} to fade both in and out.
      */
-    public static final int OUT = Visibility.MODE_OUT;
+    public static final int OUT = 0x2;
 
     /**
      * Constructs a Fade transition that will fade targets in
@@ -87,119 +74,44 @@ public class Fade extends Visibility {
      *                   {@link #IN} and {@link #OUT}.
      */
     public Fade(int fadingMode) {
-        setMode(fadingMode);
+        super(true);
+        if (Build.VERSION.SDK_INT >= 19) {
+            if (fadingMode > 0) {
+                mImpl = new FadeKitKat(this, fadingMode);
+            } else {
+                mImpl = new FadeKitKat(this);
+            }
+        } else {
+            if (fadingMode > 0) {
+                mImpl = new FadeIcs(this, fadingMode);
+            } else {
+                mImpl = new FadeIcs(this);
+            }
+        }
     }
 
     /**
      * Constructs a Fade transition that will fade targets in and out.
      */
     public Fade() {
+        this(-1);
     }
 
-    public Fade(Context context, AttributeSet attrs) {
-        super(context, attrs);
-        TypedArray a = context.obtainStyledAttributes(attrs, Styleable.FADE);
-        @Mode
-        int fadingMode = TypedArrayUtils.getNamedInt(a, (XmlResourceParser) attrs, "fadingMode",
-                Styleable.Fade.FADING_MODE, getMode());
-        setMode(fadingMode);
-        a.recycle();
+    @Override
+    public void captureEndValues(@NonNull TransitionValues transitionValues) {
+        mImpl.captureEndValues(transitionValues);
     }
 
     @Override
     public void captureStartValues(@NonNull TransitionValues transitionValues) {
-        super.captureStartValues(transitionValues);
-        transitionValues.values.put(PROPNAME_TRANSITION_ALPHA,
-                ViewUtils.getTransitionAlpha(transitionValues.view));
-    }
-
-    /**
-     * Utility method to handle creating and running the Animator.
-     */
-    private Animator createAnimation(final View view, float startAlpha, float endAlpha) {
-        if (startAlpha == endAlpha) {
-            return null;
-        }
-        ViewUtils.setTransitionAlpha(view, startAlpha);
-        final ObjectAnimator anim = ObjectAnimator.ofFloat(view, ViewUtils.TRANSITION_ALPHA,
-                endAlpha);
-        if (DBG) {
-            Log.d(LOG_TAG, "Created animator " + anim);
-        }
-        FadeAnimatorListener listener = new FadeAnimatorListener(view);
-        anim.addListener(listener);
-        addListener(new TransitionListenerAdapter() {
-            @Override
-            public void onTransitionEnd(@NonNull Transition transition) {
-                ViewUtils.setTransitionAlpha(view, 1);
-                ViewUtils.clearNonTransitionAlpha(view);
-                transition.removeListener(this);
-            }
-        });
-        return anim;
+        mImpl.captureStartValues(transitionValues);
     }
 
     @Override
-    public Animator onAppear(ViewGroup sceneRoot, View view,
-            TransitionValues startValues,
-            TransitionValues endValues) {
-        if (DBG) {
-            View startView = (startValues != null) ? startValues.view : null;
-            Log.d(LOG_TAG, "Fade.onAppear: startView, startVis, endView, endVis = "
-                    + startView + ", " + view);
-        }
-        float startAlpha = getStartAlpha(startValues, 0);
-        if (startAlpha == 1) {
-            startAlpha = 0;
-        }
-        return createAnimation(view, startAlpha, 1);
-    }
-
-    @Override
-    public Animator onDisappear(ViewGroup sceneRoot, final View view, TransitionValues startValues,
-            TransitionValues endValues) {
-        ViewUtils.saveNonTransitionAlpha(view);
-        float startAlpha = getStartAlpha(startValues, 1);
-        return createAnimation(view, startAlpha, 0);
-    }
-
-    private static float getStartAlpha(TransitionValues startValues, float fallbackValue) {
-        float startAlpha = fallbackValue;
-        if (startValues != null) {
-            Float startAlphaFloat = (Float) startValues.values.get(PROPNAME_TRANSITION_ALPHA);
-            if (startAlphaFloat != null) {
-                startAlpha = startAlphaFloat;
-            }
-        }
-        return startAlpha;
-    }
-
-    private static class FadeAnimatorListener extends AnimatorListenerAdapter {
-
-        private final View mView;
-        private boolean mLayerTypeChanged = false;
-
-        FadeAnimatorListener(View view) {
-            mView = view;
-        }
-
-        @Override
-        public void onAnimationStart(Animator animation) {
-            if (ViewCompat.hasOverlappingRendering(mView)
-                    && mView.getLayerType() == View.LAYER_TYPE_NONE) {
-                mLayerTypeChanged = true;
-                mView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-            }
-        }
-
-        @Override
-        public void onAnimationEnd(Animator animation) {
-            ViewUtils.setTransitionAlpha(mView, 1);
-            if (mLayerTypeChanged) {
-                mView.setLayerType(View.LAYER_TYPE_NONE, null);
-            }
-        }
-
+    @Nullable
+    public Animator createAnimator(@NonNull ViewGroup sceneRoot,
+            @NonNull TransitionValues startValues, @NonNull TransitionValues endValues) {
+        return mImpl.createAnimator(sceneRoot, startValues, endValues);
     }
 
 }

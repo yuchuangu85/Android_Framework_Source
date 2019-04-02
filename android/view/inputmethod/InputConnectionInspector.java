@@ -16,8 +16,6 @@
 
 package android.view.inputmethod;
 
-import static java.lang.annotation.RetentionPolicy.SOURCE;
-
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -29,6 +27,8 @@ import java.lang.reflect.Modifier;
 import java.util.Collections;
 import java.util.Map;
 import java.util.WeakHashMap;
+
+import static java.lang.annotation.RetentionPolicy.SOURCE;
 
 /**
  * @hide

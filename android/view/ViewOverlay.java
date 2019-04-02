@@ -238,19 +238,7 @@ public class ViewOverlay {
 
         @Override
         protected void dispatchDraw(Canvas canvas) {
-            /*
-             * The OverlayViewGroup doesn't draw with a DisplayList, because
-             * draw(Canvas, View, long) is never called on it. This is fine, since it doesn't need
-             * RenderNode/DisplayList features, and can just draw into the owner's Canvas.
-             *
-             * This means that we need to insert reorder barriers manually though, so that children
-             * of the OverlayViewGroup can cast shadows and Z reorder with each other.
-             */
-            canvas.insertReorderBarrier();
-
             super.dispatchDraw(canvas);
-
-            canvas.insertInorderBarrier();
             final int numDrawables = (mDrawables == null) ? 0 : mDrawables.size();
             for (int i = 0; i < numDrawables; ++i) {
                 mDrawables.get(i).draw(canvas);
@@ -295,9 +283,8 @@ public class ViewOverlay {
             }
         }
 
-        /** @hide */
         @Override
-        public void invalidate(boolean invalidateCache) {
+        void invalidate(boolean invalidateCache) {
             super.invalidate(invalidateCache);
             if (mHostView != null) {
                 mHostView.invalidate(invalidateCache);
@@ -328,22 +315,34 @@ public class ViewOverlay {
             }
         }
 
+        /**
+         * @hide
+         */
         @Override
-        public void onDescendantInvalidated(@NonNull View child, @NonNull View target) {
+        public void damageChild(View child, final Rect dirty) {
             if (mHostView != null) {
-                if (mHostView instanceof ViewGroup) {
-                    // Propagate invalidate through the host...
-                    ((ViewGroup) mHostView).onDescendantInvalidated(mHostView, target);
-
-                    // ...and also this view, since it will hold the descendant, and must later
-                    // propagate the calls to update display lists if dirty
-                    super.onDescendantInvalidated(child, target);
-                } else {
-                    // Can't use onDescendantInvalidated because host isn't a ViewGroup - fall back
-                    // to invalidating.
-                    invalidate();
+                // Note: This is not a "fast" invalidation. Would be nice to instead invalidate
+                // using DisplayList properties and a dirty rect instead of causing a real
+                // invalidation of the host view
+                int left = child.mLeft;
+                int top = child.mTop;
+                if (!child.getMatrix().isIdentity()) {
+                    child.transformRect(dirty);
                 }
+                dirty.offset(left, top);
+                mHostView.invalidate(dirty);
             }
+        }
+
+        /**
+         * @hide
+         */
+        @Override
+        protected ViewParent damageChildInParent(int left, int top, Rect dirty) {
+            if (mHostView instanceof ViewGroup) {
+                return ((ViewGroup) mHostView).damageChildInParent(left, top, dirty);
+            }
+            return null;
         }
 
         @Override

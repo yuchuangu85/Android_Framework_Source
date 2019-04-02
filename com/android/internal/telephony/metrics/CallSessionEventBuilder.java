@@ -16,14 +16,13 @@
 
 package com.android.internal.telephony.metrics;
 
-import com.android.internal.telephony.nano.TelephonyProto.ImsCapabilities;
-import com.android.internal.telephony.nano.TelephonyProto.ImsConnectionState;
-import com.android.internal.telephony.nano.TelephonyProto.ImsReasonInfo;
-import com.android.internal.telephony.nano.TelephonyProto.RilDataCall;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession.Event.RilCall;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyServiceState;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonySettings;
+import com.android.internal.telephony.TelephonyProto.ImsCapabilities;
+import com.android.internal.telephony.TelephonyProto.ImsConnectionState;
+import com.android.internal.telephony.TelephonyProto.ImsReasonInfo;
+import com.android.internal.telephony.TelephonyProto.RilDataCall;
+import com.android.internal.telephony.TelephonyProto.TelephonyCallSession;
+import com.android.internal.telephony.TelephonyProto.TelephonyServiceState;
+import com.android.internal.telephony.TelephonyProto.TelephonySettings;
 
 public class CallSessionEventBuilder {
     private final TelephonyCallSession.Event mEvent = new TelephonyCallSession.Event();
@@ -33,46 +32,46 @@ public class CallSessionEventBuilder {
     }
 
     public CallSessionEventBuilder(int type) {
-        mEvent.type = type;
+        mEvent.setType(type);
     }
 
     public CallSessionEventBuilder setDelay(int delay) {
-        mEvent.delay = delay;
+        mEvent.setDelay(delay);
         return this;
     }
 
     public CallSessionEventBuilder setRilRequest(int rilRequestType) {
-        mEvent.rilRequest = rilRequestType;
+        mEvent.setRilRequest(rilRequestType);
         return this;
     }
 
     public CallSessionEventBuilder setRilRequestId(int rilRequestId) {
-        mEvent.rilRequestId = rilRequestId;
+        mEvent.setRilRequestId(rilRequestId);
         return this;
     }
 
     public CallSessionEventBuilder setRilError(int rilError) {
-        mEvent.error = rilError;
+        mEvent.setError(rilError);
         return this;
     }
 
     public CallSessionEventBuilder setCallIndex(int callIndex) {
-        mEvent.callIndex = callIndex;
+        mEvent.setCallIndex(callIndex);
         return this;
     }
 
     public CallSessionEventBuilder setCallState(int state) {
-        mEvent.callState = state;
+        mEvent.setCallState(state);
         return this;
     }
 
     public CallSessionEventBuilder setSrvccState(int srvccState) {
-        mEvent.srvccState = srvccState;
+        mEvent.setSrvccState(srvccState);
         return this;
     }
 
     public CallSessionEventBuilder setImsCommand(int imsCommand) {
-        mEvent.imsCommand = imsCommand;
+        mEvent.setImsCommand(imsCommand);
         return this;
     }
 
@@ -82,12 +81,12 @@ public class CallSessionEventBuilder {
     }
 
     public CallSessionEventBuilder setSrcAccessTech(int tech) {
-        mEvent.srcAccessTech = tech;
+        mEvent.setSrcAccessTech(tech);
         return this;
     }
 
     public CallSessionEventBuilder setTargetAccessTech(int tech) {
-        mEvent.targetAccessTech = tech;
+        mEvent.setTargetAccessTech(tech);
         return this;
     }
 
@@ -117,17 +116,12 @@ public class CallSessionEventBuilder {
     }
 
     public CallSessionEventBuilder setPhoneState(int phoneState) {
-        mEvent.phoneState = phoneState;
+        mEvent.setPhoneState(phoneState);
         return this;
     }
 
     public CallSessionEventBuilder setNITZ(long timestamp) {
-        mEvent.nitzTimestampMillis = timestamp;
-        return this;
-    }
-
-    public CallSessionEventBuilder setRilCalls(RilCall[] rilCalls) {
-        mEvent.calls = rilCalls;
+        mEvent.setNitzTimestampMillis(timestamp);
         return this;
     }
 }

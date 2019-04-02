@@ -16,15 +16,15 @@
 
 package com.android.internal.telephony.dataconnection;
 
-import android.net.LinkProperties;
-import android.net.NetworkCapabilities;
-import android.net.ProxyInfo;
-import android.os.Message;
-
 import com.android.internal.telephony.dataconnection.DataConnection.ConnectionParams;
 import com.android.internal.telephony.dataconnection.DataConnection.DisconnectParams;
 import com.android.internal.util.AsyncChannel;
 import com.android.internal.util.Protocol;
+
+import android.net.LinkProperties;
+import android.net.NetworkCapabilities;
+import android.net.ProxyInfo;
+import android.os.Message;
 
 /**
  * AsyncChannel to a DataConnection
@@ -79,8 +79,6 @@ public class DcAsyncChannel extends AsyncChannel {
         sCmdToString[REQ_RESET - BASE] = "REQ_RESET";
         sCmdToString[RSP_RESET - BASE] = "RSP_RESET";
     }
-
-    ConnectionParams mLastConnectionParams;
 
     // Convert cmd to string or null if unknown
     protected static String cmdToString(int cmd) {
@@ -321,7 +319,7 @@ public class DcAsyncChannel extends AsyncChannel {
      * Evaluate RSP_GET_NETWORK_CAPABILITIES
      *
      * @param response
-     * @return NetworkCapabilities, maybe null.
+     * @return NetworkCapabilites, maybe null.
      */
     public NetworkCapabilities rspNetworkCapabilities(Message response) {
         NetworkCapabilities retVal = (NetworkCapabilities) response.obj;
@@ -344,7 +342,7 @@ public class DcAsyncChannel extends AsyncChannel {
                 value = null;
             }
         } else {
-            value = mDc.getNetworkCapabilities();
+            value = mDc.getCopyNetworkCapabilities();
         }
         return value;
     }
@@ -359,29 +357,23 @@ public class DcAsyncChannel extends AsyncChannel {
 
     /**
      * Bring up a connection to the apn and return an AsyncResult in onCompletedMsg.
-     * Used for cellular networks that use Access Point Names (APN) such
+     * Used for cellular networks that use Acesss Point Names (APN) such
      * as GSM networks.
      *
      * @param apnContext is the Access Point Name to bring up a connection to
-     * @param profileId for the connection
-     * @param rilRadioTechnology Radio technology for the data connection
-     * @param unmeteredUseOnly Indicates the data connection can only used for unmetered purposes
+     * @param profileId for the conneciton
      * @param onCompletedMsg is sent with its msg.obj as an AsyncResult object.
-     *                       With AsyncResult.userObj set to the original msg.obj,
-     *                       AsyncResult.result = FailCause and AsyncResult.exception = Exception().
-     * @param connectionGeneration used to track a single connection request so disconnects can get
-     *                             ignored if obsolete.
+     *        With AsyncResult.userObj set to the original msg.obj,
+     *        AsyncResult.result = FailCause and AsyncResult.exception = Exception().
      */
     public void bringUp(ApnContext apnContext, int profileId, int rilRadioTechnology,
-                        boolean unmeteredUseOnly, Message onCompletedMsg,
-                        int connectionGeneration) {
+                        Message onCompletedMsg, int connectionGeneration) {
         if (DBG) {
-            log("bringUp: apnContext=" + apnContext + "unmeteredUseOnly=" + unmeteredUseOnly
-                    + " onCompletedMsg=" + onCompletedMsg);
+            log("bringUp: apnContext=" + apnContext + " onCompletedMsg=" + onCompletedMsg);
         }
-        mLastConnectionParams = new ConnectionParams(apnContext, profileId, rilRadioTechnology,
-                unmeteredUseOnly, onCompletedMsg, connectionGeneration);
-        sendMessage(DataConnection.EVENT_CONNECT, mLastConnectionParams);
+        sendMessage(DataConnection.EVENT_CONNECT,
+                new ConnectionParams(apnContext, profileId, rilRadioTechnology, onCompletedMsg,
+                        connectionGeneration));
     }
 
     /**

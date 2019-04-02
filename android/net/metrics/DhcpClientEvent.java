@@ -16,6 +16,7 @@
 
 package android.net.metrics;
 
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -23,6 +24,7 @@ import android.os.Parcelable;
  * An event recorded when a DhcpClient state machine transitions to a new state.
  * {@hide}
  */
+@SystemApi
 public final class DhcpClientEvent implements Parcelable {
 
     // Names for recording DhcpClient pseudo-state transitions.
@@ -31,21 +33,26 @@ public final class DhcpClientEvent implements Parcelable {
     /** {@hide} Represents transitions from and to DhcpBoundState via DhcpRenewingState */
     public static final String RENEWING_BOUND = "RenewingBoundState";
 
+    public final String ifName;
     public final String msg;
     public final int durationMs;
 
-    public DhcpClientEvent(String msg, int durationMs) {
+    /** {@hide} */
+    public DhcpClientEvent(String ifName, String msg, int durationMs) {
+        this.ifName = ifName;
         this.msg = msg;
         this.durationMs = durationMs;
     }
 
     private DhcpClientEvent(Parcel in) {
+        this.ifName = in.readString();
         this.msg = in.readString();
         this.durationMs = in.readInt();
     }
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
+        out.writeString(ifName);
         out.writeString(msg);
         out.writeInt(durationMs);
     }
@@ -57,7 +64,7 @@ public final class DhcpClientEvent implements Parcelable {
 
     @Override
     public String toString() {
-        return String.format("DhcpClientEvent(%s, %dms)", msg, durationMs);
+        return String.format("DhcpClientEvent(%s, %s, %dms)", ifName, msg, durationMs);
     }
 
     public static final Parcelable.Creator<DhcpClientEvent> CREATOR
@@ -70,4 +77,7 @@ public final class DhcpClientEvent implements Parcelable {
             return new DhcpClientEvent[size];
         }
     };
+
+    public static void logStateEvent(String ifName, String state) {
+    }
 }

@@ -18,6 +18,7 @@ package android.support.v7.widget;
 
 import android.graphics.Rect;
 import android.view.View;
+import android.widget.LinearLayout;
 
 /**
  * Helper class for LayoutManagers to abstract measurements depending on the View's orientation.
@@ -35,9 +36,9 @@ public abstract class OrientationHelper {
 
     protected final RecyclerView.LayoutManager mLayoutManager;
 
-    public static final int HORIZONTAL = RecyclerView.HORIZONTAL;
+    public static final int HORIZONTAL = LinearLayout.HORIZONTAL;
 
-    public static final int VERTICAL = RecyclerView.VERTICAL;
+    public static final int VERTICAL = LinearLayout.VERTICAL;
 
     private int mLastTotalSpace = INVALID_SIZE;
 
@@ -229,7 +230,7 @@ public abstract class OrientationHelper {
      * @return A new OrientationHelper
      */
     public static OrientationHelper createOrientationHelper(
-            RecyclerView.LayoutManager layoutManager, @RecyclerView.Orientation int orientation) {
+            RecyclerView.LayoutManager layoutManager, int orientation) {
         switch (orientation) {
             case HORIZONTAL:
                 return createHorizontalHelper(layoutManager);

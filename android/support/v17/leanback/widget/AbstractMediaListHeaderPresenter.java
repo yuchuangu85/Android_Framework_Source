@@ -15,10 +15,11 @@ package android.support.v17.leanback.widget;
 
 import android.content.Context;
 import android.graphics.Color;
-import android.support.v17.leanback.R;
+import android.util.TypedValue;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.support.v17.leanback.R;
 import android.view.ViewGroup;
 import android.widget.TextView;
 

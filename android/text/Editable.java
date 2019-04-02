@@ -94,10 +94,10 @@ extends CharSequence, GetChars, Spannable, Appendable
     public Editable append(char text);
 
     /**
-     * Convenience for replace(0, length(), "", 0, 0).
+     * Convenience for replace(0, length(), "", 0, 0)
+     * @see #replace(int, int, CharSequence, int, int)
      * Note that this clears the text, not the spans;
      * use {@link #clearSpans} if you need that.
-     * @see #replace(int, int, CharSequence, int, int)
      */
     public void clear();
 
@@ -121,10 +121,8 @@ extends CharSequence, GetChars, Spannable, Appendable
     public InputFilter[] getFilters();
 
     /**
-     * Factory used by TextView to create new {@link Editable Editables}. You can subclass
-     * it to provide something other than {@link SpannableStringBuilder}.
-     *
-     * @see android.widget.TextView#setEditableFactory(Factory)
+     * Factory used by TextView to create new Editables.  You can subclass
+     * it to provide something other than SpannableStringBuilder.
      */
     public static class Factory {
         private static Editable.Factory sInstance = new Editable.Factory();

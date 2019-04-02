@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2006, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -93,7 +93,7 @@ class XmlSupport {
      * @throws BackingStoreException if preference data cannot be read from
      *         backing store.
      * @throws IllegalStateException if this node (or an ancestor) has been
-     *         removed with the {@link Preferences#removeNode()} method.
+     *         removed with the {@link #removeNode()} method.
      */
     static void export(OutputStream os, final Preferences p, boolean subTree)
         throws IOException, BackingStoreException {
@@ -107,7 +107,7 @@ class XmlSupport {
         xmlRoot.setAttribute("type", (p.isUserNode() ? "user" : "system"));
 
         // Get bottom-up list of nodes from p to root, excluding root
-        List<Preferences> ancestors = new ArrayList<>();
+        List ancestors = new ArrayList();
 
         for (Preferences kid = p, dad = kid.parent(); dad != null;
                                    kid = dad, dad = kid.parent()) {
@@ -117,7 +117,7 @@ class XmlSupport {
         for (int i=ancestors.size()-1; i >= 0; i--) {
             e.appendChild(doc.createElement("map"));
             e = (Element) e.appendChild(doc.createElement("node"));
-            e.setAttribute("name", ancestors.get(i).name());
+            e.setAttribute("name", ((Preferences)ancestors.get(i)).name());
         }
         putPreferencesInXml(e, doc, p, subTree);
 
@@ -250,7 +250,7 @@ class XmlSupport {
     {
         DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
         dbf.setIgnoringElementContentWhitespace(true);
-        // Android-changed: No validating builder implementation.
+        // Android changed: No validating builder implementation.
         // dbf.setValidating(true);
         dbf.setCoalescing(true);
         dbf.setIgnoringComments(true);
@@ -310,7 +310,7 @@ class XmlSupport {
      * preferences tree, as appropriate.
      */
     private static void ImportSubtree(Preferences prefsNode, Element xmlNode) {
-        // Android-changed: filter out non-element nodes.
+        // Android changed: filter out non-element nodes.
         List<Element> xmlKids = getChildElements(xmlNode);
 
         /*
@@ -349,7 +349,7 @@ class XmlSupport {
      * preferences node.
      */
     private static void ImportPrefs(Preferences prefsNode, Element map) {
-        // Android-changed: Use getChildElements.
+        // Android changed: Use getChildElements.
         List<Element> entries = getChildElements(map);
         for (int i=0, numEntries = entries.size(); i < numEntries; i++) {
             Element entry = entries.get(i);
@@ -365,17 +365,17 @@ class XmlSupport {
      * @throws IOException if writing to the specified output stream
      *         results in an <tt>IOException</tt>.
      */
-    static void exportMap(OutputStream os, Map<String, String> map) throws IOException {
+    static void exportMap(OutputStream os, Map map) throws IOException {
         Document doc = createPrefsDoc("map");
         Element xmlMap = doc.getDocumentElement( ) ;
         xmlMap.setAttribute("MAP_XML_VERSION", MAP_XML_VERSION);
 
-        for (Iterator<Map.Entry<String, String>> i = map.entrySet().iterator(); i.hasNext(); ) {
-            Map.Entry<String, String> e = i.next();
+        for (Iterator i = map.entrySet().iterator(); i.hasNext(); ) {
+            Map.Entry e = (Map.Entry) i.next();
             Element xe = (Element)
                 xmlMap.appendChild(doc.createElement("entry"));
-            xe.setAttribute("key",   e.getKey());
-            xe.setAttribute("value", e.getValue());
+            xe.setAttribute("key",   (String) e.getKey());
+            xe.setAttribute("value", (String) e.getValue());
         }
 
         writeDoc(doc, os);
@@ -394,7 +394,7 @@ class XmlSupport {
      * @throws InvalidPreferencesFormatException Data on input stream does not
      *         constitute a valid XML document with the mandated document type.
      */
-    static void importMap(InputStream is, Map<String, String> m)
+    static void importMap(InputStream is, Map m)
         throws IOException, InvalidPreferencesFormatException
     {
         try {
@@ -411,7 +411,7 @@ class XmlSupport {
 
             NodeList entries = xmlMap.getChildNodes();
             for (int i=0, numEntries=entries.getLength(); i<numEntries; i++) {
-                // Android-added, android xml serializer generates one-char Text nodes with a single
+                // Android added, android xml serializer generates one-char Text nodes with a single
                 // new-line character between expected Element nodes. openJdk code wasn't
                 // expecting anything else than Element node.
                 if (!(entries.item(i) instanceof Element)) {

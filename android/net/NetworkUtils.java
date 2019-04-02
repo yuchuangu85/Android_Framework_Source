@@ -52,17 +52,6 @@ public class NetworkUtils {
     public native static void attachRaFilter(FileDescriptor fd, int packetType) throws SocketException;
 
     /**
-     * Attaches a socket filter that accepts L2-L4 signaling traffic required for IP connectivity.
-     *
-     * This includes: all ARP, ICMPv6 RS/RA/NS/NA messages, and DHCPv4 exchanges.
-     *
-     * @param fd the socket's {@link FileDescriptor}.
-     * @param packetType the hardware address type, one of ARPHRD_*.
-     */
-    public native static void attachControlPacketFilter(FileDescriptor fd, int packetType)
-            throws SocketException;
-
-    /**
      * Configures a socket for receiving ICMPv6 router solicitations and sending advertisements.
      * @param fd the socket's {@link FileDescriptor}.
      * @param ifIndex the interface index.
@@ -92,7 +81,6 @@ public class NetworkUtils {
      *
      * @deprecated This is strictly for legacy usage to support startUsingNetworkFeature().
      */
-    @Deprecated
     public native static boolean bindProcessToNetworkForHostResolution(int netId);
 
     /**

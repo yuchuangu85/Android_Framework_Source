@@ -16,14 +16,20 @@
 
 package android.widget;
 
-import static android.os.Build.VERSION_CODES.JELLY_BEAN_MR1;
-
 import android.annotation.NonNull;
+import android.util.ArrayMap;
+import com.android.internal.R;
+
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.SortedSet;
+import java.util.TreeSet;
+
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Rect;
 import android.os.Build;
-import android.util.ArrayMap;
 import android.util.AttributeSet;
 import android.util.Pools.SynchronizedPool;
 import android.util.SparseArray;
@@ -35,13 +41,7 @@ import android.view.ViewHierarchyEncoder;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.RemoteViews.RemoteView;
 
-import com.android.internal.R;
-
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.SortedSet;
-import java.util.TreeSet;
+import static android.os.Build.VERSION_CODES.JELLY_BEAN_MR1;
 
 /**
  * A Layout where the positions of the children can be described in relation to each other or to the
@@ -209,7 +209,7 @@ public class RelativeLayout extends ViewGroup {
     private int mIgnoreGravity;
 
     private SortedSet<View> mTopToBottomLeftToRightSet = null;
-
+    
     private boolean mDirtyHierarchy;
     private View[] mSortedHorizontalChildren;
     private View[] mSortedVerticalChildren;
@@ -384,7 +384,7 @@ public class RelativeLayout extends ViewGroup {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        if (mDirtyHierarchy) {
+        if (mDirtyHierarchy) {// 调用requestLayout方法进行重新布局时才是true
             mDirtyHierarchy = false;
             sortChildren();
         }
@@ -486,7 +486,7 @@ public class RelativeLayout extends ViewGroup {
                         if (targetSdkVersion < Build.VERSION_CODES.KITKAT) {
                             width = Math.max(width, myWidth - params.mLeft);
                         } else {
-                            width = Math.max(width, myWidth - params.mLeft + params.leftMargin);
+                            width = Math.max(width, myWidth - params.mLeft - params.leftMargin);
                         }
                     } else {
                         if (targetSdkVersion < Build.VERSION_CODES.KITKAT) {
@@ -833,26 +833,23 @@ public class RelativeLayout extends ViewGroup {
                 if (!wrapContent) {
                     centerHorizontal(child, params, myWidth);
                 } else {
-                    positionAtEdge(child, params, myWidth);
+                    params.mLeft = mPaddingLeft + params.leftMargin;
+                    params.mRight = params.mLeft + child.getMeasuredWidth();
                 }
                 return true;
             } else {
                 // This is the default case. For RTL we start from the right and for LTR we start
                 // from the left. This will give LEFT/TOP for LTR and RIGHT/TOP for RTL.
-                positionAtEdge(child, params, myWidth);
+                if (isLayoutRtl()) {
+                    params.mRight = myWidth - mPaddingRight- params.rightMargin;
+                    params.mLeft = params.mRight - child.getMeasuredWidth();
+                } else {
+                    params.mLeft = mPaddingLeft + params.leftMargin;
+                    params.mRight = params.mLeft + child.getMeasuredWidth();
+                }
             }
         }
         return rules[ALIGN_PARENT_END] != 0;
-    }
-
-    private void positionAtEdge(View child, LayoutParams params, int myWidth) {
-        if (isLayoutRtl()) {
-            params.mRight = myWidth - mPaddingRight - params.rightMargin;
-            params.mLeft = params.mRight - child.getMeasuredWidth();
-        } else {
-            params.mLeft = mPaddingLeft + params.leftMargin;
-            params.mRight = params.mLeft + child.getMeasuredWidth();
-        }
     }
 
     private boolean positionChildVertical(View child, LayoutParams params, int myHeight,
@@ -1016,8 +1013,7 @@ public class RelativeLayout extends ViewGroup {
             while (v.getVisibility() == View.GONE) {
                 rules = ((LayoutParams) v.getLayoutParams()).getRules(v.getLayoutDirection());
                 node = mGraph.mKeyNodes.get((rules[relation]));
-                // ignore self dependency. for more info look in git commit: da3003
-                if (node == null || v == node.view) return null;
+                if (node == null) return null;
                 v = node.view;
             }
 
@@ -1177,19 +1173,7 @@ public class RelativeLayout extends ViewGroup {
     }
 
     /**
-     * Specifies how a view is positioned within a {@link RelativeLayout}.
-     * The relative layout containing the view uses the value of these layout parameters to
-     * determine where to position the view on the screen.  If the view is not contained
-     * within a relative layout, these attributes are ignored.
-     *
-     * See the <a href=“https://developer.android.com/guide/topics/ui/layout/relative.html”>
-     * Relative Layout</a> guide for example code demonstrating how to use relative layout’s
-     * layout parameters in a layout XML.
-     *
-     * To learn more about layout parameters and how they differ from typical view attributes,
-     * see the <a href=“https://developer.android.com/guide/topics/ui/declaring-layout.html#attributes”>
-     *     Layouts guide</a>.
-     *
+     * Per-child layout information associated with RelativeLayout.
      *
      * @attr ref android.R.styleable#RelativeLayout_Layout_layout_alignWithParentIfMissing
      * @attr ref android.R.styleable#RelativeLayout_Layout_layout_toLeftOf

@@ -17,43 +17,37 @@
 package android.net;
 
 import static android.content.pm.PackageManager.GET_SIGNATURES;
+import static android.net.NetworkPolicy.CYCLE_NONE;
 
-import android.annotation.SystemService;
-import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.Signature;
-import android.net.wifi.WifiConfiguration;
-import android.net.wifi.WifiInfo;
 import android.os.RemoteException;
 import android.os.UserHandle;
-import android.telephony.SubscriptionPlan;
 import android.util.DebugUtils;
-import android.util.Pair;
 
 import com.google.android.collect.Sets;
 
-import java.time.ZonedDateTime;
+import java.util.Calendar;
 import java.util.HashSet;
-import java.util.Iterator;
+import java.util.TimeZone;
 
 /**
  * Manager for creating and modifying network policy rules.
  *
  * {@hide}
  */
-@SystemService(Context.NETWORK_POLICY_SERVICE)
 public class NetworkPolicyManager {
 
-    /* POLICY_* are masks and can be ORed, although currently they are not.*/
+    /* POLICY_* are masks and can be ORed */
     /** No specific network policy, use system default. */
     public static final int POLICY_NONE = 0x0;
     /** Reject network usage on metered networks when application in background. */
     public static final int POLICY_REJECT_METERED_BACKGROUND = 0x1;
-    /** Allow metered network use in the background even when in data usage save mode. */
-    public static final int POLICY_ALLOW_METERED_BACKGROUND = 0x4;
+    /** Allow network use (metered or not) in the background in battery save mode. */
+    public static final int POLICY_ALLOW_BACKGROUND_BATTERY_SAVE = 0x2;
 
     /*
      * Rules defining whether an uid has access to a network given its type (metered / non-metered).
@@ -132,8 +126,8 @@ public class NetworkPolicyManager {
     /**
      * Set policy flags for specific UID.
      *
-     * @param policy should be {@link #POLICY_NONE} or any combination of {@code POLICY_} flags,
-     *     although it is not validated.
+     * @param policy {@link #POLICY_NONE} or combination of flags like
+     * {@link #POLICY_REJECT_METERED_BACKGROUND} or {@link #POLICY_ALLOW_BACKGROUND_BATTERY_SAVE}.
      */
     public void setUidPolicy(int uid, int policy) {
         try {
@@ -144,12 +138,9 @@ public class NetworkPolicyManager {
     }
 
     /**
-     * Add policy flags for specific UID.
-     *
-     * <p>The given policy bits will be set for the uid.
-     *
-     * @param policy should be {@link #POLICY_NONE} or any combination of {@code POLICY_} flags,
-     *     although it is not validated.
+     * Add policy flags for specific UID.  The given policy bits will be set for
+     * the uid.  Policy flags may be either
+     * {@link #POLICY_REJECT_METERED_BACKGROUND} or {@link #POLICY_ALLOW_BACKGROUND_BATTERY_SAVE}.
      */
     public void addUidPolicy(int uid, int policy) {
         try {
@@ -160,12 +151,9 @@ public class NetworkPolicyManager {
     }
 
     /**
-     * Clear/remove policy flags for specific UID.
-     *
-     * <p>The given policy bits will be set for the uid.
-     *
-     * @param policy should be {@link #POLICY_NONE} or any combination of {@code POLICY_} flags,
-     *     although it is not validated.
+     * Clear/remove policy flags for specific UID.  The given policy bits will be set for
+     * the uid.  Policy flags may be either
+     * {@link #POLICY_REJECT_METERED_BACKGROUND} or {@link #POLICY_ALLOW_BACKGROUND_BATTERY_SAVE}.
      */
     public void removeUidPolicy(int uid, int policy) {
         try {
@@ -252,9 +240,70 @@ public class NetworkPolicyManager {
         }
     }
 
+    /**
+     * Compute the last cycle boundary for the given {@link NetworkPolicy}. For
+     * example, if cycle day is 20th, and today is June 15th, it will return May
+     * 20th. When cycle day doesn't exist in current month, it snaps to the 1st
+     * of following month.
+     *
+     * @hide
+     */
+    public static long computeLastCycleBoundary(long currentTime, NetworkPolicy policy) {
+        if (policy.cycleDay == CYCLE_NONE) {
+            throw new IllegalArgumentException("Unable to compute boundary without cycleDay");
+        }
+
+        final Calendar cal = Calendar.getInstance(TimeZone.getTimeZone(policy.cycleTimezone));
+        cal.setTimeInMillis(currentTime);
+        snapToCycleDay(cal, policy.cycleDay);
+
+        if (cal.getTimeInMillis() >= currentTime) {
+            // Cycle boundary is beyond now, use last cycle boundary
+            cal.set(Calendar.DAY_OF_MONTH, 1);
+            cal.add(Calendar.MONTH, -1);
+            snapToCycleDay(cal, policy.cycleDay);
+        }
+
+        return cal.getTimeInMillis();
+    }
+
     /** {@hide} */
-    public static Iterator<Pair<ZonedDateTime, ZonedDateTime>> cycleIterator(NetworkPolicy policy) {
-        return policy.cycleIterator();
+    public static long computeNextCycleBoundary(long currentTime, NetworkPolicy policy) {
+        if (policy.cycleDay == CYCLE_NONE) {
+            throw new IllegalArgumentException("Unable to compute boundary without cycleDay");
+        }
+
+        final Calendar cal = Calendar.getInstance(TimeZone.getTimeZone(policy.cycleTimezone));
+        cal.setTimeInMillis(currentTime);
+        snapToCycleDay(cal, policy.cycleDay);
+
+        if (cal.getTimeInMillis() <= currentTime) {
+            // Cycle boundary is before now, use next cycle boundary
+            cal.set(Calendar.DAY_OF_MONTH, 1);
+            cal.add(Calendar.MONTH, 1);
+            snapToCycleDay(cal, policy.cycleDay);
+        }
+
+        return cal.getTimeInMillis();
+    }
+
+    /**
+     * Snap to the cycle day for the current month given; when cycle day doesn't
+     * exist, it snaps to last second of current month.
+     *
+     * @hide
+     */
+    public static void snapToCycleDay(Calendar cal, int cycleDay) {
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        if (cycleDay > cal.getActualMaximum(Calendar.DAY_OF_MONTH)) {
+            cal.set(Calendar.DAY_OF_MONTH, 1);
+            cal.add(Calendar.MONTH, 1);
+            cal.add(Calendar.SECOND, -1);
+        } else {
+            cal.set(Calendar.DAY_OF_MONTH, cycleDay);
+        }
     }
 
     /**
@@ -295,7 +344,7 @@ public class NetworkPolicyManager {
         return true;
     }
 
-    /**
+    /*
      * @hide
      */
     public static String uidRulesToString(int uidRules) {
@@ -307,45 +356,5 @@ public class NetworkPolicyManager {
         }
         string.append(")");
         return string.toString();
-    }
-
-    /**
-     * @hide
-     */
-    public static String uidPoliciesToString(int uidPolicies) {
-        final StringBuilder string = new StringBuilder().append(uidPolicies).append(" (");
-        if (uidPolicies == POLICY_NONE) {
-            string.append("NONE");
-        } else {
-            string.append(DebugUtils.flagsToString(NetworkPolicyManager.class,
-                    "POLICY_", uidPolicies));
-        }
-        string.append(")");
-        return string.toString();
-    }
-
-    /**
-     * Returns true if {@param procState} is considered foreground and as such will be allowed
-     * to access network when the device is idle or in battery saver mode. Otherwise, false.
-     */
-    public static boolean isProcStateAllowedWhileIdleOrPowerSaveMode(int procState) {
-        return procState <= ActivityManager.PROCESS_STATE_FOREGROUND_SERVICE;
-    }
-
-    /**
-     * Returns true if {@param procState} is considered foreground and as such will be allowed
-     * to access network when the device is in data saver mode. Otherwise, false.
-     */
-    public static boolean isProcStateAllowedWhileOnRestrictBackground(int procState) {
-        return procState <= ActivityManager.PROCESS_STATE_FOREGROUND_SERVICE;
-    }
-
-    public static String resolveNetworkId(WifiConfiguration config) {
-        return WifiInfo.removeDoubleQuotes(config.isPasspoint()
-                ? config.providerFriendlyName : config.SSID);
-    }
-
-    public static String resolveNetworkId(String ssid) {
-        return WifiInfo.removeDoubleQuotes(ssid);
     }
 }

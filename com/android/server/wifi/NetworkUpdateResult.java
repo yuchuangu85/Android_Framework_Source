@@ -18,25 +18,22 @@ package com.android.server.wifi;
 
 import static android.net.wifi.WifiConfiguration.INVALID_NETWORK_ID;
 
-public class NetworkUpdateResult {
+class NetworkUpdateResult {
     int netId;
     boolean ipChanged;
     boolean proxyChanged;
-    boolean credentialChanged;
     boolean isNewNetwork = false;
 
     public NetworkUpdateResult(int id) {
         netId = id;
         ipChanged = false;
         proxyChanged = false;
-        credentialChanged = false;
     }
 
-    public NetworkUpdateResult(boolean ip, boolean proxy, boolean credential) {
+    public NetworkUpdateResult(boolean ip, boolean proxy) {
         netId = INVALID_NETWORK_ID;
         ipChanged = ip;
         proxyChanged = proxy;
-        credentialChanged = credential;
     }
 
     public void setNetworkId(int id) {
@@ -47,16 +44,20 @@ public class NetworkUpdateResult {
         return netId;
     }
 
+    public void setIpChanged(boolean ip) {
+        ipChanged = ip;
+    }
+
     public boolean hasIpChanged() {
         return ipChanged;
     }
 
-    public boolean hasProxyChanged() {
-        return proxyChanged;
+    public void setProxyChanged(boolean proxy) {
+        proxyChanged = proxy;
     }
 
-    public boolean hasCredentialChanged() {
-        return credentialChanged;
+    public boolean hasProxyChanged() {
+        return proxyChanged;
     }
 
     public boolean isNewNetwork() {
@@ -66,9 +67,4 @@ public class NetworkUpdateResult {
     public void setIsNewNetwork(boolean isNew) {
         isNewNetwork = isNew;
     }
-
-    public boolean isSuccess() {
-        return netId != INVALID_NETWORK_ID;
-    }
-
 }

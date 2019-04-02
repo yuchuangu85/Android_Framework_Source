@@ -16,8 +16,6 @@
 
 package android.support.v7.app;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.app.Dialog;
 import android.content.Context;
 import android.os.Bundle;
@@ -30,6 +28,8 @@ import android.support.v7.view.ActionMode;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Base class for AppCompat themed {@link android.app.Dialog}s.
@@ -93,10 +93,9 @@ public class AppCompatDialog extends Dialog implements AppCompatCallback {
         getDelegate().setContentView(view, params);
     }
 
-    @SuppressWarnings("TypeParameterUnusedInFormals")
     @Nullable
     @Override
-    public <T extends View> T findViewById(@IdRes int id) {
+    public View findViewById(@IdRes int id) {
         return getDelegate().findViewById(id);
     }
 
@@ -144,8 +143,7 @@ public class AppCompatDialog extends Dialog implements AppCompatCallback {
     /**
      * @hide
      */
-    @Override
-    @RestrictTo(LIBRARY_GROUP)
+    @RestrictTo(GROUP_ID)
     public void invalidateOptionsMenu() {
         getDelegate().invalidateOptionsMenu();
     }

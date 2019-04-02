@@ -32,11 +32,24 @@ public class NativeMethodBenchmark {
         }
     }
 
+    public void time_emptyJniStaticMethod0(int reps) throws Exception {
+        for (int i = 0; i < reps; ++i) {
+            NativeTestTarget.emptyJniStaticMethod0();
+        }
+    }
 
     public void time_emptyJniMethod0(int reps) throws Exception {
         NativeTestTarget n = new NativeTestTarget();
         for (int i = 0; i < reps; ++i) {
             n.emptyJniMethod0();
+        }
+    }
+
+    public void time_emptyJniStaticMethod6(int reps) throws Exception {
+        int a = -1;
+        int b = 0;
+        for (int i = 0; i < reps; ++i) {
+            NativeTestTarget.emptyJniStaticMethod6(a, b, 1, 2, 3, i);
         }
     }
 
@@ -49,6 +62,12 @@ public class NativeMethodBenchmark {
         }
     }
 
+    public void time_emptyJniStaticMethod6L(int reps) throws Exception {
+        for (int i = 0; i < reps; ++i) {
+            NativeTestTarget.emptyJniStaticMethod6L(null, null, null, null, null, null);
+        }
+    }
+
     public void time_emptyJniMethod6L(int reps) throws Exception {
         NativeTestTarget n = new NativeTestTarget();
         for (int i = 0; i < reps; ++i) {
@@ -56,78 +75,4 @@ public class NativeMethodBenchmark {
         }
     }
 
-    public void time_emptyJniStaticMethod6L(int reps) throws Exception {
-        for (int i = 0; i < reps; ++i) {
-            NativeTestTarget.emptyJniStaticMethod6L(null, null, null, null, null, null);
-        }
-    }
-    public void time_emptyJniStaticMethod0(int reps) throws Exception {
-        for (int i = 0; i < reps; ++i) {
-            NativeTestTarget.emptyJniStaticMethod0();
-        }
-    }
-
-    public void time_emptyJniStaticMethod6(int reps) throws Exception {
-        int a = -1;
-        int b = 0;
-        for (int i = 0; i < reps; ++i) {
-            NativeTestTarget.emptyJniStaticMethod6(a, b, 1, 2, 3, i);
-        }
-    }
-
-    public void time_emptyJniMethod0_Fast(int reps) throws Exception {
-        NativeTestTarget n = new NativeTestTarget();
-        for (int i = 0; i < reps; ++i) {
-            n.emptyJniMethod0_Fast();
-        }
-    }
-
-    public void time_emptyJniMethod6_Fast(int reps) throws Exception {
-        int a = -1;
-        int b = 0;
-        NativeTestTarget n = new NativeTestTarget();
-        for (int i = 0; i < reps; ++i) {
-            n.emptyJniMethod6_Fast(a, b, 1, 2, 3, i);
-        }
-    }
-
-    public void time_emptyJniMethod6L_Fast(int reps) throws Exception {
-        NativeTestTarget n = new NativeTestTarget();
-        for (int i = 0; i < reps; ++i) {
-            n.emptyJniMethod6L_Fast(null, null, null, null, null, null);
-        }
-    }
-
-    public void time_emptyJniStaticMethod6L_Fast(int reps) throws Exception {
-        for (int i = 0; i < reps; ++i) {
-            NativeTestTarget.emptyJniStaticMethod6L_Fast(null, null, null, null, null, null);
-        }
-    }
-    public void time_emptyJniStaticMethod0_Fast(int reps) throws Exception {
-        for (int i = 0; i < reps; ++i) {
-            NativeTestTarget.emptyJniStaticMethod0_Fast();
-        }
-    }
-
-    public void time_emptyJniStaticMethod6_Fast(int reps) throws Exception {
-        int a = -1;
-        int b = 0;
-        for (int i = 0; i < reps; ++i) {
-            NativeTestTarget.emptyJniStaticMethod6_Fast(a, b, 1, 2, 3, i);
-        }
-    }
-
-    public void time_emptyJniStaticMethod0_Critical(int reps) throws Exception {
-        for (int i = 0; i < reps; ++i) {
-            NativeTestTarget.emptyJniStaticMethod0_Critical();
-        }
-    }
-
-    public void time_emptyJniStaticMethod6_Critical(int reps) throws Exception {
-        int a = -1;
-        int b = 0;
-        for (int i = 0; i < reps; ++i) {
-            NativeTestTarget.emptyJniStaticMethod6_Critical(a, b, 1, 2, 3, i);
-        }
-    }
 }

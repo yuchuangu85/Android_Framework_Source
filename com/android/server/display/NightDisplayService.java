@@ -47,14 +47,11 @@ import com.android.server.SystemService;
 import com.android.server.twilight.TwilightListener;
 import com.android.server.twilight.TwilightManager;
 import com.android.server.twilight.TwilightState;
+import com.android.server.vr.VrManagerService;
 
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.ZoneId;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Calendar;
 import java.util.TimeZone;
-
-import com.android.internal.R;
 
 import static com.android.server.display.DisplayTransformManager.LEVEL_COLOR_MATRIX_NIGHT_DISPLAY;
 
@@ -65,11 +62,17 @@ public final class NightDisplayService extends SystemService
         implements NightDisplayController.Callback {
 
     private static final String TAG = "NightDisplayService";
+    private static final boolean DEBUG = false;
 
     /**
-     * The transition time, in milliseconds, for Night Display to turn on/off.
+     * Night display ~= 3400 K.
      */
-    private static final long TRANSITION_DURATION = 3000L;
+    private static final float[] MATRIX_NIGHT = new float[] {
+        1,      0,      0, 0,
+        0, 0.754f,      0, 0,
+        0,      0, 0.516f, 0,
+        0,      0,      0, 1
+    };
 
     /**
      * The identity matrix, used if one of the given matrices is {@code null}.
@@ -103,18 +106,13 @@ public final class NightDisplayService extends SystemService
                             getLocalService(DisplayTransformManager.class);
                     if (enabled) {
                         dtm.setColorMatrix(LEVEL_COLOR_MATRIX_NIGHT_DISPLAY, MATRIX_IDENTITY);
-                    } else if (mController != null && mController.isActivated()) {
-                        setMatrix(mController.getColorTemperature(), mMatrixNight);
-                        dtm.setColorMatrix(LEVEL_COLOR_MATRIX_NIGHT_DISPLAY, mMatrixNight);
+                    } else if (mController.isActivated()) {
+                        dtm.setColorMatrix(LEVEL_COLOR_MATRIX_NIGHT_DISPLAY, MATRIX_NIGHT);
                     }
                 }
             });
         }
     };
-
-    private float[] mMatrixNight = new float[16];
-
-    private final float[] mColorTempCoefficients = new float[9];
 
     private int mCurrentUser = UserHandle.USER_NULL;
     private ContentObserver mUserSetupObserver;
@@ -128,12 +126,6 @@ public final class NightDisplayService extends SystemService
     public NightDisplayService(Context context) {
         super(context);
         mHandler = new Handler(Looper.getMainLooper());
-
-        final String[] coefficients = context.getResources().getStringArray(
-                R.array.config_nightDisplayColorTemperatureCoefficients);
-        for (int i = 0; i < 9 && i < coefficients.length; i++) {
-            mColorTempCoefficients[i] = Float.parseFloat(coefficients[i]);
-        }
     }
 
     @Override
@@ -143,9 +135,9 @@ public final class NightDisplayService extends SystemService
 
     @Override
     public void onBootPhase(int phase) {
-        if (phase >= PHASE_SYSTEM_SERVICES_READY) {
-            final IVrManager vrManager = IVrManager.Stub.asInterface(
-                    getBinderService(Context.VR_SERVICE));
+        if (phase == PHASE_SYSTEM_SERVICES_READY) {
+            IVrManager vrManager =
+                    (IVrManager) getBinderService(VrManagerService.VR_MANAGER_BINDER_SERVICE);
             if (vrManager != null) {
                 try {
                     vrManager.registerListener(mVrStateCallbacks);
@@ -153,9 +145,7 @@ public final class NightDisplayService extends SystemService
                     Slog.e(TAG, "Failed to register VR mode state listener: " + e);
                 }
             }
-        }
-
-        if (phase >= PHASE_BOOT_COMPLETED) {
+        } else if (phase == PHASE_BOOT_COMPLETED) {
             mBootCompleted = true;
 
             // Register listeners now that boot is complete.
@@ -238,9 +228,6 @@ public final class NightDisplayService extends SystemService
         mController = new NightDisplayController(getContext(), mCurrentUser);
         mController.setListener(this);
 
-        // Prepare color transformation matrix.
-        setMatrix(mController.getColorTemperature(), mMatrixNight);
-
         // Initialize the current auto mode.
         onAutoModeChanged(mController.getAutoMode());
 
@@ -248,9 +235,6 @@ public final class NightDisplayService extends SystemService
         if (mIsActivated == null) {
             onActivated(mController.isActivated());
         }
-
-        // Transition the screen to the current temperature.
-        applyTint(false);
     }
 
     private void tearDown() {
@@ -279,86 +263,30 @@ public final class NightDisplayService extends SystemService
         if (mIsActivated == null || mIsActivated != activated) {
             Slog.i(TAG, activated ? "Turning on night display" : "Turning off night display");
 
-            mIsActivated = activated;
-
             if (mAutoMode != null) {
                 mAutoMode.onActivated(activated);
             }
 
-            applyTint(false);
-        }
-    }
+            mIsActivated = activated;
 
-    @Override
-    public void onAutoModeChanged(int autoMode) {
-        Slog.d(TAG, "onAutoModeChanged: autoMode=" + autoMode);
+            // Cancel the old animator if still running.
+            if (mColorMatrixAnimator != null) {
+                mColorMatrixAnimator.cancel();
+            }
 
-        if (mAutoMode != null) {
-            mAutoMode.onStop();
-            mAutoMode = null;
-        }
+            // Don't do any color matrix change animations if we are ignoring them anyway.
+            if (mIgnoreAllColorMatrixChanges.get()) {
+                return;
+            }
 
-        if (autoMode == NightDisplayController.AUTO_MODE_CUSTOM) {
-            mAutoMode = new CustomAutoMode();
-        } else if (autoMode == NightDisplayController.AUTO_MODE_TWILIGHT) {
-            mAutoMode = new TwilightAutoMode();
-        }
+            final DisplayTransformManager dtm = getLocalService(DisplayTransformManager.class);
+            final float[] from = dtm.getColorMatrix(LEVEL_COLOR_MATRIX_NIGHT_DISPLAY);
+            final float[] to = mIsActivated ? MATRIX_NIGHT : null;
 
-        if (mAutoMode != null) {
-            mAutoMode.onStart();
-        }
-    }
-
-    @Override
-    public void onCustomStartTimeChanged(LocalTime startTime) {
-        Slog.d(TAG, "onCustomStartTimeChanged: startTime=" + startTime);
-
-        if (mAutoMode != null) {
-            mAutoMode.onCustomStartTimeChanged(startTime);
-        }
-    }
-
-    @Override
-    public void onCustomEndTimeChanged(LocalTime endTime) {
-        Slog.d(TAG, "onCustomEndTimeChanged: endTime=" + endTime);
-
-        if (mAutoMode != null) {
-            mAutoMode.onCustomEndTimeChanged(endTime);
-        }
-    }
-
-    @Override
-    public void onColorTemperatureChanged(int colorTemperature) {
-        setMatrix(colorTemperature, mMatrixNight);
-        applyTint(true);
-    }
-
-    /**
-     * Applies current color temperature matrix, or removes it if deactivated.
-     *
-     * @param immediate {@code true} skips transition animation
-     */
-    private void applyTint(boolean immediate) {
-        // Cancel the old animator if still running.
-        if (mColorMatrixAnimator != null) {
-            mColorMatrixAnimator.cancel();
-        }
-
-        // Don't do any color matrix change animations if we are ignoring them anyway.
-        if (mIgnoreAllColorMatrixChanges.get()) {
-            return;
-        }
-
-        final DisplayTransformManager dtm = getLocalService(DisplayTransformManager.class);
-        final float[] from = dtm.getColorMatrix(LEVEL_COLOR_MATRIX_NIGHT_DISPLAY);
-        final float[] to = mIsActivated ? mMatrixNight : MATRIX_IDENTITY;
-
-        if (immediate) {
-            dtm.setColorMatrix(LEVEL_COLOR_MATRIX_NIGHT_DISPLAY, to);
-        } else {
             mColorMatrixAnimator = ValueAnimator.ofObject(COLOR_MATRIX_EVALUATOR,
-                    from == null ? MATRIX_IDENTITY : from, to);
-            mColorMatrixAnimator.setDuration(TRANSITION_DURATION);
+                    from == null ? MATRIX_IDENTITY : from, to == null ? MATRIX_IDENTITY : to);
+            mColorMatrixAnimator.setDuration(getContext().getResources()
+                    .getInteger(android.R.integer.config_longAnimTime));
             mColorMatrixAnimator.setInterpolator(AnimationUtils.loadInterpolator(
                     getContext(), android.R.interpolator.fast_out_slow_in));
             mColorMatrixAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
@@ -392,65 +320,46 @@ public final class NightDisplayService extends SystemService
         }
     }
 
-    /**
-     * Set the color transformation {@code MATRIX_NIGHT} to the given color temperature.
-     *
-     * @param colorTemperature color temperature in Kelvin
-     * @param outTemp          the 4x4 display transformation matrix for that color temperature
-     */
-    private void setMatrix(int colorTemperature, float[] outTemp) {
-        if (outTemp.length != 16) {
-            Slog.d(TAG, "The display transformation matrix must be 4x4");
-            return;
+    @Override
+    public void onAutoModeChanged(int autoMode) {
+        Slog.d(TAG, "onAutoModeChanged: autoMode=" + autoMode);
+
+        if (mAutoMode != null) {
+            mAutoMode.onStop();
+            mAutoMode = null;
         }
 
-        Matrix.setIdentityM(outTemp, 0);
+        if (autoMode == NightDisplayController.AUTO_MODE_CUSTOM) {
+            mAutoMode = new CustomAutoMode();
+        } else if (autoMode == NightDisplayController.AUTO_MODE_TWILIGHT) {
+            mAutoMode = new TwilightAutoMode();
+        }
 
-        final float squareTemperature = colorTemperature * colorTemperature;
-        final float red = squareTemperature * mColorTempCoefficients[0]
-                + colorTemperature * mColorTempCoefficients[1] + mColorTempCoefficients[2];
-        final float green = squareTemperature * mColorTempCoefficients[3]
-                + colorTemperature * mColorTempCoefficients[4] + mColorTempCoefficients[5];
-        final float blue = squareTemperature * mColorTempCoefficients[6]
-                + colorTemperature * mColorTempCoefficients[7] + mColorTempCoefficients[8];
-        outTemp[0] = red;
-        outTemp[5] = green;
-        outTemp[10] = blue;
+        if (mAutoMode != null) {
+            mAutoMode.onStart();
+        }
     }
 
-    /**
-     * Returns the first date time corresponding to the local time that occurs before the
-     * provided date time.
-     *
-     * @param compareTime the LocalDateTime to compare against
-     * @return the prior LocalDateTime corresponding to this local time
-     */
-    public static LocalDateTime getDateTimeBefore(LocalTime localTime, LocalDateTime compareTime) {
-        final LocalDateTime ldt = LocalDateTime.of(compareTime.getYear(), compareTime.getMonth(),
-                compareTime.getDayOfMonth(), localTime.getHour(), localTime.getMinute());
+    @Override
+    public void onCustomStartTimeChanged(NightDisplayController.LocalTime startTime) {
+        Slog.d(TAG, "onCustomStartTimeChanged: startTime=" + startTime);
 
-        // Check if the local time has passed, if so return the same time yesterday.
-        return ldt.isAfter(compareTime) ? ldt.minusDays(1) : ldt;
+        if (mAutoMode != null) {
+            mAutoMode.onCustomStartTimeChanged(startTime);
+        }
     }
 
-    /**
-     * Returns the first date time corresponding to this local time that occurs after the
-     * provided date time.
-     *
-     * @param compareTime the LocalDateTime to compare against
-     * @return the next LocalDateTime corresponding to this local time
-     */
-    public static LocalDateTime getDateTimeAfter(LocalTime localTime, LocalDateTime compareTime) {
-        final LocalDateTime ldt = LocalDateTime.of(compareTime.getYear(), compareTime.getMonth(),
-                compareTime.getDayOfMonth(), localTime.getHour(), localTime.getMinute());
+    @Override
+    public void onCustomEndTimeChanged(NightDisplayController.LocalTime endTime) {
+        Slog.d(TAG, "onCustomEndTimeChanged: endTime=" + endTime);
 
-        // Check if the local time has passed, if so return the same time tomorrow.
-        return ldt.isBefore(compareTime) ? ldt.plusDays(1) : ldt;
+        if (mAutoMode != null) {
+            mAutoMode.onCustomEndTimeChanged(endTime);
+        }
     }
 
     private abstract class AutoMode implements NightDisplayController.Callback {
         public abstract void onStart();
-
         public abstract void onStop();
     }
 
@@ -459,12 +368,12 @@ public final class NightDisplayService extends SystemService
         private final AlarmManager mAlarmManager;
         private final BroadcastReceiver mTimeChangedReceiver;
 
-        private LocalTime mStartTime;
-        private LocalTime mEndTime;
+        private NightDisplayController.LocalTime mStartTime;
+        private NightDisplayController.LocalTime mEndTime;
 
-        private LocalDateTime mLastActivatedTime;
+        private Calendar mLastActivatedTime;
 
-        CustomAutoMode() {
+        public CustomAutoMode() {
             mAlarmManager = (AlarmManager) getContext().getSystemService(Context.ALARM_SERVICE);
             mTimeChangedReceiver = new BroadcastReceiver() {
                 @Override
@@ -475,32 +384,47 @@ public final class NightDisplayService extends SystemService
         }
 
         private void updateActivated() {
-            final LocalDateTime now = LocalDateTime.now();
-            final LocalDateTime start = getDateTimeBefore(mStartTime, now);
-            final LocalDateTime end = getDateTimeAfter(mEndTime, start);
-            boolean activate = now.isBefore(end);
+            final Calendar now = Calendar.getInstance();
+            final Calendar startTime = mStartTime.getDateTimeBefore(now);
+            final Calendar endTime = mEndTime.getDateTimeAfter(startTime);
+            final boolean activated = now.before(endTime);
 
-            if (mLastActivatedTime != null) {
-                // Maintain the existing activated state if within the current period.
-                if (mLastActivatedTime.isBefore(now) && mLastActivatedTime.isAfter(start)
-                        && (mLastActivatedTime.isAfter(end) || now.isBefore(end))) {
-                    activate = mController.isActivated();
+            boolean setActivated = mIsActivated == null || mLastActivatedTime == null;
+            if (!setActivated && mIsActivated != activated) {
+                final TimeZone currentTimeZone = now.getTimeZone();
+                if (!currentTimeZone.equals(mLastActivatedTime.getTimeZone())) {
+                    final int year = mLastActivatedTime.get(Calendar.YEAR);
+                    final int dayOfYear = mLastActivatedTime.get(Calendar.DAY_OF_YEAR);
+                    final int hourOfDay = mLastActivatedTime.get(Calendar.HOUR_OF_DAY);
+                    final int minute = mLastActivatedTime.get(Calendar.MINUTE);
+
+                    mLastActivatedTime.setTimeZone(currentTimeZone);
+                    mLastActivatedTime.set(Calendar.YEAR, year);
+                    mLastActivatedTime.set(Calendar.DAY_OF_YEAR, dayOfYear);
+                    mLastActivatedTime.set(Calendar.HOUR_OF_DAY, hourOfDay);
+                    mLastActivatedTime.set(Calendar.MINUTE, minute);
+                }
+
+                if (mIsActivated) {
+                    setActivated = now.before(mStartTime.getDateTimeBefore(mLastActivatedTime))
+                            || now.after(mEndTime.getDateTimeAfter(mLastActivatedTime));
+                } else {
+                    setActivated = now.before(mEndTime.getDateTimeBefore(mLastActivatedTime))
+                            || now.after(mStartTime.getDateTimeAfter(mLastActivatedTime));
                 }
             }
 
-            if (mIsActivated == null || mIsActivated != activate) {
-                mController.setActivated(activate);
+            if (setActivated) {
+                mController.setActivated(activated);
             }
-
             updateNextAlarm(mIsActivated, now);
         }
 
-        private void updateNextAlarm(@Nullable Boolean activated, @NonNull LocalDateTime now) {
+        private void updateNextAlarm(@Nullable Boolean activated, @NonNull Calendar now) {
             if (activated != null) {
-                final LocalDateTime next = activated ? getDateTimeAfter(mEndTime, now)
-                        : getDateTimeAfter(mStartTime, now);
-                final long millis = next.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
-                mAlarmManager.setExact(AlarmManager.RTC, millis, TAG, this, null);
+                final Calendar next = activated ? mEndTime.getDateTimeAfter(now)
+                        : mStartTime.getDateTimeAfter(now);
+                mAlarmManager.setExact(AlarmManager.RTC, next.getTimeInMillis(), TAG, this, null);
             }
         }
 
@@ -512,8 +436,6 @@ public final class NightDisplayService extends SystemService
 
             mStartTime = mController.getCustomStartTime();
             mEndTime = mController.getCustomEndTime();
-
-            mLastActivatedTime = mController.getLastActivatedTime();
 
             // Force an update to initialize state.
             updateActivated();
@@ -529,19 +451,22 @@ public final class NightDisplayService extends SystemService
 
         @Override
         public void onActivated(boolean activated) {
-            mLastActivatedTime = mController.getLastActivatedTime();
-            updateNextAlarm(activated, LocalDateTime.now());
+            final Calendar now = Calendar.getInstance();
+            if (mIsActivated != null) {
+                mLastActivatedTime = now;
+            }
+            updateNextAlarm(activated, now);
         }
 
         @Override
-        public void onCustomStartTimeChanged(LocalTime startTime) {
+        public void onCustomStartTimeChanged(NightDisplayController.LocalTime startTime) {
             mStartTime = startTime;
             mLastActivatedTime = null;
             updateActivated();
         }
 
         @Override
-        public void onCustomEndTimeChanged(LocalTime endTime) {
+        public void onCustomEndTimeChanged(NightDisplayController.LocalTime endTime) {
             mEndTime = endTime;
             mLastActivatedTime = null;
             updateActivated();
@@ -558,32 +483,29 @@ public final class NightDisplayService extends SystemService
 
         private final TwilightManager mTwilightManager;
 
-        TwilightAutoMode() {
+        private Calendar mLastActivatedTime;
+
+        public TwilightAutoMode() {
             mTwilightManager = getLocalService(TwilightManager.class);
         }
 
         private void updateActivated(TwilightState state) {
-            if (state == null) {
-                // If there isn't a valid TwilightState then just keep the current activated
-                // state.
-                return;
-            }
-
-            boolean activate = state.isNight();
-            final LocalDateTime lastActivatedTime = mController.getLastActivatedTime();
-            if (lastActivatedTime != null) {
-                final LocalDateTime now = LocalDateTime.now();
-                final LocalDateTime sunrise = state.sunrise();
-                final LocalDateTime sunset = state.sunset();
-                // Maintain the existing activated state if within the current period.
-                if (lastActivatedTime.isBefore(now) && (lastActivatedTime.isBefore(sunrise)
-                        ^ lastActivatedTime.isBefore(sunset))) {
-                    activate = mController.isActivated();
+            final boolean isNight = state != null && state.isNight();
+            boolean setActivated = mIsActivated == null || mIsActivated != isNight;
+            if (setActivated && state != null && mLastActivatedTime != null) {
+                final Calendar sunrise = state.sunrise();
+                final Calendar sunset = state.sunset();
+                if (sunrise.before(sunset)) {
+                    setActivated = mLastActivatedTime.before(sunrise)
+                            || mLastActivatedTime.after(sunset);
+                } else {
+                    setActivated = mLastActivatedTime.before(sunset)
+                            || mLastActivatedTime.after(sunrise);
                 }
             }
 
-            if (mIsActivated == null || mIsActivated != activate) {
-                mController.setActivated(activate);
+            if (setActivated) {
+                mController.setActivated(isNight);
             }
         }
 
@@ -598,10 +520,14 @@ public final class NightDisplayService extends SystemService
         @Override
         public void onStop() {
             mTwilightManager.unregisterListener(this);
+            mLastActivatedTime = null;
         }
 
         @Override
         public void onActivated(boolean activated) {
+            if (mIsActivated != null) {
+                mLastActivatedTime = Calendar.getInstance();
+            }
         }
 
         @Override

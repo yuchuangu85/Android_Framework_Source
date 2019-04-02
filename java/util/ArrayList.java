@@ -103,19 +103,7 @@ import java.util.function.UnaryOperator;
  * @see     Vector
  * @since   1.2
  */
-// Android-changed: Inlined methods; CME in iterators; throw AIOOBE when toIndex < fromIndex.
-/*
- * - AOSP commit 3be987f0f18648b3c532c8b89d09505e18594241
- *   Inline for improved performance:
- *   - checkForComodification
- *   - elementData()
- *   - rangeCheck()
- *   - rangeCheckForAdd()
- * - AOSP commit b10b2a3ab693cfd6156d06ffe4e00ce69b9c9194
- *   Fix ConcurrentModificationException in ArrayList iterators.
- * - AOSP commit a68b1a5ba82ef8cc19aafdce7d9c7f9631943f84
- *   Throw AIOOBE when toIndex < fromIndex.
- */
+
 public class ArrayList<E> extends AbstractList<E>
         implements List<E>, RandomAccess, Cloneable, java.io.Serializable
 {
@@ -132,20 +120,14 @@ public class ArrayList<E> extends AbstractList<E>
     private static final Object[] EMPTY_ELEMENTDATA = {};
 
     /**
-     * Shared empty array instance used for default sized empty instances. We
-     * distinguish this from EMPTY_ELEMENTDATA to know how much to inflate when
-     * first element is added.
-     */
-    private static final Object[] DEFAULTCAPACITY_EMPTY_ELEMENTDATA = {};
-
-    /**
      * The array buffer into which the elements of the ArrayList are stored.
      * The capacity of the ArrayList is the length of this array buffer. Any
-     * empty ArrayList with elementData == DEFAULTCAPACITY_EMPTY_ELEMENTDATA
-     * will be expanded to DEFAULT_CAPACITY when the first element is added.
+     * empty ArrayList with elementData == EMPTY_ELEMENTDATA will be expanded to
+     * DEFAULT_CAPACITY when the first element is added.
+     *
+     * Package private to allow access from java.util.Collections.
      */
-    // Android-note: Also accessed from java.util.Collections
-    transient Object[] elementData; // non-private to simplify nested class access
+    transient Object[] elementData;
 
     /**
      * The size of the ArrayList (the number of elements it contains).
@@ -162,21 +144,19 @@ public class ArrayList<E> extends AbstractList<E>
      *         is negative
      */
     public ArrayList(int initialCapacity) {
-        if (initialCapacity > 0) {
-            this.elementData = new Object[initialCapacity];
-        } else if (initialCapacity == 0) {
-            this.elementData = EMPTY_ELEMENTDATA;
-        } else {
+        super();
+        if (initialCapacity < 0)
             throw new IllegalArgumentException("Illegal Capacity: "+
                                                initialCapacity);
-        }
+        this.elementData = new Object[initialCapacity];
     }
 
     /**
      * Constructs an empty list with an initial capacity of ten.
      */
     public ArrayList() {
-        this.elementData = DEFAULTCAPACITY_EMPTY_ELEMENTDATA;
+        super();
+        this.elementData = EMPTY_ELEMENTDATA;
     }
 
     /**
@@ -189,14 +169,10 @@ public class ArrayList<E> extends AbstractList<E>
      */
     public ArrayList(Collection<? extends E> c) {
         elementData = c.toArray();
-        if ((size = elementData.length) != 0) {
-            // c.toArray might (incorrectly) not return Object[] (see 6260652)
-            if (elementData.getClass() != Object[].class)
-                elementData = Arrays.copyOf(elementData, size, Object[].class);
-        } else {
-            // replace with empty array.
-            this.elementData = EMPTY_ELEMENTDATA;
-        }
+        size = elementData.length;
+        // c.toArray might (incorrectly) not return Object[] (see 6260652)
+        if (elementData.getClass() != Object[].class)
+            elementData = Arrays.copyOf(elementData, size, Object[].class);
     }
 
     /**
@@ -207,9 +183,7 @@ public class ArrayList<E> extends AbstractList<E>
     public void trimToSize() {
         modCount++;
         if (size < elementData.length) {
-            elementData = (size == 0)
-              ? EMPTY_ELEMENTDATA
-              : Arrays.copyOf(elementData, size);
+            elementData = Arrays.copyOf(elementData, size);
         }
     }
 
@@ -221,11 +195,11 @@ public class ArrayList<E> extends AbstractList<E>
      * @param   minCapacity   the desired minimum capacity
      */
     public void ensureCapacity(int minCapacity) {
-        int minExpand = (elementData != DEFAULTCAPACITY_EMPTY_ELEMENTDATA)
-            // any size if not default element table
+        int minExpand = (elementData != EMPTY_ELEMENTDATA)
+            // any size if real element table
             ? 0
-            // larger than default for default empty table. It's already
-            // supposed to be at default size.
+            // larger than default for empty table. It's already supposed to be
+            // at default size.
             : DEFAULT_CAPACITY;
 
         if (minCapacity > minExpand) {
@@ -234,7 +208,7 @@ public class ArrayList<E> extends AbstractList<E>
     }
 
     private void ensureCapacityInternal(int minCapacity) {
-        if (elementData == DEFAULTCAPACITY_EMPTY_ELEMENTDATA) {
+        if (elementData == EMPTY_ELEMENTDATA) {
             minCapacity = Math.max(DEFAULT_CAPACITY, minCapacity);
         }
 
@@ -641,7 +615,7 @@ public class ArrayList<E> extends AbstractList<E>
      *          toIndex < fromIndex})
      */
     protected void removeRange(int fromIndex, int toIndex) {
-        // Android-changed: Throw an IOOBE if toIndex < fromIndex as documented.
+        // Android-changed : Throw an IOOBE if toIndex < fromIndex as documented.
         // All the other cases (negative indices, or indices greater than the size
         // will be thrown by System#arrayCopy.
         if (toIndex < fromIndex) {
@@ -686,7 +660,6 @@ public class ArrayList<E> extends AbstractList<E>
      * @see Collection#contains(Object)
      */
     public boolean removeAll(Collection<?> c) {
-        Objects.requireNonNull(c);
         return batchRemove(c, false);
     }
 
@@ -707,7 +680,6 @@ public class ArrayList<E> extends AbstractList<E>
      * @see Collection#contains(Object)
      */
     public boolean retainAll(Collection<?> c) {
-        Objects.requireNonNull(c);
         return batchRemove(c, true);
     }
 
@@ -838,7 +810,6 @@ public class ArrayList<E> extends AbstractList<E>
      * An optimized version of AbstractList.Itr
      */
     private class Itr implements Iterator<E> {
-        // Android-changed: Add "limit" field to detect end of iteration.
         // The "limit" of this iterator. This is the size of the list at the time the
         // iterator was created. Adding & removing elements will invalidate the iteration
         // anyway (and cause next() to throw) so saving this value will guarantee that the
@@ -1261,7 +1232,7 @@ public class ArrayList<E> extends AbstractList<E>
         for (int i=0; modCount == expectedModCount && i < size; i++) {
             action.accept(elementData[i]);
         }
-        // Android-note:
+        // Note
         // Iterator will not throw a CME if we add something while iterating over the *last* element
         // forEach will throw a CME in this case.
         if (modCount != expectedModCount) {

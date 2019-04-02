@@ -24,7 +24,7 @@ public class CustomNamespaceAdapter {
         view.setText(value);
     }
 
-    @BindingAdapter({"set2"})
+    @BindingAdapter({"bind:set2"})
     public static void setTwo(TextView view, String value) {
         view.setText(value);
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2004, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,7 +35,7 @@ import java.util.Set;
 
 class ExpiringCache {
     private long millisUntilExpiration;
-    private Map<String,Entry> map;
+    private Map  map;
     // Clear out old entries every few queries
     private int queryCount;
     private int queryOverflow = 300;
@@ -61,16 +61,10 @@ class ExpiringCache {
         this(30000);
     }
 
-    @SuppressWarnings("serial")
     ExpiringCache(long millisUntilExpiration) {
         this.millisUntilExpiration = millisUntilExpiration;
-        map = new LinkedHashMap<String,Entry>() {
-            // Android-changed: Qualified ExpiringCache.Entry to distinguish from Map.Entry.
-            // There seems to be a compiler difference between javac and jack here;
-            // Map.Entry<String,Entry> doesn't work on jack since the latter "Entry" gets
-            // interpreted as referring to Map.Entry rather than ExpiringCache.Entry.
-            // protected boolean removeEldestEntry(Map.Entry<String,Entry> eldest) {
-            protected boolean removeEldestEntry(Map.Entry<String,ExpiringCache.Entry> eldest) {
+        map = new LinkedHashMap() {
+            protected boolean removeEldestEntry(Map.Entry eldest) {
               return size() > MAX_ENTRIES;
             }
           };
@@ -105,7 +99,7 @@ class ExpiringCache {
     }
 
     private Entry entryFor(String key) {
-        Entry entry = map.get(key);
+        Entry entry = (Entry) map.get(key);
         if (entry != null) {
             long delta = System.currentTimeMillis() - entry.timestamp();
             if (delta < 0 || delta >= millisUntilExpiration) {
@@ -117,11 +111,12 @@ class ExpiringCache {
     }
 
     private void cleanup() {
-        Set<String> keySet = map.keySet();
+        Set keySet = map.keySet();
         // Avoid ConcurrentModificationExceptions
         String[] keys = new String[keySet.size()];
         int i = 0;
-        for (String key: keySet) {
+        for (Iterator iter = keySet.iterator(); iter.hasNext(); ) {
+            String key = (String) iter.next();
             keys[i++] = key;
         }
         for (int j = 0; j < keys.length; j++) {

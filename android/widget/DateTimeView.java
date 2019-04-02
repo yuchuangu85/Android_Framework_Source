@@ -390,18 +390,6 @@ public class DateTimeView extends TextView {
         }
     }
 
-    /**
-     * @hide
-     */
-    public static void setReceiverHandler(Handler handler) {
-        ReceiverInfo ri = sReceiverInfo.get();
-        if (ri == null) {
-            ri = new ReceiverInfo();
-            sReceiverInfo.set(ri);
-        }
-        ri.setHandler(handler);
-    }
-
     private static class ReceiverInfo {
         private final ArrayList<DateTimeView> mAttachedViews = new ArrayList<DateTimeView>();
         private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
@@ -428,46 +416,35 @@ public class DateTimeView extends TextView {
             }
         };
 
-        private Handler mHandler = new Handler();
-
         public void addView(DateTimeView v) {
-            synchronized (mAttachedViews) {
-                final boolean register = mAttachedViews.isEmpty();
-                mAttachedViews.add(v);
-                if (register) {
-                    register(getApplicationContextIfAvailable(v.getContext()));
-                }
+            final boolean register = mAttachedViews.isEmpty();
+            mAttachedViews.add(v);
+            if (register) {
+                register(getApplicationContextIfAvailable(v.getContext()));
             }
         }
 
         public void removeView(DateTimeView v) {
-            synchronized (mAttachedViews) {
-                mAttachedViews.remove(v);
-                if (mAttachedViews.isEmpty()) {
-                    unregister(getApplicationContextIfAvailable(v.getContext()));
-                }
+            mAttachedViews.remove(v);
+            if (mAttachedViews.isEmpty()) {
+                unregister(getApplicationContextIfAvailable(v.getContext()));
             }
         }
 
         void updateAll() {
-            synchronized (mAttachedViews) {
-                final int count = mAttachedViews.size();
-                for (int i = 0; i < count; i++) {
-                    DateTimeView view = mAttachedViews.get(i);
-                    view.post(() -> view.clearFormatAndUpdate());
-                }
+            final int count = mAttachedViews.size();
+            for (int i = 0; i < count; i++) {
+                mAttachedViews.get(i).clearFormatAndUpdate();
             }
         }
 
         long getSoonestUpdateTime() {
             long result = Long.MAX_VALUE;
-            synchronized (mAttachedViews) {
-                final int count = mAttachedViews.size();
-                for (int i = 0; i < count; i++) {
-                    final long time = mAttachedViews.get(i).mUpdateTimeMillis;
-                    if (time < result) {
-                        result = time;
-                    }
+            final int count = mAttachedViews.size();
+            for (int i = 0; i < count; i++) {
+                final long time = mAttachedViews.get(i).mUpdateTimeMillis;
+                if (time < result) {
+                    result = time;
                 }
             }
             return result;
@@ -484,21 +461,11 @@ public class DateTimeView extends TextView {
             filter.addAction(Intent.ACTION_TIME_CHANGED);
             filter.addAction(Intent.ACTION_CONFIGURATION_CHANGED);
             filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
-            context.registerReceiver(mReceiver, filter, null, mHandler);
+            context.registerReceiver(mReceiver, filter);
         }
 
         void unregister(Context context) {
             context.unregisterReceiver(mReceiver);
-        }
-
-        public void setHandler(Handler handler) {
-            mHandler = handler;
-            synchronized (mAttachedViews) {
-                if (!mAttachedViews.isEmpty()) {
-                    unregister(mAttachedViews.get(0).getContext());
-                    register(mAttachedViews.get(0).getContext());
-                }
-            }
         }
     }
 }

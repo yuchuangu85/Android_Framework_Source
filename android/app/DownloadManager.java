@@ -19,8 +19,6 @@ package android.app;
 import android.annotation.Nullable;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
-import android.annotation.SystemApi;
-import android.annotation.SystemService;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
@@ -36,8 +34,8 @@ import android.os.Environment;
 import android.os.FileUtils;
 import android.os.ParcelFileDescriptor;
 import android.provider.Downloads;
-import android.provider.MediaStore.Images;
 import android.provider.Settings;
+import android.provider.MediaStore.Images;
 import android.provider.Settings.SettingNotFoundException;
 import android.text.TextUtils;
 import android.util.Pair;
@@ -52,15 +50,18 @@ import java.util.List;
  * request that a URI be downloaded to a particular destination file. The download manager will
  * conduct the download in the background, taking care of HTTP interactions and retrying downloads
  * after failures or across connectivity changes and system reboots.
- * <p>
+ *
+ * Instances of this class should be obtained through
+ * {@link android.content.Context#getSystemService(String)} by passing
+ * {@link android.content.Context#DOWNLOAD_SERVICE}.
+ *
  * Apps that request downloads through this API should register a broadcast receiver for
  * {@link #ACTION_NOTIFICATION_CLICKED} to appropriately handle when the user clicks on a running
  * download in a notification or from the downloads UI.
- * <p>
+ *
  * Note that the application must have the {@link android.Manifest.permission#INTERNET}
  * permission to use this class.
  */
-@SystemService(Context.DOWNLOAD_SERVICE)
 public class DownloadManager {
 
     /**
@@ -320,11 +321,6 @@ public class DownloadManager {
      */
     public static final String EXTRA_NOTIFICATION_CLICK_DOWNLOAD_IDS = "extra_click_download_ids";
 
-    /** {@hide} */
-    @SystemApi
-    public static final String ACTION_DOWNLOAD_COMPLETED =
-            "android.intent.action.DOWNLOAD_COMPLETED";
-
     /**
      * columns to request from DownloadProvider.
      * @hide
@@ -393,6 +389,7 @@ public class DownloadManager {
         private int mFlags = 0;
         private boolean mIsVisibleInDownloadsUi = true;
         private boolean mScannable = false;
+        private boolean mUseSystemCache = false;
         /** if a file is designated as a MediaScanner scannable file, the following value is
          * stored in the database column {@link Downloads.Impl#COLUMN_MEDIA_SCANNED}.
          */
@@ -469,6 +466,24 @@ public class DownloadManager {
          */
         public Request setDestinationUri(Uri uri) {
             mDestinationUri = uri;
+            return this;
+        }
+
+        /**
+         * Set the local destination for the downloaded file to the system cache dir (/cache).
+         * This is only available to System apps with the permission
+         * {@link android.Manifest.permission#ACCESS_CACHE_FILESYSTEM}.
+         * <p>
+         * The downloaded file is not scanned by MediaScanner.
+         * But it can be made scannable by calling {@link #allowScanningByMediaScanner()}.
+         * <p>
+         * Files downloaded to /cache may be deleted by the system at any time to reclaim space.
+         *
+         * @return this object
+         * @hide
+         */
+        public Request setDestinationToSystemCache() {
+            mUseSystemCache = true;
             return this;
         }
 
@@ -753,13 +768,13 @@ public class DownloadManager {
             values.put(Downloads.Impl.COLUMN_NOTIFICATION_PACKAGE, packageName);
 
             if (mDestinationUri != null) {
-                values.put(Downloads.Impl.COLUMN_DESTINATION,
-                        Downloads.Impl.DESTINATION_FILE_URI);
-                values.put(Downloads.Impl.COLUMN_FILE_NAME_HINT,
-                        mDestinationUri.toString());
+                values.put(Downloads.Impl.COLUMN_DESTINATION, Downloads.Impl.DESTINATION_FILE_URI);
+                values.put(Downloads.Impl.COLUMN_FILE_NAME_HINT, mDestinationUri.toString());
             } else {
                 values.put(Downloads.Impl.COLUMN_DESTINATION,
-                        Downloads.Impl.DESTINATION_CACHE_PARTITION_PURGEABLE);
+                           (this.mUseSystemCache) ?
+                                   Downloads.Impl.DESTINATION_SYSTEMCACHE_PARTITION :
+                                   Downloads.Impl.DESTINATION_CACHE_PARTITION_PURGEABLE);
             }
             // is the file supposed to be media-scannable?
             values.put(Downloads.Impl.COLUMN_MEDIA_SCANNED, (mScannable) ? SCANNABLE_VALUE_YES :
@@ -817,7 +832,6 @@ public class DownloadManager {
 
         private long[] mIds = null;
         private Integer mStatusFlags = null;
-        private String mFilterString = null;
         private String mOrderByColumn = Downloads.Impl.COLUMN_LAST_MODIFICATION;
         private int mOrderDirection = ORDER_DESCENDING;
         private boolean mOnlyIncludeVisibleInDownloadsUi = false;
@@ -828,17 +842,6 @@ public class DownloadManager {
          */
         public Query setFilterById(long... ids) {
             mIds = ids;
-            return this;
-        }
-
-        /**
-         *
-         * Include only the downloads that contains the given string in its name.
-         * @return this object
-         * @hide
-         */
-        public Query setFilterByString(@Nullable String filter) {
-            mFilterString = filter;
             return this;
         }
 
@@ -901,20 +904,9 @@ public class DownloadManager {
             List<String> selectionParts = new ArrayList<String>();
             String[] selectionArgs = null;
 
-            int whereArgsCount = (mIds == null) ? 0 : mIds.length;
-            whereArgsCount = (mFilterString == null) ? whereArgsCount : whereArgsCount + 1;
-            selectionArgs = new String[whereArgsCount];
-
-            if (whereArgsCount > 0) {
-                if (mIds != null) {
-                    selectionParts.add(getWhereClauseForIds(mIds));
-                    getWhereArgsForIds(mIds, selectionArgs);
-                }
-
-                if (mFilterString != null) {
-                    selectionParts.add(Downloads.Impl.COLUMN_TITLE + " LIKE ?");
-                    selectionArgs[selectionArgs.length - 1] = "%" + mFilterString + "%";
-                }
+            if (mIds != null) {
+                selectionParts.add(getWhereClauseForIds(mIds));
+                selectionArgs = getWhereArgsForIds(mIds);
             }
 
             if (mStatusFlags != null) {
@@ -1458,21 +1450,11 @@ public class DownloadManager {
      */
     static String[] getWhereArgsForIds(long[] ids) {
         String[] whereArgs = new String[ids.length];
-        return getWhereArgsForIds(ids, whereArgs);
-    }
-
-    /**
-     * Get selection args for a clause returned by {@link #getWhereClauseForIds(long[])}
-     * and write it to the supplied args array.
-     */
-    static String[] getWhereArgsForIds(long[] ids, String[] args) {
-        assert(args.length >= ids.length);
         for (int i = 0; i < ids.length; i++) {
-            args[i] = Long.toString(ids[i]);
+            whereArgs[i] = Long.toString(ids[i]);
         }
-        return args;
+        return whereArgs;
     }
-
 
     /**
      * This class wraps a cursor returned by DownloadProvider -- the "underlying cursor" -- and

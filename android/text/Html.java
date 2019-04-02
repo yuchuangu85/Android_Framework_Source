@@ -16,8 +16,19 @@
 
 package android.text;
 
+import com.android.internal.util.ArrayUtils;
+import org.ccil.cowan.tagsoup.HTMLSchema;
+import org.ccil.cowan.tagsoup.Parser;
+import org.xml.sax.Attributes;
+import org.xml.sax.ContentHandler;
+import org.xml.sax.InputSource;
+import org.xml.sax.Locator;
+import org.xml.sax.SAXException;
+import org.xml.sax.XMLReader;
+
 import android.app.ActivityThread;
 import android.app.Application;
+import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -36,18 +47,10 @@ import android.text.style.StrikethroughSpan;
 import android.text.style.StyleSpan;
 import android.text.style.SubscriptSpan;
 import android.text.style.SuperscriptSpan;
+import android.text.style.TextAppearanceSpan;
 import android.text.style.TypefaceSpan;
 import android.text.style.URLSpan;
 import android.text.style.UnderlineSpan;
-
-import org.ccil.cowan.tagsoup.HTMLSchema;
-import org.ccil.cowan.tagsoup.Parser;
-import org.xml.sax.Attributes;
-import org.xml.sax.ContentHandler;
-import org.xml.sax.InputSource;
-import org.xml.sax.Locator;
-import org.xml.sax.SAXException;
-import org.xml.sax.XMLReader;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -340,10 +343,19 @@ public class Html {
     }
 
     private static String getTextDirection(Spanned text, int start, int end) {
-        if (TextDirectionHeuristics.FIRSTSTRONG_LTR.isRtl(text, start, end - start)) {
-            return " dir=\"rtl\"";
-        } else {
-            return " dir=\"ltr\"";
+        final int len = end - start;
+        final byte[] levels = ArrayUtils.newUnpaddedByteArray(len);
+        final char[] buffer = TextUtils.obtain(len);
+        TextUtils.getChars(text, start, end, buffer, 0);
+
+        int paraDir = AndroidBidi.bidi(Layout.DIR_REQUEST_DEFAULT_LTR, buffer, levels, len,
+                false /* no info */);
+        switch(paraDir) {
+            case Layout.DIR_RIGHT_TO_LEFT:
+                return " dir=\"rtl\"";
+            case Layout.DIR_LEFT_TO_RIGHT:
+            default:
+                return " dir=\"ltr\"";
         }
     }
 

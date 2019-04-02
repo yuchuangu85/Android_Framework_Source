@@ -5,35 +5,27 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.PackageManager;
 import android.net.wifi.IRttManager;
 import android.net.wifi.RttManager;
 import android.net.wifi.RttManager.ResponderConfig;
 import android.net.wifi.WifiManager;
-import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.os.Messenger;
 import android.os.RemoteException;
-import android.util.ArrayMap;
 import android.util.Log;
 import android.util.Slog;
-import android.util.SparseArray;
 
-import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.AsyncChannel;
-import com.android.internal.util.IState;
 import com.android.internal.util.Protocol;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
 import com.android.server.SystemService;
 
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -45,54 +37,10 @@ public final class RttService extends SystemService {
     public static final boolean DBG = true;
 
     static class RttServiceImpl extends IRttManager.Stub {
-        private int mCurrentKey = 100; // increment on each usage
-        private final SparseArray<IBinder> mBinderByKey = new SparseArray<>();
 
         @Override
-        public Messenger getMessenger(IBinder binder, int[] key) {
-            if (key != null && key.length != 0) {
-                final int keyToUse = mCurrentKey++;
-                if (binder != null) {
-                    try {
-                        binder.linkToDeath(() -> {
-                            // clean-up here if didn't get final registration
-                            Slog.d(TAG, "Binder death on key=" + keyToUse);
-                            mBinderByKey.delete(keyToUse);
-                        }, 0);
-                        mBinderByKey.put(keyToUse, binder);
-                    } catch (RemoteException e) {
-                        Slog.e(TAG, "getMessenger: can't link to death on binder: " + e);
-                        return null;
-                    }
-                }
-
-                key[0] = keyToUse;
-            }
+        public Messenger getMessenger() {
             return new Messenger(mClientHandler);
-        }
-
-        private class RttDeathListener implements IBinder.DeathRecipient {
-            private final IBinder mBinder;
-            private final Messenger mReplyTo;
-
-            RttDeathListener(IBinder binder, Messenger replyTo) {
-                mBinder = binder;
-                mReplyTo = replyTo;
-            }
-
-            @Override
-            public void binderDied() {
-                if (DBG) Slog.d(TAG, "binder death for client mReplyTo=" + mReplyTo);
-                synchronized (mLock) {
-                    ClientInfo ci = mClients.remove(mReplyTo);
-                    if (ci != null) {
-                        ci.cleanup();
-                    } else {
-                        Slog.w(TAG,
-                                "ClientInfo not found for terminated app -- mReplyTo=" + mReplyTo);
-                    }
-                }
-            }
         }
 
         private class ClientHandler extends Handler {
@@ -117,44 +65,20 @@ public final class RttService extends SystemService {
                             if (DBG) Slog.d(TAG, "Client connection lost with reason: " + msg.arg1);
                         }
                         if (DBG) Slog.d(TAG, "closing client " + msg.replyTo);
-                        synchronized (mLock) {
-                            ClientInfo ci = mClients.remove(msg.replyTo);
-                            if (ci != null) ci.cleanup();
-                        }
+                        ClientInfo ci = mClients.remove(msg.replyTo);
+                        if (ci != null) ci.cleanup();
                         return;
                     case AsyncChannel.CMD_CHANNEL_FULL_CONNECTION:
                         AsyncChannel ac = new AsyncChannel();
                         ac.connected(mContext, this, msg.replyTo);
-                        String packageName = msg.obj != null
-                                ? ((RttManager.RttClient) msg.obj).getPackageName() : null;
-                        ClientInfo client = new ClientInfo(ac, msg.sendingUid, packageName);
-                        synchronized (mLock) {
-                            mClients.put(msg.replyTo, client);
-                        }
+                        ClientInfo client = new ClientInfo(ac, msg.replyTo);
+                        mClients.put(msg.replyTo, client);
                         ac.replyToMessage(msg, AsyncChannel.CMD_CHANNEL_FULLY_CONNECTED,
                                 AsyncChannel.STATUS_SUCCESSFUL);
                         return;
-                    case RttManager.CMD_OP_REG_BINDER: {
-                        int key = msg.arg1;
-                        IBinder binder = mBinderByKey.get(key);
-                        if (binder == null) {
-                            Slog.e(TAG, "Can't find binder registered with key=" + key + " - no "
-                                    + "death listener!");
-                            return;
-                        }
-                        try {
-                            binder.linkToDeath(new RttDeathListener(binder, msg.replyTo), 0);
-                        } catch (RemoteException e) {
-                            Slog.e(TAG, "Can't link to death for binder on key=" + key);
-                        }
-                        return;
-                    }
                 }
 
-                ClientInfo ci;
-                synchronized (mLock) {
-                    ci = mClients.get(msg.replyTo);
-                }
+                ClientInfo ci = mClients.get(msg.replyTo);
                 if (ci == null) {
                     Slog.e(TAG, "Could not find client info for message " + msg.replyTo);
                     replyFailed(msg, RttManager.REASON_INVALID_LISTENER, "Could not find listener");
@@ -163,12 +87,6 @@ public final class RttService extends SystemService {
                 if (!enforcePermissionCheck(msg)) {
                     replyFailed(msg, RttManager.REASON_PERMISSION_DENIED,
                             "Client doesn't have LOCATION_HARDWARE permission");
-                    return;
-                }
-                if (!checkLocationPermission(ci)) {
-                    replyFailed(msg, RttManager.REASON_PERMISSION_DENIED,
-                            "Client doesn't have ACCESS_COARSE_LOCATION or "
-                                    + "ACCESS_FINE_LOCATION permission");
                     return;
                 }
                 final int validCommands[] = {
@@ -203,21 +121,19 @@ public final class RttService extends SystemService {
         private final WifiNative mWifiNative;
         private final Context mContext;
         private final Looper mLooper;
-        private final WifiInjector mWifiInjector;
-
         private RttStateMachine mStateMachine;
         private ClientHandler mClientHandler;
 
-        RttServiceImpl(Context context, Looper looper, WifiInjector wifiInjector) {
+        RttServiceImpl(Context context, Looper looper) {
             mContext = context;
-            mWifiNative = wifiInjector.getWifiNative();
+            mWifiNative = WifiNative.getWlanNativeInterface();
             mLooper = looper;
-            mWifiInjector = wifiInjector;
         }
 
         public void startService() {
             mClientHandler = new ClientHandler(mLooper);
             mStateMachine = new RttStateMachine(mLooper);
+
             mContext.registerReceiver(
                     new BroadcastReceiver() {
                         @Override
@@ -254,17 +170,15 @@ public final class RttService extends SystemService {
 
         private class ClientInfo {
             private final AsyncChannel mChannel;
-            private final int mUid;
-            private final String mPackageName;
-
-            ArrayMap<Integer, RttRequest> mRequests = new ArrayMap<>();
+            private final Messenger mMessenger;
+            HashMap<Integer, RttRequest> mRequests = new HashMap<Integer,
+                    RttRequest>();
             // Client keys of all outstanding responders.
             Set<Integer> mResponderRequests = new HashSet<>();
 
-            ClientInfo(AsyncChannel channel, int uid, String packageName) {
-                mChannel = channel;
-                mUid = uid;
-                mPackageName = packageName;
+            ClientInfo(AsyncChannel c, Messenger m) {
+                mChannel = c;
+                mMessenger = m;
             }
 
             void addResponderRequest(int key) {
@@ -301,7 +215,7 @@ public final class RttService extends SystemService {
 
             void reportResponderEnableFailed(int key, int reason) {
                 mChannel.sendMessage(RttManager.CMD_OP_ENALBE_RESPONDER_FAILED, reason, key);
-                removeResponderRequest(key);
+                mResponderRequests.remove(key);
             }
 
             void reportResult(RttRequest request, RttManager.RttResult[] results) {
@@ -310,7 +224,7 @@ public final class RttService extends SystemService {
 
                 mChannel.sendMessage(RttManager.CMD_OP_SUCCEEDED,
                         0, request.key, parcelableResults);
-                removeRttRequest(request.key);
+                mRequests.remove(request.key);
             }
 
             void reportFailed(RttRequest request, int reason, String description) {
@@ -321,7 +235,7 @@ public final class RttService extends SystemService {
                 Bundle bundle = new Bundle();
                 bundle.putString(RttManager.DESCRIPTION_KEY, description);
                 mChannel.sendMessage(RttManager.CMD_OP_FAILED, key, reason, bundle);
-                removeRttRequest(key);
+                mRequests.remove(key);
             }
 
             void reportAborted(int key) {
@@ -338,19 +252,10 @@ public final class RttService extends SystemService {
                 mResponderRequests.clear();
                 mStateMachine.sendMessage(RttManager.CMD_OP_DISABLE_RESPONDER);
             }
-
-            @Override
-            public String toString() {
-                return "ClientInfo [uid=" + mUid + ", channel=" + mChannel + "]";
-            }
         }
 
-        private Queue<RttRequest> mRequestQueue = new LinkedList<>();
-
-        @GuardedBy("mLock")
-        private ArrayMap<Messenger, ClientInfo> mClients = new ArrayMap<>();
-        // Lock for mClients.
-        private final Object mLock = new Object();
+        private Queue<RttRequest> mRequestQueue = new LinkedList<RttRequest>();
+        private HashMap<Messenger, ClientInfo> mClients = new HashMap<Messenger, ClientInfo>(4);
 
         private static final int BASE = Protocol.BASE_WIFI_RTT_SERVICE;
 
@@ -363,6 +268,7 @@ public final class RttService extends SystemService {
         private static final int MAX_RESPONDER_DURATION_SECONDS = 60 * 10;
 
         class RttStateMachine extends StateMachine {
+
             DefaultState mDefaultState = new DefaultState();
             EnabledState mEnabledState = new EnabledState();
             InitiatorEnabledState mInitiatorEnabledState = new InitiatorEnabledState();
@@ -399,11 +305,7 @@ public final class RttService extends SystemService {
                         case RttManager.CMD_OP_STOP_RANGING:
                             return HANDLED;
                         case RttManager.CMD_OP_ENABLE_RESPONDER:
-
-                            ClientInfo client;
-                            synchronized (mLock) {
-                                client = mClients.get(msg.replyTo);
-                            }
+                            ClientInfo client = mClients.get(msg.replyTo);
                             if (client == null) {
                                 Log.e(TAG, "client not connected yet!");
                                 break;
@@ -423,18 +325,9 @@ public final class RttService extends SystemService {
 
             class EnabledState extends State {
                 @Override
-                public void enter() {
-                }
-                @Override
-                public void exit() {
-                }
-                @Override
                 public boolean processMessage(Message msg) {
                     if (DBG) Log.d(TAG, "EnabledState got" + msg);
-                    ClientInfo ci;
-                    synchronized (mLock) {
-                        ci = mClients.get(msg.replyTo);
-                    }
+                    ClientInfo ci = mClients.get(msg.replyTo);
 
                     switch (msg.what) {
                         case CMD_DRIVER_UNLOADED:
@@ -535,10 +428,8 @@ public final class RttService extends SystemService {
                             break;
                         case CMD_RTT_RESPONSE:
                             if (DBG) Log.d(TAG, "Received an RTT response from: " + msg.arg2);
-                            if (checkLocationPermission(mOutstandingRequest.ci)) {
-                                mOutstandingRequest.ci.reportResult(
-                                        mOutstandingRequest, (RttManager.RttResult[]) msg.obj);
-                            }
+                            mOutstandingRequest.ci.reportResult(
+                                    mOutstandingRequest, (RttManager.RttResult[])msg.obj);
                             mOutstandingRequest = null;
                             sendMessage(CMD_ISSUE_NEXT_REQUEST);
                             break;
@@ -564,11 +455,9 @@ public final class RttService extends SystemService {
 
             // Check if there are still outstanding responder requests from any client.
             private boolean hasOutstandingReponderRequests() {
-                synchronized (mLock) {
-                    for (ClientInfo client : mClients.values()) {
-                        if (!client.mResponderRequests.isEmpty()) {
-                            return true;
-                        }
+                for (ClientInfo client : mClients.values()) {
+                    if (!client.mResponderRequests.isEmpty()) {
+                        return true;
                     }
                 }
                 return false;
@@ -581,10 +470,7 @@ public final class RttService extends SystemService {
                 @Override
                 public boolean processMessage(Message msg) {
                     if (DBG) Log.d(TAG, "ResponderEnabledState got " + msg);
-                    ClientInfo ci;
-                    synchronized (mLock) {
-                        ci = mClients.get(msg.replyTo);
-                    }
+                    ClientInfo ci = mClients.get(msg.replyTo);
                     int key = msg.arg2;
                     switch(msg.what) {
                         case RttManager.CMD_OP_ENABLE_RESPONDER:
@@ -616,14 +502,6 @@ public final class RttService extends SystemService {
                             return NOT_HANDLED;
                     }
                 }
-            }
-
-            /**
-             * Returns name of current state.
-             */
-            String currentState() {
-                IState state = getCurrentState();
-                return state == null ? "null" : state.getName();
             }
         }
 
@@ -662,7 +540,7 @@ public final class RttService extends SystemService {
             }
         }
 
-        private boolean enforcePermissionCheck(Message msg) {
+        boolean enforcePermissionCheck(Message msg) {
             try {
                 mContext.enforcePermission(Manifest.permission.LOCATION_HARDWARE,
                          -1, msg.sendingUid, "LocationRTT");
@@ -671,32 +549,6 @@ public final class RttService extends SystemService {
                 return false;
             }
             return true;
-        }
-
-        // Returns whether the client has location permission.
-        private boolean checkLocationPermission(ClientInfo clientInfo) {
-            return mWifiInjector.getWifiPermissionsUtil().checkCallersLocationPermission(
-                    clientInfo.mPackageName, clientInfo.mUid);
-        }
-
-        @Override
-        protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-            if (mContext.checkCallingOrSelfPermission(android.Manifest.permission.DUMP)
-                    != PackageManager.PERMISSION_GRANTED) {
-                pw.println("Permission Denial: can't dump RttService from from pid="
-                        + Binder.getCallingPid()
-                        + ", uid=" + Binder.getCallingUid()
-                        + " without permission "
-                        + android.Manifest.permission.DUMP);
-                return;
-            }
-            pw.println("current state: " + mStateMachine.currentState());
-            pw.println("clients:");
-            synchronized (mLock) {
-                for (ClientInfo client : mClients.values()) {
-                    pw.println("  " + client);
-                }
-            }
         }
 
         private WifiNative.RttEventHandler mEventHandler = new WifiNative.RttEventHandler() {
@@ -726,11 +578,8 @@ public final class RttService extends SystemService {
             if (DBG) Log.d(TAG, "No more requests left");
             return null;
         }
-
         @Override
         public RttManager.RttCapabilities getRttCapabilities() {
-            mContext.enforceCallingPermission(android.Manifest.permission.LOCATION_HARDWARE,
-                    "Location Hardware permission not granted to access rtt capabilities");
             return mWifiNative.getRttCapabilities();
         }
     }
@@ -748,8 +597,7 @@ public final class RttService extends SystemService {
 
     @Override
     public void onStart() {
-        mImpl = new RttServiceImpl(getContext(),
-                mHandlerThread.getLooper(), WifiInjector.getInstance());
+        mImpl = new RttServiceImpl(getContext(), mHandlerThread.getLooper());
 
         Log.i(TAG, "Starting " + Context.WIFI_RTT_SERVICE);
         publishBinderService(Context.WIFI_RTT_SERVICE, mImpl);
@@ -760,8 +608,7 @@ public final class RttService extends SystemService {
         if (phase == SystemService.PHASE_SYSTEM_SERVICES_READY) {
             Log.i(TAG, "Registering " + Context.WIFI_RTT_SERVICE);
             if (mImpl == null) {
-                mImpl = new RttServiceImpl(getContext(),
-                        mHandlerThread.getLooper(),  WifiInjector.getInstance());
+                mImpl = new RttServiceImpl(getContext(), mHandlerThread.getLooper());
             }
             mImpl.startService();
         }

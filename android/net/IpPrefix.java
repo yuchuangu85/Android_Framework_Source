@@ -20,8 +20,6 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Pair;
 
-import java.net.Inet4Address;
-import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Arrays;
@@ -184,20 +182,6 @@ public final class IpPrefix implements Parcelable {
         }
         NetworkUtils.maskRawAddress(addrBytes, prefixLength);
         return Arrays.equals(this.address, addrBytes);
-    }
-
-    /**
-     * @hide
-     */
-    public boolean isIPv6() {
-        return getAddress() instanceof Inet6Address;
-    }
-
-    /**
-     * @hide
-     */
-    public boolean isIPv4() {
-        return getAddress() instanceof Inet4Address;
     }
 
     /**

@@ -16,10 +16,7 @@
 
 package com.android.server.accessibility;
 
-import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
 import android.os.Handler;
 import android.os.Message;
 import android.util.MathUtils;
@@ -60,30 +57,22 @@ import android.view.accessibility.AccessibilityEvent;
  *    be the same but when the finger goes up the screen will stay magnified.
  *    In other words, the initial magnified state is sticky.
  *
- * 3. Magnification can optionally be "triggered" by some external shortcut
- *    affordance. When this occurs via {@link #notifyShortcutTriggered()} a
- *    subsequent tap in a magnifiable region will engage permanent screen
- *    magnification as described in #1. Alternatively, a subsequent long-press
- *    or drag will engage magnification with viewport dragging as described in
- *    #2. Once magnified, all following behaviors apply whether magnification
- *    was engaged via a triple-tap or by a triggered shortcut.
- *
- * 4. Pinching with any number of additional fingers when viewport dragging
+ * 3. Pinching with any number of additional fingers when viewport dragging
  *    is enabled, i.e. the user triple tapped and holds, would adjust the
  *    magnification scale which will become the current default magnification
  *    scale. The next time the user magnifies the same magnification scale
  *    would be used.
  *
- * 5. When in a permanent magnified state the user can use two or more fingers
+ * 4. When in a permanent magnified state the user can use two or more fingers
  *    to pan the viewport. Note that in this mode the content is panned as
  *    opposed to the viewport dragging mode in which the viewport is moved.
  *
- * 6. When in a permanent magnified state the user can use two or more
+ * 5. When in a permanent magnified state the user can use two or more
  *    fingers to change the magnification scale which will become the current
  *    default magnification scale. The next time the user magnifies the same
  *    magnification scale would be used.
  *
- * 7. The magnification scale will be persisted in settings and in the cloud.
+ * 6. The magnification scale will be persisted in settings and in the cloud.
  */
 class MagnificationGestureHandler implements EventStreamTransformation {
     private static final String LOG_TAG = "MagnificationEventHandler";
@@ -105,10 +94,8 @@ class MagnificationGestureHandler implements EventStreamTransformation {
     private final MagnifiedContentInteractionStateHandler mMagnifiedContentInteractionStateHandler;
     private final StateViewportDraggingHandler mStateViewportDraggingHandler;
 
-    private final ScreenStateReceiver mScreenStateReceiver;
 
-    private final boolean mDetectTripleTap;
-    private final boolean mTriggerable;
+    private final boolean mDetectControlGestures;
 
     private EventStreamTransformation mNext;
 
@@ -117,39 +104,19 @@ class MagnificationGestureHandler implements EventStreamTransformation {
 
     private boolean mTranslationEnabledBeforePan;
 
-    private boolean mShortcutTriggered;
-
     private PointerCoords[] mTempPointerCoords;
     private PointerProperties[] mTempPointerProperties;
 
     private long mDelegatingStateDownTime;
 
-    /**
-     * @param context Context for resolving various magnification-related resources
-     * @param ams AccessibilityManagerService used to obtain a {@link MagnificationController}
-     * @param detectTripleTap {@code true} if this detector should detect and respond to triple-tap
-     *                                    gestures for engaging and disengaging magnification,
-     *                                    {@code false} if it should ignore such gestures
-     * @param triggerable {@code true} if this detector should be "triggerable" by some external
-     *                                shortcut invoking {@link #notifyShortcutTriggered}, {@code
-     *                                false} if it should ignore such triggers.
-     */
     public MagnificationGestureHandler(Context context, AccessibilityManagerService ams,
-            boolean detectTripleTap, boolean triggerable) {
+            boolean detectControlGestures) {
         mMagnificationController = ams.getMagnificationController();
         mDetectingStateHandler = new DetectingStateHandler(context);
         mStateViewportDraggingHandler = new StateViewportDraggingHandler();
         mMagnifiedContentInteractionStateHandler =
                 new MagnifiedContentInteractionStateHandler(context);
-        mDetectTripleTap = detectTripleTap;
-        mTriggerable = triggerable;
-
-        if (triggerable) {
-            mScreenStateReceiver = new ScreenStateReceiver(context, this);
-            mScreenStateReceiver.register();
-        } else {
-            mScreenStateReceiver = null;
-        }
+        mDetectControlGestures = detectControlGestures;
 
         transitionToState(STATE_DETECTING);
     }
@@ -162,7 +129,7 @@ class MagnificationGestureHandler implements EventStreamTransformation {
             }
             return;
         }
-        if (!mDetectTripleTap && !mTriggerable) {
+        if (!mDetectControlGestures) {
             if (mNext != null) {
                 dispatchTransformedEvent(event, rawEvent, policyFlags);
             }
@@ -184,7 +151,7 @@ class MagnificationGestureHandler implements EventStreamTransformation {
             break;
             case STATE_MAGNIFIED_INTERACTION: {
                 // mMagnifiedContentInteractionStateHandler handles events only
-                // if this is the current state since it uses ScaleGestureDetector
+                // if this is the current state since it uses ScaleGestureDetecotr
                 // and a GestureDetector which need well formed event stream.
             }
             break;
@@ -226,34 +193,11 @@ class MagnificationGestureHandler implements EventStreamTransformation {
 
     @Override
     public void onDestroy() {
-        if (mScreenStateReceiver != null) {
-            mScreenStateReceiver.unregister();
-        }
         clear();
-    }
-
-    void notifyShortcutTriggered() {
-        if (mTriggerable) {
-            if (mMagnificationController.resetIfNeeded(true)) {
-                clear();
-            } else {
-                setMagnificationShortcutTriggered(!mShortcutTriggered);
-            }
-        }
-    }
-
-    private void setMagnificationShortcutTriggered(boolean state) {
-        if (mShortcutTriggered == state) {
-            return;
-        }
-
-        mShortcutTriggered = state;
-        mMagnificationController.setForceShowMagnifiableBounds(state);
     }
 
     private void clear() {
         mCurrentState = STATE_DETECTING;
-        setMagnificationShortcutTriggered(false);
         mDetectingStateHandler.clear();
         mStateViewportDraggingHandler.clear();
         mMagnifiedContentInteractionStateHandler.clear();
@@ -437,7 +381,7 @@ class MagnificationGestureHandler implements EventStreamTransformation {
                 Slog.i(LOG_TAG, "Panned content by scrollX: " + distanceX
                         + " scrollY: " + distanceY);
             }
-            mMagnificationController.offsetMagnifiedRegion(distanceX, distanceY,
+            mMagnificationController.offsetMagnifiedRegionCenter(distanceX, distanceY,
                     AccessibilityManagerService.MAGNIFICATION_GESTURE_HANDLER_ID);
             return true;
         }
@@ -631,51 +575,31 @@ class MagnificationGestureHandler implements EventStreamTransformation {
                     mHandler.removeMessages(MESSAGE_TRANSITION_TO_DELEGATING_STATE);
                     if (!mMagnificationController.magnificationRegionContains(
                             event.getX(), event.getY())) {
-                        transitionToDelegatingState(!mShortcutTriggered);
+                        transitionToDelegatingStateAndClear();
                         return;
                     }
-                    if (mShortcutTriggered) {
+                    if (mTapCount == ACTION_TAP_COUNT - 1 && mLastDownEvent != null
+                            && GestureUtils.isMultiTap(mLastDownEvent, event,
+                            mMultiTapTimeSlop, mMultiTapDistanceSlop, 0)) {
                         Message message = mHandler.obtainMessage(MESSAGE_ON_ACTION_TAP_AND_HOLD,
                                 policyFlags, 0, event);
                         mHandler.sendMessageDelayed(message,
                                 ViewConfiguration.getLongPressTimeout());
-                        return;
-                    }
-                    if (mDetectTripleTap) {
-                        if ((mTapCount == ACTION_TAP_COUNT - 1) && (mLastDownEvent != null)
-                                && GestureUtils.isMultiTap(mLastDownEvent, event, mMultiTapTimeSlop,
-                                        mMultiTapDistanceSlop, 0)) {
-                            Message message = mHandler.obtainMessage(MESSAGE_ON_ACTION_TAP_AND_HOLD,
-                                    policyFlags, 0, event);
-                            mHandler.sendMessageDelayed(message,
-                                    ViewConfiguration.getLongPressTimeout());
-                        } else if (mTapCount < ACTION_TAP_COUNT) {
-                            Message message = mHandler.obtainMessage(
-                                    MESSAGE_TRANSITION_TO_DELEGATING_STATE);
-                            mHandler.sendMessageDelayed(message, mMultiTapTimeSlop);
-                        }
-                        clearLastDownEvent();
-                        mLastDownEvent = MotionEvent.obtain(event);
-                    } else if (mMagnificationController.isMagnifying()) {
-                        // If magnified, consume an ACTION_DOWN until mMultiTapTimeSlop or
-                        // mTapDistanceSlop is reached to ensure MAGNIFIED_INTERACTION is reachable.
+                    } else if (mTapCount < ACTION_TAP_COUNT) {
                         Message message = mHandler.obtainMessage(
                                 MESSAGE_TRANSITION_TO_DELEGATING_STATE);
                         mHandler.sendMessageDelayed(message, mMultiTapTimeSlop);
-                        return;
-                    } else {
-                        transitionToDelegatingState(true);
-                        return;
                     }
+                    clearLastDownEvent();
+                    mLastDownEvent = MotionEvent.obtain(event);
                 }
                 break;
                 case MotionEvent.ACTION_POINTER_DOWN: {
                     if (mMagnificationController.isMagnifying()) {
-                        mHandler.removeMessages(MESSAGE_TRANSITION_TO_DELEGATING_STATE);
                         transitionToState(STATE_MAGNIFIED_INTERACTION);
                         clear();
                     } else {
-                        transitionToDelegatingState(true);
+                        transitionToDelegatingStateAndClear();
                     }
                 }
                 break;
@@ -684,34 +608,29 @@ class MagnificationGestureHandler implements EventStreamTransformation {
                         final double distance = GestureUtils.computeDistance(mLastDownEvent,
                                 event, 0);
                         if (Math.abs(distance) > mTapDistanceSlop) {
-                            transitionToDelegatingState(true);
+                            transitionToDelegatingStateAndClear();
                         }
                     }
                 }
                 break;
                 case MotionEvent.ACTION_UP: {
-                    if (!mMagnificationController.magnificationRegionContains(
-                            event.getX(), event.getY())) {
-                        transitionToDelegatingState(!mShortcutTriggered);
-                        return;
-                    }
-                    if (mShortcutTriggered) {
-                        clear();
-                        onActionTap(event, policyFlags);
-                        return;
-                    }
                     if (mLastDownEvent == null) {
                         return;
                     }
                     mHandler.removeMessages(MESSAGE_ON_ACTION_TAP_AND_HOLD);
-                    if (!GestureUtils.isTap(mLastDownEvent, event, mTapTimeSlop,
-                            mTapDistanceSlop, 0)) {
-                        transitionToDelegatingState(true);
+                    if (!mMagnificationController.magnificationRegionContains(
+                            event.getX(), event.getY())) {
+                        transitionToDelegatingStateAndClear();
                         return;
                     }
-                    if (mLastTapUpEvent != null && !GestureUtils.isMultiTap(
-                            mLastTapUpEvent, event, mMultiTapTimeSlop, mMultiTapDistanceSlop, 0)) {
-                        transitionToDelegatingState(true);
+                    if (!GestureUtils.isTap(mLastDownEvent, event, mTapTimeSlop,
+                            mTapDistanceSlop, 0)) {
+                        transitionToDelegatingStateAndClear();
+                        return;
+                    }
+                    if (mLastTapUpEvent != null && !GestureUtils.isMultiTap(mLastTapUpEvent,
+                            event, mMultiTapTimeSlop, mMultiTapDistanceSlop, 0)) {
+                        transitionToDelegatingStateAndClear();
                         return;
                     }
                     mTapCount++;
@@ -736,7 +655,6 @@ class MagnificationGestureHandler implements EventStreamTransformation {
 
         @Override
         public void clear() {
-            setMagnificationShortcutTriggered(false);
             mHandler.removeMessages(MESSAGE_ON_ACTION_TAP_AND_HOLD);
             mHandler.removeMessages(MESSAGE_TRANSITION_TO_DELEGATING_STATE);
             clearTapDetectionState();
@@ -796,12 +714,10 @@ class MagnificationGestureHandler implements EventStreamTransformation {
             }
         }
 
-        private void transitionToDelegatingState(boolean andClear) {
+        private void transitionToDelegatingStateAndClear() {
             transitionToState(STATE_DELEGATING);
             sendDelayedMotionEvents();
-            if (andClear) {
-                clear();
-            }
+            clear();
         }
 
         private void onActionTap(MotionEvent up, int policyFlags) {
@@ -902,32 +818,6 @@ class MagnificationGestureHandler implements EventStreamTransformation {
             mRawEvent.recycle();
             mRawEvent = null;
             mPolicyFlags = 0;
-        }
-    }
-
-    /**
-     * BroadcastReceiver used to cancel the magnification shortcut when the screen turns off
-     */
-    private static class ScreenStateReceiver extends BroadcastReceiver {
-        private final Context mContext;
-        private final MagnificationGestureHandler mGestureHandler;
-
-        public ScreenStateReceiver(Context context, MagnificationGestureHandler gestureHandler) {
-            mContext = context;
-            mGestureHandler = gestureHandler;
-        }
-
-        public void register() {
-            mContext.registerReceiver(this, new IntentFilter(Intent.ACTION_SCREEN_OFF));
-        }
-
-        public void unregister() {
-            mContext.unregisterReceiver(this);
-        }
-
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            mGestureHandler.setMagnificationShortcutTriggered(false);
         }
     }
 }

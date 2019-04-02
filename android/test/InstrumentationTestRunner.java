@@ -16,18 +16,21 @@
 
 package android.test;
 
-import android.test.suitebuilder.annotation.MediumTest;
-import android.test.suitebuilder.annotation.SmallTest;
 import com.android.internal.util.Predicate;
+import com.android.internal.util.Predicates;
 
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.os.Bundle;
 import android.os.Debug;
 import android.os.Looper;
+import android.os.Parcelable;
+import android.os.PerformanceCollector;
+import android.os.PerformanceCollector.PerformanceResultsWriter;
 import android.test.suitebuilder.TestMethod;
 import android.test.suitebuilder.TestPredicates;
 import android.test.suitebuilder.TestSuiteBuilder;
+import android.test.suitebuilder.annotation.HasAnnotation;
 import android.test.suitebuilder.annotation.LargeTest;
 import android.util.Log;
 
@@ -48,8 +51,6 @@ import junit.framework.TestResult;
 import junit.framework.TestSuite;
 import junit.runner.BaseTestRunner;
 import junit.textui.ResultPrinter;
-
-import static android.test.suitebuilder.TestPredicates.hasAnnotation;
 
 /**
  * An {@link Instrumentation} that runs various types of {@link junit.framework.TestCase}s against
@@ -177,13 +178,13 @@ import static android.test.suitebuilder.TestPredicates.hasAnnotation;
 public class InstrumentationTestRunner extends Instrumentation implements TestSuiteProvider {
 
     /** @hide */
-    static final String ARGUMENT_TEST_CLASS = "class";
+    public static final String ARGUMENT_TEST_CLASS = "class";
     /** @hide */
-    private static final String ARGUMENT_TEST_PACKAGE = "package";
+    public static final String ARGUMENT_TEST_PACKAGE = "package";
     /** @hide */
-    private static final String ARGUMENT_TEST_SIZE_PREDICATE = "size";
+    public static final String ARGUMENT_TEST_SIZE_PREDICATE = "size";
     /** @hide */
-    static final String ARGUMENT_DELAY_MSEC = "delay_msec";
+    public static final String ARGUMENT_DELAY_MSEC = "delay_msec";
 
     private static final String SMALL_SUITE = "small";
     private static final String MEDIUM_SUITE = "medium";
@@ -194,12 +195,6 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
     static final String ARGUMENT_ANNOTATION = "annotation";
     /** @hide */
     static final String ARGUMENT_NOT_ANNOTATION = "notAnnotation";
-
-    private static final Predicate<TestMethod> SELECT_SMALL = hasAnnotation(SmallTest.class);
-
-    private static final Predicate<TestMethod> SELECT_MEDIUM = hasAnnotation(MediumTest.class);
-
-    private static final Predicate<TestMethod> SELECT_LARGE = hasAnnotation(LargeTest.class);
 
     /**
      * This constant defines the maximum allowed runtime (in ms) for a test included in the "small"
@@ -213,7 +208,7 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
      */
     private static final float MEDIUM_SUITE_MAX_RUNTIME = 1000;
 
-    /*
+    /**
      * The following keys are used in the status bundle to provide structured reports to
      * an IInstrumentationWatcher.
      */
@@ -395,6 +390,7 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
             WatcherResultPrinter resultPrinter = new WatcherResultPrinter(mTestCount);
             mTestRunner.addTestListener(new TestPrinter("TestRunner", false));
             mTestRunner.addTestListener(resultPrinter);
+            mTestRunner.setPerformanceResultsWriter(resultPrinter);
         }
         start();
     }
@@ -468,11 +464,11 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
     private Predicate<TestMethod> getSizePredicateFromArg(String sizeArg) {
 
         if (SMALL_SUITE.equals(sizeArg)) {
-            return SELECT_SMALL;
+            return TestPredicates.SELECT_SMALL;
         } else if (MEDIUM_SUITE.equals(sizeArg)) {
-            return SELECT_MEDIUM;
+            return TestPredicates.SELECT_MEDIUM;
         } else if (LARGE_SUITE.equals(sizeArg)) {
-            return SELECT_LARGE;
+            return TestPredicates.SELECT_LARGE;
         } else {
             return null;
         }
@@ -480,28 +476,28 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
 
    /**
     * Returns the test predicate object, corresponding to the annotation class value provided via
-    * the {@link #ARGUMENT_ANNOTATION} argument.
+    * the {@link ARGUMENT_ANNOTATION} argument.
     *
     * @return the predicate or <code>null</code>
     */
     private Predicate<TestMethod> getAnnotationPredicate(String annotationClassName) {
         Class<? extends Annotation> annotationClass = getAnnotationClass(annotationClassName);
         if (annotationClass != null) {
-            return hasAnnotation(annotationClass);
+            return new HasAnnotation(annotationClass);
         }
         return null;
     }
 
     /**
      * Returns the negative test predicate object, corresponding to the annotation class value
-     * provided via the {@link #ARGUMENT_NOT_ANNOTATION} argument.
+     * provided via the {@link ARGUMENT_NOT_ANNOTATION} argument.
      *
      * @return the predicate or <code>null</code>
      */
      private Predicate<TestMethod> getNotAnnotationPredicate(String annotationClassName) {
          Class<? extends Annotation> annotationClass = getAnnotationClass(annotationClassName);
          if (annotationClass != null) {
-             return TestPredicates.not(hasAnnotation(annotationClass));
+             return Predicates.not(new HasAnnotation(annotationClass));
          }
          return null;
      }
@@ -747,12 +743,15 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
     /**
      * This class sends status reports back to the IInstrumentationWatcher
      */
-    private class WatcherResultPrinter implements TestListener {
+    private class WatcherResultPrinter implements TestListener, PerformanceResultsWriter {
         private final Bundle mResultTemplate;
         Bundle mTestResult;
         int mTestNum = 0;
         int mTestResultCode = 0;
         String mTestClass = null;
+        PerformanceCollector mPerfCollector = new PerformanceCollector();
+        boolean mIsTimedTest = false;
+        boolean mIncludeDetailedStats = false;
 
         public WatcherResultPrinter(int numTests) {
             mResultTemplate = new Bundle();
@@ -807,6 +806,30 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
 
             sendStatus(REPORT_VALUE_RESULT_START, mTestResult);
             mTestResultCode = 0;
+
+            mIsTimedTest = false;
+            mIncludeDetailedStats = false;
+            try {
+                // Look for TimedTest annotation on both test class and test method
+                if (testMethod != null && testMethod.isAnnotationPresent(TimedTest.class)) {
+                    mIsTimedTest = true;
+                    mIncludeDetailedStats = testMethod.getAnnotation(
+                            TimedTest.class).includeDetailedStats();
+                } else if (test.getClass().isAnnotationPresent(TimedTest.class)) {
+                    mIsTimedTest = true;
+                    mIncludeDetailedStats = test.getClass().getAnnotation(
+                            TimedTest.class).includeDetailedStats();
+                }
+            } catch (SecurityException e) {
+                // ignore - the test with given name cannot be accessed. Will be handled during
+                // test execution
+            }
+
+            if (mIsTimedTest && mIncludeDetailedStats) {
+                mPerfCollector.beginSnapshot("");
+            } else if (mIsTimedTest) {
+                mPerfCollector.startTiming("");
+            }
         }
 
         /**
@@ -837,6 +860,12 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
          * @see junit.framework.TestListener#endTest(Test)
          */
         public void endTest(Test test) {
+            if (mIsTimedTest && mIncludeDetailedStats) {
+                mTestResult.putAll(mPerfCollector.endSnapshot());
+            } else if (mIsTimedTest) {
+                writeStopTiming(mPerfCollector.stopTiming(""));
+            }
+
             if (mTestResultCode == 0) {
                 mTestResult.putString(Instrumentation.REPORT_KEY_STREAMRESULT, ".");
             }
@@ -847,6 +876,50 @@ public class InstrumentationTestRunner extends Instrumentation implements TestSu
             } catch (InterruptedException e) {
                 throw new IllegalStateException(e);
             }
+        }
+
+        public void writeBeginSnapshot(String label) {
+            // Do nothing
+        }
+
+        public void writeEndSnapshot(Bundle results) {
+            // Copy all snapshot data fields into mResults, which is outputted
+            // via Instrumentation.finish
+            mResults.putAll(results);
+        }
+
+        public void writeStartTiming(String label) {
+            // Do nothing
+        }
+
+        public void writeStopTiming(Bundle results) {
+            // Copy results into mTestResult by flattening list of iterations,
+            // which is outputted via WatcherResultPrinter.endTest
+            int i = 0;
+            for (Parcelable p :
+                    results.getParcelableArrayList(PerformanceCollector.METRIC_KEY_ITERATIONS)) {
+                Bundle iteration = (Bundle)p;
+                String index = "iteration" + i + ".";
+                mTestResult.putString(index + PerformanceCollector.METRIC_KEY_LABEL,
+                        iteration.getString(PerformanceCollector.METRIC_KEY_LABEL));
+                mTestResult.putLong(index + PerformanceCollector.METRIC_KEY_CPU_TIME,
+                        iteration.getLong(PerformanceCollector.METRIC_KEY_CPU_TIME));
+                mTestResult.putLong(index + PerformanceCollector.METRIC_KEY_EXECUTION_TIME,
+                        iteration.getLong(PerformanceCollector.METRIC_KEY_EXECUTION_TIME));
+                i++;
+            }
+        }
+
+        public void writeMeasurement(String label, long value) {
+            mTestResult.putLong(label, value);
+        }
+
+        public void writeMeasurement(String label, float value) {
+            mTestResult.putFloat(label, value);
+        }
+
+        public void writeMeasurement(String label, String value) {
+            mTestResult.putString(label, value);
         }
 
         // TODO report the end of the cycle

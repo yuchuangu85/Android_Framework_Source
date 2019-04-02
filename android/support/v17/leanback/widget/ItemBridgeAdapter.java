@@ -19,7 +19,6 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Bridge from {@link Presenter} to {@link RecyclerView.Adapter}. Public to allow use by third
@@ -35,23 +34,14 @@ public class ItemBridgeAdapter extends RecyclerView.Adapter implements FacetProv
     public static class AdapterListener {
         public void onAddPresenter(Presenter presenter, int type) {
         }
-
         public void onCreate(ViewHolder viewHolder) {
         }
-
         public void onBind(ViewHolder viewHolder) {
         }
-
-        public void onBind(ViewHolder viewHolder, List payloads) {
-            onBind(viewHolder);
-        }
-
         public void onUnbind(ViewHolder viewHolder) {
         }
-
         public void onAttachedToWindow(ViewHolder viewHolder) {
         }
-
         public void onDetachedFromWindow(ViewHolder viewHolder) {
         }
     }
@@ -62,7 +52,6 @@ public class ItemBridgeAdapter extends RecyclerView.Adapter implements FacetProv
      */
     public static abstract class Wrapper {
         public abstract View createWrapper(View root);
-
         public abstract void wrap(View wrapper, View wrapped);
     }
 
@@ -78,10 +67,8 @@ public class ItemBridgeAdapter extends RecyclerView.Adapter implements FacetProv
 
         @Override
         public void onFocusChange(View view, boolean hasFocus) {
-            if (DEBUG) {
-                Log.v(TAG, "onFocusChange " + hasFocus + " " + view
-                        + " mFocusHighlight" + mFocusHighlight);
-            }
+            if (DEBUG) Log.v(TAG, "onFocusChange " + hasFocus + " " + view
+                    + " mFocusHighlight" + mFocusHighlight);
             if (mWrapper != null) {
                 view = (View) view.getParent();
             }
@@ -160,30 +147,17 @@ public class ItemBridgeAdapter extends RecyclerView.Adapter implements FacetProv
         public void onChanged() {
             ItemBridgeAdapter.this.notifyDataSetChanged();
         }
-
         @Override
         public void onItemRangeChanged(int positionStart, int itemCount) {
             ItemBridgeAdapter.this.notifyItemRangeChanged(positionStart, itemCount);
         }
-
-        @Override
-        public void onItemRangeChanged(int positionStart, int itemCount, Object payload) {
-            ItemBridgeAdapter.this.notifyItemRangeChanged(positionStart, itemCount, payload);
-        }
-
         @Override
         public void onItemRangeInserted(int positionStart, int itemCount) {
             ItemBridgeAdapter.this.notifyItemRangeInserted(positionStart, itemCount);
         }
-
         @Override
         public void onItemRangeRemoved(int positionStart, int itemCount) {
             ItemBridgeAdapter.this.notifyItemRangeRemoved(positionStart, itemCount);
-        }
-
-        @Override
-        public void onItemMoved(int fromPosition, int toPosition) {
-            ItemBridgeAdapter.this.notifyItemMoved(fromPosition, toPosition);
         }
     };
 
@@ -219,16 +193,6 @@ public class ItemBridgeAdapter extends RecyclerView.Adapter implements FacetProv
         if (hasStableIds() != mAdapter.hasStableIds()) {
             setHasStableIds(mAdapter.hasStableIds());
         }
-        notifyDataSetChanged();
-    }
-
-    /**
-     * Changes Presenter that creates and binds the view.
-     *
-     * @param presenterSelector Presenter that creates and binds the view.
-     */
-    public void setPresenter(PresenterSelector presenterSelector) {
-        mPresenterSelector = presenterSelector;
         notifyDataSetChanged();
     }
 
@@ -279,8 +243,8 @@ public class ItemBridgeAdapter extends RecyclerView.Adapter implements FacetProv
 
     @Override
     public int getItemViewType(int position) {
-        PresenterSelector presenterSelector = mPresenterSelector != null
-                ? mPresenterSelector : mAdapter.getPresenterSelector();
+        PresenterSelector presenterSelector = mPresenterSelector != null ?
+                mPresenterSelector : mAdapter.getPresenterSelector();
         Object item = mAdapter.get(position);
         Presenter presenter = presenterSelector.getPresenter(item);
         int type = mPresenters.indexOf(presenter);
@@ -358,8 +322,7 @@ public class ItemBridgeAdapter extends RecyclerView.Adapter implements FacetProv
         }
         View presenterView = viewHolder.mHolder.view;
         if (presenterView != null) {
-            viewHolder.mFocusChangeListener.mChainedListener =
-                    presenterView.getOnFocusChangeListener();
+            viewHolder.mFocusChangeListener.mChainedListener = presenterView.getOnFocusChangeListener();
             presenterView.setOnFocusChangeListener(viewHolder.mFocusChangeListener);
         }
         if (mFocusHighlight != null) {
@@ -386,21 +349,6 @@ public class ItemBridgeAdapter extends RecyclerView.Adapter implements FacetProv
         onBind(viewHolder);
         if (mAdapterListener != null) {
             mAdapterListener.onBind(viewHolder);
-        }
-    }
-
-    @Override
-    public final  void onBindViewHolder(RecyclerView.ViewHolder holder, int position,
-            List payloads) {
-        if (DEBUG) Log.v(TAG, "onBindViewHolder position " + position);
-        ViewHolder viewHolder = (ViewHolder) holder;
-        viewHolder.mItem = mAdapter.get(position);
-
-        viewHolder.mPresenter.onBindViewHolder(viewHolder.mHolder, viewHolder.mItem, payloads);
-
-        onBind(viewHolder);
-        if (mAdapterListener != null) {
-            mAdapterListener.onBind(viewHolder, payloads);
         }
     }
 

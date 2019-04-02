@@ -16,10 +16,6 @@
 
 package com.android.setupwizardlib.test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertSame;
-
-import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -28,24 +24,18 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.test.AndroidTestCase;
+import android.test.suitebuilder.annotation.SmallTest;
 import android.view.View;
 import android.view.ViewGroup;
 
 import com.android.setupwizardlib.DividerItemDecoration;
 
-import org.junit.Test;
-import org.junit.runner.RunWith;
+public class DividerItemDecorationTest extends AndroidTestCase {
 
-@RunWith(AndroidJUnit4.class)
-@SmallTest
-public class DividerItemDecorationTest {
-
-    @Test
+    @SmallTest
     public void testDivider() {
         final DividerItemDecoration decoration = new DividerItemDecoration();
         Drawable divider = new ColorDrawable();
@@ -53,14 +43,14 @@ public class DividerItemDecorationTest {
         assertSame("Divider should be same as set", divider, decoration.getDivider());
     }
 
-    @Test
+    @SmallTest
     public void testDividerHeight() {
         final DividerItemDecoration decoration = new DividerItemDecoration();
         decoration.setDividerHeight(123);
         assertEquals("Divider height should be 123", 123, decoration.getDividerHeight());
     }
 
-    @Test
+    @SmallTest
     public void testShouldDrawDividerBelowWithEitherCondition() {
         // Set up the item decoration, with 1px red divider line
         final DividerItemDecoration decoration = new DividerItemDecoration();
@@ -103,7 +93,7 @@ public class DividerItemDecorationTest {
 
     }
 
-    @Test
+    @SmallTest
     public void testShouldDrawDividerBelowWithBothCondition() {
         // Set up the item decoration, with 1px green divider line
         final DividerItemDecoration decoration = new DividerItemDecoration();
@@ -149,16 +139,15 @@ public class DividerItemDecorationTest {
         Bitmap bitmap = Bitmap.createBitmap(20, 20, Bitmap.Config.ARGB_4444);
         Canvas canvas = new Canvas(bitmap);
 
-        final Context context = InstrumentationRegistry.getContext();
         // Set up recycler view with vertical linear layout manager
-        RecyclerView testRecyclerView = new RecyclerView(context);
-        testRecyclerView.setLayoutManager(new LinearLayoutManager(context));
+        RecyclerView testRecyclerView = new RecyclerView(getContext());
+        testRecyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
 
         // Set up adapter with 3 items, each 5px tall
         testRecyclerView.setAdapter(new RecyclerView.Adapter() {
             @Override
             public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup viewGroup, int i) {
-                final View itemView = new View(context);
+                final View itemView = new View(getContext());
                 itemView.setMinimumWidth(20);
                 itemView.setMinimumHeight(5);
                 return ViewHolder.createInstance(itemView, allowDividerAbove, allowDividerBelow);

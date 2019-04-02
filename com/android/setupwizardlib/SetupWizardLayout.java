@@ -33,23 +33,25 @@ import android.util.AttributeSet;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.InflateException;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewStub;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import com.android.setupwizardlib.template.HeaderMixin;
-import com.android.setupwizardlib.template.NavigationBarMixin;
-import com.android.setupwizardlib.template.ProgressBarMixin;
-import com.android.setupwizardlib.template.RequireScrollMixin;
-import com.android.setupwizardlib.template.ScrollViewScrollHandlingDelegate;
+import com.android.setupwizardlib.util.RequireScrollHelper;
+import com.android.setupwizardlib.view.BottomScrollView;
 import com.android.setupwizardlib.view.Illustration;
 import com.android.setupwizardlib.view.NavigationBar;
 
 public class SetupWizardLayout extends TemplateLayout {
 
     private static final String TAG = "SetupWizardLayout";
+
+    private ColorStateList mProgressBarColor;
 
     public SetupWizardLayout(Context context) {
         super(context, 0, 0);
@@ -79,18 +81,6 @@ public class SetupWizardLayout extends TemplateLayout {
     // All the constructors delegate to this init method. The 3-argument constructor is not
     // available in LinearLayout before v11, so call super with the exact same arguments.
     private void init(AttributeSet attrs, int defStyleAttr) {
-        registerMixin(HeaderMixin.class, new HeaderMixin(this, attrs, defStyleAttr));
-        registerMixin(ProgressBarMixin.class, new ProgressBarMixin(this));
-        registerMixin(NavigationBarMixin.class, new NavigationBarMixin(this));
-        final RequireScrollMixin requireScrollMixin = new RequireScrollMixin(this);
-        registerMixin(RequireScrollMixin.class, requireScrollMixin);
-
-        final ScrollView scrollView = getScrollView();
-        if (scrollView != null) {
-            requireScrollMixin.setScrollHandlingDelegate(
-                    new ScrollViewScrollHandlingDelegate(requireScrollMixin, scrollView));
-        }
-
         final TypedArray a = getContext().obtainStyledAttributes(attrs,
                 R.styleable.SuwSetupWizardLayout, defStyleAttr, 0);
 
@@ -132,7 +122,7 @@ public class SetupWizardLayout extends TemplateLayout {
 
 
         // Set the illustration aspect ratio. See Illustration.setAspectRatio(float). This will
-        // override suwDecorPaddingTop if its value is not 0.
+        // override suwIllustrationPaddingTop if its value is not 0.
         float illustrationAspectRatio = a.getFloat(
                 R.styleable.SuwSetupWizardLayout_suwIllustrationAspectRatio, -1f);
         if (illustrationAspectRatio == -1f) {
@@ -141,6 +131,13 @@ public class SetupWizardLayout extends TemplateLayout {
             illustrationAspectRatio = out.getFloat();
         }
         setIllustrationAspectRatio(illustrationAspectRatio);
+
+        // Set the header text
+        final CharSequence headerText =
+                a.getText(R.styleable.SuwSetupWizardLayout_suwHeaderText);
+        if (headerText != null) {
+            setHeaderText(headerText);
+        }
 
         a.recycle();
     }
@@ -164,7 +161,11 @@ public class SetupWizardLayout extends TemplateLayout {
         final SavedState ss = (SavedState) state;
         super.onRestoreInstanceState(ss.getSuperState());
         final boolean isProgressBarShown = ss.mIsProgressBarShown;
-        setProgressBarShown(isProgressBarShown);
+        if (isProgressBarShown) {
+            showProgressBar();
+        } else {
+            hideProgressBar();
+        }
     }
 
     @Override
@@ -172,7 +173,14 @@ public class SetupWizardLayout extends TemplateLayout {
         if (template == 0) {
             template = R.layout.suw_template;
         }
-        return inflateTemplate(inflater, R.style.SuwThemeMaterial_Light, template);
+        try {
+            return super.onInflateTemplate(inflater, template);
+        } catch (RuntimeException e) {
+            // Versions before M throws RuntimeException for unsuccessful attribute resolution
+            // Versions M+ will throw an InflateException (which extends from RuntimeException)
+            throw new InflateException("Unable to inflate layout. Are you using "
+                    + "@style/SuwThemeMaterial (or its descendant) as your theme?", e);
+        }
     }
 
     @Override
@@ -184,7 +192,8 @@ public class SetupWizardLayout extends TemplateLayout {
     }
 
     public NavigationBar getNavigationBar() {
-        return getMixin(NavigationBarMixin.class).getNavigationBar();
+        final View view = findManagedViewById(R.id.suw_layout_navigation_bar);
+        return view instanceof NavigationBar ? (NavigationBar) view : null;
     }
 
     public ScrollView getScrollView() {
@@ -193,29 +202,37 @@ public class SetupWizardLayout extends TemplateLayout {
     }
 
     public void requireScrollToBottom() {
-        final RequireScrollMixin requireScrollMixin = getMixin(RequireScrollMixin.class);
         final NavigationBar navigationBar = getNavigationBar();
-        if (navigationBar != null) {
-            requireScrollMixin.requireScrollWithNavigationBar(navigationBar);
+        final ScrollView scrollView = getScrollView();
+        if (navigationBar != null && (scrollView instanceof BottomScrollView)) {
+            RequireScrollHelper.requireScroll(navigationBar, (BottomScrollView) scrollView);
         } else {
-            Log.e(TAG, "Cannot require scroll. Navigation bar is null.");
+            Log.e(TAG, "Both suw_layout_navigation_bar and suw_bottom_scroll_view must exist in"
+                    + " the template to require scrolling.");
         }
     }
 
     public void setHeaderText(int title) {
-        getMixin(HeaderMixin.class).setText(title);
+        final TextView titleView = getHeaderTextView();
+        if (titleView != null) {
+            titleView.setText(title);
+        }
     }
 
     public void setHeaderText(CharSequence title) {
-        getMixin(HeaderMixin.class).setText(title);
+        final TextView titleView = getHeaderTextView();
+        if (titleView != null) {
+            titleView.setText(title);
+        }
     }
 
     public CharSequence getHeaderText() {
-        return getMixin(HeaderMixin.class).getText();
+        final TextView titleView = getHeaderTextView();
+        return titleView != null ? titleView.getText() : null;
     }
 
     public TextView getHeaderTextView() {
-        return getMixin(HeaderMixin.class).getTextView();
+        return (TextView) findManagedViewById(R.id.suw_layout_title);
     }
 
     /**
@@ -358,8 +375,18 @@ public class SetupWizardLayout extends TemplateLayout {
         }
     }
 
+    /**
+     * Same as {@link android.view.View#findViewById(int)}, but may include views that are managed
+     * by this view but not currently added to the view hierarchy. e.g. recycler view or list view
+     * headers that are not currently shown.
+     */
+    protected View findManagedViewById(int id) {
+        return findViewById(id);
+    }
+
     public boolean isProgressBarShown() {
-        return getMixin(ProgressBarMixin.class).isShown();
+        final View progressBar = findManagedViewById(R.id.suw_layout_progress);
+        return progressBar != null && progressBar.getVisibility() == View.VISIBLE;
     }
 
     /**
@@ -368,7 +395,19 @@ public class SetupWizardLayout extends TemplateLayout {
      * view hierarchy until the first time this is set to {@code true}.
      */
     public void setProgressBarShown(boolean shown) {
-        getMixin(ProgressBarMixin.class).setShown(shown);
+        final View progressBar = findManagedViewById(R.id.suw_layout_progress);
+        if (progressBar != null) {
+            progressBar.setVisibility(shown ? View.VISIBLE : View.GONE);
+        } else if (shown) {
+            final ViewStub progressBarStub =
+                    (ViewStub) findManagedViewById(R.id.suw_layout_progress_stub);
+            if (progressBarStub != null) {
+                progressBarStub.inflate();
+            }
+            if (mProgressBarColor != null) {
+                setProgressBarColor(mProgressBarColor);
+            }
+        }
     }
 
     /**
@@ -388,11 +427,20 @@ public class SetupWizardLayout extends TemplateLayout {
     }
 
     public void setProgressBarColor(ColorStateList color) {
-        getMixin(ProgressBarMixin.class).setColor(color);
+        mProgressBarColor = color;
+        if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
+            // Suppress lint error caused by
+            // https://code.google.com/p/android/issues/detail?id=183136
+            // noinspection AndroidLintWrongViewCast
+            final ProgressBar bar = (ProgressBar) findViewById(R.id.suw_layout_progress);
+            if (bar != null) {
+                bar.setIndeterminateTintList(color);
+            }
+        }
     }
 
     public ColorStateList getProgressBarColor() {
-        return getMixin(ProgressBarMixin.class).getColor();
+        return mProgressBarColor;
     }
 
     /* Misc */

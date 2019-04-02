@@ -16,16 +16,20 @@
 
 package android.widget;
 
+import com.android.internal.R;
+
 import android.annotation.Nullable;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
-import android.icu.text.DateFormat;
 import android.icu.text.DisplayContext;
+import android.icu.text.SimpleDateFormat;
 import android.icu.util.Calendar;
 import android.os.Parcelable;
+import android.text.format.DateFormat;
+import android.text.format.DateUtils;
 import android.util.AttributeSet;
 import android.util.StateSet;
 import android.view.HapticFeedbackConstants;
@@ -36,8 +40,6 @@ import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.DayPickerView.OnDaySelectedListener;
 import android.widget.YearPickerView.OnYearSelectedListener;
-
-import com.android.internal.R;
 
 import java.util.Locale;
 
@@ -61,8 +63,10 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
     private static final int[] ATTRS_DISABLED_ALPHA = new int[] {
             com.android.internal.R.attr.disabledAlpha};
 
-    private DateFormat mYearFormat;
-    private DateFormat mMonthDayFormat;
+    private SimpleDateFormat mYearFormat;
+    private SimpleDateFormat mMonthDayFormat;
+    private SimpleDateFormat mAccessibilityEventFormat;
+
 
     // Top-level container.
     private ViewGroup mContainer;
@@ -80,8 +84,11 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
     private String mSelectDay;
     private String mSelectYear;
 
+    private DatePicker.OnDateChangedListener mDateChangedListener;
+
     private int mCurrentView = UNINITIALIZED;
 
+    private final Calendar mCurrentDate;
     private final Calendar mTempDate;
     private final Calendar mMinDate;
     private final Calendar mMaxDate;
@@ -111,14 +118,13 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
 
         // Set up and attach container.
         mContainer = (ViewGroup) inflater.inflate(layoutResourceId, mDelegator, false);
-        mContainer.setSaveFromParentEnabled(false);
         mDelegator.addView(mContainer);
 
         // Set up header views.
-        final ViewGroup header = mContainer.findViewById(R.id.date_picker_header);
-        mHeaderYear = header.findViewById(R.id.date_picker_header_year);
+        final ViewGroup header = (ViewGroup) mContainer.findViewById(R.id.date_picker_header);
+        mHeaderYear = (TextView) header.findViewById(R.id.date_picker_header_year);
         mHeaderYear.setOnClickListener(mOnHeaderClickListener);
-        mHeaderMonthDay = header.findViewById(R.id.date_picker_header_date);
+        mHeaderMonthDay = (TextView) header.findViewById(R.id.date_picker_header_date);
         mHeaderMonthDay.setOnClickListener(mOnHeaderClickListener);
 
         // For the sake of backwards compatibility, attempt to extract the text
@@ -154,10 +160,10 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
         a.recycle();
 
         // Set up picker container.
-        mAnimator = mContainer.findViewById(R.id.animator);
+        mAnimator = (ViewAnimator) mContainer.findViewById(R.id.animator);
 
         // Set up day picker view.
-        mDayPickerView = mAnimator.findViewById(R.id.date_picker_day_picker);
+        mDayPickerView = (DayPickerView) mAnimator.findViewById(R.id.date_picker_day_picker);
         mDayPickerView.setFirstDayOfWeek(mFirstDayOfWeek);
         mDayPickerView.setMinDate(mMinDate.getTimeInMillis());
         mDayPickerView.setMaxDate(mMaxDate.getTimeInMillis());
@@ -165,7 +171,7 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
         mDayPickerView.setOnDaySelectedListener(mOnDaySelectedListener);
 
         // Set up year picker view.
-        mYearPickerView = mAnimator.findViewById(R.id.date_picker_year_picker);
+        mYearPickerView = (YearPickerView) mAnimator.findViewById(R.id.date_picker_year_picker);
         mYearPickerView.setRange(mMinDate, mMaxDate);
         mYearPickerView.setYear(mCurrentDate.get(Calendar.YEAR));
         mYearPickerView.setOnYearSelectedListener(mOnYearSelectedListener);
@@ -272,16 +278,19 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
     /**
      * Listener called when the user clicks on a header item.
      */
-    private final OnClickListener mOnHeaderClickListener = v -> {
-        tryVibrate();
+    private final OnClickListener mOnHeaderClickListener = new OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            tryVibrate();
 
-        switch (v.getId()) {
-            case R.id.date_picker_header_year:
-                setCurrentView(VIEW_YEAR);
-                break;
-            case R.id.date_picker_header_date:
-                setCurrentView(VIEW_MONTH_DAY);
-                break;
+            switch (v.getId()) {
+                case R.id.date_picker_header_year:
+                    setCurrentView(VIEW_YEAR);
+                    break;
+                case R.id.date_picker_header_date:
+                    setCurrentView(VIEW_MONTH_DAY);
+                    break;
+            }
         }
     };
 
@@ -295,9 +304,13 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
         }
 
         // Update the date formatter.
-        mMonthDayFormat = DateFormat.getInstanceForSkeleton("EMMMd", locale);
+        final String datePattern = DateFormat.getBestDateTimePattern(locale, "EMMMd");
+        mMonthDayFormat = new SimpleDateFormat(datePattern, locale);
         mMonthDayFormat.setContext(DisplayContext.CAPITALIZATION_FOR_STANDALONE);
-        mYearFormat = DateFormat.getInstanceForSkeleton("y", locale);
+        mYearFormat = new SimpleDateFormat("y", locale);
+
+        // Clear out the lazily-initialized accessibility event formatter.
+        mAccessibilityEventFormat = null;
 
         // Update the header text.
         onCurrentDateChanged(false);
@@ -318,7 +331,10 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
 
         // TODO: This should use live regions.
         if (announce) {
-            mAnimator.announceForAccessibility(getFormattedCurrentDate());
+            final long millis = mCurrentDate.getTimeInMillis();
+            final int flags = DateUtils.FORMAT_SHOW_DATE | DateUtils.FORMAT_SHOW_YEAR;
+            final String fullDateText = DateUtils.formatDateTime(mContext, millis, flags);
+            mAnimator.announceForAccessibility(fullDateText);
         }
     }
 
@@ -339,11 +355,14 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
             case VIEW_YEAR:
                 final int year = mCurrentDate.get(Calendar.YEAR);
                 mYearPickerView.setYear(year);
-                mYearPickerView.post(() -> {
-                    mYearPickerView.requestFocus();
-                    final View selected = mYearPickerView.getSelectedView();
-                    if (selected != null) {
-                        selected.requestFocus();
+                mYearPickerView.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        mYearPickerView.requestFocus();
+                        final View selected = mYearPickerView.getSelectedView();
+                        if (selected != null) {
+                            selected.requestFocus();
+                        }
                     }
                 });
 
@@ -360,40 +379,33 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
     }
 
     @Override
-    public void init(int year, int month, int dayOfMonth,
+    public void init(int year, int monthOfYear, int dayOfMonth,
             DatePicker.OnDateChangedListener callBack) {
-        setDate(year, month, dayOfMonth);
+        mCurrentDate.set(Calendar.YEAR, year);
+        mCurrentDate.set(Calendar.MONTH, monthOfYear);
+        mCurrentDate.set(Calendar.DAY_OF_MONTH, dayOfMonth);
+
         onDateChanged(false, false);
 
-        mOnDateChangedListener = callBack;
+        mDateChangedListener = callBack;
     }
 
     @Override
     public void updateDate(int year, int month, int dayOfMonth) {
-        setDate(year, month, dayOfMonth);
-        onDateChanged(false, true);
-    }
-
-    private void setDate(int year, int month, int dayOfMonth) {
         mCurrentDate.set(Calendar.YEAR, year);
         mCurrentDate.set(Calendar.MONTH, month);
         mCurrentDate.set(Calendar.DAY_OF_MONTH, dayOfMonth);
-        resetAutofilledValue();
+
+        onDateChanged(false, true);
     }
 
     private void onDateChanged(boolean fromUser, boolean callbackToClient) {
         final int year = mCurrentDate.get(Calendar.YEAR);
 
-        if (callbackToClient
-                && (mOnDateChangedListener != null || mAutoFillChangeListener != null)) {
+        if (callbackToClient && mDateChangedListener != null) {
             final int monthOfYear = mCurrentDate.get(Calendar.MONTH);
             final int dayOfMonth = mCurrentDate.get(Calendar.DAY_OF_MONTH);
-            if (mOnDateChangedListener != null) {
-                mOnDateChangedListener.onDateChanged(mDelegator, year, monthOfYear, dayOfMonth);
-            }
-            if (mAutoFillChangeListener != null) {
-                mAutoFillChangeListener.onDateChanged(mDelegator, year, monthOfYear, dayOfMonth);
-            }
+            mDateChangedListener.onDateChanged(mDelegator, year, monthOfYear, dayOfMonth);
         }
 
         mDayPickerView.setDate(mCurrentDate.getTimeInMillis());
@@ -575,6 +587,16 @@ class DatePickerCalendarDelegate extends DatePicker.AbstractDatePickerDelegate {
     public boolean dispatchPopulateAccessibilityEvent(AccessibilityEvent event) {
         onPopulateAccessibilityEvent(event);
         return true;
+    }
+
+    @Override
+    public void onPopulateAccessibilityEvent(AccessibilityEvent event) {
+        if (mAccessibilityEventFormat == null) {
+            final String pattern = DateFormat.getBestDateTimePattern(mCurrentLocale, "EMMMMdy");
+            mAccessibilityEventFormat = new SimpleDateFormat(pattern);
+        }
+        final CharSequence text = mAccessibilityEventFormat.format(mCurrentDate.getTime());
+        event.getText().add(text);
     }
 
     public CharSequence getAccessibilityClassName() {

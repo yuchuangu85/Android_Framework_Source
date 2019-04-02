@@ -79,28 +79,10 @@ public class CameraMetadataNative implements Parcelable {
     public static class Key<T> {
         private boolean mHasTag;
         private int mTag;
-        private long mVendorId = Long.MAX_VALUE;
         private final Class<T> mType;
         private final TypeReference<T> mTypeReference;
         private final String mName;
         private final int mHash;
-
-        /**
-         * @hide
-         */
-        public Key(String name, Class<T> type, long vendorId) {
-            if (name == null) {
-                throw new NullPointerException("Key needs a valid name");
-            } else if (type == null) {
-                throw new NullPointerException("Type needs to be non-null");
-            }
-            mName = name;
-            mType = type;
-            mVendorId = vendorId;
-            mTypeReference = TypeReference.createSpecializedTypeReference(type);
-            mHash = mName.hashCode() ^ mTypeReference.hashCode();
-        }
-
         /**
          * Visible for testing only.
          *
@@ -212,7 +194,7 @@ public class CameraMetadataNative implements Parcelable {
          */
         public final int getTag() {
             if (!mHasTag) {
-                mTag = CameraMetadataNative.getTag(mName, mVendorId);
+                mTag = CameraMetadataNative.getTag(mName);
                 mHasTag = true;
             }
             return mTag;
@@ -227,15 +209,6 @@ public class CameraMetadataNative implements Parcelable {
         public final Class<T> getType() {
             // TODO: remove this; other places should use #getTypeReference() instead
             return mType;
-        }
-
-        /**
-         * Get the vendor tag provider id.
-         *
-         * @hide
-         */
-        public final long getVendorId() {
-            return mVendorId;
         }
 
         /**
@@ -490,14 +463,13 @@ public class CameraMetadataNative implements Parcelable {
     }
 
     private <T> T getBase(Key<T> key) {
-        int tag = nativeGetTagFromKeyLocal(key.getName());
+        int tag = key.getTag();
         byte[] values = readValues(tag);
         if (values == null) {
             return null;
         }
 
-        int nativeType = nativeGetTypeFromTagLocal(tag);
-        Marshaler<T> marshaler = getMarshalerForKey(key, nativeType);
+        Marshaler<T> marshaler = getMarshalerForKey(key);
         ByteBuffer buffer = ByteBuffer.wrap(values).order(ByteOrder.nativeOrder());
         return marshaler.unmarshal(buffer);
     }
@@ -828,8 +800,7 @@ public class CameraMetadataNative implements Parcelable {
 
         Location l = new Location(translateProcessToLocationProvider(processingMethod));
         if (timeStamp != null) {
-            // Location expects timestamp in [ms.]
-            l.setTime(timeStamp * 1000);
+            l.setTime(timeStamp);
         } else {
             Log.w(TAG, "getGpsLocation - No timestamp for GPS location.");
         }
@@ -852,8 +823,7 @@ public class CameraMetadataNative implements Parcelable {
 
         double[] coords = { l.getLatitude(), l.getLongitude(), l.getAltitude() };
         String processMethod = translateLocationProviderToProcess(l.getProvider());
-        //JPEG_GPS_TIMESTAMP expects sec. instead of msec.
-        long timestamp = l.getTime() / 1000;
+        long timestamp = l.getTime();
 
         set(CaptureRequest.JPEG_GPS_TIMESTAMP, timestamp);
         set(CaptureRequest.JPEG_GPS_COORDINATES, coords);
@@ -975,15 +945,15 @@ public class CameraMetadataNative implements Parcelable {
     }
 
     private <T> void setBase(Key<T> key, T value) {
-        int tag = nativeGetTagFromKeyLocal(key.getName());
+        int tag = key.getTag();
+
         if (value == null) {
             // Erase the entry
             writeValues(tag, /*src*/null);
             return;
         } // else update the entry to a new value
 
-        int nativeType = nativeGetTypeFromTagLocal(tag);
-        Marshaler<T> marshaler = getMarshalerForKey(key, nativeType);
+        Marshaler<T> marshaler = getMarshalerForKey(key);
         int size = marshaler.calculateMarshalSize(value);
 
         // TODO: Optimization. Cache the byte[] and reuse if the size is big enough.
@@ -1120,15 +1090,12 @@ public class CameraMetadataNative implements Parcelable {
     private native synchronized void nativeWriteValues(int tag, byte[] src);
     private native synchronized void nativeDump() throws IOException; // dump to ALOGD
 
-    private native synchronized ArrayList nativeGetAllVendorKeys(Class keyClass);
-    private native synchronized int nativeGetTagFromKeyLocal(String keyName)
+    private static native ArrayList nativeGetAllVendorKeys(Class keyClass);
+    private static native int nativeGetTagFromKey(String keyName)
             throws IllegalArgumentException;
-    private native synchronized int nativeGetTypeFromTagLocal(int tag)
+    private static native int nativeGetTypeFromTag(int tag)
             throws IllegalArgumentException;
-    private static native int nativeGetTagFromKey(String keyName, long vendorId)
-            throws IllegalArgumentException;
-    private static native int nativeGetTypeFromTag(int tag, long vendorId)
-            throws IllegalArgumentException;
+    private static native void nativeClassInit();
 
     /**
      * <p>Perform a 0-copy swap of the internal metadata with another object.</p>
@@ -1165,7 +1132,7 @@ public class CameraMetadataNative implements Parcelable {
      *
      * @hide
      */
-    public <K>  ArrayList<K> getAllVendorKeys(Class<K> keyClass) {
+    public static <K> ArrayList<K> getAllVendorKeys(Class<K> keyClass) {
         if (keyClass == null) {
             throw new NullPointerException();
         }
@@ -1181,32 +1148,19 @@ public class CameraMetadataNative implements Parcelable {
      * @hide
      */
     public static int getTag(String key) {
-        return nativeGetTagFromKey(key, Long.MAX_VALUE);
-    }
-
-    /**
-     * Convert a key string into the equivalent native tag.
-     *
-     * @throws IllegalArgumentException if the key was not recognized
-     * @throws NullPointerException if the key was null
-     *
-     * @hide
-     */
-    public static int getTag(String key, long vendorId) {
-        return nativeGetTagFromKey(key, vendorId);
+        return nativeGetTagFromKey(key);
     }
 
     /**
      * Get the underlying native type for a tag.
      *
      * @param tag An integer tag, see e.g. {@link #getTag}
-     * @param vendorId A vendor tag provider id
      * @return An int enum for the metadata type, see e.g. {@link #TYPE_BYTE}
      *
      * @hide
      */
-    public static int getNativeType(int tag, long vendorId) {
-        return nativeGetTypeFromTag(tag, vendorId);
+    public static int getNativeType(int tag) {
+        return nativeGetTypeFromTag(tag);
     }
 
     /**
@@ -1271,9 +1225,9 @@ public class CameraMetadataNative implements Parcelable {
      * @throws UnsupportedOperationException
      *          if the native/managed type combination for {@code key} is not supported
      */
-    private static <T> Marshaler<T> getMarshalerForKey(Key<T> key, int nativeType) {
+    private static <T> Marshaler<T> getMarshalerForKey(Key<T> key) {
         return MarshalRegistry.getMarshaler(key.getTypeReference(),
-                nativeType);
+                getNativeType(key.getTag()));
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
@@ -1333,6 +1287,10 @@ public class CameraMetadataNative implements Parcelable {
     }
 
     static {
+        /*
+         * We use a class initializer to allow the native code to cache some field offsets
+         */
+        nativeClassInit();
         registerAllMarshalers();
     }
 }

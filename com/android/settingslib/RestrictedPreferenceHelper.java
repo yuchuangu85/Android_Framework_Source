@@ -22,7 +22,6 @@ import android.graphics.drawable.Drawable;
 import android.os.UserHandle;
 import android.support.v7.preference.Preference;
 import android.support.v7.preference.PreferenceViewHolder;
-import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.View;
@@ -89,13 +88,11 @@ public class RestrictedPreferenceHelper {
         if (mUseAdminDisabledSummary) {
             final TextView summaryView = (TextView) holder.findViewById(android.R.id.summary);
             if (summaryView != null) {
-                final CharSequence disabledText = summaryView.getContext().getText(
-                        R.string.disabled_by_admin_summary_text);
                 if (mDisabledByAdmin) {
-                    summaryView.setText(disabledText);
-                } else if (TextUtils.equals(disabledText, summaryView.getText())) {
-                    // It's previously set to disabled text, clear it.
-                    summaryView.setText(null);
+                    summaryView.setText(R.string.disabled_by_admin_summary_text);
+                    summaryView.setVisibility(View.VISIBLE);
+                } else {
+                    summaryView.setVisibility(View.GONE);
                 }
             }
         }

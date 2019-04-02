@@ -15,28 +15,61 @@
  */
 package android.support.v17.leanback.widget;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.support.annotation.RestrictTo;
+import android.support.v17.leanback.widget.BackgroundHelperKitkat;
 import android.view.View;
+
+import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+
 
 /**
  * Helper for view backgrounds.
  * @hide
  */
-@RestrictTo(LIBRARY_GROUP)
+@RestrictTo(GROUP_ID)
 public final class BackgroundHelper {
-    public static void setBackgroundPreservingAlpha(View view, Drawable drawable) {
-        if (Build.VERSION.SDK_INT >= 19) {
-            if (view.getBackground() != null) {
-                drawable.setAlpha(view.getBackground().getAlpha());
-            }
-            view.setBackground(drawable);
-        } else {
+
+    final static BackgroundHelperVersionImpl sImpl;
+
+    interface BackgroundHelperVersionImpl {
+        void setBackgroundPreservingAlpha(View view, Drawable drawable);
+    }
+
+    private static final class BackgroundHelperStubImpl implements BackgroundHelperVersionImpl {
+        BackgroundHelperStubImpl() {
+        }
+
+        @Override
+        public void setBackgroundPreservingAlpha(View view, Drawable drawable) {
             // Cannot query drawable alpha
             view.setBackground(drawable);
         }
+    }
+
+    private static final class BackgroundHelperKitkatImpl implements BackgroundHelperVersionImpl {
+        BackgroundHelperKitkatImpl() {
+        }
+
+        @Override
+        public void setBackgroundPreservingAlpha(View view, Drawable drawable) {
+            BackgroundHelperKitkat.setBackgroundPreservingAlpha(view, drawable);
+        }
+    }
+
+    private BackgroundHelper() {
+    }
+
+    static {
+        if (Build.VERSION.SDK_INT >= 19) {
+            sImpl = new BackgroundHelperKitkatImpl();
+        } else {
+            sImpl = new BackgroundHelperStubImpl();
+        }
+    }
+
+    public static void setBackgroundPreservingAlpha(View view, Drawable drawable) {
+        sImpl.setBackgroundPreservingAlpha(view, drawable);
     }
 }

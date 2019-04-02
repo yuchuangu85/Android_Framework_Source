@@ -16,10 +16,8 @@
 
 package com.android.server.wm;
 
-import static android.view.Display.INVALID_DISPLAY;
-import static android.view.WindowManagerPolicy.FINISH_LAYOUT_REDO_ANIM;
-import static com.android.server.wm.AppTransition.TRANSIT_UNSET;
 import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_ANIM;
+import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_LAYERS;
 import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_VISIBILITY;
 import static com.android.server.wm.WindowManagerDebugConfig.SHOW_TRANSACTIONS;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WITH_CLASS_NAME;
@@ -33,6 +31,7 @@ import android.util.TimeUtils;
 import android.view.Choreographer;
 import android.view.Display;
 import android.view.SurfaceControl;
+import android.view.WindowManagerPolicy;
 import android.view.animation.Animation;
 import android.view.animation.Transformation;
 
@@ -78,9 +77,6 @@ public class AppWindowAnimator {
     // requires that the duration of the two animations are the same.
     SurfaceControl thumbnail;
     int thumbnailTransactionSeq;
-    // TODO(b/62029108): combine both members into a private one. Create a member function to set
-    // the thumbnail layer to +1 to the highest layer position and replace all setter instances
-    // with this function. Remove all unnecessary calls to both variables in other classes.
     int thumbnailLayer;
     int thumbnailForceAboveLayer;
     Animation thumbnailAnimation;
@@ -100,8 +96,6 @@ public class AppWindowAnimator {
     // that if recents doesn't tell us to remove the prolonged animation, we will get rid of it
     // when new animation is set.
     private boolean mClearProlongedAnimation;
-    private int mTransit;
-    private int mTransitFlags;
 
     /** WindowStateAnimator from mAppAnimator.allAppWindows as of last performLayout */
     ArrayList<WindowStateAnimator> mAllAppWinAnimators = new ArrayList<>();
@@ -115,22 +109,21 @@ public class AppWindowAnimator {
 
     static final Animation sDummyAnimation = new DummyAnimation();
 
-    public AppWindowAnimator(final AppWindowToken atoken, WindowManagerService service) {
+    public AppWindowAnimator(final AppWindowToken atoken) {
         mAppToken = atoken;
-        mService = service;
+        mService = atoken.service;
         mAnimator = mService.mAnimator;
     }
 
-    public void setAnimation(Animation anim, int width, int height, int parentWidth,
-            int parentHeight, boolean skipFirstFrame, int stackClip, int transit,
-            int transitFlags) {
+    public void setAnimation(Animation anim, int width, int height, boolean skipFirstFrame,
+            int stackClip) {
         if (WindowManagerService.localLOGV) Slog.v(TAG, "Setting animation in " + mAppToken
                 + ": " + anim + " wxh=" + width + "x" + height
-                + " hasContentToDisplay=" + mAppToken.hasContentToDisplay());
+                + " isVisible=" + mAppToken.isVisible());
         animation = anim;
         animating = false;
         if (!anim.isInitialized()) {
-            anim.initialize(width, height, parentWidth, parentHeight);
+            anim.initialize(width, height, width, height);
         }
         anim.restrictDuration(WindowManagerService.MAX_ANIMATION_DURATION);
         anim.scaleCurrentDuration(mService.getTransitionAnimationScaleLocked());
@@ -152,11 +145,9 @@ public class AppWindowAnimator {
         hasTransformation = true;
         mStackClip = stackClip;
 
-        mSkipFirstFrame = skipFirstFrame;
-        mTransit = transit;
-        mTransitFlags = transitFlags;
+        this.mSkipFirstFrame = skipFirstFrame;
 
-        if (!mAppToken.fillsParent()) {
+        if (!mAppToken.appFullscreen) {
             anim.setBackgroundColor(0);
         }
         if (mClearProlongedAnimation) {
@@ -164,11 +155,18 @@ public class AppWindowAnimator {
         } else {
             mClearProlongedAnimation = true;
         }
+
+        // Since we are finally starting our animation, we don't need the logic anymore to prevent
+        // the app from showing again if we just moved between stacks. See
+        // {@link WindowState#notifyMovedInStack}.
+        for (int i = mAppToken.allAppWindows.size() - 1; i >= 0; i--) {
+            mAppToken.allAppWindows.get(i).resetJustMovedInStack();
+        }
     }
 
     public void setDummyAnimation() {
         if (WindowManagerService.localLOGV) Slog.v(TAG, "Setting dummy animation in " + mAppToken
-                + " hasContentToDisplay=" + mAppToken.hasContentToDisplay());
+                + " isVisible=" + mAppToken.isVisible());
         animation = sDummyAnimation;
         hasTransformation = true;
         transformation.clear();
@@ -190,28 +188,10 @@ public class AppWindowAnimator {
             mAppToken.clearAllDrawn();
         }
         mStackClip = STACK_CLIP_BEFORE_ANIM;
-        mTransit = TRANSIT_UNSET;
-        mTransitFlags = 0;
     }
 
     public boolean isAnimating() {
         return animation != null || mAppToken.inPendingTransaction;
-    }
-
-    /**
-     * @return whether an animation is about to start, i.e. the animation is set already but we
-     *         haven't processed the first frame yet.
-     */
-    boolean isAnimationStarting() {
-        return animation != null && !animating;
-    }
-
-    public int getTransit() {
-        return mTransit;
-    }
-
-    int getTransitFlags() {
-        return mTransitFlags;
     }
 
     public void clearThumbnail() {
@@ -239,7 +219,6 @@ public class AppWindowAnimator {
             toAppAnimator.updateLayers();
             updateLayers();
             toAppAnimator.usingTransferredAnimation = true;
-            toAppAnimator.mTransit = mTransit;
         }
         if (transferWinAnimator != null) {
             mAllAppWinAnimators.remove(transferWinAnimator);
@@ -254,9 +233,24 @@ public class AppWindowAnimator {
         }
     }
 
-    private void updateLayers() {
-        mAppToken.getDisplayContent().assignWindowLayers(false /* relayoutNeeded */);
-        thumbnailLayer = mAppToken.getHighestAnimLayer();
+    void updateLayers() {
+        final int windowCount = mAppToken.allAppWindows.size();
+        final int adj = animLayerAdjustment;
+        thumbnailLayer = -1;
+        final WallpaperController wallpaperController = mService.mWallpaperControllerLocked;
+        for (int i = 0; i < windowCount; i++) {
+            final WindowState w = mAppToken.allAppWindows.get(i);
+            final WindowStateAnimator winAnimator = w.mWinAnimator;
+            winAnimator.mAnimLayer = w.mLayer + adj;
+            if (winAnimator.mAnimLayer > thumbnailLayer) {
+                thumbnailLayer = winAnimator.mAnimLayer;
+            }
+            if (DEBUG_LAYERS) Slog.v(TAG, "Updating layer " + w + ": " + winAnimator.mAnimLayer);
+            if (w == mService.mInputMethodTarget && !mService.mInputMethodTargetWaitingAnim) {
+                mService.mLayersController.setInputMethodAnimLayerAdjustment(adj);
+            }
+            wallpaperController.setAnimLayerAdjustment(w, adj);
+        }
     }
 
     private void stepThumbnailAnimation(long currentTime) {
@@ -357,8 +351,8 @@ public class AppWindowAnimator {
     }
 
     // This must be called while inside a transaction.
-    boolean stepAnimationLocked(long currentTime) {
-        if (mAppToken.okToAnimate()) {
+    boolean stepAnimationLocked(long currentTime, final int displayId) {
+        if (mService.okToDisplay()) {
             // We will run animations as long as the display isn't frozen.
 
             if (animation == sDummyAnimation) {
@@ -408,7 +402,8 @@ public class AppWindowAnimator {
             return false;
         }
 
-        mAppToken.setAppLayoutChanges(FINISH_LAYOUT_REDO_ANIM, "AppWindowToken");
+        mAnimator.setAppLayoutChanges(this, WindowManagerPolicy.FINISH_LAYOUT_REDO_ANIM,
+                "AppWindowToken", displayId);
 
         clearAnimation();
         animating = false;
@@ -418,20 +413,18 @@ public class AppWindowAnimator {
         }
         if (mService.mInputMethodTarget != null
                 && mService.mInputMethodTarget.mAppToken == mAppToken) {
-            mAppToken.getDisplayContent().computeImeTarget(true /* updateImeTarget */);
+            mService.moveInputMethodWindowsIfNeededLocked(true);
         }
 
-        if (DEBUG_ANIM) Slog.v(TAG, "Animation done in " + mAppToken
-                + ": reportedVisible=" + mAppToken.reportedVisible
-                + " okToDisplay=" + mAppToken.okToDisplay()
-                + " okToAnimate=" + mAppToken.okToAnimate()
-                + " startingDisplayed=" + mAppToken.startingDisplayed);
+        if (DEBUG_ANIM) Slog.v(TAG,
+                "Animation done in " + mAppToken
+                + ": reportedVisible=" + mAppToken.reportedVisible);
 
         transformation.clear();
 
         final int numAllAppWinAnimators = mAllAppWinAnimators.size();
         for (int i = 0; i < numAllAppWinAnimators; i++) {
-            mAllAppWinAnimators.get(i).mWin.onExitAnimationDone();
+            mAllAppWinAnimators.get(i).finishExit();
         }
         mService.mAppTransition.notifyAppTransitionFinishedLocked(mAppToken.token);
         return false;
@@ -444,13 +437,13 @@ public class AppWindowAnimator {
         for (int i=0; i<NW; i++) {
             WindowStateAnimator winAnimator = mAllAppWinAnimators.get(i);
             if (DEBUG_VISIBILITY) Slog.v(TAG, "performing show on: " + winAnimator);
-            winAnimator.mWin.performShowLocked();
+            winAnimator.performShowLocked();
             isAnimating |= winAnimator.isAnimationSet();
         }
         return isAnimating;
     }
 
-    void dump(PrintWriter pw, String prefix) {
+    void dump(PrintWriter pw, String prefix, boolean dumpAll) {
         pw.print(prefix); pw.print("mAppToken="); pw.println(mAppToken);
         pw.print(prefix); pw.print("mAnimator="); pw.println(mAnimator);
         pw.print(prefix); pw.print("freezingScreen="); pw.print(freezingScreen);
@@ -463,8 +456,6 @@ public class AppWindowAnimator {
         if (animating || animation != null) {
             pw.print(prefix); pw.print("animating="); pw.println(animating);
             pw.print(prefix); pw.print("animation="); pw.println(animation);
-            pw.print(prefix); pw.print("mTransit="); pw.println(mTransit);
-            pw.print(prefix); pw.print("mTransitFlags="); pw.println(mTransitFlags);
         }
         if (hasTransformation) {
             pw.print(prefix); pw.print("XForm: ");

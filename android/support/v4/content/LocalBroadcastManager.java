@@ -44,11 +44,12 @@ import android.util.Log;
  * </ul>
  */
 public final class LocalBroadcastManager {
-    private static final class ReceiverRecord {
+
+    // 用来描述BroadcastReceiver和对应IntentFilter的对象
+    private static class ReceiverRecord {
         final IntentFilter filter;
         final BroadcastReceiver receiver;
         boolean broadcasting;
-        boolean dead;
 
         ReceiverRecord(IntentFilter _filter, BroadcastReceiver _receiver) {
             filter = _filter;
@@ -62,15 +63,13 @@ public final class LocalBroadcastManager {
             builder.append(receiver);
             builder.append(" filter=");
             builder.append(filter);
-            if (dead) {
-                builder.append(" DEAD");
-            }
             builder.append("}");
             return builder.toString();
         }
     }
 
-    private static final class BroadcastRecord {
+    // 用来描述启动广播的Intent和ReceiverRecord列表的对象
+    private static class BroadcastRecord {
         final Intent intent;
         final ArrayList<ReceiverRecord> receivers;
 
@@ -85,11 +84,15 @@ public final class LocalBroadcastManager {
 
     private final Context mAppContext;
 
-    private final HashMap<BroadcastReceiver, ArrayList<ReceiverRecord>> mReceivers
-            = new HashMap<>();
-    private final HashMap<String, ArrayList<ReceiverRecord>> mActions = new HashMap<>();
+    // 每一个BroadcastReceiver对应一个或者多个IntentFilter对象
+    private final HashMap<BroadcastReceiver, ArrayList<IntentFilter>> mReceivers
+            = new HashMap<BroadcastReceiver, ArrayList<IntentFilter>>();
+    // 每一个action对应多个广播接收器
+    private final HashMap<String, ArrayList<ReceiverRecord>> mActions
+            = new HashMap<String, ArrayList<ReceiverRecord>>();
 
-    private final ArrayList<BroadcastRecord> mPendingBroadcasts = new ArrayList<>();
+    private final ArrayList<BroadcastRecord> mPendingBroadcasts
+            = new ArrayList<BroadcastRecord>();
 
     static final int MSG_EXEC_PENDING_BROADCASTS = 1;
 
@@ -134,20 +137,27 @@ public final class LocalBroadcastManager {
      */
     public void registerReceiver(BroadcastReceiver receiver, IntentFilter filter) {
         synchronized (mReceivers) {
+            // 创建描述BroadcastReceiver和对应IntentFilter的对象
             ReceiverRecord entry = new ReceiverRecord(filter, receiver);
-            ArrayList<ReceiverRecord> filters = mReceivers.get(receiver);
-            if (filters == null) {
-                filters = new ArrayList<>(1);
+            // 获取是否已存在BroadcastReceiver对应的IntentFilter列表
+            ArrayList<IntentFilter> filters = mReceivers.get(receiver);
+            if (filters == null) {// 表示没有注册过该广播
+                filters = new ArrayList<IntentFilter>(1);
+                // 保存广播接收器以及对应的一系列IntentFilter
                 mReceivers.put(receiver, filters);
             }
-            filters.add(entry);
+            // 保存IntentFilter对象到对应的列表
+            filters.add(filter);
+            // 查找所有的Action并且保存到
             for (int i=0; i<filter.countActions(); i++) {
                 String action = filter.getAction(i);
                 ArrayList<ReceiverRecord> entries = mActions.get(action);
-                if (entries == null) {
+                if (entries == null) {// 没有该Action对应的广播接收器
                     entries = new ArrayList<ReceiverRecord>(1);
+                    // 保存Action已经所有对应的ReceiverRecord到列表中
                     mActions.put(action, entries);
                 }
+                // 保存ReceiverRecord到列表
                 entries.add(entry);
             }
         }
@@ -164,22 +174,24 @@ public final class LocalBroadcastManager {
      */
     public void unregisterReceiver(BroadcastReceiver receiver) {
         synchronized (mReceivers) {
-            final ArrayList<ReceiverRecord> filters = mReceivers.remove(receiver);
+            // 根据要取消注册的广播接收器查找对应的IntentFilter列表
+            ArrayList<IntentFilter> filters = mReceivers.remove(receiver);
             if (filters == null) {
                 return;
             }
-            for (int i=filters.size()-1; i>=0; i--) {
-                final ReceiverRecord filter = filters.get(i);
-                filter.dead = true;
-                for (int j=0; j<filter.filter.countActions(); j++) {
-                    final String action = filter.filter.getAction(j);
-                    final ArrayList<ReceiverRecord> receivers = mActions.get(action);
+            for (int i=0; i<filters.size(); i++) {
+                IntentFilter filter = filters.get(i);
+                for (int j=0; j<filter.countActions(); j++) {
+                    // 查找IntentFilter中所有的Action
+                    String action = filter.getAction(j);
+                    // 超找没一个Action对应的广播接收描述者列表
+                    ArrayList<ReceiverRecord> receivers = mActions.get(action);
                     if (receivers != null) {
-                        for (int k=receivers.size()-1; k>=0; k--) {
-                            final ReceiverRecord rec = receivers.get(k);
-                            if (rec.receiver == receiver) {
-                                rec.dead = true;
+                        for (int k=0; k<receivers.size(); k++) {
+                            // 判断是不是当前广播接收器，是，删除
+                            if (receivers.get(k).receiver == receiver) {
                                 receivers.remove(k);
+                                k--;
                             }
                         }
                         if (receivers.size() <= 0) {
@@ -200,10 +212,6 @@ public final class LocalBroadcastManager {
      *     Intent will receive the broadcast.
      *
      * @see #registerReceiver
-     *
-     * @return Returns true if the intent has been scheduled for delivery to one or more
-     * broadcast receivers.  (Note tha delivery may not ultimately take place if one of those
-     * receivers is unregistered before it is dispatched.)
      */
     public boolean sendBroadcast(Intent intent) {
         synchronized (mReceivers) {
@@ -265,8 +273,11 @@ public final class LocalBroadcastManager {
                     for (int i=0; i<receivers.size(); i++) {
                         receivers.get(i).broadcasting = false;
                     }
+                    // 找到要接收广播的接收器列表
                     mPendingBroadcasts.add(new BroadcastRecord(intent, receivers));
+                    // 如果消息队列中没有该消息，则发送消息执行发送广播
                     if (!mHandler.hasMessages(MSG_EXEC_PENDING_BROADCASTS)) {
+                        // 发送消息
                         mHandler.sendEmptyMessage(MSG_EXEC_PENDING_BROADCASTS);
                     }
                     return true;
@@ -287,9 +298,10 @@ public final class LocalBroadcastManager {
         }
     }
 
+    // 发送广播
     private void executePendingBroadcasts() {
         while (true) {
-            final BroadcastRecord[] brs;
+            BroadcastRecord[] brs = null;
             synchronized (mReceivers) {
                 final int N = mPendingBroadcasts.size();
                 if (N <= 0) {
@@ -300,13 +312,9 @@ public final class LocalBroadcastManager {
                 mPendingBroadcasts.clear();
             }
             for (int i=0; i<brs.length; i++) {
-                final BroadcastRecord br = brs[i];
-                final int nbr = br.receivers.size();
-                for (int j=0; j<nbr; j++) {
-                    final ReceiverRecord rec = br.receivers.get(j);
-                    if (!rec.dead) {
-                        rec.receiver.onReceive(mAppContext, br.intent);
-                    }
+                BroadcastRecord br = brs[i];
+                for (int j=0; j<br.receivers.size(); j++) {
+                    br.receivers.get(j).receiver.onReceive(mAppContext, br.intent);
                 }
             }
         }

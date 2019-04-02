@@ -63,17 +63,10 @@ public class DataEnabledSettings {
 
     private final RegistrantList mDataEnabledChangedRegistrants = new RegistrantList();
 
-    @Override
-    public String toString() {
-        return "[mInternalDataEnabled=" + mInternalDataEnabled + ", mUserDataEnabled="
-                + mUserDataEnabled + ", mPolicyDataEnabled=" + mPolicyDataEnabled
-                + ", mCarrierDataEnabled=" + mCarrierDataEnabled + "]";
-    }
-
     public synchronized void setInternalDataEnabled(boolean enabled) {
-        boolean prevDataEnabled = isDataEnabled();
+        boolean prevDataEnabled = isDataEnabled(true);
         mInternalDataEnabled = enabled;
-        if (prevDataEnabled != isDataEnabled()) {
+        if (prevDataEnabled != isDataEnabled(true)) {
             notifyDataEnabledChanged(!prevDataEnabled, REASON_INTERNAL_DATA_ENABLED);
         }
     }
@@ -82,9 +75,9 @@ public class DataEnabledSettings {
     }
 
     public synchronized void setUserDataEnabled(boolean enabled) {
-        boolean prevDataEnabled = isDataEnabled();
+        boolean prevDataEnabled = isDataEnabled(true);
         mUserDataEnabled = enabled;
-        if (prevDataEnabled != isDataEnabled()) {
+        if (prevDataEnabled != isDataEnabled(true)) {
             notifyDataEnabledChanged(!prevDataEnabled, REASON_USER_DATA_ENABLED);
         }
     }
@@ -93,9 +86,9 @@ public class DataEnabledSettings {
     }
 
     public synchronized void setPolicyDataEnabled(boolean enabled) {
-        boolean prevDataEnabled = isDataEnabled();
+        boolean prevDataEnabled = isDataEnabled(true);
         mPolicyDataEnabled = enabled;
-        if (prevDataEnabled != isDataEnabled()) {
+        if (prevDataEnabled != isDataEnabled(true)) {
             notifyDataEnabledChanged(!prevDataEnabled, REASON_POLICY_DATA_ENABLED);
         }
     }
@@ -104,9 +97,9 @@ public class DataEnabledSettings {
     }
 
     public synchronized void setCarrierDataEnabled(boolean enabled) {
-        boolean prevDataEnabled = isDataEnabled();
+        boolean prevDataEnabled = isDataEnabled(true);
         mCarrierDataEnabled = enabled;
-        if (prevDataEnabled != isDataEnabled()) {
+        if (prevDataEnabled != isDataEnabled(true)) {
             notifyDataEnabledChanged(!prevDataEnabled, REASON_DATA_ENABLED_BY_CARRIER);
         }
     }
@@ -114,9 +107,11 @@ public class DataEnabledSettings {
         return mCarrierDataEnabled;
     }
 
-    public synchronized boolean isDataEnabled() {
-        return (mInternalDataEnabled && mUserDataEnabled && mPolicyDataEnabled
-                && mCarrierDataEnabled);
+    public synchronized boolean isDataEnabled(boolean checkUserDataEnabled) {
+        return (mInternalDataEnabled
+                && (!checkUserDataEnabled || mUserDataEnabled)
+                && (!checkUserDataEnabled || mPolicyDataEnabled)
+                && (!checkUserDataEnabled || mCarrierDataEnabled));
     }
 
     private void notifyDataEnabledChanged(boolean enabled, int reason) {
@@ -125,7 +120,7 @@ public class DataEnabledSettings {
 
     public void registerForDataEnabledChanged(Handler h, int what, Object obj) {
         mDataEnabledChangedRegistrants.addUnique(h, what, obj);
-        notifyDataEnabledChanged(isDataEnabled(), REASON_REGISTERED);
+        notifyDataEnabledChanged(isDataEnabled(true), REASON_REGISTERED);
     }
 
     public void unregisterForDataEnabledChanged(Handler h) {

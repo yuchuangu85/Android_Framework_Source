@@ -18,11 +18,10 @@ package com.android.server.content;
 
 import android.accounts.Account;
 import android.app.job.JobInfo;
-import android.content.ContentResolver;
 import android.content.pm.PackageManager;
+import android.content.ContentResolver;
 import android.os.Bundle;
 import android.os.PersistableBundle;
-import android.os.SystemClock;
 import android.os.UserHandle;
 import android.util.Slog;
 
@@ -237,9 +236,6 @@ public class SyncOperation {
      * contain a valid sync operation.
      */
     static SyncOperation maybeCreateFromJobExtras(PersistableBundle jobExtras) {
-        if (jobExtras == null) {
-            return null;
-        }
         String accountName, accountType;
         String provider;
         int userId, owningUid;
@@ -354,46 +350,37 @@ public class SyncOperation {
         return dump(null, true);
     }
 
-    String dump(PackageManager pm, boolean shorter) {
+    String dump(PackageManager pm, boolean useOneLine) {
         StringBuilder sb = new StringBuilder();
-        sb.append("JobId=").append(jobId)
-                .append(" ")
+        sb.append("JobId: ").append(jobId)
+                .append(", ")
                 .append(target.account.name)
-                .append("/")
-                .append(target.account.type)
                 .append(" u")
-                .append(target.userId)
-                .append(" [")
+                .append(target.userId).append(" (")
+                .append(target.account.type)
+                .append(")")
+                .append(", ")
                 .append(target.provider)
-                .append("] ");
+                .append(", ");
         sb.append(SyncStorageEngine.SOURCES[syncSource]);
-        if (expectedRuntime != 0) {
-            sb.append(" ExpectedIn=");
-            SyncManager.formatDurationHMS(sb,
-                    (expectedRuntime - SystemClock.elapsedRealtime()));
-        }
         if (extras.getBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, false)) {
-            sb.append(" EXPEDITED");
+            sb.append(", EXPEDITED");
         }
-        sb.append(" Reason=");
+        sb.append(", reason: ");
         sb.append(reasonToString(pm, reason));
         if (isPeriodic) {
-            sb.append(" (period=");
-            SyncManager.formatDurationHMS(sb, periodMillis);
-            sb.append(" flex=");
-            SyncManager.formatDurationHMS(sb, flexMillis);
-            sb.append(")");
+            sb.append(", period: " + periodMillis).append(", flexMillis: " + flexMillis);
         }
-        if (!shorter) {
-            sb.append(" Owner={");
+        if (!useOneLine) {
+            sb.append("\n    ");
+            sb.append("owningUid=");
             UserHandle.formatUid(sb, owningUid);
-            sb.append(" ");
+            sb.append(" owningPackage=");
             sb.append(owningPackage);
-            sb.append("}");
-            if (!extras.keySet().isEmpty()) {
-                sb.append(" ");
-                extrasToStringBuilder(extras, sb);
-            }
+        }
+        if (!useOneLine && !extras.keySet().isEmpty()) {
+            sb.append("\n    ");
+            extrasToStringBuilder(extras, sb);
         }
         return sb.toString();
     }
@@ -447,22 +434,12 @@ public class SyncOperation {
         return extras.getBoolean(ContentResolver.SYNC_EXTRAS_IGNORE_SETTINGS, false);
     }
 
-    static void extrasToStringBuilder(Bundle bundle, StringBuilder sb) {
-        if (bundle == null) {
-            sb.append("null");
-            return;
-        }
+    private static void extrasToStringBuilder(Bundle bundle, StringBuilder sb) {
         sb.append("[");
         for (String key : bundle.keySet()) {
             sb.append(key).append("=").append(bundle.get(key)).append(" ");
         }
         sb.append("]");
-    }
-
-    static String extrasToString(Bundle bundle) {
-        final StringBuilder sb = new StringBuilder();
-        extrasToStringBuilder(bundle, sb);
-        return sb.toString();
     }
 
     String wakeLockName() {

@@ -131,22 +131,10 @@ public class RenderScript {
         return useNative;
     }
     /*
-     * Detect the bitness of the VM to allow FieldPacker and generated code to do the right thing.
+     * Detect the bitness of the VM to allow FieldPacker to do the right thing.
      */
     static native int rsnSystemGetPointerSize();
     static int sPointerSize;
-    static public int getPointerSize() {
-        // We provide an accessor rather than making the data item public for two reasons.
-        // 1) Prevents anyone outside this class from writing the data item.
-        // 2) Prevents anyone outside this class from reading the data item unless a class
-        //    instance has been created (ensuring the data item has been initialized).
-        // DISCLAIMER: Reflection can circumvent these preventive measures.
-        synchronized(lock) {
-            if (!sInitialized)
-                throw new RSInvalidStateException("Calling getPointerSize() before any RenderScript instantiated");
-        }
-        return sPointerSize;
-    }
 
     /**
      * Determines whether or not we should be thunking into the native
@@ -1265,7 +1253,6 @@ public class RenderScript {
         static final int RS_MESSAGE_TO_CLIENT_ERROR = 3;
 
         static final int RS_MESSAGE_TO_CLIENT_USER = 4;
-        static final int RS_ERROR_FATAL_DEBUG = 0x800;
         static final int RS_ERROR_FATAL_UNKNOWN = 0x1000;
 
         MessageThread(RenderScript rs) {
@@ -1308,19 +1295,7 @@ public class RenderScript {
                 if (msg == RS_MESSAGE_TO_CLIENT_ERROR) {
                     String e = mRS.nContextGetErrorMessage(mRS.mContext);
 
-                    // Copied from java/android/renderscript/RenderScript.java
-                    // Throw RSRuntimeException under the following conditions:
-                    //
-                    // 1) It is an unknown fatal error.
-                    // 2) It is a debug fatal error, and we are not in a
-                    //    debug context.
-                    // 3) It is a debug fatal error, and we do not have an
-                    //    error callback.
-                    if (subID >= RS_ERROR_FATAL_UNKNOWN ||
-                        (subID >= RS_ERROR_FATAL_DEBUG &&
-                         (mRS.mContextType != ContextType.DEBUG ||
-                          mRS.mErrorCallback == null))) {
-                        android.util.Log.e(LOG_TAG, "fatal RS error, " + e);
+                    if (subID >= RS_ERROR_FATAL_UNKNOWN) {
                         throw new RSRuntimeException("Fatal error " + subID + ", details: " + e);
                     }
 

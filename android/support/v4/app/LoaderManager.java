@@ -839,7 +839,6 @@ class LoaderManagerImpl extends LoaderManager {
             mInactiveLoaders.valueAt(i).destroy();
         }
         mInactiveLoaders.clear();
-        mHost = null;
     }
 
     @Override

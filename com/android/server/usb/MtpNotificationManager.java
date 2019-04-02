@@ -20,6 +20,7 @@ import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -30,9 +31,6 @@ import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.os.UserHandle;
-
-import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
-import com.android.internal.notification.SystemNotificationChannels;
 
 /**
  * Manager for MTP storage notification.
@@ -79,12 +77,11 @@ class MtpNotificationManager {
                 device.getProductName());
         final String description = resources.getString(
                 com.android.internal.R.string.usb_mtp_launch_notification_description);
-        final Notification.Builder builder =
-                new Notification.Builder(mContext, SystemNotificationChannels.USB)
-                        .setContentTitle(title)
-                        .setContentText(description)
-                        .setSmallIcon(com.android.internal.R.drawable.stat_sys_data_usb)
-                        .setCategory(Notification.CATEGORY_SYSTEM);
+        final Notification.Builder builder = new Notification.Builder(mContext)
+                .setContentTitle(title)
+                .setContentText(description)
+                .setSmallIcon(com.android.internal.R.drawable.stat_sys_data_usb)
+                .setCategory(Notification.CATEGORY_SYSTEM);
 
         final Intent intent = new Intent(ACTION_OPEN_IN_APPS);
         intent.putExtra(UsbManager.EXTRA_DEVICE, device);
@@ -102,13 +99,11 @@ class MtpNotificationManager {
         notification.flags |= Notification.FLAG_LOCAL_ONLY;
 
         mContext.getSystemService(NotificationManager.class).notify(
-                Integer.toString(device.getDeviceId()), SystemMessage.NOTE_USB_MTP_TAP,
-                notification);
+                TAG, device.getDeviceId(), notification);
     }
 
     void hideNotification(int deviceId) {
-        mContext.getSystemService(NotificationManager.class).cancel(
-                Integer.toString(deviceId), SystemMessage.NOTE_USB_MTP_TAP);
+        mContext.getSystemService(NotificationManager.class).cancel(TAG, deviceId);
     }
 
     private class Receiver extends BroadcastReceiver {

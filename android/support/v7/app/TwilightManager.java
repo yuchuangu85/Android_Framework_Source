@@ -16,16 +16,11 @@
 
 package android.support.v7.app;
 
-import static android.Manifest.permission.ACCESS_COARSE_LOCATION;
-import static android.Manifest.permission.ACCESS_FINE_LOCATION;
-
 import android.Manifest;
-import android.annotation.SuppressLint;
 import android.content.Context;
 import android.location.Location;
 import android.location.LocationManager;
 import android.support.annotation.NonNull;
-import android.support.annotation.RequiresPermission;
 import android.support.annotation.VisibleForTesting;
 import android.support.v4.content.PermissionChecker;
 import android.text.format.DateUtils;
@@ -101,7 +96,6 @@ class TwilightManager {
         return hour < SUNRISE || hour >= SUNSET;
     }
 
-    @SuppressLint("MissingPermission") // permissions are checked for the needed call.
     private Location getLastKnownLocation() {
         Location coarseLoc = null;
         Location fineLoc = null;
@@ -127,20 +121,21 @@ class TwilightManager {
         }
     }
 
-    @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
     private Location getLastKnownLocationForProvider(String provider) {
-        try {
-            if (mLocationManager.isProviderEnabled(provider)) {
-                return mLocationManager.getLastKnownLocation(provider);
+        if (mLocationManager != null) {
+            try {
+                if (mLocationManager.isProviderEnabled(provider)) {
+                    return mLocationManager.getLastKnownLocation(provider);
+                }
+            } catch (Exception e) {
+                Log.d(TAG, "Failed to get last known location", e);
             }
-        } catch (Exception e) {
-            Log.d(TAG, "Failed to get last known location", e);
         }
         return null;
     }
 
     private boolean isStateValid() {
-        return mTwilightState.nextUpdate > System.currentTimeMillis();
+        return mTwilightState != null && mTwilightState.nextUpdate > System.currentTimeMillis();
     }
 
     private void updateState(@NonNull Location location) {

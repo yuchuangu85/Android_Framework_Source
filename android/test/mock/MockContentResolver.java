@@ -23,7 +23,8 @@ import android.content.IContentProvider;
 import android.database.ContentObserver;
 import android.net.Uri;
 
-import java.util.HashMap;
+import com.google.android.collect.Maps;
+
 import java.util.Map;
 
 /**
@@ -66,7 +67,7 @@ public class MockContentResolver extends ContentResolver {
      */
     public MockContentResolver(Context context) {
         super(context);
-        mProviders = new HashMap<>();
+        mProviders = Maps.newHashMap();
     }
 
     /**

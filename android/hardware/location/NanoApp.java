@@ -39,7 +39,7 @@ public class NanoApp {
     private String mPublisher;
     private String mName;
 
-    private long mAppId;
+    private int mAppId;
     private boolean mAppIdSet;
     private int mAppVersion;
 
@@ -53,13 +53,13 @@ public class NanoApp {
 
     /**
      * If this version of the constructor is used, the methods
-     * {@link #setAppBinary(byte[])} and {@link #setAppId(long)} must be called
+     * {@link #setAppBinary(byte[])} and {@link #setAppId(int)} must be called
      * prior to passing this object to any managers.
      *
-     * @see #NanoApp(long, byte[])
+     * @see #NanoApp(int, byte[])
      */
     public NanoApp() {
-        this(0L, null);
+        this(0, null);
         mAppIdSet = false;
     }
 
@@ -77,29 +77,8 @@ public class NanoApp {
      * @see #setNeededExecMemBytes(int)
      * @see #setNeededSensors(int[])
      * @see #setOutputEvents(int[])
-     *
-     * @deprecated Use NanoApp(long, byte[]) instead
      */
-    @Deprecated public NanoApp(int appId, byte[] appBinary) {
-        Log.w(TAG, "NanoApp(int, byte[]) is deprecated, please use NanoApp(long, byte[]) instead.");
-    }
-
-    /**
-     * Initialize a NanoApp with the given id and binary.
-     *
-     * While this sets defaults for other fields, users will want to provide
-     * other values for those fields in most cases.
-     *
-     * @see #setPublisher(String)
-     * @see #setName(String)
-     * @see #setAppVersion(int)
-     * @see #setNeededReadMemBytes(int)
-     * @see #setNeededWriteMemBytes(int)
-     * @see #setNeededExecMemBytes(int)
-     * @see #setNeededSensors(int[])
-     * @see #setOutputEvents(int[])
-     */
-    public NanoApp(long appId, byte[] appBinary) {
+    public NanoApp(int appId, byte[] appBinary) {
         mPublisher = UNKNOWN;
         mName = UNKNOWN;
 
@@ -137,9 +116,9 @@ public class NanoApp {
     /**
      * set the app identifier
      *
-     * @param appId  app identifier
+     * @param appId  add identifier
      */
-    public void setAppId(long appId) {
+    public void setAppId(int appId) {
         mAppId = appId;
         mAppIdSet = true;
     }
@@ -230,7 +209,7 @@ public class NanoApp {
      *
      * @return identifier for this app
      */
-    public long getAppId() {
+    public int getAppId() {
         return mAppId;
     }
 
@@ -301,7 +280,7 @@ public class NanoApp {
         mPublisher = in.readString();
         mName = in.readString();
 
-        mAppId = in.readLong();
+        mAppId = in.readInt();
         mAppVersion = in.readInt();
         mNeededReadMemBytes = in.readInt();
         mNeededWriteMemBytes = in.readInt();
@@ -334,7 +313,7 @@ public class NanoApp {
 
         out.writeString(mPublisher);
         out.writeString(mName);
-        out.writeLong(mAppId);
+        out.writeInt(mAppId);
         out.writeInt(mAppVersion);
         out.writeInt(mNeededReadMemBytes);
         out.writeInt(mNeededWriteMemBytes);

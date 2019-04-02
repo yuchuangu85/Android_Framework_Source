@@ -19,17 +19,19 @@ package android.support.v4.view;
 import android.view.MenuItem;
 
 /**
- * Helper for accessing features in {@link android.view.Menu}.
+ * Helper for accessing features in {@link android.view.Menu}
+ * introduced after API level 4 in a backwards compatible fashion.
  */
 public final class MenuCompat {
     /**
      * Call {@link MenuItem#setShowAsAction(int) MenuItem.setShowAsAction()}.
      *
-     * @deprecated Use {@link MenuItem#setShowAsAction(int)} directly.
+     * @deprecated Use {@link MenuItemCompat#setShowAsAction(MenuItem, int)
+     *     MenuItemCompat.setShowAsAction(MenuItem, int)}
      */
     @Deprecated
     public static void setShowAsAction(MenuItem item, int actionEnum) {
-        item.setShowAsAction(actionEnum);
+        MenuItemCompat.setShowAsAction(item, actionEnum);
     }
 
     private MenuCompat() {}

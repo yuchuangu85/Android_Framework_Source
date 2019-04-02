@@ -23,8 +23,6 @@ import android.os.Parcel;
 import android.os.ParcelUuid;
 import android.os.Parcelable;
 
-import com.android.internal.util.BitUtils;
-
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -69,9 +67,7 @@ public final class ScanFilter implements Parcelable {
     private final byte[] mManufacturerData;
     @Nullable
     private final byte[] mManufacturerDataMask;
-
-    /** @hide */
-    public static final ScanFilter EMPTY = new ScanFilter.Builder().build() ;
+    private static final ScanFilter EMPTY = new ScanFilter.Builder().build() ;
 
 
     private ScanFilter(String name, String deviceAddress, ParcelUuid uuid,
@@ -322,12 +318,8 @@ public final class ScanFilter implements Parcelable {
         return true;
     }
 
-    /**
-     * Check if the uuid pattern is contained in a list of parcel uuids.
-     *
-     * @hide
-     */
-    public static boolean matchesServiceUuids(ParcelUuid uuid, ParcelUuid parcelUuidMask,
+    // Check if the uuid pattern is contained in a list of parcel uuids.
+    private boolean matchesServiceUuids(ParcelUuid uuid, ParcelUuid parcelUuidMask,
             List<ParcelUuid> uuids) {
         if (uuid == null) {
             return true;
@@ -346,8 +338,16 @@ public final class ScanFilter implements Parcelable {
     }
 
     // Check if the uuid pattern matches the particular service uuid.
-    private static boolean matchesServiceUuid(UUID uuid, UUID mask, UUID data) {
-        return BitUtils.maskedEquals(data, uuid, mask);
+    private boolean matchesServiceUuid(UUID uuid, UUID mask, UUID data) {
+        if (mask == null) {
+            return uuid.equals(data);
+        }
+        if ((uuid.getLeastSignificantBits() & mask.getLeastSignificantBits()) !=
+                (data.getLeastSignificantBits() & mask.getLeastSignificantBits())) {
+            return false;
+        }
+        return ((uuid.getMostSignificantBits() & mask.getMostSignificantBits()) ==
+                (data.getMostSignificantBits() & mask.getMostSignificantBits()));
     }
 
     // Check whether the data pattern matches the parsed data.

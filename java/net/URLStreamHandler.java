@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2006, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,15 +32,16 @@ import java.util.Objects;
 import sun.net.util.IPAddressUtil;
 
 /**
- * The abstract class {@code URLStreamHandler} is the common
+ * The abstract class <code>URLStreamHandler</code> is the common
  * superclass for all stream protocol handlers. A stream protocol
  * handler knows how to make a connection for a particular protocol
- * type, such as {@code http} or {@code https}.
+ * type, such as <code>http</code>, <code>ftp</code>, or
+ * <code>gopher</code>.
  * <p>
- * In most cases, an instance of a {@code URLStreamHandler}
+ * In most cases, an instance of a <code>URLStreamHandler</code>
  * subclass is not created directly by an application. Rather, the
  * first time a protocol name is encountered when constructing a
- * {@code URL}, the appropriate stream protocol handler is
+ * <code>URL</code>, the appropriate stream protocol handler is
  * automatically loaded.
  *
  * @author  James Gosling
@@ -50,7 +51,7 @@ import sun.net.util.IPAddressUtil;
 public abstract class URLStreamHandler {
     /**
      * Opens a connection to the object referenced by the
-     * {@code URL} argument.
+     * <code>URL</code> argument.
      * This method should be overridden by a subclass.
      *
      * <p>If for the handler's protocol (such as HTTP or JAR), there
@@ -62,7 +63,7 @@ public abstract class URLStreamHandler {
      * JarURLConnection will be returned.
      *
      * @param      u   the URL that this connects to.
-     * @return     a {@code URLConnection} object for the {@code URL}.
+     * @return     a <code>URLConnection</code> object for the <code>URL</code>.
      * @exception  IOException  if an I/O error occurs while opening the
      *               connection.
      */
@@ -81,7 +82,7 @@ public abstract class URLStreamHandler {
      * @param      p   the proxy through which the connection will be made.
      *                 If direct connection is desired, Proxy.NO_PROXY
      *                 should be specified.
-     * @return     a {@code URLConnection} object for the {@code URL}.
+     * @return     a <code>URLConnection</code> object for the <code>URL</code>.
      * @exception  IOException  if an I/O error occurs while opening the
      *               connection.
      * @exception  IllegalArgumentException if either u or p is null,
@@ -95,28 +96,28 @@ public abstract class URLStreamHandler {
     }
 
     /**
-     * Parses the string representation of a {@code URL} into a
-     * {@code URL} object.
+     * Parses the string representation of a <code>URL</code> into a
+     * <code>URL</code> object.
      * <p>
      * If there is any inherited context, then it has already been
-     * copied into the {@code URL} argument.
+     * copied into the <code>URL</code> argument.
      * <p>
-     * The {@code parseURL} method of {@code URLStreamHandler}
+     * The <code>parseURL</code> method of <code>URLStreamHandler</code>
      * parses the string representation as if it were an
-     * {@code http} specification. Most URL protocol families have a
+     * <code>http</code> specification. Most URL protocol families have a
      * similar parsing. A stream protocol handler for a protocol that has
      * a different syntax must override this routine.
      *
-     * @param   u       the {@code URL} to receive the result of parsing
+     * @param   u       the <code>URL</code> to receive the result of parsing
      *                  the spec.
-     * @param   spec    the {@code String} representing the URL that
+     * @param   spec    the <code>String</code> representing the URL that
      *                  must be parsed.
      * @param   start   the character index at which to begin parsing. This is
-     *                  just past the '{@code :}' (if there is one) that
+     *                  just past the '<code>:</code>' (if there is one) that
      *                  specifies the determination of the protocol name.
      * @param   limit   the character position to stop parsing at. This is the
      *                  end of the string or the position of the
-     *                  "{@code #}" character, if present. All information
+     *                  "<code>#</code>" character, if present. All information
      *                  after the sharp sign indicates an anchor.
      */
     protected void parseURL(URL u, String spec, int start, int limit) {
@@ -134,11 +135,11 @@ public abstract class URLStreamHandler {
 
         boolean isRelPath = false;
         boolean queryOnly = false;
-        // BEGIN Android-changed
+        // ----- BEGIN android -----
         boolean querySet = false;
-        // END Android-changed
+        // ----- END android -----
 
-// FIX: should not assume query if opaque
+        // FIX: should not assume query if opaque
         // Strip off the query part
         if (start < limit) {
             int queryStart = spec.indexOf('?');
@@ -148,29 +149,29 @@ public abstract class URLStreamHandler {
                 if (limit > queryStart)
                     limit = queryStart;
                 spec = spec.substring(0, queryStart);
-                // BEGIN Android-changed
+                // ----- BEGIN android -----
                 querySet = true;
-                // END Android-changed
+                // ----- END android -----
             }
         }
 
         int i = 0;
         // Parse the authority part if any
-        // BEGIN Android-changed
+        // ----- BEGIN android -----
         // boolean isUNCName = (start <= limit - 4) &&
         //                 (spec.charAt(start) == '/') &&
         //                 (spec.charAt(start + 1) == '/') &&
         //                 (spec.charAt(start + 2) == '/') &&
         //                 (spec.charAt(start + 3) == '/');
         boolean isUNCName = false;
-        // END Android-changed
+        // ----- END android -----
         if (!isUNCName && (start <= limit - 2) && (spec.charAt(start) == '/') &&
             (spec.charAt(start + 1) == '/')) {
             start += 2;
             i = spec.indexOf('/', start);
-            if (i < 0 || i > limit) {
+            if (i < 0) {
                 i = spec.indexOf('?', start);
-                if (i < 0 || i > limit)
+                if (i < 0)
                     i = limit;
             }
 
@@ -178,14 +179,8 @@ public abstract class URLStreamHandler {
 
             int ind = authority.indexOf('@');
             if (ind != -1) {
-                if (ind != authority.lastIndexOf('@')) {
-                    // more than one '@' in authority. This is not server based
-                    userInfo = null;
-                    host = null;
-                } else {
-                    userInfo = authority.substring(0, ind);
-                    host = authority.substring(ind+1);
-                }
+                userInfo = authority.substring(0, ind);
+                host = authority.substring(ind+1);
             } else {
                 userInfo = null;
             }
@@ -226,7 +221,7 @@ public abstract class URLStreamHandler {
                     if (ind >= 0) {
                         // port can be null according to RFC2396
                         if (host.length() > (ind + 1)) {
-                            // BEGIN Android-changed
+                            // ----- BEGIN android -----
                             // port = Integer.parseInt(host.substring(ind + 1));
                             char firstPortChar = host.charAt(ind+1);
                             if (firstPortChar >= '0' && firstPortChar <= '9') {
@@ -235,7 +230,7 @@ public abstract class URLStreamHandler {
                                 throw new IllegalArgumentException("invalid port: " +
                                                                    host.substring(ind + 1));
                             }
-                            // END Android-changed
+                            // ----- END android -----
                         }
                         host = host.substring(0, ind);
                     }
@@ -248,7 +243,7 @@ public abstract class URLStreamHandler {
                                                    port);
             start = i;
 
-            // BEGIN Android-changed
+            // ----- BEGIN android -----
             // If the authority is defined then the path is defined by the
             // spec only; See RFC 2396 Section 5.2.4.
             // if (authority != null && authority.length() > 0)
@@ -257,7 +252,7 @@ public abstract class URLStreamHandler {
             if (!querySet) {
                 query = null;
             }
-            // END Android-changed
+            // ----- END android -----
         }
 
         if (host == null) {
@@ -282,21 +277,21 @@ public abstract class URLStreamHandler {
                 path = seperator + spec.substring(start, limit);
             }
         }
-        // BEGIN Android-changed
+        // ----- BEGIN android -----
         //else if (queryOnly && path != null) {
         //    int ind = path.lastIndexOf('/');
         //    if (ind < 0)
         //        ind = 0;
         //    path = path.substring(0, ind) + "/";
         //}
-        // END Android-changed
+        // ----- END android -----
         if (path == null)
             path = "";
 
-        // BEGIN Android-changed
+        // ----- BEGIN android -----
         //if (isRelPath) {
         if (true) {
-        // END Android-changed
+        // ----- END android -----
             // Remove embedded /./
             while ((i = path.indexOf("/./")) >= 0) {
                 path = path.substring(0, i) + path.substring(i + 2);
@@ -304,14 +299,14 @@ public abstract class URLStreamHandler {
             // Remove embedded /../ if possible
             i = 0;
             while ((i = path.indexOf("/../", i)) >= 0) {
-                // BEGIN Android-changed
+                // ----- BEGIN android -----
                 /*
                  * Trailing /../
                  */
                 if (i == 0) {
                     path = path.substring(i + 3);
                     i = 0;
-                // END Android-changed
+                // ----- END android -----
                 /*
                  * A "/../" will cancel the previous segment and itself,
                  * unless that segment is a "/../" itself
@@ -354,7 +349,7 @@ public abstract class URLStreamHandler {
     /**
      * Returns the default port for a URL parsed by this handler. This method
      * is meant to be overidden by handlers with default port numbers.
-     * @return the default port for a {@code URL} parsed by this handler.
+     * @return the default port for a <code>URL</code> parsed by this handler.
      * @since 1.3
      */
     protected int getDefaultPort() {
@@ -368,7 +363,7 @@ public abstract class URLStreamHandler {
      * guaranteed by the fact that it is only called by java.net.URL class.
      * @param u1 a URL object
      * @param u2 a URL object
-     * @return {@code true} if the two urls are
+     * @return <tt>true</tt> if the two urls are
      * considered equal, ie. they refer to the same
      * fragment in the same file.
      * @since 1.3
@@ -386,7 +381,7 @@ public abstract class URLStreamHandler {
      * other protocols that have different requirements for hashCode
      * calculation.
      * @param u a URL object
-     * @return an {@code int} suitable for hash table indexing
+     * @return an <tt>int</tt> suitable for hash table indexing
      * @since 1.3
      */
     protected int hashCode(URL u) {
@@ -442,7 +437,7 @@ public abstract class URLStreamHandler {
      * will result in a null return.
      *
      * @param u a URL object
-     * @return an {@code InetAddress} representing the host
+     * @return an <code>InetAddress</code> representing the host
      * IP address.
      * @since 1.3
      */
@@ -469,12 +464,12 @@ public abstract class URLStreamHandler {
      * Compares the host components of two URLs.
      * @param u1 the URL of the first host to compare
      * @param u2 the URL of the second host to compare
-     * @return  {@code true} if and only if they
-     * are equal, {@code false} otherwise.
+     * @return  <tt>true</tt> if and only if they
+     * are equal, <tt>false</tt> otherwise.
      * @since 1.3
      */
     protected boolean hostsEqual(URL u1, URL u2) {
-        // Android-changed: Don't compare the InetAddresses of the hosts.
+        // Android changed: Don't compare the InetAddresses of the hosts.
         if (u1.getHost() != null && u2.getHost() != null)
             return u1.getHost().equalsIgnoreCase(u2.getHost());
          else
@@ -482,14 +477,13 @@ public abstract class URLStreamHandler {
     }
 
     /**
-     * Converts a {@code URL} of a specific protocol to a
-     * {@code String}.
+     * Converts a <code>URL</code> of a specific protocol to a
+     * <code>String</code>.
      *
      * @param   u   the URL.
-     * @return  a string representation of the {@code URL} argument.
+     * @return  a string representation of the <code>URL</code> argument.
      */
     protected String toExternalForm(URL u) {
-
         // pre-compute length of StringBuffer
         int len = u.getProtocol().length() + 1;
         if (u.getAuthority() != null && u.getAuthority().length() > 0)
@@ -522,9 +516,9 @@ public abstract class URLStreamHandler {
     }
 
     /**
-     * Sets the fields of the {@code URL} argument to the indicated values.
-     * Only classes derived from URLStreamHandler are able
-     * to use this method to set the values of the URL fields.
+     * Sets the fields of the <code>URL</code> argument to the indicated values.
+     * Only classes derived from URLStreamHandler are supposed to be able
+     * to call the set method on a URL.
      *
      * @param   u         the URL to modify.
      * @param   protocol  the protocol name.
@@ -552,9 +546,9 @@ public abstract class URLStreamHandler {
     }
 
     /**
-     * Sets the fields of the {@code URL} argument to the indicated values.
-     * Only classes derived from URLStreamHandler are able
-     * to use this method to set the values of the URL fields.
+     * Sets the fields of the <code>URL</code> argument to the indicated values.
+     * Only classes derived from URLStreamHandler are supposed to be able
+     * to call the set method on a URL.
      *
      * @param   u         the URL to modify.
      * @param   protocol  the protocol name. This value is ignored since 1.2.

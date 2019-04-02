@@ -24,8 +24,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
-import com.android.setupwizardlib.template.RecyclerMixin;
-
 /**
  * A layout to be used with {@code PreferenceFragment} in v14 support library. This can be specified
  * as the {@code android:layout} in the {@code app:preferenceFragmentStyle} in
@@ -65,6 +63,8 @@ import com.android.setupwizardlib.template.RecyclerMixin;
  */
 public class GlifPreferenceLayout extends GlifRecyclerLayout {
 
+    private RecyclerView mRecyclerView;
+
     public GlifPreferenceLayout(Context context) {
         super(context);
     }
@@ -81,6 +81,10 @@ public class GlifPreferenceLayout extends GlifRecyclerLayout {
         super(context, attrs, defStyleAttr);
     }
 
+    public RecyclerView getRecyclerView() {
+        return mRecyclerView;
+    }
+
     @Override
     protected ViewGroup findContainer(int containerId) {
         if (containerId == 0) {
@@ -94,7 +98,7 @@ public class GlifPreferenceLayout extends GlifRecyclerLayout {
      */
     public RecyclerView onCreateRecyclerView(LayoutInflater inflater, ViewGroup parent,
             Bundle savedInstanceState) {
-        return mRecyclerMixin.getRecyclerView();
+        return mRecyclerView;
     }
 
     @Override
@@ -110,8 +114,8 @@ public class GlifPreferenceLayout extends GlifRecyclerLayout {
         // Inflate the recycler view here, so attributes on the decoration views can be applied
         // immediately.
         final LayoutInflater inflater = LayoutInflater.from(getContext());
-        RecyclerView recyclerView = (RecyclerView) inflater.inflate(
-                R.layout.suw_glif_preference_recycler_view, this, false);
-        mRecyclerMixin = new RecyclerMixin(this, recyclerView);
+        mRecyclerView = (RecyclerView) inflater.inflate(R.layout.suw_glif_preference_recycler_view,
+                this, false);
+        initRecyclerView(mRecyclerView);
     }
 }

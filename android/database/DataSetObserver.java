@@ -17,8 +17,10 @@
 package android.database;
 
 /**
- * Receives call backs when a data set has been changed, or made invalid. The typically data sets
- * that are observed are {@link Cursor}s or {@link android.widget.Adapter}s.
+ * 数据观察者
+ * <p>
+ * Receives call backs when a data set has been changed, or made invalid(不可用). The typically(通常) data sets
+ * that are observed(观察) are {@link Cursor}s or {@link android.widget.Adapter}s.
  * DataSetObserver must be implemented by objects which are added to a DataSetObservable.
  */
 public abstract class DataSetObserver {
@@ -31,7 +33,7 @@ public abstract class DataSetObserver {
     }
 
     /**
-     * This method is called when the entire data becomes invalid,
+     * This method is called when the entire data becomes invalid(无效的),
      * most likely through a call to {@link Cursor#deactivate()} or {@link Cursor#close()} on a
      * {@link Cursor}.
      */

@@ -16,6 +16,7 @@
 package android.databinding.testapp.vo;
 
 import android.databinding.BaseObservable;
+import android.databinding.Bindable;
 import android.databinding.ObservableField;
 import android.databinding.testapp.BR;
 import android.util.ArrayMap;
@@ -64,18 +65,6 @@ public class FindMethodBindingObject extends FindMethodBindingObjectBase {
         ArrayList<String> vals = new ArrayList<>();
         vals.add("hello");
         return vals;
-    }
-
-    public int argsClose(int i, String j) {
-        return i;
-    }
-
-    public float argsClose(int i, short j) {
-        return i;
-    }
-
-    public int argsClose(int i, int j) {
-        return j;
     }
 
     public static class Foo {
