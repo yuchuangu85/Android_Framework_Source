@@ -16,9 +16,13 @@
 
 package android.support.v4.text.util;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
+import android.os.Build;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.annotation.RestrictTo;
 import android.support.v4.util.PatternsCompat;
 import android.text.Spannable;
 import android.text.SpannableString;
@@ -33,9 +37,9 @@ import android.webkit.WebView;
 import android.widget.TextView;
 
 import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -73,6 +77,8 @@ public final class LinkifyCompat {
         }
     };
 
+    /** @hide */
+    @RestrictTo(LIBRARY_GROUP)
     @IntDef(flag = true, value = { Linkify.WEB_URLS, Linkify.EMAIL_ADDRESSES, Linkify.PHONE_NUMBERS,
             Linkify.MAP_ADDRESSES, Linkify.ALL })
     @Retention(RetentionPolicy.SOURCE)
@@ -91,6 +97,9 @@ public final class LinkifyCompat {
      *  @return True if at least one link is found and applied.
      */
     public static final boolean addLinks(@NonNull Spannable text, @LinkifyMask int mask) {
+        if (Build.VERSION.SDK_INT >= 27) {
+            return Linkify.addLinks(text, mask);
+        }
         if (mask == 0) {
             return false;
         }
@@ -152,6 +161,9 @@ public final class LinkifyCompat {
      *  @return True if at least one link is found and applied.
      */
     public static final boolean addLinks(@NonNull TextView text, @LinkifyMask int mask) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            return Linkify.addLinks(text, mask);
+        }
         if (mask == 0) {
             return false;
         }
@@ -192,6 +204,10 @@ public final class LinkifyCompat {
      */
     public static final void addLinks(@NonNull TextView text, @NonNull Pattern pattern,
             @Nullable String scheme) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            Linkify.addLinks(text, pattern, scheme);
+            return;
+        }
         addLinks(text, pattern, scheme, null, null, null);
     }
 
@@ -212,6 +228,10 @@ public final class LinkifyCompat {
     public static final void addLinks(@NonNull TextView text, @NonNull Pattern pattern,
             @Nullable String scheme, @Nullable MatchFilter matchFilter,
             @Nullable TransformFilter transformFilter) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            Linkify.addLinks(text, pattern, scheme, matchFilter, transformFilter);
+            return;
+        }
         addLinks(text, pattern, scheme, null, matchFilter, transformFilter);
     }
 
@@ -233,8 +253,12 @@ public final class LinkifyCompat {
      *  @param transformFilter Filter to allow the client code to update the link found.
      */
     public static final void addLinks(@NonNull TextView text, @NonNull Pattern pattern,
-            @Nullable  String defaultScheme, @Nullable String[] schemes,
+            @Nullable String defaultScheme, @Nullable String[] schemes,
             @Nullable MatchFilter matchFilter, @Nullable TransformFilter transformFilter) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            Linkify.addLinks(text, pattern, defaultScheme, schemes, matchFilter, transformFilter);
+            return;
+        }
         SpannableString spannable = SpannableString.valueOf(text.getText());
 
         boolean linksAdded = addLinks(spannable, pattern, defaultScheme, schemes, matchFilter,
@@ -256,6 +280,9 @@ public final class LinkifyCompat {
      */
     public static final boolean addLinks(@NonNull Spannable text, @NonNull Pattern pattern,
             @Nullable String scheme) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            return Linkify.addLinks(text, pattern, scheme);
+        }
         return addLinks(text, pattern, scheme, null, null, null);
     }
 
@@ -277,6 +304,9 @@ public final class LinkifyCompat {
     public static final boolean addLinks(@NonNull Spannable spannable, @NonNull Pattern pattern,
             @Nullable String scheme, @Nullable MatchFilter matchFilter,
             @Nullable TransformFilter transformFilter) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            return Linkify.addLinks(spannable, pattern, scheme, matchFilter, transformFilter);
+        }
         return addLinks(spannable, pattern, scheme, null, matchFilter,
                 transformFilter);
     }
@@ -300,6 +330,10 @@ public final class LinkifyCompat {
     public static final boolean addLinks(@NonNull Spannable spannable, @NonNull Pattern pattern,
             @Nullable  String defaultScheme, @Nullable String[] schemes,
             @Nullable MatchFilter matchFilter, @Nullable TransformFilter transformFilter) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            return Linkify.addLinks(spannable, pattern, defaultScheme, schemes, matchFilter,
+                    transformFilter);
+        }
         final String[] schemesCopy;
         if (defaultScheme == null) defaultScheme = "";
         if (schemes == null || schemes.length < 1) {

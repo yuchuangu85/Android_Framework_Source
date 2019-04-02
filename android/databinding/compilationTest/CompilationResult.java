@@ -18,7 +18,9 @@ package android.databinding.compilationTest;
 
 import android.databinding.tool.processing.ScopedErrorReport;
 import android.databinding.tool.processing.ScopedException;
+import android.databinding.tool.util.StringUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
@@ -49,6 +51,16 @@ public class CompilationResult {
         }
         assertEquals(error, 1, errors.size());
         return errors.get(0);
+    }
+
+    public List<String> getBindingWarnings() {
+        List<String> warnings = new ArrayList<String>();
+        for (String line : error.split(StringUtils.LINE_SEPARATOR)) {
+            if (line.startsWith("warning:")) {
+                warnings.add(line.substring("warning:".length()));
+            }
+        }
+        return warnings;
     }
 
     public List<ScopedException> getBindingExceptions() {

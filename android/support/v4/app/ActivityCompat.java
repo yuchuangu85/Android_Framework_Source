@@ -32,6 +32,8 @@ import android.os.Parcelable;
 import android.support.annotation.IntRange;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.annotation.RequiresApi;
+import android.support.annotation.RestrictTo;
 import android.support.v4.content.ContextCompat;
 import android.view.View;
 
@@ -39,8 +41,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Helper for accessing features in {@link android.app.Activity}
- * introduced after API level 4 in a backwards compatible fashion.
+ * Helper for accessing features in {@link android.app.Activity}.
  */
 public class ActivityCompat extends ContextCompat {
 
@@ -73,8 +74,16 @@ public class ActivityCompat extends ContextCompat {
     }
 
     /**
+     * @hide
+     */
+    @RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
+    public interface RequestPermissionsRequestCodeValidator {
+        void validateRequestPermissionsRequestCode(int requestCode);
+    }
+
+    /**
      * This class should not be instantiated, but the constructor must be
-     * visible for the class to be extended (ex. in support-v13).
+     * visible for the class to be extended (as in support-v13).
      */
     protected ActivityCompat() {
         // Not publicly instantiable, but may be extended.
@@ -113,11 +122,8 @@ public class ActivityCompat extends ContextCompat {
      * @return true if this operation was supported and it completed; false if it was not available.
      */
     public static boolean invalidateOptionsMenu(Activity activity) {
-        if (Build.VERSION.SDK_INT >= 11) {
-            ActivityCompatHoneycomb.invalidateOptionsMenu(activity);
-            return true;
-        }
-        return false;
+        activity.invalidateOptionsMenu();
+        return true;
     }
 
     /**
@@ -143,7 +149,7 @@ public class ActivityCompat extends ContextCompat {
     public static void startActivityForResult(Activity activity, Intent intent, int requestCode,
             @Nullable Bundle options) {
         if (Build.VERSION.SDK_INT >= 16) {
-            ActivityCompatJB.startActivityForResult(activity, intent, requestCode, options);
+            activity.startActivityForResult(intent, requestCode, options);
         } else {
             activity.startActivityForResult(intent, requestCode);
         }
@@ -179,8 +185,8 @@ public class ActivityCompat extends ContextCompat {
             int requestCode, Intent fillInIntent, int flagsMask, int flagsValues,
             int extraFlags, @Nullable Bundle options) throws IntentSender.SendIntentException {
         if (Build.VERSION.SDK_INT >= 16) {
-            ActivityCompatJB.startIntentSenderForResult(activity, intent, requestCode, fillInIntent,
-                    flagsMask, flagsValues, extraFlags, options);
+            activity.startIntentSenderForResult(intent, requestCode, fillInIntent, flagsMask,
+                    flagsValues, extraFlags, options);
         } else {
             activity.startIntentSenderForResult(intent, requestCode, fillInIntent, flagsMask,
                     flagsValues, extraFlags);
@@ -196,7 +202,7 @@ public class ActivityCompat extends ContextCompat {
      */
     public static void finishAffinity(Activity activity) {
         if (Build.VERSION.SDK_INT >= 16) {
-            ActivityCompatJB.finishAffinity(activity);
+            activity.finishAffinity();
         } else {
             activity.finish();
         }
@@ -213,7 +219,7 @@ public class ActivityCompat extends ContextCompat {
      */
     public static void finishAfterTransition(Activity activity) {
         if (Build.VERSION.SDK_INT >= 21) {
-            ActivityCompatApi21.finishAfterTransition(activity);
+            activity.finishAfterTransition();
         } else {
             activity.finish();
         }
@@ -238,7 +244,7 @@ public class ActivityCompat extends ContextCompat {
     @Nullable
     public static Uri getReferrer(Activity activity) {
         if (Build.VERSION.SDK_INT >= 22) {
-            return ActivityCompatApi22.getReferrer(activity);
+            return activity.getReferrer();
         }
         Intent intent = activity.getIntent();
         Uri referrer = intent.getParcelableExtra("android.intent.extra.REFERRER");
@@ -263,9 +269,15 @@ public class ActivityCompat extends ContextCompat {
     public static void setEnterSharedElementCallback(Activity activity,
             SharedElementCallback callback) {
         if (Build.VERSION.SDK_INT >= 23) {
-            ActivityCompatApi23.setEnterSharedElementCallback(activity, createCallback23(callback));
+            android.app.SharedElementCallback frameworkCallback = callback != null
+                    ? new SharedElementCallback23Impl(callback)
+                    : null;
+            activity.setEnterSharedElementCallback(frameworkCallback);
         } else if (Build.VERSION.SDK_INT >= 21) {
-            ActivityCompatApi21.setEnterSharedElementCallback(activity, createCallback(callback));
+            android.app.SharedElementCallback frameworkCallback = callback != null
+                    ? new SharedElementCallback21Impl(callback)
+                    : null;
+            activity.setEnterSharedElementCallback(frameworkCallback);
         }
     }
 
@@ -281,21 +293,27 @@ public class ActivityCompat extends ContextCompat {
     public static void setExitSharedElementCallback(Activity activity,
             SharedElementCallback callback) {
         if (Build.VERSION.SDK_INT >= 23) {
-            ActivityCompatApi23.setExitSharedElementCallback(activity, createCallback23(callback));
+            android.app.SharedElementCallback frameworkCallback = callback != null
+                    ? new SharedElementCallback23Impl(callback)
+                    : null;
+            activity.setExitSharedElementCallback(frameworkCallback);
         } else if (Build.VERSION.SDK_INT >= 21) {
-            ActivityCompatApi21.setExitSharedElementCallback(activity, createCallback(callback));
+            android.app.SharedElementCallback frameworkCallback = callback != null
+                    ? new SharedElementCallback21Impl(callback)
+                    : null;
+            activity.setExitSharedElementCallback(frameworkCallback);
         }
     }
 
     public static void postponeEnterTransition(Activity activity) {
         if (Build.VERSION.SDK_INT >= 21) {
-            ActivityCompatApi21.postponeEnterTransition(activity);
+            activity.postponeEnterTransition();
         }
     }
 
     public static void startPostponedEnterTransition(Activity activity) {
         if (Build.VERSION.SDK_INT >= 21) {
-            ActivityCompatApi21.startPostponedEnterTransition(activity);
+            activity.startPostponedEnterTransition();
         }
     }
 
@@ -369,7 +387,11 @@ public class ActivityCompat extends ContextCompat {
     public static void requestPermissions(final @NonNull Activity activity,
             final @NonNull String[] permissions, final @IntRange(from = 0) int requestCode) {
         if (Build.VERSION.SDK_INT >= 23) {
-            ActivityCompatApi23.requestPermissions(activity, permissions, requestCode);
+            if (activity instanceof RequestPermissionsRequestCodeValidator) {
+                ((RequestPermissionsRequestCodeValidator) activity)
+                        .validateRequestPermissionsRequestCode(requestCode);
+            }
+            activity.requestPermissions(permissions, requestCode);
         } else if (activity instanceof OnRequestPermissionsResultCallback) {
             Handler handler = new Handler(Looper.getMainLooper());
             handler.post(new Runnable() {
@@ -416,33 +438,15 @@ public class ActivityCompat extends ContextCompat {
     public static boolean shouldShowRequestPermissionRationale(@NonNull Activity activity,
             @NonNull String permission) {
         if (Build.VERSION.SDK_INT >= 23) {
-            return ActivityCompatApi23.shouldShowRequestPermissionRationale(activity, permission);
+            return activity.shouldShowRequestPermissionRationale(permission);
         }
         return false;
     }
 
-    private static ActivityCompatApi21.SharedElementCallback21 createCallback(
-            SharedElementCallback callback) {
-        ActivityCompatApi21.SharedElementCallback21 newCallback = null;
-        if (callback != null) {
-            newCallback = new ActivityCompat.SharedElementCallback21Impl(callback);
-        }
-        return newCallback;
-    }
+    @RequiresApi(21)
+    private static class SharedElementCallback21Impl extends android.app.SharedElementCallback {
 
-    private static ActivityCompatApi23.SharedElementCallback23 createCallback23(
-            SharedElementCallback callback) {
-        ActivityCompatApi23.SharedElementCallback23 newCallback = null;
-        if (callback != null) {
-            newCallback = new ActivityCompat.SharedElementCallback23Impl(callback);
-        }
-        return newCallback;
-    }
-
-    private static class SharedElementCallback21Impl
-            extends ActivityCompatApi21.SharedElementCallback21 {
-
-        private SharedElementCallback mCallback;
+        protected SharedElementCallback mCallback;
 
         public SharedElementCallback21Impl(SharedElementCallback callback) {
             mCallback = callback;
@@ -485,55 +489,15 @@ public class ActivityCompat extends ContextCompat {
         }
     }
 
-    private static class SharedElementCallback23Impl
-            extends ActivityCompatApi23.SharedElementCallback23 {
-
-        private SharedElementCallback mCallback;
-
+    @RequiresApi(23)
+    private static class SharedElementCallback23Impl extends SharedElementCallback21Impl {
         public SharedElementCallback23Impl(SharedElementCallback callback) {
-            mCallback = callback;
-        }
-
-        @Override
-        public void onSharedElementStart(List<String> sharedElementNames,
-                List<View> sharedElements, List<View> sharedElementSnapshots) {
-            mCallback.onSharedElementStart(sharedElementNames, sharedElements,
-                    sharedElementSnapshots);
-        }
-
-        @Override
-        public void onSharedElementEnd(List<String> sharedElementNames, List<View> sharedElements,
-                List<View> sharedElementSnapshots) {
-            mCallback.onSharedElementEnd(sharedElementNames, sharedElements,
-                    sharedElementSnapshots);
-        }
-
-        @Override
-        public void onRejectSharedElements(List<View> rejectedSharedElements) {
-            mCallback.onRejectSharedElements(rejectedSharedElements);
-        }
-
-        @Override
-        public void onMapSharedElements(List<String> names, Map<String, View> sharedElements) {
-            mCallback.onMapSharedElements(names, sharedElements);
-        }
-
-        @Override
-        public Parcelable onCaptureSharedElementSnapshot(View sharedElement,
-                Matrix viewToGlobalMatrix, RectF screenBounds) {
-            return mCallback.onCaptureSharedElementSnapshot(sharedElement, viewToGlobalMatrix,
-                    screenBounds);
-        }
-
-        @Override
-        public View onCreateSnapshotView(Context context, Parcelable snapshot) {
-            return mCallback.onCreateSnapshotView(context, snapshot);
+            super(callback);
         }
 
         @Override
         public void onSharedElementsArrived(List<String> sharedElementNames,
-                List<View> sharedElements,
-                final ActivityCompatApi23.OnSharedElementsReadyListenerBridge listener) {
+                List<View> sharedElements, final OnSharedElementsReadyListener listener) {
             mCallback.onSharedElementsArrived(sharedElementNames, sharedElements,
                     new SharedElementCallback.OnSharedElementsReadyListener() {
                         @Override

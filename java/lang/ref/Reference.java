@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,8 @@
  */
 
 package java.lang.ref;
+
+import dalvik.annotation.optimization.FastNative;
 
 
 /**
@@ -96,6 +98,7 @@ public abstract class Reference<T> {
         return getReferent();
     }
 
+    @FastNative
     private final native T getReferent();
 
     /**
@@ -106,9 +109,13 @@ public abstract class Reference<T> {
      * clears references it does so directly, without invoking this method.
      */
     public void clear() {
-        this.referent = null;
+        clearReferent();
     }
 
+    // Direct access to the referent is prohibited, clearReferent blocks and set
+    // the referent to null when it is safe to do so.
+    @FastNative
+    native void clearReferent();
 
     /* -- Queue operations -- */
 

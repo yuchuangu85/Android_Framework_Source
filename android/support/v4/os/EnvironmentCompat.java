@@ -24,8 +24,7 @@ import java.io.File;
 import java.io.IOException;
 
 /**
- * Helper for accessing features in {@link Environment} introduced after API
- * level 4 in a backwards compatible fashion.
+ * Helper for accessing features in {@link Environment}.
  */
 public final class EnvironmentCompat {
     private static final String TAG = "EnvironmentCompat";
@@ -53,9 +52,8 @@ public final class EnvironmentCompat {
      *         {@link Environment#MEDIA_UNMOUNTABLE}.
      */
     public static String getStorageState(File path) {
-        final int version = Build.VERSION.SDK_INT;
-        if (version >= 19) {
-            return EnvironmentCompatKitKat.getStorageState(path);
+        if (Build.VERSION.SDK_INT >= 19) {
+            return Environment.getStorageState(path);
         }
 
         try {

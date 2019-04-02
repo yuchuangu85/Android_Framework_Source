@@ -22,8 +22,8 @@ import android.os.Message;
 import android.telephony.CellLocation;
 import android.telephony.SmsCbLocation;
 import android.telephony.SmsCbMessage;
-import android.telephony.gsm.GsmCellLocation;
 import android.telephony.TelephonyManager;
+import android.telephony.gsm.GsmCellLocation;
 
 import com.android.internal.telephony.CellBroadcastHandler;
 import com.android.internal.telephony.Phone;
@@ -185,7 +185,7 @@ public class GsmCellBroadcastHandler extends CellBroadcastHandler {
                 }
             }
 
-            return GsmSmsCbMessage.createSmsCbMessage(header, location, pdus);
+            return GsmSmsCbMessage.createSmsCbMessage(mContext, header, location, pdus);
 
         } catch (RuntimeException e) {
             loge("Error in decoding SMS CB pdu", e);

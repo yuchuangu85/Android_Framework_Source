@@ -23,6 +23,7 @@ import android.graphics.Color;
 import android.telephony.Rlog;
 
 import com.android.internal.telephony.GsmAlphabet;
+
 import java.io.UnsupportedEncodingException;
 
 /**
@@ -58,6 +59,28 @@ public class IccUtils {
         }
 
         return ret.toString();
+    }
+
+    /**
+     * PLMN (MCC/MNC) is encoded as per 24.008 10.5.1.3
+     * Returns a concatenated string of MCC+MNC, stripping
+     * a trailing character for a 2-digit MNC
+     */
+    public static String bcdPlmnToString(byte[] data, int offset) {
+        if (offset + 3 > data.length) {
+            return null;
+        }
+        byte[] trans = new byte[3];
+        trans[0] = (byte) ((data[0 + offset] << 4) | ((data[0 + offset] >> 4) & 0xF));
+        trans[1] = (byte) ((data[1 + offset] << 4) | (data[2 + offset] & 0xF));
+        trans[2] = (byte) ((data[2 + offset] & 0xF0) | ((data[1 + offset] >> 4) & 0xF));
+        String ret = bytesToHexString(trans);
+
+        // For a 2-digit MNC we trim the trailing 'f'
+        if (ret.endsWith("f")) {
+            ret = ret.substring(0, ret.length() - 1);
+        }
+        return ret;
     }
 
     /**

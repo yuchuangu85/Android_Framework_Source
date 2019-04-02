@@ -18,29 +18,25 @@ package android.support.v4.app;
 
 import android.app.Notification;
 import android.app.PendingIntent;
-import android.content.Context;
-import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.os.Parcelable;
+import android.support.annotation.RequiresApi;
 import android.util.Log;
 import android.util.SparseArray;
-import android.widget.RemoteViews;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
+@RequiresApi(16)
 class NotificationCompatJellybean {
     public static final String TAG = "NotificationCompat";
 
     // Extras keys used for Jellybean SDK and above.
-    static final String EXTRA_LOCAL_ONLY = "android.support.localOnly";
-    static final String EXTRA_ACTION_EXTRAS = "android.support.actionExtras";
-    static final String EXTRA_REMOTE_INPUTS = "android.support.remoteInputs";
-    static final String EXTRA_GROUP_KEY = "android.support.groupKey";
-    static final String EXTRA_GROUP_SUMMARY = "android.support.isGroupSummary";
-    static final String EXTRA_SORT_KEY = "android.support.sortKey";
-    static final String EXTRA_USE_SIDE_CHANNEL = "android.support.useSideChannel";
+    static final String EXTRA_DATA_ONLY_REMOTE_INPUTS = "android.support.dataRemoteInputs";
     static final String EXTRA_ALLOW_GENERATED_REPLIES = "android.support.allowGeneratedReplies";
 
     // Bundle keys for storing action fields in a bundle
@@ -49,7 +45,12 @@ class NotificationCompatJellybean {
     private static final String KEY_ACTION_INTENT = "actionIntent";
     private static final String KEY_EXTRAS = "extras";
     private static final String KEY_REMOTE_INPUTS = "remoteInputs";
-    private static final String KEY_ALLOW_GENERATED_REPLIES = "allowGeneratedReplies";
+    private static final String KEY_DATA_ONLY_REMOTE_INPUTS = "dataOnlyRemoteInputs";
+    private static final String KEY_RESULT_KEY = "resultKey";
+    private static final String KEY_LABEL = "label";
+    private static final String KEY_CHOICES = "choices";
+    private static final String KEY_ALLOW_FREE_FORM_INPUT = "allowFreeFormInput";
+    private static final String KEY_ALLOWED_DATA_TYPES = "allowedDataTypes";
 
     private static final Object sExtrasLock = new Object();
     private static Field sExtrasField;
@@ -62,145 +63,6 @@ class NotificationCompatJellybean {
     private static Field sActionTitleField;
     private static Field sActionIntentField;
     private static boolean sActionsAccessFailed;
-
-    public static class Builder implements NotificationBuilderWithBuilderAccessor,
-            NotificationBuilderWithActions {
-        private Notification.Builder b;
-        private final Bundle mExtras;
-        private List<Bundle> mActionExtrasList = new ArrayList<Bundle>();
-        private RemoteViews mContentView;
-        private RemoteViews mBigContentView;
-
-        public Builder(Context context, Notification n,
-                CharSequence contentTitle, CharSequence contentText, CharSequence contentInfo,
-                RemoteViews tickerView, int number,
-                PendingIntent contentIntent, PendingIntent fullScreenIntent, Bitmap largeIcon,
-                int progressMax, int progress, boolean progressIndeterminate,
-                boolean useChronometer, int priority, CharSequence subText, boolean localOnly,
-                Bundle extras, String groupKey, boolean groupSummary, String sortKey,
-                RemoteViews contentView, RemoteViews bigContentView) {
-            b = new Notification.Builder(context)
-                .setWhen(n.when)
-                .setSmallIcon(n.icon, n.iconLevel)
-                .setContent(n.contentView)
-                .setTicker(n.tickerText, tickerView)
-                .setSound(n.sound, n.audioStreamType)
-                .setVibrate(n.vibrate)
-                .setLights(n.ledARGB, n.ledOnMS, n.ledOffMS)
-                .setOngoing((n.flags & Notification.FLAG_ONGOING_EVENT) != 0)
-                .setOnlyAlertOnce((n.flags & Notification.FLAG_ONLY_ALERT_ONCE) != 0)
-                .setAutoCancel((n.flags & Notification.FLAG_AUTO_CANCEL) != 0)
-                .setDefaults(n.defaults)
-                .setContentTitle(contentTitle)
-                .setContentText(contentText)
-                .setSubText(subText)
-                .setContentInfo(contentInfo)
-                .setContentIntent(contentIntent)
-                .setDeleteIntent(n.deleteIntent)
-                .setFullScreenIntent(fullScreenIntent,
-                        (n.flags & Notification.FLAG_HIGH_PRIORITY) != 0)
-                .setLargeIcon(largeIcon)
-                .setNumber(number)
-                .setUsesChronometer(useChronometer)
-                .setPriority(priority)
-                .setProgress(progressMax, progress, progressIndeterminate);
-            mExtras = new Bundle();
-            if (extras != null) {
-                mExtras.putAll(extras);
-            }
-            if (localOnly) {
-                mExtras.putBoolean(EXTRA_LOCAL_ONLY, true);
-            }
-            if (groupKey != null) {
-                mExtras.putString(EXTRA_GROUP_KEY, groupKey);
-                if (groupSummary) {
-                    mExtras.putBoolean(EXTRA_GROUP_SUMMARY, true);
-                } else {
-                    mExtras.putBoolean(EXTRA_USE_SIDE_CHANNEL, true);
-                }
-            }
-            if (sortKey != null) {
-                mExtras.putString(EXTRA_SORT_KEY, sortKey);
-            }
-            mContentView = contentView;
-            mBigContentView = bigContentView;
-        }
-
-        @Override
-        public void addAction(NotificationCompatBase.Action action) {
-            mActionExtrasList.add(writeActionAndGetExtras(b, action));
-        }
-
-        @Override
-        public Notification.Builder getBuilder() {
-            return b;
-        }
-
-        public Notification build() {
-            Notification notif = b.build();
-            // Merge in developer provided extras, but let the values already set
-            // for keys take precedence.
-            Bundle extras = getExtras(notif);
-            Bundle mergeBundle = new Bundle(mExtras);
-            for (String key : mExtras.keySet()) {
-                if (extras.containsKey(key)) {
-                    mergeBundle.remove(key);
-                }
-            }
-            extras.putAll(mergeBundle);
-            SparseArray<Bundle> actionExtrasMap = buildActionExtrasMap(mActionExtrasList);
-            if (actionExtrasMap != null) {
-                // Add the action extras sparse array if any action was added with extras.
-                getExtras(notif).putSparseParcelableArray(EXTRA_ACTION_EXTRAS, actionExtrasMap);
-            }
-            if (mContentView != null) {
-                notif.contentView = mContentView;
-            }
-            if (mBigContentView != null) {
-                notif.bigContentView = mBigContentView;
-            }
-            return notif;
-        }
-    }
-
-    public static void addBigTextStyle(NotificationBuilderWithBuilderAccessor b,
-            CharSequence bigContentTitle, boolean useSummary,
-            CharSequence summaryText, CharSequence bigText) {
-        Notification.BigTextStyle style = new Notification.BigTextStyle(b.getBuilder())
-            .setBigContentTitle(bigContentTitle)
-            .bigText(bigText);
-        if (useSummary) {
-            style.setSummaryText(summaryText);
-        }
-    }
-
-    public static void addBigPictureStyle(NotificationBuilderWithBuilderAccessor b,
-            CharSequence bigContentTitle, boolean useSummary,
-            CharSequence summaryText, Bitmap bigPicture, Bitmap bigLargeIcon,
-            boolean bigLargeIconSet) {
-        Notification.BigPictureStyle style = new Notification.BigPictureStyle(b.getBuilder())
-            .setBigContentTitle(bigContentTitle)
-            .bigPicture(bigPicture);
-        if (bigLargeIconSet) {
-            style.bigLargeIcon(bigLargeIcon);
-        }
-        if (useSummary) {
-            style.setSummaryText(summaryText);
-        }
-    }
-
-    public static void addInboxStyle(NotificationBuilderWithBuilderAccessor b,
-            CharSequence bigContentTitle, boolean useSummary,
-            CharSequence summaryText, ArrayList<CharSequence> texts) {
-        Notification.InboxStyle style = new Notification.InboxStyle(b.getBuilder())
-            .setBigContentTitle(bigContentTitle);
-        if (useSummary) {
-            style.setSummaryText(summaryText);
-        }
-        for (CharSequence text: texts) {
-            style.addLine(text);
-        }
-    }
 
     /** Return an SparseArray for action extras or null if none was needed. */
     public static SparseArray<Bundle> buildActionExtrasMap(List<Bundle> actionExtrasList) {
@@ -253,29 +115,34 @@ class NotificationCompatJellybean {
         }
     }
 
-    public static NotificationCompatBase.Action readAction(
-            NotificationCompatBase.Action.Factory factory,
-            RemoteInputCompatBase.RemoteInput.Factory remoteInputFactory, int icon,
-            CharSequence title, PendingIntent actionIntent, Bundle extras) {
-        RemoteInputCompatBase.RemoteInput[] remoteInputs = null;
+    public static NotificationCompat.Action readAction(int icon, CharSequence title,
+            PendingIntent actionIntent, Bundle extras) {
+        RemoteInput[] remoteInputs = null;
+        RemoteInput[] dataOnlyRemoteInputs = null;
         boolean allowGeneratedReplies = false;
         if (extras != null) {
-            remoteInputs = RemoteInputCompatJellybean.fromBundleArray(
-                    BundleUtil.getBundleArrayFromBundle(extras, EXTRA_REMOTE_INPUTS),
-                    remoteInputFactory);
+            remoteInputs = fromBundleArray(
+                    getBundleArrayFromBundle(extras,
+                            NotificationCompatExtras.EXTRA_REMOTE_INPUTS));
+            dataOnlyRemoteInputs = fromBundleArray(
+                    getBundleArrayFromBundle(extras, EXTRA_DATA_ONLY_REMOTE_INPUTS));
             allowGeneratedReplies = extras.getBoolean(EXTRA_ALLOW_GENERATED_REPLIES);
         }
-        return factory.build(icon, title, actionIntent, extras, remoteInputs,
-                allowGeneratedReplies);
+        return new NotificationCompat.Action(icon, title, actionIntent, extras, remoteInputs,
+                dataOnlyRemoteInputs, allowGeneratedReplies);
     }
 
     public static Bundle writeActionAndGetExtras(
-            Notification.Builder builder, NotificationCompatBase.Action action) {
+            Notification.Builder builder, NotificationCompat.Action action) {
         builder.addAction(action.getIcon(), action.getTitle(), action.getActionIntent());
         Bundle actionExtras = new Bundle(action.getExtras());
         if (action.getRemoteInputs() != null) {
-            actionExtras.putParcelableArray(EXTRA_REMOTE_INPUTS,
-                    RemoteInputCompatJellybean.toBundleArray(action.getRemoteInputs()));
+            actionExtras.putParcelableArray(NotificationCompatExtras.EXTRA_REMOTE_INPUTS,
+                    toBundleArray(action.getRemoteInputs()));
+        }
+        if (action.getDataOnlyRemoteInputs() != null) {
+            actionExtras.putParcelableArray(EXTRA_DATA_ONLY_REMOTE_INPUTS,
+                    toBundleArray(action.getDataOnlyRemoteInputs()));
         }
         actionExtras.putBoolean(EXTRA_ALLOW_GENERATED_REPLIES,
                 action.getAllowGeneratedReplies());
@@ -289,26 +156,26 @@ class NotificationCompatJellybean {
         }
     }
 
-    public static NotificationCompatBase.Action getAction(Notification notif, int actionIndex,
-            NotificationCompatBase.Action.Factory factory,
-            RemoteInputCompatBase.RemoteInput.Factory remoteInputFactory) {
+    public static NotificationCompat.Action getAction(Notification notif, int actionIndex) {
         synchronized (sActionsLock) {
             try {
-                Object actionObject = getActionObjectsLocked(notif)[actionIndex];
-                Bundle actionExtras = null;
-                Bundle extras = getExtras(notif);
-                if (extras != null) {
-                    SparseArray<Bundle> actionExtrasMap = extras.getSparseParcelableArray(
-                            EXTRA_ACTION_EXTRAS);
-                    if (actionExtrasMap != null) {
-                        actionExtras = actionExtrasMap.get(actionIndex);
+                Object[] actionObjects = getActionObjectsLocked(notif);
+                if (actionObjects != null) {
+                    Object actionObject = actionObjects[actionIndex];
+                    Bundle actionExtras = null;
+                    Bundle extras = getExtras(notif);
+                    if (extras != null) {
+                        SparseArray<Bundle> actionExtrasMap = extras.getSparseParcelableArray(
+                                NotificationCompatExtras.EXTRA_ACTION_EXTRAS);
+                        if (actionExtrasMap != null) {
+                            actionExtras = actionExtrasMap.get(actionIndex);
+                        }
                     }
+                    return readAction(sActionIconField.getInt(actionObject),
+                            (CharSequence) sActionTitleField.get(actionObject),
+                            (PendingIntent) sActionIntentField.get(actionObject),
+                            actionExtras);
                 }
-                return readAction(factory, remoteInputFactory,
-                        sActionIconField.getInt(actionObject),
-                        (CharSequence) sActionTitleField.get(actionObject),
-                        (PendingIntent) sActionIntentField.get(actionObject),
-                        actionExtras);
             } catch (IllegalAccessException e) {
                 Log.e(TAG, "Unable to access notification actions", e);
                 sActionsAccessFailed = true;
@@ -332,6 +199,7 @@ class NotificationCompatJellybean {
         }
     }
 
+    @SuppressWarnings("LiteralClassName")
     private static boolean ensureActionReflectionReadyLocked() {
         if (sActionsAccessFailed) {
             return false;
@@ -355,70 +223,111 @@ class NotificationCompatJellybean {
         return !sActionsAccessFailed;
     }
 
-    public static NotificationCompatBase.Action[] getActionsFromParcelableArrayList(
-            ArrayList<Parcelable> parcelables,
-            NotificationCompatBase.Action.Factory actionFactory,
-            RemoteInputCompatBase.RemoteInput.Factory remoteInputFactory) {
-        if (parcelables == null) {
-            return null;
+    static NotificationCompat.Action getActionFromBundle(Bundle bundle) {
+        Bundle extras = bundle.getBundle(KEY_EXTRAS);
+        boolean allowGeneratedReplies = false;
+        if (extras != null) {
+            allowGeneratedReplies = extras.getBoolean(EXTRA_ALLOW_GENERATED_REPLIES, false);
         }
-        NotificationCompatBase.Action[] actions = actionFactory.newArray(parcelables.size());
-        for (int i = 0; i < actions.length; i++) {
-            actions[i] = getActionFromBundle((Bundle) parcelables.get(i),
-                    actionFactory, remoteInputFactory);
-        }
-        return actions;
-    }
-
-    private static NotificationCompatBase.Action getActionFromBundle(Bundle bundle,
-            NotificationCompatBase.Action.Factory actionFactory,
-            RemoteInputCompatBase.RemoteInput.Factory remoteInputFactory) {
-        return actionFactory.build(
+        return new NotificationCompat.Action(
                 bundle.getInt(KEY_ICON),
                 bundle.getCharSequence(KEY_TITLE),
                 bundle.<PendingIntent>getParcelable(KEY_ACTION_INTENT),
                 bundle.getBundle(KEY_EXTRAS),
-                RemoteInputCompatJellybean.fromBundleArray(
-                        BundleUtil.getBundleArrayFromBundle(bundle, KEY_REMOTE_INPUTS),
-                        remoteInputFactory), bundle.getBoolean(KEY_ALLOW_GENERATED_REPLIES));
+                fromBundleArray(getBundleArrayFromBundle(bundle, KEY_REMOTE_INPUTS)),
+                fromBundleArray(getBundleArrayFromBundle(bundle, KEY_DATA_ONLY_REMOTE_INPUTS)),
+                allowGeneratedReplies);
     }
 
-    public static ArrayList<Parcelable> getParcelableArrayListForActions(
-            NotificationCompatBase.Action[] actions) {
-        if (actions == null) {
-            return null;
-        }
-        ArrayList<Parcelable> parcelables = new ArrayList<Parcelable>(actions.length);
-        for (NotificationCompatBase.Action action : actions) {
-            parcelables.add(getBundleForAction(action));
-        }
-        return parcelables;
-    }
-
-    private static Bundle getBundleForAction(NotificationCompatBase.Action action) {
+    static Bundle getBundleForAction(NotificationCompat.Action action) {
         Bundle bundle = new Bundle();
         bundle.putInt(KEY_ICON, action.getIcon());
         bundle.putCharSequence(KEY_TITLE, action.getTitle());
         bundle.putParcelable(KEY_ACTION_INTENT, action.getActionIntent());
-        bundle.putBundle(KEY_EXTRAS, action.getExtras());
-        bundle.putParcelableArray(KEY_REMOTE_INPUTS, RemoteInputCompatJellybean.toBundleArray(
-                action.getRemoteInputs()));
+        Bundle actionExtras;
+        if (action.getExtras() != null) {
+            actionExtras = new Bundle(action.getExtras());
+        } else {
+            actionExtras = new Bundle();
+        }
+        actionExtras.putBoolean(NotificationCompatJellybean.EXTRA_ALLOW_GENERATED_REPLIES,
+                action.getAllowGeneratedReplies());
+        bundle.putBundle(KEY_EXTRAS, actionExtras);
+        bundle.putParcelableArray(KEY_REMOTE_INPUTS, toBundleArray(action.getRemoteInputs()));
         return bundle;
     }
 
-    public static boolean getLocalOnly(Notification notif) {
-        return getExtras(notif).getBoolean(EXTRA_LOCAL_ONLY);
+
+    private static RemoteInput fromBundle(Bundle data) {
+        ArrayList<String> allowedDataTypesAsList = data.getStringArrayList(KEY_ALLOWED_DATA_TYPES);
+        Set<String> allowedDataTypes = new HashSet<>();
+        if (allowedDataTypesAsList != null) {
+            for (String type : allowedDataTypesAsList) {
+                allowedDataTypes.add(type);
+            }
+        }
+        return new RemoteInput(data.getString(KEY_RESULT_KEY),
+                data.getCharSequence(KEY_LABEL),
+                data.getCharSequenceArray(KEY_CHOICES),
+                data.getBoolean(KEY_ALLOW_FREE_FORM_INPUT),
+                data.getBundle(KEY_EXTRAS),
+                allowedDataTypes);
     }
 
-    public static String getGroup(Notification n) {
-        return getExtras(n).getString(EXTRA_GROUP_KEY);
+    private static Bundle toBundle(RemoteInput remoteInput) {
+        Bundle data = new Bundle();
+        data.putString(KEY_RESULT_KEY, remoteInput.getResultKey());
+        data.putCharSequence(KEY_LABEL, remoteInput.getLabel());
+        data.putCharSequenceArray(KEY_CHOICES, remoteInput.getChoices());
+        data.putBoolean(KEY_ALLOW_FREE_FORM_INPUT, remoteInput.getAllowFreeFormInput());
+        data.putBundle(KEY_EXTRAS, remoteInput.getExtras());
+
+        Set<String> allowedDataTypes = remoteInput.getAllowedDataTypes();
+        if (allowedDataTypes != null && !allowedDataTypes.isEmpty()) {
+            ArrayList<String> allowedDataTypesAsList = new ArrayList<>(allowedDataTypes.size());
+            for (String type : allowedDataTypes) {
+                allowedDataTypesAsList.add(type);
+            }
+            data.putStringArrayList(KEY_ALLOWED_DATA_TYPES, allowedDataTypesAsList);
+        }
+        return data;
     }
 
-    public static boolean isGroupSummary(Notification n) {
-        return getExtras(n).getBoolean(EXTRA_GROUP_SUMMARY);
+    private static RemoteInput[] fromBundleArray(Bundle[] bundles) {
+        if (bundles == null) {
+            return null;
+        }
+        RemoteInput[] remoteInputs = new RemoteInput[bundles.length];
+        for (int i = 0; i < bundles.length; i++) {
+            remoteInputs[i] = fromBundle(bundles[i]);
+        }
+        return remoteInputs;
     }
 
-    public static String getSortKey(Notification n) {
-        return getExtras(n).getString(EXTRA_SORT_KEY);
+    private static Bundle[] toBundleArray(RemoteInput[] remoteInputs) {
+        if (remoteInputs == null) {
+            return null;
+        }
+        Bundle[] bundles = new Bundle[remoteInputs.length];
+        for (int i = 0; i < remoteInputs.length; i++) {
+            bundles[i] = toBundle(remoteInputs[i]);
+        }
+        return bundles;
+    }
+
+    /**
+     * Get an array of Bundle objects from a parcelable array field in a bundle.
+     * Update the bundle to have a typed array so fetches in the future don't need
+     * to do an array copy.
+     */
+    private static Bundle[] getBundleArrayFromBundle(Bundle bundle, String key) {
+        Parcelable[] array = bundle.getParcelableArray(key);
+        if (array instanceof Bundle[] || array == null) {
+            return (Bundle[]) array;
+        }
+        Bundle[] typedArray = Arrays.copyOf(array, array.length,
+                Bundle[].class);
+        bundle.putParcelableArray(key, typedArray);
+        return typedArray;
     }
 }

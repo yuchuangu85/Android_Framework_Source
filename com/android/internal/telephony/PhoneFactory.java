@@ -16,17 +16,15 @@
 
 package com.android.internal.telephony;
 
-import static com.android.internal.telephony.TelephonyProperties.PROPERTY_DEFAULT_SUBSCRIPTION;
-
+import android.annotation.Nullable;
 import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.net.LocalServerSocket;
-import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.ServiceManager;
-import android.os.SystemProperties;
-import android.os.UserHandle;
+import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.provider.Settings.SettingNotFoundException;
 import android.telephony.Rlog;
@@ -34,19 +32,24 @@ import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.util.LocalLog;
 
+import com.android.internal.os.BackgroundThread;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.dataconnection.TelephonyNetworkFactory;
+import com.android.internal.telephony.euicc.EuiccController;
+import com.android.internal.telephony.ims.ImsResolver;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneFactory;
 import com.android.internal.telephony.sip.SipPhone;
 import com.android.internal.telephony.sip.SipPhoneFactory;
 import com.android.internal.telephony.uicc.IccCardProxy;
 import com.android.internal.telephony.uicc.UiccController;
+import com.android.internal.telephony.util.NotificationChannelController;
 import com.android.internal.util.IndentingPrintWriter;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.HashMap;
+import java.util.Map;
 
 /**
  * {@hide}
@@ -68,6 +71,8 @@ public class PhoneFactory {
 
     static private ProxyController sProxyController;
     static private UiccController sUiccController;
+    private static IntentBroadcaster sIntentBroadcaster;
+    private static @Nullable EuiccController sEuiccController;
 
     static private CommandsInterface sCommandsInterface = null;
     static private SubscriptionInfoUpdater sSubInfoRecordUpdater = null;
@@ -78,6 +83,8 @@ public class PhoneFactory {
     static private PhoneSwitcher sPhoneSwitcher;
     static private SubscriptionMonitor sSubscriptionMonitor;
     static private TelephonyNetworkFactory[] sTelephonyNetworkFactories;
+    static private ImsResolver sImsResolver;
+    static private NotificationChannelController sNotificationChannelController;
 
     static private final HashMap<String, LocalLog>sLocalLogs = new HashMap<String, LocalLog>();
 
@@ -98,7 +105,6 @@ public class PhoneFactory {
         synchronized (sLockProxyPhones) {
             if (!sMadeDefaults) {
                 sContext = context;
-
                 // create the telephony device controller.
                 TelephonyDevController.create();
 
@@ -132,10 +138,22 @@ public class PhoneFactory {
                 int cdmaSubscription = CdmaSubscriptionSourceManager.getDefault(context);
                 Rlog.i(LOG_TAG, "Cdma Subscription set to " + cdmaSubscription);
 
+                if (context.getPackageManager().hasSystemFeature(
+                        PackageManager.FEATURE_TELEPHONY_EUICC)) {
+                    sEuiccController = EuiccController.init(context);
+                }
+
                 /* In case of multi SIM mode two instances of Phone, RIL are created,
                    where as in single SIM mode only instance. isMultiSimEnabled() function checks
                    whether it is single SIM or multi SIM mode */
                 int numPhones = TelephonyManager.getDefault().getPhoneCount();
+                // Start ImsResolver and bind to ImsServices.
+                String defaultImsPackage = sContext.getResources().getString(
+                        com.android.internal.R.string.config_ims_package);
+                Rlog.i(LOG_TAG, "ImsResolver: defaultImsPackage: " + defaultImsPackage);
+                sImsResolver = new ImsResolver(sContext, defaultImsPackage, numPhones);
+                sImsResolver.populateCacheAndStartBind();
+
                 int[] networkModes = new int[numPhones];
                 sPhones = new Phone[numPhones];
                 sCommandsInterfaces = new RIL[numPhones];
@@ -198,13 +216,14 @@ public class PhoneFactory {
                 sMadeDefaults = true;
 
                 Rlog.i(LOG_TAG, "Creating SubInfoRecordUpdater ");
-                sSubInfoRecordUpdater = new SubscriptionInfoUpdater(context,
-                        sPhones, sCommandsInterfaces);
+                sSubInfoRecordUpdater = new SubscriptionInfoUpdater(
+                        BackgroundThread.get().getLooper(), context, sPhones, sCommandsInterfaces);
                 SubscriptionController.getInstance().updatePhonesAvailability(sPhones);
 
                 // Start monitoring after defaults have been made.
-                // Default phone must be ready before ImsPhone is created
-                // because ImsService might need it when it is being opened.
+                // Default phone must be ready before ImsPhone is created because ImsService might
+                // need it when it is being opened. This should initialize multiple ImsPhones for
+                // ImsResolver implementations of ImsService.
                 for (int i = 0; i < numPhones; i++) {
                     sPhones[i].startMonitoringImsService();
                 }
@@ -221,6 +240,10 @@ public class PhoneFactory {
 
                 sProxyController = ProxyController.getInstance(context, sPhones,
                         sUiccController, sCommandsInterfaces, sPhoneSwitcher);
+
+                sIntentBroadcaster = IntentBroadcaster.getInstance(context);
+
+                sNotificationChannelController = new NotificationChannelController(context);
 
                 sTelephonyNetworkFactories = new TelephonyNetworkFactory[numPhones];
                 for (int i = 0; i < numPhones; i++) {
@@ -275,6 +298,10 @@ public class PhoneFactory {
         }
     }
 
+    public static ImsResolver getImsResolver() {
+        return sImsResolver;
+    }
+
     /**
      * Makes a {@link SipPhone} object.
      * @param sipUri the local SIP URI the phone runs on
@@ -327,6 +354,16 @@ public class PhoneFactory {
      */
     public static Phone makeImsPhone(PhoneNotifier phoneNotifier, Phone defaultPhone) {
         return ImsPhoneFactory.makePhone(sContext, phoneNotifier, defaultPhone);
+    }
+
+    /**
+     * Request a refresh of the embedded subscription list.
+     *
+     * @param callback Optional callback to execute after the refresh completes. Must terminate
+     *     quickly as it will be called from SubscriptionInfoUpdater's handler thread.
+     */
+    public static void requestEmbeddedSubscriptionInfoListRefresh(@Nullable Runnable callback) {
+        sSubInfoRecordUpdater.requestEmbeddedSubscriptionInfoListRefresh(callback);
     }
 
     /**
@@ -425,6 +462,19 @@ public class PhoneFactory {
         pw.decreaseIndent();
         pw.println("++++++++++++++++++++++++++++++++");
 
+        if (sEuiccController != null) {
+            pw.println("EuiccController:");
+            pw.increaseIndent();
+            try {
+                sEuiccController.dump(fd, pw, args);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            pw.flush();
+            pw.decreaseIndent();
+            pw.println("++++++++++++++++++++++++++++++++");
+        }
+
         pw.println("SubscriptionController:");
         pw.increaseIndent();
         try {
@@ -458,6 +508,23 @@ public class PhoneFactory {
             }
             pw.flush();
         }
+        pw.decreaseIndent();
+        pw.println("++++++++++++++++++++++++++++++++");
+
+        pw.println("SharedPreferences:");
+        pw.increaseIndent();
+        try {
+            if (sContext != null) {
+                SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(sContext);
+                Map spValues = sp.getAll();
+                for (Object key : spValues.keySet()) {
+                    pw.println(key + " : " + spValues.get(key));
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        pw.flush();
         pw.decreaseIndent();
     }
 }

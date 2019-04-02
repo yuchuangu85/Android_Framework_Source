@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
+ * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,19 +18,70 @@ package android.support.v4.app;
 
 import android.os.Bundle;
 
+import java.util.Set;
+
+/**
+ * @deprecated This class was not meant to be made public.
+ */
+@Deprecated
 class RemoteInputCompatBase {
 
-    public static abstract class RemoteInput {
+    /**
+     * @deprecated This class was not meant to be made public.
+     */
+    @Deprecated
+    public abstract static class RemoteInput {
+        /**
+         * @deprecated This method was not meant to be made public.
+         */
+        @Deprecated
+        public RemoteInput() {}
+
+        /**
+         * @deprecated This method was not meant to be made public.
+         */
+        @Deprecated
         protected abstract String getResultKey();
+
+        /**
+         * @deprecated This method was not meant to be made public.
+         */
+        @Deprecated
         protected abstract CharSequence getLabel();
+
+        /**
+         * @deprecated This method was not meant to be made public.
+         */
+        @Deprecated
         protected abstract CharSequence[] getChoices();
+
+        /**
+         * @deprecated This method was not meant to be made public.
+         */
+        @Deprecated
         protected abstract boolean getAllowFreeFormInput();
+
+        /**
+         * @deprecated This method was not meant to be made public.
+         */
+        @Deprecated
         protected abstract Bundle getExtras();
 
+        /**
+         * @deprecated This method was not meant to be made public.
+         */
+        @Deprecated
+        protected abstract Set<String> getAllowedDataTypes();
+
+        /**
+         * @deprecated This class was not meant to be made public.
+         */
+        @Deprecated
         public interface Factory {
-            public RemoteInput build(String resultKey, CharSequence label,
-                    CharSequence[] choices, boolean allowFreeFormInput, Bundle extras);
-            public RemoteInput[] newArray(int length);
+            RemoteInput build(String resultKey, CharSequence label,
+                    CharSequence[] choices, boolean allowFreeFormInput, Bundle extras,
+                    Set<String> allowedDataTypes);
+            RemoteInput[] newArray(int length);
         }
     }
 }

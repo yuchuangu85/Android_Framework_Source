@@ -16,8 +16,10 @@
 
 package com.android.internal.telephony.dataconnection;
 
-import android.os.Parcel;
 import android.telephony.ServiceState;
+import android.text.TextUtils;
+
+import com.android.internal.telephony.RILConstants;
 
 public class DataProfile {
 
@@ -51,15 +53,37 @@ public class DataProfile {
     public final int waitTime;
     //true to enable the profile, false to disable
     public final boolean enabled;
-
+    //supported APN types bitmap. See RIL_ApnTypes for the value of each bit.
+    public final int supportedApnTypesBitmap;
+    //one of the PDP_type values in TS 27.007 section 10.1.1 used on roaming network.
+    //For example, "IP", "IPV6", "IPV4V6", or "PPP".
+    public final String roamingProtocol;
+    //The bearer bitmap. See RIL_RadioAccessFamily for the value of each bit.
+    public final int bearerBitmap;
+    //maximum transmission unit (MTU) size in bytes
+    public final int mtu;
+    //the MVNO type: possible values are "imsi", "gid", "spn"
+    public final String mvnoType;
+    //MVNO match data. For example, SPN: A MOBILE, BEN NL, ...
+    //IMSI: 302720x94, 2060188, ...
+    //GID: 4E, 33, ...
+    public final String mvnoMatchData;
+    //indicating the data profile was sent to the modem through setDataProfile earlier.
+    public final boolean modemCognitive;
 
     DataProfile(int profileId, String apn, String protocol, int authType,
-            String user, String password, int type, int maxConnsTime, int maxConns,
-            int waitTime, boolean enabled) {
+                String user, String password, int type, int maxConnsTime, int maxConns,
+                int waitTime, boolean enabled, int supportedApnTypesBitmap, String roamingProtocol,
+                int bearerBitmap, int mtu, String mvnoType, String mvnoMatchData,
+                boolean modemCognitive) {
 
         this.profileId = profileId;
         this.apn = apn;
         this.protocol = protocol;
+        if (authType == -1) {
+            authType = TextUtils.isEmpty(user) ? RILConstants.SETUP_DATA_AUTH_NONE
+                    : RILConstants.SETUP_DATA_AUTH_PAP_CHAP;
+        }
         this.authType = authType;
         this.user = user;
         this.password = password;
@@ -68,49 +92,42 @@ public class DataProfile {
         this.maxConns = maxConns;
         this.waitTime = waitTime;
         this.enabled = enabled;
+
+        this.supportedApnTypesBitmap = supportedApnTypesBitmap;
+        this.roamingProtocol = roamingProtocol;
+        this.bearerBitmap = bearerBitmap;
+        this.mtu = mtu;
+        this.mvnoType = mvnoType;
+        this.mvnoMatchData = mvnoMatchData;
+        this.modemCognitive = modemCognitive;
     }
 
-    public DataProfile(ApnSetting apn, boolean isRoaming) {
-        this(apn.profileId, apn.apn, isRoaming? apn.roamingProtocol : apn.protocol,
+    public DataProfile(ApnSetting apn) {
+        this(apn, apn.profileId);
+    }
+
+    public DataProfile(ApnSetting apn, int profileId) {
+        this(profileId, apn.apn, apn.protocol,
                 apn.authType, apn.user, apn.password, apn.bearerBitmask == 0
                         ? TYPE_COMMON : (ServiceState.bearerBitmapHasCdma(apn.bearerBitmask)
                         ? TYPE_3GPP2 : TYPE_3GPP),
-                apn.maxConnsTime, apn.maxConns, apn.waitTime, apn.carrierEnabled);
-    }
-
-    public static Parcel toParcel(Parcel pc, DataProfile[] dps) {
-
-        if(pc == null) {
-            return null;
-        }
-
-        pc.writeInt(dps.length);
-        for(int i = 0; i < dps.length; i++) {
-            pc.writeInt(dps[i].profileId);
-            pc.writeString(dps[i].apn);
-            pc.writeString(dps[i].protocol);
-            pc.writeInt(dps[i].authType);
-            pc.writeString(dps[i].user);
-            pc.writeString(dps[i].password);
-            pc.writeInt(dps[i].type);
-            pc.writeInt(dps[i].maxConnsTime);
-            pc.writeInt(dps[i].maxConns);
-            pc.writeInt(dps[i].waitTime);
-            pc.writeInt(dps[i].enabled ? 1 : 0);
-        }
-        return pc;
+                apn.maxConnsTime, apn.maxConns, apn.waitTime, apn.carrierEnabled, apn.typesBitmap,
+                apn.roamingProtocol, apn.bearerBitmask, apn.mtu, apn.mvnoType, apn.mvnoMatchData,
+                apn.modemCognitive);
     }
 
     @Override
     public String toString() {
-        return "DataProfile " + profileId + "/" + apn + "/" + protocol + "/" + authType
+        return "DataProfile=" + profileId + "/" + apn + "/" + protocol + "/" + authType
                 + "/" + user + "/" + password + "/" + type + "/" + maxConnsTime
-                + "/" + maxConns + "/" + waitTime + "/" + enabled;
+                + "/" + maxConns + "/" + waitTime + "/" + enabled + "/" + supportedApnTypesBitmap
+                + "/" + roamingProtocol + "/" + bearerBitmap + "/" + mtu + "/" + mvnoType + "/"
+                + mvnoMatchData + "/" + modemCognitive;
     }
 
     @Override
     public boolean equals(Object o) {
         if (o instanceof DataProfile == false) return false;
-        return (toString().equals(o.toString()));
+        return (o == this || toString().equals(o.toString()));
     }
 }

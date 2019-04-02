@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -305,8 +305,10 @@ public abstract class AbstractPreferences extends Preferences {
      * @param key key whose mapping is to be removed from the preference node.
      * @throws IllegalStateException if this node (or an ancestor) has been
      *         removed with the {@link #removeNode()} method.
+     * @throws NullPointerException {@inheritDoc}.
      */
     public void remove(String key) {
+        Objects.requireNonNull(key, "Specified key cannot be null");
         synchronized(lock) {
             if (removed)
                 throw new IllegalStateException("Node has been removed.");
@@ -1086,6 +1088,8 @@ public abstract class AbstractPreferences extends Preferences {
      * removed.  (The implementor needn't check for any of these things.)
      *
      * <p>This method is invoked with the lock on this node held.
+     * @param key the key
+     * @param value the value
      */
     protected abstract void putSpi(String key, String value);
 
@@ -1104,6 +1108,7 @@ public abstract class AbstractPreferences extends Preferences {
      *
      * <p>This method is invoked with the lock on this node held.
      *
+     * @param key the key
      * @return the value associated with the specified key at this preference
      *          node, or <tt>null</tt> if there is no association for this
      *          key, or the association cannot be determined at this time.
@@ -1117,6 +1122,7 @@ public abstract class AbstractPreferences extends Preferences {
      * (The implementor needn't check for either of these things.)
      *
      * <p>This method is invoked with the lock on this node held.
+     * @param key the key
      */
     protected abstract void removeSpi(String key);
 

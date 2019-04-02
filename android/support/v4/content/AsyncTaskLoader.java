@@ -16,6 +16,8 @@
 
 package android.support.v4.content;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.content.Context;
 import android.os.Handler;
 import android.os.SystemClock;
@@ -28,8 +30,6 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Static library support version of the framework's {@link android.content.AsyncTaskLoader}.
@@ -157,6 +157,9 @@ public abstract class AsyncTaskLoader<D> extends Loader<D> {
     protected boolean onCancelLoad() {
         if (DEBUG) Log.v(TAG, "onCancelLoad: mTask=" + mTask);
         if (mTask != null) {
+            if (!mStarted) {
+                mContentChanged = true;
+            }
             if (mCancellingTask != null) {
                 // There was a pending task already waiting for a previous
                 // one being canceled; just drop it.
@@ -334,7 +337,7 @@ public abstract class AsyncTaskLoader<D> extends Loader<D> {
      *
      * @hide
      */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     public void waitForLoader() {
         LoadTask task = mTask;
         if (task != null) {

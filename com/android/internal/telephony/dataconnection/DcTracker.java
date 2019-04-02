@@ -47,6 +47,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
+import android.os.PersistableBundle;
 import android.os.RegistrantList;
 import android.os.ServiceManager;
 import android.os.SystemClock;
@@ -55,6 +56,7 @@ import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.provider.Settings.SettingNotFoundException;
 import android.provider.Telephony;
+import android.telephony.CarrierConfigManager;
 import android.telephony.CellLocation;
 import android.telephony.PcoData;
 import android.telephony.Rlog;
@@ -73,15 +75,19 @@ import android.view.WindowManager;
 
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.CarrierActionAgent;
 import com.android.internal.telephony.DctConstants;
 import com.android.internal.telephony.EventLogTags;
 import com.android.internal.telephony.GsmCdmaPhone;
 import com.android.internal.telephony.ITelephony;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
+import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.RILConstants;
-import com.android.internal.telephony.ServiceStateTracker;
+import com.android.internal.telephony.SettingsObserver;
 import com.android.internal.telephony.TelephonyIntents;
+import com.android.internal.telephony.dataconnection.DataConnectionReasons.DataAllowedReasonType;
+import com.android.internal.telephony.dataconnection.DataConnectionReasons.DataDisallowedReasonType;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.uicc.IccRecords;
 import com.android.internal.telephony.uicc.UiccController;
@@ -94,13 +100,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Map.Entry;
-import java.util.Objects;
 import java.util.PriorityQueue;
 import java.util.Set;
-
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -157,57 +159,6 @@ public class DcTracker extends Handler {
 
     private static final String INTENT_DATA_STALL_ALARM =
             "com.android.internal.telephony.data-stall";
-
-    @VisibleForTesting
-    public static class DataAllowFailReason {
-        private HashSet<DataAllowFailReasonType> mDataAllowFailReasonSet = new HashSet<>();
-
-        public void addDataAllowFailReason(DataAllowFailReasonType type) {
-            mDataAllowFailReasonSet.add(type);
-        }
-
-        public String getDataAllowFailReason() {
-            StringBuilder failureReason = new StringBuilder();
-            failureReason.append("isDataAllowed: No");
-            for(DataAllowFailReasonType reason : mDataAllowFailReasonSet) {
-                failureReason.append(reason.mFailReasonStr);
-            }
-            return failureReason.toString();
-        }
-
-        public boolean isFailForSingleReason(DataAllowFailReasonType failReasonType) {
-            return (mDataAllowFailReasonSet.size() == 1) &&
-                    (mDataAllowFailReasonSet.contains(failReasonType));
-        }
-
-        public void clearAllReasons() {
-            mDataAllowFailReasonSet.clear();
-        }
-
-        public boolean isFailed() {
-            return mDataAllowFailReasonSet.size() > 0;
-        }
-    }
-
-    @VisibleForTesting
-    public enum DataAllowFailReasonType {
-        NOT_ATTACHED(" - Not attached"),
-        RECORD_NOT_LOADED(" - SIM not loaded"),
-        ROAMING_DISABLED(" - Roaming and data roaming not enabled"),
-        INVALID_PHONE_STATE(" - PhoneState is not idle"),
-        CONCURRENT_VOICE_DATA_NOT_ALLOWED(" - Concurrent voice and data not allowed"),
-        PS_RESTRICTED(" - mIsPsRestricted= true"),
-        UNDESIRED_POWER_STATE(" - desiredPowerState= false"),
-        INTERNAL_DATA_DISABLED(" - mInternalDataEnabled= false"),
-        DEFAULT_DATA_UNSELECTED(" - defaultDataSelected= false"),
-        RADIO_DISABLED_BY_CARRIER(" - powerStateFromCarrier= false");
-
-        public String mFailReasonStr;
-
-        DataAllowFailReasonType(String reason) {
-            mFailReasonStr = reason;
-        }
-    }
 
     private DcTesterFailBringUpAll mDcTesterFailBringUpAll;
     private DcController mDcc;
@@ -266,12 +217,15 @@ public class DcTracker extends Handler {
 
     private AsyncChannel mReplyAc = new AsyncChannel();
 
+    private final LocalLog mDataRoamingLeakageLog = new LocalLog(50);
+
     private final BroadcastReceiver mIntentReceiver = new BroadcastReceiver () {
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
 
             if (action.equals(Intent.ACTION_SCREEN_ON)) {
+                // TODO: Evaluate hooking this up with DeviceStateMonitor
                 if (DBG) log("screen on");
                 mIsScreenOn = true;
                 stopNetStatPoll();
@@ -309,6 +263,10 @@ public class DcTracker extends Handler {
                 if (DBG) {
                     log("WIFI_STATE_CHANGED_ACTION: enabled=" + enabled
                             + " mIsWifiConnected=" + mIsWifiConnected);
+                }
+            } else if (action.equals(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED)) {
+                if (mIccRecords.get() != null && mIccRecords.get().getRecordsLoaded()) {
+                    setDefaultDataRoamingEnabled();
                 }
             } else {
                 if (DBG) log("onReceive: Unknown action=" + action);
@@ -361,46 +319,6 @@ public class DcTracker extends Handler {
                 }
             };
 
-    private static class SettingsObserver extends ContentObserver {
-        final private HashMap<Uri, Integer> mUriEventMap;
-        final private Context mContext;
-        final private Handler mHandler;
-        final private static String TAG = "DcTracker.SettingsObserver";
-
-        SettingsObserver(Context context, Handler handler) {
-            super(null);
-            mUriEventMap = new HashMap<Uri, Integer>();
-            mContext = context;
-            mHandler = handler;
-        }
-
-        void observe(Uri uri, int what) {
-            mUriEventMap.put(uri, what);
-            final ContentResolver resolver = mContext.getContentResolver();
-            resolver.registerContentObserver(uri, false, this);
-        }
-
-        void unobserve() {
-            final ContentResolver resolver = mContext.getContentResolver();
-            resolver.unregisterContentObserver(this);
-        }
-
-        @Override
-        public void onChange(boolean selfChange) {
-            Rlog.e(TAG, "Should never be reached.");
-        }
-
-        @Override
-        public void onChange(boolean selfChange, Uri uri) {
-            final Integer what = mUriEventMap.get(uri);
-            if (what != null) {
-                mHandler.obtainMessage(what.intValue()).sendToTarget();
-            } else {
-                Rlog.e(TAG, "No matching event to send for URI=" + uri);
-            }
-        }
-    }
-
     private final SettingsObserver mSettingsObserver;
 
     private void registerSettingsObserver() {
@@ -412,7 +330,7 @@ public class DcTracker extends Handler {
 
         mSettingsObserver.observe(
                 Settings.Global.getUriFor(Settings.Global.DATA_ROAMING + simSuffix),
-                DctConstants.EVENT_ROAMING_ON);
+                DctConstants.EVENT_ROAMING_SETTING_CHANGE);
         mSettingsObserver.observe(
                 Settings.Global.getUriFor(Settings.Global.DEVICE_PROVISIONED),
                 DctConstants.EVENT_DEVICE_PROVISIONED_CHANGE);
@@ -462,13 +380,19 @@ public class DcTracker extends Handler {
     }
 
     private void onActionIntentReconnectAlarm(Intent intent) {
-        String reason = intent.getStringExtra(INTENT_RECONNECT_ALARM_EXTRA_REASON);
-        String apnType = intent.getStringExtra(INTENT_RECONNECT_ALARM_EXTRA_TYPE);
+        Message msg = obtainMessage(DctConstants.EVENT_DATA_RECONNECT);
+        msg.setData(intent.getExtras());
+        sendMessage(msg);
+    }
+
+    private void onDataReconnect(Bundle bundle) {
+        String reason = bundle.getString(INTENT_RECONNECT_ALARM_EXTRA_REASON);
+        String apnType = bundle.getString(INTENT_RECONNECT_ALARM_EXTRA_TYPE);
 
         int phoneSubId = mPhone.getSubId();
-        int currSubId = intent.getIntExtra(PhoneConstants.SUBSCRIPTION_KEY,
+        int currSubId = bundle.getInt(PhoneConstants.SUBSCRIPTION_KEY,
                 SubscriptionManager.INVALID_SUBSCRIPTION_ID);
-        log("onActionIntentReconnectAlarm: currSubId = " + currSubId + " phoneSubId=" + phoneSubId);
+        log("onDataReconnect: currSubId = " + currSubId + " phoneSubId=" + phoneSubId);
 
         // Stop reconnect if not current subId is not correct.
         // FIXME STOPSHIP - phoneSubId is coming up as -1 way after boot and failing this?
@@ -480,33 +404,33 @@ public class DcTracker extends Handler {
         ApnContext apnContext = mApnContexts.get(apnType);
 
         if (DBG) {
-            log("onActionIntentReconnectAlarm: mState=" + mState + " reason=" + reason +
-                    " apnType=" + apnType + " apnContext=" + apnContext +
-                    " mDataConnectionAsyncChannels=" + mDataConnectionAcHashMap);
+            log("onDataReconnect: mState=" + mState + " reason=" + reason + " apnType=" + apnType
+                    + " apnContext=" + apnContext + " mDataConnectionAsyncChannels="
+                    + mDataConnectionAcHashMap);
         }
 
         if ((apnContext != null) && (apnContext.isEnabled())) {
             apnContext.setReason(reason);
             DctConstants.State apnContextState = apnContext.getState();
             if (DBG) {
-                log("onActionIntentReconnectAlarm: apnContext state=" + apnContextState);
+                log("onDataReconnect: apnContext state=" + apnContextState);
             }
             if ((apnContextState == DctConstants.State.FAILED)
                     || (apnContextState == DctConstants.State.IDLE)) {
                 if (DBG) {
-                    log("onActionIntentReconnectAlarm: state is FAILED|IDLE, disassociate");
+                    log("onDataReconnect: state is FAILED|IDLE, disassociate");
                 }
                 DcAsyncChannel dcac = apnContext.getDcAc();
                 if (dcac != null) {
                     if (DBG) {
-                        log("onActionIntentReconnectAlarm: tearDown apnContext=" + apnContext);
+                        log("onDataReconnect: tearDown apnContext=" + apnContext);
                     }
                     dcac.tearDown(apnContext, "", null);
                 }
                 apnContext.setDataConnectionAc(null);
                 apnContext.setState(DctConstants.State.IDLE);
             } else {
-                if (DBG) log("onActionIntentReconnectAlarm: keep associated");
+                if (DBG) log("onDataReconnect: keep associated");
             }
             // TODO: IF already associated should we send the EVENT_TRY_SETUP_DATA???
             sendMessage(obtainMessage(DctConstants.EVENT_TRY_SETUP_DATA, apnContext));
@@ -612,6 +536,15 @@ public class DcTracker extends Handler {
     private boolean mMeteredApnDisabled = false;
 
     /**
+     * int to remember whether has setDataProfiles and with roaming or not.
+     * 0: default, has never set data profile
+     * 1: has set data profile with home protocol
+     * 2: has set data profile with roaming protocol
+     * This is not needed once RIL command is updated to support both home and roaming protocol.
+     */
+    private int mSetDataProfileStatus = 0;
+
+    /**
      * Handles changes to the APN db.
      */
     private class ApnChangeObserver extends ContentObserver {
@@ -679,7 +612,7 @@ public class DcTracker extends Handler {
         filter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
         filter.addAction(INTENT_DATA_STALL_ALARM);
         filter.addAction(INTENT_PROVISIONING_APN_ALARM);
-
+        filter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         // TODO - redundent with update call below?
         mDataEnabledSettings.setUserDataEnabled(getDataEnabled());
 
@@ -742,7 +675,7 @@ public class DcTracker extends Handler {
         mPhone.getServiceStateTracker().registerForDataRoamingOn(this,
                 DctConstants.EVENT_ROAMING_ON, null);
         mPhone.getServiceStateTracker().registerForDataRoamingOff(this,
-                DctConstants.EVENT_ROAMING_OFF, null);
+                DctConstants.EVENT_ROAMING_OFF, null, true);
         mPhone.getServiceStateTracker().registerForPsRestrictedEnabled(this,
                 DctConstants.EVENT_PS_RESTRICT_ENABLED, null);
         mPhone.getServiceStateTracker().registerForPsRestrictedDisabled(this,
@@ -765,7 +698,7 @@ public class DcTracker extends Handler {
         mPhone.mCi.registerForAvailable(this, DctConstants.EVENT_RADIO_AVAILABLE, null);
         mPhone.mCi.registerForOffOrNotAvailable(this,
                 DctConstants.EVENT_RADIO_OFF_OR_NOT_AVAILABLE, null);
-        mPhone.mCi.registerForDataNetworkStateChanged(this,
+        mPhone.mCi.registerForDataCallListChanged(this,
                 DctConstants.EVENT_DATA_STATE_CHANGED, null);
         // Note, this is fragile - the Phone is now presenting a merged picture
         // of PS (volte) & CS and by diving into its internals you're just seeing
@@ -780,6 +713,9 @@ public class DcTracker extends Handler {
      //   SubscriptionManager.registerForDdsSwitch(this,
      //          DctConstants.EVENT_CLEAN_UP_ALL_CONNECTIONS, null);
         mPhone.mCi.registerForPcoData(this, DctConstants.EVENT_PCO_DATA_RECEIVED, null);
+        mPhone.getCarrierActionAgent().registerForCarrierAction(
+                CarrierActionAgent.CARRIER_ACTION_SET_METERED_APNS_ENABLED, this,
+                DctConstants.EVENT_SET_CARRIER_DATA_ENABLED, null, false);
     }
 
     public void dispose() {
@@ -828,12 +764,14 @@ public class DcTracker extends Handler {
             r.unregisterForRecordsLoaded(this);
             mIccRecords.set(null);
         }
-        mPhone.mCi.unregisterForDataNetworkStateChanged(this);
+        mPhone.mCi.unregisterForDataCallListChanged(this);
         mPhone.getCallTracker().unregisterForVoiceCallEnded(this);
         mPhone.getCallTracker().unregisterForVoiceCallStarted(this);
         unregisterServiceStateTrackerEvents();
         //SubscriptionManager.unregisterForDdsSwitch(this);
         mPhone.mCi.unregisterForPcoData(this);
+        mPhone.getCarrierActionAgent().unregisterForCarrierAction(this,
+                CarrierActionAgent.CARRIER_ACTION_SET_METERED_APNS_ENABLED);
     }
 
     /**
@@ -876,8 +814,7 @@ public class DcTracker extends Handler {
                     Settings.Global.putInt(mResolver, Settings.Global.MOBILE_DATA + phoneSubId,
                             enabled ? 1 : 0);
                 }
-                if (getDataOnRoamingEnabled() == false &&
-                        mPhone.getServiceState().getDataRoaming() == true) {
+                if (!getDataRoamingEnabled() && mPhone.getServiceState().getDataRoaming()) {
                     if (enabled) {
                         notifyOffApnsOfAvailability(Phone.REASON_ROAMING_ON);
                     } else {
@@ -888,7 +825,7 @@ public class DcTracker extends Handler {
                 // TODO: We should register for DataEnabledSetting's data enabled/disabled event and
                 // handle the rest from there.
                 if (enabled) {
-                    teardownRestrictedMeteredConnections();
+                    reevaluateDataConnections();
                     onTrySetupData(Phone.REASON_DATA_ENABLED);
                 } else {
                     onCleanUpAllConnections(Phone.REASON_DATA_SPECIFIC_DISABLED);
@@ -898,33 +835,49 @@ public class DcTracker extends Handler {
     }
 
     /**
-     * Handle reverting restricted networks back to unrestricted.
-     * If we're changing user data to enabled and this makes data
-     * truely enabled (not disabled by other factors) we need to
-     * tear down any metered apn type that was enabled anyway by
-     * a privileged request.  This allows us to reconnect
-     * to it in an unrestricted way.
+     * Reevaluate existing data connections when conditions change.
+     *
+     * For example, handle reverting restricted networks back to unrestricted. If we're changing
+     * user data to enabled and this makes data truly enabled (not disabled by other factors) we
+     * need to tear down any metered apn type that was enabled anyway by a privileged request.
+     * This allows us to reconnect to it in an unrestricted way.
+     *
+     * Or when we brought up a unmetered data connection while data is off, we only limit this
+     * data connection for unmetered use only. When data is turned back on, we need to tear that
+     * down so a full capable data connection can be re-established.
      */
-    private void teardownRestrictedMeteredConnections() {
-        if (mDataEnabledSettings.isDataEnabled(true)) {
+    private void reevaluateDataConnections() {
+        if (mDataEnabledSettings.isDataEnabled()) {
             for (ApnContext apnContext : mApnContexts.values()) {
-                if (apnContext.isConnectedOrConnecting() &&
-                        apnContext.getApnSetting().isMetered(mPhone.getContext(),
-                        mPhone.getSubId(), mPhone.getServiceState().getDataRoaming())) {
-
-                    final DcAsyncChannel dataConnectionAc = apnContext.getDcAc();
-                    if (dataConnectionAc != null) {
-                        final NetworkCapabilities nc =
-                                dataConnectionAc.getNetworkCapabilitiesSync();
-                        if (nc != null && nc.hasCapability(NetworkCapabilities.
-                              NET_CAPABILITY_NOT_RESTRICTED)) {
-                            if (DBG) log("not tearing down unrestricted metered net:" + apnContext);
-                            continue;
+                if (apnContext.isConnectedOrConnecting()) {
+                    final DcAsyncChannel dcac = apnContext.getDcAc();
+                    if (dcac != null) {
+                        final NetworkCapabilities netCaps = dcac.getNetworkCapabilitiesSync();
+                        if (netCaps != null && !netCaps.hasCapability(NetworkCapabilities
+                                .NET_CAPABILITY_NOT_RESTRICTED) && !netCaps.hasCapability(
+                                NetworkCapabilities.NET_CAPABILITY_NOT_METERED)) {
+                            if (DBG) {
+                                log("Tearing down restricted metered net:" + apnContext);
+                            }
+                            // Tearing down the restricted metered data call when
+                            // conditions change. This will allow reestablishing a new unrestricted
+                            // data connection.
+                            apnContext.setReason(Phone.REASON_DATA_ENABLED);
+                            cleanUpConnection(true, apnContext);
+                        } else if (apnContext.getApnSetting().isMetered(mPhone)
+                                && (netCaps != null && netCaps.hasCapability(
+                                        NetworkCapabilities.NET_CAPABILITY_NOT_METERED))) {
+                            if (DBG) {
+                                log("Tearing down unmetered net:" + apnContext);
+                            }
+                            // The APN settings is metered, but the data was still marked as
+                            // unmetered data, must be the unmetered data connection brought up when
+                            // data is off. We need to tear that down when data is enabled again.
+                            // This will allow reestablishing a new full capability data connection.
+                            apnContext.setReason(Phone.REASON_DATA_ENABLED);
+                            cleanUpConnection(true, apnContext);
                         }
                     }
-                    if (DBG) log("tearing down restricted metered net: " + apnContext);
-                    apnContext.setReason(Phone.REASON_DATA_ENABLED);
-                    cleanUpConnection(true, apnContext);
                 }
             }
         }
@@ -933,7 +886,7 @@ public class DcTracker extends Handler {
     private void onDeviceProvisionedChange() {
         if (getDataEnabled()) {
             mDataEnabledSettings.setUserDataEnabled(true);
-            teardownRestrictedMeteredConnections();
+            reevaluateDataConnections();
             onTrySetupData(Phone.REASON_DATA_ENABLED);
         } else {
             mDataEnabledSettings.setUserDataEnabled(false);
@@ -1029,6 +982,7 @@ public class DcTracker extends Handler {
         public void onReceive(Context context, Intent intent) {
             // Turning back on the radio can take time on the order of a minute, so show user a
             // spinner so they know something is going on.
+            log("onReceive : ProvisionNotificationBroadcastReceiver");
             mProvisioningSpinner = new ProgressDialog(context);
             mProvisioningSpinner.setTitle(mNetworkOperator);
             mProvisioningSpinner.setMessage(
@@ -1050,38 +1004,6 @@ public class DcTracker extends Handler {
             setEnableFailFastMobileData(DctConstants.ENABLED);
             enableMobileProvisioning();
         }
-    }
-
-    public boolean isDataPossible(String apnType) {
-        ApnContext apnContext = mApnContexts.get(apnType);
-        if (apnContext == null) {
-            return false;
-        }
-        boolean apnContextIsEnabled = apnContext.isEnabled();
-        DctConstants.State apnContextState = apnContext.getState();
-        boolean apnTypePossible = !(apnContextIsEnabled &&
-                (apnContextState == DctConstants.State.FAILED));
-        boolean isEmergencyApn = apnContext.getApnType().equals(PhoneConstants.APN_TYPE_EMERGENCY);
-        // Set the emergency APN availability status as TRUE irrespective of conditions checked in
-        // isDataAllowed() like IN_SERVICE, MOBILE DATA status etc.
-        boolean dataAllowed = isEmergencyApn || isDataAllowed(null);
-        boolean possible = dataAllowed && apnTypePossible;
-
-        if ((apnContext.getApnType().equals(PhoneConstants.APN_TYPE_DEFAULT)
-                    || apnContext.getApnType().equals(PhoneConstants.APN_TYPE_IA))
-                && (mPhone.getServiceState().getRilDataRadioTechnology()
-                == ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN)) {
-            log("Default data call activation not possible in iwlan.");
-            possible = false;
-        }
-
-        if (VDBG) {
-            log(String.format("isDataPossible(%s): possible=%b isDataAllowed=%b " +
-                            "apnTypePossible=%b apnContextisEnabled=%b apnContextState()=%s",
-                    apnType, possible, dataAllowed, apnTypePossible,
-                    apnContextIsEnabled, apnContextState));
-        }
-        return possible;
     }
 
     @Override
@@ -1267,45 +1189,9 @@ public class DcTracker extends Handler {
         }
     }
 
-    /**
-     * Report on whether data connectivity is enabled for any APN.
-     * @return {@code false} if data connectivity has been explicitly disabled,
-     * {@code true} otherwise.
-     */
-    public boolean getAnyDataEnabled() {
-        if (!mDataEnabledSettings.isDataEnabled(true)) return false;
-        DataAllowFailReason failureReason = new DataAllowFailReason();
-        if (!isDataAllowed(failureReason)) {
-            if (DBG) log(failureReason.getDataAllowFailReason());
-            return false;
-        }
-        for (ApnContext apnContext : mApnContexts.values()) {
-            // Make sure we don't have a context that is going down
-            // and is explicitly disabled.
-            if (isDataAllowedForApn(apnContext)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     @VisibleForTesting
-    public boolean isDataEnabled(boolean checkUserDataEnabled) {
-        return mDataEnabledSettings.isDataEnabled(checkUserDataEnabled);
-    }
-
-    private boolean isDataAllowedForApn(ApnContext apnContext) {
-        //If RAT is iwlan then dont allow default/IA PDP at all.
-        //Rest of APN types can be evaluated for remaining conditions.
-        if ((apnContext.getApnType().equals(PhoneConstants.APN_TYPE_DEFAULT)
-                    || apnContext.getApnType().equals(PhoneConstants.APN_TYPE_IA))
-                && (mPhone.getServiceState().getRilDataRadioTechnology()
-                == ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN)) {
-            log("Default data call activation not allowed in iwlan.");
-            return false;
-        }
-
-        return apnContext.isReady();
+    public boolean isDataEnabled() {
+        return mDataEnabledSettings.isDataEnabled();
     }
 
     //****** Called from ServiceStateTracker
@@ -1343,30 +1229,58 @@ public class DcTracker extends Handler {
         setupDataOnConnectableApns(Phone.REASON_DATA_ATTACHED);
     }
 
-    private boolean isDataAllowed(DataAllowFailReason failureReason) {
-        final boolean internalDataEnabled;
-        internalDataEnabled = mDataEnabledSettings.isInternalDataEnabled();
+    /**
+     * Check if it is allowed to make a data connection (without checking APN context specific
+     * conditions).
+     *
+     * @param dataConnectionReasons Data connection allowed or disallowed reasons as the output
+     *                              param. It's okay to pass null here and no reasons will be
+     *                              provided.
+     * @return True if data connection is allowed, otherwise false.
+     */
+    public boolean isDataAllowed(DataConnectionReasons dataConnectionReasons) {
+        return isDataAllowed(null, dataConnectionReasons);
+    }
 
+    /**
+     * Check if it is allowed to make a data connection for a given APN type.
+     *
+     * @param apnContext APN context. If passing null, then will only check general but not APN
+     *                   specific conditions (e.g. APN state, metered/unmetered APN).
+     * @param dataConnectionReasons Data connection allowed or disallowed reasons as the output
+     *                              param. It's okay to pass null here and no reasons will be
+     *                              provided.
+     * @return True if data connection is allowed, otherwise false.
+     */
+    boolean isDataAllowed(ApnContext apnContext, DataConnectionReasons dataConnectionReasons) {
+        // Step 1: Get all environment conditions.
+        // Step 2: Special handling for emergency APN.
+        // Step 3. Build disallowed reasons.
+        // Step 4: Determine if data should be allowed in some special conditions.
+
+        DataConnectionReasons reasons = new DataConnectionReasons();
+
+        // Step 1: Get all environment conditions.
+        final boolean internalDataEnabled = mDataEnabledSettings.isInternalDataEnabled();
         boolean attachedState = mAttached.get();
         boolean desiredPowerState = mPhone.getServiceStateTracker().getDesiredPowerState();
         boolean radioStateFromCarrier = mPhone.getServiceStateTracker().getPowerStateFromCarrier();
+        // TODO: Remove this hack added by ag/641832.
         int radioTech = mPhone.getServiceState().getRilDataRadioTechnology();
         if (radioTech == ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN) {
             desiredPowerState = true;
             radioStateFromCarrier = true;
         }
 
-        IccRecords r = mIccRecords.get();
-        boolean recordsLoaded = false;
-        if (r != null) {
-            recordsLoaded = r.getRecordsLoaded();
-            if (DBG && !recordsLoaded) log("isDataAllowed getRecordsLoaded=" + recordsLoaded);
-        }
+        boolean recordsLoaded = mIccRecords.get() != null && mIccRecords.get().getRecordsLoaded();
 
-        int dataSub = SubscriptionManager.getDefaultDataSubscriptionId();
-        boolean defaultDataSelected = SubscriptionManager.isValidSubscriptionId(dataSub);
+        boolean defaultDataSelected = SubscriptionManager.isValidSubscriptionId(
+                SubscriptionManager.getDefaultDataSubscriptionId());
 
-        PhoneConstants.State state = PhoneConstants.State.IDLE;
+        boolean isMeteredApnType = apnContext == null
+                || ApnSetting.isMeteredApnType(apnContext.getApnType(), mPhone);
+
+        PhoneConstants.State phoneState = PhoneConstants.State.IDLE;
         // Note this is explicitly not using mPhone.getState.  See b/19090488.
         // mPhone.getState reports the merge of CS and PS (volte) voice call state
         // but we only care about CS calls here for data/voice concurrency issues.
@@ -1375,52 +1289,110 @@ public class DcTracker extends Handler {
         // This should be redesigned to ask explicitly what we want:
         // voiceCallStateAllowDataCall, or dataCallAllowed or something similar.
         if (mPhone.getCallTracker() != null) {
-            state = mPhone.getCallTracker().getState();
+            phoneState = mPhone.getCallTracker().getState();
         }
 
-        if (failureReason != null) failureReason.clearAllReasons();
+        // Step 2: Special handling for emergency APN.
+        if (apnContext != null
+                && apnContext.getApnType().equals(PhoneConstants.APN_TYPE_EMERGENCY)
+                && apnContext.isConnectable()) {
+            // If this is an emergency APN, as long as the APN is connectable, we
+            // should allow it.
+            if (dataConnectionReasons != null) {
+                dataConnectionReasons.add(DataAllowedReasonType.EMERGENCY_APN);
+            }
+            // Bail out without further checks.
+            return true;
+        }
+
+        // Step 3. Build disallowed reasons.
+        if (apnContext != null && !apnContext.isConnectable()) {
+            reasons.add(DataDisallowedReasonType.APN_NOT_CONNECTABLE);
+        }
+
+        // If RAT is IWLAN then don't allow default/IA PDP at all.
+        // Rest of APN types can be evaluated for remaining conditions.
+        if ((apnContext != null && (apnContext.getApnType().equals(PhoneConstants.APN_TYPE_DEFAULT)
+                || apnContext.getApnType().equals(PhoneConstants.APN_TYPE_IA)))
+                && (radioTech == ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN)) {
+            reasons.add(DataDisallowedReasonType.ON_IWLAN);
+        }
+
+        if (isEmergency()) {
+            reasons.add(DataDisallowedReasonType.IN_ECBM);
+        }
+
         if (!(attachedState || mAutoAttachOnCreation.get())) {
-            if(failureReason == null) return false;
-            failureReason.addDataAllowFailReason(DataAllowFailReasonType.NOT_ATTACHED);
+            reasons.add(DataDisallowedReasonType.NOT_ATTACHED);
         }
         if (!recordsLoaded) {
-            if(failureReason == null) return false;
-            failureReason.addDataAllowFailReason(DataAllowFailReasonType.RECORD_NOT_LOADED);
+            reasons.add(DataDisallowedReasonType.RECORD_NOT_LOADED);
         }
-        if (state != PhoneConstants.State.IDLE &&
-                !mPhone.getServiceStateTracker().isConcurrentVoiceAndDataAllowed()) {
-            if(failureReason == null) return false;
-            failureReason.addDataAllowFailReason(DataAllowFailReasonType.INVALID_PHONE_STATE);
-            failureReason.addDataAllowFailReason(
-                    DataAllowFailReasonType.CONCURRENT_VOICE_DATA_NOT_ALLOWED);
+        if (phoneState != PhoneConstants.State.IDLE
+                && !mPhone.getServiceStateTracker().isConcurrentVoiceAndDataAllowed()) {
+            reasons.add(DataDisallowedReasonType.INVALID_PHONE_STATE);
+            reasons.add(DataDisallowedReasonType.CONCURRENT_VOICE_DATA_NOT_ALLOWED);
         }
         if (!internalDataEnabled) {
-            if(failureReason == null) return false;
-            failureReason.addDataAllowFailReason(DataAllowFailReasonType.INTERNAL_DATA_DISABLED);
+            reasons.add(DataDisallowedReasonType.INTERNAL_DATA_DISABLED);
         }
         if (!defaultDataSelected) {
-            if(failureReason == null) return false;
-            failureReason.addDataAllowFailReason(
-                    DataAllowFailReasonType.DEFAULT_DATA_UNSELECTED);
+            reasons.add(DataDisallowedReasonType.DEFAULT_DATA_UNSELECTED);
         }
-        if (mPhone.getServiceState().getDataRoaming() && !getDataOnRoamingEnabled()) {
-            if(failureReason == null) return false;
-            failureReason.addDataAllowFailReason(DataAllowFailReasonType.ROAMING_DISABLED);
+        if (mPhone.getServiceState().getDataRoaming() && !getDataRoamingEnabled()) {
+            reasons.add(DataDisallowedReasonType.ROAMING_DISABLED);
         }
         if (mIsPsRestricted) {
-            if(failureReason == null) return false;
-            failureReason.addDataAllowFailReason(DataAllowFailReasonType.PS_RESTRICTED);
+            reasons.add(DataDisallowedReasonType.PS_RESTRICTED);
         }
         if (!desiredPowerState) {
-            if(failureReason == null) return false;
-            failureReason.addDataAllowFailReason(DataAllowFailReasonType.UNDESIRED_POWER_STATE);
+            reasons.add(DataDisallowedReasonType.UNDESIRED_POWER_STATE);
         }
         if (!radioStateFromCarrier) {
-            if(failureReason == null) return false;
-            failureReason.addDataAllowFailReason(DataAllowFailReasonType.RADIO_DISABLED_BY_CARRIER);
+            reasons.add(DataDisallowedReasonType.RADIO_DISABLED_BY_CARRIER);
+        }
+        if (!mDataEnabledSettings.isDataEnabled()) {
+            reasons.add(DataDisallowedReasonType.DATA_DISABLED);
         }
 
-        return failureReason == null || !failureReason.isFailed();
+        // If there are hard disallowed reasons, we should not allow data connection no matter what.
+        if (reasons.containsHardDisallowedReasons()) {
+            if (dataConnectionReasons != null) {
+                dataConnectionReasons.copyFrom(reasons);
+            }
+            return false;
+        }
+
+        // Step 4: Determine if data should be allowed in some special conditions.
+
+        // At this point, if data is not allowed, it must be because of the soft reasons. We
+        // should start to check some special conditions that data will be allowed.
+
+        // If the request APN type is unmetered and there are soft disallowed reasons (e.g. data
+        // disabled, data roaming disabled) existing, we should allow the data because the user
+        // won't be charged anyway.
+        if (!isMeteredApnType && !reasons.allowed()) {
+            reasons.add(DataAllowedReasonType.UNMETERED_APN);
+        }
+
+        // If the request is restricted and there are only soft disallowed reasons (e.g. data
+        // disabled, data roaming disabled) existing, we should allow the data.
+        if (apnContext != null
+                && !apnContext.hasNoRestrictedRequests(true)
+                && !reasons.allowed()) {
+            reasons.add(DataAllowedReasonType.RESTRICTED_REQUEST);
+        }
+
+        // If at this point, we still haven't built any disallowed reasons, we should allow data.
+        if (reasons.allowed()) {
+            reasons.add(DataAllowedReasonType.NORMAL);
+        }
+
+        if (dataConnectionReasons != null) {
+            dataConnectionReasons.copyFrom(reasons);
+        }
+
+        return reasons.allowed();
     }
 
     // arg for setupDataOnConnectableApns
@@ -1454,8 +1426,6 @@ public class DcTracker extends Handler {
         }
 
         for (ApnContext apnContext : mPrioritySortedApnContexts) {
-            ArrayList<ApnSetting> waitingApns = null;
-
             if (VDBG) log("setupDataOnConnectableApns: apnContext " + apnContext);
 
             if (apnContext.getState() == DctConstants.State.FAILED
@@ -1466,27 +1436,12 @@ public class DcTracker extends Handler {
                         mPhone.getServiceStateTracker().isConcurrentVoiceAndDataAllowed()) {
                     // RetryFailures.ONLY_ON_CHANGE - check if voice concurrency has changed
                     apnContext.releaseDataConnection(reason);
-                } else {
-                    // RetryFailures.ONLY_ON_CHANGE - check if the apns have changed
-                    int radioTech = mPhone.getServiceState().getRilDataRadioTechnology();
-                    ArrayList<ApnSetting> originalApns = apnContext.getWaitingApns();
-                    if (originalApns != null && originalApns.isEmpty() == false) {
-                        waitingApns = buildWaitingApns(apnContext.getApnType(), radioTech);
-                        if (originalApns.size() != waitingApns.size() ||
-                                originalApns.containsAll(waitingApns) == false) {
-                            apnContext.releaseDataConnection(reason);
-                        } else {
-                            continue;
-                        }
-                    } else {
-                        continue;
-                    }
                 }
             }
             if (apnContext.isConnectable()) {
                 log("isConnectable() call trySetupData");
                 apnContext.setReason(reason);
-                trySetupData(apnContext, waitingApns);
+                trySetupData(apnContext);
             }
         }
     }
@@ -1498,15 +1453,6 @@ public class DcTracker extends Handler {
     }
 
     private boolean trySetupData(ApnContext apnContext) {
-        return trySetupData(apnContext, null);
-    }
-
-    private boolean trySetupData(ApnContext apnContext, ArrayList<ApnSetting> waitingApns) {
-        if (DBG) {
-            log("trySetupData for type:" + apnContext.getApnType() +
-                    " due to " + apnContext.getReason() + ", mIsPsRestricted=" + mIsPsRestricted);
-        }
-        apnContext.requestLog("trySetupData due to " + apnContext.getReason());
 
         if (mPhone.getSimulatedRadioControl() != null) {
             // Assume data is connected on the simulator
@@ -1518,34 +1464,13 @@ public class DcTracker extends Handler {
             return true;
         }
 
-        // Allow SETUP_DATA request for E-APN to be completed during emergency call
-        // and MOBILE DATA On/Off cases as well.
-        boolean isEmergencyApn = apnContext.getApnType().equals(PhoneConstants.APN_TYPE_EMERGENCY);
-        final ServiceStateTracker sst = mPhone.getServiceStateTracker();
-
-        // set to false if apn type is non-metered or if we have a restricted (priveleged)
-        // request for the network.
-        // TODO - may want restricted requests to only apply to carrier-limited data access
-        //        rather than applying to user limited as well.
-        // Exclude DUN for the purposes of the override until we get finer grained
-        // intention in NetworkRequests
-        boolean checkUserDataEnabled =
-                ApnSetting.isMeteredApnType(apnContext.getApnType(), mPhone.getContext(),
-                        mPhone.getSubId(), mPhone.getServiceState().getDataRoaming()) &&
-                apnContext.hasNoRestrictedRequests(true /*exclude DUN */);
-
-        DataAllowFailReason failureReason = new DataAllowFailReason();
-
-        // allow data if currently in roaming service, roaming setting disabled
-        // and requested apn type is non-metered for roaming.
-        boolean isDataAllowed = isDataAllowed(failureReason) ||
-                (failureReason.isFailForSingleReason(DataAllowFailReasonType.ROAMING_DISABLED) &&
-                !(ApnSetting.isMeteredApnType(apnContext.getApnType(), mPhone.getContext(),
-                mPhone.getSubId(), mPhone.getServiceState().getDataRoaming())));
-
-        if (apnContext.isConnectable() && (isEmergencyApn ||
-                (isDataAllowed && isDataAllowedForApn(apnContext) &&
-                        mDataEnabledSettings.isDataEnabled(checkUserDataEnabled) && !isEmergency()))) {
+        DataConnectionReasons dataConnectionReasons = new DataConnectionReasons();
+        boolean isDataAllowed = isDataAllowed(apnContext, dataConnectionReasons);
+        String logStr = "trySetupData for APN type " + apnContext.getApnType() + ", reason: "
+                + apnContext.getReason() + ". " + dataConnectionReasons.toString();
+        if (DBG) log(logStr);
+        apnContext.requestLog(logStr);
+        if (isDataAllowed) {
             if (apnContext.getState() == DctConstants.State.FAILED) {
                 String str = "trySetupData: make a FAILED ApnContext IDLE so its reusable";
                 if (DBG) log(str);
@@ -1553,11 +1478,11 @@ public class DcTracker extends Handler {
                 apnContext.setState(DctConstants.State.IDLE);
             }
             int radioTech = mPhone.getServiceState().getRilDataRadioTechnology();
-            apnContext.setConcurrentVoiceAndDataAllowed(sst.isConcurrentVoiceAndDataAllowed());
+            apnContext.setConcurrentVoiceAndDataAllowed(mPhone.getServiceStateTracker()
+                    .isConcurrentVoiceAndDataAllowed());
             if (apnContext.getState() == DctConstants.State.IDLE) {
-                if (waitingApns == null) {
-                    waitingApns = buildWaitingApns(apnContext.getApnType(), radioTech);
-                }
+                ArrayList<ApnSetting> waitingApns =
+                        buildWaitingApns(apnContext.getApnType(), radioTech);
                 if (waitingApns.isEmpty()) {
                     notifyNoData(DcFailCause.MISSING_UNKNOWN_APN, apnContext);
                     notifyOffApnsOfAvailability(apnContext.getReason());
@@ -1574,7 +1499,8 @@ public class DcTracker extends Handler {
                 }
             }
 
-            boolean retValue = setupData(apnContext, radioTech);
+            boolean retValue = setupData(apnContext, radioTech, dataConnectionReasons.contains(
+                    DataAllowedReasonType.UNMETERED_APN));
             notifyOffApnsOfAvailability(apnContext.getReason());
 
             if (DBG) log("trySetupData: X retValue=" + retValue);
@@ -1588,48 +1514,30 @@ public class DcTracker extends Handler {
 
             StringBuilder str = new StringBuilder();
 
-            str.append("trySetupData failed. apnContext = [type=" + apnContext.getApnType() +
-                    ", mState=" + apnContext.getState() + ", mDataEnabled=" +
-                    apnContext.isEnabled() + ", mDependencyMet=" +
-                    apnContext.getDependencyMet() + "] ");
+            str.append("trySetupData failed. apnContext = [type=" + apnContext.getApnType()
+                    + ", mState=" + apnContext.getState() + ", apnEnabled="
+                    + apnContext.isEnabled() + ", mDependencyMet="
+                    + apnContext.getDependencyMet() + "] ");
 
-            if (!apnContext.isConnectable()) {
-                str.append("isConnectable = false. ");
+            if (!mDataEnabledSettings.isDataEnabled()) {
+                str.append("isDataEnabled() = false. " + mDataEnabledSettings);
             }
-            if (!isDataAllowed) {
-                str.append("data not allowed: " + failureReason.getDataAllowFailReason() + ". ");
-            }
-            if (!isDataAllowedForApn(apnContext)) {
-                str.append("isDataAllowedForApn = false. RAT = " +
-                        mPhone.getServiceState().getRilDataRadioTechnology());
-            }
-            if (!mDataEnabledSettings.isDataEnabled(checkUserDataEnabled)) {
-                str.append("isDataEnabled(" + checkUserDataEnabled + ") = false. " +
-                        "isInternalDataEnabled = " + mDataEnabledSettings.isInternalDataEnabled() +
-                        ", userDataEnabled = " + mDataEnabledSettings.isUserDataEnabled() +
-                        ", isPolicyDataEnabled = " + mDataEnabledSettings.isPolicyDataEnabled() +
-                        ", isCarrierDataEnabled = " +
-                        mDataEnabledSettings.isCarrierDataEnabled());
-            }
-            if (isEmergency()) {
-                str.append("emergency = true");
+
+            // If this is a data retry, we should set the APN state to FAILED so it won't stay
+            // in SCANNING forever.
+            if (apnContext.getState() == DctConstants.State.SCANNING) {
+                apnContext.setState(DctConstants.State.FAILED);
+                str.append(" Stop retrying.");
             }
 
             if (DBG) log(str.toString());
             apnContext.requestLog(str.toString());
-
             return false;
         }
     }
 
     // Disabled apn's still need avail/unavail notifications - send them out
     private void notifyOffApnsOfAvailability(String reason) {
-        if (DBG) {
-            DataAllowFailReason failureReason = new DataAllowFailReason();
-            if (!isDataAllowed(failureReason)) {
-                log(failureReason.getDataAllowFailReason());
-            }
-        }
         for (ApnContext apnContext : mApnContexts.values()) {
             if (!mAttached.get() || !apnContext.isReady()) {
                 if (VDBG) log("notifyOffApnOfAvailability type:" + apnContext.getApnType());
@@ -1674,8 +1582,7 @@ public class DcTracker extends Handler {
                 // Use ApnSetting to decide metered or non-metered.
                 // Tear down all metered data connections.
                 ApnSetting apnSetting = apnContext.getApnSetting();
-                if (apnSetting != null && apnSetting.isMetered(mPhone.getContext(),
-                        mPhone.getSubId(), mPhone.getServiceState().getDataRoaming())) {
+                if (apnSetting != null && apnSetting.isMetered(mPhone)) {
                     if (DBG) log("clean up metered ApnContext Type: " + apnContext.getApnType());
                     apnContext.setReason(reason);
                     cleanUpConnection(tearDown, apnContext);
@@ -1812,56 +1719,74 @@ public class DcTracker extends Handler {
         apnContext.requestLog(str);
     }
 
-    ApnSetting fetchDunApn() {
+    /**
+     * Fetch dun apn
+     * @return ApnSetting to be used for dun
+     */
+    @VisibleForTesting
+    public ApnSetting fetchDunApn() {
         if (SystemProperties.getBoolean("net.tethering.noprovisioning", false)) {
             log("fetchDunApn: net.tethering.noprovisioning=true ret: null");
             return null;
         }
         int bearer = mPhone.getServiceState().getRilDataRadioTechnology();
-        ApnSetting retDunSetting = null;
-        String apnData = Settings.Global.getString(mResolver, Settings.Global.TETHER_DUN_APN);
-        List<ApnSetting> dunSettings = ApnSetting.arrayFromString(apnData);
         IccRecords r = mIccRecords.get();
-        for (ApnSetting dunSetting : dunSettings) {
-            String operator = (r != null) ? r.getOperatorNumeric() : "";
+        String operator = (r != null) ? r.getOperatorNumeric() : "";
+        ArrayList<ApnSetting> dunCandidates = new ArrayList<ApnSetting>();
+        ApnSetting retDunSetting = null;
+
+        // Places to look for tether APN in order: TETHER_DUN_APN setting (to be deprecated soon),
+        // APN database, and config_tether_apndata resource (to be deprecated soon).
+        String apnData = Settings.Global.getString(mResolver, Settings.Global.TETHER_DUN_APN);
+        if (!TextUtils.isEmpty(apnData)) {
+            dunCandidates.addAll(ApnSetting.arrayFromString(apnData));
+            if (VDBG) log("fetchDunApn: dunCandidates from Setting: " + dunCandidates);
+        }
+
+        // todo: remove this and config_tether_apndata after APNs are moved from overlay to apns xml
+        // If TETHER_DUN_APN isn't set or APN database doesn't have dun APN,
+        // try the resource as last resort.
+        if (dunCandidates.isEmpty()) {
+            String[] apnArrayData = mPhone.getContext().getResources()
+                .getStringArray(R.array.config_tether_apndata);
+            if (!ArrayUtils.isEmpty(apnArrayData)) {
+                for (String apnString : apnArrayData) {
+                    ApnSetting apn = ApnSetting.fromString(apnString);
+                    // apn may be null if apnString isn't valid or has error parsing
+                    if (apn != null) dunCandidates.add(apn);
+                }
+                if (VDBG) log("fetchDunApn: dunCandidates from resource: " + dunCandidates);
+            }
+        }
+
+        if (dunCandidates.isEmpty()) {
+            if (!ArrayUtils.isEmpty(mAllApnSettings)) {
+                for (ApnSetting apn : mAllApnSettings) {
+                    if (apn.canHandleType(PhoneConstants.APN_TYPE_DUN)) {
+                        dunCandidates.add(apn);
+                    }
+                }
+                if (VDBG) log("fetchDunApn: dunCandidates from database: " + dunCandidates);
+            }
+        }
+
+        for (ApnSetting dunSetting : dunCandidates) {
             if (!ServiceState.bitmaskHasTech(dunSetting.bearerBitmask, bearer)) continue;
             if (dunSetting.numeric.equals(operator)) {
                 if (dunSetting.hasMvnoParams()) {
                     if (r != null && ApnSetting.mvnoMatches(r, dunSetting.mvnoType,
                             dunSetting.mvnoMatchData)) {
-                        if (VDBG) {
-                            log("fetchDunApn: global TETHER_DUN_APN dunSetting=" + dunSetting);
-                        }
-                        return dunSetting;
-                    }
-                } else if (mMvnoMatched == false) {
-                    if (VDBG) log("fetchDunApn: global TETHER_DUN_APN dunSetting=" + dunSetting);
-                    return dunSetting;
-                }
-            }
-        }
-
-        Context c = mPhone.getContext();
-        String[] apnArrayData = c.getResources().getStringArray(R.array.config_tether_apndata);
-        for (String apn : apnArrayData) {
-            ApnSetting dunSetting = ApnSetting.fromString(apn);
-            if (dunSetting != null) {
-                if (!ServiceState.bitmaskHasTech(dunSetting.bearerBitmask, bearer)) continue;
-                if (dunSetting.hasMvnoParams()) {
-                    if (r != null && ApnSetting.mvnoMatches(r, dunSetting.mvnoType,
-                            dunSetting.mvnoMatchData)) {
-                        if (VDBG) {
-                            log("fetchDunApn: config_tether_apndata mvno dunSetting=" + dunSetting);
-                        }
-                        return dunSetting;
+                        retDunSetting = dunSetting;
+                        break;
                     }
                 } else if (mMvnoMatched == false) {
                     retDunSetting = dunSetting;
+                    break;
                 }
             }
         }
 
-        if (VDBG) log("fetchDunApn: config_tether_apndata dunSetting=" + retDunSetting);
+        if (VDBG) log("fetchDunApn: dunSetting=" + retDunSetting);
         return retDunSetting;
     }
 
@@ -1916,8 +1841,8 @@ public class DcTracker extends Handler {
         return result;
     }
 
-    boolean isPermanentFail(DcFailCause dcFailCause) {
-        return (dcFailCause.isPermanentFail() &&
+    boolean isPermanentFailure(DcFailCause dcFailCause) {
+        return (dcFailCause.isPermanentFailure(mPhone.getContext(), mPhone.getSubId()) &&
                 (mAttached.get() == false || dcFailCause != DcFailCause.SIGNAL_LOST));
     }
 
@@ -2029,7 +1954,16 @@ public class DcTracker extends Handler {
         return null;
     }
 
-    private boolean setupData(ApnContext apnContext, int radioTech) {
+    /**
+     * Setup a data connection based on given APN type.
+     *
+     * @param apnContext APN context
+     * @param radioTech RAT of the data connection
+     * @param unmeteredUseOnly True if this data connection should be only used for unmetered
+     *                         purposes only.
+     * @return True if successful, otherwise false.
+     */
+    private boolean setupData(ApnContext apnContext, int radioTech, boolean unmeteredUseOnly) {
         if (DBG) log("setupData: apnContext=" + apnContext);
         apnContext.requestLog("setupData");
         ApnSetting apnSetting;
@@ -2111,7 +2045,7 @@ public class DcTracker extends Handler {
         Message msg = obtainMessage();
         msg.what = DctConstants.EVENT_DATA_SETUP_COMPLETE;
         msg.obj = new Pair<ApnContext, Integer>(apnContext, generation);
-        dcac.bringUp(apnContext, profileId, radioTech, msg, generation);
+        dcac.bringUp(apnContext, profileId, radioTech, unmeteredUseOnly, msg, generation);
 
         if (DBG) log("setupData: initing!");
         return true;
@@ -2124,15 +2058,15 @@ public class DcTracker extends Handler {
 
         log("setInitialApn: E mPreferredApn=" + mPreferredApn);
 
-        if (mAllApnSettings != null && !mAllApnSettings.isEmpty()) {
+        if (mPreferredApn != null && mPreferredApn.canHandleType(PhoneConstants.APN_TYPE_IA)) {
+              iaApnSetting = mPreferredApn;
+        } else if (mAllApnSettings != null && !mAllApnSettings.isEmpty()) {
             firstApnSetting = mAllApnSettings.get(0);
             log("setInitialApn: firstApnSetting=" + firstApnSetting);
 
             // Search for Initial APN setting and the first apn that can handle default
             for (ApnSetting apn : mAllApnSettings) {
-                // Can't use apn.canHandleType(), as that returns true for APNs that have no type.
-                if (ArrayUtils.contains(apn.types, PhoneConstants.APN_TYPE_IA) &&
-                        apn.carrierEnabled) {
+                if (apn.canHandleType(PhoneConstants.APN_TYPE_IA)) {
                     // The Initial Attach APN is highest priority so use it if there is one
                     log("setInitialApn: iaApnSetting=" + apn);
                     iaApnSetting = apn;
@@ -2172,9 +2106,8 @@ public class DcTracker extends Handler {
         } else {
             if (DBG) log("setInitialAttachApn: X selected Apn=" + initialAttachApnSetting);
 
-            mPhone.mCi.setInitialAttachApn(initialAttachApnSetting.apn,
-                    initialAttachApnSetting.protocol, initialAttachApnSetting.authType,
-                    initialAttachApnSetting.user, initialAttachApnSetting.password, null);
+            mPhone.mCi.setInitialAttachApn(new DataProfile(initialAttachApnSetting),
+                    mPhone.getServiceState().getDataRoamingFromRegistration(), null);
         }
     }
 
@@ -2196,7 +2129,7 @@ public class DcTracker extends Handler {
         if (DBG) log("onApnChanged: createAllApnList and cleanUpAllConnections");
         createAllApnList();
         setInitialAttachApn();
-        cleanUpConnectionsOnUpdatedApns(!isDisconnected);
+        cleanUpConnectionsOnUpdatedApns(!isDisconnected, Phone.REASON_APN_CHANGED);
 
         // FIXME: See bug 17426028 maybe no conditional is needed.
         if (mPhone.getSubId() == SubscriptionManager.getDefaultDataSubscriptionId()) {
@@ -2245,8 +2178,20 @@ public class DcTracker extends Handler {
      * @return true if only single DataConnection is allowed
      */
     private boolean isOnlySingleDcAllowed(int rilRadioTech) {
-        int[] singleDcRats = mPhone.getContext().getResources().getIntArray(
-                com.android.internal.R.array.config_onlySingleDcAllowed);
+        // Default single dc rats with no knowledge of carrier
+        int[] singleDcRats = null;
+        // get the carrier specific value, if it exists, from CarrierConfigManager.
+        // generally configManager and bundle should not be null, but if they are it should be okay
+        // to leave singleDcRats null as well
+        CarrierConfigManager configManager = (CarrierConfigManager)
+                mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        if (configManager != null) {
+            PersistableBundle bundle = configManager.getConfig();
+            if (bundle != null) {
+                singleDcRats = bundle.getIntArray(
+                        CarrierConfigManager.KEY_ONLY_SINGLE_DC_ALLOWED_INT_ARRAY);
+            }
+        }
         boolean onlySingleDcAllowed = false;
         if (Build.IS_DEBUGGABLE &&
                 SystemProperties.getBoolean("persist.telephony.test.singleDc", false)) {
@@ -2335,7 +2280,7 @@ public class DcTracker extends Handler {
     private void notifyNoData(DcFailCause lastFailCauseCode,
                               ApnContext apnContext) {
         if (DBG) log( "notifyNoData: type=" + apnContext.getApnType());
-        if (isPermanentFail(lastFailCauseCode)
+        if (isPermanentFailure(lastFailCauseCode)
             && (!apnContext.getApnType().equals(PhoneConstants.APN_TYPE_DEFAULT))) {
             mPhone.notifyDataConnectionFailed(apnContext.getReason(), apnContext.getApnType());
         }
@@ -2359,17 +2304,16 @@ public class DcTracker extends Handler {
         setupDataOnConnectableApns(Phone.REASON_SIM_LOADED);
     }
 
-    public void setApnsEnabledByCarrier(boolean enabled) {
-        Message msg = obtainMessage(DctConstants.EVENT_SET_CARRIER_DATA_ENABLED);
-        msg.arg1 = (enabled ? DctConstants.ENABLED : DctConstants.DISABLED);
-        sendMessage(msg);
-    }
-
     /**
      * Action set from carrier signalling broadcast receivers to enable/disable metered apns.
      */
-    private void onSetCarrierDataEnabled(boolean enabled) {
+    private void onSetCarrierDataEnabled(AsyncResult ar) {
+        if (ar.exception != null) {
+            Rlog.e(LOG_TAG, "CarrierDataEnable exception: " + ar.exception);
+            return;
+        }
         synchronized (mDataEnabledSettings) {
+            boolean enabled = (boolean) ar.result;
             if (enabled != mDataEnabledSettings.isCarrierDataEnabled()) {
                 if (DBG) {
                     log("carrier Action: set metered apns enabled: " + enabled);
@@ -2380,26 +2324,19 @@ public class DcTracker extends Handler {
 
                 if (!enabled) {
                     // Send otasp_sim_unprovisioned so that SuW is able to proceed and notify users
-                    mPhone.notifyOtaspChanged(ServiceStateTracker.OTASP_SIM_UNPROVISIONED);
+                    mPhone.notifyOtaspChanged(TelephonyManager.OTASP_SIM_UNPROVISIONED);
                     // Tear down all metered apns
                     cleanUpAllConnections(true, Phone.REASON_CARRIER_ACTION_DISABLE_METERED_APN);
                 } else {
-                    teardownRestrictedMeteredConnections();
+                    // Re-evaluate Otasp state
+                    int otaspState = mPhone.getServiceStateTracker().getOtasp();
+                    mPhone.notifyOtaspChanged(otaspState);
+
+                    reevaluateDataConnections();
                     setupDataOnConnectableApns(Phone.REASON_DATA_ENABLED);
                 }
             }
         }
-    }
-
-    /**
-     * Action set from carrier signalling broadcast receivers to enable/disable radio
-     */
-    public void carrierActionSetRadioEnabled(boolean enabled) {
-        if (DBG) {
-            log("carrier Action: set radio enabled: " + enabled);
-        }
-        final ServiceStateTracker sst = mPhone.getServiceStateTracker();
-        sst.setRadioPowerFromCarrier(enabled);
     }
 
     private void onSimNotReady() {
@@ -2408,6 +2345,8 @@ public class DcTracker extends Handler {
         cleanUpAllConnections(true, Phone.REASON_SIM_NOT_READY);
         mAllApnSettings = null;
         mAutoAttachOnCreationConfig = false;
+        // Clear auto attach as modem is expected to do a new attach once SIM is ready
+        mAutoAttachOnCreation.set(false);
     }
 
     private void onSetDependencyMet(String apnType, boolean met) {
@@ -2437,14 +2376,14 @@ public class DcTracker extends Handler {
 
     private void onSetPolicyDataEnabled(boolean enabled) {
         synchronized (mDataEnabledSettings) {
-            final boolean prevEnabled = getAnyDataEnabled();
+            final boolean prevEnabled = isDataEnabled();
             if (mDataEnabledSettings.isPolicyDataEnabled() != enabled) {
                 mDataEnabledSettings.setPolicyDataEnabled(enabled);
                 // TODO: We should register for DataEnabledSetting's data enabled/disabled event and
                 // handle the rest from there.
-                if (prevEnabled != getAnyDataEnabled()) {
+                if (prevEnabled != isDataEnabled()) {
                     if (!prevEnabled) {
-                        teardownRestrictedMeteredConnections();
+                        reevaluateDataConnections();
                         onTrySetupData(Phone.REASON_DATA_ENABLED);
                     } else {
                         onCleanUpAllConnections(Phone.REASON_DATA_SPECIFIC_DISABLED);
@@ -2469,7 +2408,6 @@ public class DcTracker extends Handler {
                 DctConstants.State state = apnContext.getState();
                 switch(state) {
                     case CONNECTING:
-                    case SCANNING:
                     case CONNECTED:
                     case DISCONNECTING:
                         // We're "READY" and active so just return
@@ -2479,6 +2417,7 @@ public class DcTracker extends Handler {
                     case IDLE:
                         // fall through: this is unexpected but if it happens cleanup and try setup
                     case FAILED:
+                    case SCANNING:
                     case RETRYING: {
                         // We're "READY" but not active so disconnect (cleanup = true) and
                         // connect (trySetup = true) to be sure we retry the connection.
@@ -2498,7 +2437,12 @@ public class DcTracker extends Handler {
                 // request goes away.  This applies to both CDMA and GSM because they both
                 // can declare the DUN APN sharable by default traffic, thus still satisfying
                 // those requests and not torn down organically.
-                if (apnContext.getApnType() == PhoneConstants.APN_TYPE_DUN && teardownForDun()) {
+                if ((apnContext.getApnType() == PhoneConstants.APN_TYPE_DUN && teardownForDun())
+                        || apnContext.getState() != DctConstants.State.CONNECTED) {
+                    str = "Clean up the connection. Apn type = " + apnContext.getApnType()
+                            + ", state = " + apnContext.getState();
+                    if (DBG) log(str);
+                    apnContext.requestLog(str);
                     cleanup = true;
                 } else {
                     cleanup = false;
@@ -2617,6 +2561,16 @@ public class DcTracker extends Handler {
         // TODO change our retry manager to use the appropriate numbers for the new APN
         if (DBG) log("onEnableApn: apnContext=" + apnContext + " call applyNewState");
         applyNewState(apnContext, enabled == DctConstants.ENABLED, apnContext.getDependencyMet());
+
+        if ((enabled == DctConstants.DISABLED) &&
+            isOnlySingleDcAllowed(mPhone.getServiceState().getRilDataRadioTechnology()) &&
+            !isHigherPriorityApnContextActive(apnContext)) {
+
+            if(DBG) log("onEnableApn: isOnlySingleDcAllowed true & higher priority APN disabled");
+            // If the highest priority APN is disabled and only single
+            // data call is allowed, try to setup data call on other connectable APN.
+            setupDataOnConnectableApns(Phone.REASON_SINGLE_PDN_ARBITRATION);
+        }
     }
 
     // TODO: We shouldnt need this.
@@ -2676,16 +2630,17 @@ public class DcTracker extends Handler {
     }
 
     /**
-     * Modify {@link android.provider.Settings.Global#DATA_ROAMING} value.
+     * Modify {@link android.provider.Settings.Global#DATA_ROAMING} value for user modification only
      */
-    public void setDataOnRoamingEnabled(boolean enabled) {
+    public void setDataRoamingEnabledByUser(boolean enabled) {
         final int phoneSubId = mPhone.getSubId();
-        if (getDataOnRoamingEnabled() != enabled) {
+        if (getDataRoamingEnabled() != enabled) {
             int roaming = enabled ? 1 : 0;
 
             // For single SIM phones, this is a per phone property.
             if (TelephonyManager.getDefault().getSimCount() == 1) {
                 Settings.Global.putInt(mResolver, Settings.Global.DATA_ROAMING, roaming);
+                setDataRoamingFromUserAction(true);
             } else {
                 Settings.Global.putInt(mResolver, Settings.Global.DATA_ROAMING +
                          phoneSubId, roaming);
@@ -2694,12 +2649,12 @@ public class DcTracker extends Handler {
             mSubscriptionManager.setDataRoaming(roaming, phoneSubId);
             // will trigger handleDataOnRoamingChange() through observer
             if (DBG) {
-               log("setDataOnRoamingEnabled: set phoneSubId=" + phoneSubId
-                       + " isRoaming=" + enabled);
+                log("setDataRoamingEnabledByUser: set phoneSubId=" + phoneSubId
+                        + " isRoaming=" + enabled);
             }
         } else {
             if (DBG) {
-                log("setDataOnRoamingEnabled: unchanged phoneSubId=" + phoneSubId
+                log("setDataRoamingEnabledByUser: unchanged phoneSubId=" + phoneSubId
                         + " isRoaming=" + enabled);
              }
         }
@@ -2708,36 +2663,109 @@ public class DcTracker extends Handler {
     /**
      * Return current {@link android.provider.Settings.Global#DATA_ROAMING} value.
      */
-    public boolean getDataOnRoamingEnabled() {
-        boolean isDataRoamingEnabled = "true".equalsIgnoreCase(SystemProperties.get(
-                "ro.com.android.dataroaming", "false"));
+    public boolean getDataRoamingEnabled() {
+        boolean isDataRoamingEnabled;
         final int phoneSubId = mPhone.getSubId();
 
         try {
             // For single SIM phones, this is a per phone property.
             if (TelephonyManager.getDefault().getSimCount() == 1) {
                 isDataRoamingEnabled = Settings.Global.getInt(mResolver,
-                        Settings.Global.DATA_ROAMING, isDataRoamingEnabled ? 1 : 0) != 0;
+                        Settings.Global.DATA_ROAMING, getDefaultDataRoamingEnabled() ? 1 : 0) != 0;
             } else {
                 isDataRoamingEnabled = TelephonyManager.getIntWithSubId(mResolver,
                         Settings.Global.DATA_ROAMING, phoneSubId) != 0;
             }
         } catch (SettingNotFoundException snfe) {
-            if (DBG) log("getDataOnRoamingEnabled: SettingNofFoundException snfe=" + snfe);
+            if (DBG) log("getDataRoamingEnabled: SettingNofFoundException snfe=" + snfe);
+            isDataRoamingEnabled = getDefaultDataRoamingEnabled();
         }
         if (VDBG) {
-            log("getDataOnRoamingEnabled: phoneSubId=" + phoneSubId +
-                    " isDataRoamingEnabled=" + isDataRoamingEnabled);
+            log("getDataRoamingEnabled: phoneSubId=" + phoneSubId
+                    + " isDataRoamingEnabled=" + isDataRoamingEnabled);
         }
         return isDataRoamingEnabled;
     }
 
-    private void onRoamingOff() {
-        if (DBG) log("onRoamingOff");
+    /**
+     * get default values for {@link Settings.Global#DATA_ROAMING}
+     * return {@code true} if either
+     * {@link CarrierConfigManager#KEY_CARRIER_DEFAULT_DATA_ROAMING_ENABLED_BOOL} or
+     * system property ro.com.android.dataroaming is set to true. otherwise return {@code false}
+     */
+    private boolean getDefaultDataRoamingEnabled() {
+        final CarrierConfigManager configMgr = (CarrierConfigManager)
+                mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        boolean isDataRoamingEnabled = "true".equalsIgnoreCase(SystemProperties.get(
+                "ro.com.android.dataroaming", "false"));
+        isDataRoamingEnabled |= configMgr.getConfigForSubId(mPhone.getSubId()).getBoolean(
+                CarrierConfigManager.KEY_CARRIER_DEFAULT_DATA_ROAMING_ENABLED_BOOL);
+        return isDataRoamingEnabled;
+    }
 
-        if (!mDataEnabledSettings.isUserDataEnabled()) return;
+    /**
+     * Set default value for {@link android.provider.Settings.Global#DATA_ROAMING}
+     * if the setting is not from user actions. default value is based on carrier config and system
+     * properties.
+     */
+    private void setDefaultDataRoamingEnabled() {
+        // For single SIM phones, this is a per phone property.
+        String setting = Settings.Global.DATA_ROAMING;
+        boolean useCarrierSpecificDefault = false;
+        if (TelephonyManager.getDefault().getSimCount() != 1) {
+            setting = setting + mPhone.getSubId();
+            try {
+                Settings.Global.getInt(mResolver, setting);
+            } catch (SettingNotFoundException ex) {
+                // For msim, update to carrier default if uninitialized.
+                useCarrierSpecificDefault = true;
+            }
+        } else if (!isDataRoamingFromUserAction()) {
+            // for single sim device, update to carrier default if user action is not set
+            useCarrierSpecificDefault = true;
+        }
+        if (useCarrierSpecificDefault) {
+            boolean defaultVal = getDefaultDataRoamingEnabled();
+            log("setDefaultDataRoamingEnabled: " + setting + "default value: " + defaultVal);
+            Settings.Global.putInt(mResolver, setting, defaultVal ? 1 : 0);
+            mSubscriptionManager.setDataRoaming(defaultVal ? 1 : 0, mPhone.getSubId());
+        }
+    }
 
-        if (getDataOnRoamingEnabled() == false) {
+    private boolean isDataRoamingFromUserAction() {
+        final SharedPreferences sp = PreferenceManager
+                .getDefaultSharedPreferences(mPhone.getContext());
+        // since we don't want to unset user preference from system update, pass true as the default
+        // value if shared pref does not exist and set shared pref to false explicitly from factory
+        // reset.
+        if (!sp.contains(Phone.DATA_ROAMING_IS_USER_SETTING_KEY)
+                && Settings.Global.getInt(mResolver, Settings.Global.DEVICE_PROVISIONED, 0) == 0) {
+            sp.edit().putBoolean(Phone.DATA_ROAMING_IS_USER_SETTING_KEY, false).commit();
+        }
+        return sp.getBoolean(Phone.DATA_ROAMING_IS_USER_SETTING_KEY, true);
+    }
+
+    private void setDataRoamingFromUserAction(boolean isUserAction) {
+        final SharedPreferences.Editor sp = PreferenceManager
+                .getDefaultSharedPreferences(mPhone.getContext()).edit();
+        sp.putBoolean(Phone.DATA_ROAMING_IS_USER_SETTING_KEY, isUserAction).commit();
+    }
+
+    // When the data roaming status changes from roaming to non-roaming.
+    private void onDataRoamingOff() {
+        if (DBG) log("onDataRoamingOff");
+
+        if (!getDataRoamingEnabled()) {
+            // TODO: Remove this once all old vendor RILs are gone. We don't need to set initial apn
+            // attach and send the data profile again as the modem should have both roaming and
+            // non-roaming protocol in place. Modem should choose the right protocol based on the
+            // roaming condition.
+            setInitialAttachApn();
+            setDataProfilesAsNeeded();
+
+            // If the user did not enable data roaming, now when we transit from roaming to
+            // non-roaming, we should try to reestablish the data connection.
+
             notifyOffApnsOfAvailability(Phone.REASON_ROAMING_OFF);
             setupDataOnConnectableApns(Phone.REASON_ROAMING_OFF);
         } else {
@@ -2745,13 +2773,13 @@ public class DcTracker extends Handler {
         }
     }
 
-    private void onRoamingOn() {
-        if (DBG) log("onRoamingOn");
-
-        if (!mDataEnabledSettings.isUserDataEnabled()) {
-            if (DBG) log("data not enabled by user");
-            return;
-        }
+    // This method is called
+    // 1. When the data roaming status changes from non-roaming to roaming.
+    // 2. When allowed data roaming settings is changed by the user.
+    private void onDataRoamingOnOrSettingsChanged(int messageType) {
+        if (DBG) log("onDataRoamingOnOrSettingsChanged");
+        // Used to differentiate data roaming turned on vs settings changed.
+        boolean settingChanged = (messageType == DctConstants.EVENT_ROAMING_SETTING_CHANGE);
 
         // Check if the device is actually data roaming
         if (!mPhone.getServiceState().getDataRoaming()) {
@@ -2759,14 +2787,36 @@ public class DcTracker extends Handler {
             return;
         }
 
-        if (getDataOnRoamingEnabled()) {
-            if (DBG) log("onRoamingOn: setup data on roaming");
+        checkDataRoamingStatus(settingChanged);
+
+        if (getDataRoamingEnabled()) {
+            if (DBG) log("onDataRoamingOnOrSettingsChanged: setup data on roaming");
+
             setupDataOnConnectableApns(Phone.REASON_ROAMING_ON);
             notifyDataConnection(Phone.REASON_ROAMING_ON);
         } else {
-            if (DBG) log("onRoamingOn: Tear down data connection on roaming.");
+            // If the user does not turn on data roaming, when we transit from non-roaming to
+            // roaming, we need to tear down the data connection otherwise the user might be
+            // charged for data roaming usage.
+            if (DBG) log("onDataRoamingOnOrSettingsChanged: Tear down data connection on roaming.");
             cleanUpAllConnections(true, Phone.REASON_ROAMING_ON);
             notifyOffApnsOfAvailability(Phone.REASON_ROAMING_ON);
+        }
+    }
+
+    // We want to track possible roaming data leakage. Which is, if roaming setting
+    // is disabled, yet we still setup a roaming data connection or have a connected ApnContext
+    // switched to roaming. When this happens, we log it in a local log.
+    private void checkDataRoamingStatus(boolean settingChanged) {
+        if (!settingChanged && !getDataRoamingEnabled()
+                && mPhone.getServiceState().getDataRoaming()) {
+            for (ApnContext apnContext : mApnContexts.values()) {
+                if (apnContext.getState() == DctConstants.State.CONNECTED) {
+                    mDataRoamingLeakageLog.log("PossibleRoamingLeakage "
+                            + " connection params: " + (apnContext.getDcAc() != null
+                            ? apnContext.getDcAc().mLastConnectionParams : ""));
+                }
+            }
         }
     }
 
@@ -2796,6 +2846,9 @@ public class DcTracker extends Handler {
         // next time the radio comes on
 
         mReregisterOnReconnectFailure = false;
+
+        // Clear auto attach as modem is expected to do a new attach
+        mAutoAttachOnCreation.set(false);
 
         if (mPhone.getSimulatedRadioControl() != null) {
             // Assume data is connected on the simulator
@@ -2896,7 +2949,7 @@ public class DcTracker extends Handler {
                 }
 
                 // everything is setup
-                if(TextUtils.equals(apnContext.getApnType(),PhoneConstants.APN_TYPE_DEFAULT)) {
+                if (TextUtils.equals(apnContext.getApnType(), PhoneConstants.APN_TYPE_DEFAULT)) {
                     try {
                         SystemProperties.set(PUPPET_MASTER_RADIO_STRESS_TEST, "true");
                     } catch (RuntimeException ex) {
@@ -2919,6 +2972,8 @@ public class DcTracker extends Handler {
 
                 // A connection is setup
                 apnContext.setState(DctConstants.State.CONNECTED);
+
+                checkDataRoamingStatus(false);
 
                 boolean isProvApn = apnContext.isProvisioningApn();
                 final ConnectivityManager cm = ConnectivityManager.from(mPhone.getContext());
@@ -3006,14 +3061,15 @@ public class DcTracker extends Handler {
             intent.putExtra(TelephonyIntents.EXTRA_APN_TYPE_KEY, apnContext.getApnType());
             mPhone.getCarrierSignalAgent().notifyCarrierSignalReceivers(intent);
 
-            if (cause.isRestartRadioFail() || apnContext.restartOnError(cause.getErrorCode())) {
+            if (cause.isRestartRadioFail(mPhone.getContext(), mPhone.getSubId()) ||
+                    apnContext.restartOnError(cause.getErrorCode())) {
                 if (DBG) log("Modem restarted.");
                 sendRestartRadio();
             }
 
             // If the data call failure cause is a permanent failure, we mark the APN as permanent
             // failed.
-            if (isPermanentFail(cause)) {
+            if (isPermanentFailure(cause)) {
                 log("cause = " + cause + ", mark apn as permanent failed. apn = " + apn);
                 apnContext.markApnPermanentFailed(apn);
             }
@@ -3096,9 +3152,8 @@ public class DcTracker extends Handler {
         if (!TextUtils.isEmpty(redirectUrl)) {
             Intent intent = new Intent(TelephonyIntents.ACTION_CARRIER_SIGNAL_REDIRECTED);
             intent.putExtra(TelephonyIntents.EXTRA_REDIRECTION_URL_KEY, redirectUrl);
-            if(mPhone.getCarrierSignalAgent().notifyCarrierSignalReceivers(intent)) {
-                log("Notify carrier signal receivers with redirectUrl: " + redirectUrl);
-            }
+            mPhone.getCarrierSignalAgent().notifyCarrierSignalReceivers(intent);
+            log("Notify carrier signal receivers with redirectUrl: " + redirectUrl);
         }
     }
 
@@ -3147,7 +3202,7 @@ public class DcTracker extends Handler {
             // we're not tying up the RIL command channel.
             // This also helps in any external dependency to turn off the context.
             if (DBG) log("onDisconnectDone: attached, ready and retry after disconnect");
-            long delay = apnContext.getInterApnDelay(mFailFast);
+            long delay = apnContext.getRetryAfterDisconnectDelay();
             if (delay > 0) {
                 // Data connection is in IDLE state, so when we reconnect later, we'll rebuild
                 // the waiting APN list, which will also reset/reconfigure the retry manager.
@@ -3274,22 +3329,15 @@ public class DcTracker extends Handler {
             ArrayList<DataProfile> dps = new ArrayList<DataProfile>();
             for (ApnSetting apn : mAllApnSettings) {
                 if (apn.modemCognitive) {
-                    DataProfile dp = new DataProfile(apn,
-                            mPhone.getServiceState().getDataRoaming());
-                    boolean isDup = false;
-                    for(DataProfile dpIn : dps) {
-                        if (dp.equals(dpIn)) {
-                            isDup = true;
-                            break;
-                        }
-                    }
-                    if (!isDup) {
+                    DataProfile dp = new DataProfile(apn);
+                    if (!dps.contains(dp)) {
                         dps.add(dp);
                     }
                 }
             }
-            if(dps.size() > 0) {
-                mPhone.mCi.setDataProfile(dps.toArray(new DataProfile[0]), null);
+            if (dps.size() > 0) {
+                mPhone.mCi.setDataProfile(dps.toArray(new DataProfile[0]),
+                        mPhone.getServiceState().getDataRoamingFromRegistration(), null);
             }
         }
     }
@@ -3300,19 +3348,19 @@ public class DcTracker extends Handler {
      */
     private void createAllApnList() {
         mMvnoMatched = false;
-        mAllApnSettings = new ArrayList<ApnSetting>();
+        mAllApnSettings = new ArrayList<>();
         IccRecords r = mIccRecords.get();
         String operator = (r != null) ? r.getOperatorNumeric() : "";
         if (operator != null) {
-            String selection = "numeric = '" + operator + "'";
-            String orderBy = "_id";
+            String selection = Telephony.Carriers.NUMERIC + " = '" + operator + "'";
             // query only enabled apn.
             // carrier_enabled : 1 means enabled apn, 0 disabled apn.
             // selection += " and carrier_enabled = 1";
             if (DBG) log("createAllApnList: selection=" + selection);
 
+            // ORDER BY Telephony.Carriers._ID ("_id")
             Cursor cursor = mPhone.getContext().getContentResolver().query(
-                    Telephony.Carriers.CONTENT_URI, null, selection, null, orderBy);
+                    Telephony.Carriers.CONTENT_URI, null, selection, null, Telephony.Carriers._ID);
 
             if (cursor != null) {
                 if (cursor.getCount() > 0) {
@@ -3356,7 +3404,7 @@ public class DcTracker extends Handler {
             int j = i + 1;
             while (j < mAllApnSettings.size()) {
                 second = mAllApnSettings.get(j);
-                if (apnsSimilar(first, second)) {
+                if (first.similar(second)) {
                     ApnSetting newApn = mergeApns(first, second);
                     mAllApnSettings.set(i, newApn);
                     first = newApn;
@@ -3367,64 +3415,6 @@ public class DcTracker extends Handler {
             }
             i++;
         }
-    }
-
-    //check whether the types of two APN same (even only one type of each APN is same)
-    private boolean apnTypeSameAny(ApnSetting first, ApnSetting second) {
-        if(VDBG) {
-            StringBuilder apnType1 = new StringBuilder(first.apn + ": ");
-            for(int index1 = 0; index1 < first.types.length; index1++) {
-                apnType1.append(first.types[index1]);
-                apnType1.append(",");
-            }
-
-            StringBuilder apnType2 = new StringBuilder(second.apn + ": ");
-            for(int index1 = 0; index1 < second.types.length; index1++) {
-                apnType2.append(second.types[index1]);
-                apnType2.append(",");
-            }
-            log("APN1: is " + apnType1);
-            log("APN2: is " + apnType2);
-        }
-
-        for(int index1 = 0; index1 < first.types.length; index1++) {
-            for(int index2 = 0; index2 < second.types.length; index2++) {
-                if(first.types[index1].equals(PhoneConstants.APN_TYPE_ALL) ||
-                        second.types[index2].equals(PhoneConstants.APN_TYPE_ALL) ||
-                        first.types[index1].equals(second.types[index2])) {
-                    if(VDBG)log("apnTypeSameAny: return true");
-                    return true;
-                }
-            }
-        }
-
-        if(VDBG)log("apnTypeSameAny: return false");
-        return false;
-    }
-
-    // Check if neither mention DUN and are substantially similar
-    private boolean apnsSimilar(ApnSetting first, ApnSetting second) {
-        return (first.canHandleType(PhoneConstants.APN_TYPE_DUN) == false &&
-                second.canHandleType(PhoneConstants.APN_TYPE_DUN) == false &&
-                Objects.equals(first.apn, second.apn) &&
-                !apnTypeSameAny(first, second) &&
-                xorEquals(first.proxy, second.proxy) &&
-                xorEquals(first.port, second.port) &&
-                first.carrierEnabled == second.carrierEnabled &&
-                first.bearerBitmask == second.bearerBitmask &&
-                first.profileId == second.profileId &&
-                Objects.equals(first.mvnoType, second.mvnoType) &&
-                Objects.equals(first.mvnoMatchData, second.mvnoMatchData) &&
-                xorEquals(first.mmsc, second.mmsc) &&
-                xorEquals(first.mmsProxy, second.mmsProxy) &&
-                xorEquals(first.mmsPort, second.mmsPort));
-    }
-
-    // equal or one is not specified
-    private boolean xorEquals(String first, String second) {
-        return (Objects.equals(first, second) ||
-                TextUtils.isEmpty(first) ||
-                TextUtils.isEmpty(second));
     }
 
     private ApnSetting mergeApns(ApnSetting dest, ApnSetting src) {
@@ -3755,6 +3745,15 @@ public class DcTracker extends Handler {
                 break;
 
             case DctConstants.EVENT_DATA_RAT_CHANGED:
+                if (mPhone.getServiceState().getRilDataRadioTechnology()
+                        == ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN) {
+                    // unknown rat is an exception for data rat change. It's only received when out
+                    // of service and is not applicable for apn bearer bitmask. We should bypass the
+                    // check of waiting apn list and keep the data connection on, and no need to
+                    // setup a new one.
+                    break;
+                }
+                cleanUpConnectionsOnUpdatedApns(false, Phone.REASON_NW_TYPE_CHANGED);
                 //May new Network allow setupData, so try it here
                 setupDataOnConnectableApns(Phone.REASON_NW_TYPE_CHANGED,
                         RetryFailures.ONLY_ON_CHANGE);
@@ -3783,11 +3782,12 @@ public class DcTracker extends Handler {
                 break;
 
             case DctConstants.EVENT_ROAMING_OFF:
-                onRoamingOff();
+                onDataRoamingOff();
                 break;
 
             case DctConstants.EVENT_ROAMING_ON:
-                onRoamingOn();
+            case DctConstants.EVENT_ROAMING_SETTING_CHANGE:
+                onDataRoamingOnOrSettingsChanged(msg.what);
                 break;
 
             case DctConstants.EVENT_DEVICE_PROVISIONED_CHANGE:
@@ -3992,7 +3992,10 @@ public class DcTracker extends Handler {
                 break;
             }
             case DctConstants.EVENT_SET_CARRIER_DATA_ENABLED:
-                onSetCarrierDataEnabled(msg.arg1 == DctConstants.ENABLED);
+                onSetCarrierDataEnabled((AsyncResult) msg.obj);
+                break;
+            case DctConstants.EVENT_DATA_RECONNECT:
+                onDataReconnect(msg.getData());
                 break;
             default:
                 Rlog.e("DcTracker", "Unhandled event=" + msg);
@@ -4056,11 +4059,6 @@ public class DcTracker extends Handler {
                     mIccRecords.set(newIccRecords);
                     newIccRecords.registerForRecordsLoaded(
                             this, DctConstants.EVENT_RECORDS_LOADED, null);
-                    // reset carrier actions on sim loaded
-                    final ServiceStateTracker sst = mPhone.getServiceStateTracker();
-                    sst.setRadioPowerFromCarrier(true);
-                    mDataEnabledSettings.setCarrierDataEnabled(true);
-                    mPhone.getCarrierSignalAgent().reset();
                 }
             } else {
                 onSimNotReady();
@@ -4181,9 +4179,8 @@ public class DcTracker extends Handler {
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("DcTracker:");
         pw.println(" RADIO_TESTS=" + RADIO_TESTS);
-        pw.println(" isInternalDataEnabled=" + mDataEnabledSettings.isInternalDataEnabled());
-        pw.println(" isUserDataEnabled=" + mDataEnabledSettings.isUserDataEnabled());
-        pw.println(" isPolicyDataEnabled=" + mDataEnabledSettings.isPolicyDataEnabled());
+        pw.println(" mDataEnabledSettings=" + mDataEnabledSettings);
+        pw.println(" isDataAllowed=" + isDataAllowed(null));
         pw.flush();
         pw.println(" mRequestedApnType=" + mRequestedApnType);
         pw.println(" mPhone=" + mPhone.getPhoneName());
@@ -4204,6 +4201,8 @@ public class DcTracker extends Handler {
         pw.println(" mAutoAttachOnCreation=" + mAutoAttachOnCreation.get());
         pw.println(" mIsScreenOn=" + mIsScreenOn);
         pw.println(" mUniqueIdGenerator=" + mUniqueIdGenerator);
+        pw.println(" mDataRoamingLeakageLog= ");
+        mDataRoamingLeakageLog.dump(fd, pw, args);
         pw.flush();
         pw.println(" ***************************************");
         DcController dcc = mDcc;
@@ -4359,38 +4358,47 @@ public class DcTracker extends Handler {
         }
     }
 
-    private void cleanUpConnectionsOnUpdatedApns(boolean tearDown) {
+    private boolean containsAllApns(ArrayList<ApnSetting> oldApnList,
+                                    ArrayList<ApnSetting> newApnList) {
+        for (ApnSetting newApnSetting : newApnList) {
+            boolean canHandle = false;
+            for (ApnSetting oldApnSetting : oldApnList) {
+                // Make sure at least one of the APN from old list can cover the new APN
+                if (oldApnSetting.equals(newApnSetting,
+                        mPhone.getServiceState().getDataRoamingFromRegistration())) {
+                    canHandle = true;
+                    break;
+                }
+            }
+            if (!canHandle) return false;
+        }
+        return true;
+    }
+
+    private void cleanUpConnectionsOnUpdatedApns(boolean tearDown, String reason) {
         if (DBG) log("cleanUpConnectionsOnUpdatedApns: tearDown=" + tearDown);
-        if (mAllApnSettings.isEmpty()) {
+        if (mAllApnSettings != null && mAllApnSettings.isEmpty()) {
             cleanUpAllConnections(tearDown, Phone.REASON_APN_CHANGED);
         } else {
             for (ApnContext apnContext : mApnContexts.values()) {
-                if (VDBG) log("cleanUpConnectionsOnUpdatedApns for "+ apnContext);
-
-                boolean cleanUpApn = true;
                 ArrayList<ApnSetting> currentWaitingApns = apnContext.getWaitingApns();
-
-                if ((currentWaitingApns != null) && (!apnContext.isDisconnected())) {
-                    int radioTech = mPhone.getServiceState().getRilDataRadioTechnology();
-                    ArrayList<ApnSetting> waitingApns = buildWaitingApns(
-                            apnContext.getApnType(), radioTech);
-                    if (VDBG) log("new waitingApns:" + waitingApns);
-                    if (waitingApns.size() == currentWaitingApns.size()) {
-                        cleanUpApn = false;
-                        for (int i = 0; i < waitingApns.size(); i++) {
-                            if (!currentWaitingApns.get(i).equals(waitingApns.get(i))) {
-                                if (VDBG) log("new waiting apn is different at " + i);
-                                cleanUpApn = true;
-                                apnContext.setWaitingApns(waitingApns);
-                                break;
-                            }
-                        }
+                ArrayList<ApnSetting> waitingApns = buildWaitingApns(
+                        apnContext.getApnType(),
+                        mPhone.getServiceState().getRilDataRadioTechnology());
+                if (VDBG) log("new waitingApns:" + waitingApns);
+                if ((currentWaitingApns != null)
+                        && ((waitingApns.size() != currentWaitingApns.size())
+                        // Check if the existing waiting APN list can cover the newly built APN
+                        // list. If yes, then we don't need to tear down the existing data call.
+                        // TODO: We probably need to rebuild APN list when roaming status changes.
+                        || !containsAllApns(currentWaitingApns, waitingApns))) {
+                    if (VDBG) log("new waiting apn is different for " + apnContext);
+                    apnContext.setWaitingApns(waitingApns);
+                    if (!apnContext.isDisconnected()) {
+                        if (VDBG) log("cleanUpConnectionsOnUpdatedApns for " + apnContext);
+                        apnContext.setReason(reason);
+                        cleanUpConnection(true, apnContext);
                     }
-                }
-
-                if (cleanUpApn) {
-                    apnContext.setReason(Phone.REASON_APN_CHANGED);
-                    cleanUpConnection(true, apnContext);
                 }
             }
         }
@@ -4682,7 +4690,7 @@ public class DcTracker extends Handler {
             mSentSinceLastRecv = 0;
             putRecoveryAction(RecoveryAction.GET_DATA_CALL_LIST);
         } else if (sent > 0 && received == 0) {
-            if (mPhone.getState() == PhoneConstants.State.IDLE) {
+            if (isPhoneStateIdle()) {
                 mSentSinceLastRecv += sent;
             } else {
                 mSentSinceLastRecv = 0;
@@ -4698,6 +4706,17 @@ public class DcTracker extends Handler {
         } else {
             if (VDBG_STALL) log("updateDataStallInfo: NONE");
         }
+    }
+
+    private boolean isPhoneStateIdle() {
+        for (int i = 0; i < TelephonyManager.getDefault().getPhoneCount(); i++) {
+            Phone phone = PhoneFactory.getPhone(i);
+            if (phone != null && phone.getState() != PhoneConstants.State.IDLE) {
+                log("isPhoneStateIdle false: Voice call active on phone " + i);
+                return false;
+            }
+        }
+        return true;
     }
 
     private void onDataStallAlarm(int tag) {
@@ -4755,7 +4774,7 @@ public class DcTracker extends Handler {
             intent.putExtra(DATA_STALL_ALARM_TAG_EXTRA, mDataStallAlarmTag);
             mDataStallAlarmIntent = PendingIntent.getBroadcast(mPhone.getContext(), 0, intent,
                     PendingIntent.FLAG_UPDATE_CURRENT);
-            mAlarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            mAlarmManager.set(AlarmManager.ELAPSED_REALTIME,
                     SystemClock.elapsedRealtime() + delayInMs, mDataStallAlarmIntent);
         } else {
             if (VDBG_STALL) {

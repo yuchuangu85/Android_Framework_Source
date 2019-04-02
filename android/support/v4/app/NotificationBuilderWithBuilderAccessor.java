@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
+ * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,10 @@
 
 package android.support.v4.app;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.app.Notification;
 import android.support.annotation.RestrictTo;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Interface implemented by notification compat builders that support
@@ -28,8 +28,7 @@ import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
  *
  * @hide
  */
-@RestrictTo(GROUP_ID)
+@RestrictTo(LIBRARY_GROUP)
 public interface NotificationBuilderWithBuilderAccessor {
-    public Notification.Builder getBuilder();
-    public Notification build();
+    Notification.Builder getBuilder();
 }

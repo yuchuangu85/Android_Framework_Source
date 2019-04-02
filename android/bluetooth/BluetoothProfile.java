@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2014 The Android Open Source Project
+ * Copyright (C) 2010-2016 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -137,6 +137,25 @@ public interface BluetoothProfile {
     public static final int PBAP_CLIENT = 17;
 
     /**
+     * MAP Messaging Client Equipment (MCE)
+     * @hide
+     */
+    public static final int MAP_CLIENT = 18;
+
+    /**
+     * Input Host
+     * @hide
+     */
+    static public final int INPUT_HOST = 19;
+
+    /**
+     * Max profile ID. This value should be updated whenever a new profile is added to match
+     * the largest value assigned to a profile.
+     * @hide
+     */
+    public static final int MAX_PROFILE_ID = 19;
+
+    /**
      * Default priority for devices that we try to auto-connect to and
      * and allow incoming connections for the profile
      * @hide
@@ -168,8 +187,6 @@ public interface BluetoothProfile {
      *
      * <p> Return the set of devices which are in state {@link #STATE_CONNECTED}
      *
-     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
-     *
      * @return List of devices. The list will be empty on error.
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH)
@@ -182,8 +199,6 @@ public interface BluetoothProfile {
      * <p> If none of the devices match any of the given states,
      * an empty list will be returned.
      *
-     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
-     *
      * @param states Array of states. States can be one of
      *              {@link #STATE_CONNECTED}, {@link #STATE_CONNECTING},
      *              {@link #STATE_DISCONNECTED}, {@link #STATE_DISCONNECTING},
@@ -194,8 +209,6 @@ public interface BluetoothProfile {
 
     /**
      * Get the current connection state of the profile
-     *
-     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
      *
      * @param device Remote bluetooth device.
      * @return State of the profile connection. One of

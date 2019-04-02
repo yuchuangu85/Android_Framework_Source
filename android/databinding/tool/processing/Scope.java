@@ -24,6 +24,7 @@ import android.databinding.tool.util.Preconditions;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 
@@ -40,7 +41,7 @@ public class Scope {
         enter(new LocationScopeProvider() {
             @Override
             public List<Location> provideScopeLocation() {
-                return Arrays.asList(location);
+                return Collections.singletonList(location);
             }
         });
     }
@@ -162,7 +163,7 @@ public class Scope {
             return null;
         }
         if (locations.size() == 1) {
-            return Arrays.asList(locations.get(0).toAbsoluteLocation());
+            return Collections.singletonList(locations.get(0).toAbsoluteLocation());
         }
         // We have more than 1 location. Depending on the scope, we may or may not want all of them
         List<Location> chosen = new ArrayList<Location>();
@@ -185,9 +186,11 @@ public class Scope {
         }
         List<Location> absoluteParents = findAbsoluteLocationFrom(parent,
                 (LocationScopeProvider) provider);
-        for (Location location : absoluteParents) {
-            if (location.contains(absLocation)) {
-                return true;
+        if (absoluteParents != null) {
+            for (Location location : absoluteParents) {
+                if (location.contains(absLocation)) {
+                    return true;
+                }
             }
         }
         return false;

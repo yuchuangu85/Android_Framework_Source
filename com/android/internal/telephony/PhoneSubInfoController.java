@@ -24,6 +24,7 @@ import android.content.pm.PackageManager;
 import android.os.Binder;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.telephony.ImsiEncryptionInfo;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.SubscriptionManager;
 import android.telephony.Rlog;
@@ -33,6 +34,7 @@ import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.UiccCardApplication;
 
 import static android.Manifest.permission.CALL_PRIVILEGED;
+import static android.Manifest.permission.READ_PHONE_NUMBERS;
 import static android.Manifest.permission.READ_PHONE_STATE;
 import static android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE;
 import static android.Manifest.permission.READ_SMS;
@@ -102,6 +104,35 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
             return null;
         }
     }
+
+    public ImsiEncryptionInfo getCarrierInfoForImsiEncryption(int subId, int keyType,
+            String callingPackage) {
+        Phone phone = getPhone(subId);
+        if (phone != null) {
+            if (!checkReadPhoneState(callingPackage, "getCarrierInfoForImsiEncryption")) {
+                return null;
+            }
+            return phone.getCarrierInfoForImsiEncryption(keyType);
+        } else {
+            loge("getCarrierInfoForImsiEncryption phone is null for Subscription:" + subId);
+            return null;
+        }
+    }
+
+    public void setCarrierInfoForImsiEncryption(int subId, String callingPackage,
+                                                ImsiEncryptionInfo imsiEncryptionInfo) {
+        Phone phone = getPhone(subId);
+        if (phone != null) {
+            if (!checkReadPhoneState(callingPackage, "setCarrierInfoForImsiEncryption")) {
+                return;
+            }
+            phone.setCarrierInfoForImsiEncryption(imsiEncryptionInfo);
+        } else {
+            loge("setCarrierInfoForImsiEncryption phone is null for Subscription:" + subId);
+            return;
+        }
+    }
+
 
     public String getDeviceSvn(String callingPackage) {
         return getDeviceSvnUsingSubId(getDefaultSubscription(), callingPackage);
@@ -434,7 +465,8 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     }
 
     /**
-     * Besides READ_PHONE_STATE, WRITE_SMS and READ_SMS also allow apps to get phone numbers.
+     * Besides READ_PHONE_STATE, READ_PHONE_NUMBERS, WRITE_SMS and READ_SMS also allow apps to get
+     * phone numbers.
      */
     private boolean checkReadPhoneNumber(String callingPackage, String message) {
         // Default SMS app can always read it.
@@ -445,18 +477,36 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
         try {
             return checkReadPhoneState(callingPackage, message);
         } catch (SecurityException readPhoneStateSecurityException) {
-            try {
-                // Can be read with READ_SMS too.
-                mContext.enforceCallingOrSelfPermission(READ_SMS, message);
-                return mAppOps.noteOp(AppOpsManager.OP_READ_SMS,
-                        Binder.getCallingUid(), callingPackage) == AppOpsManager.MODE_ALLOWED;
-            } catch (SecurityException readSmsSecurityException) {
-                // Throw exception with message including both READ_PHONE_STATE and READ_SMS
-                // permissions
-                throw new SecurityException(message + ": Neither user " + Binder.getCallingUid() +
-                        " nor current process has " + READ_PHONE_STATE + " or " + READ_SMS + ".");
-            }
         }
+        try {
+            // Can be read with READ_SMS too.
+            mContext.enforceCallingOrSelfPermission(READ_SMS, message);
+            int opCode = mAppOps.permissionToOpCode(READ_SMS);
+            if (opCode != AppOpsManager.OP_NONE) {
+                return mAppOps.noteOp(opCode, Binder.getCallingUid(), callingPackage)
+                        == AppOpsManager.MODE_ALLOWED;
+            } else {
+                return true;
+            }
+        } catch (SecurityException readSmsSecurityException) {
+        }
+        try {
+            // Can be read with READ_PHONE_NUMBERS too.
+            mContext.enforceCallingOrSelfPermission(READ_PHONE_NUMBERS, message);
+            int opCode = mAppOps.permissionToOpCode(READ_PHONE_NUMBERS);
+            if (opCode != AppOpsManager.OP_NONE) {
+                return mAppOps.noteOp(opCode, Binder.getCallingUid(), callingPackage)
+                        == AppOpsManager.MODE_ALLOWED;
+            } else {
+                return true;
+            }
+        } catch (SecurityException readPhoneNumberSecurityException) {
+        }
+        // Throw exception with message including READ_PHONE_STATE, READ_SMS, and READ_PHONE_NUMBERS
+        // permissions
+        throw new SecurityException(message + ": Neither user " + Binder.getCallingUid() +
+                " nor current process has " + READ_PHONE_STATE + ", " +
+                READ_SMS + ", or " + READ_PHONE_STATE + ".");
     }
 
     private void log(String s) {

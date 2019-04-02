@@ -16,20 +16,19 @@
 
 package android.support.v7.widget;
 
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-import org.xmlpull.v1.XmlSerializer;
-
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ResolveInfo;
 import android.database.DataSetObservable;
 import android.os.AsyncTask;
-import android.support.v4.os.AsyncTaskCompat;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Xml;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+import org.xmlpull.v1.XmlSerializer;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -572,7 +571,7 @@ class ActivityChooserModel extends DataSetObservable {
         }
         mHistoricalRecordsChanged = false;
         if (!TextUtils.isEmpty(mHistoryFileName)) {
-            AsyncTaskCompat.executeParallel(new PersistHistoryAsyncTask(),
+            new PersistHistoryAsyncTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR,
                     new ArrayList<HistoricalRecord>(mHistoricalRecords), mHistoryFileName);
         }
     }
@@ -850,7 +849,7 @@ class ActivityChooserModel extends DataSetObservable {
     /**
      * Represents an activity.
      */
-    public final class ActivityResolveInfo implements Comparable<ActivityResolveInfo> {
+    public static final class ActivityResolveInfo implements Comparable<ActivityResolveInfo> {
 
         /**
          * The {@link ResolveInfo} of the activity.
@@ -894,6 +893,7 @@ class ActivityChooserModel extends DataSetObservable {
             return true;
         }
 
+        @Override
         public int compareTo(ActivityResolveInfo another) {
             return  Float.floatToIntBits(another.weight) - Float.floatToIntBits(weight);
         }
@@ -912,7 +912,7 @@ class ActivityChooserModel extends DataSetObservable {
     /**
      * Default activity sorter implementation.
      */
-    private final class DefaultSorter implements ActivitySorter {
+    private static final class DefaultSorter implements ActivitySorter {
         private static final float WEIGHT_DECAY_COEFFICIENT = 0.95f;
 
         private final Map<ComponentName, ActivityResolveInfo> mPackageNameToActivityMap =
@@ -921,6 +921,7 @@ class ActivityChooserModel extends DataSetObservable {
         DefaultSorter() {
         }
 
+        @Override
         public void sort(Intent intent, List<ActivityResolveInfo> activities,
                 List<HistoricalRecord> historicalRecords) {
             Map<ComponentName, ActivityResolveInfo> componentNameToActivityMap =

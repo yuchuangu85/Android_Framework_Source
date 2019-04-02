@@ -19,6 +19,7 @@ package com.android.systemui.statusbar;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Canvas;
+import android.graphics.ColorFilter;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.RippleDrawable;
@@ -33,6 +34,8 @@ public class NotificationBackgroundView extends View {
     private Drawable mBackground;
     private int mClipTopAmount;
     private int mActualHeight;
+    private int mClipBottomAmount;
+    private int mTintColor;
 
     public NotificationBackgroundView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -44,8 +47,9 @@ public class NotificationBackgroundView extends View {
     }
 
     private void draw(Canvas canvas, Drawable drawable) {
-        if (drawable != null && mActualHeight > mClipTopAmount) {
-            drawable.setBounds(0, mClipTopAmount, getWidth(), mActualHeight);
+        int bottom = mActualHeight - mClipBottomAmount;
+        if (drawable != null && bottom > mClipTopAmount) {
+            drawable.setBounds(0, mClipTopAmount, getWidth(), bottom);
             drawable.draw(canvas);
         }
     }
@@ -85,6 +89,7 @@ public class NotificationBackgroundView extends View {
         mBackground = background;
         if (mBackground != null) {
             mBackground.setCallback(this);
+            setTint(mTintColor);
         }
         if (mBackground instanceof RippleDrawable) {
             ((RippleDrawable) mBackground).setForceSoftware(true);
@@ -103,6 +108,7 @@ public class NotificationBackgroundView extends View {
         } else {
             mBackground.clearColorFilter();
         }
+        mTintColor = tintColor;
         invalidate();
     }
 
@@ -117,6 +123,11 @@ public class NotificationBackgroundView extends View {
 
     public void setClipTopAmount(int clipTopAmount) {
         mClipTopAmount = clipTopAmount;
+        invalidate();
+    }
+
+    public void setClipBottomAmount(int clipBottomAmount) {
+        mClipBottomAmount = clipBottomAmount;
         invalidate();
     }
 
@@ -136,5 +147,9 @@ public class NotificationBackgroundView extends View {
             RippleDrawable ripple = (RippleDrawable) mBackground;
             ripple.setColor(ColorStateList.valueOf(color));
         }
+    }
+
+    public void setDrawableAlpha(int drawableAlpha) {
+        mBackground.setAlpha(drawableAlpha);
     }
 }

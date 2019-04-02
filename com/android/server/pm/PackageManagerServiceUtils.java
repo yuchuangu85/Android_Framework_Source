@@ -16,6 +16,9 @@
 
 package com.android.server.pm;
 
+import com.android.server.pm.dex.DexManager;
+import com.android.server.pm.dex.PackageDexUsage;
+
 import static com.android.server.pm.PackageManagerService.DEBUG_DEXOPT;
 import static com.android.server.pm.PackageManagerService.TAG;
 
@@ -24,11 +27,13 @@ import android.app.AppGlobals;
 import android.content.Intent;
 import android.content.pm.PackageParser;
 import android.content.pm.ResolveInfo;
+import android.os.Build;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.system.ErrnoException;
 import android.util.ArraySet;
 import android.util.Log;
+import dalvik.system.VMRuntime;
 import libcore.io.Libcore;
 
 import java.io.File;
@@ -131,8 +136,11 @@ public class PackageManagerServiceUtils {
                 sortTemp, packageManagerService);
 
         // Give priority to apps used by other apps.
-        applyPackageFilter((pkg) -> PackageDexOptimizer.isUsedByOtherApps(pkg), result,
-                remainingPkgs, sortTemp, packageManagerService);
+        DexManager dexManager = packageManagerService.getDexManager();
+        applyPackageFilter((pkg) ->
+                dexManager.getPackageUseInfoOrDefault(pkg.packageName)
+                        .isAnyCodePathUsedByOtherApps(),
+                result, remainingPkgs, sortTemp, packageManagerService);
 
         // Filter out packages that aren't recently used, add all remaining apps.
         // TODO: add a property to control this?
@@ -176,6 +184,41 @@ public class PackageManagerServiceUtils {
     }
 
     /**
+     * Checks if the package was inactive during since <code>thresholdTimeinMillis</code>.
+     * Package is considered active, if:
+     * 1) It was active in foreground.
+     * 2) It was active in background and also used by other apps.
+     *
+     * If it doesn't have sufficient information about the package, it return <code>false</code>.
+     */
+    static boolean isUnusedSinceTimeInMillis(long firstInstallTime, long currentTimeInMillis,
+            long thresholdTimeinMillis, PackageDexUsage.PackageUseInfo packageUseInfo,
+            long latestPackageUseTimeInMillis, long latestForegroundPackageUseTimeInMillis) {
+
+        if (currentTimeInMillis - firstInstallTime < thresholdTimeinMillis) {
+            return false;
+        }
+
+        // If the app was active in foreground during the threshold period.
+        boolean isActiveInForeground = (currentTimeInMillis
+                - latestForegroundPackageUseTimeInMillis)
+                < thresholdTimeinMillis;
+
+        if (isActiveInForeground) {
+            return false;
+        }
+
+        // If the app was active in background during the threshold period and was used
+        // by other packages.
+        boolean isActiveInBackgroundAndUsedByOtherPackages = ((currentTimeInMillis
+                - latestPackageUseTimeInMillis)
+                < thresholdTimeinMillis)
+                && packageUseInfo.isAnyCodePathUsedByOtherApps();
+
+        return !isActiveInBackgroundAndUsedByOtherPackages;
+    }
+
+    /**
      * Returns the canonicalized path of {@code path} as per {@code realpath(3)}
      * semantics.
      */
@@ -196,5 +239,18 @@ public class PackageManagerServiceUtils {
             sb.append(pkg.packageName);
         }
         return sb.toString();
+    }
+
+    /**
+     * Verifies that the given string {@code isa} is a valid supported isa on
+     * the running device.
+     */
+    public static boolean checkISA(String isa) {
+        for (String abi : Build.SUPPORTED_ABIS) {
+            if (VMRuntime.getInstructionSet(abi).equals(isa)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

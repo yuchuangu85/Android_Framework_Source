@@ -15,14 +15,14 @@
  */
 package android.support.annotation;
 
-import java.lang.annotation.Documented;
-import java.lang.annotation.Retention;
-import java.lang.annotation.Target;
-
 import static java.lang.annotation.ElementType.CONSTRUCTOR;
 import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.ElementType.TYPE;
 import static java.lang.annotation.RetentionPolicy.CLASS;
+
+import java.lang.annotation.Documented;
+import java.lang.annotation.Retention;
+import java.lang.annotation.Target;
 
 /**
  * Denotes that the annotated method or constructor should only be called on the UI thread.
@@ -35,6 +35,14 @@ import static java.lang.annotation.RetentionPolicy.CLASS;
  *
  *  public abstract void setText(@NonNull String text) { ... }
  * </code></pre>
+ *
+ * <p class="note"><b>Note:</b> Ordinarily, an app's UI thread is also the main
+ * thread. However, However, under special circumstances, an app's UI thread
+ * might not be its main thread; for more information, see
+ * <a href="/studio/write/annotations.html#thread-annotations">Thread
+ * annotations</a>.
+ *
+ * @see android.support.annotation.MainThread
  */
 @Documented
 @Retention(CLASS)

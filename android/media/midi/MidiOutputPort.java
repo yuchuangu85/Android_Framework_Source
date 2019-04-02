@@ -28,6 +28,7 @@ import dalvik.system.CloseGuard;
 import libcore.io.IoUtils;
 
 import java.io.Closeable;
+import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.IOException;
 
@@ -83,7 +84,7 @@ public final class MidiOutputPort extends MidiSender implements Closeable {
                 }
             } catch (IOException e) {
                 // FIXME report I/O failure?
-                Log.e(TAG, "read failed");
+                Log.e(TAG, "read failed", e);
             } finally {
                 IoUtils.closeQuietly(mInputStream);
             }
@@ -91,17 +92,17 @@ public final class MidiOutputPort extends MidiSender implements Closeable {
     };
 
     /* package */ MidiOutputPort(IMidiDeviceServer server, IBinder token,
-            ParcelFileDescriptor pfd, int portNumber) {
+            FileDescriptor fd, int portNumber) {
         mDeviceServer = server;
         mToken = token;
         mPortNumber = portNumber;
-        mInputStream = new ParcelFileDescriptor.AutoCloseInputStream(pfd);
+        mInputStream = new ParcelFileDescriptor.AutoCloseInputStream(new ParcelFileDescriptor(fd));
         mThread.start();
         mGuard.open("close");
     }
 
-    /* package */ MidiOutputPort(ParcelFileDescriptor pfd, int portNumber) {
-        this(null, null, pfd, portNumber);
+    /* package */ MidiOutputPort(FileDescriptor fd, int portNumber) {
+        this(null, null, fd, portNumber);
     }
 
     /**
@@ -144,7 +145,10 @@ public final class MidiOutputPort extends MidiSender implements Closeable {
     @Override
     protected void finalize() throws Throwable {
         try {
-            mGuard.warnIfOpen();
+            if (mGuard != null) {
+                mGuard.warnIfOpen();
+            }
+
             // not safe to make binder calls from finalize()
             mDeviceServer = null;
             close();

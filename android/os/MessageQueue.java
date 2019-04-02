@@ -18,9 +18,11 @@ package android.os;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.os.MessageQueueProto;
 import android.util.Log;
 import android.util.Printer;
 import android.util.SparseArray;
+import android.util.proto.ProtoOutputStream;
 
 import java.io.FileDescriptor;
 import java.lang.annotation.Retention;
@@ -31,7 +33,7 @@ import java.util.ArrayList;
  * Low-level class holding the list of messages to be dispatched by a
  * {@link Looper}.  Messages are not added directly to a MessageQueue,
  * but rather through {@link Handler} objects associated with the Looper.
- * <p>
+ *
  * <p>You can retrieve the MessageQueue for the current thread with
  * {@link Looper#myQueue() Looper.myQueue()}.
  */
@@ -45,7 +47,7 @@ public final class MessageQueue {
     @SuppressWarnings("unused")
     private long mPtr; // used by native code
 
-    Message mMessages;// 当前消息
+    Message mMessages;
     private final ArrayList<IdleHandler> mIdleHandlers = new ArrayList<IdleHandler>();
     private SparseArray<FileDescriptorRecord> mFileDescriptorRecords;
     private IdleHandler[] mPendingIdleHandlers;
@@ -59,20 +61,14 @@ public final class MessageQueue {
     private int mNextBarrierToken;
 
     private native static long nativeInit();
-
     private native static void nativeDestroy(long ptr);
-
     private native void nativePollOnce(long ptr, int timeoutMillis); /*non-static for callbacks*/
-
     private native static void nativeWake(long ptr);
-
     private native static boolean nativeIsPolling(long ptr);
-
     private native static void nativeSetFileDescriptorEvents(long ptr, int fd, int events);
 
     MessageQueue(boolean quitAllowed) {
         mQuitAllowed = quitAllowed;
-        // 返回底层的MessageQueue对象的内存地址，如果为空返回0
         mPtr = nativeInit();
     }
 
@@ -85,7 +81,7 @@ public final class MessageQueue {
         }
     }
 
-    // Disposes（处理） of the underlying（潜在） message queue.
+    // Disposes of the underlying message queue.
     // Must only be called on the looper thread or the finalizer.
     private void dispose() {
         if (mPtr != 0) {
@@ -96,7 +92,7 @@ public final class MessageQueue {
 
     /**
      * Returns true if the looper has no pending messages which are due to be processed.
-     * <p>
+     *
      * <p>This method is safe to call from any thread.
      *
      * @return True if the looper is idle.
@@ -113,7 +109,7 @@ public final class MessageQueue {
      * removed automatically for you by returning false from
      * {@link IdleHandler#queueIdle IdleHandler.queueIdle()} when it is
      * invoked, or explicitly removing it with {@link #removeIdleHandler}.
-     * <p>
+     *
      * <p>This method is safe to call from any thread.
      *
      * @param handler The IdleHandler to be added.
@@ -131,7 +127,7 @@ public final class MessageQueue {
      * Remove an {@link IdleHandler} from the queue that was previously added
      * with {@link #addIdleHandler}.  If the given object is not currently
      * in the idle list, nothing is done.
-     * <p>
+     *
      * <p>This method is safe to call from any thread.
      *
      * @param handler The IdleHandler to be removed.
@@ -147,10 +143,11 @@ public final class MessageQueue {
      * This is a good signal that the loop is still alive rather than being stuck
      * handling a callback.  Note that this method is intrinsically racy, since the
      * state of the loop can change before you get the result back.
-     * <p>
+     *
      * <p>This method is safe to call from any thread.
      *
      * @return True if the looper is currently polling for events.
+     * @hide
      */
     public boolean isPolling() {
         synchronized (this) {
@@ -176,20 +173,20 @@ public final class MessageQueue {
      * is no longer of use.
      * </p>
      *
-     * @param fd       The file descriptor for which a listener will be registered.
-     * @param events   The set of events to receive: a combination of the
-     *                 {@link OnFileDescriptorEventListener#EVENT_INPUT},
-     *                 {@link OnFileDescriptorEventListener#EVENT_OUTPUT}, and
-     *                 {@link OnFileDescriptorEventListener#EVENT_ERROR} event masks.  If the requested
-     *                 set of events is zero, then the listener is unregistered.
+     * @param fd The file descriptor for which a listener will be registered.
+     * @param events The set of events to receive: a combination of the
+     * {@link OnFileDescriptorEventListener#EVENT_INPUT},
+     * {@link OnFileDescriptorEventListener#EVENT_OUTPUT}, and
+     * {@link OnFileDescriptorEventListener#EVENT_ERROR} event masks.  If the requested
+     * set of events is zero, then the listener is unregistered.
      * @param listener The listener to invoke when file descriptor events occur.
      *
      * @see OnFileDescriptorEventListener
      * @see #removeOnFileDescriptorEventListener
      */
     public void addOnFileDescriptorEventListener(@NonNull FileDescriptor fd,
-                                                 @OnFileDescriptorEventListener.Events int events,
-                                                 @NonNull OnFileDescriptorEventListener listener) {
+            @OnFileDescriptorEventListener.Events int events,
+            @NonNull OnFileDescriptorEventListener listener) {
         if (fd == null) {
             throw new IllegalArgumentException("fd must not be null");
         }
@@ -225,7 +222,7 @@ public final class MessageQueue {
     }
 
     private void updateOnFileDescriptorEventListenerLocked(FileDescriptor fd, int events,
-                                                           OnFileDescriptorEventListener listener) {
+            OnFileDescriptorEventListener listener) {
         final int fdNum = fd.getInt$();
 
         int index = -1;
@@ -314,52 +311,46 @@ public final class MessageQueue {
         // This can happen if the application tries to restart a looper after quit
         // which is not supported.
         final long ptr = mPtr;
-        if (ptr == 0) {// 底层MessageQueue为空
+        if (ptr == 0) {
             return null;
         }
 
         int pendingIdleHandlerCount = -1; // -1 only during first iteration
-        int nextPollTimeoutMillis = 0;// 下一个消息要执行的时间，也就是下一个消息执行时间到现在的时间差
-        for (; ; ) {// 无限循环
+        int nextPollTimeoutMillis = 0;
+        for (;;) {
             if (nextPollTimeoutMillis != 0) {
                 Binder.flushPendingCommands();
             }
-            // 进入阻塞状态，从而等待合适的时长
+
             nativePollOnce(ptr, nextPollTimeoutMillis);
 
             synchronized (this) {
                 // Try to retrieve the next message.  Return if found.
                 final long now = SystemClock.uptimeMillis();
-                Message prevMsg = null;// 缓存前一个消息
-                Message msg = mMessages;// 当前消息
-                // target为空说明该消息是异步的消息，该消息是只能通过Looper的postSyncBarrier传入
-                // 这样的消息被称为：同步分割栏，它就像一个卡子，卡在消息链表中的某个位置，当消息循环不断
-                // 从消息链表中摘取消息并进行处理时，一旦遇到这种“同步分割栏”，那么即使在分割栏之后还有若
-                // 干已经到时的普通Message，也不会摘取这些消息了。请注意，此时只是不会摘取“普通Message”了，
-                // 如果队列中还设置有“异步Message”，那么还是会摘取已到时的“异步Message”的。
-                // 如果没有同步分隔栏，那么普通消息和异步消息没有区别
+                Message prevMsg = null;
+                Message msg = mMessages;
                 if (msg != null && msg.target == null) {
                     // Stalled by a barrier.  Find the next asynchronous message in the queue.
                     do {
                         prevMsg = msg;
                         msg = msg.next;
-                    } while (msg != null && !msg.isAsynchronous());// 如果为异步则退出循环
+                    } while (msg != null && !msg.isAsynchronous());
                 }
                 if (msg != null) {
-                    if (now < msg.when) {// 下一个消息还没到执行时间
+                    if (now < msg.when) {
                         // Next message is not ready.  Set a timeout to wake up when it is ready.
                         nextPollTimeoutMillis = (int) Math.min(msg.when - now, Integer.MAX_VALUE);
                     } else {
                         // Got a message.
                         mBlocked = false;
-                        if (prevMsg != null) {// 异步消息
+                        if (prevMsg != null) {
                             prevMsg.next = msg.next;
-                        } else {// 普通消息
+                        } else {
                             mMessages = msg.next;
                         }
-                        msg.next = null;// 将取出的消息的next赋值为空
+                        msg.next = null;
                         if (DEBUG) Log.v(TAG, "Returning message: " + msg);
-                        msg.markInUse();// 标记正在使用
+                        msg.markInUse();
                         return msg;
                     }
                 } else {
@@ -394,7 +385,6 @@ public final class MessageQueue {
 
             // Run the idle handlers.
             // We only ever reach this code block during the first iteration.
-            //只有第一次循环时，会运行idle handlers，执行完成后，重置pendingIdleHandlerCount为0
             for (int i = 0; i < pendingIdleHandlerCount; i++) {
                 final IdleHandler idler = mPendingIdleHandlers[i];
                 mPendingIdleHandlers[i] = null; // release the reference to the handler
@@ -413,18 +403,15 @@ public final class MessageQueue {
                 }
             }
 
-            //重置idle handler个数为0，以保证不会再次重复运行
             // Reset the idle handler count to 0 so we do not run them again.
             pendingIdleHandlerCount = 0;
 
             // While calling an idle handler, a new message could have been delivered
             // so go back and look again for a pending message without waiting.
-            //当调用一个空闲handler时，一个新message能够被分发，因此无需等待可以直接查询pending message.
             nextPollTimeoutMillis = 0;
         }
     }
 
-    // 退出循环
     void quit(boolean safe) {
         if (!mQuitAllowed) {
             throw new IllegalStateException("Main thread not allowed to quit.");
@@ -449,24 +436,26 @@ public final class MessageQueue {
 
     /**
      * Posts a synchronization barrier to the Looper's message queue.
-     * <p>
+     *
      * Message processing occurs as usual until the message queue encounters the
      * synchronization barrier that has been posted.  When the barrier is encountered,
      * later synchronous messages in the queue are stalled (prevented from being executed)
      * until the barrier is released by calling {@link #removeSyncBarrier} and specifying
      * the token that identifies the synchronization barrier.
-     * <p>
+     *
      * This method is used to immediately postpone execution of all subsequently posted
      * synchronous messages until a condition is met that releases the barrier.
      * Asynchronous messages (see {@link Message#isAsynchronous} are exempt from the barrier
      * and continue to be processed as usual.
-     * <p>
+     *
      * This call must be always matched by a call to {@link #removeSyncBarrier} with
      * the same token to ensure that the message queue resumes normal operation.
      * Otherwise the application will probably hang!
      *
      * @return A token that uniquely identifies the barrier.  This token must be
      * passed to {@link #removeSyncBarrier} to release the barrier.
+     *
+     * @hide
      */
     public int postSyncBarrier() {
         return postSyncBarrier(SystemClock.uptimeMillis());
@@ -505,9 +494,11 @@ public final class MessageQueue {
      * Removes a synchronization barrier.
      *
      * @param token The synchronization barrier token that was returned by
-     *              {@link #postSyncBarrier}.
+     * {@link #postSyncBarrier}.
      *
      * @throws IllegalStateException if the barrier was not found.
+     *
+     * @hide
      */
     public void removeSyncBarrier(int token) {
         // Remove a sync barrier token from the queue.
@@ -541,16 +532,8 @@ public final class MessageQueue {
         }
     }
 
-    /**
-     * 添加消息队列
-     *
-     * @param msg  消息对象
-     * @param when 触发时间
-     *
-     * @return
-     */
     boolean enqueueMessage(Message msg, long when) {
-        if (msg.target == null) {// 异步消息不同通过该方法添加
+        if (msg.target == null) {
             throw new IllegalArgumentException("Message must have a target.");
         }
         if (msg.isInUse()) {
@@ -570,25 +553,20 @@ public final class MessageQueue {
             msg.when = when;
             Message p = mMessages;
             boolean needWake;
-            // 插入到消息队列前面：p为空说明消息队列为空，插入最前面；when==0表示要立即执行；最后一个是插入的
-            // 消息比当前消息执行时间早，因此插入到最前面
             if (p == null || when == 0 || when < p.when) {
                 // New head, wake up the event queue if blocked.
                 msg.next = p;
                 mMessages = msg;
                 needWake = mBlocked;
-            } else {// 插入到中间或者后面
-                //将消息按时间顺序插入到MessageQueue。一般地，不需要唤醒事件队列，除非
-                //消息队头存在barrier，并且同时Message是队列中最早的异步消息。
+            } else {
                 // Inserted within the middle of the queue.  Usually we don't have to wake
                 // up the event queue unless there is a barrier at the head of the queue
                 // and the message is the earliest asynchronous message in the queue.
                 needWake = mBlocked && p.target == null && msg.isAsynchronous();
                 Message prev;
-                for (; ; ) {// 无限循环
-                    prev = p;// 缓存当前消息
-                    p = p.next;// 获取下一个消息
-                    // 如果下一个为空，则已经到达最后，如果插入消息比下一个早，则插入到前面，中断循环
+                for (;;) {
+                    prev = p;
+                    p = p.next;
                     if (p == null || when < p.when) {
                         break;
                     }
@@ -596,9 +574,7 @@ public final class MessageQueue {
                         needWake = false;
                     }
                 }
-                // 将要插入消息的next指向下一个
                 msg.next = p; // invariant: p == prev.next
-                // 前一个的next指向现在插入的，此时插入完成。
                 prev.next = msg;
             }
 
@@ -644,6 +620,23 @@ public final class MessageQueue {
         }
     }
 
+    boolean hasMessages(Handler h) {
+        if (h == null) {
+            return false;
+        }
+
+        synchronized (this) {
+            Message p = mMessages;
+            while (p != null) {
+                if (p.target == h) {
+                    return true;
+                }
+                p = p.next;
+            }
+            return false;
+        }
+    }
+
     void removeMessages(Handler h, int what, Object object) {
         if (h == null) {
             return;
@@ -653,9 +646,8 @@ public final class MessageQueue {
             Message p = mMessages;
 
             // Remove all messages at front.
-            //从消息队列的头部开始，移除所有符合条件的消息
             while (p != null && p.target == h && p.what == what
-                    && (object == null || p.obj == object)) {
+                   && (object == null || p.obj == object)) {
                 Message n = p.next;
                 mMessages = n;
                 p.recycleUnchecked();
@@ -663,12 +655,11 @@ public final class MessageQueue {
             }
 
             // Remove all messages after front.
-            //移除剩余的符合要求的消息
             while (p != null) {
                 Message n = p.next;
                 if (n != null) {
                     if (n.target == h && n.what == what
-                            && (object == null || n.obj == object)) {
+                        && (object == null || n.obj == object)) {
                         Message nn = n.next;
                         n.recycleUnchecked();
                         p.next = nn;
@@ -689,9 +680,8 @@ public final class MessageQueue {
             Message p = mMessages;
 
             // Remove all messages at front.
-            //从消息队列的头部开始，移除所有符合条件的消息
             while (p != null && p.target == h && p.callback == r
-                    && (object == null || p.obj == object)) {
+                   && (object == null || p.obj == object)) {
                 Message n = p.next;
                 mMessages = n;
                 p.recycleUnchecked();
@@ -699,12 +689,11 @@ public final class MessageQueue {
             }
 
             // Remove all messages after front.
-            //移除剩余的符合要求的消息
             while (p != null) {
                 Message n = p.next;
                 if (n != null) {
                     if (n.target == h && n.callback == r
-                            && (object == null || n.obj == object)) {
+                        && (object == null || n.obj == object)) {
                         Message nn = n.next;
                         n.recycleUnchecked();
                         p.next = nn;
@@ -767,7 +756,7 @@ public final class MessageQueue {
                 removeAllMessagesLocked();
             } else {
                 Message n;
-                for (; ; ) {
+                for (;;) {
                     n = p.next;
                     if (n == null) {
                         return;
@@ -787,17 +776,31 @@ public final class MessageQueue {
         }
     }
 
-    void dump(Printer pw, String prefix) {
+    void dump(Printer pw, String prefix, Handler h) {
         synchronized (this) {
             long now = SystemClock.uptimeMillis();
             int n = 0;
             for (Message msg = mMessages; msg != null; msg = msg.next) {
-                pw.println(prefix + "Message " + n + ": " + msg.toString(now));
+                if (h == null || h == msg.target) {
+                    pw.println(prefix + "Message " + n + ": " + msg.toString(now));
+                }
                 n++;
             }
             pw.println(prefix + "(Total messages: " + n + ", polling=" + isPollingLocked()
                     + ", quitting=" + mQuitting + ")");
         }
+    }
+
+    void writeToProto(ProtoOutputStream proto, long fieldId) {
+        final long messageQueueToken = proto.start(fieldId);
+        synchronized (this) {
+            for (Message msg = mMessages; msg != null; msg = msg.next) {
+                msg.writeToProto(proto, MessageQueueProto.MESSAGES);
+            }
+            proto.write(MessageQueueProto.IS_POLLING_LOCKED, isPollingLocked());
+            proto.write(MessageQueueProto.IS_QUITTING, mQuitting);
+        }
+        proto.end(messageQueueToken);
     }
 
     /**
@@ -868,25 +871,22 @@ public final class MessageQueue {
 
         /** @hide */
         @Retention(RetentionPolicy.SOURCE)
-        @IntDef(flag = true, value = {EVENT_INPUT, EVENT_OUTPUT, EVENT_ERROR})
-        public @interface Events {
-        }
+        @IntDef(flag=true, value={EVENT_INPUT, EVENT_OUTPUT, EVENT_ERROR})
+        public @interface Events {}
 
         /**
          * Called when a file descriptor receives events.
          *
-         * @param fd     The file descriptor.
+         * @param fd The file descriptor.
          * @param events The set of events that occurred: a combination of the
-         *               {@link #EVENT_INPUT}, {@link #EVENT_OUTPUT}, and {@link #EVENT_ERROR} event masks.
-         *
+         * {@link #EVENT_INPUT}, {@link #EVENT_OUTPUT}, and {@link #EVENT_ERROR} event masks.
          * @return The new set of events to watch, or 0 to unregister the listener.
          *
          * @see #EVENT_INPUT
          * @see #EVENT_OUTPUT
          * @see #EVENT_ERROR
          */
-        @Events
-        int onFileDescriptorEvents(@NonNull FileDescriptor fd, @Events int events);
+        @Events int onFileDescriptorEvents(@NonNull FileDescriptor fd, @Events int events);
     }
 
     private static final class FileDescriptorRecord {
@@ -896,7 +896,7 @@ public final class MessageQueue {
         public int mSeq;
 
         public FileDescriptorRecord(FileDescriptor descriptor,
-                                    int events, OnFileDescriptorEventListener listener) {
+                int events, OnFileDescriptorEventListener listener) {
             mDescriptor = descriptor;
             mEvents = events;
             mListener = listener;

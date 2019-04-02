@@ -16,12 +16,19 @@
 
 package android.os;
 
-import com.android.internal.util.FastPrintWriter;
-import com.android.internal.util.TypedProperties;
-
 import android.app.AppGlobals;
 import android.content.Context;
 import android.util.Log;
+
+import com.android.internal.util.FastPrintWriter;
+import com.android.internal.util.TypedProperties;
+
+import dalvik.bytecode.OpcodeInfo;
+import dalvik.system.VMDebug;
+
+import org.apache.harmony.dalvik.ddmc.Chunk;
+import org.apache.harmony.dalvik.ddmc.ChunkHandler;
+import org.apache.harmony.dalvik.ddmc.DdmServer;
 
 import java.io.File;
 import java.io.FileDescriptor;
@@ -31,21 +38,16 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Reader;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.lang.annotation.Target;
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.apache.harmony.dalvik.ddmc.Chunk;
-import org.apache.harmony.dalvik.ddmc.ChunkHandler;
-import org.apache.harmony.dalvik.ddmc.DdmServer;
 
-import dalvik.bytecode.OpcodeInfo;
-import dalvik.system.VMDebug;
 
 
 /**
@@ -221,28 +223,69 @@ public final class Debug
         /** @hide */
         public static final int OTHER_OTHER_MEMTRACK = 16;
 
+        // Needs to be declared here for the DVK_STAT ranges below.
+        /** @hide */
+        public static final int NUM_OTHER_STATS = 17;
+
+        // Dalvik subsections.
         /** @hide */
         public static final int OTHER_DALVIK_NORMAL = 17;
         /** @hide */
         public static final int OTHER_DALVIK_LARGE = 18;
         /** @hide */
-        public static final int OTHER_DALVIK_LINEARALLOC = 19;
+        public static final int OTHER_DALVIK_ZYGOTE = 19;
         /** @hide */
-        public static final int OTHER_DALVIK_ACCOUNTING = 20;
+        public static final int OTHER_DALVIK_NON_MOVING = 20;
+        // Section begins and ends for dumpsys, relative to the DALVIK categories.
         /** @hide */
-        public static final int OTHER_DALVIK_CODE_CACHE = 21;
+        public static final int OTHER_DVK_STAT_DALVIK_START =
+                OTHER_DALVIK_NORMAL - NUM_OTHER_STATS;
         /** @hide */
-        public static final int OTHER_DALVIK_ZYGOTE = 22;
+        public static final int OTHER_DVK_STAT_DALVIK_END =
+                OTHER_DALVIK_NON_MOVING - NUM_OTHER_STATS;
+
+        // Dalvik Other subsections.
         /** @hide */
-        public static final int OTHER_DALVIK_NON_MOVING = 23;
+        public static final int OTHER_DALVIK_OTHER_LINEARALLOC = 21;
         /** @hide */
-        public static final int OTHER_DALVIK_INDIRECT_REFERENCE_TABLE = 24;
+        public static final int OTHER_DALVIK_OTHER_ACCOUNTING = 22;
+        /** @hide */
+        public static final int OTHER_DALVIK_OTHER_CODE_CACHE = 23;
+        /** @hide */
+        public static final int OTHER_DALVIK_OTHER_COMPILER_METADATA = 24;
+        /** @hide */
+        public static final int OTHER_DALVIK_OTHER_INDIRECT_REFERENCE_TABLE = 25;
+        /** @hide */
+        public static final int OTHER_DVK_STAT_DALVIK_OTHER_START =
+                OTHER_DALVIK_OTHER_LINEARALLOC - NUM_OTHER_STATS;
+        /** @hide */
+        public static final int OTHER_DVK_STAT_DALVIK_OTHER_END =
+                OTHER_DALVIK_OTHER_INDIRECT_REFERENCE_TABLE - NUM_OTHER_STATS;
+
+        // Dex subsections (Boot vdex, App dex, and App vdex).
+        /** @hide */
+        public static final int OTHER_DEX_BOOT_VDEX = 26;
+        /** @hide */
+        public static final int OTHER_DEX_APP_DEX = 27;
+        /** @hide */
+        public static final int OTHER_DEX_APP_VDEX = 28;
+        /** @hide */
+        public static final int OTHER_DVK_STAT_DEX_START = OTHER_DEX_BOOT_VDEX - NUM_OTHER_STATS;
+        /** @hide */
+        public static final int OTHER_DVK_STAT_DEX_END = OTHER_DEX_APP_VDEX - NUM_OTHER_STATS;
+
+        // Art subsections (App image, boot image).
+        /** @hide */
+        public static final int OTHER_ART_APP = 29;
+        /** @hide */
+        public static final int OTHER_ART_BOOT = 30;
+        /** @hide */
+        public static final int OTHER_DVK_STAT_ART_START = OTHER_ART_APP - NUM_OTHER_STATS;
+        /** @hide */
+        public static final int OTHER_DVK_STAT_ART_END = OTHER_ART_BOOT - NUM_OTHER_STATS;
 
         /** @hide */
-        public static final int NUM_OTHER_STATS = 17;
-
-        /** @hide */
-        public static final int NUM_DVK_STATS = 8;
+        public static final int NUM_DVK_STATS = 14;
 
         /** @hide */
         public static final int NUM_CATEGORIES = 8;
@@ -406,12 +449,18 @@ public final class Debug
                 case OTHER_OTHER_MEMTRACK: return "Other mtrack";
                 case OTHER_DALVIK_NORMAL: return ".Heap";
                 case OTHER_DALVIK_LARGE: return ".LOS";
-                case OTHER_DALVIK_LINEARALLOC: return ".LinearAlloc";
-                case OTHER_DALVIK_ACCOUNTING: return ".GC";
-                case OTHER_DALVIK_CODE_CACHE: return ".JITCache";
                 case OTHER_DALVIK_ZYGOTE: return ".Zygote";
                 case OTHER_DALVIK_NON_MOVING: return ".NonMoving";
-                case OTHER_DALVIK_INDIRECT_REFERENCE_TABLE: return ".IndirectRef";
+                case OTHER_DALVIK_OTHER_LINEARALLOC: return ".LinearAlloc";
+                case OTHER_DALVIK_OTHER_ACCOUNTING: return ".GC";
+                case OTHER_DALVIK_OTHER_CODE_CACHE: return ".JITCache";
+                case OTHER_DALVIK_OTHER_COMPILER_METADATA: return ".CompilerMetadata";
+                case OTHER_DALVIK_OTHER_INDIRECT_REFERENCE_TABLE: return ".IndirectRef";
+                case OTHER_DEX_BOOT_VDEX: return ".Boot vdex";
+                case OTHER_DEX_APP_DEX: return ".App dex";
+                case OTHER_DEX_APP_VDEX: return ".App vdex";
+                case OTHER_ART_APP: return ".App art";
+                case OTHER_ART_BOOT: return ".Boot art";
                 default: return "????";
             }
         }
@@ -697,6 +746,7 @@ public final class Debug
             dest.writeInt(dalvikPrivateClean);
             dest.writeInt(dalvikSharedClean);
             dest.writeInt(dalvikSwappedOut);
+            dest.writeInt(dalvikSwappedOutPss);
             dest.writeInt(nativePss);
             dest.writeInt(nativeSwappablePss);
             dest.writeInt(nativePrivateDirty);
@@ -704,6 +754,7 @@ public final class Debug
             dest.writeInt(nativePrivateClean);
             dest.writeInt(nativeSharedClean);
             dest.writeInt(nativeSwappedOut);
+            dest.writeInt(nativeSwappedOutPss);
             dest.writeInt(otherPss);
             dest.writeInt(otherSwappablePss);
             dest.writeInt(otherPrivateDirty);
@@ -724,6 +775,7 @@ public final class Debug
             dalvikPrivateClean = source.readInt();
             dalvikSharedClean = source.readInt();
             dalvikSwappedOut = source.readInt();
+            dalvikSwappedOutPss = source.readInt();
             nativePss = source.readInt();
             nativeSwappablePss = source.readInt();
             nativePrivateDirty = source.readInt();
@@ -731,6 +783,7 @@ public final class Debug
             nativePrivateClean = source.readInt();
             nativeSharedClean = source.readInt();
             nativeSwappedOut = source.readInt();
+            nativeSwappedOutPss = source.readInt();
             otherPss = source.readInt();
             otherSwappablePss = source.readInt();
             otherPrivateDirty = source.readInt();
@@ -1119,8 +1172,8 @@ public final class Debug
      * @hide
      */
     public static void startMethodTracing(String traceName, FileDescriptor fd,
-        int bufferSize, int flags) {
-        VMDebug.startMethodTracing(traceName, fd, bufferSize, flags, false, 0);
+        int bufferSize, int flags, boolean streamOutput) {
+        VMDebug.startMethodTracing(traceName, fd, bufferSize, flags, false, 0, streamOutput);
     }
 
     /**
@@ -1695,22 +1748,26 @@ public final class Debug
     public static final int MEMINFO_SHMEM = 4;
     /** @hide */
     public static final int MEMINFO_SLAB = 5;
+     /** @hide */
+    public static final int MEMINFO_SLAB_RECLAIMABLE = 6;
+     /** @hide */
+    public static final int MEMINFO_SLAB_UNRECLAIMABLE = 7;
     /** @hide */
-    public static final int MEMINFO_SWAP_TOTAL = 6;
+    public static final int MEMINFO_SWAP_TOTAL = 8;
     /** @hide */
-    public static final int MEMINFO_SWAP_FREE = 7;
+    public static final int MEMINFO_SWAP_FREE = 9;
     /** @hide */
-    public static final int MEMINFO_ZRAM_TOTAL = 8;
+    public static final int MEMINFO_ZRAM_TOTAL = 10;
     /** @hide */
-    public static final int MEMINFO_MAPPED = 9;
+    public static final int MEMINFO_MAPPED = 11;
     /** @hide */
-    public static final int MEMINFO_VM_ALLOC_USED = 10;
+    public static final int MEMINFO_VM_ALLOC_USED = 12;
     /** @hide */
-    public static final int MEMINFO_PAGE_TABLES = 11;
+    public static final int MEMINFO_PAGE_TABLES = 13;
     /** @hide */
-    public static final int MEMINFO_KERNEL_STACK = 12;
+    public static final int MEMINFO_KERNEL_STACK = 14;
     /** @hide */
-    public static final int MEMINFO_COUNT = 13;
+    public static final int MEMINFO_COUNT = 15;
 
     /**
      * Retrieves /proc/meminfo.  outSizes is filled with fields
@@ -1806,6 +1863,13 @@ public final class Debug
      * @hide
      */
     public static native void dumpNativeHeap(FileDescriptor fd);
+
+    /**
+     * Writes malloc info data to the specified file descriptor.
+     *
+     * @hide
+     */
+    public static native void dumpNativeMallocInfo(FileDescriptor fd);
 
     /**
       * Returns a count of the extant instances of a class.
@@ -2219,11 +2283,26 @@ public final class Debug
     }
 
     /**
-     * Have the stack traces of the given native process dumped to the
-     * specified file.  Will be appended to the file.
+     * Append the Java stack traces of a given native process to a specified file.
+     *
+     * @param pid pid to dump.
+     * @param file path of file to append dump to.
+     * @param timeoutSecs time to wait in seconds, or 0 to wait forever.
      * @hide
      */
-    public static native void dumpNativeBacktraceToFile(int pid, String file);
+    public static native boolean dumpJavaBacktraceToFileTimeout(int pid, String file,
+                                                                int timeoutSecs);
+
+    /**
+     * Append the native stack traces of a given process to a specified file.
+     *
+     * @param pid pid to dump.
+     * @param file path of file to append dump to.
+     * @param timeoutSecs time to wait in seconds, or 0 to wait forever.
+     * @hide
+     */
+    public static native boolean dumpNativeBacktraceToFileTimeout(int pid, String file,
+                                                                  int timeoutSecs);
 
     /**
      * Get description of unreachable native memory.

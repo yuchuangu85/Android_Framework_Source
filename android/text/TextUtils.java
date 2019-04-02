@@ -16,14 +16,23 @@
 
 package android.text;
 
+import android.annotation.FloatRange;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.PluralsRes;
+import android.content.Context;
 import android.content.res.Resources;
+import android.icu.lang.UCharacter;
+import android.icu.text.CaseMap;
+import android.icu.text.Edits;
 import android.icu.util.ULocale;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.SystemProperties;
 import android.provider.Settings;
 import android.text.style.AbsoluteSizeSpan;
+import android.text.style.AccessibilityClickableSpan;
+import android.text.style.AccessibilityURLSpan;
 import android.text.style.AlignmentSpan;
 import android.text.style.BackgroundColorSpan;
 import android.text.style.BulletSpan;
@@ -33,6 +42,7 @@ import android.text.style.ForegroundColorSpan;
 import android.text.style.LeadingMarginSpan;
 import android.text.style.LocaleSpan;
 import android.text.style.MetricAffectingSpan;
+import android.text.style.ParagraphStyle;
 import android.text.style.QuoteSpan;
 import android.text.style.RelativeSizeSpan;
 import android.text.style.ReplacementSpan;
@@ -49,17 +59,18 @@ import android.text.style.TtsSpan;
 import android.text.style.TypefaceSpan;
 import android.text.style.URLSpan;
 import android.text.style.UnderlineSpan;
+import android.text.style.UpdateAppearance;
 import android.util.Log;
 import android.util.Printer;
 import android.view.View;
 
 import com.android.internal.R;
 import com.android.internal.util.ArrayUtils;
-
-import libcore.icu.ICU;
+import com.android.internal.util.Preconditions;
 
 import java.lang.reflect.Array;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -449,15 +460,35 @@ public class TextUtils {
      * @return true if str is null or zero length
      */
     public static boolean isEmpty(@Nullable CharSequence str) {
-        if (str == null || str.length() == 0)
-            return true;
-        else
-            return false;
+        return str == null || str.length() == 0;
     }
 
     /** {@hide} */
     public static String nullIfEmpty(@Nullable String str) {
         return isEmpty(str) ? null : str;
+    }
+
+    /** {@hide} */
+    public static String emptyIfNull(@Nullable String str) {
+        return str == null ? "" : str;
+    }
+
+    /** {@hide} */
+    public static String firstNotEmpty(@Nullable String a, @NonNull String b) {
+        return !isEmpty(a) ? a : Preconditions.checkStringNotEmpty(b);
+    }
+
+    /** {@hide} */
+    public static int length(@Nullable String s) {
+        return isEmpty(s) ? 0 : s.length();
+    }
+
+    /**
+     * @return interned string if it's null.
+     * @hide
+     */
+    public static String safeIntern(String s) {
+        return (s != null) ? s.intern() : null;
     }
 
     /**
@@ -542,9 +573,10 @@ public class TextUtils {
         }
 
         public char charAt(int off) {
-            return AndroidCharacter.getMirror(mSource.charAt(mEnd - 1 - off));
+            return (char) UCharacter.getMirror(mSource.charAt(mEnd - 1 - off));
         }
 
+        @SuppressWarnings("deprecation")
         public void getChars(int start, int end, char[] dest, int destoff) {
             TextUtils.getChars(mSource, start + mStart, end + mStart,
                                dest, destoff);
@@ -616,7 +648,11 @@ public class TextUtils {
     /** @hide */
     public static final int TTS_SPAN = 24;
     /** @hide */
-    public static final int LAST_SPAN = TTS_SPAN;
+    public static final int ACCESSIBILITY_CLICKABLE_SPAN = 25;
+    /** @hide */
+    public static final int ACCESSIBILITY_URL_SPAN = 26;
+    /** @hide */
+    public static final int LAST_SPAN = ACCESSIBILITY_URL_SPAN;
 
     /**
      * Flatten a CharSequence and whatever styles can be copied across processes
@@ -796,6 +832,14 @@ public class TextUtils {
 
                 case TTS_SPAN:
                     readSpan(p, sp, new TtsSpan(p));
+                    break;
+
+                case ACCESSIBILITY_CLICKABLE_SPAN:
+                    readSpan(p, sp, new AccessibilityClickableSpan(p));
+                    break;
+
+                case ACCESSIBILITY_URL_SPAN:
+                    readSpan(p, sp, new AccessibilityURLSpan(p));
                     break;
 
                 default:
@@ -1038,6 +1082,75 @@ public class TextUtils {
         }
     }
 
+    /**
+     * Transforms a CharSequences to uppercase, copying the sources spans and keeping them spans as
+     * much as possible close to their relative original places. In the case the the uppercase
+     * string is identical to the sources, the source itself is returned instead of being copied.
+     *
+     * If copySpans is set, source must be an instance of Spanned.
+     *
+     * {@hide}
+     */
+    @NonNull
+    public static CharSequence toUpperCase(@Nullable Locale locale, @NonNull CharSequence source,
+            boolean copySpans) {
+        final Edits edits = new Edits();
+        if (!copySpans) { // No spans. Just uppercase the characters.
+            final StringBuilder result = CaseMap.toUpper().apply(
+                    locale, source, new StringBuilder(), edits);
+            return edits.hasChanges() ? result : source;
+        }
+
+        final SpannableStringBuilder result = CaseMap.toUpper().apply(
+                locale, source, new SpannableStringBuilder(), edits);
+        if (!edits.hasChanges()) {
+            // No changes happened while capitalizing. We can return the source as it was.
+            return source;
+        }
+
+        final Edits.Iterator iterator = edits.getFineIterator();
+        final int sourceLength = source.length();
+        final Spanned spanned = (Spanned) source;
+        final Object[] spans = spanned.getSpans(0, sourceLength, Object.class);
+        for (Object span : spans) {
+            final int sourceStart = spanned.getSpanStart(span);
+            final int sourceEnd = spanned.getSpanEnd(span);
+            final int flags = spanned.getSpanFlags(span);
+            // Make sure the indices are not at the end of the string, since in that case
+            // iterator.findSourceIndex() would fail.
+            final int destStart = sourceStart == sourceLength ? result.length() :
+                    toUpperMapToDest(iterator, sourceStart);
+            final int destEnd = sourceEnd == sourceLength ? result.length() :
+                    toUpperMapToDest(iterator, sourceEnd);
+            result.setSpan(span, destStart, destEnd, flags);
+        }
+        return result;
+    }
+
+    // helper method for toUpperCase()
+    private static int toUpperMapToDest(Edits.Iterator iterator, int sourceIndex) {
+        // Guaranteed to succeed if sourceIndex < source.length().
+        iterator.findSourceIndex(sourceIndex);
+        if (sourceIndex == iterator.sourceIndex()) {
+            return iterator.destinationIndex();
+        }
+        // We handle the situation differently depending on if we are in the changed slice or an
+        // unchanged one: In an unchanged slice, we can find the exact location the span
+        // boundary was before and map there.
+        //
+        // But in a changed slice, we need to treat the whole destination slice as an atomic unit.
+        // We adjust the span boundary to the end of that slice to reduce of the chance of adjacent
+        // spans in the source overlapping in the result. (The choice for the end vs the beginning
+        // is somewhat arbitrary, but was taken because we except to see slightly more spans only
+        // affecting a base character compared to spans only affecting a combining character.)
+        if (iterator.hasChange()) {
+            return iterator.destinationIndex() + iterator.newLength();
+        } else {
+            // Move the index 1:1 along with this unchanged piece of text.
+            return iterator.destinationIndex() + (sourceIndex - iterator.sourceIndex());
+        }
+    }
+
     public enum TruncateAt {
         START,
         MIDDLE,
@@ -1191,16 +1304,103 @@ public class TextUtils {
     }
 
     /**
+     * Formats a list of CharSequences by repeatedly inserting the separator between them,
+     * but stopping when the resulting sequence is too wide for the specified width.
+     *
+     * This method actually tries to fit the maximum number of elements. So if {@code "A, 11 more"
+     * fits}, {@code "A, B, 10 more"} doesn't fit, but {@code "A, B, C, 9 more"} fits again (due to
+     * the glyphs for the digits being very wide, for example), it returns
+     * {@code "A, B, C, 9 more"}. Because of this, this method may be inefficient for very long
+     * lists.
+     *
+     * Note that the elements of the returned value, as well as the string for {@code moreId}, will
+     * be bidi-wrapped using {@link BidiFormatter#unicodeWrap} based on the locale of the input
+     * Context. If the input {@code Context} is null, the default BidiFormatter from
+     * {@link BidiFormatter#getInstance()} will be used.
+     *
+     * @param context the {@code Context} to get the {@code moreId} resource from. If {@code null},
+     *     an ellipsis (U+2026) would be used for {@code moreId}.
+     * @param elements the list to format
+     * @param separator a separator, such as {@code ", "}
+     * @param paint the Paint with which to measure the text
+     * @param avail the horizontal width available for the text (in pixels)
+     * @param moreId the resource ID for the pluralized string to insert at the end of sequence when
+     *     some of the elements don't fit.
+     *
+     * @return the formatted CharSequence. If even the shortest sequence (e.g. {@code "A, 11 more"})
+     *     doesn't fit, it will return an empty string.
+     */
+
+    public static CharSequence listEllipsize(@Nullable Context context,
+            @Nullable List<CharSequence> elements, @NonNull String separator,
+            @NonNull TextPaint paint, @FloatRange(from=0.0,fromInclusive=false) float avail,
+            @PluralsRes int moreId) {
+        if (elements == null) {
+            return "";
+        }
+        final int totalLen = elements.size();
+        if (totalLen == 0) {
+            return "";
+        }
+
+        final Resources res;
+        final BidiFormatter bidiFormatter;
+        if (context == null) {
+            res = null;
+            bidiFormatter = BidiFormatter.getInstance();
+        } else {
+            res = context.getResources();
+            bidiFormatter = BidiFormatter.getInstance(res.getConfiguration().getLocales().get(0));
+        }
+
+        final SpannableStringBuilder output = new SpannableStringBuilder();
+        final int[] endIndexes = new int[totalLen];
+        for (int i = 0; i < totalLen; i++) {
+            output.append(bidiFormatter.unicodeWrap(elements.get(i)));
+            if (i != totalLen - 1) {  // Insert a separator, except at the very end.
+                output.append(separator);
+            }
+            endIndexes[i] = output.length();
+        }
+
+        for (int i = totalLen - 1; i >= 0; i--) {
+            // Delete the tail of the string, cutting back to one less element.
+            output.delete(endIndexes[i], output.length());
+
+            final int remainingElements = totalLen - i - 1;
+            if (remainingElements > 0) {
+                CharSequence morePiece = (res == null) ?
+                        ELLIPSIS_STRING :
+                        res.getQuantityString(moreId, remainingElements, remainingElements);
+                morePiece = bidiFormatter.unicodeWrap(morePiece);
+                output.append(morePiece);
+            }
+
+            final float width = paint.measureText(output, 0, output.length());
+            if (width <= avail) {  // The string fits.
+                return output;
+            }
+        }
+        return "";  // Nothing fits.
+    }
+
+    /**
      * Converts a CharSequence of the comma-separated form "Andy, Bob,
      * Charles, David" that is too wide to fit into the specified width
      * into one like "Andy, Bob, 2 more".
      *
      * @param text the text to truncate
      * @param p the Paint with which to measure the text
-     * @param avail the horizontal width available for the text
+     * @param avail the horizontal width available for the text (in pixels)
      * @param oneMore the string for "1 more" in the current locale
      * @param more the string for "%d more" in the current locale
+     *
+     * @deprecated Do not use. This is not internationalized, and has known issues
+     * with right-to-left text, languages that have more than one plural form, languages
+     * that use a different character as a comma-like separator, etc.
+     * Use {@link #listEllipsize} instead.
      */
+    @Deprecated
     public static CharSequence commaEllipsize(CharSequence text,
                                               TextPaint p, float avail,
                                               String oneMore,
@@ -1212,6 +1412,7 @@ public class TextUtils {
     /**
      * @hide
      */
+    @Deprecated
     public static CharSequence commaEllipsize(CharSequence text, TextPaint p,
          float avail, String oneMore, String more, TextDirectionHeuristic textDir) {
 
@@ -1303,22 +1504,32 @@ public class TextUtils {
         return width;
     }
 
-    private static final char FIRST_RIGHT_TO_LEFT = '\u0590';
-
+    // Returns true if the character's presence could affect RTL layout.
+    //
+    // In order to be fast, the code is intentionally rough and quite conservative in its
+    // considering inclusion of any non-BMP or surrogate characters or anything in the bidi
+    // blocks or any bidi formatting characters with a potential to affect RTL layout.
     /* package */
-    static boolean doesNotNeedBidi(CharSequence s, int start, int end) {
-        for (int i = start; i < end; i++) {
-            if (s.charAt(i) >= FIRST_RIGHT_TO_LEFT) {
-                return false;
-            }
-        }
-        return true;
+    static boolean couldAffectRtl(char c) {
+        return (0x0590 <= c && c <= 0x08FF) ||  // RTL scripts
+                c == 0x200E ||  // Bidi format character
+                c == 0x200F ||  // Bidi format character
+                (0x202A <= c && c <= 0x202E) ||  // Bidi format characters
+                (0x2066 <= c && c <= 0x2069) ||  // Bidi format characters
+                (0xD800 <= c && c <= 0xDFFF) ||  // Surrogate pairs
+                (0xFB1D <= c && c <= 0xFDFF) ||  // Hebrew and Arabic presentation forms
+                (0xFE70 <= c && c <= 0xFEFE);  // Arabic presentation forms
     }
 
+    // Returns true if there is no character present that may potentially affect RTL layout.
+    // Since this calls couldAffectRtl() above, it's also quite conservative, in the way that
+    // it may return 'false' (needs bidi) although careful consideration may tell us it should
+    // return 'true' (does not need bidi).
     /* package */
     static boolean doesNotNeedBidi(char[] text, int start, int len) {
-        for (int i = start, e = i + len; i < e; i++) {
-            if (text[i] >= FIRST_RIGHT_TO_LEFT) {
+        final int end = start + len;
+        for (int i = start; i < end; i++) {
+            if (couldAffectRtl(text[i])) {
                 return false;
             }
         }
@@ -1388,6 +1599,18 @@ public class TextUtils {
     /**
      * Returns a CharSequence concatenating the specified CharSequences,
      * retaining their spans if any.
+     *
+     * If there are no parameters, an empty string will be returned.
+     *
+     * If the number of parameters is exactly one, that parameter is returned as output, even if it
+     * is null.
+     *
+     * If the number of parameters is at least two, any null CharSequence among the parameters is
+     * treated as if it was the string <code>"null"</code>.
+     *
+     * If there are paragraph spans in the source CharSequences that satisfy paragraph boundary
+     * requirements in the sources but would no longer satisfy them in the concatenated
+     * CharSequence, they may get extended in the resulting CharSequence or not retained.
      */
     public static CharSequence concat(CharSequence... text) {
         if (text.length == 0) {
@@ -1399,35 +1622,29 @@ public class TextUtils {
         }
 
         boolean spanned = false;
-        for (int i = 0; i < text.length; i++) {
-            if (text[i] instanceof Spanned) {
+        for (CharSequence piece : text) {
+            if (piece instanceof Spanned) {
                 spanned = true;
                 break;
             }
         }
 
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < text.length; i++) {
-            sb.append(text[i]);
-        }
-
-        if (!spanned) {
+        if (spanned) {
+            final SpannableStringBuilder ssb = new SpannableStringBuilder();
+            for (CharSequence piece : text) {
+                // If a piece is null, we append the string "null" for compatibility with the
+                // behavior of StringBuilder and the behavior of the concat() method in earlier
+                // versions of Android.
+                ssb.append(piece == null ? "null" : piece);
+            }
+            return new SpannedString(ssb);
+        } else {
+            final StringBuilder sb = new StringBuilder();
+            for (CharSequence piece : text) {
+                sb.append(piece);
+            }
             return sb.toString();
         }
-
-        SpannableString ss = new SpannableString(sb);
-        int off = 0;
-        for (int i = 0; i < text.length; i++) {
-            int len = text[i].length();
-
-            if (text[i] instanceof Spanned) {
-                copySpansFrom((Spanned) text[i], 0, len, Object.class, ss, off);
-            }
-
-            off += len;
-        }
-
-        return new SpannedString(ss);
     }
 
     /**
@@ -1771,6 +1988,48 @@ public class TextUtils {
      */
     public static CharSequence formatSelectedCount(int count) {
         return Resources.getSystem().getQuantityString(R.plurals.selected_count, count, count);
+    }
+
+    /**
+     * Returns whether or not the specified spanned text has a style span.
+     * @hide
+     */
+    public static boolean hasStyleSpan(@NonNull Spanned spanned) {
+        Preconditions.checkArgument(spanned != null);
+        final Class<?>[] styleClasses = {
+                CharacterStyle.class, ParagraphStyle.class, UpdateAppearance.class};
+        for (Class<?> clazz : styleClasses) {
+            if (spanned.nextSpanTransition(-1, spanned.length(), clazz) < spanned.length()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * If the {@code charSequence} is instance of {@link Spanned}, creates a new copy and
+     * {@link NoCopySpan}'s are removed from the copy. Otherwise the given {@code charSequence} is
+     * returned as it is.
+     *
+     * @hide
+     */
+    @Nullable
+    public static CharSequence trimNoCopySpans(@Nullable CharSequence charSequence) {
+        if (charSequence != null && charSequence instanceof Spanned) {
+            // SpannableStringBuilder copy constructor trims NoCopySpans.
+            return new SpannableStringBuilder(charSequence);
+        }
+        return charSequence;
+    }
+
+    /**
+     * Prepends {@code start} and appends {@code end} to a given {@link StringBuilder}
+     *
+     * @hide
+     */
+    public static void wrap(StringBuilder builder, String start, String end) {
+        builder.insert(0, start);
+        builder.append(end);
     }
 
     private static Object sLock = new Object();

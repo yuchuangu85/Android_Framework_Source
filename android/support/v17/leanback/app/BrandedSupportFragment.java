@@ -1,5 +1,3 @@
-/* This file is auto-generated from BrandedFragment.java.  DO NOT MODIFY. */
-
 /*
  * Copyright (C) 2014 The Android Open Source Project
  *
@@ -15,13 +13,13 @@
  */
 package android.support.v17.leanback.app;
 
-import android.support.v4.app.Fragment;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.support.v17.leanback.R;
 import android.support.v17.leanback.widget.SearchOrbView;
 import android.support.v17.leanback.widget.TitleHelper;
 import android.support.v17.leanback.widget.TitleViewAdapter;
+import android.support.v4.app.Fragment;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -152,6 +150,7 @@ public class BrandedSupportFragment extends Fragment {
         }
         if (mTitleView != null && view instanceof ViewGroup) {
             mTitleHelper = new TitleHelper((ViewGroup) view, mTitleView);
+            mTitleHelper.showTitle(mShowingTitle);
         }
     }
 

@@ -95,6 +95,9 @@ public class RecipientEntry {
     /** Should be used when type is {@link #ENTRY_TYPE_PERMISSION_REQUEST}. */
     private final String[] mPermissions;
 
+    /** Whether RecipientEntry is in a replaced chip or not. */
+    private boolean mInReplacedChip;
+
     protected RecipientEntry(int entryType, String displayName, String destination,
         int destinationType, String destinationLabel, long contactId, Long directoryId,
         long dataId, Uri photoThumbnailUri, boolean isFirstLevel, boolean isValid,
@@ -355,5 +358,20 @@ public class RecipientEntry {
      */
     public void setIndicatorText(String indicatorText) {
         mIndicatorText = indicatorText;
+    }
+
+    /**
+     * Get whether this RecipientEntry is in a replaced chip or not. Replaced chip only occurs
+     * if {@link RecipientEditTextView} uses a replacement chip for the entry.
+     */
+    public boolean getInReplacedChip() {
+        return mInReplacedChip;
+    }
+
+    /**
+     * Sets {@link #mInReplacedChip} to {@param inReplacedChip}.
+     */
+    public void setInReplacedChip(boolean inReplacedChip) {
+        mInReplacedChip = inReplacedChip;
     }
 }

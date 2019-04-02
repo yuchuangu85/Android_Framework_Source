@@ -16,11 +16,13 @@
 
 package com.android.server.notification;
 
-import android.app.Notification;
+import android.app.NotificationManager;
 import android.content.Context;
-import android.service.notification.NotificationListenerService;
+import android.net.Uri;
 import android.util.Log;
 import android.util.Slog;
+
+import com.android.internal.annotations.VisibleForTesting;
 
 /**
  * This {@link com.android.server.notification.NotificationSignalExtractor} notices noisy
@@ -32,7 +34,8 @@ public class NotificationIntrusivenessExtractor implements NotificationSignalExt
 
     /** Length of time (in milliseconds) that an intrusive or noisy notification will stay at
     the top of the ranking order, before it falls back to its natural position. */
-    private static final long HANG_TIME_MS = 10000;
+    @VisibleForTesting
+    static final long HANG_TIME_MS = 10000;
 
     public void initialize(Context ctx, NotificationUsageStats usageStats) {
         if (DBG) Slog.d(TAG, "Initializing  " + getClass().getSimpleName() + ".");
@@ -44,15 +47,21 @@ public class NotificationIntrusivenessExtractor implements NotificationSignalExt
             return null;
         }
 
-        if (record.getImportance() >= NotificationListenerService.Ranking.IMPORTANCE_DEFAULT) {
-            final Notification notification = record.getNotification();
-            if ((notification.defaults & Notification.DEFAULT_VIBRATE) != 0 ||
-                    notification.vibrate != null ||
-                    (notification.defaults & Notification.DEFAULT_SOUND) != 0 ||
-                    notification.sound != null ||
-                    notification.fullScreenIntent != null) {
+        if (record.getFreshnessMs(System.currentTimeMillis()) < HANG_TIME_MS
+                && record.getImportance() >= NotificationManager.IMPORTANCE_DEFAULT) {
+            if (record.getSound() != null && record.getSound() != Uri.EMPTY) {
                 record.setRecentlyIntrusive(true);
             }
+            if (record.getVibration() != null) {
+                record.setRecentlyIntrusive(true);
+            }
+            if (record.getNotification().fullScreenIntent != null) {
+                record.setRecentlyIntrusive(true);
+            }
+        }
+
+        if (!record.isRecentlyIntrusive()) {
+            return null;
         }
 
         return new RankingReconsideration(record.getKey(), HANG_TIME_MS) {
@@ -63,7 +72,11 @@ public class NotificationIntrusivenessExtractor implements NotificationSignalExt
 
             @Override
             public void applyChangesLocked(NotificationRecord record) {
-                record.setRecentlyIntrusive(false);
+                // there will be another reconsideration in the message queue HANG_TIME_MS
+                // from each time this record alerts, which can finally clear this flag.
+                if ((System.currentTimeMillis() - record.getLastIntrusive()) >= HANG_TIME_MS) {
+                    record.setRecentlyIntrusive(false);
+                }
             }
         };
     }

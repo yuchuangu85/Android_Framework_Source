@@ -16,6 +16,8 @@
 
 package android.support.v7.app;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -36,13 +38,10 @@ import android.util.TypedValue;
 import android.view.ContextThemeWrapper;
 import android.view.KeyEvent;
 import android.view.View;
-import android.view.WindowManager;
 import android.widget.AdapterView;
 import android.widget.Button;
 import android.widget.ListAdapter;
 import android.widget.ListView;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * A subclass of Dialog that can display one, two or three buttons. If you only want to
@@ -51,13 +50,13 @@ import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
  * and add your view to it:
  *
  * <pre>
- * FrameLayout fl = (FrameLayout) findViewById(android.R.id.custom);
+ * FrameLayout fl = findViewById(android.R.id.custom);
  * fl.addView(myView, new LayoutParams(MATCH_PARENT, WRAP_CONTENT));
  * </pre>
  *
  * <p>The AlertDialog class takes care of automatically setting
- * {@link WindowManager.LayoutParams#FLAG_ALT_FOCUSABLE_IM
- * WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM} for you based on whether
+ * {@link android.view.WindowManager.LayoutParams#FLAG_ALT_FOCUSABLE_IM
+ * android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM} for you based on whether
  * any views in the dialog return true from {@link View#onCheckIsTextEditor()
  * View.onCheckIsTextEditor()}.  Generally you want this set for a Dialog
  * without text editors, so that it will be placed on top of the current
@@ -107,7 +106,8 @@ public class AlertDialog extends AppCompatDialog implements DialogInterface {
     }
 
     static int resolveDialogTheme(@NonNull Context context, @StyleRes int resid) {
-        if (resid >= 0x01000000) {   // start of real resource IDs.
+        // Check to see if this resourceId has a valid package ID.
+        if (((resid >>> 24) & 0x000000ff) >= 0x00000001) {   // start of real resource IDs.
             return resid;
         } else {
             TypedValue outValue = new TypedValue();
@@ -146,9 +146,9 @@ public class AlertDialog extends AppCompatDialog implements DialogInterface {
     }
 
     /**
-     * @see Builder#setCustomTitle(View)
-     *
      * This method has no effect if called after {@link #show()}.
+     *
+     * @see Builder#setCustomTitle(View)
      */
     public void setCustomTitle(View customTitleView) {
         mAlert.setCustomTitle(customTitleView);
@@ -188,7 +188,9 @@ public class AlertDialog extends AppCompatDialog implements DialogInterface {
 
     /**
      * Internal api to allow hinting for the best button panel layout.
+     * @hide
      */
+    @RestrictTo(LIBRARY_GROUP)
     void setButtonPanelLayoutHint(int layoutHint) {
         mAlert.setButtonPanelLayoutHint(layoutHint);
     }
@@ -352,7 +354,7 @@ public class AlertDialog extends AppCompatDialog implements DialogInterface {
          *
          * @return This Builder object to allow for chaining of calls to set methods
          */
-        public Builder setTitle(CharSequence title) {
+        public Builder setTitle(@Nullable CharSequence title) {
             P.mTitle = title;
             return this;
         }
@@ -373,7 +375,7 @@ public class AlertDialog extends AppCompatDialog implements DialogInterface {
          * @return this Builder object to allow for chaining of calls to set
          *         methods
          */
-        public Builder setCustomTitle(View customTitleView) {
+        public Builder setCustomTitle(@Nullable View customTitleView) {
             P.mCustomTitleView = customTitleView;
             return this;
         }
@@ -393,7 +395,7 @@ public class AlertDialog extends AppCompatDialog implements DialogInterface {
          *
          * @return This Builder object to allow for chaining of calls to set methods
          */
-        public Builder setMessage(CharSequence message) {
+        public Builder setMessage(@Nullable CharSequence message) {
             P.mMessage = message;
             return this;
         }
@@ -420,7 +422,7 @@ public class AlertDialog extends AppCompatDialog implements DialogInterface {
          * @return this Builder object to allow for chaining of calls to set
          *         methods
          */
-        public Builder setIcon(Drawable icon) {
+        public Builder setIcon(@Nullable Drawable icon) {
             P.mIcon = icon;
             return this;
         }
@@ -876,7 +878,7 @@ public class AlertDialog extends AppCompatDialog implements DialogInterface {
          * be able to put padding around the view.
          * @hide
          */
-        @RestrictTo(GROUP_ID)
+        @RestrictTo(LIBRARY_GROUP)
         @Deprecated
         public Builder setView(View view, int viewSpacingLeft, int viewSpacingTop,
                 int viewSpacingRight, int viewSpacingBottom) {
@@ -909,7 +911,7 @@ public class AlertDialog extends AppCompatDialog implements DialogInterface {
         /**
          * @hide
          */
-        @RestrictTo(GROUP_ID)
+        @RestrictTo(LIBRARY_GROUP)
         public Builder setRecycleOnMeasureEnabled(boolean enabled) {
             P.mRecycleOnMeasure = enabled;
             return this;

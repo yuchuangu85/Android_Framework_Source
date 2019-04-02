@@ -30,21 +30,21 @@ public interface IccConstants {
     static final int EF_EXT2 = 0x6F4B;
     static final int EF_EXT3 = 0x6F4C;
     static final int EF_EXT5 = 0x6F4E;
-    static final int EF_EXT6 = 0x6fc8;   // Ext record for EF[MBDN]
+    static final int EF_EXT6 = 0x6FC8;   // Ext record for EF[MBDN]
     static final int EF_MWIS = 0x6FCA;
-    static final int EF_MBDN = 0x6fc7;
-    static final int EF_PNN = 0x6fc5;
-    static final int EF_OPL = 0x6fc6;
+    static final int EF_MBDN = 0x6FC7;
+    static final int EF_PNN = 0x6FC5;
+    static final int EF_OPL = 0x6FC6;
     static final int EF_SPN = 0x6F46;
     static final int EF_SMS = 0x6F3C;
-    static final int EF_ICCID = 0x2fe2;
+    static final int EF_ICCID = 0x2FE2;
     static final int EF_AD = 0x6FAD;
-    static final int EF_MBI = 0x6fc9;
-    static final int EF_MSISDN = 0x6f40;
-    static final int EF_SPDI = 0x6fcd;
-    static final int EF_SST = 0x6f38;
+    static final int EF_MBI = 0x6FC9;
+    static final int EF_MSISDN = 0x6F40;
+    static final int EF_SPDI = 0x6FCD;
+    static final int EF_SST = 0x6F38;
     static final int EF_CFIS = 0x6FCB;
-    static final int EF_IMG = 0x4f20;
+    static final int EF_IMG = 0x4F20;
 
     // USIM SIM file ids from TS 131.102
     public static final int EF_PBR = 0x4F30;
@@ -54,13 +54,13 @@ public interface IccConstants {
     static final int EF_MAILBOX_CPHS = 0x6F17;
     static final int EF_VOICE_MAIL_INDICATOR_CPHS = 0x6F11;
     static final int EF_CFF_CPHS = 0x6F13;
-    static final int EF_SPN_CPHS = 0x6f14;
-    static final int EF_SPN_SHORT_CPHS = 0x6f18;
-    static final int EF_INFO_CPHS = 0x6f16;
-    static final int EF_CSP_CPHS = 0x6f15;
+    static final int EF_SPN_CPHS = 0x6F14;
+    static final int EF_SPN_SHORT_CPHS = 0x6F18;
+    static final int EF_INFO_CPHS = 0x6F16;
+    static final int EF_CSP_CPHS = 0x6F15;
 
     // CDMA RUIM file ids from 3GPP2 C.S0023-0
-    static final int EF_CST = 0x6f32;
+    static final int EF_CST = 0x6F32;
     static final int EF_RUIM_SPN =0x6F41;
 
     // ETSI TS.102.221
@@ -75,17 +75,27 @@ public interface IccConstants {
     static final int EF_CSIM_MIPUPP = 0x6F4D;
 
     //ISIM access
-    static final int EF_IMPU = 0x6f04;
-    static final int EF_IMPI = 0x6f02;
-    static final int EF_DOMAIN = 0x6f03;
-    static final int EF_IST = 0x6f07;
-    static final int EF_PCSCF = 0x6f09;
-    static final int EF_PSI = 0x6fe5;
+    static final int EF_IMPU = 0x6F04;
+    static final int EF_IMPI = 0x6F02;
+    static final int EF_DOMAIN = 0x6F03;
+    static final int EF_IST = 0x6F07;
+    static final int EF_PCSCF = 0x6F09;
+    static final int EF_PSI = 0x6FE5;
 
-    // SMS record length from TS 51.011 10.5.3
-    static public final int SMS_RECORD_LENGTH = 176;
-    // SMS record length from C.S0023 3.4.27
-    static public final int CDMA_SMS_RECORD_LENGTH = 255;
+    //PLMN Selection Information w/ Access Technology TS 131.102
+    static final int EF_PLMN_W_ACT = 0x6F60;
+    static final int EF_OPLMN_W_ACT = 0x6F61;
+    static final int EF_HPLMN_W_ACT = 0x6F62;
+
+    //Equivalent Home and Forbidden PLMN Lists TS 131.102
+    static final int EF_EHPLMN = 0x6FD9;
+    static final int EF_FPLMN = 0x6F7B;
+
+    // Last Roaming Selection Indicator
+    static final int EF_LRPLMNSI = 0x6FDC;
+
+    //Search interval for higher priority PLMNs
+    static final int EF_HPPLMN = 0x6F31;
 
     static final String MF_SIM = "3F00";
     static final String DF_TELECOM = "7F10";

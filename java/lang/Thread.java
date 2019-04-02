@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1994, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,7 @@
 
 package java.lang;
 
+import dalvik.annotation.optimization.FastNative;
 import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
@@ -41,7 +42,6 @@ import sun.nio.ch.Interruptible;
 import sun.reflect.CallerSensitive;
 import dalvik.system.VMStack;
 import libcore.util.EmptyArray;
-import sun.security.util.SecurityConstants;
 
 
 /**
@@ -78,7 +78,7 @@ import sun.security.util.SecurityConstants;
  * <code>Thread</code>. An instance of the subclass can then be
  * allocated and started. For example, a thread that computes primes
  * larger than a stated value could be written as follows:
- * <p><hr><blockquote><pre>
+ * <hr><blockquote><pre>
  *     class PrimeThread extends Thread {
  *         long minPrime;
  *         PrimeThread(long minPrime) {
@@ -93,7 +93,7 @@ import sun.security.util.SecurityConstants;
  * </pre></blockquote><hr>
  * <p>
  * The following code would then create a thread and start it running:
- * <p><blockquote><pre>
+ * <blockquote><pre>
  *     PrimeThread p = new PrimeThread(143);
  *     p.start();
  * </pre></blockquote>
@@ -104,7 +104,7 @@ import sun.security.util.SecurityConstants;
  * then be allocated, passed as an argument when creating
  * <code>Thread</code>, and started. The same example in this other
  * style looks like the following:
- * <p><hr><blockquote><pre>
+ * <hr><blockquote><pre>
  *     class PrimeRun implements Runnable {
  *         long minPrime;
  *         PrimeRun(long minPrime) {
@@ -119,7 +119,7 @@ import sun.security.util.SecurityConstants;
  * </pre></blockquote><hr>
  * <p>
  * The following code would then create a thread and start it running:
- * <p><blockquote><pre>
+ * <blockquote><pre>
  *     PrimeRun p = new PrimeRun(143);
  *     new Thread(p).start();
  * </pre></blockquote>
@@ -152,7 +152,7 @@ class Thread implements Runnable {
 
     boolean started = false;
 
-    private String name;
+    private volatile String name;
 
     private int         priority;
     private Thread      threadQ;
@@ -272,6 +272,7 @@ class Thread implements Runnable {
      *
      * @return  the currently executing thread.
      */
+    @FastNative
     public static native Thread currentThread();
 
     /**
@@ -313,6 +314,7 @@ class Thread implements Runnable {
         Thread.sleep(millis, 0);
     }
 
+    @FastNative
     private static native void sleep(Object lock, long millis, int nanos)
         throws InterruptedException;
 
@@ -519,7 +521,7 @@ class Thread implements Runnable {
 
 
     /** @hide */
-    // Android added : Private constructor - used by the runtime.
+    // Android-added: Private constructor - used by the runtime.
     Thread(ThreadGroup group, String name, int priority, boolean daemon) {
         this.group = group;
         this.group.addUnstarted();
@@ -717,7 +719,8 @@ class Thread implements Runnable {
          *
          * A zero status value corresponds to state "NEW".
          */
-        if (threadStatus != 0)
+        // Android-changed: throw if 'started' is true
+        if (threadStatus != 0 || started)
             throw new IllegalThreadStateException();
 
         /* Notify the group that this thread is about to be started
@@ -853,50 +856,15 @@ class Thread implements Runnable {
     }
 
     /**
-     * Forces the thread to stop executing.
-     * <p>
-     * If there is a security manager installed, the <code>checkAccess</code>
-     * method of this thread is called, which may result in a
-     * <code>SecurityException</code> being raised (in the current thread).
-     * <p>
-     * If this thread is different from the current thread (that is, the current
-     * thread is trying to stop a thread other than itself) or
-     * <code>obj</code> is not an instance of <code>ThreadDeath</code>, the
-     * security manager's <code>checkPermission</code> method (with the
-     * <code>RuntimePermission("stopThread")</code> argument) is called in
-     * addition.
-     * Again, this may result in throwing a
-     * <code>SecurityException</code> (in the current thread).
-     * <p>
-     * If the argument <code>obj</code> is null, a
-     * <code>NullPointerException</code> is thrown (in the current thread).
-     * <p>
-     * The thread represented by this thread is forced to stop
-     * whatever it is doing abnormally and to throw the
-     * <code>Throwable</code> object <code>obj</code> as an exception. This
-     * is an unusual action to take; normally, the <code>stop</code> method
-     * that takes no arguments should be used.
-     * <p>
-     * It is permitted to stop a thread that has not yet been started.
-     * If the thread is eventually started, it immediately terminates.
+     * Throws {@code UnsupportedOperationException}.
      *
-     * @param      obj   the Throwable object to be thrown.
-     * @exception  SecurityException  if the current thread cannot modify
-     *               this thread.
-     * @throws     NullPointerException if obj is <tt>null</tt>.
-     * @see        #interrupt()
-     * @see        #checkAccess()
-     * @see        #run()
-     * @see        #start()
-     * @see        #stop()
-     * @see        SecurityManager#checkAccess(Thread)
-     * @see        SecurityManager#checkPermission
-     * @deprecated This method is inherently unsafe.  See {@link #stop()}
-     *        for details.  An additional danger of this
-     *        method is that it may be used to generate exceptions that the
-     *        target thread is unprepared to handle (including checked
-     *        exceptions that the thread could not possibly throw, were it
-     *        not for this method).
+     * @param obj ignored
+     *
+     * @deprecated This method was originally designed to force a thread to stop
+     *        and throw a given {@code Throwable} as an exception. It was
+     *        inherently unsafe (see {@link #stop()} for details), and furthermore
+     *        could be used to generate exceptions that the target thread was
+     *        not prepared to handle.
      *        For more information, see
      *        <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/concurrency/threadPrimitiveDeprecation.html">Why
      *        are Thread.stop, Thread.suspend and Thread.resume Deprecated?</a>.
@@ -923,8 +891,8 @@ class Thread implements Runnable {
      * will receive an {@link InterruptedException}.
      *
      * <p> If this thread is blocked in an I/O operation upon an {@link
-     * java.nio.channels.InterruptibleChannel </code>interruptible
-     * channel<code>} then the channel will be closed, the thread's interrupt
+     * java.nio.channels.InterruptibleChannel InterruptibleChannel}
+     * then the channel will be closed, the thread's interrupt
      * status will be set, and the thread will receive a {@link
      * java.nio.channels.ClosedByInterruptException}.
      *
@@ -977,6 +945,7 @@ class Thread implements Runnable {
      * @see #isInterrupted()
      * @revised 6.0
      */
+    @FastNative
     public static native boolean interrupted();
 
     /**
@@ -992,6 +961,7 @@ class Thread implements Runnable {
      * @see     #interrupted()
      * @revised 6.0
      */
+    @FastNative
     public native boolean isInterrupted();
 
     /**
@@ -1011,7 +981,7 @@ class Thread implements Runnable {
      *     Why are Thread.stop, Thread.suspend and Thread.resume Deprecated?</a>.
      * @throws UnsupportedOperationException always
      */
-    // Android changed : Throw UnsupportedOperationException instead of
+    // Android-changed: Throw UnsupportedOperationException instead of
     // NoSuchMethodError.
     @Deprecated
     public void destroy() {
@@ -1111,7 +1081,9 @@ class Thread implements Runnable {
         ThreadGroup g;
         checkAccess();
         if (newPriority > MAX_PRIORITY || newPriority < MIN_PRIORITY) {
-            throw new IllegalArgumentException();
+            // Android-changed: Improve exception message when the new priority
+            // is out of bounds.
+            throw new IllegalArgumentException("Priority out of range: " + newPriority);
         }
         if((g = getThreadGroup()) != null) {
             if (newPriority > g.getMaxPriority()) {
@@ -1642,7 +1614,7 @@ class Thread implements Runnable {
      * security-sensitive non-final methods, or else the
      * "enableContextClassLoaderOverride" RuntimePermission is checked.
      */
-    private static boolean isCCLOverridden(Class cl) {
+    private static boolean isCCLOverridden(Class<?> cl) {
         if (cl == Thread.class)
             return false;
 
@@ -1662,21 +1634,21 @@ class Thread implements Runnable {
      * override security-sensitive non-final methods.  Returns true if the
      * subclass overrides any of the methods, false otherwise.
      */
-    private static boolean auditSubclass(final Class subcl) {
+    private static boolean auditSubclass(final Class<?> subcl) {
         Boolean result = AccessController.doPrivileged(
             new PrivilegedAction<Boolean>() {
                 public Boolean run() {
-                    for (Class cl = subcl;
+                    for (Class<?> cl = subcl;
                          cl != Thread.class;
                          cl = cl.getSuperclass())
                     {
                         try {
-                            cl.getDeclaredMethod("getContextClassLoader", new Class[0]);
+                            cl.getDeclaredMethod("getContextClassLoader", new Class<?>[0]);
                             return Boolean.TRUE;
                         } catch (NoSuchMethodException ex) {
                         }
                         try {
-                            Class[] params = {ClassLoader.class};
+                            Class<?>[] params = {ClassLoader.class};
                             cl.getDeclaredMethod("setContextClassLoader", params);
                             return Boolean.TRUE;
                         } catch (NoSuchMethodException ex) {
@@ -1838,6 +1810,7 @@ class Thread implements Runnable {
      * @see ThreadGroup#uncaughtException
      * @since 1.5
      */
+    @FunctionalInterface
     public interface UncaughtExceptionHandler {
         /**
          * Method invoked when the given thread terminates due to the
@@ -1900,9 +1873,32 @@ class Thread implements Runnable {
      * there is no default.
      * @since 1.5
      * @see #setDefaultUncaughtExceptionHandler
+     * @return the default uncaught exception handler for all threads
      */
     public static UncaughtExceptionHandler getDefaultUncaughtExceptionHandler(){
         return defaultUncaughtExceptionHandler;
+    }
+
+    // Android-changed: Added concept of an uncaughtExceptionPreHandler for use by platform.
+    // null unless explicitly set
+    private static volatile UncaughtExceptionHandler uncaughtExceptionPreHandler;
+
+    /**
+     * Sets an {@link UncaughtExceptionHandler} that will be called before any
+     * returned by {@link #getUncaughtExceptionHandler()}. To allow the standard
+     * handlers to run, this handler should never terminate this process. Any
+     * throwables thrown by the handler will be ignored by
+     * {@link #dispatchUncaughtException(Throwable)}.
+     *
+     * @hide only for use by the Android framework (RuntimeInit) b/29624607
+     */
+    public static void setUncaughtExceptionPreHandler(UncaughtExceptionHandler eh) {
+        uncaughtExceptionPreHandler = eh;
+    }
+
+    /** @hide */
+    public static UncaughtExceptionHandler getUncaughtExceptionPreHandler() {
+        return uncaughtExceptionPreHandler;
     }
 
     /**
@@ -1912,6 +1908,7 @@ class Thread implements Runnable {
      * <tt>ThreadGroup</tt> object is returned, unless this thread
      * has terminated, in which case <tt>null</tt> is returned.
      * @since 1.5
+     * @return the uncaught exception handler for this thread
      */
     public UncaughtExceptionHandler getUncaughtExceptionHandler() {
         return uncaughtExceptionHandler != null ?
@@ -1940,9 +1937,21 @@ class Thread implements Runnable {
 
     /**
      * Dispatch an uncaught exception to the handler. This method is
-     * intended to be called only by the JVM.
+     * intended to be called only by the runtime and by tests.
+     *
+     * @hide
      */
-    private void dispatchUncaughtException(Throwable e) {
+    // @VisibleForTesting (would be private if not for tests)
+    public final void dispatchUncaughtException(Throwable e) {
+        Thread.UncaughtExceptionHandler initialUeh =
+                Thread.getUncaughtExceptionPreHandler();
+        if (initialUeh != null) {
+            try {
+                initialUeh.uncaughtException(this, e);
+            } catch (RuntimeException | Error ignored) {
+                // Throwables thrown by the initial handler are ignored
+            }
+        }
         getUncaughtExceptionHandler().uncaughtException(this, e);
     }
 
@@ -2034,6 +2043,7 @@ class Thread implements Runnable {
 
     private native int nativeGetStatus(boolean hasBeenStarted);
 
+    @FastNative
     private native void nativeInterrupt();
 
     /** Park states */
@@ -2183,11 +2193,18 @@ class Thread implements Runnable {
          * spuriously return for any reason, and this situation
          * can safely be construed as just such a spurious return.
          */
-        long delayMillis = time - System.currentTimeMillis();
-
-        if (delayMillis <= 0) {
+        final long currentTime = System.currentTimeMillis();
+        if (time <= currentTime) {
             parkState = ParkState.UNPARKED;
         } else {
+            long delayMillis = time - currentTime;
+            // Long.MAX_VALUE / NANOS_PER_MILLI (0x8637BD05SF6) is the largest
+            // long value that won't overflow to negative value when
+            // multiplyed by NANOS_PER_MILLI (10^6).
+            long maxValue = (Long.MAX_VALUE / NANOS_PER_MILLI);
+            if (delayMillis > maxValue) {
+                delayMillis = maxValue;
+            }
             parkFor$(delayMillis * NANOS_PER_MILLI);
         }
         }

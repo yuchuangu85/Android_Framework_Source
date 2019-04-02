@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.cat;
 
+import android.content.ComponentName;
+
 /**
  * Interface for communication between STK App and CAT Telephony
  *
@@ -28,11 +30,11 @@ public interface AppInterface {
      * proactive command, session end, ALPHA during STK CC arrive.
      */
     public static final String CAT_CMD_ACTION =
-                                    "android.intent.action.stk.command";
+                                    "com.android.internal.stk.command";
     public static final String CAT_SESSION_END_ACTION =
-                                    "android.intent.action.stk.session_end";
+                                    "com.android.internal.stk.session_end";
     public static final String CAT_ALPHA_NOTIFY_ACTION =
-                                    "android.intent.action.stk.alpha_notify";
+                                    "com.android.internal.stk.alpha_notify";
 
     //This is used to send ALPHA string from card to STK App.
     public static final String ALPHA_STRING = "alpha_string";
@@ -43,10 +45,15 @@ public interface AppInterface {
     public static final String CARD_STATUS = "card_status";
     //Intent's actions are broadcasted by Telephony once IccRefresh occurs.
     public static final String CAT_ICC_STATUS_CHANGE =
-                                    "android.intent.action.stk.icc_status_change";
+                                    "com.android.internal.stk.icc_status_change";
 
     // Permission required by STK command receiver
     public static final String STK_PERMISSION = "android.permission.RECEIVE_STK_COMMANDS";
+
+    // Only forwards cat broadcast to the system default stk app
+    public static ComponentName getDefaultSTKApplication() {
+        return ComponentName.unflattenFromString("com.android.stk/.StkCmdReceiver");
+    }
 
     /*
      * Callback function from app to telephony to pass a result code and user's

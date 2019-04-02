@@ -16,53 +16,14 @@
 
 package android.support.v4.widget;
 
+import android.os.Build;
 import android.view.View.OnTouchListener;
+import android.widget.PopupMenu;
 
 /**
- * Helper for accessing features in PopupMenu introduced after API level 4 in a
- * backwards compatible fashion.
+ * Helper for accessing features in {@link PopupMenu}.
  */
 public final class PopupMenuCompat {
-    /**
-     * Interface for the full API.
-     */
-    interface PopupMenuImpl {
-        public OnTouchListener getDragToOpenListener(Object popupMenu);
-    }
-
-    /**
-     * Interface implementation that doesn't use anything above v4 APIs.
-     */
-    static class BasePopupMenuImpl implements PopupMenuImpl {
-        @Override
-        public OnTouchListener getDragToOpenListener(Object popupMenu) {
-            return null;
-        }
-    }
-
-    /**
-     * Interface implementation for devices with at least KitKat APIs.
-     */
-    static class KitKatPopupMenuImpl extends BasePopupMenuImpl {
-        @Override
-        public OnTouchListener getDragToOpenListener(Object popupMenu) {
-            return PopupMenuCompatKitKat.getDragToOpenListener(popupMenu);
-        }
-    }
-
-    /**
-     * Select the correct implementation to use for the current platform.
-     */
-    static final PopupMenuImpl IMPL;
-    static {
-        final int version = android.os.Build.VERSION.SDK_INT;
-        if (version >= 19) {
-            IMPL = new KitKatPopupMenuImpl();
-        } else {
-            IMPL = new BasePopupMenuImpl();
-        }
-    }
-
     private PopupMenuCompat() {
         // This class is not publicly instantiable.
     }
@@ -83,10 +44,14 @@ public final class PopupMenuCompat {
      * </pre>
      *
      * @param popupMenu the PopupMenu against which to invoke the method
-     * @return a touch listener that controls drag-to-open behavior, or null on
+     * @return a touch listener that controls drag-to-open behavior, or {@code null} on
      *         unsupported APIs
      */
     public static OnTouchListener getDragToOpenListener(Object popupMenu) {
-        return IMPL.getDragToOpenListener(popupMenu);
+        if (Build.VERSION.SDK_INT >= 19) {
+            return ((PopupMenu) popupMenu).getDragToOpenListener();
+        } else {
+            return null;
+        }
     }
 }

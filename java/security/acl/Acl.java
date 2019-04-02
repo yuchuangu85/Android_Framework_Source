@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,43 +42,43 @@ import java.security.Principal;
  * granted to the associated principal. If negative, the permissions
  * are to be denied.<p>
  *
- * The ACL Entries in each ACL observe the following rules:<p>
+ * The ACL Entries in each ACL observe the following rules:
  *
  * <ul> <li>Each principal can have at most one positive ACL entry and
  * one negative entry; that is, multiple positive or negative ACL
  * entries are not allowed for any principal.  Each entry specifies
  * the set of permissions that are to be granted (if positive) or
- * denied (if negative). <p>
+ * denied (if negative).
  *
  * <li>If there is no entry for a particular principal, then the
- * principal is considered to have a null (empty) permission set.<p>
+ * principal is considered to have a null (empty) permission set.
  *
  * <li>If there is a positive entry that grants a principal a
  * particular permission, and a negative entry that denies the
  * principal the same permission, the result is as though the
- * permission was never granted or denied. <p>
+ * permission was never granted or denied.
  *
  * <li>Individual permissions always override permissions of the
  * group(s) to which the individual belongs. That is, individual
  * negative permissions (specific denial of permissions) override the
  * groups' positive permissions. And individual positive permissions
- * override the groups' negative permissions.<p>
+ * override the groups' negative permissions.
  *
  * </ul>
  *
- * The <code> java.security.acl </code> package provides the
+ * The {@code  java.security.acl } package provides the
  * interfaces to the ACL and related data structures (ACL entries,
- * groups, permissions, etc.), and the <code> sun.security.acl </code>
+ * groups, permissions, etc.), and the {@code  sun.security.acl }
  * classes provide a default implementation of the interfaces. For
- * example, <code> java.security.acl.Acl </code> provides the
- * interface to an ACL and the <code> sun.security.acl.AclImpl </code>
+ * example, {@code  java.security.acl.Acl } provides the
+ * interface to an ACL and the {@code  sun.security.acl.AclImpl }
  * class provides the default implementation of the interface.<p>
  *
- * The <code> java.security.acl.Acl </code> interface extends the
- * <code> java.security.acl.Owner </code> interface. The Owner
+ * The {@code  java.security.acl.Acl } interface extends the
+ * {@code  java.security.acl.Owner } interface. The Owner
  * interface is used to maintain a list of owners for each ACL.  Only
  * owners are allowed to modify an ACL. For example, only an owner can
- * call the ACL's <code>addEntry</code> method to add a new ACL entry
+ * call the ACL's {@code addEntry} method to add a new ACL entry
  * to the ACL.
  *
  * @see java.security.acl.AclEntry
@@ -159,12 +159,12 @@ public interface Acl extends Owner {
      * Returns an enumeration for the set of allowed permissions for the
      * specified principal (representing an entity such as an individual or
      * a group). This set of allowed permissions is calculated as
-     * follows:<p>
+     * follows:
      *
      * <ul>
      *
      * <li>If there is no entry in this Access Control List for the
-     * specified principal, an empty permission set is returned.<p>
+     * specified principal, an empty permission set is returned.
      *
      * <li>Otherwise, the principal's group permission sets are determined.
      * (A principal can belong to one or more groups, where a group is a
@@ -217,7 +217,7 @@ public interface Acl extends Owner {
      * More specifically, this method checks whether the passed permission
      * is a member of the allowed permission set of the specified principal.
      * The allowed permission set is determined by the same algorithm as is
-     * used by the <code>getPermissions</code> method.
+     * used by the {@code getPermissions} method.
      *
      * @param principal the principal, assumed to be a valid authenticated
      * Principal.

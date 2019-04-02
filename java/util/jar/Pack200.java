@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003,2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,8 +44,8 @@ import java.beans.PropertyChangeListener;
  * The unpacker  engine is used by deployment applications to
  * transform the byte-stream back to JAR format.
  * <p>
- * Here is an example using  packer and unpacker:<p>
- * <blockquote><pre>
+ * Here is an example using  packer and unpacker:
+ * <pre>{@code
  *    import java.util.jar.Pack200;
  *    import java.util.jar.Pack200.*;
  *    ...
@@ -90,7 +90,7 @@ import java.beans.PropertyChangeListener;
  *    } catch (IOException ioe) {
  *        ioe.printStackTrace();
  *    }
- * </pre></blockquote>
+ * }</pre>
  * <p>
  * A Pack200 file compressed with gzip can be hosted on HTTP/1.1 web servers.
  * The deployment applications can use "Accept-Encoding=pack200-gzip". This
@@ -112,7 +112,7 @@ public abstract class Pack200 {
     // Static methods of the Pack200 class.
     /**
      * Obtain new instance of a class that implements Packer.
-     *
+     * <ul>
      * <li><p>If the system property <tt>java.util.jar.Pack200.Packer</tt>
      * is defined, then the value is taken to be the fully-qualified name
      * of a concrete implementation class, which must implement Packer.
@@ -122,6 +122,7 @@ public abstract class Pack200 {
      * <li><p>If an implementation has not been specified with the system
      * property, then the system-default implementation class is instantiated,
      * and the result is returned.</p></li>
+     * </ul>
      *
      * <p>Note:  The returned object is not guaranteed to operate
      * correctly if multiple threads use it at the same time.
@@ -137,7 +138,7 @@ public abstract class Pack200 {
 
     /**
      * Obtain new instance of a class that implements Unpacker.
-     *
+     * <ul>
      * <li><p>If the system property <tt>java.util.jar.Pack200.Unpacker</tt>
      * is defined, then the value is taken to be the fully-qualified
      * name of a concrete implementation class, which must implement Unpacker.
@@ -147,6 +148,7 @@ public abstract class Pack200 {
      * <li><p>If an implementation has not been specified with the
      * system property, then the system-default implementation class
      * is instantiated, and the result is returned.</p></li>
+     * </ul>
      *
      * <p>Note:  The returned object is not guaranteed to operate
      * correctly if multiple threads use it at the same time.
@@ -350,14 +352,14 @@ public abstract class Pack200 {
          * directory will be passed also.
          * <p>
          * Examples:
-         * <pre><code>
+         * <pre>{@code
          *     Map p = packer.properties();
          *     p.put(PASS_FILE_PFX+0, "mutants/Rogue.class");
          *     p.put(PASS_FILE_PFX+1, "mutants/Wolverine.class");
          *     p.put(PASS_FILE_PFX+2, "mutants/Storm.class");
          *     # Pass all files in an entire directory hierarchy:
          *     p.put(PASS_FILE_PFX+3, "police/");
-         * </pre></code>.
+         * }</pre>
          */
         String PASS_FILE_PFX            = "pack.pass.file.";
 
@@ -378,12 +380,12 @@ public abstract class Pack200 {
          * This is the default value for this property.
          * <p>
          * Examples:
-         * <pre><code>
+         * <pre>{@code
          *     Map p = pack200.getProperties();
          *     p.put(UNKNOWN_ATTRIBUTE, ERROR);
          *     p.put(UNKNOWN_ATTRIBUTE, STRIP);
          *     p.put(UNKNOWN_ATTRIBUTE, PASS);
-         * </pre></code>
+         * }</pre>
          */
         String UNKNOWN_ATTRIBUTE        = "pack.unknown.attribute";
 
@@ -456,12 +458,12 @@ public abstract class Pack200 {
          * The unpacker's progress as a percentage, as periodically
          * updated by the unpacker.
          * Values of 0 - 100 are normal, and -1 indicates a stall.
-         * Observe this property with a {@link PropertyChangeListener}.
+         * Progress can be monitored by polling the value of this
+         * property.
          * <p>
          * At a minimum, the unpacker must set progress to 0
          * at the beginning of a packing operation, and to 100
          * at the end.
-         * @see  #addPropertyChangeListener
          */
         String PROGRESS                 = "pack.progress";
 
@@ -574,21 +576,49 @@ public abstract class Pack200 {
          * Registers a listener for PropertyChange events on the properties map.
          * This is typically used by applications to update a progress bar.
          *
+         * <p> The default implementation of this method does nothing and has
+         * no side-effects.</p>
+         *
+         * <p><b>WARNING:</b> This method is omitted from the interface
+         * declaration in all subset Profiles of Java SE that do not include
+         * the {@code java.beans} package. </p>
+
          * @see #properties
          * @see #PROGRESS
          * @param listener  An object to be invoked when a property is changed.
+         * @deprecated The dependency on {@code PropertyChangeListener} creates
+         *             a significant impediment to future modularization of the
+         *             Java platform. This method will be removed in a future
+         *             release.
+         *             Applications that need to monitor progress of the packer
+         *             can poll the value of the {@link #PROGRESS PROGRESS}
+         *             property instead.
          */
-        void addPropertyChangeListener(PropertyChangeListener listener) ;
+        @Deprecated
+        default void addPropertyChangeListener(PropertyChangeListener listener) {
+        }
 
         /**
          * Remove a listener for PropertyChange events, added by
          * the {@link #addPropertyChangeListener}.
          *
+         * <p> The default implementation of this method does nothing and has
+         * no side-effects.</p>
+         *
+         * <p><b>WARNING:</b> This method is omitted from the interface
+         * declaration in all subset Profiles of Java SE that do not include
+         * the {@code java.beans} package. </p>
+         *
          * @see #addPropertyChangeListener
          * @param listener  The PropertyChange listener to be removed.
+         * @deprecated The dependency on {@code PropertyChangeListener} creates
+         *             a significant impediment to future modularization of the
+         *             Java platform. This method will be removed in a future
+         *             release.
          */
-        void removePropertyChangeListener(PropertyChangeListener listener);
-
+        @Deprecated
+        default void removePropertyChangeListener(PropertyChangeListener listener) {
+        }
     }
 
     /**
@@ -640,12 +670,12 @@ public abstract class Pack200 {
          * The unpacker's progress as a percentage, as periodically
          * updated by the unpacker.
          * Values of 0 - 100 are normal, and -1 indicates a stall.
-         * Observe this property with a {@link PropertyChangeListener}.
+         * Progress can be monitored by polling the value of this
+         * property.
          * <p>
          * At a minimum, the unpacker must set progress to 0
          * at the beginning of a packing operation, and to 100
          * at the end.
-         * @see #addPropertyChangeListener
          */
         String PROGRESS         = "unpack.progress";
 
@@ -705,20 +735,49 @@ public abstract class Pack200 {
          * Registers a listener for PropertyChange events on the properties map.
          * This is typically used by applications to update a progress bar.
          *
+         * <p> The default implementation of this method does nothing and has
+         * no side-effects.</p>
+         *
+         * <p><b>WARNING:</b> This method is omitted from the interface
+         * declaration in all subset Profiles of Java SE that do not include
+         * the {@code java.beans} package. </p>
+         *
          * @see #properties
          * @see #PROGRESS
          * @param listener  An object to be invoked when a property is changed.
+         * @deprecated The dependency on {@code PropertyChangeListener} creates
+         *             a significant impediment to future modularization of the
+         *             Java platform. This method will be removed in a future
+         *             release.
+         *             Applications that need to monitor progress of the
+         *             unpacker can poll the value of the {@link #PROGRESS
+         *             PROGRESS} property instead.
          */
-        void addPropertyChangeListener(PropertyChangeListener listener) ;
+        @Deprecated
+        default void addPropertyChangeListener(PropertyChangeListener listener) {
+        }
 
         /**
          * Remove a listener for PropertyChange events, added by
          * the {@link #addPropertyChangeListener}.
          *
+         * <p> The default implementation of this method does nothing and has
+         * no side-effects.</p>
+         *
+         * <p><b>WARNING:</b> This method is omitted from the interface
+         * declaration in all subset Profiles of Java SE that do not include
+         * the {@code java.beans} package. </p>
+         *
          * @see #addPropertyChangeListener
          * @param listener  The PropertyChange listener to be removed.
+         * @deprecated The dependency on {@code PropertyChangeListener} creates
+         *             a significant impediment to future modularization of the
+         *             Java platform. This method will be removed in a future
+         *             release.
          */
-        void removePropertyChangeListener(PropertyChangeListener listener);
+        @Deprecated
+        default void removePropertyChangeListener(PropertyChangeListener listener) {
+        }
     }
 
     // Private stuff....
@@ -726,20 +785,20 @@ public abstract class Pack200 {
     private static final String PACK_PROVIDER = "java.util.jar.Pack200.Packer";
     private static final String UNPACK_PROVIDER = "java.util.jar.Pack200.Unpacker";
 
-    private static Class packerImpl;
-    private static Class unpackerImpl;
+    private static Class<?> packerImpl;
+    private static Class<?> unpackerImpl;
 
     private synchronized static Object newInstance(String prop) {
         String implName = "(unknown)";
         try {
-            Class impl = (PACK_PROVIDER.equals(prop))? packerImpl: unpackerImpl;
+            Class<?> impl = (PACK_PROVIDER.equals(prop))? packerImpl: unpackerImpl;
             if (impl == null) {
                 // The first time, we must decide which class to use.
                 implName = java.security.AccessController.doPrivileged(
                     new sun.security.action.GetPropertyAction(prop,""));
                 if (implName != null && !implName.equals(""))
                     impl = Class.forName(implName);
-                // Android changed : Remove default Packer Impl.
+                // Android-changed: Remove default Packer Impl.
                 //
                 // else if (PACK_PROVIDER.equals(prop))
                 //     impl = com.sun.java.util.jar.pack.PackerImpl.class;

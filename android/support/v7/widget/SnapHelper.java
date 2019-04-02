@@ -19,11 +19,12 @@ package android.support.v7.widget;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.RecyclerView.LayoutManager;
+import android.support.v7.widget.RecyclerView.SmoothScroller;
+import android.support.v7.widget.RecyclerView.SmoothScroller.ScrollVectorProvider;
 import android.util.DisplayMetrics;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.Scroller;
-import android.support.v7.widget.RecyclerView.SmoothScroller.ScrollVectorProvider;
 
 /**
  * Class intended to support snapping for a {@link RecyclerView}.
@@ -159,7 +160,7 @@ public abstract class SnapHelper extends RecyclerView.OnFlingListener {
             return false;
         }
 
-        RecyclerView.SmoothScroller smoothScroller = createSnapScroller(layoutManager);
+        SmoothScroller smoothScroller = createScroller(layoutManager);
         if (smoothScroller == null) {
             return false;
         }
@@ -203,16 +204,35 @@ public abstract class SnapHelper extends RecyclerView.OnFlingListener {
      * @param layoutManager     The {@link RecyclerView.LayoutManager} associated with the attached
      *                          {@link RecyclerView}.
      *
-     * @return a {@link LinearSmoothScroller} which will handle the scrolling.
+     * @return a {@link SmoothScroller} which will handle the scrolling.
      */
     @Nullable
-    private LinearSmoothScroller createSnapScroller(LayoutManager layoutManager) {
+    protected SmoothScroller createScroller(LayoutManager layoutManager) {
+        return createSnapScroller(layoutManager);
+    }
+
+    /**
+     * Creates a scroller to be used in the snapping implementation.
+     *
+     * @param layoutManager     The {@link RecyclerView.LayoutManager} associated with the attached
+     *                          {@link RecyclerView}.
+     *
+     * @return a {@link LinearSmoothScroller} which will handle the scrolling.
+     * @deprecated use {@link #createScroller(LayoutManager)} instead.
+     */
+    @Nullable
+    @Deprecated
+    protected LinearSmoothScroller createSnapScroller(LayoutManager layoutManager) {
         if (!(layoutManager instanceof ScrollVectorProvider)) {
             return null;
         }
         return new LinearSmoothScroller(mRecyclerView.getContext()) {
             @Override
             protected void onTargetFound(View targetView, RecyclerView.State state, Action action) {
+                if (mRecyclerView == null) {
+                    // The associated RecyclerView has been removed so there is no action to take.
+                    return;
+                }
                 int[] snapDistances = calculateDistanceToFinalSnap(mRecyclerView.getLayoutManager(),
                         targetView);
                 final int dx = snapDistances[0];

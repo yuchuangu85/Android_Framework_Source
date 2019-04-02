@@ -18,8 +18,10 @@ package android.support.v4.provider;
 
 import android.content.Context;
 import android.net.Uri;
-import android.support.v4.provider.DocumentsContractApi19;
+import android.provider.DocumentsContract;
+import android.support.annotation.RequiresApi;
 
+@RequiresApi(19)
 class SingleDocumentFile extends DocumentFile {
     private Context mContext;
     private Uri mUri;
@@ -66,6 +68,11 @@ class SingleDocumentFile extends DocumentFile {
     }
 
     @Override
+    public boolean isVirtual() {
+        return DocumentsContractApi19.isVirtual(mContext, mUri);
+    }
+
+    @Override
     public long lastModified() {
         return DocumentsContractApi19.lastModified(mContext, mUri);
     }
@@ -87,7 +94,11 @@ class SingleDocumentFile extends DocumentFile {
 
     @Override
     public boolean delete() {
-        return DocumentsContractApi19.delete(mContext, mUri);
+        try {
+            return DocumentsContract.deleteDocument(mContext.getContentResolver(), mUri);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     @Override

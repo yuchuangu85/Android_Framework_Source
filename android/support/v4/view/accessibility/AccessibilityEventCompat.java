@@ -18,172 +18,64 @@ package android.support.v4.view.accessibility;
 
 import android.os.Build;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityRecord;
 
 /**
- * Helper for accessing features in {@link AccessibilityEvent}
- * introduced after API level 4 in a backwards compatible fashion.
+ * Helper for accessing features in {@link AccessibilityEvent}.
  */
 public final class AccessibilityEventCompat {
-
-    static interface AccessibilityEventVersionImpl {
-        int getRecordCount(AccessibilityEvent event);
-        void appendRecord(AccessibilityEvent event, Object record);
-        Object getRecord(AccessibilityEvent event, int index);
-        void setContentChangeTypes(AccessibilityEvent event, int types);
-        int getContentChangeTypes(AccessibilityEvent event);
-        public void setMovementGranularity(AccessibilityEvent event, int granularity);
-        public int getMovementGranularity(AccessibilityEvent event);
-        public void setAction(AccessibilityEvent event, int action);
-        public int getAction(AccessibilityEvent event);
-    }
-
-    static class AccessibilityEventStubImpl implements AccessibilityEventVersionImpl {
-
-        @Override
-        public void appendRecord(AccessibilityEvent event, Object record) {
-
-        }
-
-        @Override
-        public Object getRecord(AccessibilityEvent event, int index) {
-            return null;
-        }
-
-        @Override
-        public void setContentChangeTypes(AccessibilityEvent event, int types) {
-
-        }
-
-        @Override
-        public int getRecordCount(AccessibilityEvent event) {
-            return 0;
-        }
-
-        @Override
-        public int getContentChangeTypes(AccessibilityEvent event) {
-            return 0;
-        }
-
-        @Override
-        public void setMovementGranularity(AccessibilityEvent event, int granularity) {
-        }
-
-        @Override
-        public int getMovementGranularity(AccessibilityEvent event) {
-            return 0;
-        }
-
-        @Override
-        public void setAction(AccessibilityEvent event, int action) {
-        }
-
-        @Override
-        public int getAction(AccessibilityEvent event) {
-            return 0;
-        }
-    }
-
-    static class AccessibilityEventIcsImpl extends AccessibilityEventStubImpl {
-
-        @Override
-        public void appendRecord(AccessibilityEvent event, Object record) {
-            AccessibilityEventCompatIcs.appendRecord(event, record);
-        }
-
-        @Override
-        public Object getRecord(AccessibilityEvent event, int index) {
-            return AccessibilityEventCompatIcs.getRecord(event, index);
-        }
-
-        @Override
-        public int getRecordCount(AccessibilityEvent event) {
-            return AccessibilityEventCompatIcs.getRecordCount(event);
-        }
-    }
-
-    static class AccessibilityEventJellyBeanImpl extends AccessibilityEventIcsImpl {
-        @Override
-        public void setMovementGranularity(AccessibilityEvent event, int granularity) {
-            AccessibilityEventCompatJellyBean.setMovementGranularity(event, granularity);
-        }
-
-        @Override
-        public int getMovementGranularity(AccessibilityEvent event) {
-            return AccessibilityEventCompatJellyBean.getMovementGranularity(event);
-        }
-
-        @Override
-        public void setAction(AccessibilityEvent event, int action) {
-            AccessibilityEventCompatJellyBean.setAction(event, action);
-        }
-
-        @Override
-        public int getAction(AccessibilityEvent event) {
-            return AccessibilityEventCompatJellyBean.getAction(event);
-        }
-    }
-
-    static class AccessibilityEventKitKatImpl extends AccessibilityEventJellyBeanImpl {
-
-        @Override
-        public void setContentChangeTypes(AccessibilityEvent event, int types) {
-            AccessibilityEventCompatKitKat.setContentChangeTypes(event, types);
-        }
-
-        @Override
-        public int getContentChangeTypes(AccessibilityEvent event) {
-            return AccessibilityEventCompatKitKat.getContentChangeTypes(event);
-        }
-    }
-
-    private final static AccessibilityEventVersionImpl IMPL;
-
-    static {
-        if (Build.VERSION.SDK_INT >= 19) { // KitKat
-            IMPL = new AccessibilityEventKitKatImpl();
-        } else if (Build.VERSION.SDK_INT >= 16) { // Jellybean
-            IMPL = new AccessibilityEventJellyBeanImpl();
-        } else if (Build.VERSION.SDK_INT >= 14) { // ICS
-            IMPL = new AccessibilityEventIcsImpl();
-        } else {
-            IMPL = new AccessibilityEventStubImpl();
-        }
-    }
-
     /**
      * Represents the event of a hover enter over a {@link android.view.View}.
+     * @deprecated Use {@link  AccessibilityEvent#TYPE_VIEW_HOVER_ENTER} directly.
      */
-    public static final int TYPE_VIEW_HOVER_ENTER = 0x00000080;
+    @Deprecated
+    public static final int TYPE_VIEW_HOVER_ENTER = AccessibilityEvent.TYPE_VIEW_HOVER_ENTER;
 
     /**
      * Represents the event of a hover exit over a {@link android.view.View}.
+     * @deprecated Use {@link  AccessibilityEvent#TYPE_VIEW_HOVER_EXIT} directly.
      */
-    public static final int TYPE_VIEW_HOVER_EXIT = 0x00000100;
+    @Deprecated
+    public static final int TYPE_VIEW_HOVER_EXIT = AccessibilityEvent.TYPE_VIEW_HOVER_EXIT;
 
     /**
      * Represents the event of starting a touch exploration gesture.
+     * @deprecated Use {@link  AccessibilityEvent#TYPE_TOUCH_EXPLORATION_GESTURE_START} directly.
      */
-    public static final int TYPE_TOUCH_EXPLORATION_GESTURE_START = 0x00000200;
+    @Deprecated
+    public static final int TYPE_TOUCH_EXPLORATION_GESTURE_START =
+            AccessibilityEvent.TYPE_TOUCH_EXPLORATION_GESTURE_START;
 
     /**
      * Represents the event of ending a touch exploration gesture.
+     * @deprecated Use {@link AccessibilityEvent#TYPE_TOUCH_EXPLORATION_GESTURE_END} directly.
      */
-    public static final int TYPE_TOUCH_EXPLORATION_GESTURE_END = 0x00000400;
+    @Deprecated
+    public static final int TYPE_TOUCH_EXPLORATION_GESTURE_END =
+            AccessibilityEvent.TYPE_TOUCH_EXPLORATION_GESTURE_END;
 
     /**
      * Represents the event of changing the content of a window.
+     * @deprecated Use {@link AccessibilityEvent#TYPE_WINDOW_CONTENT_CHANGED} directly.
      */
-    public static final int TYPE_WINDOW_CONTENT_CHANGED = 0x00000800;
+    @Deprecated
+    public static final int TYPE_WINDOW_CONTENT_CHANGED =
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED;
 
     /**
      * Represents the event of scrolling a view.
+     * @deprecated Use {@link AccessibilityEvent#TYPE_VIEW_SCROLLED} directly.
      */
-    public static final int TYPE_VIEW_SCROLLED = 0x00001000;
+    @Deprecated
+    public static final int TYPE_VIEW_SCROLLED = AccessibilityEvent.TYPE_VIEW_SCROLLED;
 
     /**
      * Represents the event of changing the selection in an {@link android.widget.EditText}.
+     * @deprecated Use {@link AccessibilityEvent#TYPE_VIEW_TEXT_SELECTION_CHANGED} directly.
      */
-    public static final int TYPE_VIEW_TEXT_SELECTION_CHANGED = 0x00002000;
+    @Deprecated
+    public static final int TYPE_VIEW_TEXT_SELECTION_CHANGED =
+            AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED;
 
     /**
      * Represents the event of an application making an announcement.
@@ -274,19 +166,22 @@ public final class AccessibilityEventCompat {
      * @see AccessibilityEvent#TYPE_VIEW_TEXT_CHANGED
      * @see AccessibilityEvent#TYPE_WINDOW_STATE_CHANGED
      * @see AccessibilityEvent#TYPE_NOTIFICATION_STATE_CHANGED
-     * @see #TYPE_VIEW_HOVER_ENTER
-     * @see #TYPE_VIEW_HOVER_EXIT
-     * @see #TYPE_TOUCH_EXPLORATION_GESTURE_START
-     * @see #TYPE_TOUCH_EXPLORATION_GESTURE_END
-     * @see #TYPE_WINDOW_CONTENT_CHANGED
-     * @see #TYPE_VIEW_SCROLLED
-     * @see #TYPE_VIEW_TEXT_SELECTION_CHANGED
+     * @see AccessibilityEvent#TYPE_VIEW_HOVER_ENTER
+     * @see AccessibilityEvent#TYPE_VIEW_HOVER_EXIT
+     * @see AccessibilityEvent#TYPE_TOUCH_EXPLORATION_GESTURE_START
+     * @see AccessibilityEvent#TYPE_TOUCH_EXPLORATION_GESTURE_END
+     * @see AccessibilityEvent#TYPE_WINDOW_CONTENT_CHANGED
+     * @see AccessibilityEvent#TYPE_VIEW_SCROLLED
+     * @see AccessibilityEvent#TYPE_VIEW_TEXT_SELECTION_CHANGED
      * @see #TYPE_ANNOUNCEMENT
      * @see #TYPE_VIEW_TEXT_TRAVERSED_AT_MOVEMENT_GRANULARITY
      * @see #TYPE_GESTURE_DETECTION_START
      * @see #TYPE_GESTURE_DETECTION_END
      * @see #TYPE_TOUCH_INTERACTION_START
      * @see #TYPE_TOUCH_INTERACTION_END
+     * @see #TYPE_WINDOWS_CHANGED
+     * @see #TYPE_VIEW_CONTEXT_CLICKED
+     * @see #TYPE_ASSIST_READING_CONTEXT
      */
     public static final int TYPES_ALL_MASK = 0xFFFFFFFF;
 
@@ -301,9 +196,12 @@ public final class AccessibilityEventCompat {
      * Gets the number of records contained in the event.
      *
      * @return The number of records.
+     *
+     * @deprecated Use {@link AccessibilityEvent#getRecordCount()} directly.
      */
+    @Deprecated
     public static int getRecordCount(AccessibilityEvent event) {
-        return IMPL.getRecordCount(event);
+        return event.getRecordCount();
     }
 
     /**
@@ -313,9 +211,12 @@ public final class AccessibilityEventCompat {
      * @param record The record to append.
      *
      * @throws IllegalStateException If called from an AccessibilityService.
+     *
+     * @deprecated Use {@link AccessibilityEvent#appendRecord(AccessibilityRecord)} directly.
      */
+    @Deprecated
     public static void appendRecord(AccessibilityEvent event, AccessibilityRecordCompat record) {
-        IMPL.appendRecord(event, record.getImpl());
+        event.appendRecord((AccessibilityRecord) record.getImpl());
     }
 
     /**
@@ -323,9 +224,12 @@ public final class AccessibilityEventCompat {
      *
      * @param index The index.
      * @return The record at the specified index.
+     *
+     * @deprecated Use {@link AccessibilityEvent#getRecord(int)} directly.
      */
+    @Deprecated
     public static AccessibilityRecordCompat getRecord(AccessibilityEvent event, int index) {
-        return new AccessibilityRecordCompat(IMPL.getRecord(event, index));
+        return new AccessibilityRecordCompat(event.getRecord(index));
     }
 
     /**
@@ -340,7 +244,10 @@ public final class AccessibilityEventCompat {
      *
      * @param event The from which to create a record.
      * @return An {@link AccessibilityRecordCompat}.
+     *
+     * @deprecated Use the {@link AccessibilityEvent} directly as {@link AccessibilityRecord}.
      */
+    @Deprecated
     public static AccessibilityRecordCompat asRecord(AccessibilityEvent event) {
         return new AccessibilityRecordCompat(event);
     }
@@ -354,7 +261,9 @@ public final class AccessibilityEventCompat {
      * @see #getContentChangeTypes(AccessibilityEvent)
      */
     public static void setContentChangeTypes(AccessibilityEvent event, int changeTypes) {
-        IMPL.setContentChangeTypes(event, changeTypes);
+        if (Build.VERSION.SDK_INT >= 19) {
+            event.setContentChangeTypes(changeTypes);
+        }
     }
 
     /**
@@ -371,7 +280,11 @@ public final class AccessibilityEventCompat {
      *         </ul>
      */
     public static int getContentChangeTypes(AccessibilityEvent event) {
-        return IMPL.getContentChangeTypes(event);
+        if (Build.VERSION.SDK_INT >= 19) {
+            return event.getContentChangeTypes();
+        } else {
+            return 0;
+        }
     }
 
     /**
@@ -381,8 +294,10 @@ public final class AccessibilityEventCompat {
      *
      * @throws IllegalStateException If called from an AccessibilityService.
      */
-    public void setMovementGranularity(AccessibilityEvent event, int granularity) {
-        IMPL.setMovementGranularity(event, granularity);
+    public static void setMovementGranularity(AccessibilityEvent event, int granularity) {
+        if (Build.VERSION.SDK_INT >= 16) {
+            event.setMovementGranularity(granularity);
+        }
     }
 
     /**
@@ -390,8 +305,12 @@ public final class AccessibilityEventCompat {
      *
      * @return The granularity.
      */
-    public int getMovementGranularity(AccessibilityEvent event) {
-        return IMPL.getMovementGranularity(event);
+    public static int getMovementGranularity(AccessibilityEvent event) {
+        if (Build.VERSION.SDK_INT >= 16) {
+            return event.getMovementGranularity();
+        } else {
+            return 0;
+        }
     }
 
     /**
@@ -411,8 +330,10 @@ public final class AccessibilityEventCompat {
      * @throws IllegalStateException If called from an AccessibilityService.
      * @see AccessibilityNodeInfoCompat#performAction(int)
      */
-    public void setAction(AccessibilityEvent event, int action) {
-        IMPL.setAction(event, action);
+    public static void setAction(AccessibilityEvent event, int action) {
+        if (Build.VERSION.SDK_INT >= 16) {
+            event.setAction(action);
+        }
     }
 
     /**
@@ -420,7 +341,11 @@ public final class AccessibilityEventCompat {
      *
      * @return The action.
      */
-    public int getAction(AccessibilityEvent event) {
-        return IMPL.getAction(event);
+    public static int getAction(AccessibilityEvent event) {
+        if (Build.VERSION.SDK_INT >= 16) {
+            return event.getAction();
+        } else {
+            return 0;
+        }
     }
 }

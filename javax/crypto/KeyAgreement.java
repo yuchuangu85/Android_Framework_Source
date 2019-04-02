@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2014, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,7 +32,6 @@ import java.security.*;
 import java.security.Provider.Service;
 import java.security.spec.*;
 
-import sun.security.util.Debug;
 import sun.security.jca.*;
 import sun.security.jca.GetInstance.Instance;
 
@@ -57,22 +56,22 @@ import sun.security.jca.GetInstance.Instance;
  *
  * <p> Android provides the following <code>KeyAgreement</code> algorithms:
  * <table>
- *     <thead>
- *         <tr>
- *             <th>Name</th>
- *             <th>Supported (API Levels)</th>
- *         </tr>
- *     </thead>
- *     <tbody>
- *         <tr>
- *             <td>DH</td>
- *             <td>1+</td>
- *         </tr>
- *         <tr>
- *             <td>ECDH</td>
- *             <td>11+</td>
- *         </tr>
- *     </tbody>
+ *   <thead>
+ *     <tr>
+ *       <th>Algorithm</th>
+ *       <th>Supported API Levels</th>
+ *     </tr>
+ *   </thead>
+ *   <tbody>
+ *     <tr>
+ *       <td>DH</td>
+ *       <td>1+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>ECDH</td>
+ *       <td>11+</td>
+ *     </tr>
+ *   </tbody>
  * </table>
  *
  * This algorithm is described in the <a href=
@@ -89,8 +88,16 @@ import sun.security.jca.GetInstance.Instance;
 
 public class KeyAgreement {
 
+    // Android-removed: this debugging mechanism is not used in Android.
+    /*
     private static final Debug debug =
                         Debug.getInstance("jca", "KeyAgreement");
+
+    private static final Debug pdebug =
+                        Debug.getInstance("provider", "Provider");
+    private static final boolean skipDebug =
+        Debug.isOn("engine=") && !Debug.isOn("keyagreement");
+    */
 
     // The provider
     private Provider provider;
@@ -100,6 +107,23 @@ public class KeyAgreement {
 
     // The name of the key agreement algorithm.
     private final String algorithm;
+
+    // BEGIN Android-removed: Redo the provider selection logic to allow reselecting provider.
+    // When only the algorithm is specified, we want to allow the KeyAgreement provider for that
+    // algorithm to change if multiple providers exist and they support different subsets of
+    // keys.  To that end, we don't hold an iterator and exhaust it when we need to choose
+    // a provider like the upstream implementation, we reestablish the list of providers
+    // each time.
+    /*
+    // next service to try in provider selection
+    // null once provider is selected
+    private Service firstService;
+
+    // remaining services to try in provider selection
+    // null once provider is selected
+    private Iterator<Service> serviceIterator;
+    */
+    // END Android-removed: Redo the provider selection logic to allow reselecting provider.
 
     private final Object lock;
 
@@ -118,6 +142,7 @@ public class KeyAgreement {
         lock = null;
     }
 
+    // Android-changed: Remove Service and Iterator from constructor args.
     private KeyAgreement(String algorithm) {
         this.algorithm = algorithm;
         lock = new Object();
@@ -153,7 +178,7 @@ public class KeyAgreement {
      * algorithm.
      * See the KeyAgreement section in the <a href=
      * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation
+     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
      * @return the new <code>KeyAgreement</code> object.
@@ -169,14 +194,17 @@ public class KeyAgreement {
      */
     public static final KeyAgreement getInstance(String algorithm)
             throws NoSuchAlgorithmException {
-        List services = GetInstance.getServices("KeyAgreement", algorithm);
+        List<Service> services =
+                GetInstance.getServices("KeyAgreement", algorithm);
         // make sure there is at least one service from a signed provider
-        Iterator t = services.iterator();
+        Iterator<Service> t = services.iterator();
         while (t.hasNext()) {
-            Service s = (Service)t.next();
+            Service s = t.next();
             if (JceSecurity.canUseProvider(s.getProvider()) == false) {
                 continue;
             }
+            // Android-changed: Remove Service and Iterator from constructor args.
+            // return new KeyAgreement(s, t, algorithm);
             return new KeyAgreement(algorithm);
         }
         throw new NoSuchAlgorithmException
@@ -199,7 +227,7 @@ public class KeyAgreement {
      * algorithm.
      * See the KeyAgreement section in the <a href=
      * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation
+     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
      * @param provider the name of the provider.
@@ -243,7 +271,7 @@ public class KeyAgreement {
      * algorithm.
      * See the KeyAgreement section in the <a href=
      * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation
+     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
      * @param provider the provider.
@@ -286,6 +314,8 @@ public class KeyAgreement {
             if (spi != null) {
                 return;
             }
+            // Android-removed: this debugging mechanism is not used in Android.
+            /*
             if (debug != null) {
                 int w = --warnCount;
                 if (w >= 0) {
@@ -298,7 +328,9 @@ public class KeyAgreement {
                     new Exception("Call trace").printStackTrace();
                 }
             }
+            */
             Exception lastException = null;
+            // Android-changed: Provider selection; loop over a new list each time.
             for (Service s : GetInstance.getServices("KeyAgreement", algorithm)) {
                 if (JceSecurity.canUseProvider(s.getProvider()) == false) {
                     continue;
@@ -310,7 +342,12 @@ public class KeyAgreement {
                     }
                     spi = (KeyAgreementSpi)obj;
                     provider = s.getProvider();
+                    // Android-removed: Provider selection; loop over a new list each time.
+                    /*
                     // not needed any more
+                    firstService = null;
+                    serviceIterator = null;
+                    */
                     return;
                 } catch (Exception e) {
                     lastException = e;
@@ -342,11 +379,14 @@ public class KeyAgreement {
             AlgorithmParameterSpec params, SecureRandom random)
             throws InvalidKeyException, InvalidAlgorithmParameterException {
         synchronized (lock) {
+            // Android-changed: Use the currently-selected provider only if no key was provided.
+            // if (spi != null) {
             if (spi != null && key == null) {
                 implInit(spi, initType, key, params, random);
                 return;
             }
             Exception lastException = null;
+            // Android-changed: Provider selection; loop over a new list each time.
             for (Service s : GetInstance.getServices("KeyAgreement", algorithm)) {
                 // if provider says it does not support this key, ignore it
                 if (s.supportsParameter(key) == false) {
@@ -360,6 +400,11 @@ public class KeyAgreement {
                     implInit(spi, initType, key, params, random);
                     provider = s.getProvider();
                     this.spi = spi;
+                    // Android-removed: Provider selection; loop over a new list each time.
+                    /*
+                    firstService = null;
+                    serviceIterator = null;
+                    */
                     return;
                 } catch (Exception e) {
                     // NoSuchAlgorithmException from newInstance()
@@ -403,7 +448,7 @@ public class KeyAgreement {
      *
      * <p> If this key agreement requires any random bytes, it will get
      * them using the
-     * {@link SecureRandom <code>SecureRandom</code>}
+     * {@link java.security.SecureRandom}
      * implementation of the highest-priority
      * installed provider as the source of randomness.
      * (If none of the installed providers supply an implementation of
@@ -443,6 +488,8 @@ public class KeyAgreement {
      */
     public final void init(Key key, SecureRandom random)
             throws InvalidKeyException {
+        // Android-changed: Use the currently-selected provider only if no key was provided.
+        // if (spi != null) {
         if (spi != null && (key == null || lock == null)) {
             spi.engineInit(key, random);
         } else {
@@ -453,6 +500,14 @@ public class KeyAgreement {
                 throw new InvalidKeyException(e);
             }
         }
+
+        // Android-removed: this debugging mechanism is not used in Android.
+        /*
+        if (!skipDebug && pdebug != null) {
+            pdebug.println("KeyAgreement." + algorithm + " algorithm from: " +
+                this.provider.getName());
+        }
+        */
     }
 
     /**
@@ -461,7 +516,7 @@ public class KeyAgreement {
      *
      * <p> If this key agreement requires any random bytes, it will get
      * them using the
-     * {@link SecureRandom <code>SecureRandom</code>}
+     * {@link java.security.SecureRandom}
      * implementation of the highest-priority
      * installed provider as the source of randomness.
      * (If none of the installed providers supply an implementation of
@@ -509,6 +564,14 @@ public class KeyAgreement {
         } else {
             chooseProvider(I_PARAMS, key, params, random);
         }
+
+        // Android-removed: this debugging mechanism is not used in Android.
+        /*
+        if (!skipDebug && pdebug != null) {
+            pdebug.println("KeyAgreement." + algorithm + " algorithm from: " +
+                this.provider.getName());
+        }
+        */
     }
 
     /**

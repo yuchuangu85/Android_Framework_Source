@@ -21,6 +21,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
+import android.provider.DocumentsContract;
 
 import java.io.File;
 
@@ -107,8 +108,7 @@ public abstract class DocumentFile {
      *            {@link Intent#ACTION_CREATE_DOCUMENT} request.
      */
     public static DocumentFile fromSingleUri(Context context, Uri singleUri) {
-        final int version = Build.VERSION.SDK_INT;
-        if (version >= 19) {
+        if (Build.VERSION.SDK_INT >= 19) {
             return new SingleDocumentFile(null, context, singleUri);
         } else {
             return null;
@@ -125,10 +125,10 @@ public abstract class DocumentFile {
      *            {@link Intent#ACTION_OPEN_DOCUMENT_TREE} request.
      */
     public static DocumentFile fromTreeUri(Context context, Uri treeUri) {
-        final int version = Build.VERSION.SDK_INT;
-        if (version >= 21) {
+        if (Build.VERSION.SDK_INT >= 21) {
             return new TreeDocumentFile(null, context,
-                    DocumentsContractApi21.prepareTreeUri(treeUri));
+                    DocumentsContract.buildDocumentUriUsingTree(treeUri,
+                            DocumentsContract.getTreeDocumentId(treeUri)));
         } else {
             return null;
         }
@@ -139,8 +139,7 @@ public abstract class DocumentFile {
      * {@link android.provider.DocumentsProvider}.
      */
     public static boolean isDocumentUri(Context context, Uri uri) {
-        final int version = Build.VERSION.SDK_INT;
-        if (version >= 19) {
+        if (Build.VERSION.SDK_INT >= 19) {
             return DocumentsContractApi19.isDocumentUri(context, uri);
         } else {
             return false;
@@ -233,6 +232,14 @@ public abstract class DocumentFile {
      * @see android.provider.DocumentsContract.Document#COLUMN_MIME_TYPE
      */
     public abstract boolean isFile();
+
+    /**
+     * Indicates if this file represents a <em>virtual</em> document.
+     *
+     * @return {@code true} if this file is a virtual document.
+     * @see android.provider.DocumentsContract.Document#FLAG_VIRTUAL_DOCUMENT
+     */
+    public abstract boolean isVirtual();
 
     /**
      * Returns the time when this file was last modified, measured in

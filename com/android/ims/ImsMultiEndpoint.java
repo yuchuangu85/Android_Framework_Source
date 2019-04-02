@@ -78,4 +78,8 @@ public class ImsMultiEndpoint {
                     ImsReasonInfo.CODE_LOCAL_IMS_SERVICE_DOWN);
         }
     }
+
+    public boolean isBinderAlive() {
+        return mImsMultiendpoint.asBinder().isBinderAlive();
+    }
 }

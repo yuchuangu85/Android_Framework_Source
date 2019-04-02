@@ -18,8 +18,10 @@ package com.android.server.pm;
 
 import android.Manifest;
 import android.annotation.NonNull;
+import android.app.ActivityManager;
 import android.app.DownloadManager;
 import android.app.admin.DevicePolicyManager;
+import android.companion.CompanionDeviceManager;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
@@ -29,6 +31,7 @@ import android.content.pm.PackageManagerInternal.SyncAdapterPackagesProvider;
 import android.content.pm.PackageParser;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ResolveInfo;
+import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -58,6 +61,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -75,8 +79,9 @@ final class DefaultPermissionGrantPolicy {
     private static final String TAG = "DefaultPermGrantPolicy"; // must be <= 23 chars
     private static final boolean DEBUG = false;
 
-    private static final int DEFAULT_FLAGS = PackageManager.MATCH_DIRECT_BOOT_AWARE
-            | PackageManager.MATCH_DIRECT_BOOT_UNAWARE;
+    private static final int DEFAULT_FLAGS =
+            PackageManager.MATCH_DIRECT_BOOT_AWARE | PackageManager.MATCH_DIRECT_BOOT_UNAWARE
+                    | PackageManager.MATCH_UNINSTALLED_PACKAGES;
 
     private static final String AUDIO_MIME_TYPE = "audio/mpeg";
 
@@ -150,6 +155,8 @@ final class DefaultPermissionGrantPolicy {
 
     private static final int MSG_READ_DEFAULT_PERMISSION_EXCEPTIONS = 1;
 
+    private static final String ACTION_TRACK = "com.android.fitness.TRACK";
+
     private final PackageManagerService mService;
     private final Handler mHandler;
 
@@ -203,9 +210,35 @@ final class DefaultPermissionGrantPolicy {
     }
 
     public void grantDefaultPermissions(int userId) {
-        grantPermissionsToSysComponentsAndPrivApps(userId);
-        grantDefaultSystemHandlerPermissions(userId);
-        grantDefaultPermissionExceptions(userId);
+        if (mService.hasSystemFeature(PackageManager.FEATURE_EMBEDDED, 0)) {
+            grantAllRuntimePermissions(userId);
+        } else {
+            grantPermissionsToSysComponentsAndPrivApps(userId);
+            grantDefaultSystemHandlerPermissions(userId);
+            grantDefaultPermissionExceptions(userId);
+        }
+    }
+
+    private void grantRuntimePermissionsForPackageLocked(int userId, PackageParser.Package pkg) {
+        Set<String> permissions = new ArraySet<>();
+        for (String permission :  pkg.requestedPermissions) {
+            BasePermission bp = mService.mSettings.mPermissions.get(permission);
+            if (bp != null && bp.isRuntime()) {
+                permissions.add(permission);
+            }
+        }
+        if (!permissions.isEmpty()) {
+            grantRuntimePermissionsLPw(pkg, permissions, true, userId);
+        }
+    }
+
+    private void grantAllRuntimePermissions(int userId) {
+        Log.i(TAG, "Granting all runtime permissions for user " + userId);
+        synchronized (mService.mPackages) {
+            for (PackageParser.Package pkg : mService.mPackages.values()) {
+                grantRuntimePermissionsForPackageLocked(userId, pkg);
+            }
+        }
     }
 
     public void scheduleReadDefaultPermissionExceptions() {
@@ -222,18 +255,7 @@ final class DefaultPermissionGrantPolicy {
                         || pkg.requestedPermissions.isEmpty()) {
                     continue;
                 }
-                Set<String> permissions = new ArraySet<>();
-                final int permissionCount = pkg.requestedPermissions.size();
-                for (int i = 0; i < permissionCount; i++) {
-                    String permission = pkg.requestedPermissions.get(i);
-                    BasePermission bp = mService.mSettings.mPermissions.get(permission);
-                    if (bp != null && bp.isRuntime()) {
-                        permissions.add(permission);
-                    }
-                }
-                if (!permissions.isEmpty()) {
-                    grantRuntimePermissionsLPw(pkg, permissions, true, userId);
-                }
+                grantRuntimePermissionsForPackageLocked(userId, pkg);
             }
         }
     }
@@ -561,6 +583,21 @@ final class DefaultPermissionGrantPolicy {
                 }
             }
 
+            if (ActivityManager.isLowRamDeviceStatic()) {
+                // Allow voice search on low-ram devices
+                Intent globalSearchIntent = new Intent("android.search.action.GLOBAL_SEARCH");
+                PackageParser.Package globalSearchPickerPackage =
+                    getDefaultSystemHandlerActivityPackageLPr(globalSearchIntent, userId);
+
+                if (globalSearchPickerPackage != null
+                        && doesPackageSupportRuntimePermissions(globalSearchPickerPackage)) {
+                    grantRuntimePermissionsLPw(globalSearchPickerPackage,
+                        MICROPHONE_PERMISSIONS, true, userId);
+                    grantRuntimePermissionsLPw(globalSearchPickerPackage,
+                        LOCATION_PERMISSIONS, true, userId);
+                }
+            }
+
             // Voice recognition
             Intent voiceRecoIntent = new Intent("android.speech.RecognitionService");
             voiceRecoIntent.addCategory(Intent.CATEGORY_DEFAULT);
@@ -603,13 +640,25 @@ final class DefaultPermissionGrantPolicy {
                 grantRuntimePermissionsLPw(musicPackage, STORAGE_PERMISSIONS, userId);
             }
 
-            // Android Wear Home
+            // Home
+            Intent homeIntent = new Intent(Intent.ACTION_MAIN);
+            homeIntent.addCategory(Intent.CATEGORY_HOME);
+            homeIntent.addCategory(Intent.CATEGORY_LAUNCHER_APP);
+            PackageParser.Package homePackage = getDefaultSystemHandlerActivityPackageLPr(
+                    homeIntent, userId);
+            if (homePackage != null
+                    && doesPackageSupportRuntimePermissions(homePackage)) {
+                grantRuntimePermissionsLPw(homePackage, LOCATION_PERMISSIONS, false, userId);
+            }
+
+            // Watches
             if (mService.hasSystemFeature(PackageManager.FEATURE_WATCH, 0)) {
-                Intent homeIntent = new Intent(Intent.ACTION_MAIN);
-                homeIntent.addCategory(Intent.CATEGORY_HOME_MAIN);
+                // Home application on watches
+                Intent wearHomeIntent = new Intent(Intent.ACTION_MAIN);
+                wearHomeIntent.addCategory(Intent.CATEGORY_HOME_MAIN);
 
                 PackageParser.Package wearHomePackage = getDefaultSystemHandlerActivityPackageLPr(
-                        homeIntent, userId);
+                        wearHomeIntent, userId);
 
                 if (wearHomePackage != null
                         && doesPackageSupportRuntimePermissions(wearHomePackage)) {
@@ -620,6 +669,16 @@ final class DefaultPermissionGrantPolicy {
                             userId);
                     grantRuntimePermissionsLPw(wearHomePackage, LOCATION_PERMISSIONS, false,
                             userId);
+                }
+
+                // Fitness tracking on watches
+                Intent trackIntent = new Intent(ACTION_TRACK);
+                PackageParser.Package trackPackage = getDefaultSystemHandlerActivityPackageLPr(
+                        trackIntent, userId);
+                if (trackPackage != null
+                        && doesPackageSupportRuntimePermissions(trackPackage)) {
+                    grantRuntimePermissionsLPw(trackPackage, SENSORS_PERMISSIONS, false, userId);
+                    grantRuntimePermissionsLPw(trackPackage, LOCATION_PERMISSIONS, false, userId);
                 }
             }
 
@@ -660,6 +719,26 @@ final class DefaultPermissionGrantPolicy {
                     && doesPackageSupportRuntimePermissions(storageManagerPckg)) {
                 grantRuntimePermissionsLPw(storageManagerPckg, STORAGE_PERMISSIONS, true, userId);
             }
+
+            // Companion devices
+            PackageParser.Package companionDeviceDiscoveryPackage = getSystemPackageLPr(
+                    CompanionDeviceManager.COMPANION_DEVICE_DISCOVERY_PACKAGE_NAME);
+            if (companionDeviceDiscoveryPackage != null
+                    && doesPackageSupportRuntimePermissions(companionDeviceDiscoveryPackage)) {
+                grantRuntimePermissionsLPw(companionDeviceDiscoveryPackage,
+                        LOCATION_PERMISSIONS, true, userId);
+            }
+
+            // Ringtone Picker
+            Intent ringtonePickerIntent = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER);
+            PackageParser.Package ringtonePickerPackage =
+                    getDefaultSystemHandlerActivityPackageLPr(ringtonePickerIntent, userId);
+            if (ringtonePickerPackage != null
+                    && doesPackageSupportRuntimePermissions(ringtonePickerPackage)) {
+                grantRuntimePermissionsLPw(ringtonePickerPackage,
+                        STORAGE_PERMISSIONS, true, userId);
+            }
+
             mService.mSettings.onDefaultRuntimePermissionsGrantedLPr(userId);
         }
     }
@@ -684,6 +763,9 @@ final class DefaultPermissionGrantPolicy {
             grantRuntimePermissionsLPw(smsPackage, PHONE_PERMISSIONS, userId);
             grantRuntimePermissionsLPw(smsPackage, CONTACTS_PERMISSIONS, userId);
             grantRuntimePermissionsLPw(smsPackage, SMS_PERMISSIONS, userId);
+            grantRuntimePermissionsLPw(smsPackage, STORAGE_PERMISSIONS, userId);
+            grantRuntimePermissionsLPw(smsPackage, MICROPHONE_PERMISSIONS, userId);
+            grantRuntimePermissionsLPw(smsPackage, CAMERA_PERMISSIONS, userId);
         }
     }
 
@@ -697,6 +779,9 @@ final class DefaultPermissionGrantPolicy {
             grantRuntimePermissionsLPw(smsPackage, PHONE_PERMISSIONS, false, true, userId);
             grantRuntimePermissionsLPw(smsPackage, CONTACTS_PERMISSIONS, false, true, userId);
             grantRuntimePermissionsLPw(smsPackage, SMS_PERMISSIONS, false, true, userId);
+            grantRuntimePermissionsLPw(smsPackage, STORAGE_PERMISSIONS, false, true, userId);
+            grantRuntimePermissionsLPw(smsPackage, MICROPHONE_PERMISSIONS, false, true, userId);
+            grantRuntimePermissionsLPw(smsPackage, CAMERA_PERMISSIONS, false, true, userId);
         }
     }
 
@@ -747,6 +832,23 @@ final class DefaultPermissionGrantPolicy {
                 grantRuntimePermissionsLPw(carrierPackage, PHONE_PERMISSIONS, userId);
                 grantRuntimePermissionsLPw(carrierPackage, LOCATION_PERMISSIONS, userId);
                 grantRuntimePermissionsLPw(carrierPackage, SMS_PERMISSIONS, userId);
+            }
+        }
+    }
+
+    public void grantDefaultPermissionsToEnabledImsServicesLPr(String[] packageNames, int userId) {
+        Log.i(TAG, "Granting permissions to enabled ImsServices for user:" + userId);
+        if (packageNames == null) {
+            return;
+        }
+        for (String packageName : packageNames) {
+            PackageParser.Package imsServicePackage = getSystemPackageLPr(packageName);
+            if (imsServicePackage != null
+                    && doesPackageSupportRuntimePermissions(imsServicePackage)) {
+                grantRuntimePermissionsLPw(imsServicePackage, PHONE_PERMISSIONS, userId);
+                grantRuntimePermissionsLPw(imsServicePackage, MICROPHONE_PERMISSIONS, userId);
+                grantRuntimePermissionsLPw(imsServicePackage, LOCATION_PERMISSIONS, userId);
+                grantRuntimePermissionsLPw(imsServicePackage, CAMERA_PERMISSIONS, userId);
             }
         }
     }
@@ -872,7 +974,7 @@ final class DefaultPermissionGrantPolicy {
         // permissions if the version on the system image does not declare them.
         if (!isDefaultPhoneOrSms && pkg.isUpdatedSystemApp()) {
             PackageSetting sysPs = mService.mSettings.getDisabledSystemPkgLPr(pkg.packageName);
-            if (sysPs != null) {
+            if (sysPs != null && sysPs.pkg != null) {
                 if (sysPs.pkg.requestedPermissions.isEmpty()) {
                     return;
                 }
@@ -987,21 +1089,29 @@ final class DefaultPermissionGrantPolicy {
                         permissions.clear();
                     }
                     permissions.add(permissionGrant.name);
-                    grantRuntimePermissionsLPw(pkg, permissions, false,
+                    grantRuntimePermissionsLPw(pkg, permissions,
                             permissionGrant.fixed, userId);
                 }
             }
         }
     }
 
+    private File[] getDefaultPermissionFiles() {
+        ArrayList<File> ret = new ArrayList<File>();
+        File dir = new File(Environment.getRootDirectory(), "etc/default-permissions");
+        if (dir.isDirectory() && dir.canRead()) {
+            Collections.addAll(ret, dir.listFiles());
+        }
+        dir = new File(Environment.getVendorDirectory(), "etc/default-permissions");
+        if (dir.isDirectory() && dir.canRead()) {
+            Collections.addAll(ret, dir.listFiles());
+        }
+        return ret.isEmpty() ? null : ret.toArray(new File[0]);
+    }
+
     private @NonNull ArrayMap<String, List<DefaultPermissionGrant>>
             readDefaultPermissionExceptionsLPw() {
-        File dir = new File(Environment.getRootDirectory(), "etc/default-permissions");
-        if (!dir.exists() || !dir.isDirectory() || !dir.canRead()) {
-            return new ArrayMap<>(0);
-        }
-
-        File[] files = dir.listFiles();
+        File[] files = getDefaultPermissionFiles();
         if (files == null) {
             return new ArrayMap<>(0);
         }
@@ -1011,7 +1121,7 @@ final class DefaultPermissionGrantPolicy {
         // Iterate over the files in the directory and scan .xml files
         for (File file : files) {
             if (!file.getPath().endsWith(".xml")) {
-                Slog.i(TAG, "Non-xml file " + file + " in " + dir + " directory, ignoring");
+                Slog.i(TAG, "Non-xml file " + file + " in " + file.getParent() + " directory, ignoring");
                 continue;
             }
             if (!file.canRead()) {

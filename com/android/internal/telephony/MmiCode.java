@@ -16,21 +16,24 @@
 
 package com.android.internal.telephony;
 
+import android.os.ResultReceiver;
+
+import java.util.regex.Pattern;
+
 /**
  * {@hide}
  */
 public interface MmiCode
 {
-	/**
-	 * {@hide}
-	 */
+    /**
+     * {@hide}
+     */
     public enum State {
         PENDING,
         CANCELLED,
         COMPLETE,
         FAILED
     }
-
 
     /**
      * @return Current state of MmiCode request
@@ -75,4 +78,24 @@ public interface MmiCode
      */
     void processCode() throws CallStateException;
 
+    /**
+     * @return the Receiver for the Ussd Callback.
+     */
+    public ResultReceiver getUssdCallbackReceiver();
+
+    /**
+     * @return the dialString.
+     */
+    public String getDialString();
+
+    Pattern sPatternCdmaMmiCodeWhileRoaming = Pattern.compile(
+            "\\*(\\d{2})(\\+{0,1})(\\d{0,})");
+    /*           1        2         3
+           1 = service code
+           2 = prefix
+           3 = number
+    */
+    int MATCH_GROUP_CDMA_MMI_CODE_SERVICE_CODE = 1;
+    int MATCH_GROUP_CDMA_MMI_CODE_NUMBER_PREFIX = 2;
+    int MATCH_GROUP_CDMA_MMI_CODE_NUMBER = 3;
 }

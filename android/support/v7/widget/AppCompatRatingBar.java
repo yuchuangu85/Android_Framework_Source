@@ -18,20 +18,22 @@ package android.support.v7.widget;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.support.v4.view.ViewCompat;
 import android.support.v7.appcompat.R;
 import android.util.AttributeSet;
+import android.view.View;
 import android.widget.RatingBar;
 
 /**
- * A {@link RatingBar} which supports compatible features on older version of the platform.
+ * A {@link RatingBar} which supports compatible features on older versions of the platform.
  *
- * <p>This will automatically be used when you use {@link RatingBar} in your layouts.
+ * <p>This will automatically be used when you use {@link RatingBar} in your layouts
+ * and the top-level activity / dialog is provided by
+ * <a href="{@docRoot}topic/libraries/support-library/packages.html#v7-appcompat">appcompat</a>.
  * You should only need to manually use this class when writing custom views.</p>
  */
 public class AppCompatRatingBar extends RatingBar {
 
-    private AppCompatProgressBarHelper mAppCompatProgressBarHelper;
+    private final AppCompatProgressBarHelper mAppCompatProgressBarHelper;
 
     public AppCompatRatingBar(Context context) {
         this(context, null);
@@ -55,7 +57,7 @@ public class AppCompatRatingBar extends RatingBar {
         Bitmap sampleTile = mAppCompatProgressBarHelper.getSampleTime();
         if (sampleTile != null) {
             final int width = sampleTile.getWidth() * getNumStars();
-            setMeasuredDimension(ViewCompat.resolveSizeAndState(width, widthMeasureSpec, 0),
+            setMeasuredDimension(View.resolveSizeAndState(width, widthMeasureSpec, 0),
                     getMeasuredHeight());
         }
     }

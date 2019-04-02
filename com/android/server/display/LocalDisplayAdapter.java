@@ -285,6 +285,7 @@ final class LocalDisplayAdapter extends DisplayAdapter {
                 int activeColorMode) {
             List<Integer> pendingColorModes = new ArrayList<>();
 
+            if (colorModes == null) return false;
             // Build an updated list of all existing color modes.
             boolean colorModesAdded = false;
             for (int colorMode: colorModes) {
@@ -471,8 +472,19 @@ final class LocalDisplayAdapter extends DisplayAdapter {
                             }
                         }
 
+                        // If the state change was from or to VR, then we need to tell the light
+                        // so that it can apply appropriate VR brightness settings. Also, update the
+                        // brightness so the state is propogated to light.
+                        boolean vrModeChange = false;
+                        if ((state == Display.STATE_VR || currentState == Display.STATE_VR) &&
+                                currentState != state) {
+                            setVrMode(state == Display.STATE_VR);
+                            vrModeChange = true;
+                        }
+
+
                         // Apply brightness changes given that we are in a non-suspended state.
-                        if (brightnessChanged) {
+                        if (brightnessChanged || vrModeChange) {
                             setDisplayBrightness(brightness);
                         }
 
@@ -480,6 +492,15 @@ final class LocalDisplayAdapter extends DisplayAdapter {
                         if (state != currentState) {
                             setDisplayState(state);
                         }
+                    }
+
+                    private void setVrMode(boolean isVrEnabled) {
+                        if (DEBUG) {
+                            Slog.d(TAG, "setVrMode("
+                                    + "id=" + displayId
+                                    + ", state=" + Display.stateToString(state) + ")");
+                        }
+                        mBacklight.setVrMode(isVrEnabled);
                     }
 
                     private void setDisplayState(int state) {
@@ -495,6 +516,7 @@ final class LocalDisplayAdapter extends DisplayAdapter {
                         try {
                             final int mode = getPowerModeForState(state);
                             SurfaceControl.setDisplayPowerMode(token, mode);
+                            Trace.traceCounter(Trace.TRACE_TAG_POWER, "DisplayPowerMode", mode);
                         } finally {
                             Trace.traceEnd(Trace.TRACE_TAG_POWER);
                         }
@@ -510,6 +532,8 @@ final class LocalDisplayAdapter extends DisplayAdapter {
                                 + "id=" + displayId + ", brightness=" + brightness + ")");
                         try {
                             mBacklight.setBrightness(brightness);
+                            Trace.traceCounter(Trace.TRACE_TAG_POWER,
+                                    "ScreenBrightness", brightness);
                         } finally {
                             Trace.traceEnd(Trace.TRACE_TAG_POWER);
                         }
@@ -648,7 +672,7 @@ final class LocalDisplayAdapter extends DisplayAdapter {
 
     private final class HotplugDisplayEventReceiver extends DisplayEventReceiver {
         public HotplugDisplayEventReceiver(Looper looper) {
-            super(looper);
+            super(looper, VSYNC_SOURCE_APP);
         }
 
         @Override

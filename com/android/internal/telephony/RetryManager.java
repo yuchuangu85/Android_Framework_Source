@@ -27,8 +27,6 @@ import android.util.Pair;
 
 import com.android.internal.telephony.dataconnection.ApnSetting;
 
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Random;
 
@@ -112,6 +110,11 @@ public class RetryManager {
     private static final long DEFAULT_INTER_APN_DELAY_FOR_PROVISIONING = 3000;
 
     /**
+     * The default value (in milliseconds) for retrying APN after disconnect
+     */
+    private static final long DEFAULT_APN_RETRY_AFTER_DISCONNECT_DELAY = 10000;
+
+    /**
      * The value indicating no retry is needed
      */
     public static final long NO_RETRY = -1;
@@ -139,6 +142,12 @@ public class RetryManager {
      * fail fast mode
      */
     private long mFailFastInterApnDelay;
+
+    /**
+     * The delay (in milliseconds) for APN retrying after disconnect (e.g. Modem suddenly reports
+     * data call lost)
+     */
+    private long mApnRetryAfterDisconnectDelay;
 
     /**
      * Modem suggested delay for retrying the current APN
@@ -337,6 +346,9 @@ public class RetryManager {
             mFailFastInterApnDelay = b.getLong(
                     CarrierConfigManager.KEY_CARRIER_DATA_CALL_APN_DELAY_FASTER_LONG,
                     DEFAULT_INTER_APN_DELAY_FOR_PROVISIONING);
+            mApnRetryAfterDisconnectDelay = b.getLong(
+                    CarrierConfigManager.KEY_CARRIER_DATA_CALL_APN_RETRY_AFTER_DISCONNECT_LONG,
+                    DEFAULT_APN_RETRY_AFTER_DISCONNECT_DELAY);
 
             // Load all retry patterns for all different APNs.
             String[] allConfigStrings = b.getStringArray(
@@ -645,44 +657,21 @@ public class RetryManager {
     }
 
     /**
-     * Get the delay between APN setting trying. This is the fixed delay used for APN setting trying
-     * within the same round, comparing to the exponential delay used for different rounds.
-     * @param failFastEnabled True if fail fast mode enabled, which a shorter delay will be used
+     * Get the delay in milliseconds for APN retry after disconnect
      * @return The delay in milliseconds
      */
-    public long getInterApnDelay(boolean failFastEnabled) {
-        return (failFastEnabled) ? mFailFastInterApnDelay : mInterApnDelay;
+    public long getRetryAfterDisconnectDelay() {
+        return mApnRetryAfterDisconnectDelay;
     }
 
     public String toString() {
-        return "mApnType=" + mApnType + " mRetryCount=" + mRetryCount +
-                " mMaxRetryCount=" + mMaxRetryCount + " mCurrentApnIndex=" + mCurrentApnIndex +
-                " mSameApnRtryCount=" + mSameApnRetryCount + " mModemSuggestedDelay=" +
-                mModemSuggestedDelay + " mRetryForever=" + mRetryForever +
-                " mConfig={" + mConfig + "}";
-    }
-
-    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        pw.println("  RetryManager");
-        pw.println("***************************************");
-
-        pw.println("    config = " + mConfig);
-        pw.println("    mApnType = " + mApnType);
-        pw.println("    mCurrentApnIndex = " + mCurrentApnIndex);
-        pw.println("    mRetryCount = " + mRetryCount);
-        pw.println("    mMaxRetryCount = " + mMaxRetryCount);
-        pw.println("    mSameApnRetryCount = " + mSameApnRetryCount);
-        pw.println("    mModemSuggestedDelay = " + mModemSuggestedDelay);
-
-        if (mWaitingApns != null) {
-            pw.println("    APN list: ");
-            for (int i = 0; i < mWaitingApns.size(); i++) {
-                pw.println("      [" + i + "]=" + mWaitingApns.get(i));
-            }
-        }
-
-        pw.println("***************************************");
-        pw.flush();
+        if (mConfig == null) return "";
+        return "RetryManager: mApnType=" + mApnType + " mRetryCount=" + mRetryCount
+                + " mMaxRetryCount=" + mMaxRetryCount + " mCurrentApnIndex=" + mCurrentApnIndex
+                + " mSameApnRtryCount=" + mSameApnRetryCount + " mModemSuggestedDelay="
+                + mModemSuggestedDelay + " mRetryForever=" + mRetryForever + " mInterApnDelay="
+                + mInterApnDelay + " mApnRetryAfterDisconnectDelay=" + mApnRetryAfterDisconnectDelay
+                + " mConfig={" + mConfig + "}";
     }
 
     private void log(String s) {

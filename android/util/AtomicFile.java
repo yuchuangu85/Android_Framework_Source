@@ -17,13 +17,15 @@
 package android.util;
 
 import android.os.FileUtils;
-import android.util.Log;
+
+import libcore.io.IoUtils;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.function.Consumer;
 
 /**
  * Helper class for performing atomic operations on a file by creating a
@@ -200,13 +202,22 @@ public class AtomicFile {
     }
 
     /**
+     * @hide
+     * Checks if the original or backup file exists.
+     * @return whether the original or backup file exists.
+     */
+    public boolean exists() {
+        return mBaseName.exists() || mBackupName.exists();
+    }
+
+    /**
      * Gets the last modified time of the atomic file.
      * {@hide}
      *
-     * @return last modified time in milliseconds since epoch.
-     * @throws IOException
+     * @return last modified time in milliseconds since epoch.  Returns zero if
+     *     the file does not exist or an I/O error is encountered.
      */
-    public long getLastModifiedTime() throws IOException {
+    public long getLastModifiedTime() {
         if (mBackupName.exists()) {
             return mBackupName.lastModified();
         }
@@ -242,6 +253,21 @@ public class AtomicFile {
             }
         } finally {
             stream.close();
+        }
+    }
+
+    /** @hide */
+    public void write(Consumer<FileOutputStream> writeContent) {
+        FileOutputStream out = null;
+        try {
+            out = startWrite();
+            writeContent.accept(out);
+            finishWrite(out);
+        } catch (Throwable t) {
+            failWrite(out);
+            throw ExceptionUtils.propagate(t);
+        } finally {
+            IoUtils.closeQuietly(out);
         }
     }
 }

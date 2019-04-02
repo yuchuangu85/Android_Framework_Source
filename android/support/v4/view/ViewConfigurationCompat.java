@@ -16,67 +16,36 @@
 
 package android.support.v4.view;
 
+import android.content.Context;
+import android.os.Build;
+import android.support.annotation.NonNull;
+import android.util.Log;
+import android.util.TypedValue;
 import android.view.ViewConfiguration;
 
+import java.lang.reflect.Method;
+
 /**
- * Helper for accessing features in {@link ViewConfiguration}
- * introduced after API level 4 in a backwards compatible fashion.
+ * Helper for accessing features in {@link ViewConfiguration}.
+ *
+ * @deprecated Use {@link ViewConfiguration} directly.
  */
+@Deprecated
 public final class ViewConfigurationCompat {
-    /**
-     * Interface for the full API.
-     */
-    interface ViewConfigurationVersionImpl {
-        boolean hasPermanentMenuKey(ViewConfiguration config);
-    }
+    private static final String TAG = "ViewConfigCompat";
 
-    /**
-     * Interface implementation that doesn't use anything about v4 APIs.
-     */
-    static class BaseViewConfigurationVersionImpl implements ViewConfigurationVersionImpl {
-        @Override
-        public boolean hasPermanentMenuKey(ViewConfiguration config) {
-            // Pre-HC devices will always have a menu button
-            return true;
-        }
-    }
+    private static Method sGetScaledScrollFactorMethod;
 
-    /**
-     * Interface implementation for devices with at least v11 APIs.
-     */
-    static class HoneycombViewConfigurationVersionImpl extends BaseViewConfigurationVersionImpl {
-        @Override
-        public boolean hasPermanentMenuKey(ViewConfiguration config) {
-            // There is no way to check on Honeycomb so we assume false
-            return false;
-        }
-    }
-
-    /**
-     * Interface implementation for devices with at least v14 APIs.
-     */
-    static class IcsViewConfigurationVersionImpl extends HoneycombViewConfigurationVersionImpl {
-        @Override
-        public boolean hasPermanentMenuKey(ViewConfiguration config) {
-            return ViewConfigurationCompatICS.hasPermanentMenuKey(config);
-        }
-    }
-
-    /**
-     * Select the correct implementation to use for the current platform.
-     */
-    static final ViewConfigurationVersionImpl IMPL;
     static {
-        if (android.os.Build.VERSION.SDK_INT >= 14) {
-            IMPL = new IcsViewConfigurationVersionImpl();
-        } else if (android.os.Build.VERSION.SDK_INT >= 11) {
-            IMPL = new HoneycombViewConfigurationVersionImpl();
-        } else {
-            IMPL = new BaseViewConfigurationVersionImpl();
+        if (Build.VERSION.SDK_INT == 25) {
+            try {
+                sGetScaledScrollFactorMethod =
+                        ViewConfiguration.class.getDeclaredMethod("getScaledScrollFactor");
+            } catch (Exception e) {
+                Log.i(TAG, "Could not find method getScaledScrollFactor() on ViewConfiguration");
+            }
         }
     }
-
-    // -------------------------------------------------------------------
 
     /**
      * Call {@link ViewConfiguration#getScaledPagingTouchSlop()}.
@@ -92,9 +61,63 @@ public final class ViewConfigurationCompat {
     /**
      * Report if the device has a permanent menu key available to the user, in a backwards
      * compatible way.
+     *
+     * @deprecated Use {@link ViewConfiguration#hasPermanentMenuKey()} directly.
      */
+    @Deprecated
     public static boolean hasPermanentMenuKey(ViewConfiguration config) {
-        return IMPL.hasPermanentMenuKey(config);
+        return config.hasPermanentMenuKey();
+    }
+
+    /**
+     * @param config Used to get the scaling factor directly from the {@link ViewConfiguration}.
+     * @param context Used to locate a resource value.
+     *
+     * @return Amount to scroll in response to a horizontal {@link MotionEventCompat#ACTION_SCROLL}
+     *         event. Multiply this by the event's axis value to obtain the number of pixels to be
+     *         scrolled.
+     */
+    public static float getScaledHorizontalScrollFactor(@NonNull ViewConfiguration config,
+            @NonNull Context context) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            return config.getScaledHorizontalScrollFactor();
+        } else {
+            return getLegacyScrollFactor(config, context);
+        }
+    }
+
+    /**
+     * @param config Used to get the scaling factor directly from the {@link ViewConfiguration}.
+     * @param context Used to locate a resource value.
+     *
+     * @return Amount to scroll in response to a vertical {@link MotionEventCompat#ACTION_SCROLL}
+     *         event. Multiply this by the event's axis value to obtain the number of pixels to be
+     *         scrolled.
+     */
+    public static float getScaledVerticalScrollFactor(@NonNull ViewConfiguration config,
+            @NonNull Context context) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            return config.getScaledVerticalScrollFactor();
+        } else {
+            return getLegacyScrollFactor(config, context);
+        }
+    }
+
+    private static float getLegacyScrollFactor(ViewConfiguration config, Context context) {
+        if (android.os.Build.VERSION.SDK_INT >= 25 && sGetScaledScrollFactorMethod != null) {
+            try {
+                return (int) sGetScaledScrollFactorMethod.invoke(config);
+            } catch (Exception e) {
+                Log.i(TAG, "Could not find method getScaledScrollFactor() on ViewConfiguration");
+            }
+        }
+        // Fall back to pre-API-25 behavior.
+        TypedValue outValue = new TypedValue();
+        if (context.getTheme().resolveAttribute(
+                android.R.attr.listPreferredItemHeight, outValue, true)) {
+            return outValue.getDimension(context.getResources().getDisplayMetrics());
+        }
+        return 0;
     }
 
     private ViewConfigurationCompat() {}

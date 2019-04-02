@@ -359,8 +359,12 @@ public class AdnRecordCache extends Handler implements IccConstants {
                 Message response = mUserWriteResponse.get(efid);
                 mUserWriteResponse.delete(efid);
 
-                AsyncResult.forMessage(response, null, ar.exception);
-                response.sendToTarget();
+                // response may be cleared when simrecord is reset,
+                // so we should check if it is null.
+                if (response != null) {
+                    AsyncResult.forMessage(response, null, ar.exception);
+                    response.sendToTarget();
+                }
                 break;
         }
     }

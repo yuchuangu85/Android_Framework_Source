@@ -16,6 +16,8 @@
 
 package android.support.customtabs;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -24,6 +26,8 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.RemoteException;
 import android.support.annotation.Nullable;
 import android.support.annotation.RestrictTo;
@@ -31,8 +35,6 @@ import android.text.TextUtils;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Class to communicate with a {@link CustomTabsService} and create
@@ -43,7 +45,7 @@ public class CustomTabsClient {
     private final ComponentName mServiceComponentName;
 
     /**@hide*/
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     CustomTabsClient(ICustomTabsService service, ComponentName componentName) {
         mService = service;
         mServiceComponentName = componentName;
@@ -72,7 +74,7 @@ public class CustomTabsClient {
     /**
      * Returns the preferred package to use for Custom Tabs, preferring the default VIEW handler.
      *
-     * @see {@link #getPackageName(Context, List<String>, boolean)}.
+     * @see #getPackageName(Context, List<String>, boolean)
      */
     public static String getPackageName(Context context, @Nullable List<String> packages) {
         return getPackageName(context, packages, false);
@@ -177,21 +179,60 @@ public class CustomTabsClient {
      * then later with a Custom Tab. The client can then send later service calls or intents to
      * through same session-intent-Custom Tab association.
      * @param callback The callback through which the client will receive updates about the created
-     *                 session. Can be null.
+     *                 session. Can be null. All the callbacks will be received on the UI thread.
      * @return The session object that was created as a result of the transaction. The client can
-     *         use this to relay {@link CustomTabsSession#mayLaunchUrl(Uri, Bundle, List)} calls.
+     *         use this to relay session specific calls.
      *         Null on error.
      */
     public CustomTabsSession newSession(final CustomTabsCallback callback) {
         ICustomTabsCallback.Stub wrapper = new ICustomTabsCallback.Stub() {
+            private Handler mHandler = new Handler(Looper.getMainLooper());
+
             @Override
-            public void onNavigationEvent(int navigationEvent, Bundle extras) {
-                if (callback != null) callback.onNavigationEvent(navigationEvent, extras);
+            public void onNavigationEvent(final int navigationEvent, final Bundle extras) {
+                if (callback == null) return;
+                mHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        callback.onNavigationEvent(navigationEvent, extras);
+                    }
+                });
             }
 
             @Override
-            public void extraCallback(String callbackName, Bundle args) throws RemoteException {
-                if (callback != null) callback.extraCallback(callbackName, args);
+            public void extraCallback(final String callbackName, final Bundle args)
+                    throws RemoteException {
+                if (callback == null) return;
+                mHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        callback.extraCallback(callbackName, args);
+                    }
+                });
+            }
+
+            @Override
+            public void onMessageChannelReady(final Bundle extras)
+                    throws RemoteException {
+                if (callback == null) return;
+                mHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        callback.onMessageChannelReady(extras);
+                    }
+                });
+            }
+
+            @Override
+            public void onPostMessage(final String message, final Bundle extras)
+                    throws RemoteException {
+                if (callback == null) return;
+                mHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        callback.onPostMessage(message, extras);
+                    }
+                });
             }
         };
 

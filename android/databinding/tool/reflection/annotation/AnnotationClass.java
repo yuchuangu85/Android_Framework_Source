@@ -286,10 +286,17 @@ class AnnotationClass extends ModelClass {
 
     @Override
     public boolean isAssignableFrom(ModelClass that) {
-        if (that == null) {
+        ModelClass other = that;
+        while (other != null && !(other instanceof AnnotationClass)) {
+            other = other.getSuperclass();
+        }
+        if (other == null) {
             return false;
         }
-        AnnotationClass thatAnnotationClass = (AnnotationClass) that;
+        if (equals(other)) {
+            return true;
+        }
+        AnnotationClass thatAnnotationClass = (AnnotationClass) other;
         return getTypeUtils().isAssignable(thatAnnotationClass.mTypeMirror, this.mTypeMirror);
     }
 
@@ -364,6 +371,19 @@ class AnnotationClass extends ModelClass {
         return declaredFields;
     }
 
+    private static Types getTypeUtils() {
+        return AnnotationAnalyzer.get().mProcessingEnv.getTypeUtils();
+    }
+
+    private static Elements getElementUtils() {
+        return AnnotationAnalyzer.get().mProcessingEnv.getElementUtils();
+    }
+
+    @Override
+    public String toString() {
+        return mTypeMirror.toString();
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (obj instanceof AnnotationClass) {
@@ -376,18 +396,5 @@ class AnnotationClass extends ModelClass {
     @Override
     public int hashCode() {
         return mTypeMirror.toString().hashCode();
-    }
-
-    private static Types getTypeUtils() {
-        return AnnotationAnalyzer.get().mProcessingEnv.getTypeUtils();
-    }
-
-    private static Elements getElementUtils() {
-        return AnnotationAnalyzer.get().mProcessingEnv.getElementUtils();
-    }
-
-    @Override
-    public String toString() {
-        return mTypeMirror.toString();
     }
 }

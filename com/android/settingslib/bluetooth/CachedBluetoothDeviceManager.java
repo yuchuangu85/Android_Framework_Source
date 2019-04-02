@@ -28,7 +28,7 @@ import java.util.List;
 /**
  * CachedBluetoothDeviceManager manages the set of remote Bluetooth devices.
  */
-public final class CachedBluetoothDeviceManager {
+public class CachedBluetoothDeviceManager {
     private static final String TAG = "CachedBluetoothDeviceManager";
     private static final boolean DEBUG = Utils.D;
 
@@ -47,7 +47,7 @@ public final class CachedBluetoothDeviceManager {
     }
 
     public static boolean onDeviceDisappeared(CachedBluetoothDevice cachedDevice) {
-        cachedDevice.setVisible(false);
+        cachedDevice.setJustDiscovered(false);
         return cachedDevice.getBondState() == BluetoothDevice.BOND_NONE;
     }
 
@@ -103,7 +103,7 @@ public final class CachedBluetoothDeviceManager {
      */
     public String getName(BluetoothDevice device) {
         CachedBluetoothDevice cachedDevice = findDevice(device);
-        if (cachedDevice != null) {
+        if (cachedDevice != null && cachedDevice.getName() != null) {
             return cachedDevice.getName();
         }
 
@@ -131,7 +131,7 @@ public final class CachedBluetoothDeviceManager {
         // Iterate in reverse order since devices may be removed.
         for (int i = mCachedDevices.size() - 1; i >= 0; i--) {
             CachedBluetoothDevice cachedDevice = mCachedDevices.get(i);
-            cachedDevice.setVisible(false);
+            cachedDevice.setJustDiscovered(false);
         }
     }
 
@@ -156,7 +156,7 @@ public final class CachedBluetoothDeviceManager {
             for (int i = mCachedDevices.size() - 1; i >= 0; i--) {
                 CachedBluetoothDevice cachedDevice = mCachedDevices.get(i);
                 if (cachedDevice.getBondState() != BluetoothDevice.BOND_BONDED) {
-                    cachedDevice.setVisible(false);
+                    cachedDevice.setJustDiscovered(false);
                     mCachedDevices.remove(i);
                 } else {
                     // For bonded devices, we need to clear the connection status so that

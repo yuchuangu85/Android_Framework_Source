@@ -17,22 +17,18 @@
 package android.database;
 
 /**
- * 观察者的管理
- * <p>
  * A specialization of {@link Observable} for {@link DataSetObserver}
  * that provides methods for sending notifications to a list of
  * {@link DataSetObserver} objects.
  */
 public class DataSetObservable extends Observable<DataSetObserver> {
     /**
-     * 通知数据改变了
-     * <p>
      * Invokes {@link DataSetObserver#onChanged} on each observer.
      * Called when the contents of the data set have changed.  The recipient
      * will obtain the new contents the next time it queries the data set.
      */
     public void notifyChanged() {
-        synchronized (mObservers) {
+        synchronized(mObservers) {
             // since onChanged() is implemented by the app, it could do anything, including
             // removing itself from {@link mObservers} - and that could cause problems if
             // an iterator is used on the ArrayList {@link mObservers}.
@@ -44,8 +40,6 @@ public class DataSetObservable extends Observable<DataSetObserver> {
     }
 
     /**
-     * 通知数据不可用
-     * <p>
      * Invokes {@link DataSetObserver#onInvalidated} on each observer.
      * Called when the data set is no longer valid and cannot be queried again,
      * such as when the data set has been closed.

@@ -18,9 +18,10 @@ package com.android.ims.internal;
 
 import android.os.Message;
 import android.os.RemoteException;
-import android.telecom.Connection;
 
 import java.util.Objects;
+
+import android.telephony.ims.stub.ImsCallSessionListenerImplBase;
 import android.util.Log;
 import com.android.ims.ImsCallProfile;
 import com.android.ims.ImsConferenceState;
@@ -223,7 +224,7 @@ public class ImsCallSession {
         /**
          * Called when the session is updated (except for hold/unhold).
          *
-         * @param call the call object that carries out the IMS call
+         * @param session the session object that carries out the IMS session
          */
         public void callSessionUpdated(ImsCallSession session,
                 ImsCallProfile profile) {
@@ -344,6 +345,24 @@ public class ImsCallSession {
         }
 
         /**
+         * Called when an {@link ImsCallSession} may handover from one radio technology to another.
+         * For example, the session may handover from WIFI to LTE if conditions are right.
+         * <p>
+         * If handover is attempted,
+         * {@link #callSessionHandover(ImsCallSession, int, int, ImsReasonInfo)} or
+         * {@link #callSessionHandoverFailed(ImsCallSession, int, int, ImsReasonInfo)} will be
+         * called to indicate the success or failure of the handover.
+         *
+         * @param session IMS session object
+         * @param srcAccessTech original access technology
+         * @param targetAccessTech new access technology
+         */
+        public void callSessionMayHandover(ImsCallSession session, int srcAccessTech,
+                int targetAccessTech) {
+            // no-op
+        }
+
+        /**
          * Called when session access technology changes
          *
          * @param session IMS session object
@@ -401,6 +420,28 @@ public class ImsCallSession {
          */
         public void callSessionSuppServiceReceived(ImsCallSession session,
                 ImsSuppServiceNotification suppServiceInfo) {
+        }
+
+        /**
+         * Received RTT modify request from Remote Party
+         */
+        public void callSessionRttModifyRequestReceived(ImsCallSession session,
+            ImsCallProfile callProfile) {
+            // no-op
+        }
+
+        /**
+         * Received response for RTT modify request
+         */
+        public void callSessionRttModifyResponseReceived(int status) {
+            // no -op
+        }
+
+        /**
+         * Device received RTT message from Remote UE
+         */
+        public void callSessionRttMessageReceived(String rttMessage) {
+            // no-op
         }
     }
 
@@ -643,7 +684,7 @@ public class ImsCallSession {
      * Initiates an IMS call with the specified target and call profile.
      * The session listener is called back upon defined session events.
      * The method is only valid to call when the session state is in
-     * {@link ImsCallSession#State#IDLE}.
+     * {@link ImsCallSession.State#IDLE}.
      *
      * @param callee dialed string to make the call to
      * @param profile call profile to make the call with the specified service type,
@@ -665,7 +706,7 @@ public class ImsCallSession {
      * Initiates an IMS conference call with the specified target and call profile.
      * The session listener is called back upon defined session events.
      * The method is only valid to call when the session state is in
-     * {@link ImsCallSession#State#IDLE}.
+     * {@link ImsCallSession.State#IDLE}.
      *
      * @param participants participant list to initiate an IMS conference call
      * @param profile call profile to make the call with the specified service type,
@@ -807,8 +848,9 @@ public class ImsCallSession {
     /**
      * Extends this call to the conference call with the specified recipients.
      *
-     * @participants participant list to be invited to the conference call after extending the call
-     * @see Listener#sessionConferenceExtened, Listener#sessionConferenceExtendFailed
+     * @param participants list to be invited to the conference call after extending the call
+     * @see Listener#callSessionConferenceExtended
+     * @see Listener#callSessionConferenceExtendFailed
      */
     public void extendToConference(String[] participants) {
         if (mClosed) {
@@ -824,9 +866,9 @@ public class ImsCallSession {
     /**
      * Requests the conference server to invite an additional participants to the conference.
      *
-     * @participants participant list to be invited to the conference call
-     * @see Listener#sessionInviteParticipantsRequestDelivered,
-     *      Listener#sessionInviteParticipantsRequestFailed
+     * @param participants list to be invited to the conference call
+     * @see Listener#callSessionInviteParticipantsRequestDelivered
+     * @see Listener#callSessionInviteParticipantsRequestFailed
      */
     public void inviteParticipants(String[] participants) {
         if (mClosed) {
@@ -843,8 +885,8 @@ public class ImsCallSession {
      * Requests the conference server to remove the specified participants from the conference.
      *
      * @param participants participant list to be removed from the conference call
-     * @see Listener#sessionRemoveParticipantsRequestDelivered,
-     *      Listener#sessionRemoveParticipantsRequestFailed
+     * @see Listener#callSessionRemoveParticipantsRequestDelivered
+     * @see Listener#callSessionRemoveParticipantsRequestFailed
      */
     public void removeParticipants(String[] participants) {
         if (mClosed) {
@@ -942,12 +984,63 @@ public class ImsCallSession {
     }
 
     /**
+     * Sends Rtt Message
+     *
+     * @param rttMessage rtt text to be sent
+     * @throws ImsException if call is absent
+     */
+    public void sendRttMessage(String rttMessage) {
+        if (mClosed) {
+            return;
+        }
+
+        try {
+            miSession.sendRttMessage(rttMessage);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Sends RTT Upgrade request
+     *
+     * @param to   : expected profile
+     * @throws CallStateException
+     */
+    public void sendRttModifyRequest(ImsCallProfile to) {
+        if (mClosed) {
+            return;
+        }
+
+        try {
+            miSession.sendRttModifyRequest(to);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Sends RTT Upgrade response
+     *
+     * @param response : response for upgrade
+     * @throws CallStateException
+     */
+    public void sendRttModifyResponse(boolean response) {
+        if (mClosed) {
+            return;
+        }
+
+        try {
+            miSession.sendRttModifyResponse(response);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
      * A listener type for receiving notification on IMS call session events.
      * When an event is generated for an {@link IImsCallSession},
      * the application is notified by having one of the methods called on
      * the {@link IImsCallSessionListener}.
      */
-    private class IImsCallSessionListenerProxy extends IImsCallSessionListener.Stub {
+    private class IImsCallSessionListenerProxy extends ImsCallSessionListenerImplBase {
         /**
          * Notifies the result of the basic session operation (setup / terminate).
          */
@@ -1052,7 +1145,7 @@ public class ImsCallSession {
         /**
          * Notifies the successful completion of a call merge operation.
          *
-         * @param session The call session.
+         * @param newSession The call session.
          */
         @Override
         public void callSessionMergeComplete(IImsCallSession newSession) {
@@ -1206,6 +1299,28 @@ public class ImsCallSession {
         }
 
         /**
+         * Notifies of a case where a {@link com.android.ims.internal.ImsCallSession} may
+         * potentially handover from one radio technology to another.
+         * @param session
+         * @param srcAccessTech The source radio access technology; one of the access technology
+         *                      constants defined in {@link android.telephony.ServiceState}.  For
+         *                      example
+         *                      {@link android.telephony.ServiceState#RIL_RADIO_TECHNOLOGY_LTE}.
+         * @param targetAccessTech The target radio access technology; one of the access technology
+         *                      constants defined in {@link android.telephony.ServiceState}.  For
+         *                      example
+         *                      {@link android.telephony.ServiceState#RIL_RADIO_TECHNOLOGY_LTE}.
+         */
+        @Override
+        public void callSessionMayHandover(IImsCallSession session,
+                int srcAccessTech, int targetAccessTech) {
+            if (mListener != null) {
+                mListener.callSessionMayHandover(ImsCallSession.this, srcAccessTech,
+                        targetAccessTech);
+            }
+        }
+
+        /**
          * Notifies of handover information for this call
          */
         @Override
@@ -1265,6 +1380,36 @@ public class ImsCallSession {
             }
         }
 
+        /**
+         * Received RTT modify request from remote party
+         */
+        @Override
+        public void callSessionRttModifyRequestReceived(IImsCallSession session,
+                ImsCallProfile callProfile) {
+            if (mListener != null) {
+                mListener.callSessionRttModifyRequestReceived(ImsCallSession.this, callProfile);
+            }
+        }
+
+        /**
+         * Received response for RTT modify request
+         */
+        @Override
+        public void callSessionRttModifyResponseReceived(int status) {
+            if (mListener != null) {
+                mListener.callSessionRttModifyResponseReceived(status);
+            }
+        }
+
+        /**
+         * RTT Message received
+         */
+        @Override
+        public void callSessionRttMessageReceived(String rttMessage) {
+            if (mListener != null) {
+                mListener.callSessionRttMessageReceived(rttMessage);
+            }
+        }
     }
 
     /**

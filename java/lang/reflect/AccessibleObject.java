@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2014, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,11 +26,7 @@
 
 package java.lang.reflect;
 
-import java.security.AccessController;
-import sun.reflect.Reflection;
 import java.lang.annotation.Annotation;
-
-import libcore.reflect.AnnotatedElements;
 
 /**
  * The AccessibleObject class is the base class for Field, Method and
@@ -119,14 +115,16 @@ public class AccessibleObject implements AnnotatedElement {
         setAccessible0(this, flag);
     }
 
-    /* Check that you aren't exposing java.lang.Class.<init>. */
+    /* Check that you aren't exposing java.lang.Class.<init> or sensitive
+       fields in java.lang.Class. */
     private static void setAccessible0(AccessibleObject obj, boolean flag)
         throws SecurityException
     {
         if (obj instanceof Constructor && flag == true) {
             Constructor<?> c = (Constructor<?>)obj;
+            // Android-changed: Added additional checks below.
             Class<?> clazz = c.getDeclaringClass();
-            if (clazz == Class.class) {
+            if (c.getDeclaringClass() == Class.class) {
                 throw new SecurityException("Can not make a java.lang.Class" +
                                             " constructor accessible");
             } else if (clazz == Method.class) {
@@ -162,9 +160,6 @@ public class AccessibleObject implements AnnotatedElement {
     // outside this package.
     boolean override;
 
-    // Reflection factory used by subclasses for creating field,
-    // method, and constructor accessors. Note that this is called
-    // very early in the bootstrapping process.
     /**
      * @throws NullPointerException {@inheritDoc}
      * @since 1.5
@@ -174,10 +169,53 @@ public class AccessibleObject implements AnnotatedElement {
     }
 
     /**
+     * {@inheritDoc}
+     * @throws NullPointerException {@inheritDoc}
+     * @since 1.5
+     */
+    @Override
+    public boolean isAnnotationPresent(Class<? extends Annotation> annotationClass) {
+        return AnnotatedElement.super.isAnnotationPresent(annotationClass);
+    }
+
+   /**
+     * @throws NullPointerException {@inheritDoc}
+     * @since 1.8
+     */
+    @Override
+    public <T extends Annotation> T[] getAnnotationsByType(Class<T> annotationClass) {
+        throw new AssertionError("All subclasses should override this method");
+    }
+
+    /**
      * @since 1.5
      */
     public Annotation[] getAnnotations() {
         return getDeclaredAnnotations();
+    }
+
+    /**
+     * @throws NullPointerException {@inheritDoc}
+     * @since 1.8
+     */
+    @Override
+    public <T extends Annotation> T getDeclaredAnnotation(Class<T> annotationClass) {
+        // Only annotations on classes are inherited, for all other
+        // objects getDeclaredAnnotation is the same as
+        // getAnnotation.
+        return getAnnotation(annotationClass);
+    }
+
+    /**
+     * @throws NullPointerException {@inheritDoc}
+     * @since 1.8
+     */
+    @Override
+    public <T extends Annotation> T[] getDeclaredAnnotationsByType(Class<T> annotationClass) {
+        // Only annotations on classes are inherited, for all other
+        // objects getDeclaredAnnotationsByType is the same as
+        // getAnnotationsByType.
+        return getAnnotationsByType(annotationClass);
     }
 
     /**

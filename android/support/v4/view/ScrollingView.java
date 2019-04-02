@@ -24,7 +24,7 @@ public interface ScrollingView {
      * <p>Compute the horizontal range that the horizontal scrollbar
      * represents.</p>
      *
-     * <p>The range is expressed(表示) in arbitrary(任意的) units that must be the same as the
+     * <p>The range is expressed in arbitrary units that must be the same as the
      * units used by {@link #computeHorizontalScrollExtent()} and
      * {@link #computeHorizontalScrollOffset()}.</p>
      *
@@ -40,7 +40,7 @@ public interface ScrollingView {
     int computeHorizontalScrollRange();
 
     /**
-     * <p>Compute the horizontal offset of the horizontal scrollbar's thumb(拇指)
+     * <p>Compute the horizontal offset of the horizontal scrollbar's thumb
      * within the horizontal range. This value is used to compute the position
      * of the thumb within the scrollbar's track.</p>
      *
@@ -59,7 +59,7 @@ public interface ScrollingView {
     int computeHorizontalScrollOffset();
 
     /**
-     * <p>Compute the horizontal extent(长度) of the horizontal scrollbar's thumb
+     * <p>Compute the horizontal extent of the horizontal scrollbar's thumb
      * within the horizontal range. This value is used to compute the length
      * of the thumb within the scrollbar's track.</p>
      *

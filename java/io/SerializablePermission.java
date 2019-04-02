@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,8 +27,9 @@ package java.io;
 
 import java.security.*;
 
+// Android-changed: Replaced with empty implementation and documented as legacy security code.
 /**
- * Legacy security code; do not use.
+ * This legacy security is not supported on Android. Do not use.
  */
 public final class SerializablePermission extends BasicPermission {
 

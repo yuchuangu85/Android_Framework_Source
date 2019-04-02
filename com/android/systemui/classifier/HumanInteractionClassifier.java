@@ -20,11 +20,14 @@ import android.content.Context;
 import android.database.ContentObserver;
 import android.hardware.SensorEvent;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.MotionEvent;
+
+import com.android.systemui.R;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -36,12 +39,9 @@ public class HumanInteractionClassifier extends Classifier {
     private static final String HIC_ENABLE = "HIC_enable";
     private static final float FINGER_DISTANCE = 0.1f;
 
-    /** Default value for the HIC_ENABLE setting: 1 - enabled, 0 - disabled */
-    private static final int HIC_ENABLE_DEFAULT = 1;
-
     private static HumanInteractionClassifier sInstance = null;
 
-    private final Handler mHandler = new Handler();
+    private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final Context mContext;
 
     private final StrokeClassifier[] mStrokeClassifiers;
@@ -105,9 +105,12 @@ public class HumanInteractionClassifier extends Classifier {
     }
 
     private void updateConfiguration() {
+        boolean defaultValue = mContext.getResources().getBoolean(
+                R.bool.config_lockscreenAntiFalsingClassifierEnabled);
+
         mEnableClassifier = 0 != Settings.Global.getInt(
                 mContext.getContentResolver(),
-                HIC_ENABLE, HIC_ENABLE_DEFAULT);
+                HIC_ENABLE, defaultValue ? 1 : 0);
     }
 
     public void setType(int type) {

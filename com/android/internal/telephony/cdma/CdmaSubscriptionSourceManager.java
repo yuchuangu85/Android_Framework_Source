@@ -19,6 +19,7 @@ package com.android.internal.telephony.cdma;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.android.internal.telephony.CommandsInterface;
+import com.android.internal.telephony.Phone;
 import android.content.Context;
 import android.os.AsyncResult;
 import android.os.Handler;
@@ -44,7 +45,6 @@ public class CdmaSubscriptionSourceManager extends Handler {
     public static final int SUBSCRIPTION_SOURCE_UNKNOWN = -1;
     public static final int SUBSCRIPTION_FROM_RUIM      = 0; /* CDMA subscription from RUIM */
     public static final int SUBSCRIPTION_FROM_NV        = 1; /* CDMA subscription from NV */
-    public static final int PREFERRED_CDMA_SUBSCRIPTION = SUBSCRIPTION_FROM_RUIM;
 
     private static CdmaSubscriptionSourceManager sInstance;
     private static final Object sReferenceCountMonitor = new Object();
@@ -55,7 +55,8 @@ public class CdmaSubscriptionSourceManager extends Handler {
     private RegistrantList mCdmaSubscriptionSourceChangedRegistrants = new RegistrantList();
 
     // Type of CDMA subscription source
-    private AtomicInteger mCdmaSubscriptionSource = new AtomicInteger(SUBSCRIPTION_FROM_NV);
+    private AtomicInteger mCdmaSubscriptionSource =
+            new AtomicInteger(Phone.PREFERRED_CDMA_SUBSCRIPTION);
 
     // Constructor
     private CdmaSubscriptionSourceManager(Context context, CommandsInterface ci) {
@@ -161,7 +162,7 @@ public class CdmaSubscriptionSourceManager extends Handler {
     public static int getDefault(Context context) {
         // Get the default value from the Settings
         int subscriptionSource = Settings.Global.getInt(context.getContentResolver(),
-                Settings.Global.CDMA_SUBSCRIPTION_MODE, PREFERRED_CDMA_SUBSCRIPTION);
+                Settings.Global.CDMA_SUBSCRIPTION_MODE, Phone.PREFERRED_CDMA_SUBSCRIPTION);
         Rlog.d(LOG_TAG, "subscriptionSource from settings: " + subscriptionSource);
         return subscriptionSource;
     }

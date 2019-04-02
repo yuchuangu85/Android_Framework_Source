@@ -16,12 +16,15 @@
 
 package android.support.v4.content;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Binder;
 import android.os.Process;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
+import android.support.annotation.RestrictTo;
 import android.support.v4.app.AppOpsManagerCompat;
 
 import java.lang.annotation.Retention;
@@ -61,6 +64,8 @@ public final class PermissionChecker {
     /** Permission result: The permission is denied because the app op is not allowed. */
     public static final int PERMISSION_DENIED_APP_OP =  PackageManager.PERMISSION_DENIED  - 1;
 
+    /** @hide */
+    @RestrictTo(LIBRARY_GROUP)
     @IntDef({PERMISSION_GRANTED,
             PERMISSION_DENIED,
             PERMISSION_DENIED_APP_OP})
@@ -84,6 +89,7 @@ public final class PermissionChecker {
      * @return The permission check result which is either {@link #PERMISSION_GRANTED}
      *     or {@link #PERMISSION_DENIED} or {@link #PERMISSION_DENIED_APP_OP}.
      */
+    @PermissionResult
     public static int checkPermission(@NonNull Context context, @NonNull String permission,
             int pid, int uid, String packageName) {
         if (context.checkPermission(permission, pid, uid) == PackageManager.PERMISSION_DENIED) {
@@ -120,6 +126,7 @@ public final class PermissionChecker {
      * @return The permission check result which is either {@link #PERMISSION_GRANTED}
      *     or {@link #PERMISSION_DENIED} or {@link #PERMISSION_DENIED_APP_OP}.
      */
+    @PermissionResult
     public static int checkSelfPermission(@NonNull Context context,
             @NonNull String permission) {
         return checkPermission(context, permission, android.os.Process.myPid(),
@@ -137,10 +144,11 @@ public final class PermissionChecker {
      * @return The permission check result which is either {@link #PERMISSION_GRANTED}
      *     or {@link #PERMISSION_DENIED} or {@link #PERMISSION_DENIED_APP_OP}.
      */
+    @PermissionResult
     public static int checkCallingPermission(@NonNull Context context,
             @NonNull String permission, String packageName) {
         if (Binder.getCallingPid() == Process.myPid()) {
-            return PackageManager.PERMISSION_DENIED;
+            return PERMISSION_DENIED;
         }
         return checkPermission(context, permission, Binder.getCallingPid(),
                 Binder.getCallingUid(), packageName);
@@ -155,6 +163,7 @@ public final class PermissionChecker {
      * @return The permission check result which is either {@link #PERMISSION_GRANTED}
      *     or {@link #PERMISSION_DENIED} or {@link #PERMISSION_DENIED_APP_OP}.
      */
+    @PermissionResult
     public static int checkCallingOrSelfPermission(@NonNull Context context,
             @NonNull String permission) {
         String packageName = (Binder.getCallingPid() == Process.myPid())

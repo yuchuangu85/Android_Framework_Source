@@ -16,6 +16,8 @@
 
 package android.support.v7.preference;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -26,6 +28,7 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.support.annotation.CallSuper;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.annotation.RestrictTo;
 import android.support.v4.content.ContextCompat;
 import android.support.v4.content.SharedPreferencesCompat;
@@ -41,8 +44,7 @@ import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+import java.util.Set;
 
 /**
  * Represents the basic Preference UI building
@@ -80,6 +82,8 @@ import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
  * @attr name android:persistent
  * @attr name android:defaultValue
  * @attr name android:shouldDisableView
+ * @attr name android:singleLineTitle
+ * @attr name android:iconSpaceReserved
  */
 public class Preference implements Comparable<Preference> {
     /**
@@ -88,7 +92,17 @@ public class Preference implements Comparable<Preference> {
     public static final int DEFAULT_ORDER = Integer.MAX_VALUE;
 
     private Context mContext;
+
+    @Nullable
     private PreferenceManager mPreferenceManager;
+
+    /**
+     * The data store that should be used by this Preference to store / retrieve data. If null then
+     * {@link PreferenceManager#getPreferenceDataStore()} needs to be checked. If that one is null
+     * too it means that we are using {@link android.content.SharedPreferences} to store the data.
+     */
+    @Nullable
+    private PreferenceDataStore mPreferenceDataStore;
 
     /**
      * Set when added to hierarchy since we need a unique ID within that
@@ -128,6 +142,12 @@ public class Preference implements Comparable<Preference> {
     private boolean mParentDependencyMet = true;
     private boolean mVisible = true;
 
+    private boolean mAllowDividerAbove = true;
+    private boolean mAllowDividerBelow = true;
+    private boolean mHasSingleLineTitleAttr;
+    private boolean mSingleLineTitle = true;
+    private boolean mIconSpaceReserved;
+
     /**
      * @see #setShouldDisableView(boolean)
      */
@@ -139,7 +159,9 @@ public class Preference implements Comparable<Preference> {
     private OnPreferenceChangeInternalListener mListener;
 
     private List<Preference> mDependents;
+    private PreferenceGroup mParentGroup;
 
+    private boolean mWasDetached;
     private boolean mBaseMethodCalled;
 
     private final View.OnClickListener mClickListener = new View.OnClickListener() {
@@ -246,10 +268,10 @@ public class Preference implements Comparable<Preference> {
         mKey = TypedArrayUtils.getString(a, R.styleable.Preference_key,
                 R.styleable.Preference_android_key);
 
-        mTitle = TypedArrayUtils.getString(a, R.styleable.Preference_title,
+        mTitle = TypedArrayUtils.getText(a, R.styleable.Preference_title,
                 R.styleable.Preference_android_title);
 
-        mSummary = TypedArrayUtils.getString(a, R.styleable.Preference_summary,
+        mSummary = TypedArrayUtils.getText(a, R.styleable.Preference_summary,
                 R.styleable.Preference_android_summary);
 
         mOrder = TypedArrayUtils.getInt(a, R.styleable.Preference_order,
@@ -276,6 +298,12 @@ public class Preference implements Comparable<Preference> {
         mDependencyKey = TypedArrayUtils.getString(a, R.styleable.Preference_dependency,
                 R.styleable.Preference_android_dependency);
 
+        mAllowDividerAbove = TypedArrayUtils.getBoolean(a, R.styleable.Preference_allowDividerAbove,
+                R.styleable.Preference_allowDividerAbove, mSelectable);
+
+        mAllowDividerBelow = TypedArrayUtils.getBoolean(a, R.styleable.Preference_allowDividerBelow,
+                R.styleable.Preference_allowDividerBelow, mSelectable);
+
         if (a.hasValue(R.styleable.Preference_defaultValue)) {
             mDefaultValue = onGetDefaultValue(a, R.styleable.Preference_defaultValue);
         } else if (a.hasValue(R.styleable.Preference_android_defaultValue)) {
@@ -285,6 +313,15 @@ public class Preference implements Comparable<Preference> {
         mShouldDisableView =
                 TypedArrayUtils.getBoolean(a, R.styleable.Preference_shouldDisableView,
                         R.styleable.Preference_android_shouldDisableView, true);
+
+        mHasSingleLineTitleAttr = a.hasValue(R.styleable.Preference_singleLineTitle);
+        if (mHasSingleLineTitleAttr) {
+            mSingleLineTitle = TypedArrayUtils.getBoolean(a, R.styleable.Preference_singleLineTitle,
+                R.styleable.Preference_android_singleLineTitle, true);
+        }
+
+        mIconSpaceReserved = TypedArrayUtils.getBoolean(a, R.styleable.Preference_iconSpaceReserved,
+                R.styleable.Preference_android_iconSpaceReserved, false);
 
         a.recycle();
     }
@@ -396,6 +433,44 @@ public class Preference implements Comparable<Preference> {
     }
 
     /**
+     * Sets a {@link PreferenceDataStore} to be used by this Preference instead of using
+     * {@link android.content.SharedPreferences}.
+     *
+     * <p>The data store will remain assigned even if the Preference is moved around the preference
+     * hierarchy. It will also override a data store propagated from the {@link PreferenceManager}
+     * that owns this Preference.
+     *
+     * @param dataStore the {@link PreferenceDataStore} to be used by this Preference
+     * @see PreferenceManager#setPreferenceDataStore(PreferenceDataStore)
+     */
+    public void setPreferenceDataStore(PreferenceDataStore dataStore) {
+        mPreferenceDataStore = dataStore;
+    }
+
+    /**
+     * Returns {@link PreferenceDataStore} used by this Preference. Returns {@code null} if
+     * {@link android.content.SharedPreferences} is used instead.
+     *
+     * <p>By default preferences always use {@link android.content.SharedPreferences}. To make this
+     * preference to use the {@link PreferenceDataStore} you need to assign your implementation
+     * to the Preference itself via {@link #setPreferenceDataStore(PreferenceDataStore)} or to its
+     * {@link PreferenceManager} via
+     * {@link PreferenceManager#setPreferenceDataStore(PreferenceDataStore)}.
+     *
+     * @return the {@link PreferenceDataStore} used by this Preference or {@code null} if none
+     */
+    @Nullable
+    public PreferenceDataStore getPreferenceDataStore() {
+        if (mPreferenceDataStore != null) {
+            return mPreferenceDataStore;
+        } else if (mPreferenceManager != null) {
+            return mPreferenceManager.getPreferenceDataStore();
+        }
+
+        return null;
+    }
+
+    /**
      * Return the extras Bundle object associated with this preference, creating
      * a new Bundle if there currently isn't one.  You can use this to get and
      * set individual extra key/value pairs.
@@ -491,6 +566,9 @@ public class Preference implements Comparable<Preference> {
             if (!TextUtils.isEmpty(title)) {
                 titleView.setText(title);
                 titleView.setVisibility(View.VISIBLE);
+                if (mHasSingleLineTitleAttr) {
+                    titleView.setSingleLine(mSingleLineTitle);
+                }
             } else {
                 titleView.setVisibility(View.GONE);
             }
@@ -517,7 +595,11 @@ public class Preference implements Comparable<Preference> {
                     imageView.setImageDrawable(mIcon);
                 }
             }
-            imageView.setVisibility(mIcon != null ? View.VISIBLE : View.GONE);
+            if (mIcon != null) {
+                imageView.setVisibility(View.VISIBLE);
+            } else {
+                imageView.setVisibility(mIconSpaceReserved ? View.INVISIBLE : View.GONE);
+            }
         }
 
         View imageFrame = holder.findViewById(R.id.icon_frame);
@@ -525,7 +607,11 @@ public class Preference implements Comparable<Preference> {
             imageFrame = holder.findViewById(AndroidResources.ANDROID_R_ICON_FRAME);
         }
         if (imageFrame != null) {
-            imageFrame.setVisibility(mIcon != null ? View.VISIBLE : View.GONE);
+            if (mIcon != null) {
+                imageFrame.setVisibility(View.VISIBLE);
+            } else {
+                imageFrame.setVisibility(mIconSpaceReserved ? View.INVISIBLE : View.GONE);
+            }
         }
 
         if (mShouldDisableView) {
@@ -538,8 +624,8 @@ public class Preference implements Comparable<Preference> {
         holder.itemView.setFocusable(selectable);
         holder.itemView.setClickable(selectable);
 
-        holder.setDividerAllowedAbove(selectable);
-        holder.setDividerAllowedBelow(selectable);
+        holder.setDividerAllowedAbove(mAllowDividerAbove);
+        holder.setDividerAllowedBelow(mAllowDividerBelow);
     }
 
     /**
@@ -608,7 +694,7 @@ public class Preference implements Comparable<Preference> {
      * @param title The title for this Preference.
      */
     public void setTitle(CharSequence title) {
-        if (title == null && mTitle != null || title != null && !title.equals(mTitle)) {
+        if ((title == null && mTitle != null) || (title != null && !title.equals(mTitle))) {
             mTitle = title;
             notifyChanged();
         }
@@ -668,6 +754,9 @@ public class Preference implements Comparable<Preference> {
      * @see #setIcon(Drawable)
      */
     public Drawable getIcon() {
+        if (mIcon == null && mIconResId != 0) {
+            mIcon = ContextCompat.getDrawable(mContext, mIconResId);
+        }
         return mIcon;
     }
 
@@ -687,7 +776,8 @@ public class Preference implements Comparable<Preference> {
      * @param summary The summary for the preference.
      */
     public void setSummary(CharSequence summary) {
-        if (summary == null && mSummary != null || summary != null && !summary.equals(mSummary)) {
+        if ((summary == null && mSummary != null)
+                || (summary != null && !summary.equals(mSummary))) {
             mSummary = summary;
             notifyChanged();
         }
@@ -820,8 +910,8 @@ public class Preference implements Comparable<Preference> {
     }
 
     /**
-     * Sets the key for this Preference, which is used as a key to the
-     * {@link android.content.SharedPreferences}. This should be unique for the package.
+     * Sets the key for this Preference, which is used as a key to the {@link SharedPreferences} or
+     * {@link PreferenceDataStore}. This should be unique for the package.
      *
      * @param key The key for the preference.
      */
@@ -834,8 +924,8 @@ public class Preference implements Comparable<Preference> {
     }
 
     /**
-     * Gets the key for this Preference, which is also the key used for storing
-     * values into SharedPreferences.
+     * Gets the key for this Preference, which is also the key used for storing values into
+     * {@link SharedPreferences} or {@link PreferenceDataStore}.
      *
      * @return The key.
      */
@@ -844,9 +934,8 @@ public class Preference implements Comparable<Preference> {
     }
 
     /**
-     * Checks whether the key is present, and if it isn't throws an
-     * exception. This should be called by subclasses that store preferences in
-     * the {@link android.content.SharedPreferences}.
+     * Checks whether the key is present, and if it isn't throws an exception. This should be called
+     * by subclasses that persist their preferences.
      *
      * @throws IllegalStateException If there is no key assigned.
      */
@@ -869,37 +958,87 @@ public class Preference implements Comparable<Preference> {
 
     /**
      * Checks whether this Preference is persistent. If it is, it stores its value(s) into
-     * the persistent {@link android.content.SharedPreferences} storage.
+     * the persistent {@link SharedPreferences} storage by default or into
+     * {@link PreferenceDataStore} if assigned.
      *
-     * @return True if it is persistent.
+     * @return {@code true} if persistent
      */
     public boolean isPersistent() {
         return mPersistent;
     }
 
     /**
-     * Checks whether, at the given time this method is called,
-     * this Preference should store/restore its value(s) into the
-     * {@link android.content.SharedPreferences}. This, at minimum, checks whether this
-     * Preference is persistent and it currently has a key. Before you
-     * save/restore from the {@link android.content.SharedPreferences}, check this first.
+     * Checks whether, at the given time this method is called, this Preference should store/restore
+     * its value(s) into the {@link SharedPreferences} or into {@link PreferenceDataStore} if
+     * assigned. This, at minimum, checks whether this Preference is persistent and it currently has
+     * a key. Before you save/restore from the storage, check this first.
      *
-     * @return True if it should persist the value.
+     * @return {@code true} if it should persist the value
      */
     protected boolean shouldPersist() {
         return mPreferenceManager != null && isPersistent() && hasKey();
     }
 
     /**
-     * Sets whether this Preference is persistent. When persistent,
-     * it stores its value(s) into the persistent {@link android.content.SharedPreferences}
-     * storage.
+     * Sets whether this Preference is persistent. When persistent, it stores its value(s) into
+     * the persistent {@link SharedPreferences} storage by default or into
+     * {@link PreferenceDataStore} if assigned.
      *
-     * @param persistent Set true if it should store its value(s) into the
-     *                   {@link android.content.SharedPreferences}.
+     * @param persistent set {@code true} if it should store its value(s) into the storage.
      */
     public void setPersistent(boolean persistent) {
         mPersistent = persistent;
+    }
+
+    /**
+     * Sets whether to constrain the title of this Preference to a single line instead of
+     * letting it wrap onto multiple lines.
+     *
+     * @param singleLineTitle set {@code true} if the title should be constrained to one line
+     *
+     * @attr ref R.styleable#Preference_android_singleLineTitle
+     */
+    public void setSingleLineTitle(boolean singleLineTitle) {
+        mHasSingleLineTitleAttr = true;
+        mSingleLineTitle = singleLineTitle;
+    }
+
+    /**
+     * Gets whether the title of this preference is constrained to a single line.
+     *
+     * @see #setSingleLineTitle(boolean)
+     * @return {@code true} if the title of this preference is constrained to a single line
+     *
+     * @attr ref R.styleable#Preference_android_singleLineTitle
+     */
+    public boolean isSingleLineTitle() {
+        return mSingleLineTitle;
+    }
+
+    /**
+     * Sets whether to reserve the space of this Preference icon view when no icon is provided. If
+     * set to true, the preference will be offset as if it would have the icon and thus aligned with
+     * other preferences having icons.
+     *
+     * @param iconSpaceReserved set {@code true} if the space for the icon view should be reserved
+     *
+     * @attr ref R.styleable#Preference_android_iconSpaceReserved
+     */
+    public void setIconSpaceReserved(boolean iconSpaceReserved) {
+        mIconSpaceReserved = iconSpaceReserved;
+        notifyChanged();
+    }
+
+    /**
+     * Returns whether the space of this preference icon view is reserved.
+     *
+     * @see #setIconSpaceReserved(boolean)
+     * @return {@code true} if the space of this preference icon view is reserved
+     *
+     * @attr ref R.styleable#Preference_android_iconSpaceReserved
+     */
+    public boolean isIconSpaceReserved() {
+        return mIconSpaceReserved;
     }
 
     /**
@@ -956,7 +1095,7 @@ public class Preference implements Comparable<Preference> {
     /**
      * @hide
      */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     protected void performClick(View view) {
         performClick();
     }
@@ -966,7 +1105,7 @@ public class Preference implements Comparable<Preference> {
      *
      * @hide
      */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     public void performClick() {
 
         if (!isEnabled()) {
@@ -1012,11 +1151,14 @@ public class Preference implements Comparable<Preference> {
      * {@link #getPersistedBoolean(boolean)}, {@link #getPersistedFloat(float)},
      * {@link #getPersistedInt(int)}, {@link #getPersistedLong(long)},
      * {@link #getPersistedString(String)}.
-     * @return The {@link android.content.SharedPreferences} where this Preference reads its
-     *         value(s), or null if it isn't attached to a Preference hierarchy.
+     *
+     * @return the {@link SharedPreferences} where this Preference reads its value(s). If this
+     *         preference is not attached to a Preference hierarchy or if a
+     *         {@link PreferenceDataStore} has been set, this method returns {@code null}.
+     * @see #setPreferenceDataStore(PreferenceDataStore)
      */
     public SharedPreferences getSharedPreferences() {
-        if (mPreferenceManager == null) {
+        if (mPreferenceManager == null || getPreferenceDataStore() != null) {
             return null;
         }
 
@@ -1107,7 +1249,7 @@ public class Preference implements Comparable<Preference> {
      * Called from {@link PreferenceGroup} to pass in an ID for reuse
      * @hide
      */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     protected void onAttachedToHierarchy(PreferenceManager preferenceManager, long id) {
         mId = id;
         mHasId = true;
@@ -1116,6 +1258,16 @@ public class Preference implements Comparable<Preference> {
         } finally {
             mHasId = false;
         }
+    }
+
+    /**
+     * Assigns a {@link PreferenceGroup} as the parent of this Preference. Set null to remove
+     * the current parent.
+     *
+     * @param parentGroup Parent preference group of this Preference or null if none.
+     */
+    void assignParent(@Nullable PreferenceGroup parentGroup) {
+        mParentGroup = parentGroup;
     }
 
     /**
@@ -1138,6 +1290,24 @@ public class Preference implements Comparable<Preference> {
      */
     public void onDetached() {
         unregisterDependency();
+        mWasDetached = true;
+    }
+
+    /**
+     * Returns true if {@link #onDetached()} was called. Used for handling the case when a
+     * preference was removed, modified, and re-added to a {@link PreferenceGroup}
+     * @hide
+     */
+    public final boolean wasDetached() {
+        return mWasDetached;
+    }
+
+    /**
+     * Clears the {@link #wasDetached()} status
+     * @hide
+     */
+    public final void clearWasDetached() {
+        mWasDetached = false;
     }
 
     private void registerDependency() {
@@ -1204,8 +1374,6 @@ public class Preference implements Comparable<Preference> {
      *
      * @param dependent The dependent Preference that will be enabled/disabled
      *            according to the state of this Preference.
-     * @return Returns the same Preference object, for chaining multiple calls
-     *         into a single statement.
      */
     private void unregisterDependent(Preference dependent) {
         if (mDependents != null) {
@@ -1303,6 +1471,17 @@ public class Preference implements Comparable<Preference> {
     }
 
     /**
+     * Returns the {@link PreferenceGroup} which is this Preference assigned to or null if this
+     * preference is not assigned to any group or is a root Preference.
+     *
+     * @return The parent PreferenceGroup or null if not attached to any.
+     */
+    @Nullable
+    public PreferenceGroup getParent() {
+        return mParentGroup;
+    }
+
+    /**
      * Called when this Preference is being removed from the hierarchy. You
      * should remove any references to this Preference that you know about. Make
      * sure to call through to the superclass implementation.
@@ -1323,6 +1502,11 @@ public class Preference implements Comparable<Preference> {
     }
 
     private void dispatchSetInitialValue() {
+        if (getPreferenceDataStore() != null) {
+            onSetInitialValue(true, mDefaultValue);
+            return;
+        }
+
         // By now, we know if we are persistent.
         final boolean shouldPersist = shouldPersist();
         if (!shouldPersist || !getSharedPreferences().contains(mKey)) {
@@ -1336,14 +1520,17 @@ public class Preference implements Comparable<Preference> {
 
     /**
      * Implement this to set the initial value of the Preference.
-     * <p>
-     * If <var>restorePersistedValue</var> is true, you should restore the
+     *
+     * <p>If <var>restorePersistedValue</var> is true, you should restore the
      * Preference value from the {@link android.content.SharedPreferences}. If
      * <var>restorePersistedValue</var> is false, you should set the Preference
      * value to defaultValue that is given (and possibly store to SharedPreferences
      * if {@link #shouldPersist()} is true).
-     * <p>
-     * This may not always be called. One example is if it should not persist
+     *
+     * <p>In case of using {@link PreferenceDataStore}, the <var>restorePersistedValue</var> is
+     * always {@code true} but the default value (if provided) is set.
+     *
+     * <p>This may not always be called. One example is if it should not persist
      * but there is no default value given.
      *
      * @param restorePersistedValue True to restore the persisted value;
@@ -1361,45 +1548,44 @@ public class Preference implements Comparable<Preference> {
     }
 
     /**
-     * Attempts to persist a String to the {@link android.content.SharedPreferences}.
-     * <p>
-     * This will check if this Preference is persistent, get an editor from
-     * the {@link PreferenceManager}, put in the string, and check if we should commit (and
-     * commit if so).
+     * Attempts to persist a {@link String} if this Preference is persistent.
+     *
+     * <p>The returned value doesn't reflect whether the given value was persisted, since we may not
+     * necessarily commit if there will be a batch commit later.
      *
      * @param value The value to persist.
-     * @return True if the Preference is persistent. (This is not whether the
-     *         value was persisted, since we may not necessarily commit if there
-     *         will be a batch commit later.)
+     * @return {@code true} if the Preference is persistent, {@code false} otherwise
      * @see #getPersistedString(String)
      */
     protected boolean persistString(String value) {
-        if (shouldPersist()) {
-            // Shouldn't store null
-            if (value == getPersistedString(null)) {
-                // It's already there, so the same as persisting
-                return true;
-            }
+        if (!shouldPersist()) {
+            return false;
+        }
 
+        // Shouldn't store null
+        if (TextUtils.equals(value, getPersistedString(null))) {
+            // It's already there, so the same as persisting
+            return true;
+        }
+
+        PreferenceDataStore dataStore = getPreferenceDataStore();
+        if (dataStore != null) {
+            dataStore.putString(mKey, value);
+        } else {
             SharedPreferences.Editor editor = mPreferenceManager.getEditor();
             editor.putString(mKey, value);
             tryCommit(editor);
-            return true;
         }
-        return false;
+        return true;
     }
 
     /**
-     * Attempts to get a persisted String from the {@link android.content.SharedPreferences}.
-     * <p>
-     * This will check if this Preference is persistent, get the SharedPreferences
-     * from the {@link PreferenceManager}, and get the value.
+     * Attempts to get a persisted set of Strings if this Preference is persistent.
      *
      * @param defaultReturnValue The default value to return if either the
      *            Preference is not persistent or the Preference is not in the
      *            shared preferences.
-     * @return The value from the SharedPreferences or the default return
-     *         value.
+     * @return the value from the storage or the default return value
      * @see #persistString(String)
      */
     protected String getPersistedString(String defaultReturnValue) {
@@ -1407,42 +1593,106 @@ public class Preference implements Comparable<Preference> {
             return defaultReturnValue;
         }
 
+        PreferenceDataStore dataStore = getPreferenceDataStore();
+        if (dataStore != null) {
+            return dataStore.getString(mKey, defaultReturnValue);
+        }
+
         return mPreferenceManager.getSharedPreferences().getString(mKey, defaultReturnValue);
     }
 
     /**
-     * Attempts to persist an int to the {@link android.content.SharedPreferences}.
+     * Attempts to persist a set of Strings if this Preference is persistent.
+     *
+     * <p>The returned value doesn't reflect whether the given value was persisted, since we may not
+     * necessarily commit if there will be a batch commit later.
+     *
+     * @param values the values to persist
+     * @return {@code true} if the Preference is persistent, {@code false} otherwise
+     * @see #getPersistedStringSet(Set)
+     */
+    public boolean persistStringSet(Set<String> values) {
+        if (!shouldPersist()) {
+            return false;
+        }
+
+        // Shouldn't store null
+        if (values.equals(getPersistedStringSet(null))) {
+            // It's already there, so the same as persisting
+            return true;
+        }
+
+        PreferenceDataStore dataStore = getPreferenceDataStore();
+        if (dataStore != null) {
+            dataStore.putStringSet(mKey, values);
+        } else {
+            SharedPreferences.Editor editor = mPreferenceManager.getEditor();
+            editor.putStringSet(mKey, values);
+            tryCommit(editor);
+        }
+        return true;
+    }
+
+    /**
+     * Attempts to get a persisted set of Strings if this Preference is persistent.
+     *
+     * @param defaultReturnValue the default value to return if either this Preference is not
+     *                           persistent or this Preference is not present
+     * @return the value from the storage or the default return value
+     * @see #persistStringSet(Set)
+     */
+    public Set<String> getPersistedStringSet(Set<String> defaultReturnValue) {
+        if (!shouldPersist()) {
+            return defaultReturnValue;
+        }
+
+        PreferenceDataStore dataStore = getPreferenceDataStore();
+        if (dataStore != null) {
+            return dataStore.getStringSet(mKey, defaultReturnValue);
+        }
+
+        return mPreferenceManager.getSharedPreferences().getStringSet(mKey, defaultReturnValue);
+    }
+
+    /**
+     * Attempts to persist an {@link Integer} if this Preference is persistent.
+     *
+     * <p>The returned value doesn't reflect whether the given value was persisted, since we may not
+     * necessarily commit if there will be a batch commit later.
      *
      * @param value The value to persist.
-     * @return True if the Preference is persistent. (This is not whether the
-     *         value was persisted, since we may not necessarily commit if there
-     *         will be a batch commit later.)
+     * @return {@code true} if the Preference is persistent, {@code false} otherwise
      * @see #persistString(String)
      * @see #getPersistedInt(int)
      */
     protected boolean persistInt(int value) {
-        if (shouldPersist()) {
-            if (value == getPersistedInt(~value)) {
-                // It's already there, so the same as persisting
-                return true;
-            }
+        if (!shouldPersist()) {
+            return false;
+        }
 
+        if (value == getPersistedInt(~value)) {
+            // It's already there, so the same as persisting
+            return true;
+        }
+
+        PreferenceDataStore dataStore = getPreferenceDataStore();
+        if (dataStore != null) {
+            dataStore.putInt(mKey, value);
+        } else {
             SharedPreferences.Editor editor = mPreferenceManager.getEditor();
             editor.putInt(mKey, value);
             tryCommit(editor);
-            return true;
         }
-        return false;
+        return true;
     }
 
     /**
-     * Attempts to get a persisted int from the {@link android.content.SharedPreferences}.
+     * Attempts to get a persisted {@link Integer} if this Preference is persistent.
      *
      * @param defaultReturnValue The default value to return if either this
      *            Preference is not persistent or this Preference is not in the
      *            SharedPreferences.
-     * @return The value from the SharedPreferences or the default return
-     *         value.
+     * @return the value from the storage or the default return value
      * @see #getPersistedString(String)
      * @see #persistInt(int)
      */
@@ -1451,42 +1701,53 @@ public class Preference implements Comparable<Preference> {
             return defaultReturnValue;
         }
 
+        PreferenceDataStore dataStore = getPreferenceDataStore();
+        if (dataStore != null) {
+            return dataStore.getInt(mKey, defaultReturnValue);
+        }
+
         return mPreferenceManager.getSharedPreferences().getInt(mKey, defaultReturnValue);
     }
 
     /**
-     * Attempts to persist a float to the {@link android.content.SharedPreferences}.
+     * Attempts to persist a {@link Float} if this Preference is persistent.
+     *
+     * <p>The returned value doesn't reflect whether the given value was persisted, since we may not
+     * necessarily commit if there will be a batch commit later.
      *
      * @param value The value to persist.
-     * @return True if this Preference is persistent. (This is not whether the
-     *         value was persisted, since we may not necessarily commit if there
-     *         will be a batch commit later.)
+     * @return {@code true} if the Preference is persistent, {@code false} otherwise
      * @see #persistString(String)
      * @see #getPersistedFloat(float)
      */
     protected boolean persistFloat(float value) {
-        if (shouldPersist()) {
-            if (value == getPersistedFloat(Float.NaN)) {
-                // It's already there, so the same as persisting
-                return true;
-            }
+        if (!shouldPersist()) {
+            return false;
+        }
 
+        if (value == getPersistedFloat(Float.NaN)) {
+            // It's already there, so the same as persisting
+            return true;
+        }
+
+        PreferenceDataStore dataStore = getPreferenceDataStore();
+        if (dataStore != null) {
+            dataStore.putFloat(mKey, value);
+        } else {
             SharedPreferences.Editor editor = mPreferenceManager.getEditor();
             editor.putFloat(mKey, value);
             tryCommit(editor);
-            return true;
         }
-        return false;
+        return true;
     }
 
     /**
-     * Attempts to get a persisted float from the {@link android.content.SharedPreferences}.
+     * Attempts to get a persisted {@link Float} if this Preference is persistent.
      *
      * @param defaultReturnValue The default value to return if either this
      *            Preference is not persistent or this Preference is not in the
      *            SharedPreferences.
-     * @return The value from the SharedPreferences or the default return
-     *         value.
+     * @return the value from the storage or the default return value
      * @see #getPersistedString(String)
      * @see #persistFloat(float)
      */
@@ -1495,42 +1756,53 @@ public class Preference implements Comparable<Preference> {
             return defaultReturnValue;
         }
 
+        PreferenceDataStore dataStore = getPreferenceDataStore();
+        if (dataStore != null) {
+            return dataStore.getFloat(mKey, defaultReturnValue);
+        }
+
         return mPreferenceManager.getSharedPreferences().getFloat(mKey, defaultReturnValue);
     }
 
     /**
-     * Attempts to persist a long to the {@link android.content.SharedPreferences}.
+     * Attempts to persist a {@link Long} if this Preference is persistent.
+     *
+     * <p>The returned value doesn't reflect whether the given value was persisted, since we may not
+     * necessarily commit if there will be a batch commit later.
      *
      * @param value The value to persist.
-     * @return True if this Preference is persistent. (This is not whether the
-     *         value was persisted, since we may not necessarily commit if there
-     *         will be a batch commit later.)
+     * @return {@code true} if the Preference is persistent, {@code false} otherwise
      * @see #persistString(String)
      * @see #getPersistedLong(long)
      */
     protected boolean persistLong(long value) {
-        if (shouldPersist()) {
-            if (value == getPersistedLong(~value)) {
-                // It's already there, so the same as persisting
-                return true;
-            }
+        if (!shouldPersist()) {
+            return false;
+        }
 
+        if (value == getPersistedLong(~value)) {
+            // It's already there, so the same as persisting
+            return true;
+        }
+
+        PreferenceDataStore dataStore = getPreferenceDataStore();
+        if (dataStore != null) {
+            dataStore.putLong(mKey, value);
+        } else {
             SharedPreferences.Editor editor = mPreferenceManager.getEditor();
             editor.putLong(mKey, value);
             tryCommit(editor);
-            return true;
         }
-        return false;
+        return true;
     }
 
     /**
-     * Attempts to get a persisted long from the {@link android.content.SharedPreferences}.
+     * Attempts to get a persisted {@link Long} if this Preference is persistent.
      *
      * @param defaultReturnValue The default value to return if either this
      *            Preference is not persistent or this Preference is not in the
      *            SharedPreferences.
-     * @return The value from the SharedPreferences or the default return
-     *         value.
+     * @return the value from the storage or the default return value
      * @see #getPersistedString(String)
      * @see #persistLong(long)
      */
@@ -1539,48 +1811,64 @@ public class Preference implements Comparable<Preference> {
             return defaultReturnValue;
         }
 
+        PreferenceDataStore dataStore = getPreferenceDataStore();
+        if (dataStore != null) {
+            return dataStore.getLong(mKey, defaultReturnValue);
+        }
+
         return mPreferenceManager.getSharedPreferences().getLong(mKey, defaultReturnValue);
     }
 
     /**
-     * Attempts to persist a boolean to the {@link android.content.SharedPreferences}.
+     * Attempts to persist a {@link Boolean} if this Preference is persistent.
+     *
+     * <p>The returned value doesn't reflect whether the given value was persisted, since we may not
+     * necessarily commit if there will be a batch commit later.
      *
      * @param value The value to persist.
-     * @return True if this Preference is persistent. (This is not whether the
-     *         value was persisted, since we may not necessarily commit if there
-     *         will be a batch commit later.)
+     * @return {@code true} if the Preference is persistent, {@code false} otherwise
      * @see #persistString(String)
      * @see #getPersistedBoolean(boolean)
      */
     protected boolean persistBoolean(boolean value) {
-        if (shouldPersist()) {
-            if (value == getPersistedBoolean(!value)) {
-                // It's already there, so the same as persisting
-                return true;
-            }
+        if (!shouldPersist()) {
+            return false;
+        }
 
+        if (value == getPersistedBoolean(!value)) {
+            // It's already there, so the same as persisting
+            return true;
+        }
+
+        PreferenceDataStore dataStore = getPreferenceDataStore();
+        if (dataStore != null) {
+            dataStore.putBoolean(mKey, value);
+        } else {
             SharedPreferences.Editor editor = mPreferenceManager.getEditor();
             editor.putBoolean(mKey, value);
             tryCommit(editor);
-            return true;
         }
-        return false;
+        return true;
     }
 
     /**
-     * Attempts to get a persisted boolean from the {@link android.content.SharedPreferences}.
+     * Attempts to get a persisted {@link Boolean} if this Preference is persistent.
      *
      * @param defaultReturnValue The default value to return if either this
      *            Preference is not persistent or this Preference is not in the
      *            SharedPreferences.
-     * @return The value from the SharedPreferences or the default return
-     *         value.
+     * @return the value from the storage or the default return value
      * @see #getPersistedString(String)
      * @see #persistBoolean(boolean)
      */
     protected boolean getPersistedBoolean(boolean defaultReturnValue) {
         if (!shouldPersist()) {
             return defaultReturnValue;
+        }
+
+        PreferenceDataStore dataStore = getPreferenceDataStore();
+        if (dataStore != null) {
+            return dataStore.getBoolean(mKey, defaultReturnValue);
         }
 
         return mPreferenceManager.getSharedPreferences().getBoolean(mKey, defaultReturnValue);
@@ -1595,7 +1883,7 @@ public class Preference implements Comparable<Preference> {
      * Returns the text that will be used to filter this Preference depending on
      * user input.
      * <p>
-     * If overridding and calling through to the superclass, make sure to prepend
+     * If overriding and calling through to the superclass, make sure to prepend
      * your additions with a space.
      *
      * @return Text as a {@link StringBuilder} that will be used to filter this
@@ -1632,8 +1920,8 @@ public class Preference implements Comparable<Preference> {
     }
 
     /**
-     * Called by {@link #saveHierarchyState} to store the instance for this Preference and its children.
-     * May be overridden to modify how the save happens for children. For example, some
+     * Called by {@link #saveHierarchyState} to store the instance for this Preference and its
+     * children. May be overridden to modify how the save happens for children. For example, some
      * Preference objects may want to not store an instance for their children.
      *
      * @param container The Bundle in which to save the instance of this Preference.

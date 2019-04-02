@@ -19,8 +19,6 @@ package android.databinding.tool.util;
 import com.google.common.base.StandardSystemProperty;
 import com.google.common.base.Strings;
 
-import org.antlr.v4.runtime.misc.Nullable;
-
 public class StringUtils {
 
     public static final String LINE_SEPARATOR = StandardSystemProperty.LINE_SEPARATOR.value();
@@ -41,7 +39,7 @@ public class StringUtils {
     /** The entity for the line feed character */
     private static final String LFEED_ENTITY = "&#xA;";
 
-    public static boolean isNotBlank(@Nullable CharSequence string) {
+    public static boolean isNotBlank(CharSequence string) {
         if (string == null) {
             return false;
         }
@@ -53,7 +51,7 @@ public class StringUtils {
         return false;
     }
 
-    public static String capitalize(@Nullable String string) {
+    public static String capitalize(String string) {
         if (Strings.isNullOrEmpty(string)) {
             return string;
         }

@@ -18,6 +18,7 @@ package android.text;
 
 import android.annotation.Nullable;
 import android.graphics.Paint;
+import android.os.LocaleList;
 import android.text.style.LeadingMarginSpan;
 import android.text.style.LeadingMarginSpan.LeadingMarginSpan2;
 import android.text.style.LineHeightSpan;
@@ -94,6 +95,7 @@ public class StaticLayout extends Layout {
             b.mMaxLines = Integer.MAX_VALUE;
             b.mBreakStrategy = Layout.BREAK_STRATEGY_SIMPLE;
             b.mHyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE;
+            b.mJustificationMode = Layout.JUSTIFICATION_MODE_NONE;
 
             b.mMeasuredText = MeasuredText.obtain();
             return b;
@@ -320,6 +322,29 @@ public class StaticLayout extends Layout {
         }
 
         /**
+         * Set paragraph justification mode. The default value is
+         * {@link Layout#JUSTIFICATION_MODE_NONE}. If the last line is too short for justification,
+         * the last line will be displayed with the alignment set by {@link #setAlignment}.
+         *
+         * @param justificationMode justification mode for the paragraph.
+         * @return this builder, useful for chaining.
+         */
+        public Builder setJustificationMode(@JustificationMode int justificationMode) {
+            mJustificationMode = justificationMode;
+            return this;
+        }
+
+        private long[] getHyphenators(LocaleList locales) {
+            final int length = locales.size();
+            final long[] result = new long[length];
+            for (int i = 0; i < length; i++) {
+                final Locale locale = locales.get(i);
+                result[i] = Hyphenator.get(locale).getNativePtr();
+            }
+            return result;
+        }
+
+        /**
          * Measurement and break iteration is done in native code. The protocol for using
          * the native code is as follows.
          *
@@ -328,7 +353,7 @@ public class StaticLayout extends Layout {
          * future).
          *
          * Then, for each run within the paragraph:
-         *  - setLocale (this must be done at least for the first run, optional afterwards)
+         *  - setLocales (this must be done at least for the first run, optional afterwards)
          *  - one of the following, depending on the type of run:
          *    + addStyleRun (a text run, to be measured in native code)
          *    + addMeasuredRun (a run already measured in Java, passed into native code)
@@ -340,15 +365,15 @@ public class StaticLayout extends Layout {
          * After all paragraphs, call finish() to release expensive buffers.
          */
 
-        private void setLocale(Locale locale) {
-            if (!locale.equals(mLocale)) {
-                nSetLocale(mNativePtr, locale.toLanguageTag(),
-                        Hyphenator.get(locale).getNativePtr());
-                mLocale = locale;
+        private void setLocales(LocaleList locales) {
+            if (!locales.equals(mLocales)) {
+                nSetLocales(mNativePtr, locales.toLanguageTags(), getHyphenators(locales));
+                mLocales = locales;
             }
         }
 
         /* package */ float addStyleRun(TextPaint paint, int start, int end, boolean isRtl) {
+            setLocales(paint.getTextLocales());
             return nAddStyleRun(mNativePtr, paint.getNativeInstance(), paint.mNativeTypeface,
                     start, end, isRtl);
         }
@@ -404,13 +429,14 @@ public class StaticLayout extends Layout {
         int mHyphenationFrequency;
         int[] mLeftIndents;
         int[] mRightIndents;
+        int mJustificationMode;
 
         Paint.FontMetricsInt mFontMetricsInt = new Paint.FontMetricsInt();
 
         // This will go away and be subsumed by native builder code
         MeasuredText mMeasuredText;
 
-        Locale mLocale;
+        LocaleList mLocales;
 
         private static final SynchronizedPool<Builder> sPool = new SynchronizedPool<Builder>(3);
     }
@@ -557,6 +583,7 @@ public class StaticLayout extends Layout {
 
         mLeftIndents = b.mLeftIndents;
         mRightIndents = b.mRightIndents;
+        setJustificationMode(b.mJustificationMode);
 
         generate(b, b.mIncludePad, b.mIncludePad);
     }
@@ -578,9 +605,11 @@ public class StaticLayout extends Layout {
         // store fontMetrics per span range
         // must be a multiple of 4 (and > 0) (store top, bottom, ascent, and descent per range)
         int[] fmCache = new int[4 * 4];
-        b.setLocale(paint.getTextLocale());  // TODO: also respect LocaleSpan within the text
+        b.setLocales(paint.getTextLocales());
 
         mLineCount = 0;
+        mEllipsized = false;
+        mMaxLineHeight = mMaximumVisibleLineCount < 1 ? 0 : DEFAULT_MAX_LINE_HEIGHT;
 
         int v = 0;
         boolean needMultiply = (spacingmult != 1 || spacingadd != 0);
@@ -676,7 +705,9 @@ public class StaticLayout extends Layout {
 
             nSetupParagraph(b.mNativePtr, chs, paraEnd - paraStart,
                     firstWidth, firstWidthLineCount, restWidth,
-                    variableTabStops, TAB_INCREMENT, b.mBreakStrategy, b.mHyphenationFrequency);
+                    variableTabStops, TAB_INCREMENT, b.mBreakStrategy, b.mHyphenationFrequency,
+                    // TODO: Support more justification mode, e.g. letter spacing, stretching.
+                    b.mJustificationMode != Layout.JUSTIFICATION_MODE_NONE);
             if (mLeftIndents != null || mRightIndents != null) {
                 // TODO(raph) performance: it would be better to do this once per layout rather
                 // than once per paragraph, but that would require a change to the native
@@ -836,7 +867,7 @@ public class StaticLayout extends Layout {
                     here = endPos;
                     breakIndex++;
 
-                    if (mLineCount >= mMaximumVisibleLineCount) {
+                    if (mLineCount >= mMaximumVisibleLineCount && mEllipsized) {
                         return;
                     }
                 }
@@ -920,7 +951,25 @@ public class StaticLayout extends Layout {
 
         boolean firstLine = (j == 0);
         boolean currentLineIsTheLastVisibleOne = (j + 1 == mMaximumVisibleLineCount);
-        boolean lastLine = currentLineIsTheLastVisibleOne || (end == bufEnd);
+
+        if (ellipsize != null) {
+            // If there is only one line, then do any type of ellipsis except when it is MARQUEE
+            // if there are multiple lines, just allow END ellipsis on the last line
+            boolean forceEllipsis = moreChars && (mLineCount + 1 == mMaximumVisibleLineCount);
+
+            boolean doEllipsis =
+                    (((mMaximumVisibleLineCount == 1 && moreChars) || (firstLine && !moreChars)) &&
+                            ellipsize != TextUtils.TruncateAt.MARQUEE) ||
+                    (!firstLine && (currentLineIsTheLastVisibleOne || !moreChars) &&
+                            ellipsize == TextUtils.TruncateAt.END);
+            if (doEllipsis) {
+                calculateEllipsis(start, end, widths, widthStart,
+                        ellipsisWidth, ellipsize, j,
+                        textWidth, paint, forceEllipsis);
+            }
+        }
+
+        boolean lastLine = mEllipsized || (end == bufEnd);
 
         if (firstLine) {
             if (trackPad) {
@@ -944,7 +993,6 @@ public class StaticLayout extends Layout {
             }
         }
 
-
         if (needMultiply && !lastLine) {
             double ex = (below - above) * (spacingmult - 1) + spacingadd;
             if (ex >= 0) {
@@ -959,6 +1007,15 @@ public class StaticLayout extends Layout {
         lines[off + START] = start;
         lines[off + TOP] = v;
         lines[off + DESCENT] = below + extra;
+
+        // special case for non-ellipsized last visible line when maxLines is set
+        // store the height as if it was ellipsized
+        if (!mEllipsized && currentLineIsTheLastVisibleOne) {
+            // below calculation as if it was the last line
+            int maxLineBelow = includePad ? bottom : below;
+            // similar to the calculation of v below, without the extra.
+            mMaxLineHeight = v + (maxLineBelow - above);
+        }
 
         v += (below - above) + extra;
         lines[off + mColumns + START] = end;
@@ -981,23 +1038,6 @@ public class StaticLayout extends Layout {
                     start - widthStart, end - start);
         }
 
-        if (ellipsize != null) {
-            // If there is only one line, then do any type of ellipsis except when it is MARQUEE
-            // if there are multiple lines, just allow END ellipsis on the last line
-            boolean forceEllipsis = moreChars && (mLineCount + 1 == mMaximumVisibleLineCount);
-
-            boolean doEllipsis =
-                        (((mMaximumVisibleLineCount == 1 && moreChars) || (firstLine && !moreChars)) &&
-                                ellipsize != TextUtils.TruncateAt.MARQUEE) ||
-                        (!firstLine && (currentLineIsTheLastVisibleOne || !moreChars) &&
-                                ellipsize == TextUtils.TruncateAt.END);
-            if (doEllipsis) {
-                calculateEllipsis(start, end, widths, widthStart,
-                        ellipsisWidth, ellipsize, j,
-                        textWidth, paint, forceEllipsis);
-            }
-        }
-
         mLineCount++;
         return v;
     }
@@ -1007,6 +1047,7 @@ public class StaticLayout extends Layout {
                                    float avail, TextUtils.TruncateAt where,
                                    int line, float textWidth, TextPaint paint,
                                    boolean forceEllipsis) {
+        avail -= getTotalInsets(line);
         if (textWidth <= avail && !forceEllipsis) {
             // Everything fits!
             mLines[mColumns * line + ELLIPSIS_START] = 0;
@@ -1029,8 +1070,10 @@ public class StaticLayout extends Layout {
 
                 for (i = len; i > 0; i--) {
                     float w = widths[i - 1 + lineStart - widthStart];
-
                     if (w + sum + ellipsisWidth > avail) {
+                        while (i < len && widths[i + lineStart - widthStart] == 0.0f) {
+                            i++;
+                        }
                         break;
                     }
 
@@ -1076,9 +1119,11 @@ public class StaticLayout extends Layout {
                     float w = widths[right - 1 + lineStart - widthStart];
 
                     if (w + rsum > ravail) {
+                        while (right < len && widths[right + lineStart - widthStart] == 0.0f) {
+                            right++;
+                        }
                         break;
                     }
-
                     rsum += w;
                 }
 
@@ -1101,9 +1146,20 @@ public class StaticLayout extends Layout {
                 }
             }
         }
-
+        mEllipsized = true;
         mLines[mColumns * line + ELLIPSIS_START] = ellipsisStart;
         mLines[mColumns * line + ELLIPSIS_COUNT] = ellipsisCount;
+    }
+
+    private float getTotalInsets(int line) {
+        int totalIndent = 0;
+        if (mLeftIndents != null) {
+            totalIndent = mLeftIndents[Math.min(line, mLeftIndents.length - 1)];
+        }
+        if (mRightIndents != null) {
+            totalIndent += mRightIndents[Math.min(line, mRightIndents.length - 1)];
+        }
+        return totalIndent;
     }
 
     // Override the base class so we can directly access our members,
@@ -1181,7 +1237,7 @@ public class StaticLayout extends Layout {
      */
     @Override
     public int getHyphen(int line) {
-        return mLines[mColumns * line + HYPHEN] & 0xff;
+        return mLines[mColumns * line + HYPHEN] & HYPHEN_MASK;
     }
 
     /**
@@ -1239,20 +1295,42 @@ public class StaticLayout extends Layout {
         return mEllipsizedWidth;
     }
 
+    /**
+     * Return the total height of this layout.
+     *
+     * @param cap if true and max lines is set, returns the height of the layout at the max lines.
+     *
+     * @hide
+     */
+    public int getHeight(boolean cap) {
+        if (cap && mLineCount >= mMaximumVisibleLineCount && mMaxLineHeight == -1 &&
+                Log.isLoggable(TAG, Log.WARN)) {
+            Log.w(TAG, "maxLineHeight should not be -1. "
+                    + " maxLines:" + mMaximumVisibleLineCount
+                    + " lineCount:" + mLineCount);
+        }
+
+        return cap && mLineCount >= mMaximumVisibleLineCount && mMaxLineHeight != -1 ?
+                mMaxLineHeight : super.getHeight();
+    }
+
     private static native long nNewBuilder();
     private static native void nFreeBuilder(long nativePtr);
     private static native void nFinishBuilder(long nativePtr);
 
-    /* package */ static native long nLoadHyphenator(ByteBuffer buf, int offset);
+    /* package */ static native long nLoadHyphenator(ByteBuffer buf, int offset,
+            int minPrefix, int minSuffix);
 
-    private static native void nSetLocale(long nativePtr, String locale, long nativeHyphenator);
+    private static native void nSetLocales(long nativePtr, String locales,
+            long[] nativeHyphenators);
 
     private static native void nSetIndents(long nativePtr, int[] indents);
 
     // Set up paragraph text and settings; done as one big method to minimize jni crossings
     private static native void nSetupParagraph(long nativePtr, char[] text, int length,
             float firstWidth, int firstWidthLineCount, float restWidth,
-            int[] variableTabStops, int defaultTabStop, int breakStrategy, int hyphenationFrequency);
+            int[] variableTabStops, int defaultTabStop, int breakStrategy, int hyphenationFrequency,
+            boolean isJustified);
 
     private static native float nAddStyleRun(long nativePtr, long nativePaint,
             long nativeTypeface, int start, int end, boolean isRtl);
@@ -1277,6 +1355,21 @@ public class StaticLayout extends Layout {
     private int mColumns;
     private int mEllipsizedWidth;
 
+    /**
+     * Keeps track if ellipsize is applied to the text.
+     */
+    private boolean mEllipsized;
+
+    /**
+     * If maxLines is set, ellipsize is not set, and the actual line count of text is greater than
+     * or equal to maxLine, this variable holds the ideal visual height of the maxLine'th line
+     * starting from the top of the layout. If maxLines is not set its value will be -1.
+     *
+     * The value is the same as getLineTop(maxLines) for ellipsized version where structurally no
+     * more than maxLines is contained.
+     */
+    private int mMaxLineHeight = DEFAULT_MAX_LINE_HEIGHT;
+
     private static final int COLUMNS_NORMAL = 4;
     private static final int COLUMNS_ELLIPSIZE = 6;
     private static final int START = 0;
@@ -1295,12 +1388,15 @@ public class StaticLayout extends Layout {
     private static final int START_MASK = 0x1FFFFFFF;
     private static final int DIR_SHIFT  = 30;
     private static final int TAB_MASK   = 0x20000000;
+    private static final int HYPHEN_MASK = 0xFF;
 
     private static final int TAB_INCREMENT = 20; // same as Layout, but that's private
 
     private static final char CHAR_NEW_LINE = '\n';
 
     private static final double EXTRA_ROUNDING = 0.5;
+
+    private static final int DEFAULT_MAX_LINE_HEIGHT = -1;
 
     // This is used to return three arrays from a single JNI call when
     // performing line breaking

@@ -18,15 +18,15 @@ package com.android.internal.telephony.dataconnection;
 
 import android.content.Context;
 import android.net.LinkAddress;
-import android.net.NetworkUtils;
 import android.net.LinkProperties.CompareResult;
+import android.net.NetworkUtils;
 import android.os.AsyncResult;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
-import android.telephony.TelephonyManager;
 import android.telephony.PhoneStateListener;
 import android.telephony.Rlog;
+import android.telephony.TelephonyManager;
 
 import com.android.internal.telephony.DctConstants;
 import com.android.internal.telephony.Phone;
@@ -159,7 +159,7 @@ public class DcController extends StateMachine {
         public void enter() {
             mPhone.mCi.registerForRilConnected(getHandler(),
                     DataConnection.EVENT_RIL_CONNECTED, null);
-            mPhone.mCi.registerForDataNetworkStateChanged(getHandler(),
+            mPhone.mCi.registerForDataCallListChanged(getHandler(),
                     DataConnection.EVENT_DATA_STATE_CHANGED, null);
             if (Build.IS_DEBUGGABLE) {
                 mDcTesterDeactivateAll =
@@ -171,7 +171,7 @@ public class DcController extends StateMachine {
         public void exit() {
             if (mPhone != null) {
                 mPhone.mCi.unregisterForRilConnected(getHandler());
-                mPhone.mCi.unregisterForDataNetworkStateChanged(getHandler());
+                mPhone.mCi.unregisterForDataCallListChanged(getHandler());
             }
             if (mDcTesterDeactivateAll != null) {
                 mDcTesterDeactivateAll.dispose();
@@ -268,13 +268,14 @@ public class DcController extends StateMachine {
                             mDct.isCleanupRequired.set(false);
                         } else {
                             DcFailCause failCause = DcFailCause.fromInt(newState.status);
-                            if (failCause.isRestartRadioFail()) {
+                            if (failCause.isRestartRadioFail(mPhone.getContext(),
+                                        mPhone.getSubId())) {
                                 if (DBG) {
                                     log("onDataStateChanged: X restart radio, failCause="
                                             + failCause);
                                 }
                                 mDct.sendRestartRadio();
-                            } else if (mDct.isPermanentFail(failCause)) {
+                            } else if (mDct.isPermanentFailure(failCause)) {
                                 if (DBG) {
                                     log("onDataStateChanged: inactive, add to cleanup list. "
                                             + "failCause=" + failCause);

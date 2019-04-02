@@ -18,6 +18,7 @@ package android.databinding.tool.expr;
 
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
+import android.databinding.tool.solver.ExecutionPath;
 import android.databinding.tool.writer.KCode;
 
 import java.util.ArrayList;
@@ -25,6 +26,7 @@ import java.util.BitSet;
 import java.util.List;
 
 public class TernaryExpr extends Expr {
+
     TernaryExpr(Expr pred, Expr ifTrue, Expr ifFalse) {
         super(pred, ifTrue, ifFalse);
     }
@@ -76,7 +78,7 @@ public class TernaryExpr extends Expr {
     private static boolean isNullLiteral(Expr expr) {
         final ModelClass type = expr.getResolvedType();
         return (type.isObject() && (expr instanceof SymbolExpr) &&
-                "null".equals(((SymbolExpr)expr).getText()));
+                "null".equals(((SymbolExpr) expr).getText()));
     }
 
     @Override
@@ -99,32 +101,58 @@ public class TernaryExpr extends Expr {
     }
 
     @Override
+    public List<ExecutionPath> toExecutionPath(List<ExecutionPath> paths) {
+        List<ExecutionPath> executionPaths = getPred().toExecutionPath(paths);
+        // now optionally add others
+        List<ExecutionPath> result = new ArrayList<ExecutionPath>();
+        for (ExecutionPath path : executionPaths) {
+            ExecutionPath ifTrue = path.addBranch(getPred(), true);
+            if (ifTrue != null) {
+                result.addAll(getIfTrue().toExecutionPath(ifTrue));
+            }
+            ExecutionPath ifFalse = path.addBranch(getPred(), false);
+            if (ifFalse != null) {
+                result.addAll(getIfFalse().toExecutionPath(ifFalse));
+            }
+        }
+        return addJustMeToExecutionPath(result);
+    }
+
+    @Override
     protected BitSet getPredicateInvalidFlags() {
         return getPred().getInvalidFlags();
     }
 
     @Override
-    protected KCode generateCode(boolean expand) {
+    protected KCode generateCode() {
         return new KCode()
-                .app("", getPred().toCode(expand))
-                .app(" ? ", getIfTrue().toCode(expand))
-                .app(" : ", getIfFalse().toCode(expand));
-
+                .app("(", getPred().toCode())
+                .app(") ? (", getIfTrue().toCode())
+                .app(") : (", getIfFalse().toCode())
+                .app(")");
     }
 
     @Override
-    public KCode toInverseCode(KCode variable) {
-        return new KCode()
-                .app("if (", getPred().toCode(true))
-                .app(") {")
-                .tab(getIfTrue().toInverseCode(variable))
-                .nl(new KCode("} else {"))
-                .tab(getIfFalse().toInverseCode(variable))
-                .nl(new KCode("}"));
+    public Expr generateInverse(ExprModel model, Expr value, String bindingClassName) {
+        final Expr pred = getPred().cloneToModel(model);
+        final Expr ifTrue = getIfTrue().generateInverse(model, value, bindingClassName);
+        final Expr ifFalse = getIfFalse().generateInverse(model, value, bindingClassName);
+        return model.ternary(pred, ifTrue, ifFalse);
+    }
+
+    @Override
+    public Expr cloneToModel(ExprModel model) {
+        return model.ternary(getPred().cloneToModel(model), getIfTrue().cloneToModel(model),
+                getIfFalse().cloneToModel(model));
     }
 
     @Override
     public boolean isConditional() {
         return true;
+    }
+
+    @Override
+    public String toString() {
+        return getPred().toString() + " ? " + getIfTrue() + " : " + getIfFalse();
     }
 }

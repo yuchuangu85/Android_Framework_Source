@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 The Android Open Source Project
+ * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -157,4 +157,52 @@ public abstract class BluetoothGattServerCallback {
      */
     public void onMtuChanged(BluetoothDevice device, int mtu) {
     }
+
+    /**
+     * Callback triggered as result of {@link BluetoothGattServer#setPreferredPhy}, or as a result
+     * of remote device changing the PHY.
+     *
+     * @param device The remote device
+     * @param txPhy the transmitter PHY in use. One of {@link BluetoothDevice#PHY_LE_1M},
+     *             {@link BluetoothDevice#PHY_LE_2M}, and {@link BluetoothDevice#PHY_LE_CODED}
+     * @param rxPhy the receiver PHY in use. One of {@link BluetoothDevice#PHY_LE_1M},
+     *             {@link BluetoothDevice#PHY_LE_2M}, and {@link BluetoothDevice#PHY_LE_CODED}
+     * @param status Status of the PHY update operation.
+     *                  {@link BluetoothGatt#GATT_SUCCESS} if the operation succeeds.
+     */
+    public void onPhyUpdate(BluetoothDevice device, int txPhy, int rxPhy, int status) {
+    }
+
+    /**
+     * Callback triggered as result of {@link BluetoothGattServer#readPhy}
+     *
+     * @param device The remote device that requested the PHY read
+     * @param txPhy the transmitter PHY in use. One of {@link BluetoothDevice#PHY_LE_1M},
+     *             {@link BluetoothDevice#PHY_LE_2M}, and {@link BluetoothDevice#PHY_LE_CODED}
+     * @param rxPhy the receiver PHY in use. One of {@link BluetoothDevice#PHY_LE_1M},
+     *             {@link BluetoothDevice#PHY_LE_2M}, and {@link BluetoothDevice#PHY_LE_CODED}
+     * @param status Status of the PHY read operation.
+     *                  {@link BluetoothGatt#GATT_SUCCESS} if the operation succeeds.
+     */
+    public void onPhyRead(BluetoothDevice device, int txPhy, int rxPhy, int status) {
+    }
+
+    /**
+     * Callback indicating the connection parameters were updated.
+     *
+     * @param device The remote device involved
+     * @param interval Connection interval used on this connection, 1.25ms unit. Valid
+     *            range is from 6 (7.5ms) to 3200 (4000ms).
+     * @param latency Slave latency for the connection in number of connection events. Valid
+     *            range is from 0 to 499
+     * @param timeout Supervision timeout for this connection, in 10ms unit. Valid range is
+     *            from 10 (0.1s) to 3200 (32s)
+     * @param status {@link BluetoothGatt#GATT_SUCCESS} if the connection has been updated
+     *                successfully
+     * @hide
+     */
+    public void onConnectionUpdated(BluetoothDevice gatt, int interval, int latency, int timeout,
+                                    int status) {
+    }
+
 }

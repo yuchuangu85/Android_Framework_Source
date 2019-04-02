@@ -83,6 +83,10 @@ public class RestrictedState {
         return mCsNormalRestricted && mCsEmergencyRestricted;
     }
 
+    public boolean isAnyCsRestricted() {
+        return mCsNormalRestricted || mCsEmergencyRestricted;
+    }
+
     @Override
     public boolean equals (Object o) {
         RestrictedState s;

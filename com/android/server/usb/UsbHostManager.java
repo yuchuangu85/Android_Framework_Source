@@ -16,22 +16,29 @@
 
 package com.android.server.usb;
 
+import android.annotation.Nullable;
+import android.content.ComponentName;
 import android.content.Context;
 import android.hardware.usb.UsbConfiguration;
 import android.hardware.usb.UsbConstants;
 import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
+import android.hardware.usb.UsbManager;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
+import android.text.TextUtils;
 import android.util.Slog;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.IndentingPrintWriter;
+import com.android.server.usb.descriptors.UsbDescriptorParser;
+import com.android.server.usb.descriptors.report.TextReportCanvas;
+import com.android.server.usb.descriptors.tree.UsbDescriptorsTree;
 
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 
 /**
@@ -41,14 +48,14 @@ public class UsbHostManager {
     private static final String TAG = UsbHostManager.class.getSimpleName();
     private static final boolean DEBUG = false;
 
-    // contains all connected USB devices
-    private final HashMap<String, UsbDevice> mDevices = new HashMap<String, UsbDevice>();
+    private final Context mContext;
 
+    // contains all connected USB devices
+    private final HashMap<String, UsbDevice> mDevices = new HashMap<>();
 
     // USB busses to exclude from USB host support
     private final String[] mHostBlacklist;
 
-    private final Context mContext;
     private final Object mLock = new Object();
 
     private UsbDevice mNewDevice;
@@ -59,26 +66,51 @@ public class UsbHostManager {
     private ArrayList<UsbEndpoint> mNewEndpoints;
 
     private final UsbAlsaManager mUsbAlsaManager;
+    private final UsbSettingsManager mSettingsManager;
 
     @GuardedBy("mLock")
-    private UsbSettingsManager mCurrentSettings;
+    private UsbProfileGroupSettingsManager mCurrentSettings;
 
-    public UsbHostManager(Context context, UsbAlsaManager alsaManager) {
+    @GuardedBy("mLock")
+    private ComponentName mUsbDeviceConnectionHandler;
+
+    public UsbHostManager(Context context, UsbAlsaManager alsaManager,
+            UsbSettingsManager settingsManager) {
         mContext = context;
+
         mHostBlacklist = context.getResources().getStringArray(
                 com.android.internal.R.array.config_usbHostBlacklist);
         mUsbAlsaManager = alsaManager;
+        mSettingsManager = settingsManager;
+        String deviceConnectionHandler = context.getResources().getString(
+                com.android.internal.R.string.config_UsbDeviceConnectionHandling_component);
+        if (!TextUtils.isEmpty(deviceConnectionHandler)) {
+            setUsbDeviceConnectionHandler(ComponentName.unflattenFromString(
+                    deviceConnectionHandler));
+        }
     }
 
-    public void setCurrentSettings(UsbSettingsManager settings) {
+    public void setCurrentUserSettings(UsbProfileGroupSettingsManager settings) {
         synchronized (mLock) {
             mCurrentSettings = settings;
         }
     }
 
-    private UsbSettingsManager getCurrentSettings() {
+    private UsbProfileGroupSettingsManager getCurrentUserSettings() {
         synchronized (mLock) {
             return mCurrentSettings;
+        }
+    }
+
+    public void setUsbDeviceConnectionHandler(@Nullable ComponentName usbDeviceConnectionHandler) {
+        synchronized (mLock) {
+            mUsbDeviceConnectionHandler = usbDeviceConnectionHandler;
+        }
+    }
+
+    private @Nullable ComponentName getUsbDeviceConnectionHandler() {
+        synchronized (mLock) {
+            return mUsbDeviceConnectionHandler;
         }
     }
 
@@ -93,17 +125,14 @@ public class UsbHostManager {
     }
 
     /* returns true if the USB device should not be accessible by applications */
-    private boolean isBlackListed(int clazz, int subClass, int protocol) {
+    private boolean isBlackListed(int clazz, int subClass) {
         // blacklist hubs
         if (clazz == UsbConstants.USB_CLASS_HUB) return true;
 
         // blacklist HID boot devices (mouse and keyboard)
-        if (clazz == UsbConstants.USB_CLASS_HID &&
-                subClass == UsbConstants.USB_INTERFACE_SUBCLASS_BOOT) {
-            return true;
-        }
+        return clazz == UsbConstants.USB_CLASS_HID
+                && subClass == UsbConstants.USB_INTERFACE_SUBCLASS_BOOT;
 
-        return false;
     }
 
     /* Called from JNI in monitorUsbHostBus() to report new USB devices
@@ -111,6 +140,7 @@ public class UsbHostManager {
        interfaces and endpoints, and finally call endUsbDeviceAdded after all descriptors
        have been processed
      */
+    @SuppressWarnings("unused")
     private boolean beginUsbDeviceAdded(String deviceName, int vendorID, int productID,
             int deviceClass, int deviceSubclass, int deviceProtocol,
             String manufacturerName, String productName, int version, String serialNumber) {
@@ -135,7 +165,7 @@ public class UsbHostManager {
         // such test until endUsbDeviceAdded() when we have that info.
 
         if (isBlackListed(deviceName) ||
-                isBlackListed(deviceClass, deviceSubclass, deviceProtocol)) {
+                isBlackListed(deviceClass, deviceSubclass)) {
             return false;
         }
 
@@ -157,9 +187,9 @@ public class UsbHostManager {
                     deviceClass, deviceSubclass, deviceProtocol,
                     manufacturerName, productName, versionString, serialNumber);
 
-            mNewConfigurations = new ArrayList<UsbConfiguration>();
-            mNewInterfaces = new ArrayList<UsbInterface>();
-            mNewEndpoints = new ArrayList<UsbEndpoint>();
+            mNewConfigurations = new ArrayList<>();
+            mNewInterfaces = new ArrayList<>();
+            mNewEndpoints = new ArrayList<>();
         }
 
         return true;
@@ -168,6 +198,7 @@ public class UsbHostManager {
     /* Called from JNI in monitorUsbHostBus() to report new USB configuration for the device
        currently being added.  Returns true if successful, false in case of error.
      */
+    @SuppressWarnings("unused")
     private void addUsbConfiguration(int id, String name, int attributes, int maxPower) {
         if (mNewConfiguration != null) {
             mNewConfiguration.setInterfaces(
@@ -182,6 +213,7 @@ public class UsbHostManager {
     /* Called from JNI in monitorUsbHostBus() to report new USB interface for the device
        currently being added.  Returns true if successful, false in case of error.
      */
+    @SuppressWarnings("unused")
     private void addUsbInterface(int id, String name, int altSetting,
             int Class, int subClass, int protocol) {
         if (mNewInterface != null) {
@@ -197,11 +229,13 @@ public class UsbHostManager {
     /* Called from JNI in monitorUsbHostBus() to report new USB endpoint for the device
        currently being added.  Returns true if successful, false in case of error.
      */
+    @SuppressWarnings("unused")
     private void addUsbEndpoint(int address, int attributes, int maxPacketSize, int interval) {
         mNewEndpoints.add(new UsbEndpoint(address, attributes, maxPacketSize, interval));
     }
 
     /* Called from JNI in monitorUsbHostBus() to finish adding a new device */
+    @SuppressWarnings("unused")
     private void endUsbDeviceAdded() {
         if (DEBUG) {
             Slog.d(TAG, "usb:UsbHostManager.endUsbDeviceAdded()");
@@ -219,11 +253,32 @@ public class UsbHostManager {
         synchronized (mLock) {
             if (mNewDevice != null) {
                 mNewDevice.setConfigurations(
-                        mNewConfigurations.toArray(new UsbConfiguration[mNewConfigurations.size()]));
+                        mNewConfigurations.toArray(
+                                new UsbConfiguration[mNewConfigurations.size()]));
                 mDevices.put(mNewDevice.getDeviceName(), mNewDevice);
                 Slog.d(TAG, "Added device " + mNewDevice);
-                getCurrentSettings().deviceAttached(mNewDevice);
-                mUsbAlsaManager.usbDeviceAdded(mNewDevice);
+
+                // It is fine to call this only for the current user as all broadcasts are sent to
+                // all profiles of the user and the dialogs should only show once.
+                ComponentName usbDeviceConnectionHandler = getUsbDeviceConnectionHandler();
+                if (usbDeviceConnectionHandler == null) {
+                    getCurrentUserSettings().deviceAttached(mNewDevice);
+                } else {
+                    getCurrentUserSettings().deviceAttachedForFixedHandler(mNewDevice,
+                            usbDeviceConnectionHandler);
+                }
+                // deviceName is something like: "/dev/bus/usb/001/001"
+                UsbDescriptorParser parser = new UsbDescriptorParser();
+                boolean isInputHeadset = false;
+                boolean isOutputHeadset = false;
+                if (parser.parseDevice(mNewDevice.getDeviceName())) {
+                    isInputHeadset = parser.isInputHeadset();
+                    isOutputHeadset = parser.isOutputHeadset();
+                    Slog.i(TAG, "---- isHeadset[in: " + isInputHeadset
+                            + " , out: " + isOutputHeadset + "]");
+                }
+                mUsbAlsaManager.usbDeviceAdded(mNewDevice,
+                        isInputHeadset, isOutputHeadset);
             } else {
                 Slog.e(TAG, "mNewDevice is null in endUsbDeviceAdded");
             }
@@ -237,12 +292,14 @@ public class UsbHostManager {
     }
 
     /* Called from JNI in monitorUsbHostBus to report USB device removal */
+    @SuppressWarnings("unused")
     private void usbDeviceRemoved(String deviceName) {
         synchronized (mLock) {
             UsbDevice device = mDevices.remove(deviceName);
             if (device != null) {
                 mUsbAlsaManager.usbDeviceRemoved(device);
-                getCurrentSettings().deviceDetached(device);
+                mSettingsManager.usbDeviceRemoved(device);
+                getCurrentUserSettings().usbDeviceRemoved(device);
             }
         }
     }
@@ -251,11 +308,7 @@ public class UsbHostManager {
         synchronized (mLock) {
             // Create a thread to call into native code to wait for USB host events.
             // This thread will call us back on usbDeviceAdded and usbDeviceRemoved.
-            Runnable runnable = new Runnable() {
-                public void run() {
-                    monitorUsbHostBus();
-                }
-            };
+            Runnable runnable = this::monitorUsbHostBus;
             new Thread(null, runnable, "UsbService host thread").start();
         }
     }
@@ -270,7 +323,7 @@ public class UsbHostManager {
     }
 
     /* Opens the specified USB device */
-    public ParcelFileDescriptor openDevice(String deviceName) {
+    public ParcelFileDescriptor openDevice(String deviceName, UsbUserSettingsManager settings) {
         synchronized (mLock) {
             if (isBlackListed(deviceName)) {
                 throw new SecurityException("USB device is on a restricted bus");
@@ -281,7 +334,7 @@ public class UsbHostManager {
                 throw new IllegalArgumentException(
                         "device " + deviceName + " does not exist or is restricted");
             }
-            getCurrentSettings().checkPermission(device);
+            settings.checkPermission(device);
             return nativeOpenDevice(deviceName);
         }
     }
@@ -291,6 +344,36 @@ public class UsbHostManager {
             pw.println("USB Host State:");
             for (String name : mDevices.keySet()) {
                 pw.println("  " + name + ": " + mDevices.get(name));
+            }
+            if (mUsbDeviceConnectionHandler != null) {
+                pw.println("Default USB Host Connection handler: " + mUsbDeviceConnectionHandler);
+            }
+
+            Collection<UsbDevice> devices = mDevices.values();
+            if (devices.size() != 0) {
+                pw.println("USB Peripheral Descriptors");
+                for (UsbDevice device : devices) {
+                    StringBuilder stringBuilder = new StringBuilder();
+
+                    UsbDescriptorParser parser = new UsbDescriptorParser();
+                    if (parser.parseDevice(device.getDeviceName())) {
+                        UsbDescriptorsTree descriptorTree = new UsbDescriptorsTree();
+                        descriptorTree.parse(parser);
+
+                        UsbManager usbManager =
+                                (UsbManager) mContext.getSystemService(Context.USB_SERVICE);
+                        UsbDeviceConnection connection = usbManager.openDevice(device);
+
+                        descriptorTree.report(new TextReportCanvas(connection, stringBuilder));
+                        connection.close();
+
+                        stringBuilder.append("isHeadset[in: " + parser.isInputHeadset()
+                                + " , out: " + parser.isOutputHeadset() + "]");
+                    } else {
+                        stringBuilder.append("Error Parsing USB Descriptors");
+                    }
+                    pw.println(stringBuilder.toString());
+                }
             }
         }
     }

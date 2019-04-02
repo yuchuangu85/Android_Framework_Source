@@ -18,7 +18,7 @@ package com.android.internal.telephony.metrics;
 
 import android.os.SystemClock;
 
-import com.android.internal.telephony.TelephonyProto.SmsSession;
+import com.android.internal.telephony.nano.TelephonyProto.SmsSession;
 
 import java.util.ArrayDeque;
 import java.util.Deque;

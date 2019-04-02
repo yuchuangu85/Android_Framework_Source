@@ -22,6 +22,7 @@ import android.net.NetworkInfo.DetailedState;
 import android.net.NetworkUtils;
 import android.text.TextUtils;
 
+import java.lang.Math;
 import java.net.InetAddress;
 import java.net.Inet4Address;
 import java.net.UnknownHostException;
@@ -104,37 +105,56 @@ public class WifiInfo implements Parcelable {
     private boolean mEphemeral;
 
     /**
+     * Running total count of lost (not ACKed) transmitted unicast data packets.
      * @hide
      */
     public long txBad;
     /**
+     * Running total count of transmitted unicast data retry packets.
      * @hide
      */
     public long txRetries;
     /**
+     * Running total count of successfully transmitted (ACKed) unicast data packets.
      * @hide
      */
     public long txSuccess;
     /**
+     * Running total count of received unicast data packets.
      * @hide
      */
     public long rxSuccess;
+
     /**
+     * Average rate of lost transmitted packets, in units of packets per 5 seconds.
      * @hide
      */
     public double txBadRate;
     /**
+     * Average rate of transmitted retry packets, in units of packets per 5 seconds.
      * @hide
      */
     public double txRetriesRate;
     /**
+     * Average rate of successfully transmitted unicast packets, in units of packets per 5 seconds.
      * @hide
      */
     public double txSuccessRate;
     /**
+     * Average rate of received unicast data packets, in units of packets per 5 seconds.
      * @hide
      */
     public double rxSuccessRate;
+
+    private static final long RESET_TIME_STAMP = Long.MIN_VALUE;
+    private static final long FILTER_TIME_CONSTANT = 3000;
+    /**
+     * This factor is used to adjust the rate output under the new algorithm
+     * such that the result is comparable to the previous algorithm.
+     * This actually converts from unit 'packets per second' to 'packets per 5 seconds'.
+     */
+    private static final long OUTPUT_SCALE_FACTOR = 5;
+    private long mLastPacketCountUpdateTimeStamp;
 
     /**
      * @hide
@@ -157,10 +177,9 @@ public class WifiInfo implements Parcelable {
     public int score;
 
     /**
-     * TODO: get actual timestamp and calculate true rates
      * @hide
      */
-    public void updatePacketRates(WifiLinkLayerStats stats) {
+    public void updatePacketRates(WifiLinkLayerStats stats, long timeStamp) {
         if (stats != null) {
             long txgood = stats.txmpdu_be + stats.txmpdu_bk + stats.txmpdu_vi + stats.txmpdu_vo;
             long txretries = stats.retries_be + stats.retries_bk
@@ -169,18 +188,28 @@ public class WifiInfo implements Parcelable {
             long txbad = stats.lostmpdu_be + stats.lostmpdu_bk
                     + stats.lostmpdu_vi + stats.lostmpdu_vo;
 
-            if (txBad <= txbad
+            if (mLastPacketCountUpdateTimeStamp != RESET_TIME_STAMP
+                    && mLastPacketCountUpdateTimeStamp < timeStamp
+                    && txBad <= txbad
                     && txSuccess <= txgood
                     && rxSuccess <= rxgood
                     && txRetries <= txretries) {
-                txBadRate = (txBadRate * 0.5)
-                        + ((double) (txbad - txBad) * 0.5);
-                txSuccessRate = (txSuccessRate * 0.5)
-                        + ((double) (txgood - txSuccess) * 0.5);
-                rxSuccessRate = (rxSuccessRate * 0.5)
-                        + ((double) (rxgood - rxSuccess) * 0.5);
-                txRetriesRate = (txRetriesRate * 0.5)
-                        + ((double) (txretries - txRetries) * 0.5);
+                    long timeDelta = timeStamp - mLastPacketCountUpdateTimeStamp;
+                    double lastSampleWeight = Math.exp(-1.0 * timeDelta / FILTER_TIME_CONSTANT);
+                    double currentSampleWeight = 1.0 - lastSampleWeight;
+
+                    txBadRate = txBadRate * lastSampleWeight
+                        + (txbad - txBad) * OUTPUT_SCALE_FACTOR * 1000 / timeDelta
+                        * currentSampleWeight;
+                    txSuccessRate = txSuccessRate * lastSampleWeight
+                        + (txgood - txSuccess) * OUTPUT_SCALE_FACTOR * 1000 / timeDelta
+                        * currentSampleWeight;
+                    rxSuccessRate = rxSuccessRate * lastSampleWeight
+                        + (rxgood - rxSuccess) * OUTPUT_SCALE_FACTOR * 1000 / timeDelta
+                        * currentSampleWeight;
+                    txRetriesRate = txRetriesRate * lastSampleWeight
+                        + (txretries - txRetries) * OUTPUT_SCALE_FACTOR * 1000/ timeDelta
+                        * currentSampleWeight;
             } else {
                 txBadRate = 0;
                 txSuccessRate = 0;
@@ -191,6 +220,7 @@ public class WifiInfo implements Parcelable {
             txSuccess = txgood;
             rxSuccess = rxgood;
             txRetries = txretries;
+            mLastPacketCountUpdateTimeStamp = timeStamp;
         } else {
             txBad = 0;
             txSuccess = 0;
@@ -200,6 +230,7 @@ public class WifiInfo implements Parcelable {
             txSuccessRate = 0;
             rxSuccessRate = 0;
             txRetriesRate = 0;
+            mLastPacketCountUpdateTimeStamp = RESET_TIME_STAMP;
         }
     }
 
@@ -243,6 +274,7 @@ public class WifiInfo implements Parcelable {
         mRssi = INVALID_RSSI;
         mLinkSpeed = -1;
         mFrequency = -1;
+        mLastPacketCountUpdateTimeStamp = RESET_TIME_STAMP;
     }
 
     /** @hide */
@@ -268,6 +300,7 @@ public class WifiInfo implements Parcelable {
         badRssiCount = 0;
         linkStuckCount = 0;
         score = 0;
+        mLastPacketCountUpdateTimeStamp = RESET_TIME_STAMP;
     }
 
     /**
@@ -295,6 +328,8 @@ public class WifiInfo implements Parcelable {
             txRetriesRate = source.txRetriesRate;
             txSuccessRate = source.txSuccessRate;
             rxSuccessRate = source.rxSuccessRate;
+            mLastPacketCountUpdateTimeStamp =
+                source.mLastPacketCountUpdateTimeStamp;
             score = source.score;
             badRssiCount = source.badRssiCount;
             lowRssiCount = source.lowRssiCount;
@@ -311,7 +346,8 @@ public class WifiInfo implements Parcelable {
      * Returns the service set identifier (SSID) of the current 802.11 network.
      * If the SSID can be decoded as UTF-8, it will be returned surrounded by double
      * quotation marks. Otherwise, it is returned as a string of hex digits. The
-     * SSID may be &lt;unknown ssid&gt; if there is no network currently connected.
+     * SSID may be &lt;unknown ssid&gt; if there is no network currently connected,
+     * or if the caller has insufficient permissions to access the SSID.
      * @return the SSID
      */
     public String getSSID() {
@@ -413,6 +449,22 @@ public class WifiInfo implements Parcelable {
     }
 
     /**
+     * @hide
+     * This returns txSuccessRate in packets per second.
+     */
+    public double getTxSuccessRatePps() {
+        return txSuccessRate / OUTPUT_SCALE_FACTOR;
+    }
+
+    /**
+     * @hide
+     * This returns rxSuccessRate in packets per second.
+     */
+    public double getRxSuccessRatePps() {
+        return rxSuccessRate / OUTPUT_SCALE_FACTOR;
+    }
+
+    /**
      * Record the MAC address of the WLAN interface
      * @param macAddress the MAC address in {@code XX:XX:XX:XX:XX:XX} form
      * @hide
@@ -434,7 +486,13 @@ public class WifiInfo implements Parcelable {
         return mMacAddress != null && !DEFAULT_MAC_ADDRESS.equals(mMacAddress);
     }
 
-    /** {@hide} */
+    /**
+     * Indicates if we've dynamically detected this active network connection as
+     * being metered.
+     *
+     * @see WifiConfiguration#isMetered(WifiConfiguration, WifiInfo)
+     * @hide
+     */
     public void setMeteredHint(boolean meteredHint) {
         mMeteredHint = meteredHint;
     }

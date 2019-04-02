@@ -16,40 +16,31 @@
 
 package android.support.v7.view.menu;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
-import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
-import android.os.Build;
 import android.os.Parcelable;
 import android.support.annotation.RestrictTo;
-import android.support.v4.content.res.ConfigurationHelper;
-import android.support.v4.view.GravityCompat;
-import android.support.v4.view.ViewCompat;
 import android.support.v7.appcompat.R;
 import android.support.v7.widget.ActionMenuView;
 import android.support.v7.widget.AppCompatTextView;
 import android.support.v7.widget.ForwardingListener;
-import android.support.v7.widget.ListPopupWindow;
+import android.support.v7.widget.TooltipCompat;
 import android.text.TextUtils;
 import android.util.AttributeSet;
-import android.util.DisplayMetrics;
-import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
-import android.widget.Toast;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * @hide
  */
-@RestrictTo(GROUP_ID)
+@RestrictTo(LIBRARY_GROUP)
 public class ActionMenuItemView extends AppCompatTextView
-        implements MenuView.ItemView, View.OnClickListener, View.OnLongClickListener,
-        ActionMenuView.ActionMenuChildView {
+        implements MenuView.ItemView, View.OnClickListener, ActionMenuView.ActionMenuChildView {
 
     private static final String TAG = "ActionMenuItemView";
 
@@ -90,12 +81,12 @@ public class ActionMenuItemView extends AppCompatTextView
         mMaxIconSize = (int) (MAX_ICON_SIZE * density + 0.5f);
 
         setOnClickListener(this);
-        setOnLongClickListener(this);
 
         mSavedPaddingLeft = -1;
         setSaveEnabled(false);
     }
 
+    @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
 
@@ -109,8 +100,8 @@ public class ActionMenuItemView extends AppCompatTextView
      */
     private boolean shouldAllowTextWithIcon() {
         final Configuration config = getContext().getResources().getConfiguration();
-        final int widthDp = ConfigurationHelper.getScreenWidthDp(getResources());
-        final int heightDp = ConfigurationHelper.getScreenHeightDp(getResources());
+        final int widthDp = config.screenWidthDp;
+        final int heightDp = config.screenHeightDp;
 
         return widthDp >= 480 || (widthDp >= 640 && heightDp >= 480)
                 || config.orientation == Configuration.ORIENTATION_LANDSCAPE;
@@ -122,10 +113,12 @@ public class ActionMenuItemView extends AppCompatTextView
         super.setPadding(l, t, r, b);
     }
 
+    @Override
     public MenuItemImpl getItemData() {
         return mItemData;
     }
 
+    @Override
     public void initialize(MenuItemImpl itemData, int menuType) {
         mItemData = itemData;
 
@@ -166,14 +159,17 @@ public class ActionMenuItemView extends AppCompatTextView
         mPopupCallback = popupCallback;
     }
 
+    @Override
     public boolean prefersCondensedTitle() {
         return true;
     }
 
+    @Override
     public void setCheckable(boolean checkable) {
         // TODO Support checkable action items
     }
 
+    @Override
     public void setChecked(boolean checked) {
         // TODO Support checkable action items
     }
@@ -193,8 +189,27 @@ public class ActionMenuItemView extends AppCompatTextView
                 (mItemData.showsTextAsAction() && (mAllowTextWithIcon || mExpandedFormat));
 
         setText(visible ? mTitle : null);
+
+        // Show the tooltip for items that do not already show text.
+        final CharSequence contentDescription = mItemData.getContentDescription();
+        if (TextUtils.isEmpty(contentDescription)) {
+            // Use the uncondensed title for content description, but only if the title is not
+            // shown already.
+            setContentDescription(visible ? null : mItemData.getTitle());
+        } else {
+            setContentDescription(contentDescription);
+        }
+
+        final CharSequence tooltipText = mItemData.getTooltipText();
+        if (TextUtils.isEmpty(tooltipText)) {
+            // Use the uncondensed title for tooltip, but only if the title is not shown already.
+            TooltipCompat.setTooltipText(this, visible ? null : mItemData.getTitle());
+        } else {
+            TooltipCompat.setTooltipText(this, tooltipText);
+        }
     }
 
+    @Override
     public void setIcon(Drawable icon) {
         mIcon = icon;
         if (icon != null) {
@@ -203,12 +218,12 @@ public class ActionMenuItemView extends AppCompatTextView
             if (width > mMaxIconSize) {
                 final float scale = (float) mMaxIconSize / width;
                 width = mMaxIconSize;
-                height *= scale;
+                height = (int) (height * scale);
             }
             if (height > mMaxIconSize) {
                 final float scale = (float) mMaxIconSize / height;
                 height = mMaxIconSize;
-                width *= scale;
+                width = (int) (width * scale);
             }
             icon.setBounds(0, 0, width, height);
         }
@@ -221,61 +236,31 @@ public class ActionMenuItemView extends AppCompatTextView
         return !TextUtils.isEmpty(getText());
     }
 
+    @Override
     public void setShortcut(boolean showShortcut, char shortcutKey) {
         // Action buttons don't show text for shortcut keys.
     }
 
+    @Override
     public void setTitle(CharSequence title) {
         mTitle = title;
 
-        setContentDescription(mTitle);
         updateTextButtonVisibility();
     }
 
+    @Override
     public boolean showsIcon() {
         return true;
     }
 
+    @Override
     public boolean needsDividerBefore() {
         return hasText() && mItemData.getIcon() == null;
     }
 
+    @Override
     public boolean needsDividerAfter() {
         return hasText();
-    }
-
-    @Override
-    public boolean onLongClick(View v) {
-        if (hasText()) {
-            // Don't show the cheat sheet for items that already show text.
-            return false;
-        }
-
-        final int[] screenPos = new int[2];
-        final Rect displayFrame = new Rect();
-        getLocationOnScreen(screenPos);
-        getWindowVisibleDisplayFrame(displayFrame);
-
-        final Context context = getContext();
-        final int width = getWidth();
-        final int height = getHeight();
-        final int midy = screenPos[1] + height / 2;
-        int referenceX = screenPos[0] + width / 2;
-        if (ViewCompat.getLayoutDirection(v) == ViewCompat.LAYOUT_DIRECTION_LTR) {
-            final int screenWidth = context.getResources().getDisplayMetrics().widthPixels;
-            referenceX = screenWidth - referenceX; // mirror
-        }
-        Toast cheatSheet = Toast.makeText(context, mItemData.getTitle(), Toast.LENGTH_SHORT);
-        if (midy < displayFrame.height()) {
-            // Show along the top; follow action buttons
-            cheatSheet.setGravity(Gravity.TOP | GravityCompat.END, referenceX,
-                    screenPos[1] + height - displayFrame.top);
-        } else {
-            // Show along the bottom center
-            cheatSheet.setGravity(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, height);
-        }
-        cheatSheet.show();
-        return true;
     }
 
     @Override

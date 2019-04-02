@@ -23,8 +23,8 @@ import android.provider.Settings.Global;
 import android.util.Log;
 
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.MetricsProto.MetricsEvent;
-import com.android.systemui.volume.VolumeDialogController.State;
+import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.systemui.plugins.VolumeDialogController.State;
 
 import java.util.Arrays;
 
@@ -79,14 +79,16 @@ public class Events {
     public static final int DISMISS_REASON_SCREEN_OFF = 4;
     public static final int DISMISS_REASON_SETTINGS_CLICKED = 5;
     public static final int DISMISS_REASON_DONE_CLICKED = 6;
+    public static final int DISMISS_STREAM_GONE = 7;
     public static final String[] DISMISS_REASONS = {
-        "unknown",
-        "touch_outside",
-        "volume_controller",
-        "timeout",
-        "screen_off",
-        "settings_clicked",
-        "done_clicked",
+            "unknown",
+            "touch_outside",
+            "volume_controller",
+            "timeout",
+            "screen_off",
+            "settings_clicked",
+            "done_clicked",
+            "a11y_stream_changed"
     };
 
     public static final int SHOW_REASON_UNKNOWN = 0;

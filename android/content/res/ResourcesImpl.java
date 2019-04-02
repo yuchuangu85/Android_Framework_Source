@@ -15,9 +15,6 @@
  */
 package android.content.res;
 
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-
 import android.animation.Animator;
 import android.animation.StateListAnimator;
 import android.annotation.AnyRes;
@@ -30,12 +27,18 @@ import android.annotation.StyleRes;
 import android.annotation.StyleableRes;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ActivityInfo.Config;
+import android.content.res.Configuration.NativeConfig;
 import android.content.res.Resources.NotFoundException;
+import android.graphics.Bitmap;
+import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.DrawableContainer;
 import android.icu.text.PluralRules;
 import android.os.Build;
 import android.os.LocaleList;
+import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.os.Trace;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
@@ -44,9 +47,12 @@ import android.util.LongSparseArray;
 import android.util.Slog;
 import android.util.TypedValue;
 import android.util.Xml;
-import android.view.Display;
 import android.view.DisplayAdjustments;
 
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
 import java.util.Locale;
@@ -66,11 +72,20 @@ public class ResourcesImpl {
 
     private static final boolean DEBUG_LOAD = false;
     private static final boolean DEBUG_CONFIG = false;
-    private static final boolean TRACE_FOR_PRELOAD = false;
-    private static final boolean TRACE_FOR_MISS_PRELOAD = false;
 
-    private static final int LAYOUT_DIR_CONFIG = ActivityInfo.activityInfoConfigJavaToNative(
-            ActivityInfo.CONFIG_LAYOUT_DIRECTION);
+    static final String TAG_PRELOAD = TAG + ".preload";
+
+    private static final boolean TRACE_FOR_PRELOAD = false; // Do we still need it?
+    private static final boolean TRACE_FOR_MISS_PRELOAD = false; // Do we still need it?
+
+    public static final boolean TRACE_FOR_DETAILED_PRELOAD =
+            SystemProperties.getBoolean("debug.trace_resource_preload", false);
+
+    /** Used only when TRACE_FOR_DETAILED_PRELOAD is true. */
+    private static int sPreloadTracingNumLoadedDrawables;
+    private long mPreloadTracingPreloadStartTime;
+    private long mPreloadTracingStartBitmapSize;
+    private long mPreloadTracingStartBitmapCount;
 
     private static final int ID_OTHER = 0x01000004;
 
@@ -142,6 +157,7 @@ public class ResourcesImpl {
         mAssets = assets;
         mMetrics.setToDefaults();
         mDisplayAdjustments = displayAdjustments;
+        mConfiguration.setToDefaults();
         updateConfiguration(config, metrics, displayAdjustments.getCompatibilityInfo());
         mAssets.ensureStringBlocks();
     }
@@ -383,7 +399,10 @@ public class ResourcesImpl {
                     mMetrics.density =
                             mConfiguration.densityDpi * DisplayMetrics.DENSITY_DEFAULT_SCALE;
                 }
-                mMetrics.scaledDensity = mMetrics.density * mConfiguration.fontScale;
+
+                // Protect against an unset fontScale.
+                mMetrics.scaledDensity = mMetrics.density *
+                        (mConfiguration.fontScale != 0 ? mConfiguration.fontScale : 1.0f);
 
                 final int width, height;
                 if (mMetrics.widthPixels >= mMetrics.heightPixels) {
@@ -414,7 +433,7 @@ public class ResourcesImpl {
                         mConfiguration.smallestScreenWidthDp,
                         mConfiguration.screenWidthDp, mConfiguration.screenHeightDp,
                         mConfiguration.screenLayout, mConfiguration.uiMode,
-                        Build.VERSION.RESOURCES_SDK_INT);
+                        mConfiguration.colorMode, Build.VERSION.RESOURCES_SDK_INT);
 
                 if (DEBUG_CONFIG) {
                     Slog.i(TAG, "**** Updating config of " + this + ": final config is "
@@ -516,8 +535,27 @@ public class ResourcesImpl {
     }
 
     @Nullable
-    Drawable loadDrawable(Resources wrapper, TypedValue value, int id, Resources.Theme theme,
-            boolean useCache) throws NotFoundException {
+    Drawable loadDrawable(@NonNull Resources wrapper, @NonNull TypedValue value, int id,
+            int density, @Nullable Resources.Theme theme)
+            throws NotFoundException {
+        // If the drawable's XML lives in our current density qualifier,
+        // it's okay to use a scaled version from the cache. Otherwise, we
+        // need to actually load the drawable from XML.
+        final boolean useCache = density == 0 || value.density == mMetrics.densityDpi;
+
+        // Pretend the requested density is actually the display density. If
+        // the drawable returned is not the requested density, then force it
+        // to be scaled later by dividing its density by the ratio of
+        // requested density to actual device density. Drawables that have
+        // undefined density or no density don't need to be handled here.
+        if (density > 0 && value.density > 0 && value.density != TypedValue.DENSITY_NONE) {
+            if (value.density == density) {
+                value.density = mMetrics.densityDpi;
+            } else {
+                value.density = (value.density * mMetrics.densityDpi) / density;
+            }
+        }
+
         try {
             if (TRACE_FOR_PRELOAD) {
                 // Log only framework resources
@@ -549,6 +587,7 @@ public class ResourcesImpl {
             if (!mPreloading && useCache) {
                 final Drawable cachedDrawable = caches.getInstance(key, wrapper, theme);
                 if (cachedDrawable != null) {
+                    cachedDrawable.setChangingConfigurations(value.changingConfigurations);
                     return cachedDrawable;
                 }
             }
@@ -563,12 +602,29 @@ public class ResourcesImpl {
             }
 
             Drawable dr;
+            boolean needsNewDrawableAfterCache = false;
             if (cs != null) {
+                if (TRACE_FOR_DETAILED_PRELOAD) {
+                    // Log only framework resources
+                    if (((id >>> 24) == 0x1) && (android.os.Process.myUid() != 0)) {
+                        final String name = getResourceName(id);
+                        if (name != null) {
+                            Log.d(TAG_PRELOAD, "Hit preloaded FW drawable #"
+                                    + Integer.toHexString(id) + " " + name);
+                        }
+                    }
+                }
                 dr = cs.newDrawable(wrapper);
             } else if (isColorDrawable) {
                 dr = new ColorDrawable(value.data);
             } else {
-                dr = loadDrawableForCookie(wrapper, value, id, null);
+                dr = loadDrawableForCookie(wrapper, value, id, density, null);
+            }
+            // DrawableContainer' constant state has drawables instances. In order to leave the
+            // constant state intact in the cache, we need to create a new DrawableContainer after
+            // added to cache.
+            if (dr instanceof DrawableContainer)  {
+                needsNewDrawableAfterCache = true;
             }
 
             // Determine if the drawable has unresolved theme attributes. If it
@@ -584,9 +640,17 @@ public class ResourcesImpl {
             // If we were able to obtain a drawable, store it in the appropriate
             // cache: preload, not themed, null theme, or theme-specific. Don't
             // pollute the cache with drawables loaded from a foreign density.
-            if (dr != null && useCache) {
+            if (dr != null) {
                 dr.setChangingConfigurations(value.changingConfigurations);
-                cacheDrawable(value, isColorDrawable, caches, theme, canApplyTheme, key, dr);
+                if (useCache) {
+                    cacheDrawable(value, isColorDrawable, caches, theme, canApplyTheme, key, dr);
+                    if (needsNewDrawableAfterCache) {
+                        Drawable.ConstantState state = dr.getConstantState();
+                        if (state != null) {
+                            dr = state.newDrawable(wrapper);
+                        }
+                    }
+                }
             }
 
             return dr;
@@ -624,8 +688,8 @@ public class ResourcesImpl {
                 }
             } else {
                 if (verifyPreloadConfig(
-                        changingConfigs, LAYOUT_DIR_CONFIG, value.resourceId, "drawable")) {
-                    if ((changingConfigs & LAYOUT_DIR_CONFIG) == 0) {
+                        changingConfigs, ActivityInfo.CONFIG_LAYOUT_DIRECTION, value.resourceId, "drawable")) {
+                    if ((changingConfigs & ActivityInfo.CONFIG_LAYOUT_DIRECTION) == 0) {
                         // If this resource does not vary based on layout direction,
                         // we can put it in all of the preload maps.
                         sPreloadedDrawables[0].put(key, cs);
@@ -681,8 +745,8 @@ public class ResourcesImpl {
     /**
      * Loads a drawable from XML or resources stream.
      */
-    private Drawable loadDrawableForCookie(Resources wrapper, TypedValue value, int id,
-            Resources.Theme theme) {
+    private Drawable loadDrawableForCookie(@NonNull Resources wrapper, @NonNull TypedValue value,
+            int id, int density, @Nullable Resources.Theme theme) {
         if (value.string == null) {
             throw new NotFoundException("Resource \"" + getResourceName(id) + "\" ("
                     + Integer.toHexString(id) + ") is not a Drawable (color or path): " + value);
@@ -701,6 +765,18 @@ public class ResourcesImpl {
             }
         }
 
+        // For prelaod tracing.
+        long startTime = 0;
+        int startBitmapCount = 0;
+        long startBitmapSize = 0;
+        int startDrwableCount = 0;
+        if (TRACE_FOR_DETAILED_PRELOAD) {
+            startTime = System.nanoTime();
+            startBitmapCount = Bitmap.sPreloadTracingNumInstantiatedBitmaps;
+            startBitmapSize = Bitmap.sPreloadTracingTotalBitmapsSize;
+            startDrwableCount = sPreloadTracingNumLoadedDrawables;
+        }
+
         if (DEBUG_LOAD) {
             Log.v(TAG, "Loading drawable for cookie " + value.assetCookie + ": " + file);
         }
@@ -712,7 +788,7 @@ public class ResourcesImpl {
             if (file.endsWith(".xml")) {
                 final XmlResourceParser rp = loadXmlResourceParser(
                         file, id, value.assetCookie, "drawable");
-                dr = Drawable.createFromXml(wrapper, rp, theme);
+                dr = Drawable.createFromXmlForDensity(wrapper, rp, density, theme);
                 rp.close();
             } else {
                 final InputStream is = mAssets.openNonAsset(
@@ -720,7 +796,7 @@ public class ResourcesImpl {
                 dr = Drawable.createFromResourceStream(wrapper, value, is, file, null);
                 is.close();
             }
-        } catch (Exception e) {
+        } catch (Exception | StackOverflowError e) {
             Trace.traceEnd(Trace.TRACE_TAG_RESOURCES);
             final NotFoundException rnf = new NotFoundException(
                     "File " + file + " from drawable resource ID #0x" + Integer.toHexString(id));
@@ -729,7 +805,85 @@ public class ResourcesImpl {
         }
         Trace.traceEnd(Trace.TRACE_TAG_RESOURCES);
 
+        if (TRACE_FOR_DETAILED_PRELOAD) {
+            if (((id >>> 24) == 0x1)) {
+                final String name = getResourceName(id);
+                if (name != null) {
+                    final long time = System.nanoTime() - startTime;
+                    final int loadedBitmapCount =
+                            Bitmap.sPreloadTracingNumInstantiatedBitmaps - startBitmapCount;
+                    final long loadedBitmapSize =
+                            Bitmap.sPreloadTracingTotalBitmapsSize - startBitmapSize;
+                    final int loadedDrawables =
+                            sPreloadTracingNumLoadedDrawables - startDrwableCount;
+
+                    sPreloadTracingNumLoadedDrawables++;
+
+                    final boolean isRoot = (android.os.Process.myUid() == 0);
+
+                    Log.d(TAG_PRELOAD,
+                            (isRoot ? "Preloaded FW drawable #"
+                                    : "Loaded non-preloaded FW drawable #")
+                            + Integer.toHexString(id)
+                            + " " + name
+                            + " " + file
+                            + " " + dr.getClass().getCanonicalName()
+                            + " #nested_drawables= " + loadedDrawables
+                            + " #bitmaps= " + loadedBitmapCount
+                            + " total_bitmap_size= " + loadedBitmapSize
+                            + " in[us] " + (time / 1000));
+                }
+            }
+        }
+
         return dr;
+    }
+
+    /**
+     * Loads a font from XML or resources stream.
+     */
+    @Nullable
+    public Typeface loadFont(Resources wrapper, TypedValue value, int id) {
+        if (value.string == null) {
+            throw new NotFoundException("Resource \"" + getResourceName(id) + "\" ("
+                    + Integer.toHexString(id) + ") is not a Font: " + value);
+        }
+
+        final String file = value.string.toString();
+        if (!file.startsWith("res/")) {
+            return null;
+        }
+
+        Typeface cached = Typeface.findFromCache(mAssets, file);
+        if (cached != null) {
+            return cached;
+        }
+
+        if (DEBUG_LOAD) {
+            Log.v(TAG, "Loading font for cookie " + value.assetCookie + ": " + file);
+        }
+
+        Trace.traceBegin(Trace.TRACE_TAG_RESOURCES, file);
+        try {
+            if (file.endsWith("xml")) {
+                final XmlResourceParser rp = loadXmlResourceParser(
+                        file, id, value.assetCookie, "font");
+                final FontResourcesParser.FamilyResourceEntry familyEntry =
+                        FontResourcesParser.parse(rp, wrapper);
+                if (familyEntry == null) {
+                    return null;
+                }
+                return Typeface.createFromResources(familyEntry, mAssets, file);
+            }
+            return Typeface.createFromResources(mAssets, file, value.assetCookie);
+        } catch (XmlPullParserException e) {
+            Log.e(TAG, "Failed to parse xml resource " + file, e);
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to read xml resource " + file, e);
+        } finally {
+            Trace.traceEnd(Trace.TRACE_TAG_RESOURCES);
+        }
+        return null;
     }
 
     /**
@@ -1012,6 +1166,13 @@ public class ResourcesImpl {
             mPreloading = true;
             mConfiguration.densityDpi = DisplayMetrics.DENSITY_DEVICE;
             updateConfiguration(null, null, null);
+
+            if (TRACE_FOR_DETAILED_PRELOAD) {
+                mPreloadTracingPreloadStartTime = SystemClock.uptimeMillis();
+                mPreloadTracingStartBitmapSize = Bitmap.sPreloadTracingTotalBitmapsSize;
+                mPreloadTracingStartBitmapCount = Bitmap.sPreloadTracingNumInstantiatedBitmaps;
+                Log.d(TAG_PRELOAD, "Preload starting");
+            }
         }
     }
 
@@ -1021,6 +1182,16 @@ public class ResourcesImpl {
      */
     void finishPreloading() {
         if (mPreloading) {
+            if (TRACE_FOR_DETAILED_PRELOAD) {
+                final long time = SystemClock.uptimeMillis() - mPreloadTracingPreloadStartTime;
+                final long size =
+                        Bitmap.sPreloadTracingTotalBitmapsSize - mPreloadTracingStartBitmapSize;
+                final long count = Bitmap.sPreloadTracingNumInstantiatedBitmaps
+                        - mPreloadTracingStartBitmapCount;
+                Log.d(TAG_PRELOAD, "Preload finished, "
+                        + count + " bitmaps of " + size + " bytes in " + time + " ms");
+            }
+
             mPreloading = false;
             flushLayoutCache();
         }
@@ -1119,7 +1290,7 @@ public class ResourcesImpl {
                 final XmlBlock.Parser parser = (XmlBlock.Parser) set;
                 AssetManager.applyStyle(mTheme, defStyleAttr, defStyleRes,
                         parser != null ? parser.mParseState : 0,
-                        attrs, array.mData, array.mIndices);
+                        attrs, attrs.length, array.mDataAddress, array.mIndicesAddress);
                 array.mTheme = wrapper;
                 array.mXml = parser;
 
@@ -1158,7 +1329,7 @@ public class ResourcesImpl {
 
         @Config int getChangingConfigurations() {
             synchronized (mKey) {
-                final int nativeChangingConfig =
+                final @NativeConfig int nativeChangingConfig =
                         AssetManager.getThemeChangingConfigurations(mTheme);
                 return ActivityInfo.activityInfoConfigNativeToJava(nativeChangingConfig);
             }

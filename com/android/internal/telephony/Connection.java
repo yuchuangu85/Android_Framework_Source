@@ -101,6 +101,8 @@ public abstract class Connection {
         public void onCallPullFailed(Connection externalConnection);
         public void onHandoverToWifiFailed();
         public void onConnectionEvent(String event, Bundle extras);
+        public void onRttModifyRequestReceived();
+        public void onRttModifyResponseReceived(int status);
     }
 
     /**
@@ -136,6 +138,10 @@ public abstract class Connection {
         public void onHandoverToWifiFailed() {}
         @Override
         public void onConnectionEvent(String event, Bundle extras) {}
+        @Override
+        public void onRttModifyRequestReceived() {}
+        @Override
+        public void onRttModifyResponseReceived(int status) {}
     }
 
     public static final int AUDIO_QUALITY_STANDARD = 1;
@@ -188,6 +194,7 @@ public abstract class Connection {
     private int mVideoState;
     private int mConnectionCapabilities;
     private boolean mIsWifi;
+    private boolean mAudioModeIsVoip;
     private int mAudioQuality;
     private int mCallSubstate;
     private android.telecom.Connection.VideoProvider mVideoProvider;
@@ -304,6 +311,15 @@ public abstract class Connection {
     }
 
     /**
+     * Sets the Connection connect time in {@link SystemClock#elapsedRealtime()} format.
+     *
+     * @param connectTimeReal the new connect time.
+     */
+    public void setConnectTimeReal(long connectTimeReal) {
+        mConnectTimeReal = connectTimeReal;
+    }
+
+    /**
      * Connection connect time in elapsedRealtime() format.
      * For outgoing calls: Begins at (DIALING|ALERTING) -> ACTIVE transition.
      * For incoming calls: Begins at (INCOMING|WAITING) -> ACTIVE transition.
@@ -378,6 +394,15 @@ public abstract class Connection {
      */
     public boolean isIncoming() {
         return mIsIncoming;
+    }
+
+    /**
+     * Sets whether this call is an incoming call or not.
+     * @param isIncoming {@code true} if the call is an incoming call, {@code false} if it is an
+     *                               outgoing call.
+     */
+    public void setIsIncoming(boolean isIncoming) {
+        mIsIncoming = isIncoming;
     }
 
     /**
@@ -501,7 +526,9 @@ public abstract class Connection {
     }
 
     protected final void clearPostDialListeners() {
-        mPostDialListeners.clear();
+        if (mPostDialListeners != null) {
+            mPostDialListeners.clear();
+        }
     }
 
     protected final void notifyPostDialListeners() {
@@ -624,6 +651,7 @@ public abstract class Connection {
         mOrigConnection = c.getOrigConnection();
         mPostDialString = c.mPostDialString;
         mNextPostDialChar = c.mNextPostDialChar;
+        mPostDialState = c.mPostDialState;
     }
 
     /**
@@ -700,6 +728,15 @@ public abstract class Connection {
     }
 
     /**
+     * Returns whether the connection uses voip audio mode
+     *
+     * @return {@code True} if the connection uses voip audio mode
+     */
+    public boolean getAudioModeIsVoip() {
+        return mAudioModeIsVoip;
+    }
+
+    /**
      * Returns the {@link android.telecom.Connection.VideoProvider} for the connection.
      *
      * @return The {@link android.telecom.Connection.VideoProvider}.
@@ -767,6 +804,15 @@ public abstract class Connection {
         for (Listener l : mListeners) {
             l.onWifiChanged(mIsWifi);
         }
+    }
+
+    /**
+     * Set the voip audio mode for the connection
+     *
+     * @param isVoip {@code True} if voip audio mode is being used.
+     */
+    public void setAudioModeIsVoip(boolean isVoip) {
+        mAudioModeIsVoip = isVoip;
     }
 
     /**
@@ -983,6 +1029,18 @@ public abstract class Connection {
      * to the local device.
      */
     public void pullExternalCall() {
+    }
+
+    public void onRttModifyRequestReceived() {
+        for (Listener l : mListeners) {
+            l.onRttModifyRequestReceived();
+        }
+    }
+
+    public void onRttModifyResponseReceived(int status) {
+        for (Listener l : mListeners) {
+            l.onRttModifyResponseReceived(status);
+        }
     }
 
     /**

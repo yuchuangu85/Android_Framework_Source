@@ -74,6 +74,7 @@ final class CharsetEncoderICU extends CharsetEncoder {
             byte[] replacement = makeReplacement(icuCanonicalName, address);
             CharsetEncoderICU result = new CharsetEncoderICU(cs, averageBytesPerChar, maxBytesPerChar, replacement, address);
             address = 0; // CharsetEncoderICU has taken ownership; its finalizer will do the free.
+            result.updateCallback();
             return result;
         } finally {
             if (address != 0) {
@@ -97,7 +98,6 @@ final class CharsetEncoderICU extends CharsetEncoder {
         // Our native peer needs to know what just happened...
         this.converterHandle = address;
         NativeConverter.registerConverter(this, converterHandle);
-        updateCallback();
     }
 
     @Override protected void implReplaceWith(byte[] newReplacement) {

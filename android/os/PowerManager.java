@@ -16,10 +16,16 @@
 
 package android.os;
 
+import android.annotation.IntDef;
+import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SystemApi;
+import android.annotation.SystemService;
 import android.content.Context;
 import android.util.Log;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * This class gives you control of the power state of the device.
@@ -28,9 +34,6 @@ import android.util.Log;
  * <b>Device battery life will be significantly affected by the use of this API.</b>
  * Do not acquire {@link WakeLock}s unless you really need them, use the minimum levels
  * possible, and be sure to release them as soon as possible.
- * </p><p>
- * You can obtain an instance of this class by calling
- * {@link android.content.Context#getSystemService(java.lang.String) Context.getSystemService()}.
  * </p><p>
  * The primary API you'll use is {@link #newWakeLock(int, String) newWakeLock()}.
  * This will create a {@link PowerManager.WakeLock} object.  You can then use methods
@@ -49,23 +52,23 @@ import android.util.Log;
  * <i>These levels are mutually exclusive - you may only specify one of them.</i>
  *
  * <table>
- *     <tr><th>Flag Value</th> 
+ *     <tr><th>Flag Value</th>
  *     <th>CPU</th> <th>Screen</th> <th>Keyboard</th></tr>
  *
  *     <tr><td>{@link #PARTIAL_WAKE_LOCK}</td>
- *         <td>On*</td> <td>Off</td> <td>Off</td> 
+ *         <td>On*</td> <td>Off</td> <td>Off</td>
  *     </tr>
- *     
+ *
  *     <tr><td>{@link #SCREEN_DIM_WAKE_LOCK}</td>
- *         <td>On</td> <td>Dim</td> <td>Off</td> 
+ *         <td>On</td> <td>Dim</td> <td>Off</td>
  *     </tr>
  *
  *     <tr><td>{@link #SCREEN_BRIGHT_WAKE_LOCK}</td>
- *         <td>On</td> <td>Bright</td> <td>Off</td> 
+ *         <td>On</td> <td>Bright</td> <td>Off</td>
  *     </tr>
- *     
+ *
  *     <tr><td>{@link #FULL_WAKE_LOCK}</td>
- *         <td>On</td> <td>Bright</td> <td>Bright</td> 
+ *         <td>On</td> <td>Bright</td> <td>Bright</td>
  *     </tr>
  * </table>
  * </p><p>
@@ -85,13 +88,13 @@ import android.util.Log;
  *         the illumination to remain on once it turns on (e.g. from user activity).  This flag
  *         will force the screen and/or keyboard to turn on immediately, when the WakeLock is
  *         acquired.  A typical use would be for notifications which are important for the user to
- *         see immediately.</td> 
+ *         see immediately.</td>
  *     </tr>
- *     
+ *
  *     <tr><td>{@link #ON_AFTER_RELEASE}</td>
  *         <td>If this flag is set, the user activity timer will be reset when the WakeLock is
- *         released, causing the illumination to remain on a bit longer.  This can be used to 
- *         reduce flicker if you are cycling between wake lock conditions.</td> 
+ *         released, causing the illumination to remain on a bit longer.  This can be used to
+ *         reduce flicker if you are cycling between wake lock conditions.</td>
  *     </tr>
  * </table>
  * <p>
@@ -99,6 +102,7 @@ import android.util.Log;
  * permission in an {@code <uses-permission>} element of the application's manifest.
  * </p>
  */
+@SystemService(Context.POWER_SERVICE)
 public final class PowerManager {
     private static final String TAG = "PowerManager";
 
@@ -262,7 +266,13 @@ public final class PowerManager {
      * {@link #PROXIMITY_SCREEN_OFF_WAKE_LOCK} wake lock until the proximity sensor
      * indicates that an object is not in close proximity.
      */
-    public static final int RELEASE_FLAG_WAIT_FOR_NO_PROXIMITY = 1;
+    public static final int RELEASE_FLAG_WAIT_FOR_NO_PROXIMITY = 1 << 0;
+
+    /**
+     * Flag for {@link WakeLock#release(int)} when called due to timeout.
+     * @hide
+     */
+    public static final int RELEASE_FLAG_TIMEOUT = 1 << 16;
 
     /**
      * Brightness value for fully on.
@@ -421,10 +431,59 @@ public final class PowerManager {
     public static final String REBOOT_SAFE_MODE = "safemode";
 
     /**
+     * The 'reason' value used when rebooting the device without turning on the screen.
+     * @hide
+     */
+    public static final String REBOOT_QUIESCENT = "quiescent";
+
+    /**
      * The value to pass as the 'reason' argument to android_reboot().
      * @hide
      */
     public static final String SHUTDOWN_USER_REQUESTED = "userrequested";
+
+    /**
+     * @hide
+     */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef({
+            SHUTDOWN_REASON_UNKNOWN,
+            SHUTDOWN_REASON_SHUTDOWN,
+            SHUTDOWN_REASON_REBOOT,
+            SHUTDOWN_REASON_USER_REQUESTED,
+            SHUTDOWN_REASON_THERMAL_SHUTDOWN
+    })
+    public @interface ShutdownReason {}
+
+    /**
+     * constant for shutdown reason being unknown.
+     * @hide
+     */
+    public static final int SHUTDOWN_REASON_UNKNOWN = 0;
+
+    /**
+     * constant for shutdown reason being normal shutdown.
+     * @hide
+     */
+    public static final int SHUTDOWN_REASON_SHUTDOWN = 1;
+
+    /**
+     * constant for shutdown reason being reboot.
+     * @hide
+     */
+    public static final int SHUTDOWN_REASON_REBOOT = 2;
+
+    /**
+     * constant for shutdown reason being user requested.
+     * @hide
+     */
+    public static final int SHUTDOWN_REASON_USER_REQUESTED = 3;
+
+    /**
+     * constant for shutdown reason being overheating.
+     * @hide
+     */
+    public static final int SHUTDOWN_REASON_THERMAL_SHUTDOWN = 4;
 
     final Context mContext;
     final IPowerManager mService;
@@ -473,12 +532,32 @@ public final class PowerManager {
     }
 
     /**
-     * Returns true if the twilight service should be used to adjust screen brightness
-     * policy.  This setting is experimental and disabled by default.
+     * Gets the minimum supported screen brightness setting for VR Mode.
      * @hide
      */
-    public static boolean useTwilightAdjustmentFeature() {
-        return SystemProperties.getBoolean("persist.power.usetwilightadj", false);
+    public int getMinimumScreenBrightnessForVrSetting() {
+        return mContext.getResources().getInteger(
+                com.android.internal.R.integer.config_screenBrightnessForVrSettingMinimum);
+    }
+
+    /**
+     * Gets the maximum supported screen brightness setting for VR Mode.
+     * The screen may be allowed to become dimmer than this value but
+     * this is the maximum value that can be set by the user.
+     * @hide
+     */
+    public int getMaximumScreenBrightnessForVrSetting() {
+        return mContext.getResources().getInteger(
+                com.android.internal.R.integer.config_screenBrightnessForVrSettingMaximum);
+    }
+
+    /**
+     * Gets the default screen brightness for VR setting.
+     * @hide
+     */
+    public int getDefaultScreenBrightnessForVrSetting() {
+        return mContext.getResources().getInteger(
+                com.android.internal.R.integer.config_screenBrightnessForVrSettingDefault);
     }
 
     /**
@@ -617,6 +696,10 @@ public final class PowerManager {
      * @hide Requires signature or system permission.
      */
     @SystemApi
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.DEVICE_POWER,
+            android.Manifest.permission.USER_ACTIVITY
+    })
     public void userActivity(long when, int event, int flags) {
         try {
             mService.userActivity(when, event, flags);
@@ -772,15 +855,13 @@ public final class PowerManager {
      * to {@link #boostScreenBrightness(long)}.
      * @return {@code True} if the screen brightness is currently boosted. {@code False} otherwise.
      *
+     * @deprecated This call is rarely used and will be phased out soon.
      * @hide
+     * @removed
      */
-    @SystemApi
+    @SystemApi @Deprecated
     public boolean isScreenBrightnessBoosted() {
-        try {
-            return mService.isScreenBrightnessBoosted();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return false;
     }
 
     /**
@@ -945,6 +1026,24 @@ public final class PowerManager {
     }
 
     /**
+     * Get data about the battery saver mode for a specific service
+     * @param serviceType unique key for the service, one of
+     *             {@link com.android.server.power.BatterySaverPolicy.ServiceType}
+     * @return Battery saver state data.
+     *
+     * @hide
+     * @see com.android.server.power.BatterySaverPolicy
+     * @see PowerSaveState
+     */
+    public PowerSaveState getPowerSaveState(int serviceType) {
+        try {
+            return mService.getPowerSaveState(serviceType);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Returns true if the device is currently in idle mode.  This happens when a device
      * has been sitting unused and unmoving for a sufficiently long period of time, so that
      * it decides to go into a lower power-use state.  This may involve things like turning
@@ -1041,6 +1140,22 @@ public final class PowerManager {
     }
 
     /**
+     * Returns the reason the phone was last shutdown. Calling app must have the
+     * {@link android.Manifest.permission#DEVICE_POWER} permission to request this information.
+     * @return Reason for shutdown as an int, {@link #SHUTDOWN_REASON_UNKNOWN} if the file could
+     * not be accessed.
+     * @hide
+     */
+    @ShutdownReason
+    public int getLastShutdownReason() {
+        try {
+            return mService.getLastShutdownReason();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Intent that is broadcast when the state of {@link #isPowerSaveMode()} changes.
      * This broadcast is only sent to registered receivers.
      */
@@ -1106,9 +1221,11 @@ public final class PowerManager {
      * Intent that is broadcast when the state of {@link #isScreenBrightnessBoosted()} has changed.
      * This broadcast is only sent to registered receivers.
      *
+     * @deprecated This intent is rarely used and will be phased out soon.
      * @hide
+     * @removed
      **/
-    @SystemApi
+    @SystemApi @Deprecated
     public static final String ACTION_SCREEN_BRIGHTNESS_BOOST_CHANGED
             = "android.os.action.SCREEN_BRIGHTNESS_BOOST_CHANGED";
 
@@ -1133,7 +1250,8 @@ public final class PowerManager {
         private String mTag;
         private final String mPackageName;
         private final IBinder mToken;
-        private int mCount;
+        private int mInternalCount;
+        private int mExternalCount;
         private boolean mRefCounted = true;
         private boolean mHeld;
         private WorkSource mWorkSource;
@@ -1142,7 +1260,7 @@ public final class PowerManager {
 
         private final Runnable mReleaser = new Runnable() {
             public void run() {
-                release();
+                release(RELEASE_FLAG_TIMEOUT);
             }
         };
 
@@ -1219,7 +1337,9 @@ public final class PowerManager {
         }
 
         private void acquireLocked() {
-            if (!mRefCounted || mCount++ == 0) {
+            mInternalCount++;
+            mExternalCount++;
+            if (!mRefCounted || mInternalCount == 1) {
                 // Do this even if the wake lock is already thought to be held (mHeld == true)
                 // because non-reference counted wake locks are not always properly released.
                 // For example, the keyguard's wake lock might be forcibly released by the
@@ -1264,7 +1384,11 @@ public final class PowerManager {
          */
         public void release(int flags) {
             synchronized (mToken) {
-                if (!mRefCounted || --mCount == 0) {
+                mInternalCount--;
+                if ((flags & RELEASE_FLAG_TIMEOUT) == 0) {
+                    mExternalCount--;
+                }
+                if (!mRefCounted || mInternalCount == 0) {
                     mHandler.removeCallbacks(mReleaser);
                     if (mHeld) {
                         Trace.asyncTraceEnd(Trace.TRACE_TAG_POWER, mTraceName, 0);
@@ -1276,7 +1400,7 @@ public final class PowerManager {
                         mHeld = false;
                     }
                 }
-                if (mCount < 0) {
+                if (mRefCounted && mExternalCount < 0) {
                     throw new RuntimeException("WakeLock under-locked " + mTag);
                 }
             }
@@ -1360,7 +1484,7 @@ public final class PowerManager {
             synchronized (mToken) {
                 return "WakeLock{"
                     + Integer.toHexString(System.identityHashCode(this))
-                    + " held=" + mHeld + ", refCount=" + mCount + "}";
+                    + " held=" + mHeld + ", refCount=" + mInternalCount + "}";
             }
         }
 

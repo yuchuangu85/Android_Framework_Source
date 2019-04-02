@@ -112,7 +112,7 @@ public class HardwareConfig {
      * default constructor.
      */
     public HardwareConfig(int type) {
-        type = type;
+        this.type = type;
     }
 
     /**
@@ -152,7 +152,7 @@ public class HardwareConfig {
         if (type == DEV_HARDWARE_TYPE_MODEM) {
             char[] bits = Integer.toBinaryString(ratBits).toCharArray();
             uuid = id;
-            state = state;
+            this.state = state;
             rilModel = model;
             rat = new BitSet(bits.length);
             for (int i = 0 ; i < bits.length ; i++) {
@@ -168,7 +168,7 @@ public class HardwareConfig {
         if (type == DEV_HARDWARE_TYPE_SIM) {
             uuid = id;
             modemUuid = link;
-            state = state;
+            this.state = state;
         }
     }
 

@@ -60,7 +60,8 @@ public class SmsBroadcastUndelivered {
             "count",
             "address",
             "_id",
-            "message_body"
+            "message_body",
+            "display_originating_addr"
     };
 
     private static SmsBroadcastUndelivered instance;
@@ -199,7 +200,7 @@ public class SmsBroadcastUndelivered {
             for (SmsReferenceKey message : oldMultiPartMessages) {
                 // delete permanently
                 int rows = mResolver.delete(InboundSmsHandler.sRawUriPermanentDelete,
-                        InboundSmsHandler.SELECT_BY_REFERENCE, message.getDeleteWhereArgs());
+                        message.getDeleteWhere(), message.getDeleteWhereArgs());
                 if (rows == 0) {
                     Rlog.e(TAG, "No rows were deleted from raw table!");
                 } else if (DBG) {
@@ -242,16 +243,23 @@ public class SmsBroadcastUndelivered {
         final String mAddress;
         final int mReferenceNumber;
         final int mMessageCount;
+        final String mQuery;
 
         SmsReferenceKey(InboundSmsTracker tracker) {
             mAddress = tracker.getAddress();
             mReferenceNumber = tracker.getReferenceNumber();
             mMessageCount = tracker.getMessageCount();
+            mQuery = tracker.getQueryForSegments();
+
         }
 
         String[] getDeleteWhereArgs() {
             return new String[]{mAddress, Integer.toString(mReferenceNumber),
                     Integer.toString(mMessageCount)};
+        }
+
+        String getDeleteWhere() {
+            return mQuery;
         }
 
         @Override

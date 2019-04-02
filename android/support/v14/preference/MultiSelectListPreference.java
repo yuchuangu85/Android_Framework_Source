@@ -17,14 +17,11 @@
 package android.support.v14.preference;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.content.res.TypedArray;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.support.annotation.ArrayRes;
 import android.support.annotation.NonNull;
-import android.support.annotation.RestrictTo;
-import android.support.v4.content.SharedPreferencesCompat;
 import android.support.v4.content.res.TypedArrayUtils;
 import android.support.v7.preference.internal.AbstractMultiSelectListPreference;
 import android.util.AttributeSet;
@@ -32,8 +29,6 @@ import android.util.AttributeSet;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * A {@link android.support.v7.preference.Preference} that displays a list of entries as
@@ -85,64 +80,6 @@ public class MultiSelectListPreference extends AbstractMultiSelectListPreference
     }
 
     /**
-     * Attempts to persist a set of Strings to the {@link android.content.SharedPreferences}.
-     * <p>
-     * This will check if this Preference is persistent, get an editor from
-     * the {@link android.preference.PreferenceManager}, put in the strings, and check if we should
-     * commit (and commit if so).
-     *
-     * @param values The values to persist.
-     * @return True if the Preference is persistent. (This is not whether the
-     *         value was persisted, since we may not necessarily commit if there
-     *         will be a batch commit later.)
-     * @see #getPersistedString
-     *
-     * @hide
-     */
-    @RestrictTo(GROUP_ID)
-    protected boolean persistStringSet(Set<String> values) {
-        if (shouldPersist()) {
-            // Shouldn't store null
-            if (values.equals(getPersistedStringSet(null))) {
-                // It's already there, so the same as persisting
-                return true;
-            }
-
-            SharedPreferences.Editor editor = getPreferenceManager().getSharedPreferences().edit();
-            editor.putStringSet(getKey(), values);
-            SharedPreferencesCompat.EditorCompat.getInstance().apply(editor);
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Attempts to get a persisted set of Strings from the
-     * {@link android.content.SharedPreferences}.
-     * <p>
-     * This will check if this Preference is persistent, get the SharedPreferences
-     * from the {@link android.preference.PreferenceManager}, and get the value.
-     *
-     * @param defaultReturnValue The default value to return if either the
-     *            Preference is not persistent or the Preference is not in the
-     *            shared preferences.
-     * @return The value from the SharedPreferences or the default return
-     *         value.
-     * @see #persistStringSet(Set)
-     *
-     * @hide
-     */
-    @RestrictTo(GROUP_ID)
-    protected Set<String> getPersistedStringSet(Set<String> defaultReturnValue) {
-        if (!shouldPersist()) {
-            return defaultReturnValue;
-        }
-
-        return getPreferenceManager().getSharedPreferences()
-                .getStringSet(getKey(), defaultReturnValue);
-    }
-
-    /**
      * Sets the human-readable entries to be shown in the list. This will be
      * shown in subsequent dialogs.
      * <p>
@@ -169,6 +106,7 @@ public class MultiSelectListPreference extends AbstractMultiSelectListPreference
      *
      * @return The list as an array.
      */
+    @Override
     public CharSequence[] getEntries() {
         return mEntries;
     }
@@ -197,6 +135,7 @@ public class MultiSelectListPreference extends AbstractMultiSelectListPreference
      *
      * @return The array of values.
      */
+    @Override
     public CharSequence[] getEntryValues() {
         return mEntryValues;
     }
@@ -207,6 +146,7 @@ public class MultiSelectListPreference extends AbstractMultiSelectListPreference
      *
      * @param values The values to set for the key.
      */
+    @Override
     public void setValues(Set<String> values) {
         mValues.clear();
         mValues.addAll(values);
@@ -217,6 +157,7 @@ public class MultiSelectListPreference extends AbstractMultiSelectListPreference
     /**
      * Retrieves the current value of the key.
      */
+    @Override
     public Set<String> getValues() {
         return mValues;
     }
@@ -263,6 +204,7 @@ public class MultiSelectListPreference extends AbstractMultiSelectListPreference
         return result;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     protected void onSetInitialValue(boolean restoreValue, Object defaultValue) {
         setValues(restoreValue ? getPersistedStringSet(mValues) : (Set<String>) defaultValue);
@@ -320,10 +262,12 @@ public class MultiSelectListPreference extends AbstractMultiSelectListPreference
 
         public static final Parcelable.Creator<SavedState> CREATOR =
                 new Parcelable.Creator<SavedState>() {
+                    @Override
                     public SavedState createFromParcel(Parcel in) {
                         return new SavedState(in);
                     }
 
+                    @Override
                     public SavedState[] newArray(int size) {
                         return new SavedState[size];
                     }

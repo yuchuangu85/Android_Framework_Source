@@ -26,16 +26,15 @@ import android.os.Registrant;
 import android.os.SystemClock;
 import android.telephony.CarrierConfigManager;
 import android.telephony.DisconnectCause;
-import android.telephony.Rlog;
 import android.telephony.PhoneNumberUtils;
+import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.text.TextUtils;
 
 import com.android.internal.telephony.cdma.CdmaCallWaitingNotification;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
-import com.android.internal.telephony.uicc.UiccCardApplication;
-import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
+import com.android.internal.telephony.uicc.UiccCardApplication;
 
 /**
  * {@hide}
@@ -226,9 +225,13 @@ public class GsmCdmaConnection extends Connection {
         releaseAllWakeLocks();
     }
 
-    static boolean
-    equalsHandlesNulls (Object a, Object b) {
+    static boolean equalsHandlesNulls(Object a, Object b) {
         return (a == null) ? (b == null) : a.equals (b);
+    }
+
+    static boolean
+    equalsBaseDialString (String a, String b) {
+        return (a == null) ? (b == null) : (b != null && a.startsWith (b));
     }
 
     //CDMA
@@ -441,11 +444,15 @@ public class GsmCdmaConnection extends Connection {
             case CallFailCause.ACM_LIMIT_EXCEEDED:
                 return DisconnectCause.LIMIT_EXCEEDED;
 
+            case CallFailCause.OPERATOR_DETERMINED_BARRING:
             case CallFailCause.CALL_BARRED:
                 return DisconnectCause.CALL_BARRED;
 
             case CallFailCause.FDN_BLOCKED:
                 return DisconnectCause.FDN_BLOCKED;
+
+            case CallFailCause.IMEI_NOT_ACCEPTED:
+                return DisconnectCause.IMEI_NOT_ACCEPTED;
 
             case CallFailCause.UNOBTAINABLE_NUMBER:
                 return DisconnectCause.UNOBTAINABLE_NUMBER;
@@ -607,10 +614,9 @@ public class GsmCdmaConnection extends Connection {
         //Ignore dc.number and dc.name in case of a handover connection
         if (isPhoneTypeGsm() && mOrigConnection != null) {
             if (Phone.DEBUG_PHONE) log("update: mOrigConnection is not null");
-        } else {
-            log(" mNumberConverted " + mNumberConverted);
-            if (!equalsHandlesNulls(mAddress, dc.number) && (!mNumberConverted
-                    || !equalsHandlesNulls(mConvertedNumber, dc.number))) {
+        } else if (isIncoming()) {
+            if (!equalsBaseDialString(mAddress, dc.number) && (!mNumberConverted
+                    || !equalsBaseDialString(mConvertedNumber, dc.number))) {
                 if (Phone.DEBUG_PHONE) log("update: phone # changed!");
                 mAddress = dc.number;
                 changed = true;
@@ -804,13 +810,13 @@ public class GsmCdmaConnection extends Connection {
     protected void finalize()
     {
         /**
-         * It is understood that This finializer is not guaranteed
+         * It is understood that This finalizer is not guaranteed
          * to be called and the release lock call is here just in
          * case there is some path that doesn't call onDisconnect
          * and or onConnectedInOrOut.
          */
-        if (mPartialWakeLock.isHeld()) {
-            Rlog.e(LOG_TAG, "[GsmCdmaConn] UNEXPECTED; mPartialWakeLock is held when finalizing.");
+        if (mPartialWakeLock != null && mPartialWakeLock.isHeld()) {
+            Rlog.e(LOG_TAG, "UNEXPECTED; mPartialWakeLock is held when finalizing.");
         }
         clearPostDialListeners();
         releaseWakeLock();
@@ -935,33 +941,37 @@ public class GsmCdmaConnection extends Connection {
         notifyPostDialListeners();
     }
 
-    private void
-    createWakeLock(Context context) {
+    private void createWakeLock(Context context) {
         PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
         mPartialWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, LOG_TAG);
     }
 
-    private void
-    acquireWakeLock() {
-        log("acquireWakeLock");
-        mPartialWakeLock.acquire();
-    }
-
-    private void
-    releaseWakeLock() {
-        synchronized(mPartialWakeLock) {
-            if (mPartialWakeLock.isHeld()) {
-                log("releaseWakeLock");
-                mPartialWakeLock.release();
+    private void acquireWakeLock() {
+        if (mPartialWakeLock != null) {
+            synchronized (mPartialWakeLock) {
+                log("acquireWakeLock");
+                mPartialWakeLock.acquire();
             }
         }
     }
 
-    private void
-    releaseAllWakeLocks() {
-        synchronized(mPartialWakeLock) {
-            while (mPartialWakeLock.isHeld()) {
-                mPartialWakeLock.release();
+    private void releaseWakeLock() {
+        if (mPartialWakeLock != null) {
+            synchronized (mPartialWakeLock) {
+                if (mPartialWakeLock.isHeld()) {
+                    log("releaseWakeLock");
+                    mPartialWakeLock.release();
+                }
+            }
+        }
+    }
+
+    private void releaseAllWakeLocks() {
+        if (mPartialWakeLock != null) {
+            synchronized (mPartialWakeLock) {
+                while (mPartialWakeLock.isHeld()) {
+                    mPartialWakeLock.release();
+                }
             }
         }
     }
@@ -982,8 +992,7 @@ public class GsmCdmaConnection extends Connection {
     // This function is to find the next PAUSE character index if
     // multiple pauses in a row. Otherwise it finds the next non PAUSE or
     // non WAIT character index.
-    private static int
-    findNextPCharOrNonPOrNonWCharIndex(String phoneNumber, int currIndex) {
+    private static int findNextPCharOrNonPOrNonWCharIndex(String phoneNumber, int currIndex) {
         boolean wMatched = isWait(phoneNumber.charAt(currIndex));
         int index = currIndex + 1;
         int length = phoneNumber.length();
@@ -1010,12 +1019,12 @@ public class GsmCdmaConnection extends Connection {
         return index;
     }
 
-    //CDMA
+    // CDMA
     // This function returns either PAUSE or WAIT character to append.
     // It is based on the next non PAUSE/WAIT character in the phoneNumber and the
     // index for the current PAUSE/WAIT character
-    private static char
-    findPOrWCharToAppend(String phoneNumber, int currPwIndex, int nextNonPwCharIndex) {
+    private static char findPOrWCharToAppend(String phoneNumber, int currPwIndex,
+                                             int nextNonPwCharIndex) {
         char c = phoneNumber.charAt(currPwIndex);
         char ret;
 

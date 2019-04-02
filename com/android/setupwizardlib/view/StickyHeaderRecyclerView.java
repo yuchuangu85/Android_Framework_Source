@@ -79,6 +79,10 @@ public class StickyHeaderRecyclerView extends HeaderRecyclerView {
         }
     }
 
+    /**
+     * Call this method when the "sticky" view has changed, so this view can update its internal
+     * states as well.
+     */
     public void updateStickyView() {
         final View header = getHeader();
         if (header != null) {

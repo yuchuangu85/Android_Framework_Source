@@ -16,11 +16,6 @@
 
 package com.android.server.notification;
 
-import static android.media.AudioAttributes.USAGE_NOTIFICATION;
-import static android.media.AudioAttributes.USAGE_NOTIFICATION_RINGTONE;
-import static android.media.AudioAttributes.USAGE_UNKNOWN;
-import static android.media.AudioAttributes.USAGE_VIRTUAL_SOURCE;
-
 import android.app.AppOpsManager;
 import android.app.AutomaticZenRule;
 import android.app.NotificationManager;
@@ -50,14 +45,18 @@ import android.os.Process;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.provider.Settings.Global;
+import android.service.notification.Condition;
 import android.service.notification.ConditionProviderService;
 import android.service.notification.ZenModeConfig;
 import android.service.notification.ZenModeConfig.EventInfo;
 import android.service.notification.ZenModeConfig.ScheduleInfo;
 import android.service.notification.ZenModeConfig.ZenRule;
+import android.service.notification.ZenModeProto;
 import android.util.AndroidRuntimeException;
 import android.util.Log;
+import android.util.Slog;
 import android.util.SparseArray;
+import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.R;
 import com.android.internal.logging.MetricsLogger;
@@ -89,7 +88,7 @@ public class ZenModeHelper {
     private final H mHandler;
     private final SettingsObserver mSettingsObserver;
     private final AppOpsManager mAppOps;
-    private final ZenModeConfig mDefaultConfig;
+    protected ZenModeConfig mDefaultConfig;
     private final ArrayList<Callback> mCallbacks = new ArrayList<Callback>();
     private final ZenModeFiltering mFiltering;
     private final RingerModeDelegate mRingerModeDelegate = new RingerModeDelegate();
@@ -98,11 +97,16 @@ public class ZenModeHelper {
     private final Metrics mMetrics = new Metrics();
     private final ConditionProviders.Config mServiceConfig;
 
+    protected final ArrayList<String> mDefaultRuleIds = new ArrayList<>();
+    private final String EVENTS_DEFAULT_RULE = "EVENTS_DEFAULT_RULE";
+    private final String SCHEDULED_DEFAULT_RULE_1 = "SCHEDULED_DEFAULT_RULE_1";
+    private final String SCHEDULED_DEFAULT_RULE_2 = "SCHEDULED_DEFAULT_RULE_2";
+
     private int mZenMode;
     private int mUser = UserHandle.USER_SYSTEM;
-    private ZenModeConfig mConfig;
+    protected ZenModeConfig mConfig;
     private AudioManagerInternal mAudioManager;
-    private PackageManager mPm;
+    protected PackageManager mPm;
     private long mSuppressedEffects;
 
     public static final long SUPPRESSED_EFFECT_NOTIFICATIONS = 1;
@@ -110,21 +114,33 @@ public class ZenModeHelper {
     public static final long SUPPRESSED_EFFECT_ALL = SUPPRESSED_EFFECT_CALLS
             | SUPPRESSED_EFFECT_NOTIFICATIONS;
 
+    protected String mDefaultRuleWeeknightsName;
+    protected String mDefaultRuleEventsName;
+    protected String mDefaultRuleWeekendsName;
+
     public ZenModeHelper(Context context, Looper looper, ConditionProviders conditionProviders) {
         mContext = context;
         mHandler = new H(looper);
         addCallback(mMetrics);
         mAppOps = (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
-        mDefaultConfig = readDefaultConfig(context.getResources());
-        appendDefaultScheduleRules(mDefaultConfig);
-        appendDefaultEventRules(mDefaultConfig);
+
+        mDefaultConfig = new ZenModeConfig();
+        mDefaultRuleWeeknightsName = mContext.getResources()
+                .getString(R.string.zen_mode_default_weeknights_name);
+        mDefaultRuleWeekendsName = mContext.getResources()
+                .getString(R.string.zen_mode_default_weekends_name);
+        mDefaultRuleEventsName = mContext.getResources()
+                .getString(R.string.zen_mode_default_events_name);
+        setDefaultZenRules(mContext);
         mConfig = mDefaultConfig;
         mConfigs.put(UserHandle.USER_SYSTEM, mConfig);
+
         mSettingsObserver = new SettingsObserver(mHandler);
         mSettingsObserver.observe();
         mFiltering = new ZenModeFiltering(mContext);
         mConditions = new ZenModeConditions(this, conditionProviders);
         mServiceConfig = conditionProviders.getConfig();
+
     }
 
     public Looper getLooper() {
@@ -408,6 +424,56 @@ public class ZenModeHelper {
         }
     }
 
+    public void setDefaultZenRules(Context context) {
+        mDefaultConfig = readDefaultConfig(context.getResources());
+
+        mDefaultRuleIds.add(EVENTS_DEFAULT_RULE);
+        mDefaultRuleIds.add(SCHEDULED_DEFAULT_RULE_1);
+        mDefaultRuleIds.add(SCHEDULED_DEFAULT_RULE_2);
+
+        appendDefaultRules(mDefaultConfig);
+    }
+
+    private void appendDefaultRules (ZenModeConfig config) {
+        appendDefaultScheduleRules(config);
+        appendDefaultEventRules(config);
+    }
+
+    // Checks zen rule properties are the same (doesn't check creation time, name nor enabled)
+    // used to check if default rules were customized or not
+    private boolean ruleValuesEqual(AutomaticZenRule rule, ZenRule defaultRule) {
+        if (rule == null || defaultRule == null) {
+            return false;
+        }
+        return rule.getInterruptionFilter() ==
+                NotificationManager.zenModeToInterruptionFilter(defaultRule.zenMode)
+                && rule.getConditionId().equals(defaultRule.conditionId)
+                && rule.getOwner().equals(defaultRule.component);
+    }
+
+    protected void updateDefaultZenRules() {
+        ZenModeConfig configDefaultRules = new ZenModeConfig();
+        appendDefaultRules(configDefaultRules); // "new" localized default rules
+        for (String ruleId : mDefaultRuleIds) {
+            AutomaticZenRule currRule = getAutomaticZenRule(ruleId);
+            ZenRule defaultRule = configDefaultRules.automaticRules.get(ruleId);
+            // if default rule wasn't customized, use localized name instead of previous
+            if (ruleValuesEqual(currRule, defaultRule) &&
+                    !defaultRule.name.equals(currRule.getName())) {
+                if (canManageAutomaticZenRule(defaultRule)) {
+                    if (DEBUG) Slog.d(TAG, "Locale change - updating default zen rule name "
+                            + "from " + currRule.getName() + " to " + defaultRule.name);
+                    // update default rule (if locale changed, name of rule will change)
+                    AutomaticZenRule defaultAutoRule = createAutomaticZenRule(defaultRule);
+                    // ensure enabled state is carried over from current rule
+                    defaultAutoRule.setEnabled(currRule.isEnabled());
+                    updateAutomaticZenRule(ruleId, defaultAutoRule,
+                            "locale changed");
+                }
+            }
+        }
+    }
+
     private boolean isSystemRule(AutomaticZenRule rule) {
         return ZenModeConfig.SYSTEM_AUTHORITY.equals(rule.getOwner().getPackageName());
     }
@@ -449,7 +515,7 @@ public class ZenModeHelper {
                 automaticZenRule.getInterruptionFilter(), Global.ZEN_MODE_OFF);
     }
 
-    private AutomaticZenRule createAutomaticZenRule(ZenRule rule) {
+    protected AutomaticZenRule createAutomaticZenRule(ZenRule rule) {
         return new AutomaticZenRule(rule.name, rule.component, rule.conditionId,
                 NotificationManager.zenModeToInterruptionFilter(rule.zenMode), rule.enabled,
                 rule.creationTime);
@@ -488,10 +554,27 @@ public class ZenModeHelper {
         }
     }
 
+    void dump(ProtoOutputStream proto) {
+
+        proto.write(ZenModeProto.ZEN_MODE, mZenMode);
+        synchronized (mConfig) {
+            if (mConfig.manualRule != null) {
+                proto.write(ZenModeProto.ENABLED_ACTIVE_CONDITIONS, mConfig.manualRule.toString());
+            }
+            for (ZenRule rule : mConfig.automaticRules.values()) {
+                if (rule.enabled && rule.condition.state == Condition.STATE_TRUE
+                        && !rule.snoozing) {
+                    proto.write(ZenModeProto.ENABLED_ACTIVE_CONDITIONS, rule.toString());
+                }
+            }
+            proto.write(ZenModeProto.POLICY, mConfig.toNotificationPolicy().toString());
+            proto.write(ZenModeProto.SUPPRESSED_EFFECTS, mSuppressedEffects);
+        }
+    }
+
     public void dump(PrintWriter pw, String prefix) {
         pw.print(prefix); pw.print("mZenMode=");
         pw.println(Global.zenModeToString(mZenMode));
-        dump(pw, prefix, "mDefaultConfig", mDefaultConfig);
         final int N = mConfigs.size();
         for (int i = 0; i < N; i++) {
             dump(pw, prefix, "mConfigs[u=" + mConfigs.keyAt(i) + "]", mConfigs.valueAt(i));
@@ -512,8 +595,8 @@ public class ZenModeHelper {
             pw.println(config);
             return;
         }
-        pw.printf("allow(calls=%s,callsFrom=%s,repeatCallers=%s,messages=%s,messagesFrom=%s,"
-                + "events=%s,reminders=%s,whenScreenOff,whenScreenOn=%s)\n",
+        pw.printf("allow(calls=%b,callsFrom=%s,repeatCallers=%b,messages=%b,messagesFrom=%s,"
+                + "events=%b,reminders=%b,whenScreenOff=%b,whenScreenOn=%b)\n",
                 config.allowCalls, ZenModeConfig.sourceToString(config.allowCallsFrom),
                 config.allowRepeatCallers, config.allowMessages,
                 ZenModeConfig.sourceToString(config.allowMessagesFrom),
@@ -530,7 +613,7 @@ public class ZenModeHelper {
 
     public void readXml(XmlPullParser parser, boolean forRestore)
             throws XmlPullParserException, IOException {
-        final ZenModeConfig config = ZenModeConfig.readXml(parser, mConfigMigration);
+        final ZenModeConfig config = ZenModeConfig.readXml(parser);
         if (config != null) {
             if (forRestore) {
                 //TODO: http://b/22388012
@@ -596,7 +679,7 @@ public class ZenModeHelper {
                     if (RULE_INSTANCE_GRACE_PERIOD < (currentTime - rule.creationTime)) {
                         try {
                             mPm.getPackageInfo(rule.component.getPackageName(),
-                                    PackageManager.MATCH_UNINSTALLED_PACKAGES);
+                                    PackageManager.MATCH_ANY_USER);
                         } catch (PackageManager.NameNotFoundException e) {
                             newConfig.automaticRules.removeAt(i);
                         }
@@ -654,6 +737,9 @@ public class ZenModeHelper {
             mConfig = config;
             mHandler.postApplyConfig(config, reason, setRingerMode);
             return true;
+        } catch (SecurityException e) {
+            Log.wtf(TAG, "Invalid rule in config", e);
+            return false;
         } finally {
             Binder.restoreCallingIdentity(identity);
         }
@@ -741,7 +827,9 @@ public class ZenModeHelper {
 
         for (int usage : AudioAttributes.SDK_USAGES) {
             final int suppressionBehavior = AudioAttributes.SUPPRESSIBLE_USAGES.get(usage);
-            if (suppressionBehavior == AudioAttributes.SUPPRESSIBLE_NOTIFICATION) {
+            if (suppressionBehavior == AudioAttributes.SUPPRESSIBLE_NEVER) {
+                applyRestrictions(false /*mute*/, usage);
+            } else if (suppressionBehavior == AudioAttributes.SUPPRESSIBLE_NOTIFICATION) {
                 applyRestrictions(muteNotifications || muteEverything, usage);
             } else if (suppressionBehavior == AudioAttributes.SUPPRESSIBLE_CALL) {
                 applyRestrictions(muteCalls || muteEverything, usage);
@@ -810,7 +898,7 @@ public class ZenModeHelper {
         try {
             parser = resources.getXml(R.xml.default_zen_mode_config);
             while (parser.next() != XmlPullParser.END_DOCUMENT) {
-                final ZenModeConfig config = ZenModeConfig.readXml(parser, mConfigMigration);
+                final ZenModeConfig config = ZenModeConfig.readXml(parser);
                 if (config != null) return config;
             }
         } catch (Exception e) {
@@ -830,12 +918,11 @@ public class ZenModeHelper {
         weeknights.endHour = 7;
         final ZenRule rule1 = new ZenRule();
         rule1.enabled = false;
-        rule1.name = mContext.getResources()
-                .getString(R.string.zen_mode_default_weeknights_name);
+        rule1.name = mDefaultRuleWeeknightsName;
         rule1.conditionId = ZenModeConfig.toScheduleConditionId(weeknights);
         rule1.zenMode = Global.ZEN_MODE_ALARMS;
         rule1.component = ScheduleConditionProvider.COMPONENT;
-        rule1.id = ZenModeConfig.newRuleId();
+        rule1.id = SCHEDULED_DEFAULT_RULE_1;
         rule1.creationTime = System.currentTimeMillis();
         config.automaticRules.put(rule1.id, rule1);
 
@@ -846,12 +933,11 @@ public class ZenModeHelper {
         weekends.endHour = 10;
         final ZenRule rule2 = new ZenRule();
         rule2.enabled = false;
-        rule2.name = mContext.getResources()
-                .getString(R.string.zen_mode_default_weekends_name);
+        rule2.name = mDefaultRuleWeekendsName;
         rule2.conditionId = ZenModeConfig.toScheduleConditionId(weekends);
         rule2.zenMode = Global.ZEN_MODE_ALARMS;
         rule2.component = ScheduleConditionProvider.COMPONENT;
-        rule2.id = ZenModeConfig.newRuleId();
+        rule2.id = SCHEDULED_DEFAULT_RULE_2;
         rule2.creationTime = System.currentTimeMillis();
         config.automaticRules.put(rule2.id, rule2);
     }
@@ -864,11 +950,11 @@ public class ZenModeHelper {
         events.reply = EventInfo.REPLY_YES_OR_MAYBE;
         final ZenRule rule = new ZenRule();
         rule.enabled = false;
-        rule.name = mContext.getResources().getString(R.string.zen_mode_default_events_name);
+        rule.name = mDefaultRuleEventsName;
         rule.conditionId = ZenModeConfig.toEventConditionId(events);
         rule.zenMode = Global.ZEN_MODE_ALARMS;
         rule.component = EventConditionProvider.COMPONENT;
-        rule.id = ZenModeConfig.newRuleId();
+        rule.id = EVENTS_DEFAULT_RULE;
         rule.creationTime = System.currentTimeMillis();
         config.automaticRules.put(rule.id, rule);
     }
@@ -881,45 +967,6 @@ public class ZenModeHelper {
             default: return 0;
         }
     }
-
-    private final ZenModeConfig.Migration mConfigMigration = new ZenModeConfig.Migration() {
-        @Override
-        public ZenModeConfig migrate(ZenModeConfig.XmlV1 v1) {
-            if (v1 == null) return null;
-            final ZenModeConfig rt = new ZenModeConfig();
-            rt.allowCalls = v1.allowCalls;
-            rt.allowEvents = v1.allowEvents;
-            rt.allowCallsFrom = v1.allowFrom;
-            rt.allowMessages = v1.allowMessages;
-            rt.allowMessagesFrom = v1.allowFrom;
-            rt.allowReminders = v1.allowReminders;
-            // don't migrate current exit condition
-            final int[] days = ZenModeConfig.XmlV1.tryParseDays(v1.sleepMode);
-            if (days != null && days.length > 0) {
-                Log.i(TAG, "Migrating existing V1 downtime to single schedule");
-                final ScheduleInfo schedule = new ScheduleInfo();
-                schedule.days = days;
-                schedule.startHour = v1.sleepStartHour;
-                schedule.startMinute = v1.sleepStartMinute;
-                schedule.endHour = v1.sleepEndHour;
-                schedule.endMinute = v1.sleepEndMinute;
-                final ZenRule rule = new ZenRule();
-                rule.enabled = true;
-                rule.name = mContext.getResources()
-                        .getString(R.string.zen_mode_downtime_feature_name);
-                rule.conditionId = ZenModeConfig.toScheduleConditionId(schedule);
-                rule.zenMode = v1.sleepNone ? Global.ZEN_MODE_NO_INTERRUPTIONS
-                        : Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS;
-                rule.component = ScheduleConditionProvider.COMPONENT;
-                rt.automaticRules.put(ZenModeConfig.newRuleId(), rule);
-            } else {
-                Log.i(TAG, "No existing V1 downtime found, generating default schedules");
-                appendDefaultScheduleRules(rt);
-            }
-            appendDefaultEventRules(rt);
-            return rt;
-        }
-    };
 
     private final class RingerModeDelegate implements AudioManagerInternal.RingerModeDelegate {
         @Override
