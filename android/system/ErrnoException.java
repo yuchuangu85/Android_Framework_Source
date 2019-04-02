@@ -26,57 +26,57 @@ import libcore.io.Libcore;
  * callers need to adjust their behavior based on the exact failure.
  */
 public final class ErrnoException extends Exception {
-  private final String functionName;
+    private final String functionName;
 
-  /**
-   * The errno value, for comparison with the {@code E} constants in {@link OsConstants}.
-   */
-  public final int errno;
+    /**
+     * The errno value, for comparison with the {@code E} constants in {@link OsConstants}.
+     */
+    public final int errno;
 
-  /**
-   * Constructs an instance with the given function name and errno value.
-   */
-  public ErrnoException(String functionName, int errno) {
-    this.functionName = functionName;
-    this.errno = errno;
-  }
-
-  /**
-   * Constructs an instance with the given function name, errno value, and cause.
-   */
-  public ErrnoException(String functionName, int errno, Throwable cause) {
-    super(cause);
-    this.functionName = functionName;
-    this.errno = errno;
-  }
-
-  /**
-   * Converts the stashed function name and errno value to a human-readable string.
-   * We do this here rather than in the constructor so that callers only pay for
-   * this if they need it.
-   */
-  @Override public String getMessage() {
-    String errnoName = OsConstants.errnoName(errno);
-    if (errnoName == null) {
-      errnoName = "errno " + errno;
+    /**
+     * Constructs an instance with the given function name and errno value.
+     */
+    public ErrnoException(String functionName, int errno) {
+        this.functionName = functionName;
+        this.errno = errno;
     }
-    String description = Libcore.os.strerror(errno);
-    return functionName + " failed: " + errnoName + " (" + description + ")";
-  }
 
-  /**
-   * @hide - internal use only.
-   */
-  public IOException rethrowAsIOException() throws IOException {
-    IOException newException = new IOException(getMessage());
-    newException.initCause(this);
-    throw newException;
-  }
+    /**
+     * Constructs an instance with the given function name, errno value, and cause.
+     */
+    public ErrnoException(String functionName, int errno, Throwable cause) {
+        super(cause);
+        this.functionName = functionName;
+        this.errno = errno;
+    }
 
-  /**
-   * @hide - internal use only.
-   */
-  public SocketException rethrowAsSocketException() throws SocketException {
-    throw new SocketException(getMessage(), this);
-  }
+    /**
+     * Converts the stashed function name and errno value to a human-readable string.
+     * We do this here rather than in the constructor so that callers only pay for
+     * this if they need it.
+     */
+    @Override public String getMessage() {
+        String errnoName = OsConstants.errnoName(errno);
+        if (errnoName == null) {
+            errnoName = "errno " + errno;
+        }
+        String description = Libcore.os.strerror(errno);
+        return functionName + " failed: " + errnoName + " (" + description + ")";
+    }
+
+    /**
+     * @hide - internal use only.
+     */
+    public IOException rethrowAsIOException() throws IOException {
+        IOException newException = new IOException(getMessage());
+        newException.initCause(this);
+        throw newException;
+    }
+
+    /**
+     * @hide - internal use only.
+     */
+    public SocketException rethrowAsSocketException() throws SocketException {
+        throw new SocketException(getMessage(), this);
+    }
 }

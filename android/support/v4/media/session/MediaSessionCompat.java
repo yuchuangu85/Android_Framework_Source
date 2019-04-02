@@ -16,7 +16,9 @@
 
 package android.support.v4.media.session;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static androidx.annotation.RestrictTo.Scope.LIBRARY;
+import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static androidx.media.MediaSessionManager.RemoteUserInfo.LEGACY_CONTROLLER;
 
 import android.app.Activity;
 import android.app.PendingIntent;
@@ -30,8 +32,10 @@ import android.media.MediaMetadataEditor;
 import android.media.MediaMetadataRetriever;
 import android.media.Rating;
 import android.media.RemoteControlClient;
+import android.media.session.MediaSession;
 import android.net.Uri;
 import android.os.BadParcelableException;
+import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -44,19 +48,24 @@ import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
 import android.os.SystemClock;
-import android.support.annotation.IntDef;
-import android.support.annotation.RequiresApi;
-import android.support.annotation.RestrictTo;
-import android.support.v4.app.BundleCompat;
 import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.RatingCompat;
-import android.support.v4.media.VolumeProviderCompat;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.KeyEvent;
 import android.view.ViewConfiguration;
+
+import androidx.annotation.IntDef;
+import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
+import androidx.annotation.RestrictTo;
+import androidx.core.app.BundleCompat;
+import androidx.media.MediaSessionManager;
+import androidx.media.MediaSessionManager.RemoteUserInfo;
+import androidx.media.VolumeProviderCompat;
+import androidx.media.session.MediaButtonReceiver;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -219,124 +228,171 @@ public class MediaSessionCompat {
 
     /**
      * Custom action to invoke playFromUri() for the forward compatibility.
+     *
+     * @hide
      */
-    static final String ACTION_PLAY_FROM_URI =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_PLAY_FROM_URI =
             "android.support.v4.media.session.action.PLAY_FROM_URI";
 
     /**
      * Custom action to invoke prepare() for the forward compatibility.
+     *
+     * @hide
      */
-    static final String ACTION_PREPARE = "android.support.v4.media.session.action.PREPARE";
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_PREPARE = "android.support.v4.media.session.action.PREPARE";
 
     /**
      * Custom action to invoke prepareFromMediaId() for the forward compatibility.
+     *
+     * @hide
      */
-    static final String ACTION_PREPARE_FROM_MEDIA_ID =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_PREPARE_FROM_MEDIA_ID =
             "android.support.v4.media.session.action.PREPARE_FROM_MEDIA_ID";
 
     /**
      * Custom action to invoke prepareFromSearch() for the forward compatibility.
+     *
+     * @hide
      */
-    static final String ACTION_PREPARE_FROM_SEARCH =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_PREPARE_FROM_SEARCH =
             "android.support.v4.media.session.action.PREPARE_FROM_SEARCH";
 
     /**
      * Custom action to invoke prepareFromUri() for the forward compatibility.
+     *
+     * @hide
      */
-    static final String ACTION_PREPARE_FROM_URI =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_PREPARE_FROM_URI =
             "android.support.v4.media.session.action.PREPARE_FROM_URI";
 
     /**
      * Custom action to invoke setCaptioningEnabled() for the forward compatibility.
+     *
+     * @hide
      */
-    static final String ACTION_SET_CAPTIONING_ENABLED =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_SET_CAPTIONING_ENABLED =
             "android.support.v4.media.session.action.SET_CAPTIONING_ENABLED";
 
     /**
      * Custom action to invoke setRepeatMode() for the forward compatibility.
+     *
+     * @hide
      */
-    static final String ACTION_SET_REPEAT_MODE =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_SET_REPEAT_MODE =
             "android.support.v4.media.session.action.SET_REPEAT_MODE";
 
     /**
-     * Custom action to invoke setShuffleModeEnabled() for the forward compatibility.
-     */
-    static final String ACTION_SET_SHUFFLE_MODE_ENABLED =
-            "android.support.v4.media.session.action.SET_SHUFFLE_MODE_ENABLED";
-
-    /**
      * Custom action to invoke setShuffleMode() for the forward compatibility.
+     *
+     * @hide
      */
-    static final String ACTION_SET_SHUFFLE_MODE =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_SET_SHUFFLE_MODE =
             "android.support.v4.media.session.action.SET_SHUFFLE_MODE";
 
     /**
      * Custom action to invoke setRating() with extra fields.
+     *
+     * @hide
      */
-    static final String ACTION_SET_RATING =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_SET_RATING =
             "android.support.v4.media.session.action.SET_RATING";
 
     /**
      * Argument for use with {@link #ACTION_PREPARE_FROM_MEDIA_ID} indicating media id to play.
+     *
+     * @hide
      */
-    static final String ACTION_ARGUMENT_MEDIA_ID =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_ARGUMENT_MEDIA_ID =
             "android.support.v4.media.session.action.ARGUMENT_MEDIA_ID";
 
     /**
      * Argument for use with {@link #ACTION_PREPARE_FROM_SEARCH} indicating search query.
+     *
+     * @hide
      */
-    static final String ACTION_ARGUMENT_QUERY =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_ARGUMENT_QUERY =
             "android.support.v4.media.session.action.ARGUMENT_QUERY";
 
     /**
      * Argument for use with {@link #ACTION_PREPARE_FROM_URI} and {@link #ACTION_PLAY_FROM_URI}
      * indicating URI to play.
+     *
+     * @hide
      */
-    static final String ACTION_ARGUMENT_URI =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_ARGUMENT_URI =
             "android.support.v4.media.session.action.ARGUMENT_URI";
 
     /**
      * Argument for use with {@link #ACTION_SET_RATING} indicating the rate to be set.
+     *
+     * @hide
      */
-    static final String ACTION_ARGUMENT_RATING =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_ARGUMENT_RATING =
             "android.support.v4.media.session.action.ARGUMENT_RATING";
 
     /**
      * Argument for use with various actions indicating extra bundle.
+     *
+     * @hide
      */
-    static final String ACTION_ARGUMENT_EXTRAS =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_ARGUMENT_EXTRAS =
             "android.support.v4.media.session.action.ARGUMENT_EXTRAS";
 
     /**
      * Argument for use with {@link #ACTION_SET_CAPTIONING_ENABLED} indicating whether captioning is
      * enabled.
+     *
+     * @hide
      */
-    static final String ACTION_ARGUMENT_CAPTIONING_ENABLED =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_ARGUMENT_CAPTIONING_ENABLED =
             "android.support.v4.media.session.action.ARGUMENT_CAPTIONING_ENABLED";
 
     /**
      * Argument for use with {@link #ACTION_SET_REPEAT_MODE} indicating repeat mode.
+     *
+     * @hide
      */
-    static final String ACTION_ARGUMENT_REPEAT_MODE =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_ARGUMENT_REPEAT_MODE =
             "android.support.v4.media.session.action.ARGUMENT_REPEAT_MODE";
 
     /**
-     * Argument for use with {@link #ACTION_SET_SHUFFLE_MODE_ENABLED} indicating that shuffle mode
-     * is enabled.
-     */
-    static final String ACTION_ARGUMENT_SHUFFLE_MODE_ENABLED =
-            "android.support.v4.media.session.action.ARGUMENT_SHUFFLE_MODE_ENABLED";
-
-    /**
      * Argument for use with {@link #ACTION_SET_SHUFFLE_MODE} indicating shuffle mode.
+     *
+     * @hide
      */
-    static final String ACTION_ARGUMENT_SHUFFLE_MODE =
+    @RestrictTo(LIBRARY)
+    public static final String ACTION_ARGUMENT_SHUFFLE_MODE =
             "android.support.v4.media.session.action.ARGUMENT_SHUFFLE_MODE";
 
-    static final String EXTRA_BINDER = "android.support.v4.media.session.EXTRA_BINDER";
+    /**
+     * @hide
+     */
+    @RestrictTo(LIBRARY)
+    public static final String EXTRA_BINDER = "android.support.v4.media.session.EXTRA_BINDER";
 
     // Maximum size of the bitmap in dp.
     private static final int MAX_BITMAP_SIZE_IN_DP = 320;
+
+    private static final String DATA_CALLING_PACKAGE = "data_calling_pkg";
+    private static final String DATA_CALLING_PID = "data_calling_pid";
+    private static final String DATA_CALLING_UID = "data_calling_uid";
+    private static final String DATA_EXTRAS = "data_extras";
 
     // Maximum size of the bitmap in px. It shouldn't be changed.
     static int sMaxBitmapSize;
@@ -404,7 +460,11 @@ public class MediaSessionCompat {
             mbrIntent = PendingIntent.getBroadcast(context,
                     0/* requestCode, ignored */, mediaButtonIntent, 0/* flags */);
         }
-        if (android.os.Build.VERSION.SDK_INT >= 21) {
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            mImpl = new MediaSessionImplApi28(context, tag);
+            // Set default callback to respond to controllers' extra binder requests.
+            setCallback(new Callback() {});
+        } else if (android.os.Build.VERSION.SDK_INT >= 21) {
             mImpl = new MediaSessionImplApi21(context, tag);
             // Set default callback to respond to controllers' extra binder requests.
             setCallback(new Callback() {});
@@ -704,20 +764,6 @@ public class MediaSessionCompat {
     /**
      * Sets the shuffle mode for this session.
      * <p>
-     * Note that if this method is not called before,
-     * {@link MediaControllerCompat#isShuffleModeEnabled} will return {@code false}.
-     *
-     * @param enabled {@code true} to enable the shuffle mode, {@code false} to disable.
-     * @deprecated Use {@link #setShuffleMode} instead.
-     */
-    @Deprecated
-    public void setShuffleModeEnabled(boolean enabled) {
-        mImpl.setShuffleModeEnabled(enabled);
-    }
-
-    /**
-     * Sets the shuffle mode for this session.
-     * <p>
      * Note that if this method is not called before, {@link MediaControllerCompat#getShuffleMode}
      * will return {@link PlaybackStateCompat#SHUFFLE_MODE_NONE}.
      *
@@ -768,6 +814,18 @@ public class MediaSessionCompat {
      */
     public Object getRemoteControlClient() {
         return mImpl.getRemoteControlClient();
+    }
+
+    /**
+     * Gets the controller information who sent the current request.
+     * <p>
+     * Note: This is only valid while in a request callback, such as {@link Callback#onPlay}.
+     *
+     * @throws IllegalStateException If this method is called outside of {@link Callback} methods.
+     * @see MediaSessionManager#isTrustedForMediaControl(RemoteUserInfo)
+     */
+    public final @NonNull RemoteUserInfo getCurrentControllerInfo() {
+        return mImpl.getCurrentControllerInfo();
     }
 
     /**
@@ -1134,20 +1192,6 @@ public class MediaSessionCompat {
         /**
          * Override to handle the setting of the shuffle mode.
          * <p>
-         * You should call {@link #setShuffleModeEnabled} before the end of this method in order to
-         * notify the change to the {@link MediaControllerCompat}, or
-         * {@link MediaControllerCompat#isShuffleModeEnabled} could return an invalid value.
-         *
-         * @param enabled true when the shuffle mode is enabled, false otherwise.
-         * @deprecated Use {@link #onSetShuffleMode} instead.
-         */
-        @Deprecated
-        public void onSetShuffleModeEnabled(boolean enabled) {
-        }
-
-        /**
-         * Override to handle the setting of the shuffle mode.
-         * <p>
          * You should call {@link #setShuffleMode} before the end of this method in order to
          * notify the change to the {@link MediaControllerCompat}, or
          * {@link MediaControllerCompat#getShuffleMode} could return an invalid value.
@@ -1386,9 +1430,6 @@ public class MediaSessionCompat {
                 } else if (action.equals(ACTION_SET_REPEAT_MODE)) {
                     int repeatMode = extras.getInt(ACTION_ARGUMENT_REPEAT_MODE);
                     Callback.this.onSetRepeatMode(repeatMode);
-                } else if (action.equals(ACTION_SET_SHUFFLE_MODE_ENABLED)) {
-                    boolean enabled = extras.getBoolean(ACTION_ARGUMENT_SHUFFLE_MODE_ENABLED);
-                    Callback.this.onSetShuffleModeEnabled(enabled);
                 } else if (action.equals(ACTION_SET_SHUFFLE_MODE)) {
                     int shuffleMode = extras.getInt(ACTION_ARGUMENT_SHUFFLE_MODE);
                     Callback.this.onSetShuffleMode(shuffleMode);
@@ -1734,8 +1775,11 @@ public class MediaSessionCompat {
      * This is a wrapper for {@link ResultReceiver} for sending over aidl
      * interfaces. The framework version was not exposed to aidls until
      * {@link android.os.Build.VERSION_CODES#LOLLIPOP}.
+     *
+     * @hide
      */
-    static final class ResultReceiverWrapper implements Parcelable {
+    @RestrictTo(LIBRARY)
+    public static final class ResultReceiverWrapper implements Parcelable {
         private ResultReceiver mResultReceiver;
 
         public ResultReceiverWrapper(ResultReceiver resultReceiver) {
@@ -1797,7 +1841,6 @@ public class MediaSessionCompat {
         void setRatingType(@RatingCompat.Style int type);
         void setCaptioningEnabled(boolean enabled);
         void setRepeatMode(@PlaybackStateCompat.RepeatMode int repeatMode);
-        void setShuffleModeEnabled(boolean enabled);
         void setShuffleMode(@PlaybackStateCompat.ShuffleMode int shuffleMode);
         void setExtras(Bundle extras);
 
@@ -1806,6 +1849,7 @@ public class MediaSessionCompat {
         Object getRemoteControlClient();
 
         String getCallingPackage();
+        RemoteUserInfo getCurrentControllerInfo();
     }
 
     static class MediaSessionImplBase implements MediaSessionImpl {
@@ -1844,7 +1888,6 @@ public class MediaSessionCompat {
         boolean mCaptioningEnabled;
         @PlaybackStateCompat.RepeatMode int mRepeatMode;
         @PlaybackStateCompat.ShuffleMode int mShuffleMode;
-        boolean mShuffleModeEnabled;
         Bundle mExtras;
 
         int mVolumeType;
@@ -1903,30 +1946,19 @@ public class MediaSessionCompat {
             }
         }
 
-        void postToHandler(int what) {
-            postToHandler(what, null);
-        }
-
-        void postToHandler(int what, int arg1) {
-            postToHandler(what, null, arg1);
-        }
-
-        void postToHandler(int what, Object obj) {
-            postToHandler(what, obj, null);
-        }
-
-        void postToHandler(int what, Object obj, int arg1) {
+        void postToHandler(int what, int arg1, int arg2, Object obj, Bundle extras) {
             synchronized (mLock) {
                 if (mHandler != null) {
-                    mHandler.post(what, obj, arg1);
-                }
-            }
-        }
-
-        void postToHandler(int what, Object obj, Bundle extras) {
-            synchronized (mLock) {
-                if (mHandler != null) {
-                    mHandler.post(what, obj, extras);
+                    Message msg = mHandler.obtainMessage(what, arg1, arg2, obj);
+                    Bundle data = new Bundle();
+                    data.putString(DATA_CALLING_PACKAGE, LEGACY_CONTROLLER);
+                    data.putInt(DATA_CALLING_PID, Binder.getCallingPid());
+                    data.putInt(DATA_CALLING_UID, Binder.getCallingUid());
+                    if (extras != null) {
+                        data.putBundle(DATA_EXTRAS, extras);
+                    }
+                    msg.setData(data);
+                    msg.sendToTarget();
                 }
             }
         }
@@ -1944,6 +1976,7 @@ public class MediaSessionCompat {
             if (mVolumeProvider != null) {
                 mVolumeProvider.setCallback(null);
             }
+            mLocalStream = stream;
             mVolumeType = MediaControllerCompat.PlaybackInfo.PLAYBACK_TYPE_LOCAL;
             ParcelableVolumeInfo info = new ParcelableVolumeInfo(mVolumeType, mLocalStream,
                     VolumeProviderCompat.VOLUME_CONTROL_ABSOLUTE,
@@ -2254,14 +2287,6 @@ public class MediaSessionCompat {
         }
 
         @Override
-        public void setShuffleModeEnabled(boolean enabled) {
-            if (mShuffleModeEnabled != enabled) {
-                mShuffleModeEnabled = enabled;
-                sendShuffleModeEnabled(enabled);
-            }
-        }
-
-        @Override
         public void setShuffleMode(@PlaybackStateCompat.ShuffleMode int shuffleMode) {
             if (mShuffleMode != shuffleMode) {
                 mShuffleMode = shuffleMode;
@@ -2273,6 +2298,16 @@ public class MediaSessionCompat {
         public void setExtras(Bundle extras) {
             mExtras = extras;
             sendExtras(extras);
+        }
+
+        @Override
+        public RemoteUserInfo getCurrentControllerInfo() {
+            synchronized (mLock) {
+                if (mHandler != null) {
+                    return mHandler.getRemoteUserInfo();
+                }
+            }
+            return null;
         }
 
         // Registers/unregisters components as needed.
@@ -2454,18 +2489,6 @@ public class MediaSessionCompat {
                 IMediaControllerCallback cb = mControllerCallbacks.getBroadcastItem(i);
                 try {
                     cb.onRepeatModeChanged(repeatMode);
-                } catch (RemoteException e) {
-                }
-            }
-            mControllerCallbacks.finishBroadcast();
-        }
-
-        private void sendShuffleModeEnabled(boolean enabled) {
-            int size = mControllerCallbacks.beginBroadcast();
-            for (int i = size - 1; i >= 0; i--) {
-                IMediaControllerCallback cb = mControllerCallbacks.getBroadcastItem(i);
-                try {
-                    cb.onShuffleModeChangedDeprecated(enabled);
                 } catch (RemoteException e) {
                 }
             }
@@ -2695,8 +2718,8 @@ public class MediaSessionCompat {
             }
 
             @Override
-            public void setShuffleModeEnabledDeprecated(boolean enabled) throws RemoteException {
-                postToHandler(MessageHandler.MSG_SET_SHUFFLE_MODE_ENABLED, enabled);
+            public void setShuffleModeEnabledRemoved(boolean enabled) throws RemoteException {
+                // Do nothing.
             }
 
             @Override
@@ -2783,8 +2806,8 @@ public class MediaSessionCompat {
             }
 
             @Override
-            public boolean isShuffleModeEnabledDeprecated() {
-                return mShuffleModeEnabled;
+            public boolean isShuffleModeEnabledRemoved() {
+                return false;
             }
 
             @Override
@@ -2796,6 +2819,26 @@ public class MediaSessionCompat {
             @Override
             public boolean isTransportControlEnabled() {
                 return (mFlags & FLAG_HANDLES_TRANSPORT_CONTROLS) != 0;
+            }
+
+            void postToHandler(int what) {
+                MediaSessionImplBase.this.postToHandler(what, 0, 0, null, null);
+            }
+
+            void postToHandler(int what, int arg1) {
+                MediaSessionImplBase.this.postToHandler(what, arg1, 0, null, null);
+            }
+
+            void postToHandler(int what, Object obj) {
+                MediaSessionImplBase.this.postToHandler(what, 0, 0, obj, null);
+            }
+
+            void postToHandler(int what, Object obj, int arg1) {
+                MediaSessionImplBase.this.postToHandler(what, arg1, 0, obj, null);
+            }
+
+            void postToHandler(int what, Object obj, Bundle extras) {
+                MediaSessionImplBase.this.postToHandler(what, 0, 0, obj, extras);
             }
         }
 
@@ -2837,7 +2880,6 @@ public class MediaSessionCompat {
             private static final int MSG_MEDIA_BUTTON = 21;
             private static final int MSG_SET_VOLUME = 22;
             private static final int MSG_SET_REPEAT_MODE = 23;
-            private static final int MSG_SET_SHUFFLE_MODE_ENABLED = 24;
             private static final int MSG_ADD_QUEUE_ITEM = 25;
             private static final int MSG_ADD_QUEUE_ITEM_AT = 26;
             private static final int MSG_REMOVE_QUEUE_ITEM = 27;
@@ -2849,26 +2891,10 @@ public class MediaSessionCompat {
             private static final int KEYCODE_MEDIA_PAUSE = 127;
             private static final int KEYCODE_MEDIA_PLAY = 126;
 
+            private RemoteUserInfo mRemoteUserInfo;
+
             public MessageHandler(Looper looper) {
                 super(looper);
-            }
-
-            public void post(int what, Object obj, Bundle bundle) {
-                Message msg = obtainMessage(what, obj);
-                msg.setData(bundle);
-                msg.sendToTarget();
-            }
-
-            public void post(int what, Object obj) {
-                obtainMessage(what, obj).sendToTarget();
-            }
-
-            public void post(int what) {
-                post(what, null);
-            }
-
-            public void post(int what, Object obj, int arg1) {
-                obtainMessage(what, arg1, 0, obj).sendToTarget();
             }
 
             @Override
@@ -2877,113 +2903,121 @@ public class MediaSessionCompat {
                 if (cb == null) {
                     return;
                 }
-                switch (msg.what) {
-                    case MSG_COMMAND:
-                        Command cmd = (Command) msg.obj;
-                        cb.onCommand(cmd.command, cmd.extras, cmd.stub);
-                        break;
-                    case MSG_MEDIA_BUTTON:
-                        KeyEvent keyEvent = (KeyEvent) msg.obj;
-                        Intent intent = new Intent(Intent.ACTION_MEDIA_BUTTON);
-                        intent.putExtra(Intent.EXTRA_KEY_EVENT, keyEvent);
-                        // Let the Callback handle events first before using the default behavior
-                        if (!cb.onMediaButtonEvent(intent)) {
-                            onMediaButtonEvent(keyEvent, cb);
-                        }
-                        break;
-                    case MSG_PREPARE:
-                        cb.onPrepare();
-                        break;
-                    case MSG_PREPARE_MEDIA_ID:
-                        cb.onPrepareFromMediaId((String) msg.obj, msg.getData());
-                        break;
-                    case MSG_PREPARE_SEARCH:
-                        cb.onPrepareFromSearch((String) msg.obj, msg.getData());
-                        break;
-                    case MSG_PREPARE_URI:
-                        cb.onPrepareFromUri((Uri) msg.obj, msg.getData());
-                        break;
-                    case MSG_PLAY:
-                        cb.onPlay();
-                        break;
-                    case MSG_PLAY_MEDIA_ID:
-                        cb.onPlayFromMediaId((String) msg.obj, msg.getData());
-                        break;
-                    case MSG_PLAY_SEARCH:
-                        cb.onPlayFromSearch((String) msg.obj, msg.getData());
-                        break;
-                    case MSG_PLAY_URI:
-                        cb.onPlayFromUri((Uri) msg.obj, msg.getData());
-                        break;
-                    case MSG_SKIP_TO_ITEM:
-                        cb.onSkipToQueueItem((Long) msg.obj);
-                        break;
-                    case MSG_PAUSE:
-                        cb.onPause();
-                        break;
-                    case MSG_STOP:
-                        cb.onStop();
-                        break;
-                    case MSG_NEXT:
-                        cb.onSkipToNext();
-                        break;
-                    case MSG_PREVIOUS:
-                        cb.onSkipToPrevious();
-                        break;
-                    case MSG_FAST_FORWARD:
-                        cb.onFastForward();
-                        break;
-                    case MSG_REWIND:
-                        cb.onRewind();
-                        break;
-                    case MSG_SEEK_TO:
-                        cb.onSeekTo((Long) msg.obj);
-                        break;
-                    case MSG_RATE:
-                        cb.onSetRating((RatingCompat) msg.obj);
-                        break;
-                    case MSG_RATE_EXTRA:
-                        cb.onSetRating((RatingCompat) msg.obj, msg.getData());
-                        break;
-                    case MSG_CUSTOM_ACTION:
-                        cb.onCustomAction((String) msg.obj, msg.getData());
-                        break;
-                    case MSG_ADD_QUEUE_ITEM:
-                        cb.onAddQueueItem((MediaDescriptionCompat) msg.obj);
-                        break;
-                    case MSG_ADD_QUEUE_ITEM_AT:
-                        cb.onAddQueueItem((MediaDescriptionCompat) msg.obj, msg.arg1);
-                        break;
-                    case MSG_REMOVE_QUEUE_ITEM:
-                        cb.onRemoveQueueItem((MediaDescriptionCompat) msg.obj);
-                        break;
-                    case MSG_REMOVE_QUEUE_ITEM_AT:
-                        if (mQueue != null) {
-                            QueueItem item = (msg.arg1 >= 0 && msg.arg1 < mQueue.size())
-                                    ? mQueue.get(msg.arg1) : null;
-                            if (item != null) {
-                                cb.onRemoveQueueItem(item.getDescription());
+
+                Bundle data = msg.getData();
+                mRemoteUserInfo = new RemoteUserInfo(data.getString(DATA_CALLING_PACKAGE),
+                        data.getInt(DATA_CALLING_PID), data.getInt(DATA_CALLING_UID));
+                data = data.getBundle(DATA_EXTRAS);
+
+                try {
+                    switch (msg.what) {
+                        case MSG_COMMAND:
+                            Command cmd = (Command) msg.obj;
+                            cb.onCommand(cmd.command, cmd.extras, cmd.stub);
+                            break;
+                        case MSG_MEDIA_BUTTON:
+                            KeyEvent keyEvent = (KeyEvent) msg.obj;
+                            Intent intent = new Intent(Intent.ACTION_MEDIA_BUTTON);
+                            intent.putExtra(Intent.EXTRA_KEY_EVENT, keyEvent);
+                            // Let the Callback handle events first before using the default
+                            // behavior
+                            if (!cb.onMediaButtonEvent(intent)) {
+                                onMediaButtonEvent(keyEvent, cb);
                             }
-                        }
-                        break;
-                    case MSG_ADJUST_VOLUME:
-                        adjustVolume(msg.arg1, 0);
-                        break;
-                    case MSG_SET_VOLUME:
-                        setVolumeTo(msg.arg1, 0);
-                        break;
-                    case MSG_SET_CAPTIONING_ENABLED:
-                        cb.onSetCaptioningEnabled((boolean) msg.obj);
-                        break;
-                    case MSG_SET_REPEAT_MODE:
-                        cb.onSetRepeatMode(msg.arg1);
-                        break;
-                    case MSG_SET_SHUFFLE_MODE_ENABLED:
-                        cb.onSetShuffleModeEnabled((boolean) msg.obj);
-                        break;
-                    case MSG_SET_SHUFFLE_MODE:
-                        cb.onSetShuffleMode(msg.arg1);
-                        break;
+                            break;
+                        case MSG_PREPARE:
+                            cb.onPrepare();
+                            break;
+                        case MSG_PREPARE_MEDIA_ID:
+                            cb.onPrepareFromMediaId((String) msg.obj, data);
+                            break;
+                        case MSG_PREPARE_SEARCH:
+                            cb.onPrepareFromSearch((String) msg.obj, data);
+                            break;
+                        case MSG_PREPARE_URI:
+                            cb.onPrepareFromUri((Uri) msg.obj, data);
+                            break;
+                        case MSG_PLAY:
+                            cb.onPlay();
+                            break;
+                        case MSG_PLAY_MEDIA_ID:
+                            cb.onPlayFromMediaId((String) msg.obj, data);
+                            break;
+                        case MSG_PLAY_SEARCH:
+                            cb.onPlayFromSearch((String) msg.obj, data);
+                            break;
+                        case MSG_PLAY_URI:
+                            cb.onPlayFromUri((Uri) msg.obj, data);
+                            break;
+                        case MSG_SKIP_TO_ITEM:
+                            cb.onSkipToQueueItem((Long) msg.obj);
+                            break;
+                        case MSG_PAUSE:
+                            cb.onPause();
+                            break;
+                        case MSG_STOP:
+                            cb.onStop();
+                            break;
+                        case MSG_NEXT:
+                            cb.onSkipToNext();
+                            break;
+                        case MSG_PREVIOUS:
+                            cb.onSkipToPrevious();
+                            break;
+                        case MSG_FAST_FORWARD:
+                            cb.onFastForward();
+                            break;
+                        case MSG_REWIND:
+                            cb.onRewind();
+                            break;
+                        case MSG_SEEK_TO:
+                            cb.onSeekTo((Long) msg.obj);
+                            break;
+                        case MSG_RATE:
+                            cb.onSetRating((RatingCompat) msg.obj);
+                            break;
+                        case MSG_RATE_EXTRA:
+                            cb.onSetRating((RatingCompat) msg.obj, data);
+                            break;
+                        case MSG_CUSTOM_ACTION:
+                            cb.onCustomAction((String) msg.obj, data);
+                            break;
+                        case MSG_ADD_QUEUE_ITEM:
+                            cb.onAddQueueItem((MediaDescriptionCompat) msg.obj);
+                            break;
+                        case MSG_ADD_QUEUE_ITEM_AT:
+                            cb.onAddQueueItem((MediaDescriptionCompat) msg.obj, msg.arg1);
+                            break;
+                        case MSG_REMOVE_QUEUE_ITEM:
+                            cb.onRemoveQueueItem((MediaDescriptionCompat) msg.obj);
+                            break;
+                        case MSG_REMOVE_QUEUE_ITEM_AT:
+                            if (mQueue != null) {
+                                QueueItem item = (msg.arg1 >= 0 && msg.arg1 < mQueue.size())
+                                        ? mQueue.get(msg.arg1) : null;
+                                if (item != null) {
+                                    cb.onRemoveQueueItem(item.getDescription());
+                                }
+                            }
+                            break;
+                        case MSG_ADJUST_VOLUME:
+                            adjustVolume(msg.arg1, 0);
+                            break;
+                        case MSG_SET_VOLUME:
+                            setVolumeTo(msg.arg1, 0);
+                            break;
+                        case MSG_SET_CAPTIONING_ENABLED:
+                            cb.onSetCaptioningEnabled((boolean) msg.obj);
+                            break;
+                        case MSG_SET_REPEAT_MODE:
+                            cb.onSetRepeatMode(msg.arg1);
+                            break;
+                        case MSG_SET_SHUFFLE_MODE:
+                            cb.onSetShuffleMode(msg.arg1);
+                            break;
+                    }
+                } finally {
+                    mRemoteUserInfo = null;
                 }
             }
 
@@ -3037,6 +3071,10 @@ public class MediaSessionCompat {
                         break;
                 }
             }
+
+            RemoteUserInfo getRemoteUserInfo() {
+                return mRemoteUserInfo;
+            }
         }
     }
 
@@ -3059,7 +3097,8 @@ public class MediaSessionCompat {
                         new RemoteControlClient.OnPlaybackPositionUpdateListener() {
                             @Override
                             public void onPlaybackPositionUpdate(long newPositionMs) {
-                                postToHandler(MessageHandler.MSG_SEEK_TO, newPositionMs);
+                                postToHandler(
+                                        MessageHandler.MSG_SEEK_TO, -1, -1, newPositionMs, null);
                             }
                         };
                 mRcc.setPlaybackPositionUpdateListener(listener);
@@ -3144,8 +3183,8 @@ public class MediaSessionCompat {
                             public void onMetadataUpdate(int key, Object newValue) {
                                 if (key == MediaMetadataEditor.RATING_KEY_BY_USER
                                         && newValue instanceof Rating) {
-                                    postToHandler(MessageHandler.MSG_RATE,
-                                            RatingCompat.fromRating(newValue));
+                                    postToHandler(MessageHandler.MSG_RATE, -1, -1,
+                                            RatingCompat.fromRating(newValue), null);
                                 }
                             }
                         };
@@ -3206,7 +3245,6 @@ public class MediaSessionCompat {
         @RatingCompat.Style int mRatingType;
         boolean mCaptioningEnabled;
         @PlaybackStateCompat.RepeatMode int mRepeatMode;
-        boolean mShuffleModeEnabled;
         @PlaybackStateCompat.ShuffleMode int mShuffleMode;
 
         public MediaSessionImplApi21(Context context, String tag) {
@@ -3381,22 +3419,6 @@ public class MediaSessionCompat {
         }
 
         @Override
-        public void setShuffleModeEnabled(boolean enabled) {
-            if (mShuffleModeEnabled != enabled) {
-                mShuffleModeEnabled = enabled;
-                int size = mExtraControllerCallbacks.beginBroadcast();
-                for (int i = size - 1; i >= 0; i--) {
-                    IMediaControllerCallback cb = mExtraControllerCallbacks.getBroadcastItem(i);
-                    try {
-                        cb.onShuffleModeChangedDeprecated(enabled);
-                    } catch (RemoteException e) {
-                    }
-                }
-                mExtraControllerCallbacks.finishBroadcast();
-            }
-        }
-
-        @Override
         public void setShuffleMode(@PlaybackStateCompat.ShuffleMode int shuffleMode) {
             if (mShuffleMode != shuffleMode) {
                 mShuffleMode = shuffleMode;
@@ -3434,6 +3456,11 @@ public class MediaSessionCompat {
             } else {
                 return MediaSessionCompatApi24.getCallingPackage(mSessionObj);
             }
+        }
+
+        @Override
+        public RemoteUserInfo getCurrentControllerInfo() {
+            return null;
         }
 
         class ExtraSession extends IMediaSession.Stub {
@@ -3625,9 +3652,8 @@ public class MediaSessionCompat {
             }
 
             @Override
-            public void setShuffleModeEnabledDeprecated(boolean enabled) throws RemoteException {
-                // Will not be called.
-                throw new AssertionError();
+            public void setShuffleModeEnabledRemoved(boolean enabled) throws RemoteException {
+                // Do nothing.
             }
 
             @Override
@@ -3713,8 +3739,8 @@ public class MediaSessionCompat {
             }
 
             @Override
-            public boolean isShuffleModeEnabledDeprecated() {
-                return mShuffleModeEnabled;
+            public boolean isShuffleModeEnabledRemoved() {
+                return false;
             }
 
             @Override
@@ -3728,6 +3754,27 @@ public class MediaSessionCompat {
                 // Will not be called.
                 throw new AssertionError();
             }
+        }
+    }
+
+    @RequiresApi(28)
+    static class MediaSessionImplApi28 extends MediaSessionImplApi21 {
+        private MediaSession mSession;
+
+        MediaSessionImplApi28(Context context, String tag) {
+            super(context, tag);
+        }
+
+        MediaSessionImplApi28(Object mediaSession) {
+            super(mediaSession);
+            mSession = (MediaSession) mediaSession;
+        }
+
+        @Override
+        public final @NonNull RemoteUserInfo getCurrentControllerInfo() {
+            android.media.session.MediaSessionManager.RemoteUserInfo info =
+                    mSession.getCurrentControllerInfo();
+            return new RemoteUserInfo(info.getPackageName(), info.getPid(), info.getUid());
         }
     }
 }

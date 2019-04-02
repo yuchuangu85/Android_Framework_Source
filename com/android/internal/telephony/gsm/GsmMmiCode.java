@@ -32,7 +32,9 @@ import android.content.res.Resources;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
+import android.os.PersistableBundle;
 import android.os.ResultReceiver;
+import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.Rlog;
 import android.text.BidiFormatter;
@@ -51,6 +53,7 @@ import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
 import com.android.internal.telephony.uicc.IccRecords;
 import com.android.internal.telephony.uicc.UiccCardApplication;
+import com.android.internal.util.ArrayUtils;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -233,17 +236,20 @@ public final class GsmMmiCode extends Handler implements MmiCode {
             ret.mSic = makeEmptyNull(m.group(MATCH_GROUP_SIC));
             ret.mPwd = makeEmptyNull(m.group(MATCH_GROUP_PWD_CONFIRM));
             ret.mDialingNumber = makeEmptyNull(m.group(MATCH_GROUP_DIALING_NUMBER));
-            ret.mCallbackReceiver = wrappedCallback;
-            // According to TS 22.030 6.5.2 "Structure of the MMI",
-            // the dialing number should not ending with #.
-            // The dialing number ending # is treated as unique USSD,
-            // eg, *400#16 digit number# to recharge the prepaid card
-            // in India operator(Mumbai MTNL)
+
             if(ret.mDialingNumber != null &&
                     ret.mDialingNumber.endsWith("#") &&
                     dialString.endsWith("#")){
+                // According to TS 22.030 6.5.2 "Structure of the MMI",
+                // the dialing number should not ending with #.
+                // The dialing number ending # is treated as unique USSD,
+                // eg, *400#16 digit number# to recharge the prepaid card
+                // in India operator(Mumbai MTNL)
                 ret = new GsmMmiCode(phone, app);
                 ret.mPoundString = dialString;
+            } else if (ret.isFacToDial()) {
+                // This is a FAC (feature access code) to dial as a normal call.
+                ret = null;
             }
         } else if (dialString.endsWith("#")) {
             // TS 22.030 sec 6.5.3.2
@@ -259,6 +265,10 @@ public final class GsmMmiCode extends Handler implements MmiCode {
             // this may be a short code, as defined in TS 22.030, 6.5.3.2
             ret = new GsmMmiCode(phone, app);
             ret.mDialingNumber = dialString;
+        }
+
+        if (ret != null) {
+            ret.mCallbackReceiver = wrappedCallback;
         }
 
         return ret;
@@ -795,6 +805,30 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         return CommandsInterface.CLIR_DEFAULT;
     }
 
+    /**
+     * Returns true if the Service Code is FAC to dial as a normal call.
+     *
+     * FAC stands for feature access code and it is special patterns of characters
+     * to invoke certain features.
+     */
+    private boolean isFacToDial() {
+        CarrierConfigManager configManager = (CarrierConfigManager)
+                mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        PersistableBundle b = configManager.getConfigForSubId(mPhone.getSubId());
+        if (b != null) {
+            String[] dialFacList = b.getStringArray(CarrierConfigManager
+                    .KEY_FEATURE_ACCESS_CODES_STRING_ARRAY);
+            if (!ArrayUtils.isEmpty(dialFacList)) {
+                for (String fac : dialFacList) {
+                    if (fac.equals(mSc)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     boolean isActivate() {
         return mAction != null && mAction.equals(ACTION_ACTIVATE);
     }
@@ -830,6 +864,13 @@ public final class GsmMmiCode extends Handler implements MmiCode {
 
     public boolean isSsInfo() {
         return mIsSsInfo;
+    }
+
+    public static boolean isVoiceUnconditionalForwarding(int reason, int serviceClass) {
+        return (((reason == CommandsInterface.CF_REASON_UNCONDITIONAL)
+                || (reason == CommandsInterface.CF_REASON_ALL))
+                && (((serviceClass & CommandsInterface.SERVICE_CLASS_VOICE) != 0)
+                || (serviceClass == CommandsInterface.SERVICE_CLASS_NONE)));
     }
 
     /** Process a MMI code or short code...anything that isn't a dialing number */
@@ -902,12 +943,6 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                         throw new RuntimeException ("invalid action");
                     }
 
-                    int isSettingUnconditionalVoice =
-                        (((reason == CommandsInterface.CF_REASON_UNCONDITIONAL) ||
-                                (reason == CommandsInterface.CF_REASON_ALL)) &&
-                                (((serviceClass & CommandsInterface.SERVICE_CLASS_VOICE) != 0) ||
-                                 (serviceClass == CommandsInterface.SERVICE_CLASS_NONE))) ? 1 : 0;
-
                     int isEnableDesired =
                         ((cfAction == CommandsInterface.CF_ACTION_ENABLE) ||
                                 (cfAction == CommandsInterface.CF_ACTION_REGISTRATION)) ? 1 : 0;
@@ -916,7 +951,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                     mPhone.mCi.setCallForward(cfAction, reason, serviceClass,
                             dialingNumber, time, obtainMessage(
                                     EVENT_SET_CFF_COMPLETE,
-                                    isSettingUnconditionalVoice,
+                                    isVoiceUnconditionalForwarding(reason, serviceClass) ? 1 : 0,
                                     isEnableDesired, this));
                 }
             } else if (isServiceCodeCallBarring(mSc)) {
@@ -1220,6 +1255,9 @@ public final class GsmMmiCode extends Handler implements MmiCode {
             } else if (err == CommandException.Error.SS_MODIFIED_TO_SS) {
                 Rlog.i(LOG_TAG, "SS_MODIFIED_TO_SS");
                 return mContext.getText(com.android.internal.R.string.stk_cc_ss_to_ss);
+            } else if (err == CommandException.Error.OEM_ERROR_1) {
+                Rlog.i(LOG_TAG, "OEM_ERROR_1 USSD_MODIFIED_TO_DIAL_VIDEO");
+                return mContext.getText(com.android.internal.R.string.stk_cc_ussd_to_dial_video);
             }
         }
 

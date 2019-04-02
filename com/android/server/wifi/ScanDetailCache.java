@@ -19,8 +19,6 @@ package com.android.server.wifi;
 import android.annotation.NonNull;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
-import android.os.SystemClock;
-import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -150,12 +148,6 @@ public class ScanDetailCache {
                 public int compare(Object o1, Object o2) {
                     ScanResult a = ((ScanDetail) o1).getScanResult();
                     ScanResult b = ((ScanDetail) o2).getScanResult();
-                    if (a.numIpConfigFailures > b.numIpConfigFailures) {
-                        return 1;
-                    }
-                    if (a.numIpConfigFailures < b.numIpConfigFailures) {
-                        return -1;
-                    }
                     if (a.seen > b.seen) {
                         return -1;
                     }
@@ -174,75 +166,6 @@ public class ScanDetailCache {
         }
         return list;
     }
-
-    /**
-     * Method to get cached scan results that are less than 'age' old.
-     *
-     * @param age long Time window of desired results.
-     * @return WifiConfiguration.Visibility matches in the given visibility
-     */
-    public WifiConfiguration.Visibility getVisibilityByRssi(long age) {
-        WifiConfiguration.Visibility status = new WifiConfiguration.Visibility();
-
-        long now_ms = System.currentTimeMillis();
-        long now_elapsed_ms = SystemClock.elapsedRealtime();
-        for (ScanDetail scanDetail : values()) {
-            ScanResult result = scanDetail.getScanResult();
-            if (scanDetail.getSeen() == 0) {
-                continue;
-            }
-
-            if (result.is5GHz()) {
-                //strictly speaking: [4915, 5825]
-                //number of known BSSID on 5GHz band
-                status.num5 = status.num5 + 1;
-            } else if (result.is24GHz()) {
-                //strictly speaking: [2412, 2482]
-                //number of known BSSID on 2.4Ghz band
-                status.num24 = status.num24 + 1;
-            }
-
-            if (result.timestamp != 0) {
-                if (DBG) {
-                    Log.e("getVisibilityByRssi", " considering " + result.SSID + " " + result.BSSID
-                            + " elapsed=" + now_elapsed_ms + " timestamp=" + result.timestamp
-                            + " age = " + age);
-                }
-                if ((now_elapsed_ms - (result.timestamp / 1000)) > age) continue;
-            } else {
-                // This checks the time at which we have received the scan result from supplicant
-                if ((now_ms - result.seen) > age) continue;
-            }
-
-            if (result.is5GHz()) {
-                if (result.level > status.rssi5) {
-                    status.rssi5 = result.level;
-                    status.age5 = result.seen;
-                    status.BSSID5 = result.BSSID;
-                }
-            } else if (result.is24GHz()) {
-                if (result.level > status.rssi24) {
-                    status.rssi24 = result.level;
-                    status.age24 = result.seen;
-                    status.BSSID24 = result.BSSID;
-                }
-            }
-        }
-
-        return status;
-    }
-
-    /**
-     * Method to get scan matches for the desired time window.  Returns matches by passpoint time if
-     * the WifiConfiguration is passpoint.
-     *
-     * @param age long desired time for matches.
-     * @return WifiConfiguration.Visibility matches in the given visibility
-     */
-    public WifiConfiguration.Visibility getVisibility(long age) {
-        return getVisibilityByRssi(age);
-    }
-
 
     @Override
     public String toString() {
@@ -272,10 +195,6 @@ public class ScanDetailCache {
                 if (ageSec > 0 || ageMilli > 0) {
                     sbuf.append(String.format(",%4d.%02d.%02d.%02d.%03dms", ageDay,
                             ageHour, ageMin, ageSec, ageMilli));
-                }
-                if (result.numIpConfigFailures > 0) {
-                    sbuf.append(",ipfail=");
-                    sbuf.append(result.numIpConfigFailures);
                 }
                 sbuf.append("} ");
             }

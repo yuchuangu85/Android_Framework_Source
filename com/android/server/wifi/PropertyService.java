@@ -43,4 +43,9 @@ public interface PropertyService {
      */
     boolean getBoolean(String key, boolean defaultValue);
 
+    /**
+     * Get the current value of |key|.
+     * @return value of |key|, if key exists; |defaultValue| otherwise
+     */
+    String getString(String key, String defaultValue);
 }

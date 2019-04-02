@@ -93,6 +93,7 @@ class Inet4Address extends InetAddress {
      *  serialized */
     private static final long serialVersionUID = 3286316764910316507L;
 
+    // BEGIN Android-added: Define special-purpose IPv4 address
     /** @hide */
     public static final InetAddress ANY = new Inet4Address(null, new byte[] { 0, 0, 0, 0 });
 
@@ -103,7 +104,18 @@ class Inet4Address extends InetAddress {
     /** @hide */
     public static final InetAddress LOOPBACK =
             new Inet4Address("localhost", new byte[] { 127, 0, 0, 1 });
+    // END Android-added: Define special-purpose IPv4 address
 
+
+    // BEGIN Android-removed: Android doesn't need to call native init
+    /*
+     * Perform initializations.
+     *
+    static {
+        init();
+    }
+    */
+    // END Android-removed: Android doesn't need to call native init
     Inet4Address() {
         super();
         holder().hostName = null;
@@ -123,11 +135,13 @@ class Inet4Address extends InetAddress {
                 holder().address = address;
             }
         }
+        holder().originalHostName = hostName;
     }
     Inet4Address(String hostName, int address) {
         holder().hostName = hostName;
         holder().family = AF_INET;
         holder().address = address;
+        holder().originalHostName = hostName;
     }
 
     /**
@@ -376,4 +390,12 @@ class Inet4Address extends InetAddress {
     {
         return (src[0] & 0xff) + "." + (src[1] & 0xff) + "." + (src[2] & 0xff) + "." + (src[3] & 0xff);
     }
+
+    // BEGIN Android-removed: Android doesn't need to call native init
+    /*
+     * Perform class load-time initializations.
+     *
+    private static native void init();
+    */
+    // END Android-removed: Android doesn't need to call native init
 }

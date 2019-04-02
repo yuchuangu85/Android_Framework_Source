@@ -163,7 +163,7 @@ public class ANQPMatcher {
             }
         }
 
-        if (realmMatch == AuthMatch.NONE || realmData.getEAPMethods().isEmpty()) {
+        if (realmData.getEAPMethods().isEmpty()) {
             return realmMatch;
         }
 
@@ -178,6 +178,10 @@ public class ANQPMatcher {
 
         if (eapMethodMatch == AuthMatch.NONE) {
             return AuthMatch.NONE;
+        }
+
+        if (realmMatch == AuthMatch.NONE) {
+            return eapMethodMatch;
         }
         return realmMatch | eapMethodMatch;
     }

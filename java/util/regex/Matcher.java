@@ -26,6 +26,7 @@
 
 package java.util.regex;
 
+import dalvik.annotation.optimization.ReachabilitySensitive;
 import libcore.util.NativeAllocationRegistry;
 
 /**
@@ -107,12 +108,17 @@ public final class Matcher implements MatchResult {
     /**
      * The Pattern object that created this Matcher.
      */
+    // Patterns also contain cleanup code and a ReachabilitySensitive field.
+    // This ensures that "this" and pattern remain reachable while we're using pattern.address
+    // directly.
+    @ReachabilitySensitive
     private Pattern pattern;
 
     /**
      * The address of the native peer.
      * Uses of this must be manually synchronized to avoid native crashes.
      */
+    @ReachabilitySensitive
     private long address;
 
     /**
@@ -124,8 +130,9 @@ public final class Matcher implements MatchResult {
             Matcher.class.getClassLoader(), getNativeFinalizer(), nativeSize());
 
     /**
-     * Holds the original CharSequence for {@link #reset} only. Any reference to the content after
-     * {@link #reset} can direct to {@link #input}.
+     * Holds the original CharSequence for use in {@link #reset}. {@link #input} is used during
+     * matching. Note that CharSequence is mutable while String is not, so reset can cause the input
+     * to match to change.
      */
     private CharSequence originalInput;
 

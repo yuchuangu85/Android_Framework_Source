@@ -115,6 +115,7 @@ abstract class FileSystem {
     @Native public static final int ACCESS_READ    = 0x04;
     @Native public static final int ACCESS_WRITE   = 0x02;
     @Native public static final int ACCESS_EXECUTE = 0x01;
+    // Android-added: b/25878034, to support File.exists() reimplementation.
     public static final int ACCESS_OK      = 0x08;
 
     /**

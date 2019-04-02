@@ -60,7 +60,7 @@ public final class Byte extends Number implements Comparable<Byte> {
      * {@code byte}.
      */
     @SuppressWarnings("unchecked")
-    public static final Class<Byte>     TYPE = (Class<Byte>) byte[].class.getComponentType();
+    public static final Class<Byte>     TYPE = (Class<Byte>) Class.getPrimitiveClass("byte");
 
     /**
      * Returns a new {@code String} object representing the

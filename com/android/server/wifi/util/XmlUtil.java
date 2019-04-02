@@ -20,6 +20,7 @@ import android.net.IpConfiguration;
 import android.net.IpConfiguration.IpAssignment;
 import android.net.IpConfiguration.ProxySettings;
 import android.net.LinkAddress;
+import android.net.MacAddress;
 import android.net.NetworkUtils;
 import android.net.ProxyInfo;
 import android.net.RouteInfo;
@@ -296,7 +297,7 @@ public class XmlUtil {
     }
 
     /**
-     * Utility class to serialize and deseriaize {@link WifiConfiguration} object to XML &
+     * Utility class to serialize and deserialize {@link WifiConfiguration} object to XML &
      * vice versa.
      * This is used by both {@link com.android.server.wifi.WifiConfigStore} &
      * {@link com.android.server.wifi.WifiBackupRestore} modules.
@@ -343,6 +344,7 @@ public class XmlUtil {
         public static final String XML_TAG_LAST_CONNECT_UID = "LastConnectUid";
         public static final String XML_TAG_IS_LEGACY_PASSPOINT_CONFIG = "IsLegacyPasspointConfig";
         public static final String XML_TAG_ROAMING_CONSORTIUM_OIS = "RoamingConsortiumOIs";
+        public static final String XML_TAG_RANDOMIZED_MAC_ADDRESS = "RandomizedMacAddress";
 
         /**
          * Write WepKeys to the XML stream.
@@ -461,6 +463,8 @@ public class XmlUtil {
                     configuration.isLegacyPasspointConfig);
             XmlUtil.writeNextValue(
                     out, XML_TAG_ROAMING_CONSORTIUM_OIS, configuration.roamingConsortiumIds);
+            XmlUtil.writeNextValue(out, XML_TAG_RANDOMIZED_MAC_ADDRESS,
+                    configuration.getRandomizedMacAddress().toString());
         }
 
         /**
@@ -625,6 +629,10 @@ public class XmlUtil {
                         break;
                     case XML_TAG_ROAMING_CONSORTIUM_OIS:
                         configuration.roamingConsortiumIds = (long[]) value;
+                        break;
+                    case XML_TAG_RANDOMIZED_MAC_ADDRESS:
+                        configuration.setRandomizedMacAddress(
+                                MacAddress.fromString((String) value));
                         break;
                     default:
                         throw new XmlPullParserException(

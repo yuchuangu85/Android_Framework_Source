@@ -1941,7 +1941,7 @@ class Thread implements Runnable {
      *
      * @hide
      */
-    // @VisibleForTesting (would be private if not for tests)
+    // @VisibleForTesting (would be package-private if not for tests)
     public final void dispatchUncaughtException(Throwable e) {
         Thread.UncaughtExceptionHandler initialUeh =
                 Thread.getUncaughtExceptionPreHandler();

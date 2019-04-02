@@ -15,7 +15,7 @@
  */
 package android.support.v4.media;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 
 import android.graphics.Bitmap;
 import android.net.Uri;
@@ -23,12 +23,13 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.support.annotation.RestrictTo;
-import android.support.annotation.StringDef;
 import android.support.v4.media.session.MediaControllerCompat.TransportControls;
-import android.support.v4.util.ArrayMap;
 import android.text.TextUtils;
 import android.util.Log;
+
+import androidx.annotation.RestrictTo;
+import androidx.annotation.StringDef;
+import androidx.collection.ArrayMap;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -365,10 +366,12 @@ public final class MediaMetadataCompat implements Parcelable {
 
     MediaMetadataCompat(Bundle bundle) {
         mBundle = new Bundle(bundle);
+        mBundle.setClassLoader(MediaMetadataCompat.class.getClassLoader());
     }
 
     MediaMetadataCompat(Parcel in) {
         mBundle = in.readBundle();
+        mBundle.setClassLoader(MediaMetadataCompat.class.getClassLoader());
     }
 
     /**

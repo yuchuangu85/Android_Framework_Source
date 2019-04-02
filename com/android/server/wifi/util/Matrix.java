@@ -152,6 +152,34 @@ public class Matrix {
     }
 
     /**
+     * Forms a scalar product
+     *
+     * @param scalar is the value to multiply by
+     * @return newly allocated matrix representing the product this and scalar
+     */
+    public Matrix times(double scalar) {
+        return times(scalar, new Matrix(n, m));
+    }
+
+    /**
+     * Forms a scalar product
+     *
+     * @param scalar is the value to multiply by
+     * @param result is space to hold the result
+     * @return result, filled with the matrix difference
+     * @throws IllegalArgumentException if shapes differ
+     */
+    public Matrix times(double scalar, Matrix result) {
+        if (!(this.n == result.n && this.m == result.m)) {
+            throw new IllegalArgumentException();
+        }
+        for (int i = 0; i < mem.length; i++) {
+            result.mem[i] = this.mem[i] * scalar;
+        }
+        return result;
+    }
+
+    /**
      * Forms the matrix product of two matrices, this and that
      *
      * @param that is the other matrix
@@ -287,6 +315,42 @@ public class Matrix {
         for (int i = 0; i < result.n; i++) {
             for (int j = 0; j < result.m; j++) {
                 result.put(i, j, scratch.get(i, m + j));
+            }
+        }
+        return result;
+    }
+    /**
+     * Forms the matrix product with the transpose of a second matrix
+     *
+     * @param that is the other matrix
+     * @return newly allocated matrix representing the matrix product of this and that.transpose()
+     * @throws IllegalArgumentException if shapes are not conformant
+     */
+    public Matrix dotTranspose(Matrix that) {
+        return dotTranspose(that, new Matrix(this.n, that.n));
+    }
+
+    /**
+     * Forms the matrix product with the transpose of a second matrix
+     * <p>
+     * Caller supplies an object to contain the result, as well as scratch space
+     *
+     * @param that is the other matrix
+     * @param result is space to hold the result
+     * @return result, filled with the matrix product of this and that.transpose()
+     * @throws IllegalArgumentException if shapes are not conformant
+     */
+    public Matrix dotTranspose(Matrix that, Matrix result) {
+        if (!(this.n == result.n && this.m == that.m && that.n == result.m)) {
+            throw new IllegalArgumentException();
+        }
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < that.n; j++) {
+                double s = 0.0;
+                for (int k = 0; k < m; k++) {
+                    s += this.get(i, k) * that.get(j, k);
+                }
+                result.put(i, j, s);
             }
         }
         return result;

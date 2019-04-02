@@ -18,6 +18,8 @@ package com.android.server.wifi;
 
 import android.annotation.NonNull;
 
+import com.google.errorprone.annotations.CompileTimeConstant;
+
 import javax.annotation.CheckReturnValue;
 
 /**
@@ -34,7 +36,23 @@ import javax.annotation.CheckReturnValue;
  * Implementations of LogMessage are expected _not_ to be thread-safe,
  * as LogMessage instances are not expected to be shared between threads.
  */
+@SuppressWarnings("NonFinalCompileTimeConstant")  // See below.
 public interface WifiLog {
+    // Explanation of SuppressWarnings above:
+    //
+    // We use @CompileTimeConstant to verify that our callers do not stringify
+    // arguments into the |format| parameter. And, by default, error-prone
+    // requires that CompileTimeConstant parameters are declared final.
+    //
+    // However, declaring an interface parameter as final has no effect, since
+    // classes implementing the interface are free to declare their parameters
+    // as non-final. Moreover, to avoid such confusing situations (interface says
+    // final, implementation does not), checkstyle rejects |final| qualification
+    // of method parameters in interface methods.
+    //
+    // To avoid making empty promises. we override error-prone's default behavior,
+    // and allow the CompileTimeConstant parameters to be non-final.
+
     char PLACEHOLDER = '%';
 
     // New-style API.
@@ -64,7 +82,7 @@ public interface WifiLog {
      */
     @CheckReturnValue
     @NonNull
-    LogMessage err(@NonNull String format);
+    LogMessage err(@CompileTimeConstant @NonNull String format);
 
     /**
      * Like {@link #err(String) err()}, except that a warning-level message is
@@ -76,7 +94,7 @@ public interface WifiLog {
      */
     @CheckReturnValue
     @NonNull
-    LogMessage warn(@NonNull String format);
+    LogMessage warn(@CompileTimeConstant @NonNull String format);
 
     /**
      * Like {@link #err(String) err()}, except that a info-level message is
@@ -88,19 +106,34 @@ public interface WifiLog {
      */
     @CheckReturnValue
     @NonNull
-    LogMessage info(@NonNull String format);
+    LogMessage info(@CompileTimeConstant @NonNull String format);
 
     /**
-     * Like {@link #err(String) err()}, except that a trace-level message is
-     * allocated.
+     * Like {@link #err(String) err()}, except:
+     * - a trace-level message is allocated
+     * - the log message is prefixed with the caller's name
      *
      * Trace-level messages should be used to report progress or status messages
      * that help understand the program's internal behavior. For example:
-     * "Reached myCoolMethod()".
+     * "invoked with verbose=%".
      */
     @CheckReturnValue
     @NonNull
-    LogMessage trace(@NonNull String format);
+    LogMessage trace(@CompileTimeConstant @NonNull String format);
+
+    /**
+     * Like {@link #trace(String) trace(String)}, except that, rather than logging
+     * the immediate caller, the |numFramesToIgnore + 1|-th caller will be logged.
+     *
+     * E.g. if numFramesToIgnore == 1, then the caller's caller will be logged.
+     *
+     * Trace-level messages should be used to report progress or status messages
+     * that help understand the program's internal behavior. For example:
+     * "invoked with verbose=%".
+     */
+    @CheckReturnValue
+    @NonNull
+    LogMessage trace(@NonNull String format, int numFramesToIgnore);
 
     /**
      * Like {@link #err(String) err()}, except that a dump-level message is
@@ -110,7 +143,7 @@ public interface WifiLog {
      */
     @CheckReturnValue
     @NonNull
-    LogMessage dump(@NonNull String format);
+    LogMessage dump(@CompileTimeConstant @NonNull String format);
 
     /**
      * Log a warning using the default tag for this WifiLog instance. Mark
@@ -121,25 +154,25 @@ public interface WifiLog {
      *
      * @param msg the message to be logged
      */
-    void eC(String msg);
+    void eC(@CompileTimeConstant String msg);
 
     /**
      * Like {@link #eC(String)} eC()}, except that a warning-level message
      * is logged.
      */
-    void wC(String msg);
+    void wC(@CompileTimeConstant String msg);
 
     /**
      * Like {@link #eC(String)} eC()}, except that an info-level message
      * is logged.
      */
-    void iC(String msg);
+    void iC(@CompileTimeConstant String msg);
 
     /**
      * Like {@link #eC(String)} eC()}, except that a trace-level message
      * is logged.
      */
-    void tC(String msg);
+    void tC(@CompileTimeConstant String msg);
 
     /**
      * Note: dC() is deliberately omitted, as "dumping" is inherently at

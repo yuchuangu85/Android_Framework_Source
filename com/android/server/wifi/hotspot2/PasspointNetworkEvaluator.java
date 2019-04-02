@@ -127,8 +127,10 @@ public class PasspointNetworkEvaluator implements WifiNetworkSelector.NetworkEva
         }
 
         WifiConfiguration config = createWifiConfigForProvider(bestNetwork);
-        connectableNetworks.add(Pair.create(bestNetwork.mScanDetail, config));
-        localLog("Passpoint network to connect to: " + config.SSID);
+        if (config != null) {
+            connectableNetworks.add(Pair.create(bestNetwork.mScanDetail, config));
+            localLog("Passpoint network to connect to: " + config.SSID);
+        }
         return config;
     }
 

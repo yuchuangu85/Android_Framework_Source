@@ -34,7 +34,6 @@ import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
 
-import com.android.setupwizardlib.BuildConfig;
 import com.android.setupwizardlib.TemplateLayout;
 import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
 import com.android.setupwizardlib.template.RequireScrollMixin.OnRequireScrollStateChangedListener;
@@ -48,7 +47,7 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.annotation.Config;
 
-@Config(constants = BuildConfig.class, sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
+@Config(sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
 @RunWith(SuwLibRobolectricTestRunner.class)
 public class RequireScrollMixinTest {
 

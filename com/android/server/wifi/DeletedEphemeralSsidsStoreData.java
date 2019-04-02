@@ -53,6 +53,10 @@ public class DeletedEphemeralSsidsStoreData implements WifiConfigStore.StoreData
     @Override
     public void deserializeData(XmlPullParser in, int outerTagDepth, boolean shared)
             throws XmlPullParserException, IOException {
+        // Ignore empty reads.
+        if (in == null) {
+            return;
+        }
         if (shared) {
             throw new XmlPullParserException("Share data not supported");
         }

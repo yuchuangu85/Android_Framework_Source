@@ -67,31 +67,33 @@ public class ViewGroup_Delegate {
             Outline outline) {
         float elevation = getElevation(child, parent);
         if(outline.mMode == Outline.MODE_ROUND_RECT && outline.mRect != null) {
-            RectShadowPainter.paintShadow(outline, elevation, canvas);
+            RectShadowPainter.paintShadow(outline, elevation, canvas, child.getAlpha());
             return;
         }
         BufferedImage shadow = null;
         if (outline.mPath != null) {
-            shadow = getPathShadow(outline, canvas, elevation);
+            shadow = getPathShadow(outline, canvas, elevation, child.getAlpha());
         }
         if (shadow == null) {
             return;
         }
         Bitmap bitmap = Bitmap_Delegate.createBitmap(shadow, false,
                 Density.getEnum(canvas.getDensity()));
+        canvas.save();
         Rect clipBounds = canvas.getClipBounds();
         Rect newBounds = new Rect(clipBounds);
         newBounds.inset((int)-elevation, (int)-elevation);
         canvas.clipRect(newBounds, Op.REPLACE);
         canvas.drawBitmap(bitmap, 0, 0, null);
-        canvas.clipRect(clipBounds, Op.REPLACE);
+        canvas.restore();
     }
 
     private static float getElevation(View child, ViewGroup parent) {
         return child.getZ() - parent.getZ();
     }
 
-    private static BufferedImage getPathShadow(Outline outline, Canvas canvas, float elevation) {
+    private static BufferedImage getPathShadow(Outline outline, Canvas canvas, float elevation,
+            float alpha) {
         Rect clipBounds = canvas.getClipBounds();
         if (clipBounds.isEmpty()) {
           return null;
@@ -101,7 +103,7 @@ public class ViewGroup_Delegate {
         Graphics2D graphics = image.createGraphics();
         graphics.draw(Path_Delegate.getDelegate(outline.mPath.mNativePath).getJavaShape());
         graphics.dispose();
-        return ShadowPainter.createDropShadow(image, (int) elevation);
+        return ShadowPainter.createDropShadow(image, (int) elevation, alpha);
     }
 
     // Copied from android.view.View#draw(Canvas, ViewGroup, long) and removed code paths
@@ -144,11 +146,11 @@ public class ViewGroup_Delegate {
                         canvas.concat(transformToApply.getMatrix());
                         canvas.translate(transX, transY);
                     }
-                    if (!childHasIdentityMatrix) {
-                        canvas.translate(-transX, -transY);
-                        canvas.concat(child.getMatrix());
-                        canvas.translate(transX, transY);
-                    }
+                }
+                if (!childHasIdentityMatrix) {
+                    canvas.translate(-transX, -transY);
+                    canvas.concat(child.getMatrix());
+                    canvas.translate(transX, transY);
                 }
 
             }

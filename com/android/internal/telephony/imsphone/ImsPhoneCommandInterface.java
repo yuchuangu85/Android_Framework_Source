@@ -17,18 +17,20 @@
 package com.android.internal.telephony.imsphone;
 
 import android.content.Context;
+import android.net.KeepalivePacketData;
+import android.net.LinkProperties;
 import android.os.Handler;
 import android.os.Message;
 import android.service.carrier.CarrierIdentifier;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.NetworkScanRequest;
+import android.telephony.data.DataProfile;
 
 import com.android.internal.telephony.BaseCommands;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.RadioCapability;
 import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
-import com.android.internal.telephony.dataconnection.DataProfile;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 
 import java.util.List;
@@ -47,6 +49,14 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
 
     @Override
     public void getIccCardStatus(Message result) {
+    }
+
+    @Override
+    public void getIccSlotsStatus(Message result) {
+    }
+
+    @Override
+    public void setLogicalToPhysicalSlotMapping(int[] physicalSlots, Message result) {
     }
 
     @Override
@@ -260,8 +270,9 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
     }
 
     @Override
-    public void setupDataCall(int radioTechnology, DataProfile dataProfile, boolean isRoaming,
-                              boolean allowRoaming, Message result) {
+    public void setupDataCall(int accessNetworkType, DataProfile dataProfile, boolean isRoaming,
+                              boolean allowRoaming, int reason, LinkProperties linkProperties,
+                              Message result) {
     }
 
     @Override
@@ -548,10 +559,6 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
     }
 
     @Override
-    public void requestIsimAuthentication(String nonce, Message response) {
-    }
-
-    @Override
     public void requestIccSimAuthentication(int authContext, String data, String aid, Message response) {
     }
 
@@ -646,6 +653,26 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
     }
 
     @Override
+    public void setSignalStrengthReportingCriteria(int hysteresisMs, int hysteresisDb,
+            int[] thresholdsDbm, int ran, Message result) {
+    }
+
+    @Override
+    public void setLinkCapacityReportingCriteria(int hysteresisMs, int hysteresisDlKbps,
+            int hysteresisUlKbps, int[] thresholdsDlKbps, int[] thresholdsUlKbps, int ran,
+            Message result) {
+    }
+
+    @Override
     public void setSimCardPower(int state, Message result) {
+    }
+
+    @Override
+    public void startNattKeepalive(
+            int contextId, KeepalivePacketData packetData, int intervalMillis, Message result) {
+    }
+
+    @Override
+    public void stopNattKeepalive(int sessionHandle, Message result) {
     }
 }

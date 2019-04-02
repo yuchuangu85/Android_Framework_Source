@@ -29,7 +29,6 @@ import java.lang.reflect.Field;
 import sun.reflect.CallerSensitive;
 import sun.reflect.Reflection;
 import sun.reflect.misc.ReflectUtil;
-import dalvik.system.VMStack;
 
 /**
  * A description of a Serializable field from a Serializable class.  An array
@@ -163,6 +162,14 @@ public class ObjectStreamField
      */
     @CallerSensitive
     public Class<?> getType() {
+        /* BEGIN Android-removed: Security manager is always null on Android.
+        if (System.getSecurityManager() != null) {
+             Class<?> caller = Reflection.getCallerClass();
+            if (ReflectUtil.needsPackageAccessCheck(caller.getClassLoader(), type.getClassLoader())) {
+                ReflectUtil.checkPackageAccess(type);
+            }
+        }
+        END Android-removed: Security manager is always null on Android. */
         return type;
     }
 

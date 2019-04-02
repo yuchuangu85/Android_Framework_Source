@@ -64,7 +64,7 @@ import java.util.Map;
  * working directory of the current process, usually the directory
  * named by the system property {@code user.dir}.
  *
- * <li><a name="redirect-input">a source of <i>standard input</i>.
+ * <li><a name="redirect-input">a source of <i>standard input</i></a>.
  * By default, the subprocess reads input from a pipe.  Java code
  * can access this pipe via the output stream returned by
  * {@link Process#getOutputStream()}.  However, standard input may
@@ -80,7 +80,7 @@ import java.util.Map;
  * </ul>
  *
  * <li><a name="redirect-output">a destination for <i>standard output</i>
- * and <i>standard error</i>.  By default, the subprocess writes standard
+ * and <i>standard error</i></a>.  By default, the subprocess writes standard
  * output and standard error to pipes.  Java code can access these pipes
  * via the input streams returned by {@link Process#getInputStream()} and
  * {@link Process#getErrorStream()}.  However, standard output and

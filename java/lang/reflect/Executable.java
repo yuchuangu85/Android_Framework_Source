@@ -43,6 +43,11 @@ import libcore.util.EmptyArray;
  */
 public abstract class Executable extends AccessibleObject
     implements Member, GenericDeclaration {
+
+    // Android-changed: Extensive modifications made throughout the class for ART.
+    // Android-removed: Declared vs actual parameter annotation indexes handling.
+    // Android-removed: Type annotations runtime code. Not supported on Android.
+
     /*
      * Only grant package-visibility to the constructor.
      */
@@ -226,7 +231,6 @@ public abstract class Executable extends AccessibleObject
      * declared or implicitly declared or neither) for the executable
      * represented by this object.
      *
-     * @since 1.8
      * @return The number of formal parameters for the executable this
      * object represents
      */
@@ -261,7 +265,7 @@ public abstract class Executable extends AccessibleObject
      *     type that cannot be instantiated for any reason
      */
     public Type[] getGenericParameterTypes() {
-        // Android-changed: Changed to use Types / getMethodOrConstructorGenericInfoInternal()
+        // Android-changed: getGenericParameterTypes() implementation for use with ART.
         return Types.getTypeArray(
                 getMethodOrConstructorGenericInfoInternal().genericParameterTypes, false);
     }
@@ -323,7 +327,6 @@ public abstract class Executable extends AccessibleObject
      * have unique names, or names that are legal identifiers in the
      * Java programming language (JLS 3.8).
      *
-     * @since 1.8
      * @throws MalformedParametersException if the class file contains
      * a MethodParameters attribute that is improperly formatted.
      * @return an array of {@code Parameter} objects representing all
@@ -380,6 +383,7 @@ public abstract class Executable extends AccessibleObject
         Parameter[] tmp = parameters;
 
         if (tmp == null) {
+
             // Otherwise, go to the JVM to get them
             try {
                 tmp = getParameters0();
@@ -420,6 +424,7 @@ public abstract class Executable extends AccessibleObject
     private transient volatile boolean hasRealParameterData;
     private transient volatile Parameter[] parameters;
 
+    // Android-changed: Added @FastNative to getParameters0()
     @FastNative
     private native Parameter[] getParameters0();
 
@@ -457,7 +462,7 @@ public abstract class Executable extends AccessibleObject
      *     parameterized type that cannot be instantiated for any reason
      */
     public Type[] getGenericExceptionTypes() {
-        // Android-changed: Changed to use Types / getMethodOrConstructorGenericInfoInternal()
+        // Android-changed: getGenericExceptionTypes() implementation for use with ART.
         return Types.getTypeArray(
                 getMethodOrConstructorGenericInfoInternal().genericExceptionTypes, false);
     }
@@ -478,7 +483,7 @@ public abstract class Executable extends AccessibleObject
      * to take a variable number of arguments.
      */
     public boolean isVarArgs()  {
-        // Android-changed: Slightly more efficient.
+        // Android-changed: isVarArgs() made slightly more efficient.
         return (accessFlags & Modifier.VARARGS) != 0;
     }
 
@@ -492,7 +497,7 @@ public abstract class Executable extends AccessibleObject
      * @jls 13.1 The Form of a Binary
      */
     public boolean isSynthetic() {
-        // Android-changed: Slightly more efficient.
+        // Android-changed: isSynthetic() made slightly more efficient.
         return (accessFlags & Modifier.SYNTHETIC) != 0;
     }
 
@@ -532,20 +537,21 @@ public abstract class Executable extends AccessibleObject
      */
     public <T extends Annotation> T getAnnotation(Class<T> annotationClass) {
         Objects.requireNonNull(annotationClass);
-        // Android-changed: Implemented natively.
+        // Android-changed: Implemented getAnnotation(Class) natively.
         return getAnnotationNative(annotationClass);
     }
+
+    // Android-changed: Implemented getAnnotation(Class) natively.
     @FastNative
     private native <T extends Annotation> T getAnnotationNative(Class<T> annotationClass);
 
     /**
      * {@inheritDoc}
      * @throws NullPointerException {@inheritDoc}
-     * @since 1.8
      */
     @Override
     public <T extends Annotation> T[] getAnnotationsByType(Class<T> annotationClass) {
-        // Android-changed: Uses AnnotatedElements instead.
+        // Android-changed: getAnnotationsByType(Class), Android uses AnnotatedElements instead.
         return AnnotatedElements.getDirectOrIndirectAnnotationsByType(this, annotationClass);
     }
 
@@ -553,14 +559,16 @@ public abstract class Executable extends AccessibleObject
      * {@inheritDoc}
      */
     public Annotation[] getDeclaredAnnotations()  {
-        // Android-changed: Implemented natively.
+        // Android-changed: Implemented getDeclaredAnnotations() natively.
         return getDeclaredAnnotationsNative();
     }
+
+    // Android-added: Implemented getDeclaredAnnotations() natively.
     @FastNative
     private native Annotation[] getDeclaredAnnotationsNative();
 
-    // Android-changed: Additional ART-related fields and logic below that is shared between
-    // Method and Constructor.
+    // BEGIN Android-added: Additional ART-related fields and logic.
+    // This code is shared for Method and Constructor.
 
     /** Bits encoding access (e.g. public, private) as well as other runtime specific flags */
     @SuppressWarnings("unused") // set by runtime
@@ -737,4 +745,6 @@ public abstract class Executable extends AccessibleObject
     final boolean isBridgeMethodInternal() {
         return (accessFlags & Modifier.BRIDGE) != 0;
     }
+    // END Android-added: Additional ART-related fields and logic.
+
 }

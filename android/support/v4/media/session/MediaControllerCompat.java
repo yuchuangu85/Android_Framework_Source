@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
+ * Copyright 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 
 package android.support.v4.media.session;
 
+import static androidx.annotation.RestrictTo.Scope.LIBRARY;
+
 import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.Context;
@@ -29,19 +31,22 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
-import android.support.annotation.NonNull;
-import android.support.annotation.RequiresApi;
-import android.support.v4.app.BundleCompat;
-import android.support.v4.app.SupportActivity;
+import android.support.v4.media.MediaBrowserCompat;
 import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.RatingCompat;
-import android.support.v4.media.VolumeProviderCompat;
 import android.support.v4.media.session.MediaSessionCompat.QueueItem;
 import android.support.v4.media.session.PlaybackStateCompat.CustomAction;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.KeyEvent;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
+import androidx.annotation.RestrictTo;
+import androidx.core.app.BundleCompat;
+import androidx.core.app.ComponentActivity;
+import androidx.media.VolumeProviderCompat;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -65,12 +70,12 @@ import java.util.List;
  * If MediaControllerCompat is created with a {@link MediaSessionCompat.Token session token}
  * from another process, following methods will not work directly after the creation if the
  * {@link MediaSessionCompat.Token session token} is not passed through a
- * {@link android.support.v4.media.MediaBrowserCompat}:
+ * {@link MediaBrowserCompat}:
  * <ul>
  * <li>{@link #getPlaybackState()}.{@link PlaybackStateCompat#getExtras() getExtras()}</li>
  * <li>{@link #isCaptioningEnabled()}</li>
  * <li>{@link #getRepeatMode()}</li>
- * <li>{@link #isShuffleModeEnabled()}</li>
+ * <li>{@link #getShuffleMode()}</li>
  * </ul></p>
  *
  * <div class="special reference">
@@ -82,23 +87,51 @@ import java.util.List;
 public final class MediaControllerCompat {
     static final String TAG = "MediaControllerCompat";
 
-    static final String COMMAND_GET_EXTRA_BINDER =
+    /**
+     * @hide
+     */
+    @RestrictTo(LIBRARY)
+    public static final String COMMAND_GET_EXTRA_BINDER =
             "android.support.v4.media.session.command.GET_EXTRA_BINDER";
-    static final String COMMAND_ADD_QUEUE_ITEM =
+    /**
+     * @hide
+     */
+    @RestrictTo(LIBRARY)
+    public static final String COMMAND_ADD_QUEUE_ITEM =
             "android.support.v4.media.session.command.ADD_QUEUE_ITEM";
-    static final String COMMAND_ADD_QUEUE_ITEM_AT =
+    /**
+     * @hide
+     */
+    @RestrictTo(LIBRARY)
+    public static final String COMMAND_ADD_QUEUE_ITEM_AT =
             "android.support.v4.media.session.command.ADD_QUEUE_ITEM_AT";
-    static final String COMMAND_REMOVE_QUEUE_ITEM =
+    /**
+     * @hide
+     */
+    @RestrictTo(LIBRARY)
+    public static final String COMMAND_REMOVE_QUEUE_ITEM =
             "android.support.v4.media.session.command.REMOVE_QUEUE_ITEM";
-    static final String COMMAND_REMOVE_QUEUE_ITEM_AT =
+    /**
+     * @hide
+     */
+    @RestrictTo(LIBRARY)
+    public static final String COMMAND_REMOVE_QUEUE_ITEM_AT =
             "android.support.v4.media.session.command.REMOVE_QUEUE_ITEM_AT";
 
-    static final String COMMAND_ARGUMENT_MEDIA_DESCRIPTION =
+    /**
+     * @hide
+     */
+    @RestrictTo(LIBRARY)
+    public static final String COMMAND_ARGUMENT_MEDIA_DESCRIPTION =
             "android.support.v4.media.session.command.ARGUMENT_MEDIA_DESCRIPTION";
-    static final String COMMAND_ARGUMENT_INDEX =
+    /**
+     * @hide
+     */
+    @RestrictTo(LIBRARY)
+    public static final String COMMAND_ARGUMENT_INDEX =
             "android.support.v4.media.session.command.ARGUMENT_INDEX";
 
-    private static class MediaControllerExtraData extends SupportActivity.ExtraData {
+    private static class MediaControllerExtraData extends ComponentActivity.ExtraData {
         private final MediaControllerCompat mMediaController;
 
         MediaControllerExtraData(MediaControllerCompat mediaController) {
@@ -115,7 +148,7 @@ public final class MediaControllerCompat {
      * {@link #getMediaController(Activity)}.
      *
      * <p>This is compatible with {@link Activity#setMediaController(MediaController)}.
-     * If {@code activity} inherits {@link android.support.v4.app.FragmentActivity}, the
+     * If {@code activity} inherits {@link androidx.fragment.app.FragmentActivity}, the
      * {@code mediaController} will be saved in the {@code activity}. In addition to that,
      * on API 21 and later, {@link Activity#setMediaController(MediaController)} will be
      * called.</p>
@@ -128,8 +161,8 @@ public final class MediaControllerCompat {
      */
     public static void setMediaController(@NonNull Activity activity,
             MediaControllerCompat mediaController) {
-        if (activity instanceof SupportActivity) {
-            ((SupportActivity) activity).putExtraData(
+        if (activity instanceof ComponentActivity) {
+            ((ComponentActivity) activity).putExtraData(
                     new MediaControllerExtraData(mediaController));
         }
         if (android.os.Build.VERSION.SDK_INT >= 21) {
@@ -154,9 +187,9 @@ public final class MediaControllerCompat {
      * @see #setMediaController(Activity, MediaControllerCompat)
      */
     public static MediaControllerCompat getMediaController(@NonNull Activity activity) {
-        if (activity instanceof SupportActivity) {
+        if (activity instanceof ComponentActivity) {
             MediaControllerExtraData extraData =
-                    ((SupportActivity) activity).getExtraData(MediaControllerExtraData.class);
+                    ((ComponentActivity) activity).getExtraData(MediaControllerExtraData.class);
             return extraData != null ? extraData.getMediaController() : null;
         } else if (android.os.Build.VERSION.SDK_INT >= 21) {
             Object controllerObj = MediaControllerCompatApi21.getMediaController(activity);
@@ -439,18 +472,6 @@ public final class MediaControllerCompat {
     }
 
     /**
-     * Returns whether the shuffle mode is enabled for this session.
-     *
-     * @return {@code true} if the shuffle mode is enabled, {@code false} if it is disabled, not
-     *         set, or the session is not ready.
-     * @deprecated Use {@link #getShuffleMode} instead.
-     */
-    @Deprecated
-    public boolean isShuffleModeEnabled() {
-        return mImpl.isShuffleModeEnabled();
-    }
-
-    /**
      * Gets the shuffle mode for this session.
      *
      * @return The latest shuffle mode set to the session, or
@@ -646,13 +667,13 @@ public final class MediaControllerCompat {
     public static abstract class Callback implements IBinder.DeathRecipient {
         private final Object mCallbackObj;
         MessageHandler mHandler;
-        boolean mHasExtraCallback;
+        IMediaControllerCallback mIControllerCallback;
 
         public Callback() {
             if (android.os.Build.VERSION.SDK_INT >= 21) {
                 mCallbackObj = MediaControllerCompatApi21.createCallback(new StubApi21(this));
             } else {
-                mCallbackObj = new StubCompat(this);
+                mCallbackObj = mIControllerCallback = new StubCompat(this);
             }
         }
 
@@ -760,22 +781,20 @@ public final class MediaControllerCompat {
         /**
          * Override to handle changes to the shuffle mode.
          *
-         * @param enabled {@code true} if the shuffle mode is enabled, {@code false} otherwise.
-         * @deprecated Use {@link #onShuffleModeChanged(int)} instead.
-         */
-        @Deprecated
-        public void onShuffleModeChanged(boolean enabled) {
-        }
-
-        /**
-         * Override to handle changes to the shuffle mode.
-         *
          * @param shuffleMode The shuffle mode. Must be one of the followings:
          *                    {@link PlaybackStateCompat#SHUFFLE_MODE_NONE},
          *                    {@link PlaybackStateCompat#SHUFFLE_MODE_ALL},
          *                    {@link PlaybackStateCompat#SHUFFLE_MODE_GROUP}
          */
         public void onShuffleModeChanged(@PlaybackStateCompat.ShuffleMode int shuffleMode) {
+        }
+
+        /**
+         * @hide
+         */
+        @RestrictTo(LIBRARY)
+        public IMediaControllerCallback getIControllerCallback() {
+            return mIControllerCallback;
         }
 
         @Override
@@ -826,7 +845,8 @@ public final class MediaControllerCompat {
             public void onSessionEvent(String event, Bundle extras) {
                 MediaControllerCompat.Callback callback = mCallback.get();
                 if (callback != null) {
-                    if (callback.mHasExtraCallback && android.os.Build.VERSION.SDK_INT < 23) {
+                    if (callback.mIControllerCallback != null
+                            && android.os.Build.VERSION.SDK_INT < 23) {
                         // Ignore. ExtraCallback will handle this.
                     } else {
                         callback.onSessionEvent(event, extras);
@@ -838,7 +858,7 @@ public final class MediaControllerCompat {
             public void onPlaybackStateChanged(Object stateObj) {
                 MediaControllerCompat.Callback callback = mCallback.get();
                 if (callback != null) {
-                    if (callback.mHasExtraCallback) {
+                    if (callback.mIControllerCallback != null) {
                         // Ignore. ExtraCallback will handle this.
                     } else {
                         callback.onPlaybackStateChanged(
@@ -963,12 +983,8 @@ public final class MediaControllerCompat {
             }
 
             @Override
-            public void onShuffleModeChangedDeprecated(boolean enabled) throws RemoteException {
-                MediaControllerCompat.Callback callback = mCallback.get();
-                if (callback != null) {
-                    callback.postToHandler(
-                            MessageHandler.MSG_UPDATE_SHUFFLE_MODE_DEPRECATED, enabled, null);
-                }
+            public void onShuffleModeChangedRemoved(boolean enabled) throws RemoteException {
+                // Do nothing.
             }
 
             @Override
@@ -1020,7 +1036,6 @@ public final class MediaControllerCompat {
             private static final int MSG_UPDATE_EXTRAS = 7;
             private static final int MSG_DESTROYED = 8;
             private static final int MSG_UPDATE_REPEAT_MODE = 9;
-            private static final int MSG_UPDATE_SHUFFLE_MODE_DEPRECATED = 10;
             private static final int MSG_UPDATE_CAPTIONING_ENABLED = 11;
             private static final int MSG_UPDATE_SHUFFLE_MODE = 12;
             private static final int MSG_SESSION_READY = 13;
@@ -1057,9 +1072,6 @@ public final class MediaControllerCompat {
                         break;
                     case MSG_UPDATE_REPEAT_MODE:
                         onRepeatModeChanged((int) msg.obj);
-                        break;
-                    case MSG_UPDATE_SHUFFLE_MODE_DEPRECATED:
-                        onShuffleModeChanged((boolean) msg.obj);
                         break;
                     case MSG_UPDATE_SHUFFLE_MODE:
                         onShuffleModeChanged((int) msg.obj);
@@ -1264,15 +1276,6 @@ public final class MediaControllerCompat {
         /**
          * Sets the shuffle mode for this session.
          *
-         * @param enabled {@code true} to enable the shuffle mode, {@code false} to disable.
-         * @deprecated Use {@link #setShuffleMode} instead.
-         */
-        @Deprecated
-        public abstract void setShuffleModeEnabled(boolean enabled);
-
-        /**
-         * Sets the shuffle mode for this session.
-         *
          * @param shuffleMode The shuffle mode. Must be one of the followings:
          *                    {@link PlaybackStateCompat#SHUFFLE_MODE_NONE},
          *                    {@link PlaybackStateCompat#SHUFFLE_MODE_ALL},
@@ -1414,7 +1417,6 @@ public final class MediaControllerCompat {
         int getRatingType();
         boolean isCaptioningEnabled();
         int getRepeatMode();
-        boolean isShuffleModeEnabled();
         int getShuffleMode();
         long getFlags();
         PlaybackInfo getPlaybackInfo();
@@ -1607,16 +1609,6 @@ public final class MediaControllerCompat {
                 Log.e(TAG, "Dead object in getRepeatMode.", e);
             }
             return PlaybackStateCompat.REPEAT_MODE_INVALID;
-        }
-
-        @Override
-        public boolean isShuffleModeEnabled() {
-            try {
-                return mBinder.isShuffleModeEnabledDeprecated();
-            } catch (RemoteException e) {
-                Log.e(TAG, "Dead object in isShuffleModeEnabled.", e);
-            }
-            return false;
         }
 
         @Override
@@ -1899,15 +1891,6 @@ public final class MediaControllerCompat {
         }
 
         @Override
-        public void setShuffleModeEnabled(boolean enabled) {
-            try {
-                mBinder.setShuffleModeEnabledDeprecated(enabled);
-            } catch (RemoteException e) {
-                Log.e(TAG, "Dead object in setShuffleModeEnabled.", e);
-            }
-        }
-
-        @Override
         public void setShuffleMode(@PlaybackStateCompat.ShuffleMode int shuffleMode) {
             try {
                 mBinder.setShuffleMode(shuffleMode);
@@ -1970,7 +1953,7 @@ public final class MediaControllerCompat {
             if (mExtraBinder != null) {
                 ExtraCallback extraCallback = new ExtraCallback(callback);
                 mCallbackMap.put(callback, extraCallback);
-                callback.mHasExtraCallback = true;
+                callback.mIControllerCallback = extraCallback;
                 try {
                     mExtraBinder.registerCallbackListener(extraCallback);
                 } catch (RemoteException e) {
@@ -1978,6 +1961,7 @@ public final class MediaControllerCompat {
                 }
             } else {
                 synchronized (mPendingCallbacks) {
+                    callback.mIControllerCallback = null;
                     mPendingCallbacks.add(callback);
                 }
             }
@@ -1990,6 +1974,7 @@ public final class MediaControllerCompat {
                 try {
                     ExtraCallback extraCallback = mCallbackMap.remove(callback);
                     if (extraCallback != null) {
+                        callback.mIControllerCallback = null;
                         mExtraBinder.unregisterCallbackListener(extraCallback);
                     }
                 } catch (RemoteException e) {
@@ -2122,18 +2107,6 @@ public final class MediaControllerCompat {
         }
 
         @Override
-        public boolean isShuffleModeEnabled() {
-            if (mExtraBinder != null) {
-                try {
-                    return mExtraBinder.isShuffleModeEnabledDeprecated();
-                } catch (RemoteException e) {
-                    Log.e(TAG, "Dead object in isShuffleModeEnabled.", e);
-                }
-            }
-            return false;
-        }
-
-        @Override
         public int getShuffleMode() {
             if (mExtraBinder != null) {
                 try {
@@ -2209,7 +2182,7 @@ public final class MediaControllerCompat {
                 for (Callback callback : mPendingCallbacks) {
                     ExtraCallback extraCallback = new ExtraCallback(callback);
                     mCallbackMap.put(callback, extraCallback);
-                    callback.mHasExtraCallback = true;
+                    callback.mIControllerCallback = extraCallback;
                     try {
                         mExtraBinder.registerCallbackListener(extraCallback);
                     } catch (RemoteException e) {
@@ -2388,13 +2361,6 @@ public final class MediaControllerCompat {
             Bundle bundle = new Bundle();
             bundle.putInt(MediaSessionCompat.ACTION_ARGUMENT_REPEAT_MODE, repeatMode);
             sendCustomAction(MediaSessionCompat.ACTION_SET_REPEAT_MODE, bundle);
-        }
-
-        @Override
-        public void setShuffleModeEnabled(boolean enabled) {
-            Bundle bundle = new Bundle();
-            bundle.putBoolean(MediaSessionCompat.ACTION_ARGUMENT_SHUFFLE_MODE_ENABLED, enabled);
-            sendCustomAction(MediaSessionCompat.ACTION_SET_SHUFFLE_MODE_ENABLED, bundle);
         }
 
         @Override

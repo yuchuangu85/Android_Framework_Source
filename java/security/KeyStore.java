@@ -311,7 +311,7 @@ public class KeyStore {
          * @param protectionAlgorithm the encryption algorithm name, for
          *     example, {@code PBEWithHmacSHA256AndAES_256}.
          *     See the Cipher section in the <a href=
-         * "{@docRoot}/../technotes/guides/security/StandardNames.html#Cipher">
+         * "{@docRoot}/openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Cipher">
          * Java Cryptography Architecture Standard Algorithm Name
          * Documentation</a>
          *     for information about standard encryption algorithm names.

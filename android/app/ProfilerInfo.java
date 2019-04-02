@@ -20,8 +20,10 @@ import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.os.Parcelable;
 import android.util.Slog;
+import android.util.proto.ProtoOutputStream;
 
 import java.io.IOException;
+import java.util.Objects;
 
 /**
  * System private API for passing profiler settings.
@@ -54,14 +56,24 @@ public class ProfilerInfo implements Parcelable {
      */
     public final String agent;
 
+    /**
+     * Whether the {@link agent} should be attached early (before bind-application) or during
+     * bind-application. Agents attached prior to binding cannot be loaded from the app's APK
+     * directly and must be given as an absolute path (or available in the default LD_LIBRARY_PATH).
+     * Agents attached during bind-application will miss early setup (e.g., resource initialization
+     * and classloader generation), but are searched in the app's library search path.
+     */
+    public final boolean attachAgentDuringBind;
+
     public ProfilerInfo(String filename, ParcelFileDescriptor fd, int interval, boolean autoStop,
-            boolean streaming, String agent) {
+            boolean streaming, String agent, boolean attachAgentDuringBind) {
         profileFile = filename;
         profileFd = fd;
         samplingInterval = interval;
         autoStopProfiler = autoStop;
         streamingOutput = streaming;
         this.agent = agent;
+        this.attachAgentDuringBind = attachAgentDuringBind;
     }
 
     public ProfilerInfo(ProfilerInfo in) {
@@ -71,6 +83,16 @@ public class ProfilerInfo implements Parcelable {
         autoStopProfiler = in.autoStopProfiler;
         streamingOutput = in.streamingOutput;
         agent = in.agent;
+        attachAgentDuringBind = in.attachAgentDuringBind;
+    }
+
+    /**
+     * Return a new ProfilerInfo instance, with fields populated from this object,
+     * and {@link agent} and {@link attachAgentDuringBind} as given.
+     */
+    public ProfilerInfo setAgent(String agent, boolean attachAgentDuringBind) {
+        return new ProfilerInfo(this.profileFile, this.profileFd, this.samplingInterval,
+                this.autoStopProfiler, this.streamingOutput, agent, attachAgentDuringBind);
     }
 
     /**
@@ -109,6 +131,21 @@ public class ProfilerInfo implements Parcelable {
         out.writeInt(autoStopProfiler ? 1 : 0);
         out.writeInt(streamingOutput ? 1 : 0);
         out.writeString(agent);
+        out.writeBoolean(attachAgentDuringBind);
+    }
+
+    /** @hide */
+    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+        final long token = proto.start(fieldId);
+        proto.write(ProfilerInfoProto.PROFILE_FILE, profileFile);
+        if (profileFd != null) {
+            proto.write(ProfilerInfoProto.PROFILE_FD, profileFd.getFd());
+        }
+        proto.write(ProfilerInfoProto.SAMPLING_INTERVAL, samplingInterval);
+        proto.write(ProfilerInfoProto.AUTO_STOP_PROFILER, autoStopProfiler);
+        proto.write(ProfilerInfoProto.STREAMING_OUTPUT, streamingOutput);
+        proto.write(ProfilerInfoProto.AGENT, agent);
+        proto.end(token);
     }
 
     public static final Parcelable.Creator<ProfilerInfo> CREATOR =
@@ -131,5 +168,34 @@ public class ProfilerInfo implements Parcelable {
         autoStopProfiler = in.readInt() != 0;
         streamingOutput = in.readInt() != 0;
         agent = in.readString();
+        attachAgentDuringBind = in.readBoolean();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        final ProfilerInfo other = (ProfilerInfo) o;
+        // TODO: Also check #profileFd for equality.
+        return Objects.equals(profileFile, other.profileFile)
+                && autoStopProfiler == other.autoStopProfiler
+                && samplingInterval == other.samplingInterval
+                && streamingOutput == other.streamingOutput
+                && Objects.equals(agent, other.agent);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = 17;
+        result = 31 * result + Objects.hashCode(profileFile);
+        result = 31 * result + samplingInterval;
+        result = 31 * result + (autoStopProfiler ? 1 : 0);
+        result = 31 * result + (streamingOutput ? 1 : 0);
+        result = 31 * result + Objects.hashCode(agent);
+        return result;
     }
 }

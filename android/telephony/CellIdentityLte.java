@@ -16,24 +16,19 @@
 
 package android.telephony;
 
+import android.annotation.Nullable;
 import android.os.Parcel;
-import android.os.Parcelable;
-import android.telephony.Rlog;
+import android.text.TextUtils;
 
 import java.util.Objects;
 
 /**
  * CellIdentity is to represent a unique LTE cell
  */
-public final class CellIdentityLte implements Parcelable {
-
-    private static final String LOG_TAG = "CellIdentityLte";
+public final class CellIdentityLte extends CellIdentity {
+    private static final String TAG = CellIdentityLte.class.getSimpleName();
     private static final boolean DBG = false;
 
-    // 3-digit Mobile Country Code, 0..999
-    private final int mMcc;
-    // 2 or 3-digit Mobile Network Code, 0..999
-    private final int mMnc;
     // 28-bit cell identity
     private final int mCi;
     // physical cell id 0..503
@@ -42,17 +37,19 @@ public final class CellIdentityLte implements Parcelable {
     private final int mTac;
     // 18-bit Absolute RF Channel Number
     private final int mEarfcn;
+    // cell bandwidth, in kHz
+    private final int mBandwidth;
 
     /**
      * @hide
      */
     public CellIdentityLte() {
-        mMcc = Integer.MAX_VALUE;
-        mMnc = Integer.MAX_VALUE;
+        super(TAG, TYPE_LTE, null, null, null, null);
         mCi = Integer.MAX_VALUE;
         mPci = Integer.MAX_VALUE;
         mTac = Integer.MAX_VALUE;
         mEarfcn = Integer.MAX_VALUE;
+        mBandwidth = Integer.MAX_VALUE;
     }
 
     /**
@@ -65,8 +62,9 @@ public final class CellIdentityLte implements Parcelable {
      *
      * @hide
      */
-    public CellIdentityLte (int mcc, int mnc, int ci, int pci, int tac) {
-        this(mcc, mnc, ci, pci, tac, Integer.MAX_VALUE);
+    public CellIdentityLte(int mcc, int mnc, int ci, int pci, int tac) {
+        this(ci, pci, tac, Integer.MAX_VALUE, Integer.MAX_VALUE, String.valueOf(mcc),
+                String.valueOf(mnc), null, null);
     }
 
     /**
@@ -80,22 +78,38 @@ public final class CellIdentityLte implements Parcelable {
      *
      * @hide
      */
-    public CellIdentityLte (int mcc, int mnc, int ci, int pci, int tac, int earfcn) {
-        mMcc = mcc;
-        mMnc = mnc;
+    public CellIdentityLte(int mcc, int mnc, int ci, int pci, int tac, int earfcn) {
+        this(ci, pci, tac, earfcn, Integer.MAX_VALUE, String.valueOf(mcc), String.valueOf(mnc),
+                null, null);
+    }
+
+    /**
+     *
+     * @param ci 28-bit Cell Identity
+     * @param pci Physical Cell Id 0..503
+     * @param tac 16-bit Tracking Area Code
+     * @param earfcn 18-bit LTE Absolute RF Channel Number
+     * @param bandwidth cell bandwidth in kHz
+     * @param mccStr 3-digit Mobile Country Code in string format
+     * @param mncStr 2 or 3-digit Mobile Network Code in string format
+     * @param alphal long alpha Operator Name String or Enhanced Operator Name String
+     * @param alphas short alpha Operator Name String or Enhanced Operator Name String
+     *
+     * @hide
+     */
+    public CellIdentityLte(int ci, int pci, int tac, int earfcn, int bandwidth, String mccStr,
+            String mncStr, String alphal, String alphas) {
+        super(TAG, TYPE_LTE, mccStr, mncStr, alphal, alphas);
         mCi = ci;
         mPci = pci;
         mTac = tac;
         mEarfcn = earfcn;
+        mBandwidth = bandwidth;
     }
 
     private CellIdentityLte(CellIdentityLte cid) {
-        mMcc = cid.mMcc;
-        mMnc = cid.mMnc;
-        mCi = cid.mCi;
-        mPci = cid.mPci;
-        mTac = cid.mTac;
-        mEarfcn = cid.mEarfcn;
+        this(cid.mCi, cid.mPci, cid.mTac, cid.mEarfcn, cid.mBandwidth, cid.mMccStr,
+                cid.mMncStr, cid.mAlphaLong, cid.mAlphaShort);
     }
 
     CellIdentityLte copy() {
@@ -104,16 +118,20 @@ public final class CellIdentityLte implements Parcelable {
 
     /**
      * @return 3-digit Mobile Country Code, 0..999, Integer.MAX_VALUE if unknown
+     * @deprecated Use {@link #getMccString} instead.
      */
+    @Deprecated
     public int getMcc() {
-        return mMcc;
+        return (mMccStr != null) ? Integer.valueOf(mMccStr) : Integer.MAX_VALUE;
     }
 
     /**
      * @return 2 or 3-digit Mobile Network Code, 0..999, Integer.MAX_VALUE if unknown
+     * @deprecated Use {@link #getMncString} instead.
      */
+    @Deprecated
     public int getMnc() {
-        return mMnc;
+        return (mMncStr != null) ? Integer.valueOf(mMncStr) : Integer.MAX_VALUE;
     }
 
     /**
@@ -144,9 +162,43 @@ public final class CellIdentityLte implements Parcelable {
         return mEarfcn;
     }
 
+    /**
+     * @return Cell bandwidth in kHz, Integer.MAX_VALUE if unknown
+     */
+    public int getBandwidth() {
+        return mBandwidth;
+    }
+
+    /**
+     * @return Mobile Country Code in string format, null if unknown
+     */
+    public String getMccString() {
+        return mMccStr;
+    }
+
+    /**
+     * @return Mobile Network Code in string format, null if unknown
+     */
+    public String getMncString() {
+        return mMncStr;
+    }
+
+    /**
+     * @return a 5 or 6 character string (MCC+MNC), null if any field is unknown
+     */
+    public String getMobileNetworkOperator() {
+        return (mMccStr == null || mMncStr == null) ? null : mMccStr + mMncStr;
+    }
+
+    /** @hide */
+    @Override
+    public int getChannelNumber() {
+        return mEarfcn;
+    }
+
     @Override
     public int hashCode() {
-        return Objects.hash(mMcc, mMnc, mCi, mPci, mTac);
+        return Objects.hash(mCi, mPci, mTac, super.hashCode());
     }
 
     @Override
@@ -160,76 +212,73 @@ public final class CellIdentityLte implements Parcelable {
         }
 
         CellIdentityLte o = (CellIdentityLte) other;
-        return mMcc == o.mMcc &&
-                mMnc == o.mMnc &&
-                mCi == o.mCi &&
-                mPci == o.mPci &&
-                mTac == o.mTac &&
-                mEarfcn == o.mEarfcn;
+        return mCi == o.mCi
+                && mPci == o.mPci
+                && mTac == o.mTac
+                && mEarfcn == o.mEarfcn
+                && mBandwidth == o.mBandwidth
+                && TextUtils.equals(mMccStr, o.mMccStr)
+                && TextUtils.equals(mMncStr, o.mMncStr)
+                && super.equals(other);
     }
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("CellIdentityLte:{");
-        sb.append(" mMcc="); sb.append(mMcc);
-        sb.append(" mMnc="); sb.append(mMnc);
-        sb.append(" mCi="); sb.append(mCi);
-        sb.append(" mPci="); sb.append(mPci);
-        sb.append(" mTac="); sb.append(mTac);
-        sb.append(" mEarfcn="); sb.append(mEarfcn);
-        sb.append("}");
-
-        return sb.toString();
-    }
-
-    /** Implement the Parcelable interface */
-    @Override
-    public int describeContents() {
-        return 0;
+        return new StringBuilder(TAG)
+        .append(":{ mCi=").append(mCi)
+        .append(" mPci=").append(mPci)
+        .append(" mTac=").append(mTac)
+        .append(" mEarfcn=").append(mEarfcn)
+        .append(" mBandwidth=").append(mBandwidth)
+        .append(" mMcc=").append(mMccStr)
+        .append(" mMnc=").append(mMncStr)
+        .append(" mAlphaLong=").append(mAlphaLong)
+        .append(" mAlphaShort=").append(mAlphaShort)
+        .append("}").toString();
     }
 
     /** Implement the Parcelable interface */
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         if (DBG) log("writeToParcel(Parcel, int): " + toString());
-        dest.writeInt(mMcc);
-        dest.writeInt(mMnc);
+        super.writeToParcel(dest, TYPE_LTE);
         dest.writeInt(mCi);
         dest.writeInt(mPci);
         dest.writeInt(mTac);
         dest.writeInt(mEarfcn);
+        dest.writeInt(mBandwidth);
     }
 
     /** Construct from Parcel, type has already been processed */
     private CellIdentityLte(Parcel in) {
-        mMcc = in.readInt();
-        mMnc = in.readInt();
+        super(TAG, TYPE_LTE, in);
         mCi = in.readInt();
         mPci = in.readInt();
         mTac = in.readInt();
         mEarfcn = in.readInt();
-        if (DBG) log("CellIdentityLte(Parcel): " + toString());
+        mBandwidth = in.readInt();
+
+        if (DBG) log(toString());
     }
 
     /** Implement the Parcelable interface */
     @SuppressWarnings("hiding")
     public static final Creator<CellIdentityLte> CREATOR =
             new Creator<CellIdentityLte>() {
-        @Override
-        public CellIdentityLte createFromParcel(Parcel in) {
-            return new CellIdentityLte(in);
-        }
+                @Override
+                public CellIdentityLte createFromParcel(Parcel in) {
+                    in.readInt();   // skip;
+                    return createFromParcelBody(in);
+                }
 
-        @Override
-        public CellIdentityLte[] newArray(int size) {
-            return new CellIdentityLte[size];
-        }
-    };
+                @Override
+                public CellIdentityLte[] newArray(int size) {
+                    return new CellIdentityLte[size];
+                }
+            };
 
-    /**
-     * log
-     */
-    private static void log(String s) {
-        Rlog.w(LOG_TAG, s);
+    /** @hide */
+    protected static CellIdentityLte createFromParcelBody(Parcel in) {
+        return new CellIdentityLte(in);
     }
 }

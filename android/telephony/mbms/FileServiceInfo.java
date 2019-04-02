@@ -17,6 +17,7 @@
 package android.telephony.mbms;
 
 import android.annotation.SystemApi;
+import android.annotation.TestApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -29,13 +30,13 @@ import java.util.Map;
 /**
  * Describes a file service available from the carrier from which files can be downloaded via
  * cell-broadcast.
- * @hide
  */
 public final class FileServiceInfo extends ServiceInfo implements Parcelable {
     private final List<FileInfo> files;
 
     /** @hide */
-    //@SystemApi
+    @SystemApi
+    @TestApi
     public FileServiceInfo(Map<Locale, String> newNames, String newClassName,
             List<Locale> newLocales, String newServiceId, Date start, Date end,
             List<FileInfo> newFiles) {

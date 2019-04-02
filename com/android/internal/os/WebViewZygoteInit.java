@@ -18,13 +18,16 @@ package com.android.internal.os;
 
 import android.app.ApplicationLoaders;
 import android.net.LocalSocket;
+import android.net.LocalServerSocket;
 import android.os.Build;
 import android.system.ErrnoException;
 import android.system.Os;
+import android.system.OsConstants;
 import android.text.TextUtils;
 import android.util.Log;
 import android.webkit.WebViewFactory;
 import android.webkit.WebViewFactoryProvider;
+import android.webkit.WebViewLibraryLoader;
 
 import java.io.DataOutputStream;
 import java.io.File;
@@ -69,7 +72,8 @@ class WebViewZygoteInit {
         }
 
         @Override
-        protected void handlePreloadPackage(String packagePath, String libsPath, String cacheKey) {
+        protected void handlePreloadPackage(String packagePath, String libsPath, String libFileName,
+                String cacheKey) {
             Log.i(TAG, "Beginning package preload");
             // Ask ApplicationLoaders to create and cache a classloader for the WebView APK so that
             // our children will reuse the same classloader instead of creating their own.
@@ -77,6 +81,10 @@ class WebViewZygoteInit {
             // have the preloaded versions actually be used post-fork.
             ClassLoader loader = ApplicationLoaders.getDefault().createAndCacheWebViewClassLoader(
                     packagePath, libsPath, cacheKey);
+
+            // Load the native library using WebViewLibraryLoader to share the RELRO data with other
+            // processes.
+            WebViewLibraryLoader.loadNativeLibrary(loader, libFileName);
 
             // Add the APK to the Zygote's list of allowed files for children.
             String[] packageList = TextUtils.split(packagePath, File.pathSeparator);
@@ -118,18 +126,35 @@ class WebViewZygoteInit {
     }
 
     public static void main(String argv[]) {
-        sServer = new WebViewZygoteServer();
+        Log.i(TAG, "Starting WebViewZygoteInit");
 
-        // Zygote goes into its own process group.
-        try {
-            Os.setpgid(0, 0);
-        } catch (ErrnoException ex) {
-            throw new RuntimeException("Failed to setpgid(0,0)", ex);
+        String socketName = null;
+        for (String arg : argv) {
+            Log.i(TAG, arg);
+            if (arg.startsWith(Zygote.CHILD_ZYGOTE_SOCKET_NAME_ARG)) {
+                socketName = arg.substring(Zygote.CHILD_ZYGOTE_SOCKET_NAME_ARG.length());
+            }
         }
+        if (socketName == null) {
+            throw new RuntimeException("No " + Zygote.CHILD_ZYGOTE_SOCKET_NAME_ARG + " specified");
+        }
+
+        try {
+            Os.prctl(OsConstants.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+        } catch (ErrnoException ex) {
+            throw new RuntimeException("Failed to set PR_SET_NO_NEW_PRIVS", ex);
+        }
+
+        sServer = new WebViewZygoteServer();
 
         final Runnable caller;
         try {
-            sServer.registerServerSocket("webview_zygote");
+            sServer.registerServerSocketAtAbstractName(socketName);
+
+            // Add the abstract socket to the FD whitelist so that the native zygote code
+            // can properly detach it after forking.
+            Zygote.nativeAllowFileAcrossFork("ABSTRACT/" + socketName);
+
             // The select loop returns early in the child process after a fork and
             // loops forever in the zygote.
             caller = sServer.runSelectLoop(TextUtils.join(",", Build.SUPPORTED_ABIS));

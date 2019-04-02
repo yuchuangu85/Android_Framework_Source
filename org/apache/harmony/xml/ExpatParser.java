@@ -16,6 +16,7 @@
 
 package org.apache.harmony.xml;
 
+import dalvik.annotation.optimization.ReachabilitySensitive;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
@@ -44,6 +45,9 @@ class ExpatParser {
     private static final int BUFFER_SIZE = 8096; // in bytes
 
     /** Pointer to XML_Parser instance. */
+    // A few native methods taking the pointer value are static; @ReachabilitySensitive is
+    // necessary to ensure the Java object is kept reachable sufficiently long in these cases.
+    @ReachabilitySensitive
     private long pointer;
 
     private boolean inStartElement = false;
@@ -618,6 +622,9 @@ class ExpatParser {
      * Used for cloned attributes.
      */
     private static class ClonedAttributes extends ExpatAttributes {
+    // TODO: Can we please remove this? It appears unused, and the finalizer
+    // asynchronously invalidates the result returned by getPointer() at a
+    // largely unpredictable time. b/70989581
 
         private static final Attributes EMPTY = new ClonedAttributes(0, 0, 0);
 

@@ -33,8 +33,7 @@ import android.hardware.radio.V1_0.RadioResponseInfo;
 import android.hardware.radio.V1_0.SendSmsResult;
 import android.hardware.radio.V1_0.SetupDataCallResult;
 import android.hardware.radio.V1_0.VoiceRegStateResult;
-import android.hardware.radio.V1_1.IRadioResponse;
-import android.hardware.radio.V1_1.KeepaliveStatus;
+import android.hardware.radio.V1_2.IRadioResponse;
 import android.os.AsyncResult;
 import android.os.Message;
 import android.os.SystemClock;
@@ -48,7 +47,7 @@ import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 
-import com.android.internal.telephony.dataconnection.DataCallResponse;
+import com.android.internal.telephony.dataconnection.KeepaliveStatus;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus;
 import com.android.internal.telephony.uicc.IccCardStatus;
@@ -101,6 +100,15 @@ public class RadioResponse extends IRadioResponse.Stub {
      */
     public void getIccCardStatusResponse(RadioResponseInfo responseInfo, CardStatus cardStatus) {
         responseIccCardStatus(responseInfo, cardStatus);
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     * @param cardStatus ICC card status as defined by CardStatus in 1.2/types.hal
+     */
+    public void getIccCardStatusResponse_1_2(RadioResponseInfo responseInfo,
+                                             android.hardware.radio.V1_2.CardStatus cardStatus) {
+        responseIccCardStatus_1_2(responseInfo, cardStatus);
     }
 
     /**
@@ -167,6 +175,15 @@ public class RadioResponse extends IRadioResponse.Stub {
     public void getCurrentCallsResponse(RadioResponseInfo responseInfo,
                                         ArrayList<android.hardware.radio.V1_0.Call> calls) {
         responseCurrentCalls(responseInfo, calls);
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     * @param calls Current call list
+     */
+    public void getCurrentCallsResponse_1_2(RadioResponseInfo responseInfo,
+                                        ArrayList<android.hardware.radio.V1_2.Call> calls) {
+        responseCurrentCalls_1_2(responseInfo, calls);
     }
 
     /**
@@ -243,7 +260,17 @@ public class RadioResponse extends IRadioResponse.Stub {
         responseSignalStrength(responseInfo, sigStrength);
     }
 
-    /*
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     * @param signalStrength Current signal strength of camped/connected cells
+     */
+    public void getSignalStrengthResponse_1_2(
+            RadioResponseInfo responseInfo,
+            android.hardware.radio.V1_2.SignalStrength signalStrength) {
+        responseSignalStrength_1_2(responseInfo, signalStrength);
+    }
+
+    /**
      * @param responseInfo Response info struct containing response type, serial no. and error
      * @param voiceRegResponse Current Voice registration response as defined by VoiceRegStateResult
      *        in types.hal
@@ -262,11 +289,45 @@ public class RadioResponse extends IRadioResponse.Stub {
 
     /**
      * @param responseInfo Response info struct containing response type, serial no. and error
+     * @param voiceRegResponse Current Voice registration response as defined by VoiceRegStateResult
+     *        in 1.2/types.hal
+     */
+    public void getVoiceRegistrationStateResponse_1_2(RadioResponseInfo responseInfo,
+            android.hardware.radio.V1_2.VoiceRegStateResult voiceRegResponse) {
+        RILRequest rr = mRil.processResponse(responseInfo);
+
+        if (rr != null) {
+            if (responseInfo.error == RadioError.NONE) {
+                sendMessageResponse(rr.mResult, voiceRegResponse);
+            }
+            mRil.processResponseDone(rr, responseInfo, voiceRegResponse);
+        }
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
      * @param dataRegResponse Current Data registration response as defined by DataRegStateResult in
      *        types.hal
      */
     public void getDataRegistrationStateResponse(RadioResponseInfo responseInfo,
                                                  DataRegStateResult dataRegResponse) {
+        RILRequest rr = mRil.processResponse(responseInfo);
+
+        if (rr != null) {
+            if (responseInfo.error == RadioError.NONE) {
+                sendMessageResponse(rr.mResult, dataRegResponse);
+            }
+            mRil.processResponseDone(rr, responseInfo, dataRegResponse);
+        }
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     * @param dataRegResponse Current Data registration response as defined by DataRegStateResult in
+     *        1.2/types.hal
+     */
+    public void getDataRegistrationStateResponse_1_2(RadioResponseInfo responseInfo,
+            android.hardware.radio.V1_2.DataRegStateResult dataRegResponse) {
         RILRequest rr = mRil.processResponse(responseInfo);
 
         if (rr != null) {
@@ -908,12 +969,13 @@ public class RadioResponse extends IRadioResponse.Stub {
     }
 
     /**
+     * This method is deprecated and should not be used.
      *
      * @param responseInfo Response info struct containing response type, serial no. and error
      * @param response response string of the challenge/response algo for ISIM auth in base64 format
      */
     public void requestIsimAuthenticationResponse(RadioResponseInfo responseInfo, String response) {
-        responseString(responseInfo, response);
+        throw new RuntimeException("Inexplicable response received for requestIsimAuthentication");
     }
 
     /**
@@ -945,6 +1007,16 @@ public class RadioResponse extends IRadioResponse.Stub {
     public void getCellInfoListResponse(RadioResponseInfo responseInfo,
                                         ArrayList<android.hardware.radio.V1_0.CellInfo> cellInfo) {
         responseCellInfoList(responseInfo, cellInfo);
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     * @param cellInfo List of current cell information known to radio
+     */
+    public void getCellInfoListResponse_1_2(
+            RadioResponseInfo responseInfo,
+            ArrayList<android.hardware.radio.V1_2.CellInfo> cellInfo) {
+        responseCellInfoList_1_2(responseInfo, cellInfo);
     }
 
     /**
@@ -1214,59 +1286,154 @@ public class RadioResponse extends IRadioResponse.Stub {
     /**
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
+    public void setSignalStrengthReportingCriteriaResponse(RadioResponseInfo responseInfo) {
+        responseVoid(responseInfo);
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     */
+    public void setLinkCapacityReportingCriteriaResponse(RadioResponseInfo responseInfo) {
+        responseVoid(responseInfo);
+    }
+
+    /**
+     * @param responseInfo Response info struct containing response type, serial no. and error
+     */
     public void setSimCardPowerResponse_1_1(RadioResponseInfo responseInfo) {
         responseVoid(responseInfo);
     }
+
 
     /**
      * @param responseInfo Response info struct containing response type, serial no. and error
      * @param keepaliveStatus status of the keepalive with a handle for the session
      */
     public void startKeepaliveResponse(RadioResponseInfo responseInfo,
-            KeepaliveStatus keepaliveStatus) {
-        throw new UnsupportedOperationException("startKeepaliveResponse not implemented");
+            android.hardware.radio.V1_1.KeepaliveStatus keepaliveStatus) {
+
+        RILRequest rr = mRil.processResponse(responseInfo);
+
+        if (rr == null) {
+            return;
+        }
+
+        KeepaliveStatus ret = null;
+
+        switch(responseInfo.error) {
+            case RadioError.NONE:
+                int convertedStatus = convertHalKeepaliveStatusCode(keepaliveStatus.code);
+                if (convertedStatus < 0) {
+                    ret = new KeepaliveStatus(KeepaliveStatus.ERROR_UNSUPPORTED);
+                } else {
+                    ret = new KeepaliveStatus(keepaliveStatus.sessionHandle, convertedStatus);
+                }
+                break;
+            case RadioError.REQUEST_NOT_SUPPORTED:
+                ret = new KeepaliveStatus(KeepaliveStatus.ERROR_UNSUPPORTED);
+                // The request is unsupported, which is ok. We'll report it to the higher
+                // layer and treat it as acceptable in the RIL.
+                responseInfo.error = RadioError.NONE;
+                break;
+            case RadioError.NO_RESOURCES:
+                ret = new KeepaliveStatus(KeepaliveStatus.ERROR_NO_RESOURCES);
+                break;
+            default:
+                ret = new KeepaliveStatus(KeepaliveStatus.ERROR_UNKNOWN);
+                break;
+        }
+        sendMessageResponse(rr.mResult, ret);
+        mRil.processResponseDone(rr, responseInfo, ret);
     }
 
     /**
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
     public void stopKeepaliveResponse(RadioResponseInfo responseInfo) {
-        throw new UnsupportedOperationException("stopKeepaliveResponse not implemented");
+        RILRequest rr = mRil.processResponse(responseInfo);
+
+        if (rr == null) {
+            return;
+        }
+
+        if (responseInfo.error == RadioError.NONE) {
+            sendMessageResponse(rr.mResult, null);
+            mRil.processResponseDone(rr, responseInfo, null);
+        } else {
+            //TODO: Error code translation
+        }
+    }
+
+    private int convertHalKeepaliveStatusCode(int halCode) {
+        switch (halCode) {
+            case android.hardware.radio.V1_1.KeepaliveStatusCode.ACTIVE:
+                return KeepaliveStatus.STATUS_ACTIVE;
+            case android.hardware.radio.V1_1.KeepaliveStatusCode.INACTIVE:
+                return KeepaliveStatus.STATUS_INACTIVE;
+            case android.hardware.radio.V1_1.KeepaliveStatusCode.PENDING:
+                return KeepaliveStatus.STATUS_PENDING;
+            default:
+                mRil.riljLog("Invalid Keepalive Status" + halCode);
+                return -1;
+        }
+    }
+
+    private IccCardStatus convertHalCardStatus(CardStatus cardStatus) {
+        IccCardStatus iccCardStatus = new IccCardStatus();
+        iccCardStatus.setCardState(cardStatus.cardState);
+        iccCardStatus.setUniversalPinState(cardStatus.universalPinState);
+        iccCardStatus.mGsmUmtsSubscriptionAppIndex = cardStatus.gsmUmtsSubscriptionAppIndex;
+        iccCardStatus.mCdmaSubscriptionAppIndex = cardStatus.cdmaSubscriptionAppIndex;
+        iccCardStatus.mImsSubscriptionAppIndex = cardStatus.imsSubscriptionAppIndex;
+        int numApplications = cardStatus.applications.size();
+
+        // limit to maximum allowed applications
+        if (numApplications
+                > com.android.internal.telephony.uicc.IccCardStatus.CARD_MAX_APPS) {
+            numApplications =
+                com.android.internal.telephony.uicc.IccCardStatus.CARD_MAX_APPS;
+        }
+        iccCardStatus.mApplications = new IccCardApplicationStatus[numApplications];
+        for (int i = 0; i < numApplications; i++) {
+            AppStatus rilAppStatus = cardStatus.applications.get(i);
+            IccCardApplicationStatus appStatus = new IccCardApplicationStatus();
+            appStatus.app_type       = appStatus.AppTypeFromRILInt(rilAppStatus.appType);
+            appStatus.app_state      = appStatus.AppStateFromRILInt(rilAppStatus.appState);
+            appStatus.perso_substate = appStatus.PersoSubstateFromRILInt(
+                rilAppStatus.persoSubstate);
+            appStatus.aid            = rilAppStatus.aidPtr;
+            appStatus.app_label      = rilAppStatus.appLabelPtr;
+            appStatus.pin1_replaced  = rilAppStatus.pin1Replaced;
+            appStatus.pin1           = appStatus.PinStateFromRILInt(rilAppStatus.pin1);
+            appStatus.pin2           = appStatus.PinStateFromRILInt(rilAppStatus.pin2);
+            iccCardStatus.mApplications[i] = appStatus;
+            mRil.riljLog("IccCardApplicationStatus " + i + ":" + appStatus.toString());
+        }
+        return iccCardStatus;
     }
 
     private void responseIccCardStatus(RadioResponseInfo responseInfo, CardStatus cardStatus) {
         RILRequest rr = mRil.processResponse(responseInfo);
 
         if (rr != null) {
-            IccCardStatus iccCardStatus = new IccCardStatus();
-            iccCardStatus.setCardState(cardStatus.cardState);
-            iccCardStatus.setUniversalPinState(cardStatus.universalPinState);
-            iccCardStatus.mGsmUmtsSubscriptionAppIndex = cardStatus.gsmUmtsSubscriptionAppIndex;
-            iccCardStatus.mCdmaSubscriptionAppIndex = cardStatus.cdmaSubscriptionAppIndex;
-            iccCardStatus.mImsSubscriptionAppIndex = cardStatus.imsSubscriptionAppIndex;
-            int numApplications = cardStatus.applications.size();
+            IccCardStatus iccCardStatus = convertHalCardStatus(cardStatus);
+            mRil.riljLog("responseIccCardStatus: from HIDL: " + iccCardStatus);
+            if (responseInfo.error == RadioError.NONE) {
+                sendMessageResponse(rr.mResult, iccCardStatus);
+            }
+            mRil.processResponseDone(rr, responseInfo, iccCardStatus);
+        }
+    }
 
-            // limit to maximum allowed applications
-            if (numApplications
-                    > com.android.internal.telephony.uicc.IccCardStatus.CARD_MAX_APPS) {
-                numApplications =
-                        com.android.internal.telephony.uicc.IccCardStatus.CARD_MAX_APPS;
-            }
-            iccCardStatus.mApplications = new IccCardApplicationStatus[numApplications];
-            for (int i = 0; i < numApplications; i++) {
-                AppStatus rilAppStatus = cardStatus.applications.get(i);
-                IccCardApplicationStatus appStatus = new IccCardApplicationStatus();
-                appStatus.app_type       = appStatus.AppTypeFromRILInt(rilAppStatus.appType);
-                appStatus.app_state      = appStatus.AppStateFromRILInt(rilAppStatus.appState);
-                appStatus.perso_substate = appStatus.PersoSubstateFromRILInt(
-                        rilAppStatus.persoSubstate);
-                appStatus.aid            = rilAppStatus.aidPtr;
-                appStatus.app_label      = rilAppStatus.appLabelPtr;
-                appStatus.pin1_replaced  = rilAppStatus.pin1Replaced;
-                appStatus.pin1           = appStatus.PinStateFromRILInt(rilAppStatus.pin1);
-                appStatus.pin2           = appStatus.PinStateFromRILInt(rilAppStatus.pin2);
-                iccCardStatus.mApplications[i] = appStatus;
-            }
+    private void responseIccCardStatus_1_2(RadioResponseInfo responseInfo,
+                                           android.hardware.radio.V1_2.CardStatus cardStatus) {
+        RILRequest rr = mRil.processResponse(responseInfo);
+
+        if (rr != null) {
+            IccCardStatus iccCardStatus = convertHalCardStatus(cardStatus.base);
+            iccCardStatus.physicalSlotIndex = cardStatus.physicalSlotId;
+            iccCardStatus.atr = cardStatus.atr;
+            iccCardStatus.iccid = cardStatus.iccid;
             mRil.riljLog("responseIccCardStatus: from HIDL: " + iccCardStatus);
             if (responseInfo.error == RadioError.NONE) {
                 sendMessageResponse(rr.mResult, iccCardStatus);
@@ -1377,6 +1544,88 @@ public class RadioResponse extends IRadioResponse.Stub {
         }
     }
 
+    private void responseCurrentCalls_1_2(RadioResponseInfo responseInfo,
+                                      ArrayList<android.hardware.radio.V1_2.Call> calls) {
+        RILRequest rr = mRil.processResponse(responseInfo);
+
+        if (rr != null) {
+            int num = calls.size();
+            ArrayList<DriverCall> dcCalls = new ArrayList<DriverCall>(num);
+            DriverCall dc;
+
+            for (int i = 0; i < num; i++) {
+                dc = new DriverCall();
+                // TODO: change name of function stateFromCLCC() in DriverCall.java to name
+                // clarifying what is CLCC
+                dc.state = DriverCall.stateFromCLCC((int) (calls.get(i).base.state));
+                dc.index = calls.get(i).base.index;
+                dc.TOA = calls.get(i).base.toa;
+                dc.isMpty = calls.get(i).base.isMpty;
+                dc.isMT = calls.get(i).base.isMT;
+                dc.als = calls.get(i).base.als;
+                dc.isVoice = calls.get(i).base.isVoice;
+                dc.isVoicePrivacy = calls.get(i).base.isVoicePrivacy;
+                dc.number = calls.get(i).base.number;
+                dc.numberPresentation =
+                        DriverCall.presentationFromCLIP(
+                                (int) (calls.get(i).base.numberPresentation));
+                dc.name = calls.get(i).base.name;
+                dc.namePresentation =
+                        DriverCall.presentationFromCLIP((int) (calls.get(i).base.namePresentation));
+                if (calls.get(i).base.uusInfo.size() == 1) {
+                    dc.uusInfo = new UUSInfo();
+                    dc.uusInfo.setType(calls.get(i).base.uusInfo.get(0).uusType);
+                    dc.uusInfo.setDcs(calls.get(i).base.uusInfo.get(0).uusDcs);
+                    if (!TextUtils.isEmpty(calls.get(i).base.uusInfo.get(0).uusData)) {
+                        byte[] userData = calls.get(i).base.uusInfo.get(0).uusData.getBytes();
+                        dc.uusInfo.setUserData(userData);
+                    } else {
+                        mRil.riljLog("responseCurrentCalls: uusInfo data is null or empty");
+                    }
+
+                    mRil.riljLogv(String.format("Incoming UUS : type=%d, dcs=%d, length=%d",
+                            dc.uusInfo.getType(), dc.uusInfo.getDcs(),
+                            dc.uusInfo.getUserData().length));
+                    mRil.riljLogv("Incoming UUS : data (hex): "
+                            + IccUtils.bytesToHexString(dc.uusInfo.getUserData()));
+                } else {
+                    mRil.riljLogv("Incoming UUS : NOT present!");
+                }
+
+                // Make sure there's a leading + on addresses with a TOA of 145
+                dc.number = PhoneNumberUtils.stringFromStringAndTOA(dc.number, dc.TOA);
+
+                dc.audioQuality = (int) (calls.get(i).audioQuality);
+
+                dcCalls.add(dc);
+
+                if (dc.isVoicePrivacy) {
+                    mRil.mVoicePrivacyOnRegistrants.notifyRegistrants();
+                    mRil.riljLog("InCall VoicePrivacy is enabled");
+                } else {
+                    mRil.mVoicePrivacyOffRegistrants.notifyRegistrants();
+                    mRil.riljLog("InCall VoicePrivacy is disabled");
+                }
+            }
+
+            Collections.sort(dcCalls);
+
+            if ((num == 0) && mRil.mTestingEmergencyCall.getAndSet(false)) {
+                if (mRil.mEmergencyCallbackModeRegistrant != null) {
+                    mRil.riljLog("responseCurrentCalls: call ended, testing emergency call,"
+                            + " notify ECM Registrants");
+                    mRil.mEmergencyCallbackModeRegistrant.notifyRegistrant();
+                }
+            }
+
+            if (responseInfo.error == RadioError.NONE) {
+                sendMessageResponse(rr.mResult, dcCalls);
+            }
+            mRil.processResponseDone(rr, responseInfo, dcCalls);
+        }
+    }
+
+
     private void responseVoid(RadioResponseInfo responseInfo) {
         RILRequest rr = mRil.processResponse(responseInfo);
 
@@ -1439,12 +1688,27 @@ public class RadioResponse extends IRadioResponse.Stub {
         }
     }
 
-    private void responseSignalStrength(RadioResponseInfo responseInfo,
-                                        android.hardware.radio.V1_0.SignalStrength sigStrength) {
+    private void responseSignalStrength(
+            RadioResponseInfo responseInfo,
+            android.hardware.radio.V1_0.SignalStrength signalStrength) {
         RILRequest rr = mRil.processResponse(responseInfo);
 
         if (rr != null) {
-            SignalStrength ret = RIL.convertHalSignalStrength(sigStrength);
+            SignalStrength ret = RIL.convertHalSignalStrength(signalStrength);
+            if (responseInfo.error == RadioError.NONE) {
+                sendMessageResponse(rr.mResult, ret);
+            }
+            mRil.processResponseDone(rr, responseInfo, ret);
+        }
+    }
+
+    private void responseSignalStrength_1_2(
+            RadioResponseInfo responseInfo,
+            android.hardware.radio.V1_2.SignalStrength signalStrength) {
+        RILRequest rr = mRil.processResponse(responseInfo);
+
+        if (rr != null) {
+            SignalStrength ret = RIL.convertHalSignalStrength_1_2(signalStrength);
             if (responseInfo.error == RadioError.NONE) {
                 sendMessageResponse(rr.mResult, ret);
             }
@@ -1469,11 +1733,10 @@ public class RadioResponse extends IRadioResponse.Stub {
         RILRequest rr = mRil.processResponse(responseInfo);
 
         if (rr != null) {
-            DataCallResponse ret = RIL.convertDataCallResult(setupDataCallResult);
             if (responseInfo.error == RadioError.NONE) {
-                sendMessageResponse(rr.mResult, ret);
+                sendMessageResponse(rr.mResult, setupDataCallResult);
             }
-            mRil.processResponseDone(rr, responseInfo, ret);
+            mRil.processResponseDone(rr, responseInfo, setupDataCallResult);
         }
     }
 
@@ -1564,14 +1827,10 @@ public class RadioResponse extends IRadioResponse.Stub {
         RILRequest rr = mRil.processResponse(responseInfo);
 
         if (rr != null) {
-            ArrayList<DataCallResponse> dcResponseList = new ArrayList<>();
-            for (SetupDataCallResult dcResult : dataCallResultList) {
-                dcResponseList.add(RIL.convertDataCallResult(dcResult));
-            }
             if (responseInfo.error == RadioError.NONE) {
-                sendMessageResponse(rr.mResult, dcResponseList);
+                sendMessageResponse(rr.mResult, dataCallResultList);
             }
-            mRil.processResponseDone(rr, responseInfo, dcResponseList);
+            mRil.processResponseDone(rr, responseInfo, dataCallResultList);
         }
     }
 
@@ -1684,6 +1943,20 @@ public class RadioResponse extends IRadioResponse.Stub {
         }
     }
 
+    private void responseCellInfoList_1_2(
+            RadioResponseInfo responseInfo,
+            ArrayList<android.hardware.radio.V1_2.CellInfo> cellInfo) {
+        RILRequest rr = mRil.processResponse(responseInfo);
+
+        if (rr != null) {
+            ArrayList<CellInfo> ret = RIL.convertHalCellInfoList_1_2(cellInfo);
+            if (responseInfo.error == RadioError.NONE) {
+                sendMessageResponse(rr.mResult, ret);
+            }
+            mRil.processResponseDone(rr, responseInfo, ret);
+        }
+    }
+
     private void responseActivityData(RadioResponseInfo responseInfo,
                                       ActivityStatsInfo activityInfo) {
         RILRequest rr = mRil.processResponse(responseInfo);
@@ -1773,7 +2046,7 @@ public class RadioResponse extends IRadioResponse.Stub {
         RILRequest rr = mRil.processResponse(responseInfo);
 
         if (rr != null) {
-            ArrayList<Integer> ret = RIL.convertHalLceData(lceInfo, mRil);
+            LinkCapacityEstimate ret = RIL.convertHalLceData(lceInfo, mRil);
             if (responseInfo.error == RadioError.NONE) {
                 sendMessageResponse(rr.mResult, ret);
             }

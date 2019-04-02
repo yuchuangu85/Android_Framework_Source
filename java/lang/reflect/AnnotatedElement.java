@@ -31,7 +31,7 @@ import java.util.Objects;
 import libcore.reflect.AnnotatedElements;
 
 // Android-changed: Removed some references to bytecode spec below that do not
-// apply and added a note about annotation ordering.
+// apply to DEX and added a note about annotation ordering.
 /**
  * Represents an annotated element of the program currently running in this
  * VM.  This interface allows annotations to be read reflectively.  All
@@ -316,6 +316,9 @@ public interface AnnotatedElement {
      * @since 1.8
      */
     default <T extends Annotation> T[] getAnnotationsByType(Class<T> annotationClass) {
+        // Android-changed: Altered method implementation for getAnnotationsByType(Class).
+        // Android's annotation code is customized because of the use of the DEX format on Android
+        // and code sharing with the runtime.
         // This method does not handle inherited annotations and is intended for use for
         // {@code Method}, {@code Field}, {@code Package}. The {@link Class#getAnnotationsByType}
         // is implemented explicitly. Therefore this implementation does not fulfill the documented
@@ -402,6 +405,9 @@ public interface AnnotatedElement {
      * @since 1.8
      */
     default <T extends Annotation> T[] getDeclaredAnnotationsByType(Class<T> annotationClass) {
+        // Android-changed: Altered method implementation for getAnnotationsByType(Class).
+        // Android's annotation code is customized because of the use of the DEX format on Android
+        // and code sharing with the runtime.
         return AnnotatedElements.getDirectOrIndirectAnnotationsByType(this, annotationClass);
     }
 

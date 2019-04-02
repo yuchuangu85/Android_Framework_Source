@@ -29,7 +29,6 @@ import com.android.layoutlib.bridge.impl.ResourceHelper;
 import com.android.resources.ResourceType;
 
 import android.annotation.Nullable;
-import android.content.res.Resources.NotFoundException;
 import android.content.res.Resources.Theme;
 import android.graphics.Typeface;
 import android.graphics.Typeface_Accessor;
@@ -674,6 +673,13 @@ public final class BridgeTypedArray extends TypedArray {
 
         if (idValue != null) {
             return idValue;
+        }
+
+        if ("text".equals(mNames[index])) {
+            // In a TextView, if the text is set from the attribute android:text, the correct
+            // behaviour is not to find a resourceId for the text, and to return the default value.
+            // So in this case, do not log a warning.
+            return defValue;
         }
 
         Bridge.getLog().warning(LayoutLog.TAG_RESOURCES_RESOLVE,

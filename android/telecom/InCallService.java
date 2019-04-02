@@ -16,9 +16,11 @@
 
 package android.telecom;
 
+import android.annotation.NonNull;
 import android.annotation.SdkConstant;
 import android.annotation.SystemApi;
 import android.app.Service;
+import android.bluetooth.BluetoothDevice;
 import android.content.Intent;
 import android.hardware.camera2.CameraManager;
 import android.net.Uri;
@@ -58,6 +60,26 @@ import java.util.List;
  * </service>
  * }
  * </pre>
+ * <p>
+ * In addition to implementing the {@link InCallService} API, you must also declare an activity in
+ * your manifest which handles the {@link Intent#ACTION_DIAL} intent.  The example below illustrates
+ * how this is done:
+ * <pre>
+ * {@code
+ * <activity android:name="your.package.YourDialerActivity"
+ *           android:label="@string/yourDialerActivityLabel">
+ *      <intent-filter>
+ *           <action android:name="android.intent.action.DIAL" />
+ *           <category android:name="android.intent.category.DEFAULT" />
+ *      </intent-filter>
+ * </activity>
+ * }
+ * </pre>
+ * <p>
+ * When a user installs your application and runs it for the first time, you should prompt the user
+ * to see if they would like your application to be the new default phone app.  See the
+ * {@link TelecomManager#ACTION_CHANGE_DEFAULT_DIALER} intent documentation for more information on
+ * how to do this.
  */
 public abstract class InCallService extends Service {
 
@@ -78,6 +100,8 @@ public abstract class InCallService extends Service {
     private static final int MSG_ON_CONNECTION_EVENT = 9;
     private static final int MSG_ON_RTT_UPGRADE_REQUEST = 10;
     private static final int MSG_ON_RTT_INITIATION_FAILURE = 11;
+    private static final int MSG_ON_HANDOVER_FAILED = 12;
+    private static final int MSG_ON_HANDOVER_COMPLETE = 13;
 
     /** Default Handler used to consolidate binder method calls onto a single thread. */
     private final Handler mHandler = new Handler(Looper.getMainLooper()) {
@@ -146,6 +170,17 @@ public abstract class InCallService extends Service {
                     String callId = (String) msg.obj;
                     int reason = msg.arg1;
                     mPhone.internalOnRttInitiationFailure(callId, reason);
+                    break;
+                }
+                case MSG_ON_HANDOVER_FAILED: {
+                    String callId = (String) msg.obj;
+                    int error = msg.arg1;
+                    mPhone.internalOnHandoverFailed(callId, error);
+                    break;
+                }
+                case MSG_ON_HANDOVER_COMPLETE: {
+                    String callId = (String) msg.obj;
+                    mPhone.internalOnHandoverComplete(callId);
                     break;
                 }
                 default:
@@ -222,6 +257,16 @@ public abstract class InCallService extends Service {
         @Override
         public void onRttInitiationFailure(String callId, int reason) {
             mHandler.obtainMessage(MSG_ON_RTT_INITIATION_FAILURE, reason, 0, callId).sendToTarget();
+        }
+
+        @Override
+        public void onHandoverFailed(String callId, int error) {
+            mHandler.obtainMessage(MSG_ON_HANDOVER_FAILED, error, 0, callId).sendToTarget();
+        }
+
+        @Override
+        public void onHandoverComplete(String callId) {
+            mHandler.obtainMessage(MSG_ON_HANDOVER_COMPLETE, callId).sendToTarget();
         }
     }
 
@@ -373,6 +418,21 @@ public abstract class InCallService extends Service {
     public final void setAudioRoute(int route) {
         if (mPhone != null) {
             mPhone.setAudioRoute(route);
+        }
+    }
+
+    /**
+     * Request audio routing to a specific bluetooth device. Calling this method may result in
+     * the device routing audio to a different bluetooth device than the one specified if the
+     * bluetooth stack is unable to route audio to the requested device.
+     * A list of available devices can be obtained via
+     * {@link CallAudioState#getSupportedBluetoothDevices()}
+     *
+     * @param bluetoothDevice The bluetooth device to connect to.
+     */
+    public final void requestBluetoothAudio(@NonNull BluetoothDevice bluetoothDevice) {
+        if (mPhone != null) {
+            mPhone.requestBluetoothAudio(bluetoothDevice.getAddress());
         }
     }
 

@@ -31,6 +31,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
+// Android-changed: Remove reference to a specific unicode standard version
 /**
  * The {@code Character} class wraps a value of the primitive
  * type {@code char} in an object. An object of type
@@ -41,7 +42,7 @@ import java.util.Map;
  * a character's category (lowercase letter, digit, etc.) and for converting
  * characters from uppercase to lowercase and vice versa.
  * <p>
- * Character information is based on the Unicode Standard, version 6.2.0.
+ * Character information is based on the Unicode Standard
  * <p>
  * The methods and data of class {@code Character} are defined by
  * the information in the <i>UnicodeData</i> file that is part of the
@@ -173,7 +174,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @since   1.1
      */
     @SuppressWarnings("unchecked")
-    public static final Class<Character> TYPE = (Class<Character>) char[].class.getComponentType();
+    public static final Class<Character> TYPE = (Class<Character>) Class.getPrimitiveClass("char");
 
     /*
      * Normative general types

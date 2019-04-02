@@ -44,7 +44,6 @@ import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneNotifier;
 import com.android.internal.telephony.TelephonyProperties;
 import com.android.internal.telephony.UUSInfo;
-import com.android.internal.telephony.dataconnection.DataConnection;
 import com.android.internal.telephony.uicc.IccFileHandler;
 
 import java.util.ArrayList;
@@ -68,13 +67,6 @@ abstract class SipPhoneBase extends Phone {
 
     @Override
     public abstract Call getRingingCall();
-
-    @Override
-    public Connection dial(String dialString, UUSInfo uusInfo, int videoState, Bundle intentExtras)
-            throws CallStateException {
-        // ignore UUSInfo
-        return dial(dialString, videoState);
-    }
 
     void migrateFrom(SipPhoneBase from) {
         super.migrateFrom(from);
@@ -416,14 +408,6 @@ abstract class SipPhoneBase extends Phone {
     }
 
     @Override
-    public void getDataCallList(Message response) {
-    }
-
-    public List<DataConnection> getCurrentDataConnectionList () {
-        return null;
-    }
-
-    @Override
     public void updateServiceLocation() {
     }
 
@@ -445,12 +429,17 @@ abstract class SipPhoneBase extends Phone {
     }
 
     @Override
-    public boolean getDataEnabled() {
+    public boolean isUserDataEnabled() {
         return false;
     }
 
     @Override
-    public void setDataEnabled(boolean enable) {
+    public boolean isDataEnabled() {
+        return false;
+    }
+
+    @Override
+    public void setUserDataEnabled(boolean enable) {
     }
 
     public boolean enableDataConnectivity() {
@@ -546,5 +535,15 @@ abstract class SipPhoneBase extends Phone {
 
     @Override
     public void setBroadcastEmergencyCallStateChanges(boolean broadcast) {
+    }
+
+    @Override
+    public void getCallBarring(String facility, String password, Message onComplete,
+            int serviceClass) {
+    }
+
+    @Override
+    public void setCallBarring(String facility, boolean lockState, String password,
+            Message onComplete, int serviceClass) {
     }
 }

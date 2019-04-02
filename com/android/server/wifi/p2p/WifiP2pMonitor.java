@@ -143,49 +143,14 @@ public class WifiP2pMonitor {
     }
 
     /**
-     * Wait for wpa_supplicant's control interface to be ready.
-     *
-     * TODO: Add unit tests for these once we remove the legacy code.
-     */
-    private boolean ensureConnectedLocked() {
-        if (mConnected) {
-            return true;
-        }
-        if (mVerboseLoggingEnabled) Log.d(TAG, "connecting to supplicant");
-        int connectTries = 0;
-        while (true) {
-            mConnected = mWifiInjector.getWifiP2pNative().connectToSupplicant();
-            if (mConnected) {
-                return true;
-            }
-            if (connectTries++ < 50) {
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ignore) {
-                }
-            } else {
-                return false;
-            }
-        }
-    }
-
-    /**
      * Start Monitoring for wpa_supplicant events.
      *
      * @param iface Name of iface.
      * TODO: Add unit tests for these once we remove the legacy code.
      */
     public synchronized void startMonitoring(String iface) {
-        if (ensureConnectedLocked()) {
-            setMonitoring(iface, true);
-            broadcastSupplicantConnectionEvent(iface);
-        } else {
-            boolean originalMonitoring = isMonitoring(iface);
-            setMonitoring(iface, true);
-            broadcastSupplicantDisconnectionEvent(iface);
-            setMonitoring(iface, originalMonitoring);
-            Log.e(TAG, "startMonitoring(" + iface + ") failed!");
-        }
+        setMonitoring(iface, true);
+        broadcastSupplicantConnectionEvent(iface);
     }
 
     /**

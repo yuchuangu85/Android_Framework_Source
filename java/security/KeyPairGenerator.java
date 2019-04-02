@@ -299,6 +299,8 @@ public abstract class KeyPairGenerator extends KeyPairGeneratorSpi {
     public static KeyPairGenerator getInstance(String algorithm,
             String provider)
             throws NoSuchAlgorithmException, NoSuchProviderException {
+        // Android-added: Check for Bouncy Castle deprecation
+        Providers.checkBouncyCastleDeprecation(provider, "KeyPairGenerator", algorithm);
         Instance instance = GetInstance.getInstance("KeyPairGenerator",
                 KeyPairGeneratorSpi.class, algorithm, provider);
         return getInstance(instance, algorithm);
@@ -335,6 +337,8 @@ public abstract class KeyPairGenerator extends KeyPairGeneratorSpi {
      */
     public static KeyPairGenerator getInstance(String algorithm,
             Provider provider) throws NoSuchAlgorithmException {
+        // Android-added: Check for Bouncy Castle deprecation
+        Providers.checkBouncyCastleDeprecation(provider, "KeyPairGenerator", algorithm);
         Instance instance = GetInstance.getInstance("KeyPairGenerator",
                 KeyPairGeneratorSpi.class, algorithm, provider);
         return getInstance(instance, algorithm);

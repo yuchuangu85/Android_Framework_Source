@@ -270,7 +270,7 @@ public class WapPushOverSms implements ServiceConnection {
             if (parsedPdu != null && parsedPdu.getMessageType() == MESSAGE_TYPE_NOTIFICATION_IND) {
                 final NotificationInd nInd = (NotificationInd) parsedPdu;
                 if (nInd.getFrom() != null
-                        && BlockChecker.isBlocked(mContext, nInd.getFrom().getString())) {
+                        && BlockChecker.isBlocked(mContext, nInd.getFrom().getString(), null)) {
                     result.statusCode = Intents.RESULT_SMS_HANDLED;
                     return result;
                 }

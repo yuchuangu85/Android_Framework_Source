@@ -45,6 +45,8 @@ import java.security.AccessController;
 
 import static android.system.OsConstants.*;
 
+// Android-note: NetworkInterface has been rewritten to avoid native code.
+// Fix upstream bug not returning link-down interfaces. http://b/26238832
 /**
  * This class represents a Network Interface made up of a name,
  * and a list of IP addresses assigned to this interface.
@@ -61,14 +63,30 @@ public final class NetworkInterface {
     private int index;
     private InetAddress addrs[];
     private InterfaceAddress bindings[];
+    // Android-changed: Rewrote NetworkInterface on top of Libcore.io.
+    // private NetworkInterface childs[];
     private List<NetworkInterface> childs;
     private NetworkInterface parent = null;
     private boolean virtual = false;
-    private byte[] hardwareAddr;
     private static final NetworkInterface defaultInterface;
     private static final int defaultIndex; /* index of defaultInterface */
 
+    // Android-changed: Fix upstream bug not returning link-down interfaces. http://b/26238832
+    private byte[] hardwareAddr;
+
     static {
+        // Android-removed: Android doesn't need to call native init.
+        /*
+        AccessController.doPrivileged(
+            new java.security.PrivilegedAction<Void>() {
+                public Void run() {
+                    System.loadLibrary("net");
+                    return null;
+                }
+            });
+
+        init();
+        */
         defaultInterface = DefaultInterface.getDefault();
         if (defaultInterface != null) {
             defaultIndex = defaultInterface.getIndex();
@@ -203,6 +221,7 @@ public final class NetworkInterface {
      * @since 1.6
      */
     public Enumeration<NetworkInterface> getSubInterfaces() {
+        // Android-changed: Rewrote NetworkInterface on top of Libcore.io.
         return Collections.enumeration(childs);
     }
 
@@ -266,6 +285,7 @@ public final class NetworkInterface {
         if (name == null)
             throw new NullPointerException();
 
+        // Android-changed: Rewrote NetworkInterface on top of Libcore.io.
         NetworkInterface[] nis = getAll();
         for (NetworkInterface ni : nis) {
             if (ni.getName().equals(name)) {
@@ -290,6 +310,7 @@ public final class NetworkInterface {
         if (index < 0)
             throw new IllegalArgumentException("Interface index can't be negative");
 
+        // Android-changed: Rewrote NetworkInterface on top of Libcore.io.
         NetworkInterface[] nis = getAll();
         for (NetworkInterface ni : nis) {
             if (ni.getIndex() == index) {
@@ -329,6 +350,7 @@ public final class NetworkInterface {
             throw new IllegalArgumentException ("invalid address type");
         }
 
+        // Android-changed: Rewrote NetworkInterface on top of Libcore.io.
         NetworkInterface[] nis = getAll();
         for (NetworkInterface ni : nis) {
             for (InetAddress inetAddress : Collections.list(ni.getInetAddresses())) {
@@ -357,6 +379,7 @@ public final class NetworkInterface {
         throws SocketException {
         final NetworkInterface[] netifs = getAll();
 
+        // Android-changed: Rewrote NetworkInterface on top of Libcore.io.
         // specified to return null if no network interfaces
         if (netifs.length == 0)
             return null;
@@ -364,6 +387,9 @@ public final class NetworkInterface {
         return Collections.enumeration(Arrays.asList(netifs));
     }
 
+    // BEGIN Android-changed: Rewrote NetworkInterface on top of Libcore.io.
+    // private native static NetworkInterface[] getAll()
+    //    throws SocketException;
     private static NetworkInterface[] getAll() throws SocketException {
         // Group Ifaddrs by interface name.
         Map<String, List<StructIfaddrs>> inetMap = new HashMap<>();
@@ -439,6 +465,7 @@ public final class NetworkInterface {
 
         return nis.values().toArray(new NetworkInterface[nis.size()]);
     }
+    // END Android-changed: Rewrote NetworkInterface on top of Libcore.io.
 
     /**
      * Returns whether a network interface is up and running.
@@ -449,7 +476,9 @@ public final class NetworkInterface {
      */
 
     public boolean isUp() throws SocketException {
-        return (getFlags() & IFF_UP) != 0;
+        // Android-changed: Rewrote NetworkInterface on top of Libcore.io.
+        final int mask = IFF_UP | IFF_RUNNING;
+        return (getFlags() & mask) == mask;
     }
 
     /**
@@ -461,6 +490,7 @@ public final class NetworkInterface {
      */
 
     public boolean isLoopback() throws SocketException {
+        // Android-changed: Rewrote NetworkInterface on top of Libcore.io.
         return (getFlags() & IFF_LOOPBACK) != 0;
     }
 
@@ -476,6 +506,7 @@ public final class NetworkInterface {
      */
 
     public boolean isPointToPoint() throws SocketException {
+        // Android-changed: Rewrote NetworkInterface on top of Libcore.io.
         return (getFlags() & IFF_POINTOPOINT) != 0;
     }
 
@@ -488,6 +519,7 @@ public final class NetworkInterface {
      */
 
     public boolean supportsMulticast() throws SocketException {
+        // Android-changed: Rewrote NetworkInterface on top of Libcore.io.
         return (getFlags() & IFF_MULTICAST) != 0;
     }
 
@@ -506,13 +538,21 @@ public final class NetworkInterface {
      * @since 1.6
      */
     public byte[] getHardwareAddress() throws SocketException {
-        // Android chage - do not use the cached address, fetch
-        // the object again. NI might not be valid anymore.
+        // BEGIN Android-changed: Fix upstream not returning link-down interfaces. http://b/26238832
+        /*
+        for (InetAddress addr : addrs) {
+            if (addr instanceof Inet4Address) {
+                return getMacAddr0(((Inet4Address)addr).getAddress(), name, index);
+            }
+        }
+        return getMacAddr0(null, name, index);
+         */
         NetworkInterface ni = getByName(name);
         if (ni == null) {
             throw new SocketException("NetworkInterface doesn't exist anymore");
         }
         return ni.hardwareAddr;
+        // END Android-changed: Fix upstream not returning link-down interfaces. http://b/26238832
     }
 
     /**
@@ -523,6 +563,8 @@ public final class NetworkInterface {
      * @since 1.6
      */
     public int getMTU() throws SocketException {
+        // Android-changed: Rewrote NetworkInterface on top of Libcore.io.
+        // return getMTU0(name, index);
         FileDescriptor fd = null;
         try {
             fd = Libcore.rawOs.socket(AF_INET, SOCK_DGRAM, 0);
@@ -553,6 +595,18 @@ public final class NetworkInterface {
         return virtual;
     }
 
+    // BEGIN Android-removed: Rewrote NetworkInterface on top of Libcore.io.
+    /*
+    private native static boolean isUp0(String name, int ind) throws SocketException;
+    private native static boolean isLoopback0(String name, int ind) throws SocketException;
+    private native static boolean supportsMulticast0(String name, int ind) throws SocketException;
+    private native static boolean isP2P0(String name, int ind) throws SocketException;
+    private native static byte[] getMacAddr0(byte[] inAddr, String name, int ind) throws SocketException;
+    private native static int getMTU0(String name, int ind) throws SocketException;
+    */
+    // END Android-removed: Rewrote NetworkInterface on top of Libcore.io.
+
+    // BEGIN Android-added: Rewrote NetworkInterface on top of Libcore.io.
     private int getFlags() throws SocketException {
         FileDescriptor fd = null;
         try {
@@ -566,6 +620,7 @@ public final class NetworkInterface {
             IoUtils.closeQuietly(fd);
         }
     }
+    // END Android-added: Rewrote NetworkInterface on top of Libcore.io.
 
     /**
      * Compares this object against the specified object.
@@ -638,6 +693,9 @@ public final class NetworkInterface {
         }
         return result;
     }
+
+    // Android-removed: Android doesn't need to call native init.
+    // private static native void init();
 
     /**
      * Returns the default network interface of this system

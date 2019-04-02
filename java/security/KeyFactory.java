@@ -231,6 +231,8 @@ public class KeyFactory {
      */
     public static KeyFactory getInstance(String algorithm, String provider)
             throws NoSuchAlgorithmException, NoSuchProviderException {
+        // Android-added: Check for Bouncy Castle deprecation
+        Providers.checkBouncyCastleDeprecation(provider, "KeyFactory", algorithm);
         Instance instance = GetInstance.getInstance("KeyFactory",
             KeyFactorySpi.class, algorithm, provider);
         return new KeyFactory((KeyFactorySpi)instance.impl,
@@ -268,6 +270,8 @@ public class KeyFactory {
      */
     public static KeyFactory getInstance(String algorithm, Provider provider)
             throws NoSuchAlgorithmException {
+        // Android-added: Check for Bouncy Castle deprecation
+        Providers.checkBouncyCastleDeprecation(provider, "KeyFactory", algorithm);
         Instance instance = GetInstance.getInstance("KeyFactory",
             KeyFactorySpi.class, algorithm, provider);
         return new KeyFactory((KeyFactorySpi)instance.impl,

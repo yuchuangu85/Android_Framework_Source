@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2015, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -54,6 +54,7 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
     protected InetAddress connectedAddress = null;
     private int connectedPort = -1;
 
+    // Android-added: CloseGuard
     private final CloseGuard guard = CloseGuard.get();
 
     private static final String os = AccessController.doPrivileged(
@@ -64,6 +65,22 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
      * flag set if the native connect() call not to be used
      */
     private final static boolean connectDisabled = os.contains("OS X");
+
+    // BEGIN Android-removed: Android doesn't need to load native net library
+    /**
+     * Load net library into runtime.
+     *
+    static {
+        java.security.AccessController.doPrivileged(
+            new java.security.PrivilegedAction<Void>() {
+                public Void run() {
+                    System.loadLibrary("net");
+                    return null;
+                }
+            });
+    }
+    */
+    // END Android-removed: Android doesn't need to load native net library
 
     /**
      * Creates a datagram socket
@@ -79,6 +96,7 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
             throw ioe;
         }
 
+        // Android-added: CloseGuard
         if (fd != null && fd.valid()) {
             guard.open("close");
         }
@@ -110,6 +128,7 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
      * @param port the remote port number
      */
     protected void connect(InetAddress address, int port) throws SocketException {
+        // Android-added: BlockGuard
         BlockGuard.getThreadPolicy().onNetwork();
         connect0(address, port);
         connectedAddress = address;
@@ -207,7 +226,7 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
 
     /**
      * Leave the multicast group.
-     * @param mcastaddr multicast address to leave.
+     * @param mcastaddr  multicast address to leave.
      * @param netIf specified the local interface to leave the group at
      * @throws  IllegalArgumentException if mcastaddr is null or is a
      *          SocketAddress subclass not supported by this socket
@@ -227,6 +246,7 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
      * Close the socket.
      */
     protected void close() {
+        // Android-added: CloseGuard
         guard.close();
 
         if (fd != null) {
@@ -241,6 +261,7 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
     }
 
     protected void finalize() {
+        // Android-added: CloseGuard
         if (guard != null) {
             guard.warnIfOpen();
         }
@@ -302,6 +323,8 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
                  throw new SocketException("bad argument for IP_MULTICAST_IF");
              break;
          case IP_MULTICAST_IF2:
+             // Android-changed: Support Integer IP_MULTICAST_IF2 values for app compat. b/26790580
+             // if (o == null || !(o instanceof NetworkInterface))
              if (o == null || !(o instanceof Integer || o instanceof NetworkInterface))
                  throw new SocketException("bad argument for IP_MULTICAST_IF2");
              if (o instanceof NetworkInterface) {
@@ -350,7 +373,7 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
             case SO_REUSEADDR:
             case SO_BROADCAST:
                 result = socketGetOption(optID);
-
+                // Android-added: Added for app compat reason. See methodgetNIFirstAddress
                 if (optID == IP_MULTICAST_IF) {
                     return getNIFirstAddress((Integer)result);
                 }
@@ -363,6 +386,12 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
         return result;
     }
 
+    // BEGIN Android-added: Support Integer IP_MULTICAST_IF2 values for app compat. b/26790580
+    // Native code is changed to return the index of network interface when calling
+    // getOption(IP_MULTICAST_IF2) due to app compat reason.
+    //
+    // For getOption(IP_MULTICAST_IF), we should keep returning InetAddress instance. This method
+    // convert NetworkInterface index into InetAddress instance.
     /** Return the first address bound to NetworkInterface with given ID.
      * In case of niIndex == 0 or no address return anyLocalAddress
      */
@@ -376,6 +405,7 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
         }
         return InetAddress.anyLocalAddress();
     }
+    // END Android-added: Support Integer IP_MULTICAST_IF2 values for app compat. b/26790580
 
     protected abstract void datagramSocketCreate() throws SocketException;
     protected abstract void datagramSocketClose();

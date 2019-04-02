@@ -183,9 +183,9 @@ public class SipPhone extends SipPhoneBase {
     }
 
     @Override
-    public Connection dial(String dialString, int videoState) throws CallStateException {
+    public Connection dial(String dialString, DialArgs dialArgs) throws CallStateException {
         synchronized (SipPhone.class) {
-            return dialInternal(dialString, videoState);
+            return dialInternal(dialString, dialArgs.videoState);
         }
     }
 
@@ -1004,6 +1004,12 @@ public class SipPhone extends SipPhoneBase {
                 mSipAudioCall.startAudio();
                 call.onConnectionStateChanged(this);
             }
+        }
+
+        @Override
+        public void deflect(String number) throws CallStateException {
+            //Deflect is not supported.
+            throw new CallStateException ("deflect is not supported for SipPhone");
         }
 
         private void log(String s) {

@@ -16,29 +16,21 @@
 
 package com.android.server.wifi;
 
-import android.content.Context;
 import android.net.wifi.WifiInfo;
 
-import com.android.internal.R;
-
 /**
- * Experimental scorer, used when aggressive handover preference is set.
+ * Experimental scorer
  */
 public class AggressiveConnectedScore extends ConnectedScore {
 
-    // Device configs. The values are examples.
-    private final int mThresholdQualifiedRssi5;    // -70
-    private final int mThresholdQualifiedRssi24;   // -73
+    private final ScoringParams mScoringParams;
 
     private int mFrequencyMHz = 5000;
     private int mRssi = 0;
 
-    public AggressiveConnectedScore(Context context, Clock clock) {
+    public AggressiveConnectedScore(ScoringParams scoringParams, Clock clock) {
         super(clock);
-        mThresholdQualifiedRssi5 = context.getResources().getInteger(
-                R.integer.config_wifi_framework_wifi_score_low_rssi_threshold_5GHz);
-        mThresholdQualifiedRssi24 = context.getResources().getInteger(
-                R.integer.config_wifi_framework_wifi_score_low_rssi_threshold_24GHz);
+        mScoringParams = scoringParams;
     }
 
     @Override
@@ -59,8 +51,8 @@ public class AggressiveConnectedScore extends ConnectedScore {
 
     @Override
     public int generateScore() {
-        int badRssi = mFrequencyMHz >= 5000 ? mThresholdQualifiedRssi5 : mThresholdQualifiedRssi24;
-        int score = (mRssi - badRssi) + WIFI_TRANSITION_SCORE;
+        int threshRssi = mScoringParams.getSufficientRssi(mFrequencyMHz);
+        int score = (mRssi - threshRssi) + WIFI_TRANSITION_SCORE;
         return score;
     }
 }

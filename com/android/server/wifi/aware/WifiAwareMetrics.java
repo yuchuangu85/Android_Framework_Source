@@ -26,6 +26,7 @@ import android.util.SparseIntArray;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.wifi.Clock;
 import com.android.server.wifi.nano.WifiMetricsProto;
+import com.android.server.wifi.util.MetricsUtils;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -40,7 +41,8 @@ import java.util.Set;
  */
 public class WifiAwareMetrics {
     private static final String TAG = "WifiAwareMetrics";
-    private static final boolean DBG = false;
+    private static final boolean VDBG = false;
+    /* package */ boolean mDbg = false;
 
     // Histogram: 8 buckets (i=0, ..., 7) of 9 slots in range 10^i -> 10^(i+1)
     // Buckets:
@@ -52,7 +54,16 @@ public class WifiAwareMetrics {
     //    10^5 -> 10^6: 9 @ 10^5
     //    10^6 -> 10^7: 9 @ 10^6
     //    10^7 -> 10^8: 9 @ 10^7 --> 10^8 ms -> 10^5s -> 28 hours
-    private static final HistParms DURATION_LOG_HISTOGRAM = new HistParms(0, 1, 10, 9, 8);
+    private static final MetricsUtils.LogHistParms DURATION_LOG_HISTOGRAM =
+            new MetricsUtils.LogHistParms(0, 1, 10, 9, 8);
+
+    // Histogram for ranging limits in discovery. Indicates the following 5 buckets (in meters):
+    //   < 10
+    //   [10, 30)
+    //   [30, 60)
+    //   [60, 100)
+    //   >= 100
+    private static final int[] RANGING_LIMIT_METERS = { 10, 30, 60, 100 };
 
     private final Object mLock = new Object();
     private final Clock mClock;
@@ -90,6 +101,17 @@ public class WifiAwareMetrics {
     private SparseIntArray mHistogramPublishDuration = new SparseIntArray();
     private SparseIntArray mHistogramSubscribeDuration = new SparseIntArray();
     private Set<Integer> mAppsWithDiscoverySessionResourceFailure = new HashSet<>();
+
+    // discovery with ranging data
+    private int mMaxPublishWithRangingInApp = 0;
+    private int mMaxSubscribeWithRangingInApp = 0;
+    private int mMaxPublishWithRangingInSystem = 0;
+    private int mMaxSubscribeWithRangingInSystem = 0;
+    private SparseIntArray mHistogramSubscribeGeofenceMin = new SparseIntArray();
+    private SparseIntArray mHistogramSubscribeGeofenceMax = new SparseIntArray();
+    private int mNumSubscribesWithRanging = 0;
+    private int mNumMatchesWithRanging = 0;
+    private int mNumMatchesWithoutRangingForRangingEnabledSubscribes = 0;
 
     // data-path (NDI/NDP) data
     private int mMaxNdiInApp = 0;
@@ -142,8 +164,8 @@ public class WifiAwareMetrics {
             }
 
             long now = mClock.getElapsedSinceBootMillis();
-            addLogValueToHistogram(now - mLastEnableUsageMs, mHistogramAwareAvailableDurationMs,
-                    DURATION_LOG_HISTOGRAM);
+            MetricsUtils.addValueToLogHistogram(now - mLastEnableUsageMs,
+                    mHistogramAwareAvailableDurationMs, DURATION_LOG_HISTOGRAM);
             mAvailableTimeMs += now - mLastEnableUsageInThisSampleWindowMs;
             mLastEnableUsageMs = 0;
             mLastEnableUsageInThisSampleWindowMs = 0;
@@ -173,8 +195,8 @@ public class WifiAwareMetrics {
             }
 
             long now = mClock.getElapsedSinceBootMillis();
-            addLogValueToHistogram(now - mLastEnableAwareMs, mHistogramAwareEnabledDurationMs,
-                    DURATION_LOG_HISTOGRAM);
+            MetricsUtils.addValueToLogHistogram(now - mLastEnableAwareMs,
+                    mHistogramAwareEnabledDurationMs, DURATION_LOG_HISTOGRAM);
             mEnabledTimeMs += now - mLastEnableAwareInThisSampleWindowMs;
             mLastEnableAwareMs = 0;
             mLastEnableAwareInThisSampleWindowMs = 0;
@@ -221,22 +243,41 @@ public class WifiAwareMetrics {
      */
     public void recordAttachSessionDuration(long creationTime) {
         synchronized (mLock) {
-            addLogValueToHistogram(mClock.getElapsedSinceBootMillis() - creationTime,
-                    mHistogramAttachDuration,
-                    DURATION_LOG_HISTOGRAM);
+            MetricsUtils.addValueToLogHistogram(mClock.getElapsedSinceBootMillis() - creationTime,
+                    mHistogramAttachDuration, DURATION_LOG_HISTOGRAM);
         }
     }
 
     /**
      * Push information about the new discovery session.
      */
-    public void recordDiscoverySession(int uid, boolean isPublish,
-            SparseArray<WifiAwareClientState> clients) {
+    public void recordDiscoverySession(int uid, SparseArray<WifiAwareClientState> clients) {
+        recordDiscoverySessionInternal(uid, clients, false, -1, -1);
+    }
+
+    /**
+     * Push information about the new discovery session with ranging enabled
+     */
+    public void recordDiscoverySessionWithRanging(int uid, boolean isSubscriberWithRanging,
+            int minRange, int maxRange, SparseArray<WifiAwareClientState> clients) {
+        recordDiscoverySessionInternal(uid, clients, isSubscriberWithRanging, minRange, maxRange);
+    }
+
+    /**
+     * Internal combiner of discovery session information.
+     */
+    private void recordDiscoverySessionInternal(int uid, SparseArray<WifiAwareClientState> clients,
+            boolean isRangingEnabledSubscriber, int minRange, int maxRange) {
         // count the number of sessions per uid and overall
         int numPublishesInSystem = 0;
         int numSubscribesInSystem = 0;
         int numPublishesOnUid = 0;
         int numSubscribesOnUid = 0;
+
+        int numPublishesWithRangingInSystem = 0;
+        int numSubscribesWithRangingInSystem = 0;
+        int numPublishesWithRangingOnUid = 0;
+        int numSubscribesWithRangingOnUid = 0;
 
         for (int i = 0; i < clients.size(); ++i) {
             WifiAwareClientState client = clients.valueAt(i);
@@ -245,16 +286,29 @@ public class WifiAwareMetrics {
             SparseArray<WifiAwareDiscoverySessionState> sessions = client.getSessions();
             for (int j = 0; j < sessions.size(); ++j) {
                 WifiAwareDiscoverySessionState session = sessions.valueAt(j);
+                boolean isRangingEnabledForThisSession = session.isRangingEnabled();
 
                 if (session.isPublishSession()) {
                     numPublishesInSystem += 1;
+                    if (isRangingEnabledForThisSession) {
+                        numPublishesWithRangingInSystem += 1;
+                    }
                     if (sameUid) {
                         numPublishesOnUid += 1;
+                        if (isRangingEnabledForThisSession) {
+                            numPublishesWithRangingOnUid += 1;
+                        }
                     }
                 } else {
                     numSubscribesInSystem += 1;
+                    if (isRangingEnabledForThisSession) {
+                        numSubscribesWithRangingInSystem += 1;
+                    }
                     if (sameUid) {
                         numSubscribesOnUid += 1;
+                        if (isRangingEnabledForThisSession) {
+                            numSubscribesWithRangingOnUid += 1;
+                        }
                     }
                 }
             }
@@ -269,6 +323,27 @@ public class WifiAwareMetrics {
             mMaxSubscribeInSystem = Math.max(mMaxSubscribeInSystem, numSubscribesInSystem);
             mMaxDiscoveryInSystem = Math.max(mMaxDiscoveryInSystem,
                     numPublishesInSystem + numSubscribesInSystem);
+
+            mMaxPublishWithRangingInApp = Math.max(mMaxPublishWithRangingInApp,
+                    numPublishesWithRangingOnUid);
+            mMaxSubscribeWithRangingInApp = Math.max(mMaxSubscribeWithRangingInApp,
+                    numSubscribesWithRangingOnUid);
+            mMaxPublishWithRangingInSystem = Math.max(mMaxPublishWithRangingInSystem,
+                    numPublishesWithRangingInSystem);
+            mMaxSubscribeWithRangingInSystem = Math.max(mMaxSubscribeWithRangingInSystem,
+                    numSubscribesWithRangingInSystem);
+            if (isRangingEnabledSubscriber) {
+                mNumSubscribesWithRanging += 1;
+            }
+
+            if (minRange != -1) {
+                MetricsUtils.addValueToLinearHistogram(minRange, mHistogramSubscribeGeofenceMin,
+                        RANGING_LIMIT_METERS);
+            }
+            if (maxRange != -1) {
+                MetricsUtils.addValueToLinearHistogram(maxRange, mHistogramSubscribeGeofenceMax,
+                        RANGING_LIMIT_METERS);
+            }
         }
     }
 
@@ -295,9 +370,22 @@ public class WifiAwareMetrics {
      */
     public void recordDiscoverySessionDuration(long creationTime, boolean isPublish) {
         synchronized (mLock) {
-            addLogValueToHistogram(mClock.getElapsedSinceBootMillis() - creationTime,
+            MetricsUtils.addValueToLogHistogram(mClock.getElapsedSinceBootMillis() - creationTime,
                     isPublish ? mHistogramPublishDuration : mHistogramSubscribeDuration,
                     DURATION_LOG_HISTOGRAM);
+        }
+    }
+
+    /**
+     * Push information about Match indication (aka service discovered) for subscribe sessions
+     * which enabled ranging. Collect information about whether or not service discovery was
+     * triggered with ranging information or without (i.e. ranging disabled for some reason).
+     */
+    public void recordMatchIndicationForRangeEnabledSubscribe(boolean rangeProvided) {
+        if (rangeProvided) {
+            mNumMatchesWithRanging++;
+        } else {
+            mNumMatchesWithoutRangingForRangingEnabledSubscribes++;
         }
     }
 
@@ -382,7 +470,7 @@ public class WifiAwareMetrics {
 
             if (status == NanStatusType.SUCCESS) {
                 long creationTime = mClock.getElapsedSinceBootMillis() - startTimestamp;
-                addLogValueToHistogram(creationTime, mNdpCreationTimeDuration,
+                MetricsUtils.addValueToLogHistogram(creationTime, mNdpCreationTimeDuration,
                         DURATION_LOG_HISTOGRAM);
                 mNdpCreationTimeMin = (mNdpCreationTimeMin == -1) ? creationTime : Math.min(
                         mNdpCreationTimeMin, creationTime);
@@ -400,7 +488,7 @@ public class WifiAwareMetrics {
      */
     public void recordNdpSessionDuration(long creationTime) {
         synchronized (mLock) {
-            addLogValueToHistogram(mClock.getElapsedSinceBootMillis() - creationTime,
+            MetricsUtils.addValueToLogHistogram(mClock.getElapsedSinceBootMillis() - creationTime,
                     mHistogramNdpDuration, DURATION_LOG_HISTOGRAM);
         }
     }
@@ -413,14 +501,16 @@ public class WifiAwareMetrics {
         long now = mClock.getElapsedSinceBootMillis();
         synchronized (mLock) {
             log.histogramAwareAvailableDurationMs = histogramToProtoArray(
-                    mHistogramAwareAvailableDurationMs, DURATION_LOG_HISTOGRAM);
+                    MetricsUtils.logHistogramToGenericBuckets(mHistogramAwareAvailableDurationMs,
+                            DURATION_LOG_HISTOGRAM));
             log.availableTimeMs = mAvailableTimeMs;
             if (mLastEnableUsageInThisSampleWindowMs != 0) {
                 log.availableTimeMs += now - mLastEnableUsageInThisSampleWindowMs;
             }
 
             log.histogramAwareEnabledDurationMs = histogramToProtoArray(
-                    mHistogramAwareEnabledDurationMs, DURATION_LOG_HISTOGRAM);
+                    MetricsUtils.logHistogramToGenericBuckets(mHistogramAwareEnabledDurationMs,
+                            DURATION_LOG_HISTOGRAM));
             log.enabledTimeMs = mEnabledTimeMs;
             if (mLastEnableAwareInThisSampleWindowMs != 0) {
                 log.enabledTimeMs += now - mLastEnableAwareInThisSampleWindowMs;
@@ -437,8 +527,9 @@ public class WifiAwareMetrics {
                         log.maxConcurrentAttachSessionsInApp, ad.mMaxConcurrentAttaches);
             }
             log.histogramAttachSessionStatus = histogramToProtoArray(mAttachStatusData);
-            log.histogramAttachDurationMs = histogramToProtoArray(mHistogramAttachDuration,
-                    DURATION_LOG_HISTOGRAM);
+            log.histogramAttachDurationMs = histogramToProtoArray(
+                    MetricsUtils.logHistogramToGenericBuckets(mHistogramAttachDuration,
+                            DURATION_LOG_HISTOGRAM));
 
             log.maxConcurrentPublishInApp = mMaxPublishInApp;
             log.maxConcurrentSubscribeInApp = mMaxSubscribeInApp;
@@ -450,10 +541,27 @@ public class WifiAwareMetrics {
             log.histogramSubscribeStatus = histogramToProtoArray(mSubscribeStatusData);
             log.numAppsWithDiscoverySessionFailureOutOfResources =
                     mAppsWithDiscoverySessionResourceFailure.size();
-            log.histogramPublishSessionDurationMs = histogramToProtoArray(mHistogramPublishDuration,
-                    DURATION_LOG_HISTOGRAM);
+            log.histogramPublishSessionDurationMs = histogramToProtoArray(
+                    MetricsUtils.logHistogramToGenericBuckets(mHistogramPublishDuration,
+                            DURATION_LOG_HISTOGRAM));
             log.histogramSubscribeSessionDurationMs = histogramToProtoArray(
-                    mHistogramSubscribeDuration, DURATION_LOG_HISTOGRAM);
+                    MetricsUtils.logHistogramToGenericBuckets(mHistogramSubscribeDuration,
+                            DURATION_LOG_HISTOGRAM));
+
+            log.maxConcurrentPublishWithRangingInApp = mMaxPublishWithRangingInApp;
+            log.maxConcurrentSubscribeWithRangingInApp = mMaxSubscribeWithRangingInApp;
+            log.maxConcurrentPublishWithRangingInSystem = mMaxPublishWithRangingInSystem;
+            log.maxConcurrentSubscribeWithRangingInSystem = mMaxSubscribeWithRangingInSystem;
+            log.histogramSubscribeGeofenceMin = histogramToProtoArray(
+                    MetricsUtils.linearHistogramToGenericBuckets(mHistogramSubscribeGeofenceMin,
+                            RANGING_LIMIT_METERS));
+            log.histogramSubscribeGeofenceMax = histogramToProtoArray(
+                    MetricsUtils.linearHistogramToGenericBuckets(mHistogramSubscribeGeofenceMax,
+                            RANGING_LIMIT_METERS));
+            log.numSubscribesWithRanging = mNumSubscribesWithRanging;
+            log.numMatchesWithRanging = mNumMatchesWithRanging;
+            log.numMatchesWithoutRangingForRangingEnabledSubscribes =
+                    mNumMatchesWithoutRangingForRangingEnabledSubscribes;
 
             log.maxConcurrentNdiInApp = mMaxNdiInApp;
             log.maxConcurrentNdiInSystem = mMaxNdiInSystem;
@@ -465,16 +573,18 @@ public class WifiAwareMetrics {
             log.histogramRequestNdpStatus = histogramToProtoArray(mInBandNdpStatusData);
             log.histogramRequestNdpOobStatus = histogramToProtoArray(mOutOfBandNdpStatusData);
 
-            log.histogramNdpCreationTimeMs = histogramToProtoArray(mNdpCreationTimeDuration,
-                    DURATION_LOG_HISTOGRAM);
+            log.histogramNdpCreationTimeMs = histogramToProtoArray(
+                    MetricsUtils.logHistogramToGenericBuckets(mNdpCreationTimeDuration,
+                            DURATION_LOG_HISTOGRAM));
             log.ndpCreationTimeMsMin = mNdpCreationTimeMin;
             log.ndpCreationTimeMsMax = mNdpCreationTimeMax;
             log.ndpCreationTimeMsSum = mNdpCreationTimeSum;
             log.ndpCreationTimeMsSumOfSq = mNdpCreationTimeSumSq;
             log.ndpCreationTimeMsNumSamples = mNdpCreationTimeNumSamples;
 
-            log.histogramNdpSessionDurationMs = histogramToProtoArray(mHistogramNdpDuration,
-                    DURATION_LOG_HISTOGRAM);
+            log.histogramNdpSessionDurationMs = histogramToProtoArray(
+                    MetricsUtils.logHistogramToGenericBuckets(mHistogramNdpDuration,
+                            DURATION_LOG_HISTOGRAM));
         }
         return log;
     }
@@ -514,6 +624,16 @@ public class WifiAwareMetrics {
             mHistogramPublishDuration.clear();
             mHistogramSubscribeDuration.clear();
             mAppsWithDiscoverySessionResourceFailure.clear();
+
+            mMaxPublishWithRangingInApp = 0;
+            mMaxSubscribeWithRangingInApp = 0;
+            mMaxPublishWithRangingInSystem = 0;
+            mMaxSubscribeWithRangingInSystem = 0;
+            mHistogramSubscribeGeofenceMin.clear();
+            mHistogramSubscribeGeofenceMax.clear();
+            mNumSubscribesWithRanging = 0;
+            mNumMatchesWithRanging = 0;
+            mNumMatchesWithoutRangingForRangingEnabledSubscribes = 0;
 
             mMaxNdiInApp = 0;
             mMaxNdpInApp = 0;
@@ -612,7 +732,27 @@ public class WifiAwareMetrics {
             pw.println("mAppsWithDiscoverySessionResourceFailure:");
             for (Integer uid: mAppsWithDiscoverySessionResourceFailure) {
                 pw.println("  " + uid);
+
             }
+
+            pw.println("mMaxPublishWithRangingInApp:" + mMaxPublishWithRangingInApp);
+            pw.println("mMaxSubscribeWithRangingInApp:" + mMaxSubscribeWithRangingInApp);
+            pw.println("mMaxPublishWithRangingInSystem:" + mMaxPublishWithRangingInSystem);
+            pw.println("mMaxSubscribeWithRangingInSystem:" + mMaxSubscribeWithRangingInSystem);
+            pw.println("mHistogramSubscribeGeofenceMin:");
+            for (int i = 0; i < mHistogramSubscribeGeofenceMin.size(); ++i) {
+                pw.println("  " + mHistogramSubscribeGeofenceMin.keyAt(i) + ": "
+                        + mHistogramSubscribeGeofenceMin.valueAt(i));
+            }
+            pw.println("mHistogramSubscribeGeofenceMax:");
+            for (int i = 0; i < mHistogramSubscribeGeofenceMax.size(); ++i) {
+                pw.println("  " + mHistogramSubscribeGeofenceMax.keyAt(i) + ": "
+                        + mHistogramSubscribeGeofenceMax.valueAt(i));
+            }
+            pw.println("mNumSubscribesWithRanging:" + mNumSubscribesWithRanging);
+            pw.println("mNumMatchesWithRanging:" + mNumMatchesWithRanging);
+            pw.println("mNumMatchesWithoutRangingForRangingEnabledSubscribes:"
+                    + mNumMatchesWithoutRangingForRangingEnabledSubscribes);
 
             pw.println("mMaxNdiInApp:" + mMaxNdiInApp);
             pw.println("mMaxNdpInApp:" + mMaxNdpInApp);
@@ -652,109 +792,20 @@ public class WifiAwareMetrics {
     }
 
     // histogram utilities
-
     /**
-     * Specifies a ~log histogram consisting of two levels of buckets - a set of N big buckets:
-     *
-     * Buckets starts at: B + P * M^i, where i=0, ... , N-1 (N big buckets)
-     * Each big bucket is divided into S sub-buckets
-     *
-     * Each (big) bucket is M times bigger than the previous one.
-     *
-     * The buckets are then:
-     * #0: B + P * M^0 with S buckets each of width (P*M^1-P*M^0)/S
-     * #1: B + P * M^1 with S buckets each of width (P*M^2-P*M^1)/S
-     * ...
-     * #N-1: B + P * M^(N-1) with S buckets each of width (P*M^N-P*M^(N-1))/S
-     */
-    @VisibleForTesting
-    public static class HistParms {
-        public HistParms(int b, int p, int m, int s, int n) {
-            this.b = b;
-            this.p = p;
-            this.m = m;
-            this.s = s;
-            this.n = n;
-
-            // derived values
-            mLog = Math.log(m);
-            bb = new double[n];
-            sbw = new double[n];
-            bb[0] = b + p;
-            sbw[0] = p * (m - 1.0) / (double) s;
-            for (int i = 1; i < n; ++i) {
-                bb[i] = m * (bb[i - 1] - b) + b;
-                sbw[i] = m * sbw[i - 1];
-            }
-        }
-
-        // spec
-        public int b;
-        public int p;
-        public int m;
-        public int s;
-        public int n;
-
-        // derived
-        public double mLog;
-        public double[] bb; // bucket base
-        public double[] sbw; // sub-bucket width
-    }
-
-    /**
-     * Adds the input value to the histogram based on the histogram parameters.
-     */
-    @VisibleForTesting
-    public static int addLogValueToHistogram(long x, SparseIntArray histogram, HistParms hp) {
-        double logArg = (double) (x - hp.b) / (double) hp.p;
-        int bigBucketIndex = -1;
-        if (logArg > 0) {
-            bigBucketIndex = (int) (Math.log(logArg) / hp.mLog);
-        }
-        int subBucketIndex;
-        if (bigBucketIndex < 0) {
-            bigBucketIndex = 0;
-            subBucketIndex = 0;
-        } else if (bigBucketIndex >= hp.n) {
-            bigBucketIndex = hp.n - 1;
-            subBucketIndex = hp.s - 1;
-        } else {
-            subBucketIndex = (int) ((x - hp.bb[bigBucketIndex]) / hp.sbw[bigBucketIndex]);
-            if (subBucketIndex >= hp.s) { // probably a rounding error so move to next big bucket
-                bigBucketIndex++;
-                if (bigBucketIndex >= hp.n) {
-                    bigBucketIndex = hp.n - 1;
-                    subBucketIndex = hp.s - 1;
-                } else {
-                    subBucketIndex = (int) ((x - hp.bb[bigBucketIndex]) / hp.sbw[bigBucketIndex]);
-                }
-            }
-        }
-        int key = bigBucketIndex * hp.s + subBucketIndex;
-
-        // note that get() returns 0 if index not there already
-        int newValue = histogram.get(key) + 1;
-        histogram.put(key, newValue);
-
-        return newValue;
-    }
-
-    /**
-     * Converts the histogram (with the specified histogram parameters) to an array of proto
-     * histogram buckets.
+     * Convert a generic bucket to Aware HistogramBucket proto.
      */
     @VisibleForTesting
     public static WifiMetricsProto.WifiAwareLog.HistogramBucket[] histogramToProtoArray(
-            SparseIntArray histogram, HistParms hp) {
+            MetricsUtils.GenericBucket[] buckets) {
         WifiMetricsProto.WifiAwareLog.HistogramBucket[] protoArray =
-                new WifiMetricsProto.WifiAwareLog.HistogramBucket[histogram.size()];
-        for (int i = 0; i < histogram.size(); ++i) {
-            int key = histogram.keyAt(i);
+                new WifiMetricsProto.WifiAwareLog.HistogramBucket[buckets.length];
 
+        for (int i = 0; i < buckets.length; ++i) {
             protoArray[i] = new WifiMetricsProto.WifiAwareLog.HistogramBucket();
-            protoArray[i].start = (long) (hp.bb[key / hp.s] + hp.sbw[key / hp.s] * (key % hp.s));
-            protoArray[i].end = (long) (protoArray[i].start + hp.sbw[key / hp.s]);
-            protoArray[i].count = histogram.valueAt(i);
+            protoArray[i].start = buckets[i].start;
+            protoArray[i].end = buckets[i].end;
+            protoArray[i].count = buckets[i].count;
         }
 
         return protoArray;

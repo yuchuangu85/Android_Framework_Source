@@ -31,7 +31,6 @@ import android.widget.AbsListView.OnScrollListener;
 import android.widget.BaseAdapter;
 import android.widget.ListView;
 
-import com.android.setupwizardlib.BuildConfig;
 import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
 
 import org.junit.Before;
@@ -42,7 +41,7 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.annotation.Config;
 
-@Config(constants = BuildConfig.class, sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
+@Config(sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
 @RunWith(SuwLibRobolectricTestRunner.class)
 public class ListViewScrollHandlingDelegateTest {
 

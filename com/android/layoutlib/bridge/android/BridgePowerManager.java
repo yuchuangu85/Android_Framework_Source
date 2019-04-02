@@ -117,16 +117,6 @@ public class BridgePowerManager implements IPowerManager {
     }
 
     @Override
-    public void setTemporaryScreenAutoBrightnessAdjustmentSettingOverride(float arg0) throws RemoteException {
-        // pass for now.
-    }
-
-    @Override
-    public void setTemporaryScreenBrightnessSettingOverride(int arg0) throws RemoteException {
-        // pass for now.
-    }
-
-    @Override
     public void setStayOnSetting(int arg0) throws RemoteException {
         // pass for now.
     }
@@ -175,5 +165,10 @@ public class BridgePowerManager implements IPowerManager {
     @Override
     public int getLastShutdownReason() {
         return PowerManager.SHUTDOWN_REASON_UNKNOWN;
+    }
+
+    @Override
+    public void setDozeAfterScreenOff(boolean mode) throws RemoteException {
+        // pass for now.
     }
 }

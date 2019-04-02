@@ -87,9 +87,9 @@ import java.util.Arrays;
  * <a name="cae"></a>
  *
  * <p> How an encoding error is handled depends upon the action requested for
- * that type of error, which is described by an instance of the {@linkplain
+ * that type of error, which is described by an instance of the {@link
  * CodingErrorAction} class.  The possible error actions are to {@linkplain
- * CodingErrorAction#IGNORE ignore} the erroneous input, {@link
+ * CodingErrorAction#IGNORE ignore} the erroneous input, {@linkplain
  * CodingErrorAction#REPORT report} the error to the invoker via
  * the returned {@link CoderResult} object, or {@linkplain CodingErrorAction#REPLACE
  * replace} the erroneous input with the current value of the
@@ -188,18 +188,20 @@ public abstract class CharsetEncoder {
                    float averageBytesPerChar,
                    float maxBytesPerChar,
                    byte[] replacement)
-    // BEGIN Android-changed
     {
-      this(cs, averageBytesPerChar, maxBytesPerChar, replacement, false);
+        // BEGIN Android-added: A hidden constructor for the CharsetEncoderICU subclass.
+        this(cs, averageBytesPerChar, maxBytesPerChar, replacement, false);
     }
 
-    CharsetEncoder(Charset cs,
-                   float averageBytesPerChar,
-                   float maxBytesPerChar,
-                   byte[] replacement,
-                   boolean trusted)
-                   // END Android-changed
+    /**
+     * This constructor is for subclasses to specify whether {@code replacement} can be used as it
+     * is ("trusted"). If it is trusted, {@link #replaceWith(byte[])} and
+     * {@link #implReplaceWith(byte[])} will not be called.
+     */
+    CharsetEncoder(Charset cs, float averageBytesPerChar, float maxBytesPerChar, byte[] replacement,
+            boolean trusted)
     {
+        // END Android-added: A hidden constructor for the CharsetEncoderICU subclass.
         this.charset = cs;
         if (averageBytesPerChar <= 0.0f)
             throw new IllegalArgumentException("Non-positive "
@@ -216,13 +218,12 @@ public abstract class CharsetEncoder {
         this.replacement = replacement;
         this.averageBytesPerChar = averageBytesPerChar;
         this.maxBytesPerChar = maxBytesPerChar;
-        // BEGIN Android-changed
+        // BEGIN Android-changed: Avoid calling replaceWith() for trusted subclasses.
+        // replaceWith(replacement);
         if (!trusted) {
-        // END Android-changed
-        replaceWith(replacement);
-        // BEGIN Android-changed
+            replaceWith(replacement);
         }
-        // END Android-changed
+        // END Android-changed: Avoid calling replaceWith() for trusted subclasses.
     }
 
     /**
@@ -269,7 +270,12 @@ public abstract class CharsetEncoder {
      *          which is never <tt>null</tt> and is never empty
      */
     public final byte[] replacement() {
+
+
+
+
         return Arrays.copyOf(replacement, replacement.length);
+
     }
 
     /**
@@ -313,7 +319,6 @@ public abstract class CharsetEncoder {
             throw new IllegalArgumentException("Illegal replacement");
         this.replacement = Arrays.copyOf(newReplacement, newReplacement.length);
 
-        this.replacement = newReplacement;
         implReplaceWith(this.replacement);
         return this;
     }
@@ -912,32 +917,32 @@ public abstract class CharsetEncoder {
 
 
     private boolean canEncode(CharBuffer cb) {
-        // Empty buffers or char-sequences are always encodable by definition.
-        if (!cb.hasRemaining()) {
-            return true;
-        }
-
         if (state == ST_FLUSHED)
             reset();
         else if (state != ST_RESET)
             throwIllegalStateException(state, ST_CODING);
+
+        // BEGIN Android-added: Fast path handling for empty buffers.
+        // Empty buffers can always be "encoded".
+        if (!cb.hasRemaining()) {
+            return true;
+        }
+        // END Android-added: Fast path handling for empty buffers.
+
         CodingErrorAction ma = malformedInputAction();
         CodingErrorAction ua = unmappableCharacterAction();
         try {
             onMalformedInput(CodingErrorAction.REPORT);
             onUnmappableCharacter(CodingErrorAction.REPORT);
-            // Android-changed: Account for ignorable codepoints. ICU doesn't report
-            // an error, but will return an empty buffer.
-            ByteBuffer buf = encode(cb);
-            return buf.hasRemaining();
+            encode(cb);
         } catch (CharacterCodingException x) {
-            // fall through to return false.
+            return false;
         } finally {
             onMalformedInput(ma);
             onUnmappableCharacter(ua);
             reset();
         }
-        return false;
+        return true;
     }
 
     /**
@@ -1003,6 +1008,8 @@ public abstract class CharsetEncoder {
         if (cs instanceof CharBuffer)
             cb = ((CharBuffer)cs).duplicate();
         else
+            // Android-removed: An unnecessary call to toString().
+            // cb = CharBuffer.wrap(cs.toString());
             cb = CharBuffer.wrap(cs);
         return canEncode(cb);
     }

@@ -37,7 +37,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import static java.io.ObjectStreamClass.processQueue;
 import java.io.SerialCallbackContext;
-
 import sun.reflect.misc.ReflectUtil;
 
 /**
@@ -211,7 +210,15 @@ public class ObjectOutputStream
      * value of "sun.io.serialization.extendedDebugInfo" property,
      * as true or false for extended information about exception's place
      */
+    // BEGIN Android-changed: Do not support extendedDebugInfo on Android.
+    /*
+    private static final boolean extendedDebugInfo =
+        java.security.AccessController.doPrivileged(
+            new sun.security.action.GetBooleanAction(
+                "sun.io.serialization.extendedDebugInfo")).booleanValue();
+    */
     private static final boolean extendedDebugInfo = false;
+    // END Android-changed: Do not support extendedDebugInfo on Android.
 
     /**
      * Creates an ObjectOutputStream that writes to the specified OutputStream.
@@ -347,7 +354,7 @@ public class ObjectOutputStream
             writeObject0(obj, false);
         } catch (IOException ex) {
             if (depth == 0) {
-                // BEGIN Android-changed
+                // BEGIN Android-changed: Ignore secondary exceptions during writeObject().
                 // writeFatalException(ex);
                 try {
                     writeFatalException(ex);
@@ -357,7 +364,7 @@ public class ObjectOutputStream
                     // is no need to propagate the second exception or generate a third exception,
                     // both of which might obscure details of the root cause.
                 }
-                // END Android-changed
+                // END Android-changed: Ignore secondary exceptions during writeObject().
             }
             throw ex;
         }
@@ -378,12 +385,12 @@ public class ObjectOutputStream
      * @since 1.2
      */
     protected void writeObjectOverride(Object obj) throws IOException {
-        // BEGIN Android-changed
+        // BEGIN Android-added: Let writeObjectOverride throw IOException if !enableOverride.
         if (!enableOverride) {
             // Subclasses must override.
             throw new IOException();
         }
-        // END Android-changed
+        // END Android-added: Let writeObjectOverride throw IOException if !enableOverride.
     }
 
     /**
@@ -753,7 +760,7 @@ public class ObjectOutputStream
      */
     public void close() throws IOException {
         flush();
-        // http://b/28159133
+        // Android-removed:  Don't clear() during close(), keep the handle table. http://b/28159133
         // clear();
         bout.close();
     }
@@ -1132,7 +1139,7 @@ public class ObjectOutputStream
             } else if (!unshared && (h = handles.lookup(obj)) != -1) {
                 writeHandle(h);
                 return;
-            // BEGIN Android-changed
+            // BEGIN Android-changed:  Make Class and ObjectStreamClass replaceable.
             /*
             } else if (obj instanceof Class) {
                 writeClass((Class) obj, unshared);
@@ -1141,7 +1148,7 @@ public class ObjectOutputStream
                 writeClassDesc((ObjectStreamClass) obj, unshared);
                 return;
             */
-            // END Android-changed
+            // END Android-changed:  Make Class and ObjectStreamClass replaceable.
             }
 
             // check for replacement object
@@ -1149,7 +1156,7 @@ public class ObjectOutputStream
             Class<?> cl = obj.getClass();
             ObjectStreamClass desc;
 
-            // BEGIN Android-changed
+            // BEGIN Android-changed: Make only one call to writeReplace.
             /*
             for (;;) {
                 // REMIND: skip this check for strings/arrays?
@@ -1177,7 +1184,7 @@ public class ObjectOutputStream
                 cl = repCl;
                 desc = ObjectStreamClass.lookup(cl, true);
             }
-            // END Android-changed
+            // END Android-changed: Make only one call to writeReplace.
 
             if (enableReplace) {
                 Object rep = replaceObject(obj);
@@ -1197,7 +1204,7 @@ public class ObjectOutputStream
                 } else if (!unshared && (h = handles.lookup(obj)) != -1) {
                     writeHandle(h);
                     return;
-// BEGIN Android-changed
+// BEGIN Android-changed:  Make Class and ObjectStreamClass replaceable.
 /*
                 } else if (obj instanceof Class) {
                     writeClass((Class) obj, unshared);
@@ -1206,17 +1213,17 @@ public class ObjectOutputStream
                     writeClassDesc((ObjectStreamClass) obj, unshared);
                     return;
 */
-// END Android-changed
+// END Android-changed:  Make Class and ObjectStreamClass replaceable.
                 }
             }
 
             // remaining cases
-            // BEGIN Android-changed
+            // BEGIN Android-changed: Make Class and ObjectStreamClass replaceable.
             if (obj instanceof Class) {
                 writeClass((Class) obj, unshared);
             } else if (obj instanceof ObjectStreamClass) {
                 writeClassDesc((ObjectStreamClass) obj, unshared);
-            // END Android-changed
+            // END Android-changed:  Make Class and ObjectStreamClass replaceable.
             } else if (obj instanceof String) {
                 writeString((String) obj, unshared);
             } else if (cl.isArray()) {
@@ -1812,6 +1819,7 @@ public class ObjectOutputStream
         /** loopback stream (for data writes that span data blocks) */
         private final DataOutputStream dout;
 
+        // BEGIN Android-added: Warning if writing to a closed ObjectOutputStream.
         /**
          * Indicates that this stream was closed and that a warning must be logged once if an
          * attempt is made to write to it and the underlying stream does not throw an exception.
@@ -1822,6 +1830,7 @@ public class ObjectOutputStream
          * http://b/28159133
          */
         private boolean warnOnceWhenWriting;
+        // END Android-added: Warning if writing to a closed ObjectOutputStream.
 
         /**
          * Creates new BlockDataOutputStream on top of given underlying stream.
@@ -1856,6 +1865,7 @@ public class ObjectOutputStream
             return blkmode;
         }
 
+        // BEGIN Android-added: Warning about writing to closed ObjectOutputStream
         /**
          * Warns if the stream has been closed.
          *
@@ -1874,6 +1884,7 @@ public class ObjectOutputStream
                 warnOnceWhenWriting = false;
             }
         }
+        // END Android-added: Warning about writing to closed ObjectOutputStream
 
         /* ----------------- generic output stream methods ----------------- */
         /*
@@ -1905,6 +1916,7 @@ public class ObjectOutputStream
         public void close() throws IOException {
             flush();
             out.close();
+            // Android-added: Warning about writing to closed ObjectOutputStream
             warnOnceWhenWriting = true;
         }
 
@@ -1920,6 +1932,7 @@ public class ObjectOutputStream
             if (!(copy || blkmode)) {           // write directly
                 drain();
                 out.write(b, off, len);
+                // Android-added: Warning about writing to closed ObjectOutputStream
                 warnIfClosed();
                 return;
             }
@@ -1942,6 +1955,7 @@ public class ObjectOutputStream
                     len -= wlen;
                 }
             }
+            // Android-added: Warning about writing to closed ObjectOutputStream
             warnIfClosed();
         }
 
@@ -1958,6 +1972,7 @@ public class ObjectOutputStream
             }
             out.write(buf, 0, pos);
             pos = 0;
+            // Android-added: Warning about writing to closed ObjectOutputStream
             warnIfClosed();
         }
 
@@ -1976,6 +1991,7 @@ public class ObjectOutputStream
                 Bits.putInt(hbuf, 1, len);
                 out.write(hbuf, 0, 5);
             }
+            // Android-added: Warning about writing to closed ObjectOutputStream
             warnIfClosed();
         }
 

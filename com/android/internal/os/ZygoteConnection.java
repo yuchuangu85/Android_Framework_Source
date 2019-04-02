@@ -47,6 +47,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
+
 import libcore.io.IoUtils;
 
 /**
@@ -155,7 +157,17 @@ class ZygoteConnection {
 
         if (parsedArgs.preloadPackage != null) {
             handlePreloadPackage(parsedArgs.preloadPackage, parsedArgs.preloadPackageLibs,
-                    parsedArgs.preloadPackageCacheKey);
+                    parsedArgs.preloadPackageLibFileName, parsedArgs.preloadPackageCacheKey);
+            return null;
+        }
+
+        if (parsedArgs.apiBlacklistExemptions != null) {
+            handleApiBlacklistExemptions(parsedArgs.apiBlacklistExemptions);
+            return null;
+        }
+
+        if (parsedArgs.hiddenApiAccessLogSampleRate != -1) {
+            handleHiddenApiAccessLogSampleRate(parsedArgs.hiddenApiAccessLogSampleRate);
             return null;
         }
 
@@ -220,9 +232,9 @@ class ZygoteConnection {
         fd = null;
 
         pid = Zygote.forkAndSpecialize(parsedArgs.uid, parsedArgs.gid, parsedArgs.gids,
-                parsedArgs.debugFlags, rlimits, parsedArgs.mountExternal, parsedArgs.seInfo,
-                parsedArgs.niceName, fdsToClose, fdsToIgnore, parsedArgs.instructionSet,
-                parsedArgs.appDataDir);
+                parsedArgs.runtimeFlags, rlimits, parsedArgs.mountExternal, parsedArgs.seInfo,
+                parsedArgs.niceName, fdsToClose, fdsToIgnore, parsedArgs.startChildZygote,
+                parsedArgs.instructionSet, parsedArgs.appDataDir);
 
         try {
             if (pid == 0) {
@@ -233,7 +245,8 @@ class ZygoteConnection {
                 IoUtils.closeQuietly(serverPipeFd);
                 serverPipeFd = null;
 
-                return handleChildProc(parsedArgs, descriptors, childPipeFd);
+                return handleChildProc(parsedArgs, descriptors, childPipeFd,
+                        parsedArgs.startChildZygote);
             } else {
                 // In the parent. A pid < 0 indicates a failure and will be handled in
                 // handleParentProc.
@@ -277,6 +290,24 @@ class ZygoteConnection {
         }
     }
 
+    private void handleApiBlacklistExemptions(String[] exemptions) {
+        try {
+            ZygoteInit.setApiBlacklistExemptions(exemptions);
+            mSocketOutStream.writeInt(0);
+        } catch (IOException ioe) {
+            throw new IllegalStateException("Error writing to command socket", ioe);
+        }
+    }
+
+    private void handleHiddenApiAccessLogSampleRate(int percent) {
+        try {
+            ZygoteInit.setHiddenApiAccessLogSampleRate(percent);
+            mSocketOutStream.writeInt(0);
+        } catch (IOException ioe) {
+            throw new IllegalStateException("Error writing to command socket", ioe);
+        }
+    }
+
     protected void preload() {
         ZygoteInit.lazyPreload();
     }
@@ -289,7 +320,8 @@ class ZygoteConnection {
         return mSocketOutStream;
     }
 
-    protected void handlePreloadPackage(String packagePath, String libsPath, String cacheKey) {
+    protected void handlePreloadPackage(String packagePath, String libsPath, String libFileName,
+            String cacheKey) {
         throw new RuntimeException("Zyogte does not support package preloading");
     }
 
@@ -349,11 +381,9 @@ class ZygoteConnection {
         int[] gids;
 
         /**
-         * From --enable-jdwp, --enable-checkjni, --enable-assert,
-         * --enable-safemode, --generate-debug-info, --enable-jni-logging,
-         * --java-debuggable, and --native-debuggable.
+         * From --runtime-flags.
          */
-        int debugFlags;
+        int runtimeFlags;
 
         /** From --mount-external */
         int mountExternal = Zygote.MOUNT_EXTERNAL_NONE;
@@ -403,10 +433,24 @@ class ZygoteConnection {
         String appDataDir;
 
         /**
-         * Whether to preload a package, with the package path in the remainingArgs.
+         * The APK path of the package to preload, when using --preload-package.
          */
         String preloadPackage;
+
+        /**
+         * The native library path of the package to preload, when using --preload-package.
+         */
         String preloadPackageLibs;
+
+        /**
+         * The filename of the native library to preload, when using --preload-package.
+         */
+        String preloadPackageLibFileName;
+
+        /**
+         * The cache key under which to enter the preloaded package into the classloader cache,
+         * when using --preload-package.
+         */
         String preloadPackageCacheKey;
 
         /**
@@ -415,6 +459,26 @@ class ZygoteConnection {
          * it's started with --enable-lazy-preload).
          */
         boolean preloadDefault;
+
+        /**
+         * Whether this is a request to start a zygote process as a child of this zygote.
+         * Set with --start-child-zygote. The remaining arguments must include the
+         * CHILD_ZYGOTE_SOCKET_NAME_ARG flag to indicate the abstract socket name that
+         * should be used for communication.
+         */
+        boolean startChildZygote;
+
+        /**
+         * Exemptions from API blacklisting. These are sent to the pre-forked zygote at boot time,
+         * or when they change, via --set-api-blacklist-exemptions.
+         */
+        String[] apiBlacklistExemptions;
+
+        /**
+         * Sampling rate for logging hidden API accesses to the event log. This is sent to the
+         * pre-forked zygote at boot time, or when it changes, via --hidden-api-log-sampling-rate.
+         */
+        int hiddenApiAccessLogSampleRate = -1;
 
         /**
          * Constructs instance and parses args
@@ -439,6 +503,7 @@ class ZygoteConnection {
 
             boolean seenRuntimeArgs = false;
 
+            boolean expectRuntimeArgs = true;
             for ( /* curArg */ ; curArg < args.length; curArg++) {
                 String arg = args[curArg];
 
@@ -469,26 +534,11 @@ class ZygoteConnection {
                     targetSdkVersionSpecified = true;
                     targetSdkVersion = Integer.parseInt(
                             arg.substring(arg.indexOf('=') + 1));
-                } else if (arg.equals("--enable-jdwp")) {
-                    debugFlags |= Zygote.DEBUG_ENABLE_JDWP;
-                } else if (arg.equals("--enable-safemode")) {
-                    debugFlags |= Zygote.DEBUG_ENABLE_SAFEMODE;
-                } else if (arg.equals("--enable-checkjni")) {
-                    debugFlags |= Zygote.DEBUG_ENABLE_CHECKJNI;
-                } else if (arg.equals("--generate-debug-info")) {
-                    debugFlags |= Zygote.DEBUG_GENERATE_DEBUG_INFO;
-                } else if (arg.equals("--always-jit")) {
-                    debugFlags |= Zygote.DEBUG_ALWAYS_JIT;
-                } else if (arg.equals("--native-debuggable")) {
-                    debugFlags |= Zygote.DEBUG_NATIVE_DEBUGGABLE;
-                } else if (arg.equals("--java-debuggable")) {
-                    debugFlags |= Zygote.DEBUG_JAVA_DEBUGGABLE;
-                } else if (arg.equals("--enable-jni-logging")) {
-                    debugFlags |= Zygote.DEBUG_ENABLE_JNI_LOGGING;
-                } else if (arg.equals("--enable-assert")) {
-                    debugFlags |= Zygote.DEBUG_ENABLE_ASSERT;
                 } else if (arg.equals("--runtime-args")) {
                     seenRuntimeArgs = true;
+                } else if (arg.startsWith("--runtime-flags=")) {
+                    runtimeFlags = Integer.parseInt(
+                            arg.substring(arg.indexOf('=') + 1));
                 } else if (arg.startsWith("--seinfo=")) {
                     if (seInfoSpecified) {
                         throw new IllegalArgumentException(
@@ -579,9 +629,28 @@ class ZygoteConnection {
                 } else if (arg.equals("--preload-package")) {
                     preloadPackage = args[++curArg];
                     preloadPackageLibs = args[++curArg];
+                    preloadPackageLibFileName = args[++curArg];
                     preloadPackageCacheKey = args[++curArg];
                 } else if (arg.equals("--preload-default")) {
                     preloadDefault = true;
+                    expectRuntimeArgs = false;
+                } else if (arg.equals("--start-child-zygote")) {
+                    startChildZygote = true;
+                } else if (arg.equals("--set-api-blacklist-exemptions")) {
+                    // consume all remaining args; this is a stand-alone command, never included
+                    // with the regular fork command.
+                    apiBlacklistExemptions = Arrays.copyOfRange(args, curArg + 1, args.length);
+                    curArg = args.length;
+                    expectRuntimeArgs = false;
+                } else if (arg.startsWith("--hidden-api-log-sampling-rate=")) {
+                    String rateStr = arg.substring(arg.indexOf('=') + 1);
+                    try {
+                        hiddenApiAccessLogSampleRate = Integer.parseInt(rateStr);
+                    } catch (NumberFormatException nfe) {
+                        throw new IllegalArgumentException(
+                                "Invalid log sampling rate: " + rateStr, nfe);
+                    }
+                    expectRuntimeArgs = false;
                 } else {
                     break;
                 }
@@ -596,13 +665,27 @@ class ZygoteConnection {
                     throw new IllegalArgumentException(
                             "Unexpected arguments after --preload-package.");
                 }
-            } else if (!preloadDefault) {
+            } else if (expectRuntimeArgs) {
                 if (!seenRuntimeArgs) {
                     throw new IllegalArgumentException("Unexpected argument : " + args[curArg]);
                 }
 
                 remainingArgs = new String[args.length - curArg];
                 System.arraycopy(args, curArg, remainingArgs, 0, remainingArgs.length);
+            }
+
+            if (startChildZygote) {
+                boolean seenChildSocketArg = false;
+                for (String arg : remainingArgs) {
+                    if (arg.startsWith(Zygote.CHILD_ZYGOTE_SOCKET_NAME_ARG)) {
+                        seenChildSocketArg = true;
+                        break;
+                    }
+                }
+                if (!seenChildSocketArg) {
+                    throw new IllegalArgumentException("--start-child-zygote specified " +
+                            "without " + Zygote.CHILD_ZYGOTE_SOCKET_NAME_ARG);
+                }
             }
         }
     }
@@ -704,7 +787,7 @@ class ZygoteConnection {
      */
     public static void applyDebuggerSystemProperty(Arguments args) {
         if (RoSystemProperties.DEBUGGABLE) {
-            args.debugFlags |= Zygote.DEBUG_ENABLE_JDWP;
+            args.runtimeFlags |= Zygote.DEBUG_ENABLE_JDWP;
         }
     }
 
@@ -726,7 +809,7 @@ class ZygoteConnection {
         int peerUid = peer.getUid();
 
         if (args.invokeWith != null && peerUid != 0 &&
-            (args.debugFlags & Zygote.DEBUG_ENABLE_JDWP) == 0) {
+            (args.runtimeFlags & Zygote.DEBUG_ENABLE_JDWP) == 0) {
             throw new ZygoteSecurityException("Peer is permitted to specify an"
                     + "explicit invoke-with wrapper command only for debuggable"
                     + "applications.");
@@ -756,9 +839,10 @@ class ZygoteConnection {
      * @param parsedArgs non-null; zygote args
      * @param descriptors null-ok; new file descriptors for stdio if available.
      * @param pipeFd null-ok; pipe for communication back to Zygote.
+     * @param isZygote whether this new child process is itself a new Zygote.
      */
     private Runnable handleChildProc(Arguments parsedArgs, FileDescriptor[] descriptors,
-            FileDescriptor pipeFd) {
+            FileDescriptor pipeFd, boolean isZygote) {
         /**
          * By the time we get here, the native code has closed the two actual Zygote
          * socket connections, and substituted /dev/null in their place.  The LocalSocket
@@ -795,8 +879,13 @@ class ZygoteConnection {
             // Should not get here.
             throw new IllegalStateException("WrapperInit.execApplication unexpectedly returned");
         } else {
-            return ZygoteInit.zygoteInit(parsedArgs.targetSdkVersion, parsedArgs.remainingArgs,
-                    null /* classLoader */);
+            if (!isZygote) {
+                return ZygoteInit.zygoteInit(parsedArgs.targetSdkVersion, parsedArgs.remainingArgs,
+                        null /* classLoader */);
+            } else {
+                return ZygoteInit.childZygoteInit(parsedArgs.targetSdkVersion,
+                        parsedArgs.remainingArgs, null /* classLoader */);
+            }
         }
     }
 

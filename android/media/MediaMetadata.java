@@ -34,6 +34,7 @@ import android.util.SparseArray;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Set;
+import java.util.Objects;
 
 /**
  * Contains metadata about an item, such as the title, artist, etc.
@@ -44,34 +45,61 @@ public final class MediaMetadata implements Parcelable {
     /**
      * @hide
      */
-    @StringDef({METADATA_KEY_TITLE, METADATA_KEY_ARTIST, METADATA_KEY_ALBUM, METADATA_KEY_AUTHOR,
-            METADATA_KEY_WRITER, METADATA_KEY_COMPOSER, METADATA_KEY_COMPILATION,
-            METADATA_KEY_DATE, METADATA_KEY_GENRE, METADATA_KEY_ALBUM_ARTIST, METADATA_KEY_ART_URI,
-            METADATA_KEY_ALBUM_ART_URI, METADATA_KEY_DISPLAY_TITLE, METADATA_KEY_DISPLAY_SUBTITLE,
-            METADATA_KEY_DISPLAY_DESCRIPTION, METADATA_KEY_DISPLAY_ICON_URI,
-            METADATA_KEY_MEDIA_ID, METADATA_KEY_MEDIA_URI})
+    @StringDef(prefix = { "METADATA_KEY_" }, value = {
+            METADATA_KEY_TITLE,
+            METADATA_KEY_ARTIST,
+            METADATA_KEY_ALBUM,
+            METADATA_KEY_AUTHOR,
+            METADATA_KEY_WRITER,
+            METADATA_KEY_COMPOSER,
+            METADATA_KEY_COMPILATION,
+            METADATA_KEY_DATE,
+            METADATA_KEY_GENRE,
+            METADATA_KEY_ALBUM_ARTIST,
+            METADATA_KEY_ART_URI,
+            METADATA_KEY_ALBUM_ART_URI,
+            METADATA_KEY_DISPLAY_TITLE,
+            METADATA_KEY_DISPLAY_SUBTITLE,
+            METADATA_KEY_DISPLAY_DESCRIPTION,
+            METADATA_KEY_DISPLAY_ICON_URI,
+            METADATA_KEY_MEDIA_ID,
+            METADATA_KEY_MEDIA_URI,
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface TextKey {}
 
     /**
      * @hide
      */
-    @StringDef({METADATA_KEY_DURATION, METADATA_KEY_YEAR, METADATA_KEY_TRACK_NUMBER,
-            METADATA_KEY_NUM_TRACKS, METADATA_KEY_DISC_NUMBER, METADATA_KEY_BT_FOLDER_TYPE})
+    @StringDef(prefix = { "METADATA_KEY_" }, value = {
+            METADATA_KEY_DURATION,
+            METADATA_KEY_YEAR,
+            METADATA_KEY_TRACK_NUMBER,
+            METADATA_KEY_NUM_TRACKS,
+            METADATA_KEY_DISC_NUMBER,
+            METADATA_KEY_BT_FOLDER_TYPE,
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface LongKey {}
 
     /**
      * @hide
      */
-    @StringDef({METADATA_KEY_ART, METADATA_KEY_ALBUM_ART, METADATA_KEY_DISPLAY_ICON})
+    @StringDef(prefix = { "METADATA_KEY_" }, value = {
+            METADATA_KEY_ART,
+            METADATA_KEY_ALBUM_ART,
+            METADATA_KEY_DISPLAY_ICON,
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface BitmapKey {}
 
     /**
      * @hide
      */
-    @StringDef({METADATA_KEY_USER_RATING, METADATA_KEY_RATING})
+    @StringDef(prefix = { "METADATA_KEY_" }, value = {
+            METADATA_KEY_USER_RATING,
+            METADATA_KEY_RATING,
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface RatingKey {}
 
@@ -614,6 +642,71 @@ public final class MediaMetadata implements Parcelable {
                     return new MediaMetadata[size];
                 }
             };
+
+    /**
+     * Compares the contents of this object to another MediaMetadata object. It
+     * does not compare Bitmaps and Ratings as the media player can choose to
+     * forgo these fields depending on how you retrieve the MediaMetadata.
+     *
+     * @param o The Metadata object to compare this object against
+     * @return Whether or not the two objects have matching fields (excluding
+     * Bitmaps and Ratings)
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (o == this) {
+            return true;
+        }
+
+        if (!(o instanceof MediaMetadata)) {
+            return false;
+        }
+
+        final MediaMetadata m = (MediaMetadata) o;
+
+        for (int i = 0; i < METADATA_KEYS_TYPE.size(); i++) {
+            String key = METADATA_KEYS_TYPE.keyAt(i);
+            switch (METADATA_KEYS_TYPE.valueAt(i)) {
+                case METADATA_TYPE_TEXT:
+                    if (!Objects.equals(getString(key), m.getString(key))) {
+                        return false;
+                    }
+                    break;
+                case METADATA_TYPE_LONG:
+                    if (getLong(key) != m.getLong(key)) {
+                        return false;
+                    }
+                    break;
+                default:
+                    // Ignore ratings and bitmaps when comparing
+                    break;
+            }
+        }
+
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        int hashCode = 17;
+
+        for (int i = 0; i < METADATA_KEYS_TYPE.size(); i++) {
+            String key = METADATA_KEYS_TYPE.keyAt(i);
+            switch (METADATA_KEYS_TYPE.valueAt(i)) {
+                case METADATA_TYPE_TEXT:
+                    hashCode = 31 * hashCode + Objects.hash(getString(key));
+                    break;
+                case METADATA_TYPE_LONG:
+                    hashCode = 31 * hashCode + Long.hashCode(getLong(key));
+                    break;
+                default:
+                    // Ignore ratings and bitmaps when comparing
+                    break;
+            }
+        }
+
+        return hashCode;
+    }
 
     /**
      * Use to build MediaMetadata objects. The system defined metadata keys must

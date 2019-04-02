@@ -16,11 +16,17 @@
 
 package android.net;
 
+import android.annotation.NonNull;
+import android.net.NetworkCapabilities.NetCapability;
+import android.net.NetworkCapabilities.Transport;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.Process;
 import android.text.TextUtils;
+import android.util.proto.ProtoOutputStream;
 
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Defines a request for a network, made through {@link NetworkRequest.Builder} and used
@@ -32,7 +38,7 @@ public class NetworkRequest implements Parcelable {
      * The {@link NetworkCapabilities} that define this request.
      * @hide
      */
-    public final NetworkCapabilities networkCapabilities;
+    public final @NonNull NetworkCapabilities networkCapabilities;
 
     /**
      * Identifies the request.  NetworkRequests should only be constructed by
@@ -130,12 +136,18 @@ public class NetworkRequest implements Parcelable {
      * needed in terms of {@link NetworkCapabilities} features
      */
     public static class Builder {
-        private final NetworkCapabilities mNetworkCapabilities = new NetworkCapabilities();
+        private final NetworkCapabilities mNetworkCapabilities;
 
         /**
          * Default constructor for Builder.
          */
-        public Builder() {}
+        public Builder() {
+            // By default, restrict this request to networks available to this app.
+            // Apps can rescind this restriction, but ConnectivityService will enforce
+            // it for apps that do not have the NETWORK_SETTINGS permission.
+            mNetworkCapabilities = new NetworkCapabilities();
+            mNetworkCapabilities.setSingleUid(Process.myUid());
+        }
 
         /**
          * Build {@link NetworkRequest} give the current set of capabilities.
@@ -155,14 +167,13 @@ public class NetworkRequest implements Parcelable {
          * Add the given capability requirement to this builder.  These represent
          * the requested network's required capabilities.  Note that when searching
          * for a network to satisfy a request, all capabilities requested must be
-         * satisfied.  See {@link NetworkCapabilities} for {@code NET_CAPABILITY_*}
-         * definitions.
+         * satisfied.
          *
-         * @param capability The {@code NetworkCapabilities.NET_CAPABILITY_*} to add.
+         * @param capability The capability to add.
          * @return The builder to facilitate chaining
          *         {@code builder.addCapability(...).addCapability();}.
          */
-        public Builder addCapability(int capability) {
+        public Builder addCapability(@NetworkCapabilities.NetCapability int capability) {
             mNetworkCapabilities.addCapability(capability);
             return this;
         }
@@ -170,10 +181,10 @@ public class NetworkRequest implements Parcelable {
         /**
          * Removes (if found) the given capability from this builder instance.
          *
-         * @param capability The {@code NetworkCapabilities.NET_CAPABILITY_*} to remove.
+         * @param capability The capability to remove.
          * @return The builder to facilitate chaining.
          */
-        public Builder removeCapability(int capability) {
+        public Builder removeCapability(@NetworkCapabilities.NetCapability int capability) {
             mNetworkCapabilities.removeCapability(capability);
             return this;
         }
@@ -187,8 +198,39 @@ public class NetworkRequest implements Parcelable {
          * @hide
          */
         public Builder setCapabilities(NetworkCapabilities nc) {
-            mNetworkCapabilities.clearAll();
-            mNetworkCapabilities.combineCapabilities(nc);
+            mNetworkCapabilities.set(nc);
+            return this;
+        }
+
+        /**
+         * Set the watched UIDs for this request. This will be reset and wiped out unless
+         * the calling app holds the CHANGE_NETWORK_STATE permission.
+         *
+         * @param uids The watched UIDs as a set of UidRanges, or null for everything.
+         * @return The builder to facilitate chaining.
+         * @hide
+         */
+        public Builder setUids(Set<UidRange> uids) {
+            mNetworkCapabilities.setUids(uids);
+            return this;
+        }
+
+        /**
+         * Add a capability that must not exist in the requested network.
+         * <p>
+         * If the capability was previously added to the list of required capabilities (for
+         * example, it was there by default or added using {@link #addCapability(int)} method), then
+         * it will be removed from the list of required capabilities as well.
+         *
+         * @see #addCapability(int)
+         *
+         * @param capability The capability to add to unwanted capability list.
+         * @return The builder to facilitate chaining.
+         *
+         * @hide
+         */
+        public Builder addUnwantedCapability(@NetworkCapabilities.NetCapability int capability) {
+            mNetworkCapabilities.addUnwantedCapability(capability);
             return this;
         }
 
@@ -208,13 +250,12 @@ public class NetworkRequest implements Parcelable {
          * Adds the given transport requirement to this builder.  These represent
          * the set of allowed transports for the request.  Only networks using one
          * of these transports will satisfy the request.  If no particular transports
-         * are required, none should be specified here.  See {@link NetworkCapabilities}
-         * for {@code TRANSPORT_*} definitions.
+         * are required, none should be specified here.
          *
-         * @param transportType The {@code NetworkCapabilities.TRANSPORT_*} to add.
+         * @param transportType The transport type to add.
          * @return The builder to facilitate chaining.
          */
-        public Builder addTransportType(int transportType) {
+        public Builder addTransportType(@NetworkCapabilities.Transport int transportType) {
             mNetworkCapabilities.addTransportType(transportType);
             return this;
         }
@@ -222,10 +263,10 @@ public class NetworkRequest implements Parcelable {
         /**
          * Removes (if found) the given transport from this builder instance.
          *
-         * @param transportType The {@code NetworkCapabilities.TRANSPORT_*} to remove.
+         * @param transportType The transport type to remove.
          * @return The builder to facilitate chaining.
          */
-        public Builder removeTransportType(int transportType) {
+        public Builder removeTransportType(@NetworkCapabilities.Transport int transportType) {
             mNetworkCapabilities.removeTransportType(transportType);
             return this;
         }
@@ -309,7 +350,7 @@ public class NetworkRequest implements Parcelable {
         return 0;
     }
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeParcelable(networkCapabilities, flags);
+        networkCapabilities.writeToParcel(dest, flags);
         dest.writeInt(legacyType);
         dest.writeInt(requestId);
         dest.writeString(type.name());
@@ -317,7 +358,7 @@ public class NetworkRequest implements Parcelable {
     public static final Creator<NetworkRequest> CREATOR =
         new Creator<NetworkRequest>() {
             public NetworkRequest createFromParcel(Parcel in) {
-                NetworkCapabilities nc = (NetworkCapabilities)in.readParcelable(null);
+                NetworkCapabilities nc = NetworkCapabilities.CREATOR.createFromParcel(in);
                 int legacyType = in.readInt();
                 int requestId = in.readInt();
                 Type type = Type.valueOf(in.readString());  // IllegalArgumentException if invalid.
@@ -384,10 +425,62 @@ public class NetworkRequest implements Parcelable {
         return type == Type.BACKGROUND_REQUEST;
     }
 
+    /**
+     * @see Builder#addCapability(int)
+     */
+    public boolean hasCapability(@NetCapability int capability) {
+        return networkCapabilities.hasCapability(capability);
+    }
+
+    /**
+     * @see Builder#addUnwantedCapability(int)
+     *
+     * @hide
+     */
+    public boolean hasUnwantedCapability(@NetCapability int capability) {
+        return networkCapabilities.hasUnwantedCapability(capability);
+    }
+
+    /**
+     * @see Builder#addTransportType(int)
+     */
+    public boolean hasTransport(@Transport int transportType) {
+        return networkCapabilities.hasTransport(transportType);
+    }
+
     public String toString() {
         return "NetworkRequest [ " + type + " id=" + requestId +
                 (legacyType != ConnectivityManager.TYPE_NONE ? ", legacyType=" + legacyType : "") +
                 ", " + networkCapabilities.toString() + " ]";
+    }
+
+    private int typeToProtoEnum(Type t) {
+        switch (t) {
+            case NONE:
+                return NetworkRequestProto.TYPE_NONE;
+            case LISTEN:
+                return NetworkRequestProto.TYPE_LISTEN;
+            case TRACK_DEFAULT:
+                return NetworkRequestProto.TYPE_TRACK_DEFAULT;
+            case REQUEST:
+                return NetworkRequestProto.TYPE_REQUEST;
+            case BACKGROUND_REQUEST:
+                return NetworkRequestProto.TYPE_BACKGROUND_REQUEST;
+            default:
+                return NetworkRequestProto.TYPE_UNKNOWN;
+        }
+    }
+
+    /** @hide */
+    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+        final long token = proto.start(fieldId);
+
+        proto.write(NetworkRequestProto.TYPE, typeToProtoEnum(type));
+        proto.write(NetworkRequestProto.REQUEST_ID, requestId);
+        proto.write(NetworkRequestProto.LEGACY_TYPE, legacyType);
+        networkCapabilities.writeToProto(proto, NetworkRequestProto.NETWORK_CAPABILITIES);
+
+        proto.end(token);
     }
 
     public boolean equals(Object obj) {

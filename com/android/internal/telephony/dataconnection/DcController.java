@@ -17,16 +17,20 @@
 package com.android.internal.telephony.dataconnection;
 
 import android.content.Context;
+import android.net.INetworkPolicyListener;
 import android.net.LinkAddress;
 import android.net.LinkProperties.CompareResult;
+import android.net.NetworkPolicyManager;
 import android.net.NetworkUtils;
 import android.os.AsyncResult;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
+import android.telephony.AccessNetworkConstants.TransportType;
 import android.telephony.PhoneStateListener;
 import android.telephony.Rlog;
 import android.telephony.TelephonyManager;
+import android.telephony.data.DataCallResponse;
 
 import com.android.internal.telephony.DctConstants;
 import com.android.internal.telephony.Phone;
@@ -49,14 +53,16 @@ public class DcController extends StateMachine {
     private static final boolean DBG = true;
     private static final boolean VDBG = false;
 
-    private Phone mPhone;
-    private DcTracker mDct;
-    private DcTesterDeactivateAll mDcTesterDeactivateAll;
+    private final Phone mPhone;
+    private final DcTracker mDct;
+    private final DataServiceManager mDataServiceManager;
+    private final DcTesterDeactivateAll mDcTesterDeactivateAll;
 
     // package as its used by Testing code
-    ArrayList<DataConnection> mDcListAll = new ArrayList<DataConnection>();
-    private HashMap<Integer, DataConnection> mDcListActiveByCid =
-            new HashMap<Integer, DataConnection>();
+    // @GuardedBy("mDcListAll")
+    final ArrayList<DataConnection> mDcListAll = new ArrayList<>();
+    // @GuardedBy("mDcListAll")
+    private final HashMap<Integer, DataConnection> mDcListActiveByCid = new HashMap<>();
 
     /**
      * Constants for the data connection activity:
@@ -71,7 +77,9 @@ public class DcController extends StateMachine {
 
     private DccDefaultState mDccDefaultState = new DccDefaultState();
 
-    TelephonyManager mTelephonyManager;
+    final TelephonyManager mTelephonyManager;
+    final NetworkPolicyManager mNetworkPolicyManager;
+
     private PhoneStateListener mPhoneStateListener;
 
     //mExecutingCarrierChange tracks whether the phone is currently executing
@@ -84,15 +92,17 @@ public class DcController extends StateMachine {
      * @param name to be used for the Controller
      * @param phone the phone associated with Dcc and Dct
      * @param dct the DataConnectionTracker associated with Dcc
+     * @param dataServiceManager the data service manager that manages data services
      * @param handler defines the thread/looper to be used with Dcc
      */
     private DcController(String name, Phone phone, DcTracker dct,
-            Handler handler) {
+                         DataServiceManager dataServiceManager, Handler handler) {
         super(name, handler);
         setLogRecSize(300);
         log("E ctor");
         mPhone = phone;
         mDct = dct;
+        mDataServiceManager = dataServiceManager;
         addState(mDccDefaultState);
         setInitialState(mDccDefaultState);
         log("X ctor");
@@ -104,16 +114,24 @@ public class DcController extends StateMachine {
             }
         };
 
-        mTelephonyManager = (TelephonyManager) phone.getContext().getSystemService(Context.TELEPHONY_SERVICE);
-        if(mTelephonyManager != null) {
+        mTelephonyManager = (TelephonyManager) phone.getContext()
+                .getSystemService(Context.TELEPHONY_SERVICE);
+        mNetworkPolicyManager = (NetworkPolicyManager) phone.getContext()
+                .getSystemService(Context.NETWORK_POLICY_SERVICE);
+
+        mDcTesterDeactivateAll = (Build.IS_DEBUGGABLE)
+                ? new DcTesterDeactivateAll(mPhone, DcController.this, getHandler())
+                : null;
+
+        if (mTelephonyManager != null) {
             mTelephonyManager.listen(mPhoneStateListener,
                     PhoneStateListener.LISTEN_CARRIER_NETWORK_CHANGE);
         }
     }
 
-    public static DcController makeDcc(Phone phone, DcTracker dct, Handler handler) {
-        DcController dcc = new DcController("Dcc", phone, dct, handler);
-        dcc.start();
+    public static DcController makeDcc(Phone phone, DcTracker dct,
+                                       DataServiceManager dataServiceManager, Handler handler) {
+        DcController dcc = new DcController("Dcc", phone, dct, dataServiceManager, handler);
         return dcc;
     }
 
@@ -124,29 +142,39 @@ public class DcController extends StateMachine {
     }
 
     void addDc(DataConnection dc) {
-        mDcListAll.add(dc);
+        synchronized (mDcListAll) {
+            mDcListAll.add(dc);
+        }
     }
 
     void removeDc(DataConnection dc) {
-        mDcListActiveByCid.remove(dc.mCid);
-        mDcListAll.remove(dc);
+        synchronized (mDcListAll) {
+            mDcListActiveByCid.remove(dc.mCid);
+            mDcListAll.remove(dc);
+        }
     }
 
     public void addActiveDcByCid(DataConnection dc) {
         if (DBG && dc.mCid < 0) {
             log("addActiveDcByCid dc.mCid < 0 dc=" + dc);
         }
-        mDcListActiveByCid.put(dc.mCid, dc);
+        synchronized (mDcListAll) {
+            mDcListActiveByCid.put(dc.mCid, dc);
+        }
     }
 
     public DataConnection getActiveDcByCid(int cid) {
-        return mDcListActiveByCid.get(cid);
+        synchronized (mDcListAll) {
+            return mDcListActiveByCid.get(cid);
+        }
     }
 
     void removeActiveDcByCid(DataConnection dc) {
-        DataConnection removedDc = mDcListActiveByCid.remove(dc.mCid);
-        if (DBG && removedDc == null) {
-            log("removeActiveDcByCid removedDc=null dc=" + dc);
+        synchronized (mDcListAll) {
+            DataConnection removedDc = mDcListActiveByCid.remove(dc.mCid);
+            if (DBG && removedDc == null) {
+                log("removeActiveDcByCid removedDc=null dc=" + dc);
+            }
         }
     }
 
@@ -154,27 +182,51 @@ public class DcController extends StateMachine {
         return mExecutingCarrierChange;
     }
 
+    private final INetworkPolicyListener mListener = new NetworkPolicyManager.Listener() {
+        @Override
+        public void onSubscriptionOverride(int subId, int overrideMask, int overrideValue) {
+            if (mPhone == null || mPhone.getSubId() != subId) return;
+
+            final HashMap<Integer, DataConnection> dcListActiveByCid;
+            synchronized (mDcListAll) {
+                dcListActiveByCid = new HashMap<>(mDcListActiveByCid);
+            }
+            for (DataConnection dc : dcListActiveByCid.values()) {
+                dc.onSubscriptionOverride(overrideMask, overrideValue);
+            }
+        }
+    };
+
     private class DccDefaultState extends State {
         @Override
         public void enter() {
-            mPhone.mCi.registerForRilConnected(getHandler(),
-                    DataConnection.EVENT_RIL_CONNECTED, null);
-            mPhone.mCi.registerForDataCallListChanged(getHandler(),
-                    DataConnection.EVENT_DATA_STATE_CHANGED, null);
-            if (Build.IS_DEBUGGABLE) {
-                mDcTesterDeactivateAll =
-                        new DcTesterDeactivateAll(mPhone, DcController.this, getHandler());
+            if (mPhone != null && mDataServiceManager.getTransportType()
+                    == TransportType.WWAN) {
+                mPhone.mCi.registerForRilConnected(getHandler(),
+                        DataConnection.EVENT_RIL_CONNECTED, null);
+            }
+
+            mDataServiceManager.registerForDataCallListChanged(getHandler(),
+                    DataConnection.EVENT_DATA_STATE_CHANGED);
+
+            if (mNetworkPolicyManager != null) {
+                mNetworkPolicyManager.registerListener(mListener);
             }
         }
 
         @Override
         public void exit() {
-            if (mPhone != null) {
+            if (mPhone != null & mDataServiceManager.getTransportType()
+                    == TransportType.WWAN) {
                 mPhone.mCi.unregisterForRilConnected(getHandler());
-                mPhone.mCi.unregisterForDataCallListChanged(getHandler());
             }
+            mDataServiceManager.unregisterForDataCallListChanged(getHandler());
+
             if (mDcTesterDeactivateAll != null) {
                 mDcTesterDeactivateAll.dispose();
+            }
+            if (mNetworkPolicyManager != null) {
+                mNetworkPolicyManager.unregisterListener(mListener);
             }
         }
 
@@ -213,25 +265,32 @@ public class DcController extends StateMachine {
          * @param dcsList as sent by RIL_UNSOL_DATA_CALL_LIST_CHANGED
          */
         private void onDataStateChanged(ArrayList<DataCallResponse> dcsList) {
+            final ArrayList<DataConnection> dcListAll;
+            final HashMap<Integer, DataConnection> dcListActiveByCid;
+            synchronized (mDcListAll) {
+                dcListAll = new ArrayList<>(mDcListAll);
+                dcListActiveByCid = new HashMap<>(mDcListActiveByCid);
+            }
+
             if (DBG) {
                 lr("onDataStateChanged: dcsList=" + dcsList
-                        + " mDcListActiveByCid=" + mDcListActiveByCid);
+                        + " dcListActiveByCid=" + dcListActiveByCid);
             }
             if (VDBG) {
-                log("onDataStateChanged: mDcListAll=" + mDcListAll);
+                log("onDataStateChanged: mDcListAll=" + dcListAll);
             }
 
             // Create hashmap of cid to DataCallResponse
             HashMap<Integer, DataCallResponse> dataCallResponseListByCid =
                     new HashMap<Integer, DataCallResponse>();
             for (DataCallResponse dcs : dcsList) {
-                dataCallResponseListByCid.put(dcs.cid, dcs);
+                dataCallResponseListByCid.put(dcs.getCallId(), dcs);
             }
 
             // Add a DC that is active but not in the
             // dcsList to the list of DC's to retry
             ArrayList<DataConnection> dcsToRetry = new ArrayList<DataConnection>();
-            for (DataConnection dc : mDcListActiveByCid.values()) {
+            for (DataConnection dc : dcListActiveByCid.values()) {
                 if (dataCallResponseListByCid.get(dc.mCid) == null) {
                     if (DBG) log("onDataStateChanged: add to retry dc=" + dc);
                     dcsToRetry.add(dc);
@@ -248,7 +307,7 @@ public class DcController extends StateMachine {
 
             for (DataCallResponse newState : dcsList) {
 
-                DataConnection dc = mDcListActiveByCid.get(newState.cid);
+                DataConnection dc = dcListActiveByCid.get(newState.getCallId());
                 if (dc == null) {
                     // UNSOL_DATA_CALL_LIST_CHANGED arrived before SETUP_DATA_CALL completed.
                     loge("onDataStateChanged: no associated DC yet, ignore");
@@ -260,14 +319,16 @@ public class DcController extends StateMachine {
                 } else {
                     // Determine if the connection/apnContext should be cleaned up
                     // or just a notification should be sent out.
-                    if (DBG) log("onDataStateChanged: Found ConnId=" + newState.cid
-                            + " newState=" + newState.toString());
-                    if (newState.active == DATA_CONNECTION_ACTIVE_PH_LINK_INACTIVE) {
+                    if (DBG) {
+                        log("onDataStateChanged: Found ConnId=" + newState.getCallId()
+                                + " newState=" + newState.toString());
+                    }
+                    if (newState.getActive() == DATA_CONNECTION_ACTIVE_PH_LINK_INACTIVE) {
                         if (mDct.isCleanupRequired.get()) {
                             apnsToCleanup.addAll(dc.mApnContexts.keySet());
                             mDct.isCleanupRequired.set(false);
                         } else {
-                            DcFailCause failCause = DcFailCause.fromInt(newState.status);
+                            DcFailCause failCause = DcFailCause.fromInt(newState.getStatus());
                             if (failCause.isRestartRadioFail(mPhone.getContext(),
                                         mPhone.getSubId())) {
                                 if (DBG) {
@@ -352,10 +413,10 @@ public class DcController extends StateMachine {
                     }
                 }
 
-                if (newState.active == DATA_CONNECTION_ACTIVE_PH_LINK_UP) {
+                if (newState.getActive() == DATA_CONNECTION_ACTIVE_PH_LINK_UP) {
                     isAnyDataCallActive = true;
                 }
-                if (newState.active == DATA_CONNECTION_ACTIVE_PH_LINK_DORMANT) {
+                if (newState.getActive() == DATA_CONNECTION_ACTIVE_PH_LINK_DORMANT) {
                     isAnyDataCallDormant = true;
                 }
             }
@@ -434,14 +495,18 @@ public class DcController extends StateMachine {
 
     @Override
     public String toString() {
-        return "mDcListAll=" + mDcListAll + " mDcListActiveByCid=" + mDcListActiveByCid;
+        synchronized (mDcListAll) {
+            return "mDcListAll=" + mDcListAll + " mDcListActiveByCid=" + mDcListActiveByCid;
+        }
     }
 
     @Override
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         super.dump(fd, pw, args);
         pw.println(" mPhone=" + mPhone);
-        pw.println(" mDcListAll=" + mDcListAll);
-        pw.println(" mDcListActiveByCid=" + mDcListActiveByCid);
+        synchronized (mDcListAll) {
+            pw.println(" mDcListAll=" + mDcListAll);
+            pw.println(" mDcListActiveByCid=" + mDcListActiveByCid);
+        }
     }
 }

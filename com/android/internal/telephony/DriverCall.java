@@ -37,6 +37,30 @@ public class DriverCall implements Comparable<DriverCall> {
         // statements that use this enum
     }
 
+    /**
+     * Audio information
+     */
+    /** Unspecified audio codec */
+    public static final int AUDIO_QUALITY_UNSPECIFIED = 0;
+    /** AMR (Narrowband) audio codec */
+    public static final int AUDIO_QUALITY_AMR = 1;
+    /** AMR (Wideband) audio codec */
+    public static final int AUDIO_QUALITY_AMR_WB = 2;
+    /** GSM Enhanced Full-Rate audio codec */
+    public static final int AUDIO_QUALITY_GSM_EFR = 3;
+    /** GSM Full-Rate audio codec */
+    public static final int AUDIO_QUALITY_GSM_FR = 4;
+    /** GSM Half-Rate audio codec */
+    public static final int AUDIO_QUALITY_GSM_HR = 5;
+    /** Enhanced Variable rate codec */
+    public static final int AUDIO_QUALITY_EVRC = 6;
+    /** Enhanced Variable rate codec revision B */
+    public static final int AUDIO_QUALITY_EVRC_B = 7;
+    /** Enhanced Variable rate codec (Wideband) */
+    public static final int AUDIO_QUALITY_EVRC_WB = 8;
+    /** Enhanced Variable rate codec (Narrowband) */
+    public static final int AUDIO_QUALITY_EVRC_NW = 9;
+
     public int index;
     public boolean isMT;
     public State state;     // May be null if unavail
@@ -50,6 +74,7 @@ public class DriverCall implements Comparable<DriverCall> {
     public String name;
     public int namePresentation;
     public UUSInfo uusInfo;
+    public int audioQuality = AUDIO_QUALITY_UNSPECIFIED;
 
     /** returns null on error */
     static DriverCall
@@ -113,7 +138,8 @@ public class DriverCall implements Comparable<DriverCall> {
                 + (isVoice ? "voc" : "nonvoc") + ","
                 + (isVoicePrivacy ? "evp" : "noevp") + ","
                 /*+ "number=" + number */ + ",cli=" + numberPresentation + ","
-                /*+ "name="+ name */ + "," + namePresentation;
+                /*+ "name="+ name */ + "," + namePresentation + ","
+                + "audioQuality=" + audioQuality;
     }
 
     public static State

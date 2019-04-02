@@ -17,9 +17,8 @@
 package com.android.server.pm;
 
 import android.content.pm.PackageParser;
-import android.content.pm.PackageUserState;
-import android.content.pm.SELinuxUtil;
 import android.content.pm.Signature;
+import android.content.pm.PackageParser.SigningDetails;
 import android.os.Environment;
 import android.util.Slog;
 import android.util.Xml;
@@ -59,11 +58,13 @@ public final class SELinuxMMAC {
     // All policy stanzas read from mac_permissions.xml. This is also the lock
     // to synchronize access during policy load and access attempts.
     private static List<Policy> sPolicies = new ArrayList<>();
+    /** Whether or not the policy files have been read */
+    private static boolean sPolicyRead;
 
-    /** Path to MAC permissions on system image */
-    private static final File[] MAC_PERMISSIONS =
-    { new File(Environment.getRootDirectory(), "/etc/selinux/plat_mac_permissions.xml"),
-      new File(Environment.getVendorDirectory(), "/etc/selinux/nonplat_mac_permissions.xml") };
+    /** Required MAC permissions files */
+    private static List<File> sMacPermissions = new ArrayList<>();
+
+    private static final String DEFAULT_SEINFO = "default";
 
     // Append privapp to existing seinfo label
     private static final String PRIVILEGED_APP_STR = ":privapp";
@@ -74,13 +75,40 @@ public final class SELinuxMMAC {
     // Append targetSdkVersion=n to existing seinfo label where n is the app's targetSdkVersion
     private static final String TARGETSDKVERSION_STR = ":targetSdkVersion=";
 
+    // Only initialize sMacPermissions once.
+    static {
+        // Platform mac permissions.
+        sMacPermissions.add(new File(
+            Environment.getRootDirectory(), "/etc/selinux/plat_mac_permissions.xml"));
+
+        // Vendor mac permissions.
+        // The filename has been renamed from nonplat_mac_permissions to
+        // vendor_mac_permissions. Either of them should exist.
+        final File vendorMacPermission = new File(
+            Environment.getVendorDirectory(), "/etc/selinux/vendor_mac_permissions.xml");
+        if (vendorMacPermission.exists()) {
+            sMacPermissions.add(vendorMacPermission);
+        } else {
+            // For backward compatibility.
+            sMacPermissions.add(new File(Environment.getVendorDirectory(),
+                                         "/etc/selinux/nonplat_mac_permissions.xml"));
+        }
+
+        // ODM mac permissions (optional).
+        final File odmMacPermission = new File(
+            Environment.getOdmDirectory(), "/etc/selinux/odm_mac_permissions.xml");
+        if (odmMacPermission.exists()) {
+            sMacPermissions.add(odmMacPermission);
+        }
+    }
+
     /**
      * Load the mac_permissions.xml file containing all seinfo assignments used to
-     * label apps. The loaded mac_permissions.xml file is determined by the
-     * MAC_PERMISSIONS class variable which is set at class load time which itself
-     * is based on the USE_OVERRIDE_POLICY class variable. For further guidance on
+     * label apps. The loaded mac_permissions.xml files are plat_mac_permissions.xml and
+     * vendor_mac_permissions.xml, on /system and /vendor partitions, respectively.
+     * odm_mac_permissions.xml on /odm partition is optional. For further guidance on
      * the proper structure of a mac_permissions.xml file consult the source code
-     * located at system/sepolicy/mac_permissions.xml.
+     * located at system/sepolicy/private/mac_permissions.xml.
      *
      * @return boolean indicating if policy was correctly loaded. A value of false
      *         typically indicates a structural problem with the xml or incorrectly
@@ -88,15 +116,24 @@ public final class SELinuxMMAC {
      *         were loaded successfully; no partial loading is possible.
      */
     public static boolean readInstallPolicy() {
+        synchronized (sPolicies) {
+            if (sPolicyRead) {
+                return true;
+            }
+        }
+
         // Temp structure to hold the rules while we parse the xml file
         List<Policy> policies = new ArrayList<>();
 
         FileReader policyFile = null;
         XmlPullParser parser = Xml.newPullParser();
-        for (int i = 0; i < MAC_PERMISSIONS.length; i++) {
+
+        final int count = sMacPermissions.size();
+        for (int i = 0; i < count; ++i) {
+            final File macPermission = sMacPermissions.get(i);
             try {
-                policyFile = new FileReader(MAC_PERMISSIONS[i]);
-                Slog.d(TAG, "Using policy file " + MAC_PERMISSIONS[i]);
+                policyFile = new FileReader(macPermission);
+                Slog.d(TAG, "Using policy file " + macPermission);
 
                 parser.setInput(policyFile);
                 parser.nextTag();
@@ -120,13 +157,13 @@ public final class SELinuxMMAC {
                 StringBuilder sb = new StringBuilder("Exception @");
                 sb.append(parser.getPositionDescription());
                 sb.append(" while parsing ");
-                sb.append(MAC_PERMISSIONS[i]);
+                sb.append(macPermission);
                 sb.append(":");
                 sb.append(ex);
                 Slog.w(TAG, sb.toString());
                 return false;
             } catch (IOException ioe) {
-                Slog.w(TAG, "Exception parsing " + MAC_PERMISSIONS[i], ioe);
+                Slog.w(TAG, "Exception parsing " + macPermission, ioe);
                 return false;
             } finally {
                 IoUtils.closeQuietly(policyFile);
@@ -142,7 +179,9 @@ public final class SELinuxMMAC {
         }
 
         synchronized (sPolicies) {
-            sPolicies = policies;
+            sPolicies.clear();
+            sPolicies.addAll(policies);
+            sPolicyRead = true;
 
             if (DEBUG_POLICY_ORDER) {
                 for (Policy policy : sPolicies) {
@@ -270,37 +309,56 @@ public final class SELinuxMMAC {
     }
 
     /**
-     * Applies a security label to a package based on an seinfo tag taken from a matched
-     * policy. All signature based policy stanzas are consulted and, if no match is
-     * found, the default seinfo label of 'default' (set in ApplicationInfo object) is
-     * used. The security label is attached to the ApplicationInfo instance of the package
-     * in the event that a matching policy was found.
+     * Selects a security label to a package based on input parameters and the seinfo tag taken
+     * from a matched policy. All signature based policy stanzas are consulted and, if no match
+     * is found, the default seinfo label of 'default' is used. The security label is attached to
+     * the ApplicationInfo instance of the package.
      *
      * @param pkg object representing the package to be labeled.
+     * @param isPrivileged boolean.
+     * @param targetSandboxVersion int.
+     * @param targetSdkVersion int. If this pkg runs as a sharedUser, targetSdkVersion is the
+     *        greater of: lowest targetSdk for all pkgs in the sharedUser, or
+     *        MINIMUM_TARGETSDKVERSION.
+     * @return String representing the resulting seinfo.
      */
-    public static void assignSeInfoValue(PackageParser.Package pkg) {
+    public static String getSeInfo(PackageParser.Package pkg, boolean isPrivileged,
+            int targetSandboxVersion, int targetSdkVersion) {
+        String seInfo = null;
         synchronized (sPolicies) {
-            for (Policy policy : sPolicies) {
-                String seInfo = policy.getMatchedSeInfo(pkg);
-                if (seInfo != null) {
-                    pkg.applicationInfo.seInfo = seInfo;
-                    break;
+            if (!sPolicyRead) {
+                if (DEBUG_POLICY) {
+                    Slog.d(TAG, "Policy not read");
+                }
+            } else {
+                for (Policy policy : sPolicies) {
+                    seInfo = policy.getMatchedSeInfo(pkg);
+                    if (seInfo != null) {
+                        break;
+                    }
                 }
             }
         }
 
-        if (pkg.applicationInfo.targetSandboxVersion == 2)
-            pkg.applicationInfo.seInfo += SANDBOX_V2_STR;
+        if (seInfo == null) {
+            seInfo = DEFAULT_SEINFO;
+        }
 
-        if (pkg.applicationInfo.isPrivilegedApp())
-            pkg.applicationInfo.seInfo += PRIVILEGED_APP_STR;
+        if (targetSandboxVersion == 2) {
+            seInfo += SANDBOX_V2_STR;
+        }
 
-        pkg.applicationInfo.seInfo += TARGETSDKVERSION_STR + pkg.applicationInfo.targetSdkVersion;
+        if (isPrivileged) {
+            seInfo += PRIVILEGED_APP_STR;
+        }
+
+        seInfo += TARGETSDKVERSION_STR + targetSdkVersion;
 
         if (DEBUG_POLICY_INSTALL) {
             Slog.i(TAG, "package (" + pkg.packageName + ") labeled with " +
-                    "seinfo=" + pkg.applicationInfo.seInfo);
+                    "seinfo=" + seInfo);
         }
+        return seInfo;
     }
 }
 
@@ -437,8 +495,13 @@ final class Policy {
     public String getMatchedSeInfo(PackageParser.Package pkg) {
         // Check for exact signature matches across all certs.
         Signature[] certs = mCerts.toArray(new Signature[0]);
-        if (!Signature.areExactMatch(certs, pkg.mSignatures)) {
-            return null;
+        if (pkg.mSigningDetails != SigningDetails.UNKNOWN
+                && !Signature.areExactMatch(certs, pkg.mSigningDetails.signatures)) {
+
+            // certs aren't exact match, but the package may have rotated from the known system cert
+            if (certs.length > 1 || !pkg.mSigningDetails.hasCertificate(certs[0])) {
+                return null;
+            }
         }
 
         // Check for inner package name matches given that the

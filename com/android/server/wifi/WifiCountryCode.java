@@ -19,6 +19,9 @@ package com.android.server.wifi;
 import android.text.TextUtils;
 import android.util.Log;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+
 /**
  * Provide functions for making changes to WiFi country code.
  * This Country Code is from MCC or phone default setting. This class sends Country Code
@@ -72,20 +75,6 @@ public class WifiCountryCode {
             DBG = true;
         } else {
             DBG = false;
-        }
-    }
-
-    /**
-     * This is called when sim card is removed.
-     * In this case we should invalid all other country codes except the
-     * phone default one.
-     */
-    public synchronized void simCardRemoved() {
-        if (DBG) Log.d(TAG, "SIM Card Removed");
-        // SIM card is removed, we need to reset the country code to phone default.
-        mTelephonyCountryCode = null;
-        if (mReady) {
-            updateCountryCode();
         }
     }
 
@@ -167,6 +156,21 @@ public class WifiCountryCode {
         return pickCountryCode();
     }
 
+    /**
+     * Method to dump the current state of this WifiCounrtyCode object.
+     */
+    public synchronized void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        if (mCurrentCountryCode != null) {
+            pw.println("CountryCode sent to driver: " + mCurrentCountryCode);
+        } else {
+            if (pickCountryCode() != null) {
+                pw.println("CountryCode: " + pickCountryCode() + " was not sent to driver");
+            } else {
+                pw.println("CountryCode was not initialized");
+            }
+        }
+    }
+
     private void updateCountryCode() {
         if (DBG) Log.d(TAG, "Update country code");
         String country = pickCountryCode();
@@ -195,7 +199,7 @@ public class WifiCountryCode {
     }
 
     private boolean setCountryCodeNative(String country) {
-        if (mWifiNative.setCountryCode(country)) {
+        if (mWifiNative.setCountryCode(mWifiNative.getClientInterfaceName(), country)) {
             Log.d(TAG, "Succeeded to set country code to: " + country);
             mCurrentCountryCode = country;
             return true;

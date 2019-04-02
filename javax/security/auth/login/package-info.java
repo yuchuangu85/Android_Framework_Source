@@ -28,7 +28,7 @@
  * <h2>Package Specification</h2>
  *
  * <ul>
- *   <li><a href="{@docRoot}openjdk-redirect.html?v=8&path=/../technotes/guides/security/StandardNames.html">
+ *   <li><a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html">
  *     <b>Java&trade;
  *     Cryptography Architecture Standard Algorithm Name
  *     Documentation</b></a></li>

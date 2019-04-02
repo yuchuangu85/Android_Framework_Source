@@ -520,6 +520,10 @@ import sun.util.locale.ParseStatus;
  *     <td><a href="http://site.icu-project.org/download/58">ICU 58.2</a></td>
  *     <td><a href="http://cldr.unicode.org/index/downloads/cldr-30">CLDR 30.0.3</a></td>
  *     <td><a href="http://www.unicode.org/versions/Unicode9.0.0/">Unicode 9.0</a></td></tr>
+ * <tr><td>Android 9.0 (TBD)</td>
+ *     <td><a href="http://site.icu-project.org/download/60">ICU 60.2</a></td>
+ *     <td><a href="http://cldr.unicode.org/index/downloads/cldr-32">CLDR 32.0.1</a></td>
+ *     <td><a href="http://www.unicode.org/versions/Unicode10.0.0/">Unicode 10.0</a></td></tr>
  * </table>
  *
  * <a name="default_locale"></a><h4>Be wary of the default locale</h3>

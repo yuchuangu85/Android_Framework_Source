@@ -26,22 +26,16 @@
 
 package java.net;
 
-import java.util.List;
-import java.util.StringTokenizer;
-import java.util.NoSuchElementException;
-import java.text.SimpleDateFormat;
-import java.util.TimeZone;
-import java.util.Calendar;
-import java.util.GregorianCalendar;
 import java.util.Date;
-import java.util.Locale;
-import java.util.Objects;
-
-// BEGIN Android-changed
 import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
+import java.util.StringTokenizer;
+import java.util.TimeZone;
 import libcore.net.http.HttpDate;
-// END Android-changed
 
 /**
  * An HttpCookie object represents an HTTP cookie, which carries state
@@ -63,7 +57,7 @@ import libcore.net.http.HttpDate;
  * @since 1.6
  */
 public final class HttpCookie implements Cloneable {
-    // BEGIN Android-changed
+    // BEGIN Android-added: Reserved name can't be HttpCookie name
     private static final Set<String> RESERVED_NAMES = new HashSet<String>();
 
     static {
@@ -79,9 +73,9 @@ public final class HttpCookie implements Cloneable {
         RESERVED_NAMES.add("secure");     // Netscape  RFC 2109  RFC 2965  RFC 6265
         RESERVED_NAMES.add("version");    //           RFC 2109  RFC 2965  RFC 6265
     }
-    // END Android-changed
+    // END Android-added: Reserved name can't be HttpCookie name
 
-    /* ---------------- Fields -------------- */
+    // ---------------- Fields --------------
 
     // The value of the cookie itself.
     private final String name;  // NAME= ... "$Name" style is reserved
@@ -99,13 +93,9 @@ public final class HttpCookie implements Cloneable {
     private boolean httpOnly;   // HttpOnly ... i.e. not accessible to scripts
     private int version = 1;    // Version=1 ... RFC 2965 style
 
-    /**
-     * The original header this cookie was consructed from, if it was
-     * constructed by parsing a header, otherwise null.
-     *
-     * @hide
-     */
-    public final String header;
+    // The original header this cookie was consructed from, if it was
+    // constructed by parsing a header, otherwise null.
+    private final String header;
 
     //
     // Android-changed: Fixed units, s/seconds/milliseconds/, in comment below.
@@ -117,17 +107,20 @@ public final class HttpCookie implements Cloneable {
     // this value serves as a hint as 'not specify max-age'
     private final static long MAX_AGE_UNSPECIFIED = -1;
 
-    // Android-changed: Use libcore.net.http.HttpDate for parsing.
+    // BEGIN Android-removed: Use libcore.net.http.HttpDate for parsing.
     // date formats used by Netscape's cookie draft
     // as well as formats seen on various sites
-    /*private final static String[] COOKIE_DATE_FORMATS = {
+    /*
+    private final static String[] COOKIE_DATE_FORMATS = {
         "EEE',' dd-MMM-yyyy HH:mm:ss 'GMT'",
         "EEE',' dd MMM yyyy HH:mm:ss 'GMT'",
         "EEE MMM dd yyyy HH:mm:ss 'GMT'Z",
         "EEE',' dd-MMM-yy HH:mm:ss 'GMT'",
         "EEE',' dd MMM yy HH:mm:ss 'GMT'",
         "EEE MMM dd yy HH:mm:ss 'GMT'Z"
-    };*/
+    };
+    */
+    // END Android-removed: Use libcore.net.http.HttpDate for parsing.
 
     // constant strings represent set-cookie header token
     private final static String SET_COOKIE = "set-cookie:";
@@ -151,6 +144,7 @@ public final class HttpCookie implements Cloneable {
      * <p> By default, cookies are created according to the RFC 2965
      * cookie specification. The version can be changed with the
      * {@code setVersion} method.
+     *
      *
      * @param  name
      *         a {@code String} specifying the name of the cookie
@@ -213,10 +207,8 @@ public final class HttpCookie implements Cloneable {
     // create the cookie, in the cookie itself. This can be useful for filtering
     // Set-Cookie[2] headers, using the internal parsing logic defined in this
     // class.
-   /**
-     * @hide
-     */
-    public static List<HttpCookie> parse(String header, boolean retainHeader) {
+    private static List<HttpCookie> parse(String header, boolean retainHeader) {
+
         int version = guessCookieVersion(header);
 
         // if header start with set-cookie or set-cookie2, strip it off
@@ -307,7 +299,6 @@ public final class HttpCookie implements Cloneable {
      * @param  purpose
      *         a {@code String} specifying the comment URL to display to the user
      *
-     *
      * @see  #getCommentURL
      */
     public void setCommentURL(String purpose) {
@@ -316,7 +307,7 @@ public final class HttpCookie implements Cloneable {
 
     /**
      * Returns the comment URL describing the purpose of this cookie, or
-     * {@code null} if the cookie has no comment url.
+     * {@code null} if the cookie has no comment URL.
      *
      * @return  a {@code String} containing the comment URL, or {@code null}
      *          if none
@@ -700,11 +691,13 @@ public final class HttpCookie implements Cloneable {
             String H = host.substring(0, lengthDiff);
             String D = host.substring(lengthDiff);
 
-            // BEGIN Android-changed
-            //return (H.indexOf('.') == -1 && D.equalsIgnoreCase(domain));
+            // BEGIN Android-changed: App compat reason
+            // 1) Disregard RFC 2965 sec. 3.3.2, the "The request-host is a HDN..."
+            // 2) match "foo.local" for domain ".local".
+            // return (H.indexOf('.') == -1 && D.equalsIgnoreCase(domain));
             return D.equalsIgnoreCase(domain) && ((domain.startsWith(".") && isFullyQualifiedDomainName(domain, 1))
                 || isLocalDomain);
-            // END Android-changed
+            // END Android-changed: App compat reason
         }
         else if (lengthDiff == -1) {
             // if domain is actually .host
@@ -715,12 +708,12 @@ public final class HttpCookie implements Cloneable {
         return false;
     }
 
-    // BEGIN Android-changed
+    // BEGIN Android-added: App compat reason
     private static boolean isFullyQualifiedDomainName(String s, int firstCharacter) {
         int dotPosition = s.indexOf('.', firstCharacter + 1);
         return dotPosition != -1 && dotPosition < s.length() - 1;
     }
-    // END Android-changed
+    // END Android-added: App compat reason
 
     /**
      * Constructs a cookie header string representation of this cookie,
@@ -806,10 +799,9 @@ public final class HttpCookie implements Cloneable {
     // from RFC 2068, token special case characters
     //
     // private static final String tspecials = "()<>@,;:\\\"/[]?={} \t";
-    // BEGIN Android-changed
-    // private static final String tspecials = ",;";
+    // Android-changed: App compat reason. Disallow "=\t" as token
+    // private static final String tspecials = ",; ";  // deliberately includes space
     private static final String tspecials = ",;= \t";
-    // END Android-changed
 
     /*
      * Tests a string and returns true if the string counts as a token.
@@ -821,11 +813,10 @@ public final class HttpCookie implements Cloneable {
      *          {@code false} if it is not
      */
     private static boolean isToken(String value) {
-        // BEGIN Android-changed
+        // Android-added: Reserved name can't be a token
         if (RESERVED_NAMES.contains(value.toLowerCase(Locale.US))) {
             return false;
         }
-        // END Android-changed
 
         int len = value.length();
 
@@ -1004,7 +995,7 @@ public final class HttpCookie implements Cloneable {
                                    String attrName,
                                    String attrValue) {
                     if (cookie.getMaxAge() == MAX_AGE_UNSPECIFIED) {
-                        // Android-changed: Use HttpDate for date parsing,
+                        // BEGIN Android-changed: Use HttpDate for date parsing,
                         // it accepts broader set of date formats.
                         // cookie.setMaxAge(cookie.expiryDate2DeltaSeconds(attrValue));
                         // Android-changed: Altered max age calculation to avoid setting
@@ -1019,6 +1010,7 @@ public final class HttpCookie implements Cloneable {
                             }
                         }
                         cookie.setMaxAge(maxAgeInSeconds);
+                        // END Android-changed: Use HttpDate for date parsing
                     }
                 }
             });
@@ -1037,6 +1029,24 @@ public final class HttpCookie implements Cloneable {
             // Ignore the attribute as per RFC 2965
         }
     }
+
+    // BEGIN Android-removed: Android doesn't use JavaNetHttpCookieAccess
+    /*
+    static {
+        sun.misc.SharedSecrets.setJavaNetHttpCookieAccess(
+            new sun.misc.JavaNetHttpCookieAccess() {
+                public List<HttpCookie> parse(String header) {
+                    return HttpCookie.parse(header, true);
+                }
+
+                public String header(HttpCookie cookie) {
+                    return cookie.header;
+                }
+            }
+        );
+    }
+    */
+    // END Android-removed: Android doesn't use JavaNetHttpCookieAccess
 
     /*
      * Returns the original header this cookie was consructed from, if it was
@@ -1074,15 +1084,15 @@ public final class HttpCookie implements Cloneable {
 
     static final TimeZone GMT = TimeZone.getTimeZone("GMT");
 
+    // BEGIN Android-removed: not used.
     /*
      * @param  dateString
      *         a date string in one of the formats defined in Netscape cookie spec
      *
      * @return  delta seconds between this cookie's creation time and the time
      *          specified by dateString
-     */
-    // Android-changed: not used.
-    /*private long expiryDate2DeltaSeconds(String dateString) {
+     *
+    private long expiryDate2DeltaSeconds(String dateString) {
         Calendar cal = new GregorianCalendar(GMT);
         for (int i = 0; i < COOKIE_DATE_FORMATS.length; i++) {
             SimpleDateFormat df = new SimpleDateFormat(COOKIE_DATE_FORMATS[i],
@@ -1111,7 +1121,9 @@ public final class HttpCookie implements Cloneable {
             }
         }
         return 0;
-    }*/
+    }
+    */
+    // END Android-removed: not used.
 
     /*
      * try to guess the cookie version through set-cookie header string

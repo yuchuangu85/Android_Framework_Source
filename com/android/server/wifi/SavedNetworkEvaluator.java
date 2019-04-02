@@ -25,8 +25,6 @@ import android.util.Pair;
 import com.android.internal.R;
 import com.android.server.wifi.util.TelephonyUtil;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -46,11 +44,12 @@ public class SavedNetworkEvaluator implements WifiNetworkSelector.NetworkEvaluat
     private final int mBand5GHzAward;
     private final int mLastSelectionAward;
     private final int mSecurityAward;
-    private final int mThresholdSaturatedRssi24;
-    private final int mThresholdSaturatedRssi5;
+    private final ScoringParams mScoringParams;
 
-    SavedNetworkEvaluator(final Context context, WifiConfigManager configManager, Clock clock,
+    SavedNetworkEvaluator(final Context context, ScoringParams scoringParams,
+            WifiConfigManager configManager, Clock clock,
             LocalLog localLog, WifiConnectivityHelper connectivityHelper) {
+        mScoringParams = scoringParams;
         mWifiConfigManager = configManager;
         mClock = clock;
         mLocalLog = localLog;
@@ -70,10 +69,6 @@ public class SavedNetworkEvaluator implements WifiNetworkSelector.NetworkEvaluat
                 R.integer.config_wifi_framework_SECURITY_AWARD);
         mBand5GHzAward = context.getResources().getInteger(
                 R.integer.config_wifi_framework_5GHz_preference_boost_factor);
-        mThresholdSaturatedRssi24 = context.getResources().getInteger(
-                R.integer.config_wifi_framework_wifi_score_good_rssi_threshold_24GHz);
-        mThresholdSaturatedRssi5 = context.getResources().getInteger(
-                R.integer.config_wifi_framework_wifi_score_good_rssi_threshold_5GHz);
     }
 
     private void localLog(String log) {
@@ -164,7 +159,7 @@ public class SavedNetworkEvaluator implements WifiNetworkSelector.NetworkEvaluat
         sbuf.append("[ ").append(scanResult.SSID).append(" ").append(scanResult.BSSID)
                 .append(" RSSI:").append(scanResult.level).append(" ] ");
         // Calculate the RSSI score.
-        int rssiSaturationThreshold = is5GHz ? mThresholdSaturatedRssi5 : mThresholdSaturatedRssi24;
+        int rssiSaturationThreshold = mScoringParams.getGoodRssi(scanResult.frequency);
         int rssi = scanResult.level < rssiSaturationThreshold ? scanResult.level
                 : rssiSaturationThreshold;
         score += (rssi + mRssiScoreOffset) * mRssiScoreSlope;
@@ -242,96 +237,83 @@ public class SavedNetworkEvaluator implements WifiNetworkSelector.NetworkEvaluat
 
         for (ScanDetail scanDetail : scanDetails) {
             ScanResult scanResult = scanDetail.getScanResult();
-            int highestScoreOfScanResult = Integer.MIN_VALUE;
-            int candidateIdOfScanResult = WifiConfiguration.INVALID_NETWORK_ID;
 
             // One ScanResult can be associated with more than one networks, hence we calculate all
             // the scores and use the highest one as the ScanResult's score.
-            List<WifiConfiguration> associatedConfigurations = null;
-            WifiConfiguration associatedConfiguration =
+            WifiConfiguration network =
                     mWifiConfigManager.getConfiguredNetworkForScanDetailAndCache(scanDetail);
 
-            if (associatedConfiguration == null) {
+            if (network == null) {
                 continue;
-            } else {
-                associatedConfigurations =
-                    new ArrayList<>(Arrays.asList(associatedConfiguration));
             }
 
-            for (WifiConfiguration network : associatedConfigurations) {
-                /**
-                 * Ignore Passpoint and Ephemeral networks. They are configured networks,
-                 * but without being persisted to the storage. They are evaluated by
-                 * {@link PasspointNetworkEvaluator} and {@link ScoredNetworkEvaluator}
-                 * respectively.
-                 */
-                if (network.isPasspoint() || network.isEphemeral()) {
-                    continue;
-                }
+            /**
+             * Ignore Passpoint and Ephemeral networks. They are configured networks,
+             * but without being persisted to the storage. They are evaluated by
+             * {@link PasspointNetworkEvaluator} and {@link ScoredNetworkEvaluator}
+             * respectively.
+             */
+            if (network.isPasspoint() || network.isEphemeral()) {
+                continue;
+            }
 
-                WifiConfiguration.NetworkSelectionStatus status =
-                        network.getNetworkSelectionStatus();
-                status.setSeenInLastQualifiedNetworkSelection(true);
+            WifiConfiguration.NetworkSelectionStatus status =
+                    network.getNetworkSelectionStatus();
+            status.setSeenInLastQualifiedNetworkSelection(true);
 
-                if (!status.isNetworkEnabled()) {
-                    continue;
-                } else if (network.BSSID != null &&  !network.BSSID.equals("any")
-                        && !network.BSSID.equals(scanResult.BSSID)) {
-                    // App has specified the only BSSID to connect for this
-                    // configuration. So only the matching ScanResult can be a candidate.
-                    localLog("Network " + WifiNetworkSelector.toNetworkString(network)
-                            + " has specified BSSID " + network.BSSID + ". Skip "
-                            + scanResult.BSSID);
-                    continue;
-                } else if (TelephonyUtil.isSimConfig(network)
-                        && !mWifiConfigManager.isSimPresent()) {
-                    // Don't select if security type is EAP SIM/AKA/AKA' when SIM is not present.
-                    continue;
-                }
+            if (!status.isNetworkEnabled()) {
+                continue;
+            } else if (network.BSSID != null &&  !network.BSSID.equals("any")
+                    && !network.BSSID.equals(scanResult.BSSID)) {
+                // App has specified the only BSSID to connect for this
+                // configuration. So only the matching ScanResult can be a candidate.
+                localLog("Network " + WifiNetworkSelector.toNetworkString(network)
+                        + " has specified BSSID " + network.BSSID + ". Skip "
+                        + scanResult.BSSID);
+                continue;
+            } else if (TelephonyUtil.isSimConfig(network)
+                    && !mWifiConfigManager.isSimPresent()) {
+                // Don't select if security type is EAP SIM/AKA/AKA' when SIM is not present.
+                continue;
+            }
 
-                int score = calculateBssidScore(scanResult, network, currentNetwork, currentBssid,
-                        scoreHistory);
+            int score = calculateBssidScore(scanResult, network, currentNetwork, currentBssid,
+                    scoreHistory);
 
-                // Set candidate ScanResult for all saved networks to ensure that users can
-                // override network selection. See WifiNetworkSelector#setUserConnectChoice.
-                // TODO(b/36067705): consider alternative designs to push filtering/selecting of
-                // user connect choice networks to RecommendedNetworkEvaluator.
-                if (score > status.getCandidateScore() || (score == status.getCandidateScore()
-                        && status.getCandidate() != null
-                        && scanResult.level > status.getCandidate().level)) {
-                    mWifiConfigManager.setNetworkCandidateScanResult(
-                            network.networkId, scanResult, score);
-                }
+            // Set candidate ScanResult for all saved networks to ensure that users can
+            // override network selection. See WifiNetworkSelector#setUserConnectChoice.
+            // TODO(b/36067705): consider alternative designs to push filtering/selecting of
+            // user connect choice networks to RecommendedNetworkEvaluator.
+            if (score > status.getCandidateScore() || (score == status.getCandidateScore()
+                    && status.getCandidate() != null
+                    && scanResult.level > status.getCandidate().level)) {
+                mWifiConfigManager.setNetworkCandidateScanResult(
+                        network.networkId, scanResult, score);
+            }
 
-                // If the network is marked to use external scores, or is an open network with
-                // curate saved open networks enabled, do not consider it for network selection.
-                if (network.useExternalScores) {
-                    localLog("Network " + WifiNetworkSelector.toNetworkString(network)
-                            + " has external score.");
-                    continue;
-                }
-
-                if (score > highestScoreOfScanResult) {
-                    highestScoreOfScanResult = score;
-                    candidateIdOfScanResult = network.networkId;
-                }
+            // If the network is marked to use external scores, or is an open network with
+            // curate saved open networks enabled, do not consider it for network selection.
+            if (network.useExternalScores) {
+                localLog("Network " + WifiNetworkSelector.toNetworkString(network)
+                        + " has external score.");
+                continue;
             }
 
             if (connectableNetworks != null) {
                 connectableNetworks.add(Pair.create(scanDetail,
-                        mWifiConfigManager.getConfiguredNetwork(candidateIdOfScanResult)));
+                        mWifiConfigManager.getConfiguredNetwork(network.networkId)));
             }
 
-            if (highestScoreOfScanResult > highestScore
-                    || (highestScoreOfScanResult == highestScore
+            if (score > highestScore
+                    || (score == highestScore
                     && scanResultCandidate != null
                     && scanResult.level > scanResultCandidate.level)) {
-                highestScore = highestScoreOfScanResult;
+                highestScore = score;
                 scanResultCandidate = scanResult;
                 mWifiConfigManager.setNetworkCandidateScanResult(
-                        candidateIdOfScanResult, scanResultCandidate, highestScore);
+                        network.networkId, scanResultCandidate, highestScore);
                 // Reload the network config with the updated info.
-                candidate = mWifiConfigManager.getConfiguredNetwork(candidateIdOfScanResult);
+                candidate = mWifiConfigManager.getConfiguredNetwork(network.networkId);
             }
         }
 

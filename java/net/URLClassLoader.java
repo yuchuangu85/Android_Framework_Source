@@ -103,8 +103,8 @@ public class URLClassLoader extends SecureClassLoader implements Closeable {
         if (security != null) {
             security.checkCreateClassLoader();
         }
-        ucp = new URLClassPath(urls);
         this.acc = AccessController.getContext();
+        ucp = new URLClassPath(urls, acc);
     }
 
     URLClassLoader(URL[] urls, ClassLoader parent,
@@ -115,8 +115,8 @@ public class URLClassLoader extends SecureClassLoader implements Closeable {
         if (security != null) {
             security.checkCreateClassLoader();
         }
-        ucp = new URLClassPath(urls);
         this.acc = acc;
+        ucp = new URLClassPath(urls, acc);
     }
 
     /**
@@ -147,8 +147,8 @@ public class URLClassLoader extends SecureClassLoader implements Closeable {
         if (security != null) {
             security.checkCreateClassLoader();
         }
-        ucp = new URLClassPath(urls);
         this.acc = AccessController.getContext();
+        ucp = new URLClassPath(urls, acc);
     }
 
     URLClassLoader(URL[] urls, AccessControlContext acc) {
@@ -158,8 +158,8 @@ public class URLClassLoader extends SecureClassLoader implements Closeable {
         if (security != null) {
             security.checkCreateClassLoader();
         }
-        ucp = new URLClassPath(urls);
         this.acc = acc;
+        ucp = new URLClassPath(urls, acc);
     }
 
     /**
@@ -180,6 +180,7 @@ public class URLClassLoader extends SecureClassLoader implements Closeable {
      * @exception  SecurityException  if a security manager exists and its
      *             {@code checkCreateClassLoader} method doesn't allow
      *             creation of a class loader.
+     * @exception  NullPointerException if {@code urls} is {@code null}.
      * @see SecurityManager#checkCreateClassLoader
      */
     public URLClassLoader(URL[] urls, ClassLoader parent,
@@ -271,13 +272,13 @@ public class URLClassLoader extends SecureClassLoader implements Closeable {
     * and errors are not caught. Calling close on an already closed
     * loader has no effect.
     * <p>
-    * @throws IOException if closing any file opened by this class loader
+    * @exception IOException if closing any file opened by this class loader
     * resulted in an IOException. Any such exceptions are caught internally.
     * If only one is caught, then it is re-thrown. If more than one exception
     * is caught, then the second and following exceptions are added
     * as suppressed exceptions of the first one caught, which is then re-thrown.
     *
-    * @throws SecurityException if a security manager is set, and it denies
+    * @exception SecurityException if a security manager is set, and it denies
     *   {@link RuntimePermission}{@code ("closeClassLoader")}
     *
     * @since 1.7
@@ -455,12 +456,16 @@ public class URLClassLoader extends SecureClassLoader implements Closeable {
             // Use (direct) ByteBuffer:
             CodeSigner[] signers = res.getCodeSigners();
             CodeSource cs = new CodeSource(url, signers);
+            // Android-removed: Android doesn't use sun.misc.PerfCounter.
+            // sun.misc.PerfCounter.getReadClassBytesTime().addElapsedTimeFrom(t0);
             return defineClass(name, bb, cs);
         } else {
             byte[] b = res.getBytes();
             // must read certificates AFTER reading bytes.
             CodeSigner[] signers = res.getCodeSigners();
             CodeSource cs = new CodeSource(url, signers);
+            // Android-removed: Android doesn't use sun.misc.PerfCounter.
+            // sun.misc.PerfCounter.getReadClassBytesTime().addElapsedTimeFrom(t0);
             return defineClass(name, b, 0, b.length, cs);
         }
     }
@@ -766,6 +771,7 @@ public class URLClassLoader extends SecureClassLoader implements Closeable {
     }
 
     static {
+        // Android-removed: SharedSecrets.setJavaNetAccess call. Android doesn't use it.
         /*sun.misc.SharedSecrets.setJavaNetAccess (
             new sun.misc.JavaNetAccess() {
                 public URLClassPath getURLClassPath (URLClassLoader u) {

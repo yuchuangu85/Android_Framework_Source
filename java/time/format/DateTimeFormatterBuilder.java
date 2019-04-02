@@ -3641,7 +3641,7 @@ public final class DateTimeFormatterBuilder {
         private static final int DST = 1;
         private static final int GENERIC = 2;
 
-        // Android-changed: List of types used by getDisplayName().
+        // BEGIN Android-added: Lists of types used by getDisplayName().
         private static final TimeZoneNames.NameType[] TYPES = new TimeZoneNames.NameType[] {
                 TimeZoneNames.NameType.LONG_STANDARD,
                 TimeZoneNames.NameType.SHORT_STANDARD,
@@ -3662,6 +3662,7 @@ public final class DateTimeFormatterBuilder {
                 TimeZoneNames.NameType.SHORT_DAYLIGHT,
                 TimeZoneNames.NameType.SHORT_GENERIC,
         };
+        // END Android-added: Lists of types used by getDisplayName().
 
         private static final Map<String, SoftReference<Map<Locale, String[]>>> cache =
             new ConcurrentHashMap<>();
@@ -3675,7 +3676,7 @@ public final class DateTimeFormatterBuilder {
             Map<Locale, String[]> perLocale = null;
             if (ref == null || (perLocale = ref.get()) == null ||
                     (names = perLocale.get(locale)) == null) {
-                // Android-changed: use ICU TimeZoneNames instead of TimeZoneNameUtility.
+                // BEGIN Android-changed: use ICU TimeZoneNames instead of TimeZoneNameUtility.
                 TimeZoneNames timeZoneNames = TimeZoneNames.getInstance(locale);
                 names = new String[TYPES.length + 1];
                 // Zeroth index used for id, other indexes based on NameType constant + 1.
@@ -3703,6 +3704,7 @@ public final class DateTimeFormatterBuilder {
                 if (names[5] == null) {
                     names[5] = names[0]; // use the id
                 }
+                // END Android-changed: use ICU TimeZoneNames instead of TimeZoneNameUtility.
                 if (names[6] == null) {
                     names[6] = names[0];
                 }
@@ -3763,12 +3765,12 @@ public final class DateTimeFormatterBuilder {
                 isCaseSensitive ? cachedTree : cachedTreeCI;
 
             Entry<Integer, SoftReference<PrefixTree>> entry;
+            // BEGIN Android-changed: use ICU TimeZoneNames to get Zone names.
             PrefixTree tree;
             if ((entry = cached.get(locale)) == null ||
                 (entry.getKey() != regionIdsSize ||
                 (tree = entry.getValue().get()) == null)) {
                 tree = PrefixTree.newTree(context);
-                // Android-changed: use ICU TimeZoneNames to get Zone names.
                 TimeZoneNames timeZoneNames = TimeZoneNames.getInstance(locale);
                 long now = System.currentTimeMillis();
                 TimeZoneNames.NameType[] types =
@@ -3798,6 +3800,7 @@ public final class DateTimeFormatterBuilder {
                                 tree.add(names[i], zid);
                             }
                         }
+                        // END Android-changed: use ICU TimeZoneNames to get Zone names.
                     }
                 }
                 cached.put(locale, new SimpleImmutableEntry<>(regionIdsSize, new SoftReference<>(tree)));
@@ -3923,7 +3926,7 @@ public final class DateTimeFormatterBuilder {
                 return position;
             }
 
-            // Android-changed: "GMT0" is considered a valid ZoneId.
+            // Android-added: "GMT0" is considered a valid ZoneId.
             if (text.charAt(position) == '0' && prefix.equals("GMT")) {
                 context.setParsed(ZoneId.of("GMT0"));
                 return position + 1;

@@ -20,9 +20,12 @@ import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.ArrayUtils;
 import com.android.server.wifi.ScanDetail;
 import com.android.server.wifi.hotspot2.NetworkDetail;
 
+import java.io.PrintWriter;
+import java.util.List;
 /**
  * Scan result utility for any {@link ScanResult} related operations.
  * Currently contains:
@@ -114,6 +117,48 @@ public class ScanResultUtil {
             config.allowedAuthAlgorithms.set(WifiConfiguration.AuthAlgorithm.SHARED);
         } else {
             config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
+        }
+    }
+
+    /**
+     * Dump the provided scan results list to |pw|.
+     */
+    public static void dumpScanResults(PrintWriter pw, List<ScanResult> scanResults, long nowMs) {
+        if (scanResults != null && scanResults.size() != 0) {
+            pw.println("    BSSID              Frequency      RSSI           Age(sec)     SSID "
+                    + "                                Flags");
+            for (ScanResult r : scanResults) {
+                long timeStampMs = r.timestamp / 1000;
+                String age;
+                if (timeStampMs <= 0) {
+                    age = "___?___";
+                } else if (nowMs < timeStampMs) {
+                    age = "  0.000";
+                } else if (timeStampMs < nowMs - 1000000) {
+                    age = ">1000.0";
+                } else {
+                    age = String.format("%3.3f", (nowMs - timeStampMs) / 1000.0);
+                }
+                String ssid = r.SSID == null ? "" : r.SSID;
+                String rssiInfo = "";
+                if (ArrayUtils.size(r.radioChainInfos) == 1) {
+                    rssiInfo = String.format("%5d(%1d:%3d)       ", r.level,
+                            r.radioChainInfos[0].id, r.radioChainInfos[0].level);
+                } else if (ArrayUtils.size(r.radioChainInfos) == 2) {
+                    rssiInfo = String.format("%5d(%1d:%3d/%1d:%3d)", r.level,
+                            r.radioChainInfos[0].id, r.radioChainInfos[0].level,
+                            r.radioChainInfos[1].id, r.radioChainInfos[1].level);
+                } else {
+                    rssiInfo = String.format("%9d         ", r.level);
+                }
+                pw.printf("  %17s  %9d  %18s   %7s    %-32s  %s\n",
+                        r.BSSID,
+                        r.frequency,
+                        rssiInfo,
+                        age,
+                        String.format("%1.32s", ssid),
+                        r.capabilities);
+            }
         }
     }
 }

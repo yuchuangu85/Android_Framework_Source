@@ -25,7 +25,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ResolveInfo;
 import android.content.res.Resources;
-import android.os.SystemClock;
+import android.os.UserHandle;
 import android.util.Slog;
 
 import java.util.List;
@@ -33,7 +33,7 @@ import java.util.List;
 /**
  * A single class that implements multiple helper interfaces for use by {@link PackageTracker}.
  */
-final class PackageTrackerHelperImpl implements ClockHelper, ConfigHelper, PackageManagerHelper {
+final class PackageTrackerHelperImpl implements ConfigHelper, PackageManagerHelper {
 
     private static final String TAG = "PackageTrackerHelperImpl";
 
@@ -73,18 +73,11 @@ final class PackageTrackerHelperImpl implements ClockHelper, ConfigHelper, Packa
     }
 
     @Override
-    public long currentTimestamp() {
-        // Use of elapsedRealtime() because this is in-memory state and elapsedRealtime() shouldn't
-        // change if the system clock changes.
-        return SystemClock.elapsedRealtime();
-    }
-
-    @Override
-    public int getInstalledPackageVersion(String packageName)
+    public long getInstalledPackageVersion(String packageName)
             throws PackageManager.NameNotFoundException {
         int flags = PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS;
         PackageInfo packageInfo = mPackageManager.getPackageInfo(packageName, flags);
-        return packageInfo.versionCode;
+        return packageInfo.getLongVersionCode();
     }
 
     @Override
@@ -114,8 +107,8 @@ final class PackageTrackerHelperImpl implements ClockHelper, ConfigHelper, Packa
     @Override
     public boolean contentProviderRegistered(String authority, String requiredPackageName) {
         int flags = PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS;
-        ProviderInfo providerInfo =
-                mPackageManager.resolveContentProvider(authority, flags);
+        ProviderInfo providerInfo = mPackageManager.resolveContentProviderAsUser(
+                authority, flags, UserHandle.SYSTEM.getIdentifier());
         if (providerInfo == null) {
             Slog.i(TAG, "contentProviderRegistered: No content provider registered with authority="
                     + authority);
@@ -136,7 +129,8 @@ final class PackageTrackerHelperImpl implements ClockHelper, ConfigHelper, Packa
             throws PackageManager.NameNotFoundException {
 
         int flags = PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS;
-        List<ResolveInfo> resolveInfo = mPackageManager.queryBroadcastReceivers(intent, flags);
+        List<ResolveInfo> resolveInfo = mPackageManager.queryBroadcastReceiversAsUser(
+                intent, flags, UserHandle.SYSTEM);
         if (resolveInfo.size() != 1) {
             Slog.i(TAG, "receiverRegistered: Zero or multiple broadcast receiver registered for"
                     + " intent=" + intent + ", found=" + resolveInfo);

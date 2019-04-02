@@ -69,7 +69,9 @@ public final class WifiAwareService extends SystemService {
             HandlerThread awareHandlerThread = wifiInjector.getWifiAwareHandlerThread();
             mImpl.start(awareHandlerThread, wifiAwareStateManager, wifiAwareShellCommand,
                     wifiInjector.getWifiMetrics().getWifiAwareMetrics(),
-                    wifiInjector.getWifiPermissionsWrapper());
+                    wifiInjector.getWifiPermissionsUtil(),
+                    wifiInjector.getWifiPermissionsWrapper(), wifiInjector.getFrameworkFacade(),
+                    wifiAwareNativeManager, wifiAwareNativeApi, wifiAwareNativeCallback);
         } else if (phase == SystemService.PHASE_BOOT_COMPLETED) {
             mImpl.startLate();
         }

@@ -964,7 +964,8 @@ public class CallManager {
         // FIXME Taken from klp-sprout-dev but setAudioMode was removed in L.
         //mIsEccDialing = PhoneNumberUtils.isEmergencyNumber(dialString);
 
-        result = phone.dial(dialString, videoState);
+        result = phone.dial(dialString, new PhoneInternalInterface.DialArgs.Builder<>()
+                .setVideoState(videoState).build());
 
         if (VDBG) {
             Rlog.d(LOG_TAG, "End dial(" + phone + ", "+ dialString + ")");
@@ -986,7 +987,10 @@ public class CallManager {
      */
     public Connection dial(Phone phone, String dialString, UUSInfo uusInfo, int videoState)
             throws CallStateException {
-        return phone.dial(dialString, uusInfo, videoState, null);
+        return phone.dial(dialString,
+                new PhoneInternalInterface.DialArgs.Builder<>()
+                        .setUusInfo(uusInfo)
+                        .setVideoState(videoState).build());
     }
 
     /**

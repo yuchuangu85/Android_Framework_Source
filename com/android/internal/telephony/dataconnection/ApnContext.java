@@ -35,7 +35,6 @@ import com.android.internal.util.IndentingPrintWriter;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -272,7 +271,10 @@ public class ApnContext {
             log("setState: " + s + ", previous state:" + mState);
         }
 
-        mState = s;
+        if (mState != s) {
+            mStateLocalLog.log("State changed from " + mState + " to " + s);
+            mState = s;
+        }
 
         if (mState == DctConstants.State.FAILED) {
             if (mRetryManager.getWaitingApns() != null) {
@@ -399,8 +401,7 @@ public class ApnContext {
 
     private final ArrayList<LocalLog> mLocalLogs = new ArrayList<>();
     private final ArrayList<NetworkRequest> mNetworkRequests = new ArrayList<>();
-    private final ArrayDeque<LocalLog> mHistoryLogs = new ArrayDeque<>();
-    private final static int MAX_HISTORY_LOG_COUNT = 4;
+    private final LocalLog mStateLocalLog = new LocalLog(50);
 
     public void requestLog(String str) {
         synchronized (mRefCountLock) {
@@ -719,13 +720,15 @@ public class ApnContext {
             pw.increaseIndent();
             for (LocalLog l : mLocalLogs) {
                 l.dump(fd, pw, args);
-            }
-            if (mHistoryLogs.size() > 0) pw.println("Historical Logs:");
-            for (LocalLog l : mHistoryLogs) {
-                l.dump(fd, pw, args);
+                pw.println("-----");
             }
             pw.decreaseIndent();
+            pw.println("Historical APN state:");
+            pw.increaseIndent();
+            mStateLocalLog.dump(fd, pw, args);
+            pw.decreaseIndent();
             pw.println(mRetryManager);
+            pw.println("--------------------------");
         }
     }
 }

@@ -651,6 +651,26 @@ public class Resources_Delegate {
     }
 
     @LayoutlibDelegate
+    static float getFloat(Resources resources, int id) {
+        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+
+        if (value != null) {
+            ResourceValue resValue = value.getSecond();
+
+            if (resValue != null) {
+                String v = resValue.getValue();
+                if (v != null) {
+                    try {
+                        return Float.parseFloat(v);
+                    } catch (NumberFormatException ignore) {
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+
+    @LayoutlibDelegate
     static boolean getBoolean(Resources resources, int id) throws NotFoundException {
         Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
 
@@ -866,31 +886,26 @@ public class Resources_Delegate {
     }
 
     @LayoutlibDelegate
+    static void getValueForDensity(Resources resources, int id, int density, TypedValue outValue,
+            boolean resolveRefs) throws NotFoundException {
+        getValue(resources, id, outValue, resolveRefs);
+    }
+
+    @LayoutlibDelegate
     static XmlResourceParser getXml(Resources resources, int id) throws NotFoundException {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> v = getResourceValue(resources, id, mPlatformResourceFlag);
 
-        if (value != null) {
-            String v = value.getSecond().getValue();
+        if (v != null) {
+            ResourceValue value = v.getSecond();
 
-            if (v != null) {
-                // check this is a file
-                File f = new File(v);
-                if (f.isFile()) {
-                    try {
-                        XmlPullParser parser = ParserFactory.create(f);
-
-                        return new BridgeXmlBlockParser(parser, getContext(resources),
-                                mPlatformResourceFlag[0]);
-                    } catch (XmlPullParserException e) {
-                        NotFoundException newE = new NotFoundException();
-                        newE.initCause(e);
-                        throw newE;
-                    } catch (FileNotFoundException e) {
-                        NotFoundException newE = new NotFoundException();
-                        newE.initCause(e);
-                        throw newE;
-                    }
-                }
+            try {
+                return ResourceHelper.getXmlBlockParser(getContext(resources), value);
+            } catch (XmlPullParserException e) {
+                Bridge.getLog().error(LayoutLog.TAG_BROKEN,
+                        "Failed to configure parser for " + value.getValue(), e, null /*data*/);
+                // we'll return null below.
+            } catch (FileNotFoundException e) {
+                // this shouldn't happen since we check above.
             }
         }
 

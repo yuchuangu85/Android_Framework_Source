@@ -23,13 +23,16 @@ import static android.net.ConnectivityManager.TYPE_PROXY;
 import static android.net.ConnectivityManager.TYPE_WIFI;
 import static android.net.ConnectivityManager.TYPE_WIFI_P2P;
 import static android.net.ConnectivityManager.TYPE_WIMAX;
-import static android.net.NetworkIdentity.COMBINE_SUBTYPE_ENABLED;
+import static android.net.NetworkStats.DEFAULT_NETWORK_ALL;
+import static android.net.NetworkStats.DEFAULT_NETWORK_NO;
+import static android.net.NetworkStats.DEFAULT_NETWORK_YES;
+import static android.net.NetworkStats.METERED_ALL;
+import static android.net.NetworkStats.METERED_NO;
+import static android.net.NetworkStats.METERED_YES;
+import static android.net.NetworkStats.ROAMING_ALL;
+import static android.net.NetworkStats.ROAMING_NO;
+import static android.net.NetworkStats.ROAMING_YES;
 import static android.net.wifi.WifiInfo.removeDoubleQuotes;
-import static android.telephony.TelephonyManager.NETWORK_CLASS_2_G;
-import static android.telephony.TelephonyManager.NETWORK_CLASS_3_G;
-import static android.telephony.TelephonyManager.NETWORK_CLASS_4_G;
-import static android.telephony.TelephonyManager.NETWORK_CLASS_UNKNOWN;
-import static android.telephony.TelephonyManager.getNetworkClass;
 
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -46,8 +49,8 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * Template definition used to generically match {@link NetworkIdentity},
- * usually when collecting statistics.
+ * Predicate used to match {@link NetworkIdentity}, usually when collecting
+ * statistics. (It should probably have been named {@code NetworkPredicate}.)
  *
  * @hide
  */
@@ -59,13 +62,7 @@ public class NetworkTemplate implements Parcelable {
      */
     private static final int BACKUP_VERSION = 1;
 
-    public static final int MATCH_MOBILE_ALL = 1;
-    /** @deprecated don't use this any more */
-    @Deprecated
-    public static final int MATCH_MOBILE_3G_LOWER = 2;
-    /** @deprecated don't use this any more */
-    @Deprecated
-    public static final int MATCH_MOBILE_4G = 3;
+    public static final int MATCH_MOBILE = 1;
     public static final int MATCH_WIFI = 4;
     public static final int MATCH_ETHERNET = 5;
     public static final int MATCH_MOBILE_WILDCARD = 6;
@@ -75,9 +72,7 @@ public class NetworkTemplate implements Parcelable {
 
     private static boolean isKnownMatchRule(final int rule) {
         switch (rule) {
-            case MATCH_MOBILE_ALL:
-            case MATCH_MOBILE_3G_LOWER:
-            case MATCH_MOBILE_4G:
+            case MATCH_MOBILE:
             case MATCH_WIFI:
             case MATCH_ETHERNET:
             case MATCH_MOBILE_WILDCARD:
@@ -102,25 +97,7 @@ public class NetworkTemplate implements Parcelable {
      * the given IMSI.
      */
     public static NetworkTemplate buildTemplateMobileAll(String subscriberId) {
-        return new NetworkTemplate(MATCH_MOBILE_ALL, subscriberId, null);
-    }
-
-    /**
-     * Template to match {@link ConnectivityManager#TYPE_MOBILE} networks with
-     * the given IMSI that roughly meet a "3G" definition, or lower.
-     */
-    @Deprecated
-    public static NetworkTemplate buildTemplateMobile3gLower(String subscriberId) {
-        return new NetworkTemplate(MATCH_MOBILE_3G_LOWER, subscriberId, null);
-    }
-
-    /**
-     * Template to match {@link ConnectivityManager#TYPE_MOBILE} networks with
-     * the given IMSI that roughly meet a "4G" definition.
-     */
-    @Deprecated
-    public static NetworkTemplate buildTemplateMobile4g(String subscriberId) {
-        return new NetworkTemplate(MATCH_MOBILE_4G, subscriberId, null);
+        return new NetworkTemplate(MATCH_MOBILE, subscriberId, null);
     }
 
     /**
@@ -191,16 +168,30 @@ public class NetworkTemplate implements Parcelable {
 
     private final String mNetworkId;
 
+    // Matches for the NetworkStats constants METERED_*, ROAMING_* and DEFAULT_NETWORK_*.
+    private final int mMetered;
+    private final int mRoaming;
+    private final int mDefaultNetwork;
+
     public NetworkTemplate(int matchRule, String subscriberId, String networkId) {
         this(matchRule, subscriberId, new String[] { subscriberId }, networkId);
     }
 
     public NetworkTemplate(int matchRule, String subscriberId, String[] matchSubscriberIds,
             String networkId) {
+        this(matchRule, subscriberId, matchSubscriberIds, networkId, METERED_ALL, ROAMING_ALL,
+                DEFAULT_NETWORK_ALL);
+    }
+
+    public NetworkTemplate(int matchRule, String subscriberId, String[] matchSubscriberIds,
+            String networkId, int metered, int roaming, int defaultNetwork) {
         mMatchRule = matchRule;
         mSubscriberId = subscriberId;
         mMatchSubscriberIds = matchSubscriberIds;
         mNetworkId = networkId;
+        mMetered = metered;
+        mRoaming = roaming;
+        mDefaultNetwork = defaultNetwork;
 
         if (!isKnownMatchRule(matchRule)) {
             Log.e(TAG, "Unknown network template rule " + matchRule
@@ -213,6 +204,9 @@ public class NetworkTemplate implements Parcelable {
         mSubscriberId = in.readString();
         mMatchSubscriberIds = in.createStringArray();
         mNetworkId = in.readString();
+        mMetered = in.readInt();
+        mRoaming = in.readInt();
+        mDefaultNetwork = in.readInt();
     }
 
     @Override
@@ -221,6 +215,9 @@ public class NetworkTemplate implements Parcelable {
         dest.writeString(mSubscriberId);
         dest.writeStringArray(mMatchSubscriberIds);
         dest.writeString(mNetworkId);
+        dest.writeInt(mMetered);
+        dest.writeInt(mRoaming);
+        dest.writeInt(mDefaultNetwork);
     }
 
     @Override
@@ -243,12 +240,23 @@ public class NetworkTemplate implements Parcelable {
         if (mNetworkId != null) {
             builder.append(", networkId=").append(mNetworkId);
         }
+        if (mMetered != METERED_ALL) {
+            builder.append(", metered=").append(NetworkStats.meteredToString(mMetered));
+        }
+        if (mRoaming != ROAMING_ALL) {
+            builder.append(", roaming=").append(NetworkStats.roamingToString(mRoaming));
+        }
+        if (mDefaultNetwork != DEFAULT_NETWORK_ALL) {
+            builder.append(", defaultNetwork=").append(NetworkStats.defaultNetworkToString(
+                    mDefaultNetwork));
+        }
         return builder.toString();
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mMatchRule, mSubscriberId, mNetworkId);
+        return Objects.hash(mMatchRule, mSubscriberId, mNetworkId, mMetered, mRoaming,
+                mDefaultNetwork);
     }
 
     @Override
@@ -257,16 +265,17 @@ public class NetworkTemplate implements Parcelable {
             final NetworkTemplate other = (NetworkTemplate) obj;
             return mMatchRule == other.mMatchRule
                     && Objects.equals(mSubscriberId, other.mSubscriberId)
-                    && Objects.equals(mNetworkId, other.mNetworkId);
+                    && Objects.equals(mNetworkId, other.mNetworkId)
+                    && mMetered == other.mMetered
+                    && mRoaming == other.mRoaming
+                    && mDefaultNetwork == other.mDefaultNetwork;
         }
         return false;
     }
 
     public boolean isMatchRuleMobile() {
         switch (mMatchRule) {
-            case MATCH_MOBILE_3G_LOWER:
-            case MATCH_MOBILE_4G:
-            case MATCH_MOBILE_ALL:
+            case MATCH_MOBILE:
             case MATCH_MOBILE_WILDCARD:
                 return true;
             default:
@@ -300,13 +309,13 @@ public class NetworkTemplate implements Parcelable {
      * Test if given {@link NetworkIdentity} matches this template.
      */
     public boolean matches(NetworkIdentity ident) {
+        if (!matchesMetered(ident)) return false;
+        if (!matchesRoaming(ident)) return false;
+        if (!matchesDefaultNetwork(ident)) return false;
+
         switch (mMatchRule) {
-            case MATCH_MOBILE_ALL:
+            case MATCH_MOBILE:
                 return matchesMobile(ident);
-            case MATCH_MOBILE_3G_LOWER:
-                return matchesMobile3gLower(ident);
-            case MATCH_MOBILE_4G:
-                return matchesMobile4g(ident);
             case MATCH_WIFI:
                 return matchesWifi(ident);
             case MATCH_ETHERNET:
@@ -326,6 +335,24 @@ public class NetworkTemplate implements Parcelable {
         }
     }
 
+    private boolean matchesMetered(NetworkIdentity ident) {
+        return (mMetered == METERED_ALL)
+            || (mMetered == METERED_YES && ident.mMetered)
+            || (mMetered == METERED_NO && !ident.mMetered);
+    }
+
+    private boolean matchesRoaming(NetworkIdentity ident) {
+        return (mRoaming == ROAMING_ALL)
+            || (mRoaming == ROAMING_YES && ident.mRoaming)
+            || (mRoaming == ROAMING_NO && !ident.mRoaming);
+    }
+
+    private boolean matchesDefaultNetwork(NetworkIdentity ident) {
+        return (mDefaultNetwork == DEFAULT_NETWORK_ALL)
+            || (mDefaultNetwork == DEFAULT_NETWORK_YES && ident.mDefaultNetwork)
+            || (mDefaultNetwork == DEFAULT_NETWORK_NO && !ident.mDefaultNetwork);
+    }
+
     public boolean matchesSubscriberId(String subscriberId) {
         return ArrayUtils.contains(mMatchSubscriberIds, subscriberId);
     }
@@ -342,43 +369,6 @@ public class NetworkTemplate implements Parcelable {
                     && !ArrayUtils.isEmpty(mMatchSubscriberIds)
                     && ArrayUtils.contains(mMatchSubscriberIds, ident.mSubscriberId);
         }
-    }
-
-    /**
-     * Check if mobile network classified 3G or lower with matching IMSI.
-     */
-    @Deprecated
-    private boolean matchesMobile3gLower(NetworkIdentity ident) {
-        ensureSubtypeAvailable();
-        if (ident.mType == TYPE_WIMAX) {
-            return false;
-        } else if (matchesMobile(ident)) {
-            switch (getNetworkClass(ident.mSubType)) {
-                case NETWORK_CLASS_UNKNOWN:
-                case NETWORK_CLASS_2_G:
-                case NETWORK_CLASS_3_G:
-                    return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Check if mobile network classified 4G with matching IMSI.
-     */
-    @Deprecated
-    private boolean matchesMobile4g(NetworkIdentity ident) {
-        ensureSubtypeAvailable();
-        if (ident.mType == TYPE_WIMAX) {
-            // TODO: consider matching against WiMAX subscriber identity
-            return true;
-        } else if (matchesMobile(ident)) {
-            switch (getNetworkClass(ident.mSubType)) {
-                case NETWORK_CLASS_4_G:
-                    return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -441,12 +431,8 @@ public class NetworkTemplate implements Parcelable {
 
     private static String getMatchRuleName(int matchRule) {
         switch (matchRule) {
-            case MATCH_MOBILE_3G_LOWER:
-                return "MOBILE_3G_LOWER";
-            case MATCH_MOBILE_4G:
-                return "MOBILE_4G";
-            case MATCH_MOBILE_ALL:
-                return "MOBILE_ALL";
+            case MATCH_MOBILE:
+                return "MOBILE";
             case MATCH_WIFI:
                 return "WIFI";
             case MATCH_ETHERNET:
@@ -461,13 +447,6 @@ public class NetworkTemplate implements Parcelable {
                 return "PROXY";
             default:
                 return "UNKNOWN(" + matchRule + ")";
-        }
-    }
-
-    private static void ensureSubtypeAvailable() {
-        if (COMBINE_SUBTYPE_ENABLED) {
-            throw new IllegalArgumentException(
-                    "Unable to enforce 3G_LOWER template on combined data.");
         }
     }
 

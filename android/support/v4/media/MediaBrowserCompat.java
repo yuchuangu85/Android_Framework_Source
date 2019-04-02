@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,36 +15,39 @@
  */
 package android.support.v4.media;
 
-import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-import static android.support.v4.media.MediaBrowserProtocol.CLIENT_MSG_ADD_SUBSCRIPTION;
-import static android.support.v4.media.MediaBrowserProtocol.CLIENT_MSG_CONNECT;
-import static android.support.v4.media.MediaBrowserProtocol.CLIENT_MSG_DISCONNECT;
-import static android.support.v4.media.MediaBrowserProtocol.CLIENT_MSG_GET_MEDIA_ITEM;
-import static android.support.v4.media.MediaBrowserProtocol.CLIENT_MSG_REGISTER_CALLBACK_MESSENGER;
-import static android.support.v4.media.MediaBrowserProtocol.CLIENT_MSG_REMOVE_SUBSCRIPTION;
-import static android.support.v4.media.MediaBrowserProtocol.CLIENT_MSG_SEARCH;
-import static android.support.v4.media.MediaBrowserProtocol.CLIENT_MSG_SEND_CUSTOM_ACTION;
-import static android.support.v4.media.MediaBrowserProtocol
-        .CLIENT_MSG_UNREGISTER_CALLBACK_MESSENGER;
-import static android.support.v4.media.MediaBrowserProtocol.CLIENT_VERSION_CURRENT;
-import static android.support.v4.media.MediaBrowserProtocol.DATA_CALLBACK_TOKEN;
-import static android.support.v4.media.MediaBrowserProtocol.DATA_CUSTOM_ACTION;
-import static android.support.v4.media.MediaBrowserProtocol.DATA_CUSTOM_ACTION_EXTRAS;
-import static android.support.v4.media.MediaBrowserProtocol.DATA_MEDIA_ITEM_ID;
-import static android.support.v4.media.MediaBrowserProtocol.DATA_MEDIA_ITEM_LIST;
-import static android.support.v4.media.MediaBrowserProtocol.DATA_MEDIA_SESSION_TOKEN;
-import static android.support.v4.media.MediaBrowserProtocol.DATA_OPTIONS;
-import static android.support.v4.media.MediaBrowserProtocol.DATA_PACKAGE_NAME;
-import static android.support.v4.media.MediaBrowserProtocol.DATA_RESULT_RECEIVER;
-import static android.support.v4.media.MediaBrowserProtocol.DATA_ROOT_HINTS;
-import static android.support.v4.media.MediaBrowserProtocol.DATA_SEARCH_EXTRAS;
-import static android.support.v4.media.MediaBrowserProtocol.DATA_SEARCH_QUERY;
-import static android.support.v4.media.MediaBrowserProtocol.EXTRA_CLIENT_VERSION;
-import static android.support.v4.media.MediaBrowserProtocol.EXTRA_MESSENGER_BINDER;
-import static android.support.v4.media.MediaBrowserProtocol.EXTRA_SESSION_BINDER;
-import static android.support.v4.media.MediaBrowserProtocol.SERVICE_MSG_ON_CONNECT;
-import static android.support.v4.media.MediaBrowserProtocol.SERVICE_MSG_ON_CONNECT_FAILED;
-import static android.support.v4.media.MediaBrowserProtocol.SERVICE_MSG_ON_LOAD_CHILDREN;
+import static androidx.annotation.RestrictTo.Scope.LIBRARY;
+import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+import static androidx.media.MediaBrowserProtocol.CLIENT_MSG_ADD_SUBSCRIPTION;
+import static androidx.media.MediaBrowserProtocol.CLIENT_MSG_CONNECT;
+import static androidx.media.MediaBrowserProtocol.CLIENT_MSG_DISCONNECT;
+import static androidx.media.MediaBrowserProtocol.CLIENT_MSG_GET_MEDIA_ITEM;
+import static androidx.media.MediaBrowserProtocol.CLIENT_MSG_REGISTER_CALLBACK_MESSENGER;
+import static androidx.media.MediaBrowserProtocol.CLIENT_MSG_REMOVE_SUBSCRIPTION;
+import static androidx.media.MediaBrowserProtocol.CLIENT_MSG_SEARCH;
+import static androidx.media.MediaBrowserProtocol.CLIENT_MSG_SEND_CUSTOM_ACTION;
+import static androidx.media.MediaBrowserProtocol.CLIENT_MSG_UNREGISTER_CALLBACK_MESSENGER;
+import static androidx.media.MediaBrowserProtocol.CLIENT_VERSION_CURRENT;
+import static androidx.media.MediaBrowserProtocol.DATA_CALLBACK_TOKEN;
+import static androidx.media.MediaBrowserProtocol.DATA_CUSTOM_ACTION;
+import static androidx.media.MediaBrowserProtocol.DATA_CUSTOM_ACTION_EXTRAS;
+import static androidx.media.MediaBrowserProtocol.DATA_MEDIA_ITEM_ID;
+import static androidx.media.MediaBrowserProtocol.DATA_MEDIA_ITEM_LIST;
+import static androidx.media.MediaBrowserProtocol.DATA_MEDIA_SESSION_TOKEN;
+import static androidx.media.MediaBrowserProtocol.DATA_NOTIFY_CHILDREN_CHANGED_OPTIONS;
+import static androidx.media.MediaBrowserProtocol.DATA_OPTIONS;
+import static androidx.media.MediaBrowserProtocol.DATA_PACKAGE_NAME;
+import static androidx.media.MediaBrowserProtocol.DATA_RESULT_RECEIVER;
+import static androidx.media.MediaBrowserProtocol.DATA_ROOT_HINTS;
+import static androidx.media.MediaBrowserProtocol.DATA_SEARCH_EXTRAS;
+import static androidx.media.MediaBrowserProtocol.DATA_SEARCH_QUERY;
+import static androidx.media.MediaBrowserProtocol.EXTRA_CLIENT_VERSION;
+import static androidx.media.MediaBrowserProtocol.EXTRA_MESSENGER_BINDER;
+import static androidx.media.MediaBrowserProtocol.EXTRA_SERVICE_VERSION;
+import static androidx.media.MediaBrowserProtocol.EXTRA_SESSION_BINDER;
+import static androidx.media.MediaBrowserProtocol.SERVICE_MSG_ON_CONNECT;
+import static androidx.media.MediaBrowserProtocol.SERVICE_MSG_ON_CONNECT_FAILED;
+import static androidx.media.MediaBrowserProtocol.SERVICE_MSG_ON_LOAD_CHILDREN;
+import static androidx.media.MediaBrowserProtocol.SERVICE_VERSION_2;
 
 import android.content.ComponentName;
 import android.content.Context;
@@ -61,19 +64,22 @@ import android.os.Messenger;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.RemoteException;
-import android.support.annotation.IntDef;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.annotation.RequiresApi;
-import android.support.annotation.RestrictTo;
-import android.support.v4.app.BundleCompat;
 import android.support.v4.media.session.IMediaSession;
 import android.support.v4.media.session.MediaControllerCompat.TransportControls;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.os.ResultReceiver;
-import android.support.v4.util.ArrayMap;
 import android.text.TextUtils;
 import android.util.Log;
+
+import androidx.annotation.IntDef;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
+import androidx.annotation.RestrictTo;
+import androidx.collection.ArrayMap;
+import androidx.core.app.BundleCompat;
+import androidx.media.MediaBrowserCompatUtils;
+import androidx.media.MediaBrowserServiceCompat;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -424,6 +430,20 @@ public final class MediaBrowserCompat {
     }
 
     /**
+     * Gets the options which is passed to {@link MediaBrowserServiceCompat#notifyChildrenChanged(
+     * String, Bundle)} call that triggered {@link SubscriptionCallback#onChildrenLoaded}.
+     * This should be called inside of {@link SubscriptionCallback#onChildrenLoaded}.
+     *
+     * @return A bundle which is passed to {@link MediaBrowserServiceCompat#notifyChildrenChanged(
+     *         String, Bundle)}
+     * @hide
+     */
+    @RestrictTo(LIBRARY)
+    public @Nullable Bundle getNotifyChildrenChangedOptions() {
+        return mImpl.getNotifyChildrenChangedOptions();
+    }
+
+    /**
      * A class with information on a single media item for use in browsing/searching media.
      * MediaItems are application dependent so we cannot guarantee that they contain the
      * right values.
@@ -676,17 +696,15 @@ public final class MediaBrowserCompat {
         WeakReference<Subscription> mSubscriptionRef;
 
         public SubscriptionCallback() {
+            mToken = new Binder();
             if (Build.VERSION.SDK_INT >= 26) {
                 mSubscriptionCallbackObj =
                         MediaBrowserCompatApi26.createSubscriptionCallback(new StubApi26());
-                mToken = null;
             } else if (Build.VERSION.SDK_INT >= 21) {
                 mSubscriptionCallbackObj =
                         MediaBrowserCompatApi21.createSubscriptionCallback(new StubApi21());
-                mToken = new Binder();
             } else {
                 mSubscriptionCallbackObj = null;
-                mToken = new Binder();
             }
         }
 
@@ -949,13 +967,15 @@ public final class MediaBrowserCompat {
         void search(@NonNull String query, Bundle extras, @NonNull SearchCallback callback);
         void sendCustomAction(@NonNull String action, Bundle extras,
                 @Nullable CustomActionCallback callback);
+        @Nullable Bundle getNotifyChildrenChangedOptions();
     }
 
     interface MediaBrowserServiceCallbackImpl {
         void onServiceConnected(Messenger callback, String root, MediaSessionCompat.Token session,
                 Bundle extra);
         void onConnectionFailed(Messenger callback);
-        void onLoadChildren(Messenger callback, String parentId, List list, Bundle options);
+        void onLoadChildren(Messenger callback, String parentId, List list, Bundle options,
+                Bundle notifyChildrenChangedOptions);
     }
 
     static class MediaBrowserImplBase
@@ -980,6 +1000,7 @@ public final class MediaBrowserCompat {
         private String mRootId;
         private MediaSessionCompat.Token mMediaSessionToken;
         private Bundle mExtras;
+        private Bundle mNotifyChildrenChangedOptions;
 
         public MediaBrowserImplBase(Context context, ComponentName serviceComponent,
                 ConnectionCallback callback, Bundle rootHints) {
@@ -1370,7 +1391,7 @@ public final class MediaBrowserCompat {
 
         @Override
         public void onLoadChildren(final Messenger callback, final String parentId,
-                final List list, final Bundle options) {
+                final List list, final Bundle options, final Bundle notifyChildrenChangedOptions) {
             // Check that there hasn't been a disconnect or a different ServiceConnection.
             if (!isCurrent(callback, "onLoadChildren")) {
                 return;
@@ -1396,16 +1417,25 @@ public final class MediaBrowserCompat {
                     if (list == null) {
                         subscriptionCallback.onError(parentId);
                     } else {
+                        mNotifyChildrenChangedOptions = notifyChildrenChangedOptions;
                         subscriptionCallback.onChildrenLoaded(parentId, list);
+                        mNotifyChildrenChangedOptions = null;
                     }
                 } else {
                     if (list == null) {
                         subscriptionCallback.onError(parentId, options);
                     } else {
+                        mNotifyChildrenChangedOptions = notifyChildrenChangedOptions;
                         subscriptionCallback.onChildrenLoaded(parentId, list, options);
+                        mNotifyChildrenChangedOptions = null;
                     }
                 }
             }
+        }
+
+        @Override
+        public Bundle getNotifyChildrenChangedOptions() {
+            return mNotifyChildrenChangedOptions;
         }
 
         /**
@@ -1583,9 +1613,11 @@ public final class MediaBrowserCompat {
         protected final CallbackHandler mHandler = new CallbackHandler(this);
         private final ArrayMap<String, Subscription> mSubscriptions = new ArrayMap<>();
 
+        protected int mServiceVersion;
         protected ServiceBinderWrapper mServiceBinderWrapper;
         protected Messenger mCallbacksMessenger;
         private MediaSessionCompat.Token mMediaSessionToken;
+        private Bundle mNotifyChildrenChangedOptions;
 
         MediaBrowserImplApi21(Context context, ComponentName serviceComponent,
                 ConnectionCallback callback, Bundle rootHints) {
@@ -1852,13 +1884,14 @@ public final class MediaBrowserCompat {
             if (extras == null) {
                 return;
             }
+            mServiceVersion = extras.getInt(EXTRA_SERVICE_VERSION, 0);
             IBinder serviceBinder = BundleCompat.getBinder(extras, EXTRA_MESSENGER_BINDER);
             if (serviceBinder != null) {
                 mServiceBinderWrapper = new ServiceBinderWrapper(serviceBinder, mRootHints);
                 mCallbacksMessenger = new Messenger(mHandler);
                 mHandler.setCallbacksMessenger(mCallbacksMessenger);
                 try {
-                    mServiceBinderWrapper.registerCallbackMessenger(mCallbacksMessenger);
+                    mServiceBinderWrapper.registerCallbackMessenger(mContext, mCallbacksMessenger);
                 } catch (RemoteException e) {
                     Log.i(TAG, "Remote error registering client messenger." );
                 }
@@ -1897,7 +1930,8 @@ public final class MediaBrowserCompat {
 
         @Override
         @SuppressWarnings("ReferenceEquality")
-        public void onLoadChildren(Messenger callback, String parentId, List list, Bundle options) {
+        public void onLoadChildren(Messenger callback, String parentId, List list, Bundle options,
+                Bundle notifyChildrenChangedOptions) {
             if (mCallbacksMessenger != callback) {
                 return;
             }
@@ -1918,16 +1952,25 @@ public final class MediaBrowserCompat {
                     if (list == null) {
                         subscriptionCallback.onError(parentId);
                     } else {
+                        mNotifyChildrenChangedOptions = notifyChildrenChangedOptions;
                         subscriptionCallback.onChildrenLoaded(parentId, list);
+                        mNotifyChildrenChangedOptions = null;
                     }
                 } else {
                     if (list == null) {
                         subscriptionCallback.onError(parentId, options);
                     } else {
+                        mNotifyChildrenChangedOptions = notifyChildrenChangedOptions;
                         subscriptionCallback.onChildrenLoaded(parentId, list, options);
+                        mNotifyChildrenChangedOptions = null;
                     }
                 }
             }
+        }
+
+        @Override
+        public Bundle getNotifyChildrenChangedOptions() {
+            return mNotifyChildrenChangedOptions;
         }
     }
 
@@ -1958,22 +2001,34 @@ public final class MediaBrowserCompat {
         @Override
         public void subscribe(@NonNull String parentId, @Nullable Bundle options,
                 @NonNull SubscriptionCallback callback) {
-            if (options == null) {
-                MediaBrowserCompatApi21.subscribe(
-                        mBrowserObj, parentId, callback.mSubscriptionCallbackObj);
+            // From service v2, we use compat code when subscribing.
+            // This is to prevent ClassNotFoundException when options has Parcelable in it.
+            if (mServiceBinderWrapper == null || mServiceVersion < SERVICE_VERSION_2) {
+                if (options == null) {
+                    MediaBrowserCompatApi21.subscribe(
+                            mBrowserObj, parentId, callback.mSubscriptionCallbackObj);
+                } else {
+                    MediaBrowserCompatApi26.subscribe(
+                            mBrowserObj, parentId, options, callback.mSubscriptionCallbackObj);
+                }
             } else {
-                MediaBrowserCompatApi26.subscribe(
-                        mBrowserObj, parentId, options, callback.mSubscriptionCallbackObj);
+                super.subscribe(parentId, options, callback);
             }
         }
 
         @Override
         public void unsubscribe(@NonNull String parentId, SubscriptionCallback callback) {
-            if (callback == null) {
-                MediaBrowserCompatApi21.unsubscribe(mBrowserObj, parentId);
+            // From service v2, we use compat code when subscribing.
+            // This is to prevent ClassNotFoundException when options has Parcelable in it.
+            if (mServiceBinderWrapper == null || mServiceVersion < SERVICE_VERSION_2) {
+                if (callback == null) {
+                    MediaBrowserCompatApi21.unsubscribe(mBrowserObj, parentId);
+                } else {
+                    MediaBrowserCompatApi26.unsubscribe(mBrowserObj, parentId,
+                            callback.mSubscriptionCallbackObj);
+                }
             } else {
-                MediaBrowserCompatApi26.unsubscribe(mBrowserObj, parentId,
-                        callback.mSubscriptionCallbackObj);
+                super.unsubscribe(parentId, callback);
             }
         }
     }
@@ -2061,7 +2116,8 @@ public final class MediaBrowserCompat {
                         serviceCallback.onLoadChildren(callbacksMessenger,
                                 data.getString(DATA_MEDIA_ITEM_ID),
                                 data.getParcelableArrayList(DATA_MEDIA_ITEM_LIST),
-                                data.getBundle(DATA_OPTIONS));
+                                data.getBundle(DATA_OPTIONS),
+                                data.getBundle(DATA_NOTIFY_CHILDREN_CHANGED_OPTIONS));
                         break;
                     default:
                         Log.w(TAG, "Unhandled message: " + msg
@@ -2131,8 +2187,10 @@ public final class MediaBrowserCompat {
             sendRequest(CLIENT_MSG_GET_MEDIA_ITEM, data, callbacksMessenger);
         }
 
-        void registerCallbackMessenger(Messenger callbackMessenger) throws RemoteException {
+        void registerCallbackMessenger(Context context, Messenger callbackMessenger)
+                throws RemoteException {
             Bundle data = new Bundle();
+            data.putString(DATA_PACKAGE_NAME, context.getPackageName());
             data.putBundle(DATA_ROOT_HINTS, mRootHints);
             sendRequest(CLIENT_MSG_REGISTER_CALLBACK_MESSENGER, data, callbackMessenger);
         }

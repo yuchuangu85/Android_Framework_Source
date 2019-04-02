@@ -16,33 +16,41 @@
 
 package com.android.server.wifi.aware;
 
+import android.Manifest;
+import android.app.AppOpsManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.database.ContentObserver;
 import android.hardware.wifi.V1_0.NanStatusType;
-import android.net.wifi.RttManager;
 import android.net.wifi.aware.Characteristics;
 import android.net.wifi.aware.ConfigRequest;
 import android.net.wifi.aware.DiscoverySession;
 import android.net.wifi.aware.IWifiAwareDiscoverySessionCallback;
 import android.net.wifi.aware.IWifiAwareEventCallback;
+import android.net.wifi.aware.IWifiAwareMacAddressProvider;
 import android.net.wifi.aware.IWifiAwareManager;
 import android.net.wifi.aware.PublishConfig;
 import android.net.wifi.aware.SubscribeConfig;
 import android.os.Binder;
+import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
 import android.os.ShellCallback;
+import android.provider.Settings;
 import android.util.Log;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
 
+import com.android.server.wifi.FrameworkFacade;
+import com.android.server.wifi.WifiInjector;
+import com.android.server.wifi.util.WifiPermissionsUtil;
 import com.android.server.wifi.util.WifiPermissionsWrapper;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.util.Arrays;
+import java.util.List;
 
 /**
  * Implementation of the IWifiAwareManager AIDL interface. Performs validity
@@ -52,10 +60,12 @@ import java.util.Arrays;
  */
 public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
     private static final String TAG = "WifiAwareService";
-    private static final boolean DBG = false;
     private static final boolean VDBG = false; // STOPSHIP if true
+    /* package */ boolean mDbg = false;
 
     private Context mContext;
+    private AppOpsManager mAppOps;
+    private WifiPermissionsUtil mWifiPermissionsUtil;
     private WifiAwareStateManager mStateManager;
     private WifiAwareShellCommand mShellCommand;
 
@@ -63,11 +73,11 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
     private final SparseArray<IBinder.DeathRecipient> mDeathRecipientsByClientId =
             new SparseArray<>();
     private int mNextClientId = 1;
-    private int mNextRangingId = 1;
     private final SparseIntArray mUidByClientId = new SparseIntArray();
 
     public WifiAwareServiceImpl(Context context) {
         mContext = context.getApplicationContext();
+        mAppOps = (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
     }
 
     /**
@@ -84,12 +94,57 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
      */
     public void start(HandlerThread handlerThread, WifiAwareStateManager awareStateManager,
             WifiAwareShellCommand awareShellCommand, WifiAwareMetrics awareMetrics,
-            WifiPermissionsWrapper permissionsWrapper) {
+            WifiPermissionsUtil wifiPermissionsUtil, WifiPermissionsWrapper permissionsWrapper,
+            FrameworkFacade frameworkFacade, WifiAwareNativeManager wifiAwareNativeManager,
+            WifiAwareNativeApi wifiAwareNativeApi,
+            WifiAwareNativeCallback wifiAwareNativeCallback) {
         Log.i(TAG, "Starting Wi-Fi Aware service");
 
+        mWifiPermissionsUtil = wifiPermissionsUtil;
         mStateManager = awareStateManager;
         mShellCommand = awareShellCommand;
-        mStateManager.start(mContext, handlerThread.getLooper(), awareMetrics, permissionsWrapper);
+        mStateManager.start(mContext, handlerThread.getLooper(), awareMetrics, wifiPermissionsUtil,
+                permissionsWrapper);
+
+        frameworkFacade.registerContentObserver(mContext,
+                Settings.Global.getUriFor(Settings.Global.WIFI_VERBOSE_LOGGING_ENABLED), true,
+                new ContentObserver(new Handler(handlerThread.getLooper())) {
+                    @Override
+                    public void onChange(boolean selfChange) {
+                        enableVerboseLogging(frameworkFacade.getIntegerSetting(mContext,
+                                Settings.Global.WIFI_VERBOSE_LOGGING_ENABLED, 0), awareStateManager,
+                                wifiAwareNativeManager, wifiAwareNativeApi,
+                                wifiAwareNativeCallback);
+                    }
+                });
+        enableVerboseLogging(frameworkFacade.getIntegerSetting(mContext,
+                Settings.Global.WIFI_VERBOSE_LOGGING_ENABLED, 0), awareStateManager,
+                wifiAwareNativeManager, wifiAwareNativeApi, wifiAwareNativeCallback);
+    }
+
+    private void enableVerboseLogging(int verbose, WifiAwareStateManager awareStateManager,
+            WifiAwareNativeManager wifiAwareNativeManager, WifiAwareNativeApi wifiAwareNativeApi,
+            WifiAwareNativeCallback wifiAwareNativeCallback) {
+        boolean dbg;
+
+        if (verbose > 0) {
+            dbg = true;
+        } else {
+            dbg = false;
+        }
+        if (VDBG) {
+            dbg = true; // just override
+        }
+
+        mDbg = dbg;
+        awareStateManager.mDbg = dbg;
+        if (awareStateManager.mDataPathMgr != null) { // needed for unit tests
+            awareStateManager.mDataPathMgr.mDbg = dbg;
+            WifiInjector.getInstance().getWifiMetrics().getWifiAwareMetrics().mDbg = dbg;
+        }
+        wifiAwareNativeCallback.mDbg = dbg;
+        wifiAwareNativeManager.mDbg = dbg;
+        wifiAwareNativeApi.mDbg = dbg;
     }
 
     /**
@@ -122,6 +177,10 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
             boolean notifyOnIdentityChanged) {
         enforceAccessPermission();
         enforceChangePermission();
+
+        final int uid = getMockableCallingUid();
+        mAppOps.checkPackage(uid, callingPackage);
+
         if (callback == null) {
             throw new IllegalArgumentException("Callback must not be null");
         }
@@ -130,17 +189,17 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
         }
 
         if (notifyOnIdentityChanged) {
-            enforceLocationPermission();
+            enforceLocationPermission(callingPackage, getMockableCallingUid());
         }
 
         if (configRequest != null) {
-            enforceConnectivityInternalPermission();
+            enforceNetworkStackPermission();
         } else {
             configRequest = new ConfigRequest.Builder().build();
         }
         configRequest.validate();
 
-        final int uid = getMockableCallingUid();
+
         int pid = getCallingPid();
 
         final int clientId;
@@ -148,7 +207,7 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
             clientId = mNextClientId++;
         }
 
-        if (VDBG) {
+        if (mDbg) {
             Log.v(TAG, "connect: uid=" + uid + ", clientId=" + clientId + ", configRequest"
                     + configRequest + ", notifyOnIdentityChanged=" + notifyOnIdentityChanged);
         }
@@ -156,7 +215,7 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
         IBinder.DeathRecipient dr = new IBinder.DeathRecipient() {
             @Override
             public void binderDied() {
-                if (DBG) Log.d(TAG, "binderDied: clientId=" + clientId);
+                if (mDbg) Log.v(TAG, "binderDied: clientId=" + clientId);
                 binder.unlinkToDeath(this, 0);
 
                 synchronized (mLock) {
@@ -196,7 +255,7 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
 
         int uid = getMockableCallingUid();
         enforceClientValidity(uid, clientId);
-        if (VDBG) Log.v(TAG, "disconnect: uid=" + uid + ", clientId=" + clientId);
+        if (mDbg) Log.v(TAG, "disconnect: uid=" + uid + ", clientId=" + clientId);
 
         if (binder == null) {
             throw new IllegalArgumentException("Binder must not be null");
@@ -230,11 +289,15 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
     }
 
     @Override
-    public void publish(int clientId, PublishConfig publishConfig,
+    public void publish(String callingPackage, int clientId, PublishConfig publishConfig,
             IWifiAwareDiscoverySessionCallback callback) {
         enforceAccessPermission();
         enforceChangePermission();
-        enforceLocationPermission();
+
+        int uid = getMockableCallingUid();
+        mAppOps.checkPackage(uid, callingPackage);
+
+        enforceLocationPermission(callingPackage, getMockableCallingUid());
 
         if (callback == null) {
             throw new IllegalArgumentException("Callback must not be null");
@@ -242,9 +305,9 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
         if (publishConfig == null) {
             throw new IllegalArgumentException("PublishConfig must not be null");
         }
-        publishConfig.assertValid(mStateManager.getCharacteristics());
+        publishConfig.assertValid(mStateManager.getCharacteristics(),
+                mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI_RTT));
 
-        int uid = getMockableCallingUid();
         enforceClientValidity(uid, clientId);
         if (VDBG) {
             Log.v(TAG, "publish: uid=" + uid + ", clientId=" + clientId + ", publishConfig="
@@ -262,7 +325,8 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
         if (publishConfig == null) {
             throw new IllegalArgumentException("PublishConfig must not be null");
         }
-        publishConfig.assertValid(mStateManager.getCharacteristics());
+        publishConfig.assertValid(mStateManager.getCharacteristics(),
+                mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI_RTT));
 
         int uid = getMockableCallingUid();
         enforceClientValidity(uid, clientId);
@@ -275,11 +339,15 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
     }
 
     @Override
-    public void subscribe(int clientId, SubscribeConfig subscribeConfig,
+    public void subscribe(String callingPackage, int clientId, SubscribeConfig subscribeConfig,
             IWifiAwareDiscoverySessionCallback callback) {
         enforceAccessPermission();
         enforceChangePermission();
-        enforceLocationPermission();
+
+        int uid = getMockableCallingUid();
+        mAppOps.checkPackage(uid, callingPackage);
+
+        enforceLocationPermission(callingPackage, getMockableCallingUid());
 
         if (callback == null) {
             throw new IllegalArgumentException("Callback must not be null");
@@ -287,9 +355,9 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
         if (subscribeConfig == null) {
             throw new IllegalArgumentException("SubscribeConfig must not be null");
         }
-        subscribeConfig.assertValid(mStateManager.getCharacteristics());
+        subscribeConfig.assertValid(mStateManager.getCharacteristics(),
+                mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI_RTT));
 
-        int uid = getMockableCallingUid();
         enforceClientValidity(uid, clientId);
         if (VDBG) {
             Log.v(TAG, "subscribe: uid=" + uid + ", clientId=" + clientId + ", config="
@@ -307,7 +375,8 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
         if (subscribeConfig == null) {
             throw new IllegalArgumentException("SubscribeConfig must not be null");
         }
-        subscribeConfig.assertValid(mStateManager.getCharacteristics());
+        subscribeConfig.assertValid(mStateManager.getCharacteristics(),
+                mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI_RTT));
 
         int uid = getMockableCallingUid();
         enforceClientValidity(uid, clientId);
@@ -326,11 +395,11 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
         enforceChangePermission();
 
         if (retryCount != 0) {
-            enforceConnectivityInternalPermission();
+            enforceNetworkStackPermission();
         }
 
-        if (message != null
-                && message.length > mStateManager.getCharacteristics().getMaxServiceNameLength()) {
+        if (message != null && message.length
+                > mStateManager.getCharacteristics().getMaxServiceSpecificInfoLength()) {
             throw new IllegalArgumentException(
                     "Message length longer than supported by device characteristics");
         }
@@ -352,30 +421,10 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
     }
 
     @Override
-    public int startRanging(int clientId, int sessionId, RttManager.ParcelableRttParams params) {
-        enforceAccessPermission();
-        enforceLocationPermission();
+    public void requestMacAddresses(int uid, List peerIds, IWifiAwareMacAddressProvider callback) {
+        enforceNetworkStackPermission();
 
-        // TODO: b/35676064 restricts access to this API until decide if will open.
-        enforceConnectivityInternalPermission();
-
-        int uid = getMockableCallingUid();
-        enforceClientValidity(uid, clientId);
-        if (VDBG) {
-            Log.v(TAG, "startRanging: clientId=" + clientId + ", sessionId=" + sessionId + ", "
-                    + ", parms=" + Arrays.toString(params.mParams));
-        }
-
-        if (params.mParams.length == 0) {
-            throw new IllegalArgumentException("Empty ranging parameters");
-        }
-
-        int rangingId;
-        synchronized (mLock) {
-            rangingId = mNextRangingId++;
-        }
-        mStateManager.startRanging(clientId, sessionId, params.mParams, rangingId);
-        return rangingId;
+        mStateManager.requestMacAddresses(uid, peerIds, callback);
     }
 
     @Override
@@ -419,13 +468,11 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
         mContext.enforceCallingOrSelfPermission(android.Manifest.permission.CHANGE_WIFI_STATE, TAG);
     }
 
-    private void enforceLocationPermission() {
-        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION,
-                TAG);
+    private void enforceLocationPermission(String callingPackage, int uid) {
+        mWifiPermissionsUtil.enforceLocationPermission(callingPackage, uid);
     }
 
-    private void enforceConnectivityInternalPermission() {
-        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.CONNECTIVITY_INTERNAL,
-                TAG);
+    private void enforceNetworkStackPermission() {
+        mContext.enforceCallingOrSelfPermission(Manifest.permission.NETWORK_STACK, TAG);
     }
 }

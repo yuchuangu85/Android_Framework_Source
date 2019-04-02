@@ -178,6 +178,15 @@ public final
 class Inet6Address extends InetAddress {
     final static int INADDRSZ = 16;
 
+    // BEGIN Android-removed: Remove special handling for link-local addresses
+    /*
+    * cached scope_id - for link-local address use only.
+    *
+    private transient int cached_scope_id;  // 0
+    */
+    // END Android-removed: Remove special handling for link-local addresses
+
+    // BEGIN Android-added: Define special-purpose IPv6 address
     /** @hide */
     public static final InetAddress ANY =
             new Inet6Address("::", new byte[] {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, 0);
@@ -185,6 +194,7 @@ class Inet6Address extends InetAddress {
     /** @hide */
     public static final InetAddress LOOPBACK = new Inet6Address("ip6-localhost",
             new byte[] {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, 0);
+    // END Android-added: Define special-purpose IPv6 address
 
     private class Inet6AddressHolder {
 
@@ -379,6 +389,13 @@ class Inet6Address extends InetAddress {
 
     private static final long serialVersionUID = 6880410070516793377L;
 
+    // BEGIN Android-removed: Android doesn't need to call native init
+    /*
+    // Perform native initialization
+    static { init(); }
+    // END Android-removed: Android doesn't need to call native init
+    */
+
     Inet6Address() {
         super();
         holder.init(null, AF_INET6);
@@ -401,12 +418,16 @@ class Inet6Address extends InetAddress {
         } catch (UnknownHostException e) {} /* cant happen if ifname is null */
     }
 
-    Inet6Address (String hostName, byte addr[], NetworkInterface nif) throws UnknownHostException {
+    Inet6Address (String hostName, byte addr[], NetworkInterface nif)
+        throws UnknownHostException
+    {
         holder6 = new Inet6AddressHolder();
         initif (hostName, addr, nif);
     }
 
-    Inet6Address (String hostName, byte addr[], String ifname) throws UnknownHostException {
+    Inet6Address (String hostName, byte addr[], String ifname)
+        throws UnknownHostException
+    {
         holder6 = new Inet6AddressHolder();
         initstr (hostName, addr, ifname);
     }
@@ -495,8 +516,9 @@ class Inet6Address extends InetAddress {
         }
     }
 
-    private void initif(String hostName, byte addr[],NetworkInterface nif) throws UnknownHostException {
-        holder().hostName = hostName;
+    private void initif(String hostName, byte addr[], NetworkInterface nif)
+        throws UnknownHostException
+    {
         int family = -1;
         holder6.init(addr, nif);
 
@@ -948,4 +970,12 @@ class Inet6Address extends InetAddress {
         }
         return sb.toString();
     }
+
+    // BEGIN Android-removed: Android doesn't need to call native init
+    /*
+     * Perform class load-time initializations.
+     *
+    private static native void init();
+    */
+    // END Android-removed: Android doesn't need to call native init
 }

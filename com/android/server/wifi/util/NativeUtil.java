@@ -28,6 +28,7 @@ import java.nio.ByteOrder;
 import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CharsetEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -46,17 +47,22 @@ public class NativeUtil {
      * Convert the string to byte array list.
      *
      * @return the UTF_8 char byte values of str, as an ArrayList.
-     * @throws IllegalArgumentException if a null string is sent.
+     * @throws IllegalArgumentException if a null or unencodable string is sent.
      */
     public static ArrayList<Byte> stringToByteArrayList(String str) {
         if (str == null) {
             throw new IllegalArgumentException("null string");
         }
-        ArrayList<Byte> byteArrayList = new ArrayList<Byte>();
-        for (byte b : str.getBytes(StandardCharsets.UTF_8)) {
-            byteArrayList.add(new Byte(b));
+        // Ensure that the provided string is UTF_8 encoded.
+        CharsetEncoder encoder = StandardCharsets.UTF_8.newEncoder();
+        try {
+            ByteBuffer encoded = encoder.encode(CharBuffer.wrap(str));
+            byte[] byteArray = new byte[encoded.remaining()];
+            encoded.get(byteArray);
+            return byteArrayToArrayList(byteArray);
+        } catch (CharacterCodingException cce) {
+            throw new IllegalArgumentException("cannot be utf-8 encoded", cce);
         }
-        return byteArrayList;
     }
 
     /**

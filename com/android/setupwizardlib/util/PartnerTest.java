@@ -16,6 +16,8 @@
 
 package com.android.setupwizardlib.util;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -31,29 +33,33 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
 import android.content.res.Resources;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
 
-import com.android.setupwizardlib.BuildConfig;
 import com.android.setupwizardlib.R;
 import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
 import com.android.setupwizardlib.util.Partner.ResourceEntry;
+import com.android.setupwizardlib.util.PartnerTest.ShadowApplicationPackageManager;
 
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.robolectric.RuntimeEnvironment;
+import org.robolectric.Shadows;
 import org.robolectric.annotation.Config;
-import org.robolectric.res.builder.DefaultPackageManager;
+import org.robolectric.annotation.Implementation;
+import org.robolectric.annotation.Implements;
 import org.robolectric.shadows.ShadowResources;
 
 import java.util.Arrays;
 import java.util.Collections;
 
 @RunWith(SuwLibRobolectricTestRunner.class)
-@Config(constants = BuildConfig.class, sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
+@Config(
+        sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK },
+        shadows = ShadowApplicationPackageManager.class)
 public class PartnerTest {
 
     private static final String ACTION_PARTNER_CUSTOMIZATION =
@@ -62,7 +68,7 @@ public class PartnerTest {
     private Context mContext;
     private Resources mPartnerResources;
 
-    private TestPackageManager mPackageManager;
+    private ShadowApplicationPackageManager mPackageManager;
 
     @Before
     public void setUp() throws Exception {
@@ -71,8 +77,9 @@ public class PartnerTest {
         mContext = spy(application);
         mPartnerResources = spy(ShadowResources.getSystem());
 
-        mPackageManager = new TestPackageManager();
-        RuntimeEnvironment.setRobolectricPackageManager(mPackageManager);
+        mPackageManager =
+                (ShadowApplicationPackageManager) Shadows.shadowOf(application.getPackageManager());
+        mPackageManager.partnerResources = mPartnerResources;
     }
 
     @Test
@@ -127,6 +134,33 @@ public class PartnerTest {
     }
 
     @Test
+    public void getColor_shouldReturnPartnerValueIfPresent() {
+        final int expectedPartnerColor = 1111;
+        doReturn(12345).when(mPartnerResources)
+                .getIdentifier(eq("suw_color_accent_dark"), eq("color"), anyString());
+        doReturn(expectedPartnerColor).when(mPartnerResources).getColor(eq(12345));
+        mPackageManager.addResolveInfoForIntent(
+                new Intent(ACTION_PARTNER_CUSTOMIZATION),
+                Arrays.asList(createResolveInfo("test.partner.package", true, true)));
+        final int foundColor = Partner.getColor(mContext, R.color.suw_color_accent_dark);
+        assertEquals("Partner color should be overlayed to: " + expectedPartnerColor,
+                expectedPartnerColor, foundColor);
+    }
+
+    @Test
+    public void getText_shouldReturnPartnerValueIfPresent() {
+        final CharSequence expectedPartnerText = "partner";
+        doReturn(12345).when(mPartnerResources)
+                .getIdentifier(eq("suw_next_button_label"), eq("string"), anyString());
+        doReturn(expectedPartnerText).when(mPartnerResources).getText(eq(12345));
+        mPackageManager.addResolveInfoForIntent(
+                new Intent(ACTION_PARTNER_CUSTOMIZATION),
+                Collections.singletonList(createResolveInfo("test.partner.package", true, true)));
+        final CharSequence partnerText = Partner.getText(mContext, R.string.suw_next_button_label);
+        assertThat(partnerText).isEqualTo(expectedPartnerText);
+    }
+
+    @Test
     public void testLoadDefaultValue() {
         mPackageManager.addResolveInfoForIntent(
                 new Intent(ACTION_PARTNER_CUSTOMIZATION),
@@ -173,13 +207,18 @@ public class PartnerTest {
         return info;
     }
 
-    private class TestPackageManager extends DefaultPackageManager {
+    @Implements(className = "android.app.ApplicationPackageManager")
+    public static class ShadowApplicationPackageManager extends
+            org.robolectric.shadows.ShadowApplicationPackageManager {
 
+        public Resources partnerResources;
+
+        @Implementation
         @Override
         public Resources getResourcesForApplication(ApplicationInfo app)
                 throws NameNotFoundException {
             if (app != null && "test.partner.package".equals(app.packageName)) {
-                return mPartnerResources;
+                return partnerResources;
             } else {
                 return super.getResourcesForApplication(app);
             }

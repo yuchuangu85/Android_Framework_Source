@@ -16,12 +16,19 @@
 
 package com.android.server.wifi.hotspot2;
 
+import android.content.Context;
 import android.net.wifi.hotspot2.PasspointConfiguration;
 
+import com.android.org.conscrypt.TrustManagerImpl;
 import com.android.server.wifi.Clock;
 import com.android.server.wifi.SIMAccessor;
 import com.android.server.wifi.WifiKeyStore;
 import com.android.server.wifi.WifiNative;
+
+import java.security.KeyStore;
+import java.security.NoSuchAlgorithmException;
+
+import javax.net.ssl.SSLContext;
 
 /**
  * Factory class for creating Passpoint related objects. Useful for mocking object creations
@@ -94,5 +101,70 @@ public class PasspointObjectFactory{
      */
     public CertificateVerifier makeCertificateVerifier() {
         return new CertificateVerifier();
+    }
+
+    /**
+     * Create an instance of {@link PasspointProvisioner}.
+     *
+     * @param context
+     * @return {@link PasspointProvisioner}
+     */
+    public PasspointProvisioner makePasspointProvisioner(Context context) {
+        return new PasspointProvisioner(context, this);
+    }
+
+    /**
+     * Create an instance of {@link OsuNetworkConnection}.
+     *
+     * @param context
+     * @return {@link OsuNetworkConnection}
+     */
+    public OsuNetworkConnection makeOsuNetworkConnection(Context context) {
+        return new OsuNetworkConnection(context);
+    }
+
+    /**
+     * Create an instance of {@link OsuServerConnection}.
+     *
+     * @return {@link OsuServerConnection}
+     */
+    public OsuServerConnection makeOsuServerConnection() {
+        return new OsuServerConnection();
+    }
+
+
+    /**
+     * Create an instance of {@link WfaKeyStore}.
+     *
+     * @return WfaKeyStore {@link WfaKeyStore}
+     */
+    public WfaKeyStore makeWfaKeyStore() {
+        return new WfaKeyStore();
+    }
+
+    /**
+     * Create an instance of {@link SSLContext}.
+     *
+     * @param tlsVersion String indicate TLS version
+     * @return SSLContext an instance, corresponding to the TLS version
+     */
+    public SSLContext getSSLContext(String tlsVersion) {
+        SSLContext tlsContext = null;
+        try {
+            tlsContext = SSLContext.getInstance(tlsVersion);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+        return tlsContext;
+    }
+
+    /**
+     * Create an instance of {@link TrustManagerImpl}.
+     *
+     * @param ks KeyStore used to get root certs
+     * @return TrustManagerImpl an instance for delegating root cert validation
+     */
+    public TrustManagerImpl getTrustManagerImpl(KeyStore ks) {
+        return new TrustManagerImpl(ks);
     }
 }

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2015, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,14 @@ package java.net;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InvalidObjectException;
+import java.io.ObjectInputStream.GetField;
+import java.io.ObjectStreamException;
+import java.io.ObjectStreamField;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Hashtable;
+import java.util.Set;
 import java.util.StringTokenizer;
 import sun.security.util.SecurityConstants;
 
@@ -136,6 +143,9 @@ import sun.security.util.SecurityConstants;
  */
 public final class URL implements java.io.Serializable {
 
+    // Android-changed: Custom built-in URLStreamHandlers for http, https.
+    // static final String BUILTIN_HANDLERS_PREFIX = "sun.net.www.protocol";
+    private static final Set<String> BUILTIN_HANDLER_CLASS_NAMES = createBuiltinHandlerClassNames();
     static final long serialVersionUID = -7627629688361524110L;
 
     /**
@@ -218,10 +228,9 @@ public final class URL implements java.io.Serializable {
     /* Our hash code.
      * @serial
      */
-    // BEGIN Android-changed
-    //private int hashCode = -1;
-    private transient int hashCode = -1;
-    // END Android-changed
+    private int hashCode = -1;
+
+    private transient UrlDeserializedState tempState;
 
     /**
      * Creates a {@code URL} object from the specified
@@ -400,6 +409,8 @@ public final class URL implements java.io.Serializable {
             authority = (port == -1) ? host : host + ":" + port;
         }
 
+        // Android-changed: App compat. Prepend '/' if host is null / empty
+        // Parts parts = new Parts(file);
         Parts parts = new Parts(file, host);
         path = parts.getPath();
         query = parts.getQuery();
@@ -709,6 +720,8 @@ public final class URL implements java.io.Serializable {
             this.protocol = protocol;
             this.host = host;
             this.port = port;
+            // Android-changed: App compat. Only include query part if it's nonempty.
+            // this.file = query == null ? path : path + "?" + query;
             this.file = (query == null || query.isEmpty()) ? path : path + "?" + query;
             this.userInfo = userInfo;
             this.path = path;
@@ -834,6 +847,7 @@ public final class URL implements java.io.Serializable {
         return ref;
     }
 
+    // Android-changed: Don't let URL.equals() attempt to resolve host names.
     /**
      * Compares this URL for equality with another object.<p>
      *
@@ -1158,25 +1172,46 @@ public final class URL implements java.io.Serializable {
 
             // Try java protocol handler
             if (handler == null) {
+                // Android-changed: Android doesn't need AccessController.
+                // Remove unnecessary use of reflection for sun classes
+                /*
+                packagePrefixList
+                    = java.security.AccessController.doPrivileged(
+                    new sun.security.action.GetPropertyAction(
+                        protocolPathProp,""));
+                if (packagePrefixList != "") {
+                    packagePrefixList += "|";
+                }
+
+                // REMIND: decide whether to allow the "null" class prefix
+                // or not.
+                packagePrefixList += "sun.net.www.protocol";
+                 */
                 final String packagePrefixList = System.getProperty(protocolPathProp,"");
-                StringTokenizer packagePrefixIter = new StringTokenizer(packagePrefixList, "|");
+
+                StringTokenizer packagePrefixIter =
+                    new StringTokenizer(packagePrefixList, "|");
 
                 while (handler == null &&
                        packagePrefixIter.hasMoreTokens()) {
 
-                    String packagePrefix = packagePrefixIter.nextToken().trim();
+                    String packagePrefix =
+                      packagePrefixIter.nextToken().trim();
                     try {
                         String clsName = packagePrefix + "." + protocol +
                           ".Handler";
                         Class<?> cls = null;
                         try {
                             ClassLoader cl = ClassLoader.getSystemClassLoader();
+                            // BEGIN Android-changed: Fall back to thread's contextClassLoader.
+                            // http://b/25897689
                             cls = Class.forName(clsName, true, cl);
                         } catch (ClassNotFoundException e) {
                             ClassLoader contextLoader = Thread.currentThread().getContextClassLoader();
                             if (contextLoader != null) {
                                 cls = Class.forName(clsName, true, contextLoader);
                             }
+                            // END Android-changed: Fall back to thread's contextClassLoader.
                         }
                         if (cls != null) {
                             handler  =
@@ -1187,31 +1222,16 @@ public final class URL implements java.io.Serializable {
                 }
             }
 
+            // BEGIN Android-added: Custom built-in URLStreamHandlers for http, https.
             // Fallback to built-in stream handler.
-            // Makes okhttp the default http/https handler
             if (handler == null) {
                 try {
-                    // BEGIN Android-changed
-                    // Use of okhttp for http and https
-                    // Removed unnecessary use of reflection for sun classes
-                    if (protocol.equals("file")) {
-                        handler = new sun.net.www.protocol.file.Handler();
-                    } else if (protocol.equals("ftp")) {
-                        handler = new sun.net.www.protocol.ftp.Handler();
-                    } else if (protocol.equals("jar")) {
-                        handler = new sun.net.www.protocol.jar.Handler();
-                    } else if (protocol.equals("http")) {
-                        handler = (URLStreamHandler)Class.
-                            forName("com.android.okhttp.HttpHandler").newInstance();
-                    } else if (protocol.equals("https")) {
-                        handler = (URLStreamHandler)Class.
-                            forName("com.android.okhttp.HttpsHandler").newInstance();
-                    }
-                    // END Android-changed
+                    handler = createBuiltinHandler(protocol);
                 } catch (Exception e) {
                     throw new AssertionError(e);
                 }
             }
+            // END Android-added: Custom built-in URLStreamHandlers for http, https.
 
             synchronized (streamHandlerLock) {
 
@@ -1250,6 +1270,69 @@ public final class URL implements java.io.Serializable {
 
     }
 
+    // BEGIN Android-added: Custom built-in URLStreamHandlers for http, https.
+    /**
+     * Returns an instance of the built-in handler for the given protocol, or null if none exists.
+     */
+    private static URLStreamHandler createBuiltinHandler(String protocol)
+            throws ClassNotFoundException, InstantiationException, IllegalAccessException {
+        URLStreamHandler handler = null;
+        if (protocol.equals("file")) {
+            handler = new sun.net.www.protocol.file.Handler();
+        } else if (protocol.equals("ftp")) {
+            handler = new sun.net.www.protocol.ftp.Handler();
+        } else if (protocol.equals("jar")) {
+            handler = new sun.net.www.protocol.jar.Handler();
+        } else if (protocol.equals("http")) {
+            handler = (URLStreamHandler)Class.
+                    forName("com.android.okhttp.HttpHandler").newInstance();
+        } else if (protocol.equals("https")) {
+            handler = (URLStreamHandler)Class.
+                    forName("com.android.okhttp.HttpsHandler").newInstance();
+        }
+        return handler;
+    }
+
+    /** Names of implementation classes returned by {@link #createBuiltinHandler(String)}. */
+    private static Set<String> createBuiltinHandlerClassNames() {
+        Set<String> result = new HashSet<>();
+        // Refer to class names rather than classes to avoid needlessly triggering <clinit>.
+        result.add("sun.net.www.protocol.file.Handler");
+        result.add("sun.net.www.protocol.ftp.Handler");
+        result.add("sun.net.www.protocol.jar.Handler");
+        result.add("com.android.okhttp.HttpHandler");
+        result.add("com.android.okhttp.HttpsHandler");
+        return Collections.unmodifiableSet(result);
+    }
+    // END Android-added: Custom built-in URLStreamHandlers for http, https.
+
+    /**
+     * @serialField    protocol String
+     *
+     * @serialField    host String
+     *
+     * @serialField    port int
+     *
+     * @serialField    authority String
+     *
+     * @serialField    file String
+     *
+     * @serialField    ref String
+     *
+     * @serialField    hashCode int
+     *
+     */
+    private static final ObjectStreamField[] serialPersistentFields = {
+        new ObjectStreamField("protocol", String.class),
+        new ObjectStreamField("host", String.class),
+        new ObjectStreamField("port", int.class),
+        new ObjectStreamField("authority", String.class),
+        new ObjectStreamField("file", String.class),
+        new ObjectStreamField("ref", String.class),
+    // Android-changed: App compat: hashCode should not be serialized.
+    //    new ObjectStreamField("hashCode", int.class), };
+    };
+
     /**
      * WriteObject is called to save the state of the URL to an
      * ObjectOutputStream. The handler is not saved since it is
@@ -1272,16 +1355,69 @@ public final class URL implements java.io.Serializable {
      * stream handler.
      */
     private synchronized void readObject(java.io.ObjectInputStream s)
-         throws IOException, ClassNotFoundException
-    {
-        s.defaultReadObject();  // read the fields
-        if ((handler = getURLStreamHandler(protocol)) == null) {
+            throws IOException, ClassNotFoundException {
+        GetField gf = s.readFields();
+        String protocol = (String)gf.get("protocol", null);
+        if (getURLStreamHandler(protocol) == null) {
             throw new IOException("unknown protocol: " + protocol);
         }
+        String host = (String)gf.get("host", null);
+        int port = gf.get("port", -1);
+        String authority = (String)gf.get("authority", null);
+        String file = (String)gf.get("file", null);
+        String ref = (String)gf.get("ref", null);
+        // Android-changed: App compat: hashCode should not be serialized.
+        // int hashCode = gf.get("hashCode", -1);
+        final int hashCode = -1;
+        if (authority == null
+                && ((host != null && host.length() > 0) || port != -1)) {
+            if (host == null)
+                host = "";
+            authority = (port == -1) ? host : host + ":" + port;
+        }
+        tempState = new UrlDeserializedState(protocol, host, port, authority,
+               file, ref, hashCode);
+    }
+
+    /**
+     * Replaces the de-serialized object with an URL object.
+     *
+     * @return a newly created object from the deserialzed state.
+     *
+     * @throws ObjectStreamException if a new object replacing this
+     * object could not be created
+     */
+
+   private Object readResolve() throws ObjectStreamException {
+
+        URLStreamHandler handler = null;
+        // already been checked in readObject
+        handler = getURLStreamHandler(tempState.getProtocol());
+
+        URL replacementURL = null;
+        if (isBuiltinStreamHandler(handler.getClass().getName())) {
+            replacementURL = fabricateNewURL();
+        } else {
+            replacementURL = setDeserializedFields(handler);
+        }
+        return replacementURL;
+    }
+
+    private URL setDeserializedFields(URLStreamHandler handler) {
+        URL replacementURL;
+        String userInfo = null;
+        String protocol = tempState.getProtocol();
+        String host = tempState.getHost();
+        int port = tempState.getPort();
+        String authority = tempState.getAuthority();
+        String file = tempState.getFile();
+        String ref = tempState.getRef();
+        int hashCode = tempState.getHashCode();
+
 
         // Construct authority part
-        if (authority == null &&
-            ((host != null && host.length() > 0) || port != -1)) {
+        if (authority == null
+            && ((host != null && host.length() > 0) || port != -1)) {
             if (host == null)
                 host = "";
             authority = (port == -1) ? host : host + ":" + port;
@@ -1300,8 +1436,8 @@ public final class URL implements java.io.Serializable {
         }
 
         // Construct path and query part
-        path = null;
-        query = null;
+        String path = null;
+        String query = null;
         if (file != null) {
             // Fix: only do this if hierarchical?
             int q = file.lastIndexOf('?');
@@ -1311,13 +1447,74 @@ public final class URL implements java.io.Serializable {
             } else
                 path = file;
         }
-        hashCode = -1;
+
+        // Set the object fields.
+        this.protocol = protocol;
+        this.host = host;
+        this.port = port;
+        this.file = file;
+        this.authority = authority;
+        this.ref = ref;
+        this.hashCode = hashCode;
+        this.handler = handler;
+        this.query = query;
+        this.path = path;
+        this.userInfo = userInfo;
+        replacementURL = this;
+        return replacementURL;
+    }
+
+    private URL fabricateNewURL()
+                throws InvalidObjectException {
+        // create URL string from deserialized object
+        URL replacementURL = null;
+        String urlString = tempState.reconstituteUrlString();
+
+        try {
+            replacementURL = new URL(urlString);
+        } catch (MalformedURLException mEx) {
+            resetState();
+            InvalidObjectException invoEx = new InvalidObjectException(
+                    "Malformed URL: " + urlString);
+            invoEx.initCause(mEx);
+            throw invoEx;
+        }
+        replacementURL.setSerializedHashCode(tempState.getHashCode());
+        resetState();
+        return replacementURL;
+    }
+
+    private boolean isBuiltinStreamHandler(String handlerClassName) {
+        // Android-changed: Some built-in handlers (eg. HttpHandler) are not in sun.net.www.protocol.
+        // return (handlerClassName.startsWith(BUILTIN_HANDLERS_PREFIX));
+        return BUILTIN_HANDLER_CLASS_NAMES.contains(handlerClassName);
+    }
+
+    private void resetState() {
+        this.protocol = null;
+        this.host = null;
+        this.port = -1;
+        this.file = null;
+        this.authority = null;
+        this.ref = null;
+        this.hashCode = -1;
+        this.handler = null;
+        this.query = null;
+        this.path = null;
+        this.userInfo = null;
+        this.tempState = null;
+    }
+
+    private void setSerializedHashCode(int hc) {
+        this.hashCode = hc;
     }
 }
 
 class Parts {
     String path, query, ref;
 
+    // Android-changed: App compat. Prepend '/' if host is null / empty.
+    // Parts(String file)
     Parts(String file, String host) {
         int ind = file.indexOf('#');
         ref = ind < 0 ? null: file.substring(ind + 1);
@@ -1329,10 +1526,12 @@ class Parts {
         } else {
             path = file;
         }
+        // BEGIN Android-changed: App compat. Prepend '/' if host is null / empty.
         if (path != null && path.length() > 0 && path.charAt(0) != '/' &&
             host != null && !host.isEmpty()) {
             path = '/' + path;
         }
+        // END Android-changed: App compat. Prepend '/' if host is null / empty.
     }
 
     String getPath() {
@@ -1345,5 +1544,84 @@ class Parts {
 
     String getRef() {
         return ref;
+    }
+}
+
+final class UrlDeserializedState {
+    private final String protocol;
+    private final String host;
+    private final int port;
+    private final String authority;
+    private final String file;
+    private final String ref;
+    private final int hashCode;
+
+    public UrlDeserializedState(String protocol,
+                                String host, int port,
+                                String authority, String file,
+                                String ref, int hashCode) {
+        this.protocol = protocol;
+        this.host = host;
+        this.port = port;
+        this.authority = authority;
+        this.file = file;
+        this.ref = ref;
+        this.hashCode = hashCode;
+    }
+
+    String getProtocol() {
+        return protocol;
+    }
+
+    String getHost() {
+        return host;
+    }
+
+    String getAuthority () {
+        return authority;
+    }
+
+    int getPort() {
+        return port;
+    }
+
+    String getFile () {
+        return file;
+    }
+
+    String getRef () {
+        return ref;
+    }
+
+    int getHashCode () {
+        return hashCode;
+    }
+
+    String reconstituteUrlString() {
+
+        // pre-compute length of StringBuilder
+        int len = protocol.length() + 1;
+        if (authority != null && authority.length() > 0)
+            len += 2 + authority.length();
+        if (file != null) {
+            len += file.length();
+        }
+        if (ref != null)
+            len += 1 + ref.length();
+        StringBuilder result = new StringBuilder(len);
+        result.append(protocol);
+        result.append(":");
+        if (authority != null && authority.length() > 0) {
+            result.append("//");
+            result.append(authority);
+        }
+        if (file != null) {
+            result.append(file);
+        }
+        if (ref != null) {
+            result.append("#");
+            result.append(ref);
+        }
+        return result.toString();
     }
 }

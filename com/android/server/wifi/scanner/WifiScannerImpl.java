@@ -20,6 +20,7 @@ import android.content.Context;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiScanner;
 import android.os.Looper;
+import android.text.TextUtils;
 
 import com.android.server.wifi.Clock;
 import com.android.server.wifi.WifiInjector;
@@ -50,11 +51,17 @@ public abstract class WifiScannerImpl {
             public WifiScannerImpl create(Context context, Looper looper, Clock clock) {
                 WifiNative wifiNative = WifiInjector.getInstance().getWifiNative();
                 WifiMonitor wifiMonitor = WifiInjector.getInstance().getWifiMonitor();
-                if (wifiNative.getBgScanCapabilities(new WifiNative.ScanCapabilities())) {
-                    return new HalWifiScannerImpl(context, wifiNative, wifiMonitor, looper, clock);
+                String ifaceName = wifiNative.getClientInterfaceName();
+                if (TextUtils.isEmpty(ifaceName)) {
+                    return null;
+                }
+                if (wifiNative.getBgScanCapabilities(
+                        ifaceName, new WifiNative.ScanCapabilities())) {
+                    return new HalWifiScannerImpl(context, ifaceName, wifiNative, wifiMonitor,
+                            looper, clock);
                 } else {
-                    return new WificondScannerImpl(context, wifiNative, wifiMonitor, looper,
-                            clock);
+                    return new WificondScannerImpl(context, ifaceName, wifiNative, wifiMonitor,
+                            new WificondChannelHelper(wifiNative), looper, clock);
                 }
             }
         };
@@ -154,12 +161,6 @@ public abstract class WifiScannerImpl {
      * @return true if HW PNO is supported, false otherwise.
      */
     public abstract boolean isHwPnoSupported(boolean isConnectedPno);
-
-    /**
-     * This returns whether a background scan should be running for HW PNO scan or not.
-     * @return true if background scan needs to be started, false otherwise.
-     */
-    public abstract boolean shouldScheduleBackgroundScanForHwPno();
 
     protected abstract void dump(FileDescriptor fd, PrintWriter pw, String[] args);
 }

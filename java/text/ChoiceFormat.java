@@ -208,6 +208,7 @@ public class ChoiceFormat extends NumberFormat {
                     } else if (tempBuffer.equals("-\u221E")) {
                         startValue = Double.NEGATIVE_INFINITY;
                     } else {
+                        // Android-changed: avoid object instantiation followed by unboxing.
                         startValue = Double.parseDouble(segments[0].toString());
                     }
                 } catch (Exception e) {
@@ -349,6 +350,7 @@ public class ChoiceFormat extends NumberFormat {
         choiceFormats = Arrays.copyOf(formats, formats.length);
     }
 
+    // Android-changed: Clarify that calling setChoices() changes what is returned here.
     /**
      * @return a copy of the {@code double[]} array supplied to the constructor or the most recent
      * call to {@link #setChoices(double[], String[])}.
@@ -358,6 +360,7 @@ public class ChoiceFormat extends NumberFormat {
         return newLimits;
     }
 
+    // Android-changed: Clarify that calling setChoices() changes what is returned here.
     /**
      * @return a copy of the {@code String[]} array supplied to the constructor or the most recent
      * call to {@link #setChoices(double[], String[])}.

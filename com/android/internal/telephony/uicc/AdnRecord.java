@@ -19,8 +19,8 @@ package com.android.internal.telephony.uicc;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.telephony.PhoneNumberUtils;
-import android.text.TextUtils;
 import android.telephony.Rlog;
+import android.text.TextUtils;
 
 import com.android.internal.telephony.GsmAlphabet;
 
@@ -248,7 +248,8 @@ public class AdnRecord implements Parcelable {
             Rlog.w(LOG_TAG, "[buildAdnString] Max length of tag is " + footerOffset);
             return null;
         } else {
-            bcdNumber = PhoneNumberUtils.numberToCalledPartyBCD(mNumber);
+            bcdNumber = PhoneNumberUtils.numberToCalledPartyBCD(
+                    mNumber, PhoneNumberUtils.BCD_EXTENDED_TYPE_EF_ADN);
 
             System.arraycopy(bcdNumber, 0, adnString,
                     footerOffset + ADN_TON_AND_NPI, bcdNumber.length);
@@ -289,7 +290,10 @@ public class AdnRecord implements Parcelable {
             }
 
             mNumber += PhoneNumberUtils.calledPartyBCDFragmentToString(
-                                        extRecord, 2, 0xff & extRecord[1]);
+                    extRecord,
+                    2,
+                    0xff & extRecord[1],
+                    PhoneNumberUtils.BCD_EXTENDED_TYPE_EF_ADN);
 
             // We don't support ext record chaining.
 
@@ -327,7 +331,10 @@ public class AdnRecord implements Parcelable {
             // the ME (see note 2)."
 
             mNumber = PhoneNumberUtils.calledPartyBCDToString(
-                            record, footerOffset + 1, numberLength);
+                    record,
+                    footerOffset + 1,
+                    numberLength,
+                    PhoneNumberUtils.BCD_EXTENDED_TYPE_EF_ADN);
 
 
             mExtRecord = 0xff & record[record.length - 1];

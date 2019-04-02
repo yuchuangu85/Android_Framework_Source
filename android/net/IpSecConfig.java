@@ -17,92 +17,177 @@ package android.net;
 
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.util.Log;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 
-/** @hide */
+import com.android.internal.annotations.VisibleForTesting;
+
+/**
+ * This class encapsulates all the configuration parameters needed to create IPsec transforms and
+ * policies.
+ *
+ * @hide
+ */
 public final class IpSecConfig implements Parcelable {
     private static final String TAG = "IpSecConfig";
 
-    //MODE_TRANSPORT or MODE_TUNNEL
-    int mode;
+    // MODE_TRANSPORT or MODE_TUNNEL
+    private int mMode = IpSecTransform.MODE_TRANSPORT;
 
-    // For tunnel mode
-    InetAddress localAddress;
+    // Preventing this from being null simplifies Java->Native binder
+    private String mSourceAddress = "";
 
-    InetAddress remoteAddress;
+    // Preventing this from being null simplifies Java->Native binder
+    private String mDestinationAddress = "";
 
-    // Limit selection by network interface
-    Network network;
+    // The underlying Network that represents the "gateway" Network
+    // for outbound packets. It may also be used to select packets.
+    private Network mNetwork;
 
-    public static class Flow {
-        // Minimum requirements for identifying a transform
-        // SPI identifying the IPsec flow in packet processing
-        // and a remote IP address
-        int spiResourceId;
+    // Minimum requirements for identifying a transform
+    // SPI identifying the IPsec SA in packet processing
+    // and a destination IP address
+    private int mSpiResourceId = IpSecManager.INVALID_RESOURCE_ID;
 
-        // Encryption Algorithm
-        IpSecAlgorithm encryption;
+    // Encryption Algorithm
+    private IpSecAlgorithm mEncryption;
 
-        // Authentication Algorithm
-        IpSecAlgorithm authentication;
-    }
+    // Authentication Algorithm
+    private IpSecAlgorithm mAuthentication;
 
-    Flow[] flow = new Flow[] {new Flow(), new Flow()};
+    // Authenticated Encryption Algorithm
+    private IpSecAlgorithm mAuthenticatedEncryption;
 
     // For tunnel mode IPv4 UDP Encapsulation
     // IpSecTransform#ENCAP_ESP_*, such as ENCAP_ESP_OVER_UDP_IKE
-    int encapType;
-    int encapLocalPortResourceId;
-    int encapRemotePort;
+    private int mEncapType = IpSecTransform.ENCAP_NONE;
+    private int mEncapSocketResourceId = IpSecManager.INVALID_RESOURCE_ID;
+    private int mEncapRemotePort;
 
     // An interval, in seconds between the NattKeepalive packets
-    int nattKeepaliveInterval;
+    private int mNattKeepaliveInterval;
+
+    // XFRM mark and mask
+    private int mMarkValue;
+    private int mMarkMask;
+
+    /** Set the mode for this IPsec transform */
+    public void setMode(int mode) {
+        mMode = mode;
+    }
+
+    /** Set the source IP addres for this IPsec transform */
+    public void setSourceAddress(String sourceAddress) {
+        mSourceAddress = sourceAddress;
+    }
+
+    /** Set the destination IP address for this IPsec transform */
+    public void setDestinationAddress(String destinationAddress) {
+        mDestinationAddress = destinationAddress;
+    }
+
+    /** Set the SPI by resource ID */
+    public void setSpiResourceId(int resourceId) {
+        mSpiResourceId = resourceId;
+    }
+
+    /** Set the encryption algorithm */
+    public void setEncryption(IpSecAlgorithm encryption) {
+        mEncryption = encryption;
+    }
+
+    /** Set the authentication algorithm */
+    public void setAuthentication(IpSecAlgorithm authentication) {
+        mAuthentication = authentication;
+    }
+
+    /** Set the authenticated encryption algorithm */
+    public void setAuthenticatedEncryption(IpSecAlgorithm authenticatedEncryption) {
+        mAuthenticatedEncryption = authenticatedEncryption;
+    }
+
+    /** Set the underlying network that will carry traffic for this transform */
+    public void setNetwork(Network network) {
+        mNetwork = network;
+    }
+
+    public void setEncapType(int encapType) {
+        mEncapType = encapType;
+    }
+
+    public void setEncapSocketResourceId(int resourceId) {
+        mEncapSocketResourceId = resourceId;
+    }
+
+    public void setEncapRemotePort(int port) {
+        mEncapRemotePort = port;
+    }
+
+    public void setNattKeepaliveInterval(int interval) {
+        mNattKeepaliveInterval = interval;
+    }
+
+    public void setMarkValue(int mark) {
+        mMarkValue = mark;
+    }
+
+    public void setMarkMask(int mask) {
+        mMarkMask = mask;
+    }
 
     // Transport or Tunnel
     public int getMode() {
-        return mode;
+        return mMode;
     }
 
-    public InetAddress getLocalAddress() {
-        return localAddress;
+    public String getSourceAddress() {
+        return mSourceAddress;
     }
 
-    public int getSpiResourceId(int direction) {
-        return flow[direction].spiResourceId;
+    public int getSpiResourceId() {
+        return mSpiResourceId;
     }
 
-    public InetAddress getRemoteAddress() {
-        return remoteAddress;
+    public String getDestinationAddress() {
+        return mDestinationAddress;
     }
 
-    public IpSecAlgorithm getEncryption(int direction) {
-        return flow[direction].encryption;
+    public IpSecAlgorithm getEncryption() {
+        return mEncryption;
     }
 
-    public IpSecAlgorithm getAuthentication(int direction) {
-        return flow[direction].authentication;
+    public IpSecAlgorithm getAuthentication() {
+        return mAuthentication;
+    }
+
+    public IpSecAlgorithm getAuthenticatedEncryption() {
+        return mAuthenticatedEncryption;
     }
 
     public Network getNetwork() {
-        return network;
+        return mNetwork;
     }
 
     public int getEncapType() {
-        return encapType;
+        return mEncapType;
     }
 
-    public int getEncapLocalResourceId() {
-        return encapLocalPortResourceId;
+    public int getEncapSocketResourceId() {
+        return mEncapSocketResourceId;
     }
 
     public int getEncapRemotePort() {
-        return encapRemotePort;
+        return mEncapRemotePort;
     }
 
     public int getNattKeepaliveInterval() {
-        return nattKeepaliveInterval;
+        return mNattKeepaliveInterval;
+    }
+
+    public int getMarkValue() {
+        return mMarkValue;
+    }
+
+    public int getMarkMask() {
+        return mMarkMask;
     }
 
     // Parcelable Methods
@@ -114,56 +199,99 @@ public final class IpSecConfig implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        // TODO: Use a byte array or other better method for storing IPs that can also include scope
-        out.writeString((localAddress != null) ? localAddress.getHostAddress() : null);
-        // TODO: Use a byte array or other better method for storing IPs that can also include scope
-        out.writeString((remoteAddress != null) ? remoteAddress.getHostAddress() : null);
-        out.writeParcelable(network, flags);
-        out.writeInt(flow[IpSecTransform.DIRECTION_IN].spiResourceId);
-        out.writeParcelable(flow[IpSecTransform.DIRECTION_IN].encryption, flags);
-        out.writeParcelable(flow[IpSecTransform.DIRECTION_IN].authentication, flags);
-        out.writeInt(flow[IpSecTransform.DIRECTION_OUT].spiResourceId);
-        out.writeParcelable(flow[IpSecTransform.DIRECTION_OUT].encryption, flags);
-        out.writeParcelable(flow[IpSecTransform.DIRECTION_OUT].authentication, flags);
-        out.writeInt(encapType);
-        out.writeInt(encapLocalPortResourceId);
-        out.writeInt(encapRemotePort);
+        out.writeInt(mMode);
+        out.writeString(mSourceAddress);
+        out.writeString(mDestinationAddress);
+        out.writeParcelable(mNetwork, flags);
+        out.writeInt(mSpiResourceId);
+        out.writeParcelable(mEncryption, flags);
+        out.writeParcelable(mAuthentication, flags);
+        out.writeParcelable(mAuthenticatedEncryption, flags);
+        out.writeInt(mEncapType);
+        out.writeInt(mEncapSocketResourceId);
+        out.writeInt(mEncapRemotePort);
+        out.writeInt(mNattKeepaliveInterval);
+        out.writeInt(mMarkValue);
+        out.writeInt(mMarkMask);
     }
 
-    // Package Private: Used by the IpSecTransform.Builder;
-    // there should be no public constructor for this object
-    IpSecConfig() {}
+    @VisibleForTesting
+    public IpSecConfig() {}
 
-    private static InetAddress readInetAddressFromParcel(Parcel in) {
-        String addrString = in.readString();
-        if (addrString == null) {
-            return null;
-        }
-        try {
-            return InetAddress.getByName(addrString);
-        } catch (UnknownHostException e) {
-            Log.wtf(TAG, "Invalid IpAddress " + addrString);
-            return null;
-        }
+    /** Copy constructor */
+    @VisibleForTesting
+    public IpSecConfig(IpSecConfig c) {
+        mMode = c.mMode;
+        mSourceAddress = c.mSourceAddress;
+        mDestinationAddress = c.mDestinationAddress;
+        mNetwork = c.mNetwork;
+        mSpiResourceId = c.mSpiResourceId;
+        mEncryption = c.mEncryption;
+        mAuthentication = c.mAuthentication;
+        mAuthenticatedEncryption = c.mAuthenticatedEncryption;
+        mEncapType = c.mEncapType;
+        mEncapSocketResourceId = c.mEncapSocketResourceId;
+        mEncapRemotePort = c.mEncapRemotePort;
+        mNattKeepaliveInterval = c.mNattKeepaliveInterval;
+        mMarkValue = c.mMarkValue;
+        mMarkMask = c.mMarkMask;
     }
 
     private IpSecConfig(Parcel in) {
-        localAddress = readInetAddressFromParcel(in);
-        remoteAddress = readInetAddressFromParcel(in);
-        network = (Network) in.readParcelable(Network.class.getClassLoader());
-        flow[IpSecTransform.DIRECTION_IN].spiResourceId = in.readInt();
-        flow[IpSecTransform.DIRECTION_IN].encryption =
+        mMode = in.readInt();
+        mSourceAddress = in.readString();
+        mDestinationAddress = in.readString();
+        mNetwork = (Network) in.readParcelable(Network.class.getClassLoader());
+        mSpiResourceId = in.readInt();
+        mEncryption =
                 (IpSecAlgorithm) in.readParcelable(IpSecAlgorithm.class.getClassLoader());
-        flow[IpSecTransform.DIRECTION_IN].authentication =
+        mAuthentication =
                 (IpSecAlgorithm) in.readParcelable(IpSecAlgorithm.class.getClassLoader());
-        flow[IpSecTransform.DIRECTION_OUT].spiResourceId = in.readInt();
-        flow[IpSecTransform.DIRECTION_OUT].encryption =
+        mAuthenticatedEncryption =
                 (IpSecAlgorithm) in.readParcelable(IpSecAlgorithm.class.getClassLoader());
-        flow[IpSecTransform.DIRECTION_OUT].authentication =
-                (IpSecAlgorithm) in.readParcelable(IpSecAlgorithm.class.getClassLoader());
-        encapType = in.readInt();
-        encapLocalPortResourceId = in.readInt();
-        encapRemotePort = in.readInt();
+        mEncapType = in.readInt();
+        mEncapSocketResourceId = in.readInt();
+        mEncapRemotePort = in.readInt();
+        mNattKeepaliveInterval = in.readInt();
+        mMarkValue = in.readInt();
+        mMarkMask = in.readInt();
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder strBuilder = new StringBuilder();
+        strBuilder
+                .append("{mMode=")
+                .append(mMode == IpSecTransform.MODE_TUNNEL ? "TUNNEL" : "TRANSPORT")
+                .append(", mSourceAddress=")
+                .append(mSourceAddress)
+                .append(", mDestinationAddress=")
+                .append(mDestinationAddress)
+                .append(", mNetwork=")
+                .append(mNetwork)
+                .append(", mEncapType=")
+                .append(mEncapType)
+                .append(", mEncapSocketResourceId=")
+                .append(mEncapSocketResourceId)
+                .append(", mEncapRemotePort=")
+                .append(mEncapRemotePort)
+                .append(", mNattKeepaliveInterval=")
+                .append(mNattKeepaliveInterval)
+                .append("{mSpiResourceId=")
+                .append(mSpiResourceId)
+                .append(", mEncryption=")
+                .append(mEncryption)
+                .append(", mAuthentication=")
+                .append(mAuthentication)
+                .append(", mAuthenticatedEncryption=")
+                .append(mAuthenticatedEncryption)
+                .append(", mMarkValue=")
+                .append(mMarkValue)
+                .append(", mMarkMask=")
+                .append(mMarkMask)
+                .append("}");
+
+        return strBuilder.toString();
     }
 
     public static final Parcelable.Creator<IpSecConfig> CREATOR =
@@ -176,4 +304,26 @@ public final class IpSecConfig implements Parcelable {
                     return new IpSecConfig[size];
                 }
             };
+
+    @VisibleForTesting
+    /** Equals method used for testing */
+    public static boolean equals(IpSecConfig lhs, IpSecConfig rhs) {
+        if (lhs == null || rhs == null) return (lhs == rhs);
+        return (lhs.mMode == rhs.mMode
+                && lhs.mSourceAddress.equals(rhs.mSourceAddress)
+                && lhs.mDestinationAddress.equals(rhs.mDestinationAddress)
+                && ((lhs.mNetwork != null && lhs.mNetwork.equals(rhs.mNetwork))
+                        || (lhs.mNetwork == rhs.mNetwork))
+                && lhs.mEncapType == rhs.mEncapType
+                && lhs.mEncapSocketResourceId == rhs.mEncapSocketResourceId
+                && lhs.mEncapRemotePort == rhs.mEncapRemotePort
+                && lhs.mNattKeepaliveInterval == rhs.mNattKeepaliveInterval
+                && lhs.mSpiResourceId == rhs.mSpiResourceId
+                && IpSecAlgorithm.equals(lhs.mEncryption, rhs.mEncryption)
+                && IpSecAlgorithm.equals(
+                        lhs.mAuthenticatedEncryption, rhs.mAuthenticatedEncryption)
+                && IpSecAlgorithm.equals(lhs.mAuthentication, rhs.mAuthentication)
+                && lhs.mMarkValue == rhs.mMarkValue
+                && lhs.mMarkMask == rhs.mMarkMask);
+    }
 }

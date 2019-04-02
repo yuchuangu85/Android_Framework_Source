@@ -16,6 +16,8 @@
 
 package com.android.setupwizardlib.test;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertEquals;
 
 import android.annotation.SuppressLint;
@@ -31,6 +33,7 @@ import android.support.test.annotation.UiThreadTest;
 import android.support.test.filters.SmallTest;
 import android.support.test.rule.UiThreadTestRule;
 import android.support.test.runner.AndroidJUnit4;
+import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -131,7 +134,9 @@ public class SystemBarHelperTest {
     @Test
     public void testShowSystemBarsWindow() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
-        SystemBarHelper.showSystemBars(window, InstrumentationRegistry.getContext());
+        Context context = new ContextThemeWrapper(
+                InstrumentationRegistry.getContext(), android.R.style.Theme);
+        SystemBarHelper.showSystemBars(window, context);
         if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
             assertEquals(
                     "DEFAULT_IMMERSIVE_FLAGS should be removed from window's systemUiVisibility",
@@ -191,11 +196,15 @@ public class SystemBarHelperTest {
     @UiThreadTest
     @Test
     public void testSetBackButtonVisibleTrue() {
-        final Window window = createWindowWithSystemUiVisibility(0x456);
+        final Window window = createWindowWithSystemUiVisibility(STATUS_BAR_DISABLE_BACK | 0x456);
         SystemBarHelper.setBackButtonVisible(window, true);
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
-            assertEquals("View visibility should be 0x456", 0x456,
-                    window.getAttributes().systemUiVisibility);
+            assertThat(window.getAttributes().systemUiVisibility)
+                    .named("window sysUiVisibility")
+                    .isEqualTo(0x456);
+            assertThat(window.getDecorView().getSystemUiVisibility())
+                    .named("decor view sysUiVisibility")
+                    .isEqualTo(0x456);
         }
     }
 
@@ -205,8 +214,12 @@ public class SystemBarHelperTest {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.setBackButtonVisible(window, false);
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
-            assertEquals("STATUS_BAR_DISABLE_BACK should be added to systemUiVisibility",
-                    0x456 | STATUS_BAR_DISABLE_BACK, window.getAttributes().systemUiVisibility);
+            assertThat(window.getAttributes().systemUiVisibility)
+                    .named("window sysUiVisibility")
+                    .isEqualTo(0x456 | STATUS_BAR_DISABLE_BACK);
+            assertThat(window.getDecorView().getSystemUiVisibility())
+                    .named("decor view sysUiVisibility")
+                    .isEqualTo(0x456 | STATUS_BAR_DISABLE_BACK);
         }
     }
 

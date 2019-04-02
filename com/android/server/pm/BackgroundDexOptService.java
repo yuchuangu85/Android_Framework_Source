@@ -18,6 +18,7 @@ package com.android.server.pm;
 
 import static com.android.server.pm.PackageManagerService.DEBUG_DEXOPT;
 
+import android.annotation.Nullable;
 import android.app.job.JobInfo;
 import android.app.job.JobParameters;
 import android.app.job.JobScheduler;
@@ -40,6 +41,7 @@ import com.android.server.PinnerService;
 import com.android.server.pm.dex.DexoptOptions;
 
 import java.io.File;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeUnit;
@@ -144,6 +146,12 @@ public class BackgroundDexOptService extends JobService {
         Intent intent = registerReceiver(null, filter);
         int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
         int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+        boolean present = intent.getBooleanExtra(BatteryManager.EXTRA_PRESENT, true);
+
+        if (!present) {
+            // No battery, treat as if 100%, no possibility of draining battery.
+            return 100;
+        }
 
         if (level < 0 || scale <= 0) {
             // Battery data unavailable. This should never happen, so assume the worst.
@@ -340,7 +348,8 @@ public class BackgroundDexOptService extends JobService {
             int dexoptFlags =
                     DexoptOptions.DEXOPT_CHECK_FOR_PROFILES_UPDATES |
                     DexoptOptions.DEXOPT_BOOT_COMPLETE |
-                    (downgrade ? DexoptOptions.DEXOPT_DOWNGRADE : 0);
+                    (downgrade ? DexoptOptions.DEXOPT_DOWNGRADE : 0) |
+                    DexoptOptions.DEXOPT_IDLE_BACKGROUND_JOB;
             if (is_for_primary_dex) {
                 int result = pm.performDexOptWithStatus(new DexoptOptions(pkg, reason,
                         dexoptFlags));
@@ -401,14 +410,22 @@ public class BackgroundDexOptService extends JobService {
     }
 
     /**
-     * Execute the idle optimizations immediately.
+     * Execute idle optimizations immediately on packages in packageNames. If packageNames is null,
+     * then execute on all packages.
      */
-    public static boolean runIdleOptimizationsNow(PackageManagerService pm, Context context) {
+    public static boolean runIdleOptimizationsNow(PackageManagerService pm, Context context,
+            @Nullable List<String> packageNames) {
         // Create a new object to make sure we don't interfere with the scheduled jobs.
         // Note that this may still run at the same time with the job scheduled by the
         // JobScheduler but the scheduler will not be able to cancel it.
         BackgroundDexOptService bdos = new BackgroundDexOptService();
-        int result = bdos.idleOptimization(pm, pm.getOptimizablePackages(), context);
+        ArraySet<String> packagesToOptimize;
+        if (packageNames == null) {
+            packagesToOptimize = pm.getOptimizablePackages();
+        } else {
+            packagesToOptimize = new ArraySet<>(packageNames);
+        }
+        int result = bdos.idleOptimization(pm, packagesToOptimize, context);
         return result == OPTIMIZE_PROCESSED;
     }
 
@@ -455,10 +472,17 @@ public class BackgroundDexOptService extends JobService {
 
         if (params.getJobId() == JOB_POST_BOOT_UPDATE) {
             mAbortPostBootUpdate.set(true);
+
+            // Do not reschedule.
+            // TODO: We should reschedule if we didn't process all apps, yet.
+            return false;
         } else {
             mAbortIdleOptimization.set(true);
+
+            // Reschedule the run.
+            // TODO: Should this be dependent on the stop reason?
+            return true;
         }
-        return false;
     }
 
     private void notifyPinService(ArraySet<String> updatedPackages) {

@@ -31,6 +31,8 @@ import android.provider.Telephony;
 import android.telephony.SmsCbMessage;
 import android.telephony.SubscriptionManager;
 
+import com.android.internal.telephony.metrics.TelephonyMetrics;
+
 /**
  * Dispatch new Cell Broadcasts to receivers. Acquires a private wakelock until the broadcast
  * completes and our result receiver is called.
@@ -81,6 +83,12 @@ public class CellBroadcastHandler extends WakeLockStateMachine {
     protected void handleBroadcastSms(SmsCbMessage message) {
         String receiverPermission;
         int appOp;
+
+        // Log Cellbroadcast msg received event
+        TelephonyMetrics metrics = TelephonyMetrics.getInstance();
+        metrics.writeNewCBSms(mPhone.getPhoneId(), message.getMessageFormat(),
+                message.getMessagePriority(), message.isCmasMessage(), message.isEtwsMessage(),
+                message.getServiceCategory());
 
         Intent intent;
         if (message.isEmergencyMessage()) {
