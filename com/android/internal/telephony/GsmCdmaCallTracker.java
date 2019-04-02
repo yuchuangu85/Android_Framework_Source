@@ -40,6 +40,7 @@ import android.telephony.gsm.GsmCellLocation;
 import android.text.TextUtils;
 import android.util.EventLog;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.cdma.CdmaCallWaitingNotification;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 
@@ -68,7 +69,8 @@ public class GsmCdmaCallTracker extends CallTracker {
     private static final int MAX_CONNECTIONS_PER_CALL_CDMA = 1; //only 1 connection allowed per call
 
     //***** Instance Variables
-    private GsmCdmaConnection mConnections[];
+    @VisibleForTesting
+    public GsmCdmaConnection[] mConnections;
     private RegistrantList mVoiceCallEndedRegistrants = new RegistrantList();
     private RegistrantList mVoiceCallStartedRegistrants = new RegistrantList();
 
@@ -168,6 +170,11 @@ public class GsmCdmaCallTracker extends CallTracker {
         if (mPhone.isPhoneTypeGsm()) {
             mConnections = new GsmCdmaConnection[MAX_CONNECTIONS_GSM];
             mCi.unregisterForCallWaitingInfo(this);
+            // Prior to phone switch to GSM, if CDMA has any emergency call
+            // data will be in disabled state, after switching to GSM enable data.
+            if (mIsInEmergencyCall) {
+                mPhone.mDcTracker.setInternalDataEnabled(true);
+            }
         } else {
             mConnections = new GsmCdmaConnection[MAX_CONNECTIONS_CDMA];
             mPendingCallInEcm = false;
@@ -182,10 +189,9 @@ public class GsmCdmaCallTracker extends CallTracker {
     private void reset() {
         Rlog.d(LOG_TAG, "reset");
 
-        clearDisconnected();
-
         for (GsmCdmaConnection gsmCdmaConnection : mConnections) {
             if (gsmCdmaConnection != null) {
+                gsmCdmaConnection.onDisconnect(DisconnectCause.ERROR_UNSPECIFIED);
                 gsmCdmaConnection.dispose();
             }
         }
@@ -196,7 +202,7 @@ public class GsmCdmaCallTracker extends CallTracker {
 
         mConnections = null;
         mPendingMO = null;
-        mState = PhoneConstants.State.IDLE;
+        clearDisconnected();
     }
 
     @Override
@@ -1671,5 +1677,14 @@ public class GsmCdmaCallTracker extends CallTracker {
         return mPhone.isPhoneTypeGsm() ?
                 MAX_CONNECTIONS_PER_CALL_GSM :
                 MAX_CONNECTIONS_PER_CALL_CDMA;
+    }
+
+    /**
+     * Called to force the call tracker to cleanup any stale calls.  Does this by triggering
+     * {@code GET_CURRENT_CALLS} on the RIL.
+     */
+    @Override
+    public void cleanupCalls() {
+        pollCallsWhenSafe();
     }
 }

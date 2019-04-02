@@ -471,6 +471,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
                 response = lc.mOnLoaded;
 
                 if (processException(response, (AsyncResult) msg.obj)) {
+                    loge("exception caught from EVENT_GET_RECORD_SIZE");
                     break;
                 }
 

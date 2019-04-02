@@ -30,8 +30,6 @@ import android.util.Log;
 import com.android.server.wifi.p2p.WifiP2pServiceImpl.P2pStatus;
 import com.android.server.wifi.util.NativeUtil;
 
-import libcore.util.HexEncoding;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -97,7 +95,6 @@ public class SupplicantP2pIfaceCallback extends ISupplicantP2pIfaceCallback.Stub
             byte[] wfdDeviceInfo) {
         WifiP2pDevice device = new WifiP2pDevice();
         device.deviceName = deviceName;
-
         if (deviceName == null) {
             Log.e(TAG, "Missing device name.");
             return;
@@ -111,8 +108,7 @@ public class SupplicantP2pIfaceCallback extends ISupplicantP2pIfaceCallback.Stub
         }
 
         try {
-            device.primaryDeviceType = new String(HexEncoding.encode(
-                    primaryDeviceType, 0, primaryDeviceType.length));
+            device.primaryDeviceType = NativeUtil.wpsDevTypeStringFromByteArray(primaryDeviceType);
         } catch (Exception e) {
             Log.e(TAG, "Could not encode device primary type.", e);
             return;
@@ -133,7 +129,6 @@ public class SupplicantP2pIfaceCallback extends ISupplicantP2pIfaceCallback.Stub
         logd("Device discovered on " + mInterface + ": " + device);
         mMonitor.broadcastP2pDeviceFound(mInterface, device);
     }
-
 
     /**
      * Used to indicate that a P2P device has been lost.

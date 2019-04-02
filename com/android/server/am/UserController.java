@@ -123,12 +123,13 @@ final class UserController {
     private final Injector mInjector;
     private final Handler mHandler;
 
-    // Holds the current foreground user's id
+    // Holds the current foreground user's id. Use mLock when updating
     @GuardedBy("mLock")
-    private int mCurrentUserId = UserHandle.USER_SYSTEM;
-    // Holds the target user's id during a user switch
+    private volatile int mCurrentUserId = UserHandle.USER_SYSTEM;
+    // Holds the target user's id during a user switch. The value of mCurrentUserId will be updated
+    // once target user goes into the foreground. Use mLock when updating
     @GuardedBy("mLock")
-    private int mTargetUserId = UserHandle.USER_NULL;
+    private volatile int mTargetUserId = UserHandle.USER_NULL;
 
     /**
      * Which users have been started, so are allowed to run code.
@@ -670,12 +671,6 @@ final class UserController {
         }
 
         if (stopped) {
-            // Evict the user's credential encryption key
-            try {
-                getStorageManager().lockUserKey(userId);
-            } catch (RemoteException re) {
-                throw re.rethrowAsRuntimeException();
-            }
             mInjector.systemServiceManagerCleanupUser(userId);
             synchronized (mLock) {
                 mInjector.getActivityStackSupervisor().removeUserLocked(userId);
@@ -683,6 +678,12 @@ final class UserController {
             // Remove the user if it is ephemeral.
             if (getUserInfo(userId).isEphemeral()) {
                 mInjector.getUserManager().removeUser(userId);
+            }
+            // Evict the user's credential encryption key.
+            try {
+                getStorageManager().lockUserKey(userId);
+            } catch (RemoteException re) {
+                throw re.rethrowAsRuntimeException();
             }
         }
     }
@@ -1446,15 +1447,6 @@ final class UserController {
         return mStartedUserArray;
     }
 
-    boolean isUserStoppingOrShuttingDownLocked(int userId) {
-        UserState state = getStartedUserStateLocked(userId);
-        if (state == null) {
-            return false;
-        }
-        return state.state == UserState.STATE_STOPPING
-                || state.state == UserState.STATE_SHUTDOWN;
-    }
-
     boolean isUserRunningLocked(int userId, int flags) {
         UserState state = getStartedUserStateLocked(userId);
         if (state == null) {
@@ -1477,6 +1469,10 @@ final class UserController {
                 case UserState.STATE_RUNNING_UNLOCKING:
                 case UserState.STATE_RUNNING_UNLOCKED:
                     return true;
+                // In the stopping/shutdown state return unlock state of the user key
+                case UserState.STATE_STOPPING:
+                case UserState.STATE_SHUTDOWN:
+                    return StorageManager.isUserKeyUnlocked(userId);
                 default:
                     return false;
             }
@@ -1485,13 +1481,16 @@ final class UserController {
             switch (state.state) {
                 case UserState.STATE_RUNNING_UNLOCKED:
                     return true;
+                // In the stopping/shutdown state return unlock state of the user key
+                case UserState.STATE_STOPPING:
+                case UserState.STATE_SHUTDOWN:
+                    return StorageManager.isUserKeyUnlocked(userId);
                 default:
                     return false;
             }
         }
 
-        // One way or another, we're running!
-        return true;
+        return state.state != UserState.STATE_STOPPING && state.state != UserState.STATE_SHUTDOWN;
     }
 
     UserInfo getCurrentUser() {
@@ -1505,6 +1504,11 @@ final class UserController {
                     + " requires " + INTERACT_ACROSS_USERS;
             Slog.w(TAG, msg);
             throw new SecurityException(msg);
+        }
+
+        // Optimization - if there is no pending user switch, return current id
+        if (mTargetUserId == UserHandle.USER_NULL) {
+            return getUserInfo(mCurrentUserId);
         }
         synchronized (mLock) {
             return getCurrentUserLocked();

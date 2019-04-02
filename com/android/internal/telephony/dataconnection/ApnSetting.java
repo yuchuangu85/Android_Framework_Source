@@ -24,6 +24,8 @@ import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.text.TextUtils;
 
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.uicc.IccRecords;
@@ -32,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * This class represents a apn setting for create PDP link
@@ -41,6 +44,7 @@ public class ApnSetting {
     static final String LOG_TAG = "ApnSetting";
 
     private static final boolean DBG = false;
+    private static final boolean VDBG = false;
 
     static final String V2_FORMAT_REGEX = "^\\[ApnSettingV2\\]\\s*";
     static final String V3_FORMAT_REGEX = "^\\[ApnSettingV3\\]\\s*";
@@ -404,15 +408,41 @@ public class ApnSetting {
         return false;
     }
 
-    public static boolean isMeteredApnType(String type, Context context, int subId,
-                                           boolean isRoaming) {
+    /**
+     * Check if this APN type is metered.
+     *
+     * @param type The APN type
+     * @param phone The phone object
+     * @return True if the APN type is metered, otherwise false.
+     */
+    public static boolean isMeteredApnType(String type, Phone phone) {
+        if (phone == null) {
+            return true;
+        }
 
-        String carrierConfig = (isRoaming) ?
-                CarrierConfigManager.KEY_CARRIER_METERED_ROAMING_APN_TYPES_STRINGS :
-                CarrierConfigManager.KEY_CARRIER_METERED_APN_TYPES_STRINGS;
+        boolean isRoaming = phone.getServiceState().getDataRoaming();
+        boolean isIwlan = phone.getServiceState().getRilDataRadioTechnology()
+                == ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN;
+        int subId = phone.getSubId();
+
+        String carrierConfig;
+        // First check if the device is in IWLAN mode. If yes, use the IWLAN metered APN list. Then
+        // check if the device is roaming. If yes, use the roaming metered APN list. Otherwise, use
+        // the normal metered APN list.
+        if (isIwlan) {
+            carrierConfig = CarrierConfigManager.KEY_CARRIER_METERED_IWLAN_APN_TYPES_STRINGS;
+        } else if (isRoaming) {
+            carrierConfig = CarrierConfigManager.KEY_CARRIER_METERED_ROAMING_APN_TYPES_STRINGS;
+        } else {
+            carrierConfig = CarrierConfigManager.KEY_CARRIER_METERED_APN_TYPES_STRINGS;
+        }
+
+        if (DBG) {
+            Rlog.d(LOG_TAG, "isMeteredApnType: isRoaming=" + isRoaming + ", isIwlan=" + isIwlan);
+        }
 
         CarrierConfigManager configManager = (CarrierConfigManager)
-                context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
+                phone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
         if (configManager == null) {
             Rlog.e(LOG_TAG, "Carrier config service is not available");
             return true;
@@ -432,44 +462,49 @@ public class ApnSetting {
 
         HashSet<String> meteredApnSet = new HashSet<>(Arrays.asList(meteredApnTypes));
         if (DBG) {
-            Rlog.d(LOG_TAG, "For subId = " + subId + ", metered APN types are " +
-                    Arrays.toString(meteredApnSet.toArray()) +
-                    " isRoaming: " + isRoaming);
+            Rlog.d(LOG_TAG, "For subId = " + subId + ", metered APN types are "
+                    + Arrays.toString(meteredApnSet.toArray()));
         }
 
         // If all types of APN are metered, then this APN setting must be metered.
         if (meteredApnSet.contains(PhoneConstants.APN_TYPE_ALL)) {
-            if (DBG) Rlog.d(LOG_TAG, "All APN types are metered. isRoaming: " + isRoaming);
+            if (DBG) Rlog.d(LOG_TAG, "All APN types are metered.");
             return true;
         }
 
         if (meteredApnSet.contains(type)) {
-            if (DBG) Rlog.d(LOG_TAG, type + " is metered. isRoaming: " + isRoaming);
+            if (DBG) Rlog.d(LOG_TAG, type + " is metered.");
             return true;
         } else if (type.equals(PhoneConstants.APN_TYPE_ALL)) {
             // Assuming no configuration error, if at least one APN type is
             // metered, then this APN setting is metered.
             if (meteredApnSet.size() > 0) {
-                if (DBG) Rlog.d(LOG_TAG, "APN_TYPE_ALL APN is metered. isRoaming: " +
-                        isRoaming);
+                if (DBG) Rlog.d(LOG_TAG, "APN_TYPE_ALL APN is metered.");
                 return true;
             }
         }
 
-        if (DBG) Rlog.d(LOG_TAG, type + " is not metered. isRoaming: " + isRoaming);
+        if (DBG) Rlog.d(LOG_TAG, type + " is not metered.");
         return false;
     }
 
-    public boolean isMetered(Context context, int subId, boolean isRoaming ) {
+    /**
+     * Check if this APN setting is metered.
+     *
+     * @param phone The phone object
+     * @return True if this APN setting is metered, otherwise false.
+     */
+    public boolean isMetered(Phone phone) {
+        if (phone == null) {
+            return true;
+        }
+
         for (String type : types) {
             // If one of the APN type is metered, then this APN setting is metered.
-            if (isMeteredApnType(type, context, subId, isRoaming)) {
-                if (DBG) Rlog.d(LOG_TAG, "Metered. APN = " + toString() +
-                        "isRoaming: " + isRoaming);
+            if (isMeteredApnType(type, phone)) {
                 return true;
             }
         }
-        if (DBG) Rlog.d(LOG_TAG, "Not metered. APN = " + toString() + "isRoaming: " + isRoaming);
         return false;
     }
 
@@ -510,6 +545,116 @@ public class ApnSetting {
                 && mtu == other.mtu
                 && mvnoType.equals(other.mvnoType)
                 && mvnoMatchData.equals(other.mvnoMatchData);
+    }
+
+    /**
+     * Compare two APN settings
+     *
+     * Note: This method does not compare 'id', 'bearer', 'bearerBitmask'. We only use this for
+     * determining if tearing a data call is needed when conditions change. See
+     * cleanUpConnectionsOnUpdatedApns in DcTracker.
+     *
+     * @param o the other object to compare
+     * @param isDataRoaming True if the device is on data roaming
+     * @return True if the two APN settings are same
+     */
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+    public boolean equals(Object o, boolean isDataRoaming) {
+        if (!(o instanceof ApnSetting)) {
+            return false;
+        }
+
+        ApnSetting other = (ApnSetting) o;
+
+        return carrier.equals(other.carrier)
+                && numeric.equals(other.numeric)
+                && apn.equals(other.apn)
+                && proxy.equals(other.proxy)
+                && mmsc.equals(other.mmsc)
+                && mmsProxy.equals(other.mmsProxy)
+                && TextUtils.equals(mmsPort, other.mmsPort)
+                && port.equals(other.port)
+                && TextUtils.equals(user, other.user)
+                && TextUtils.equals(password, other.password)
+                && authType == other.authType
+                && Arrays.deepEquals(types, other.types)
+                && typesBitmap == other.typesBitmap
+                && (isDataRoaming || protocol.equals(other.protocol))
+                && (!isDataRoaming || roamingProtocol.equals(other.roamingProtocol))
+                && carrierEnabled == other.carrierEnabled
+                && profileId == other.profileId
+                && modemCognitive == other.modemCognitive
+                && maxConns == other.maxConns
+                && waitTime == other.waitTime
+                && maxConnsTime == other.maxConnsTime
+                && mtu == other.mtu
+                && mvnoType.equals(other.mvnoType)
+                && mvnoMatchData.equals(other.mvnoMatchData);
+    }
+
+    /**
+     * Check if neither mention DUN and are substantially similar
+     *
+     * @param other The other APN settings to compare
+     * @return True if two APN settings are similar
+     */
+    public boolean similar(ApnSetting other) {
+        return (!this.canHandleType(PhoneConstants.APN_TYPE_DUN)
+                && !other.canHandleType(PhoneConstants.APN_TYPE_DUN)
+                && Objects.equals(this.apn, other.apn)
+                && !typeSameAny(this, other)
+                && xorEquals(this.proxy, other.proxy)
+                && xorEquals(this.port, other.port)
+                && xorEquals(this.protocol, other.protocol)
+                && xorEquals(this.roamingProtocol, other.roamingProtocol)
+                && this.carrierEnabled == other.carrierEnabled
+                && this.bearerBitmask == other.bearerBitmask
+                && this.profileId == other.profileId
+                && Objects.equals(this.mvnoType, other.mvnoType)
+                && Objects.equals(this.mvnoMatchData, other.mvnoMatchData)
+                && xorEquals(this.mmsc, other.mmsc)
+                && xorEquals(this.mmsProxy, other.mmsProxy)
+                && xorEquals(this.mmsPort, other.mmsPort));
+    }
+
+    // check whether the types of two APN same (even only one type of each APN is same)
+    private boolean typeSameAny(ApnSetting first, ApnSetting second) {
+        if (VDBG) {
+            StringBuilder apnType1 = new StringBuilder(first.apn + ": ");
+            for (int index1 = 0; index1 < first.types.length; index1++) {
+                apnType1.append(first.types[index1]);
+                apnType1.append(",");
+            }
+
+            StringBuilder apnType2 = new StringBuilder(second.apn + ": ");
+            for (int index1 = 0; index1 < second.types.length; index1++) {
+                apnType2.append(second.types[index1]);
+                apnType2.append(",");
+            }
+            Rlog.d(LOG_TAG, "APN1: is " + apnType1);
+            Rlog.d(LOG_TAG, "APN2: is " + apnType2);
+        }
+
+        for (int index1 = 0; index1 < first.types.length; index1++) {
+            for (int index2 = 0; index2 < second.types.length; index2++) {
+                if (first.types[index1].equals(PhoneConstants.APN_TYPE_ALL)
+                        || second.types[index2].equals(PhoneConstants.APN_TYPE_ALL)
+                        || first.types[index1].equals(second.types[index2])) {
+                    if (VDBG) Rlog.d(LOG_TAG, "typeSameAny: return true");
+                    return true;
+                }
+            }
+        }
+
+        if (VDBG) Rlog.d(LOG_TAG, "typeSameAny: return false");
+        return false;
+    }
+
+    // equal or one is not specified
+    private boolean xorEquals(String first, String second) {
+        return (Objects.equals(first, second)
+                || TextUtils.isEmpty(first)
+                || TextUtils.isEmpty(second));
     }
 
     // Helper function to convert APN string into a 32-bit bitmask.

@@ -28,13 +28,13 @@ import static android.view.WindowManager.LayoutParams.TYPE_VOLUME_OVERLAY;
 import android.Manifest;
 import android.animation.LayoutTransition;
 import android.annotation.NonNull;
-import android.annotation.TestApi;
 import android.app.ActivityManager;
 import android.app.ActivityThread;
 import android.app.ResourcesManager;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.Context;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.CompatibilityInfo;
 import android.content.res.Configuration;
@@ -213,11 +213,8 @@ public final class ViewRootImpl implements ViewParent,
 
     /**
      * Always assign focus if a focusable View is available.
-     *
-     * @hide
      */
-    @TestApi
-    public static boolean sAlwaysAssignFocus;
+    private static boolean sAlwaysAssignFocus;
 
     /**
      * This list must only be modified by the main thread, so a lock is only needed when changing
@@ -262,6 +259,9 @@ public final class ViewRootImpl implements ViewParent,
     // visibility to control drawing. The decor view visibility will get adjusted when the app get
     // stopped and that's when the app will stop drawing further frames.
     private boolean mForceDecorViewVisibility = false;
+    // Used for tracking app visibility updates separately in case we get double change. This will
+    // make sure that we always call relayout for the corresponding window.
+    private boolean mAppVisibilityChanged;
     int mOrigWindowType = -1;
 
     /** Whether the window had focus during the most recent traversal. */
@@ -961,8 +961,13 @@ public final class ViewRootImpl implements ViewParent,
                 final boolean hasSurfaceInsets = insets.left != 0 || insets.right != 0
                         || insets.top != 0 || insets.bottom != 0;
                 final boolean translucent = attrs.format != PixelFormat.OPAQUE || hasSurfaceInsets;
+                final boolean wideGamut =
+                        mContext.getResources().getConfiguration().isScreenWideColorGamut()
+                        && attrs.getColorMode() == ActivityInfo.COLOR_MODE_WIDE_COLOR_GAMUT;
+
                 mAttachInfo.mThreadedRenderer = ThreadedRenderer.create(mContext, translucent,
                         attrs.getTitle().toString());
+                mAttachInfo.mThreadedRenderer.setWideGamut(wideGamut);
                 if (mAttachInfo.mThreadedRenderer != null) {
                     mAttachInfo.mHardwareAccelerated =
                             mAttachInfo.mHardwareAccelerationRequested = true;
@@ -1056,6 +1061,7 @@ public final class ViewRootImpl implements ViewParent,
     void handleAppVisibility(boolean visible) {
         if (mAppVisible != visible) {
             mAppVisible = visible;
+            mAppVisibilityChanged = true;
             scheduleTraversals();
             if (!mAppVisible) {
                 WindowManagerGlobal.trimForeground();
@@ -1598,7 +1604,11 @@ public final class ViewRootImpl implements ViewParent,
 
         final int viewVisibility = getHostVisibility();
         final boolean viewVisibilityChanged = !mFirst
-                && (mViewVisibility != viewVisibility || mNewSurfaceNeeded);
+                && (mViewVisibility != viewVisibility || mNewSurfaceNeeded
+                // Also check for possible double visibility update, which will make current
+                // viewVisibility value equal to mViewVisibility and we may miss it.
+                || mAppVisibilityChanged);
+        mAppVisibilityChanged = false;
         final boolean viewUserVisibilityChanged = !mFirst &&
                 ((mViewVisibility == View.VISIBLE) != (viewVisibility == View.VISIBLE));
 
@@ -1898,14 +1908,16 @@ public final class ViewRootImpl implements ViewParent,
                         + " outsets=" + mPendingOutsets.toShortString()
                         + " surface=" + mSurface);
 
-                final Configuration pendingMergedConfig =
-                        mPendingMergedConfiguration.getMergedConfiguration();
-                if (pendingMergedConfig.seq != 0) {
+                // If the pending {@link MergedConfiguration} handed back from
+                // {@link #relayoutWindow} does not match the one last reported,
+                // WindowManagerService has reported back a frame from a configuration not yet
+                // handled by the client. In this case, we need to accept the configuration so we
+                // do not lay out and draw with the wrong configuration.
+                if (!mPendingMergedConfiguration.equals(mLastReportedMergedConfiguration)) {
                     if (DEBUG_CONFIGURATION) Log.v(mTag, "Visible with new config: "
-                            + pendingMergedConfig);
+                            + mPendingMergedConfiguration.getMergedConfiguration());
                     performConfigurationChange(mPendingMergedConfiguration, !mFirst,
                             INVALID_DISPLAY /* same display */);
-                    pendingMergedConfig.seq = 0;
                     updatedConfiguration = true;
                 }
 
@@ -3590,6 +3602,13 @@ public final class ViewRootImpl implements ViewParent,
                 mView.setLayoutDirection(currentLayoutDirection);
             }
             mView.dispatchConfigurationChanged(config);
+
+            // We could have gotten this {@link Configuration} update after we called
+            // {@link #performTraversals} with an older {@link Configuration}. As a result, our
+            // window frame may be stale. We must ensure the next pass of {@link #performTraversals}
+            // catches this.
+            mForceNextWindowRelayout = true;
+            requestLayout();
         }
     }
 
@@ -3751,10 +3770,10 @@ public final class ViewRootImpl implements ViewParent,
                     SomeArgs args = (SomeArgs) msg.obj;
 
                     final int displayId = args.argi3;
-                    final MergedConfiguration mergedConfiguration = (MergedConfiguration) args.arg4;
+                    MergedConfiguration mergedConfiguration = (MergedConfiguration) args.arg4;
                     final boolean displayChanged = mDisplay.getDisplayId() != displayId;
 
-                    if (mergedConfiguration != null) {
+                    if (!mLastReportedMergedConfiguration.equals(mergedConfiguration)) {
                         // If configuration changed - notify about that and, maybe, about move to
                         // display.
                         performConfigurationChange(mergedConfiguration, false /* force */,
@@ -6088,7 +6107,7 @@ public final class ViewRootImpl implements ViewParent,
         if (params != null) {
             if (DBG) Log.d(mTag, "WindowLayout in layoutWindow:" + params);
         }
-        mPendingMergedConfiguration.getMergedConfiguration().seq = 0;
+
         //Log.d(mTag, ">>>>>> CALLING relayout");
         if (params != null && mOrigWindowType != params.type) {
             // For compatibility with old apps, don't crash here.
@@ -6741,7 +6760,7 @@ public final class ViewRootImpl implements ViewParent,
         }
 
         @Override
-        public void onInputEvent(InputEvent event) {
+        public void onInputEvent(InputEvent event, int displayId) {
             enqueueInputEvent(event, this, 0, true);
         }
 
@@ -7072,6 +7091,14 @@ public final class ViewRootImpl implements ViewParent,
         if (mView == null || mStopped || mPausedForTransition) {
             return false;
         }
+
+        // Immediately flush pending content changed event (if any) to preserve event order
+        if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+                && mSendWindowContentChangedAccessibilityEvent != null
+                && mSendWindowContentChangedAccessibilityEvent.mSource != null) {
+            mSendWindowContentChangedAccessibilityEvent.removeCallbacksAndRun();
+        }
+
         // Intercept accessibility focus events fired by virtual nodes to keep
         // track of accessibility focus position in such nodes.
         final int eventType = event.getEventType();
@@ -7687,7 +7714,7 @@ public final class ViewRootImpl implements ViewParent,
         public void onAccessibilityStateChanged(boolean enabled) {
             if (enabled) {
                 ensureConnection();
-                if (mAttachInfo.mHasWindowFocus) {
+                if (mAttachInfo.mHasWindowFocus && (mView != null)) {
                     mView.sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
                     View focusedView = mView.findFocus();
                     if (focusedView != null && focusedView != mView) {
@@ -7881,23 +7908,46 @@ public final class ViewRootImpl implements ViewParent,
 
         @Override
         public void run() {
+            // Protect against re-entrant code and attempt to do the right thing in the case that
+            // we're multithreaded.
+            View source = mSource;
+            mSource = null;
+            if (source == null) {
+                Log.e(TAG, "Accessibility content change has no source");
+                return;
+            }
             // The accessibility may be turned off while we were waiting so check again.
             if (AccessibilityManager.getInstance(mContext).isEnabled()) {
                 mLastEventTimeMillis = SystemClock.uptimeMillis();
                 AccessibilityEvent event = AccessibilityEvent.obtain();
                 event.setEventType(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
                 event.setContentChangeTypes(mChangeTypes);
-                mSource.sendAccessibilityEventUnchecked(event);
+                source.sendAccessibilityEventUnchecked(event);
             } else {
                 mLastEventTimeMillis = 0;
             }
             // In any case reset to initial state.
-            mSource.resetSubtreeAccessibilityStateChanged();
-            mSource = null;
+            source.resetSubtreeAccessibilityStateChanged();
             mChangeTypes = 0;
         }
 
         public void runOrPost(View source, int changeType) {
+            if (mHandler.getLooper() != Looper.myLooper()) {
+                CalledFromWrongThreadException e = new CalledFromWrongThreadException("Only the "
+                        + "original thread that created a view hierarchy can touch its views.");
+                // TODO: Throw the exception
+                Log.e(TAG, "Accessibility content change on non-UI thread. Future Android "
+                        + "versions will throw an exception.", e);
+                // Attempt to recover. This code does not eliminate the thread safety issue, but
+                // it should force any issues to happen near the above log.
+                mHandler.removeCallbacks(this);
+                if (mSource != null) {
+                    // Dispatch whatever was pending. It's still possible that the runnable started
+                    // just before we removed the callbacks, and bad things will happen, but at
+                    // least they should happen very close to the logged error.
+                    run();
+                }
+            }
             if (mSource != null) {
                 // If there is no common predecessor, then mSource points to
                 // a removed view, hence in this case always prefer the source.
@@ -7912,11 +7962,15 @@ public final class ViewRootImpl implements ViewParent,
             final long minEventIntevalMillis =
                     ViewConfiguration.getSendRecurringAccessibilityEventsInterval();
             if (timeSinceLastMillis >= minEventIntevalMillis) {
-                mSource.removeCallbacks(this);
-                run();
+                removeCallbacksAndRun();
             } else {
-                mSource.postDelayed(this, minEventIntevalMillis - timeSinceLastMillis);
+                mHandler.postDelayed(this, minEventIntevalMillis - timeSinceLastMillis);
             }
+        }
+
+        public void removeCallbacksAndRun() {
+            mHandler.removeCallbacks(this);
+            run();
         }
     }
 }

@@ -601,10 +601,12 @@ public final class TvContract {
      * given time frame.
      *
      * @param channelId The ID of the channel to return programs for.
-     * @param startTime The start time used to filter programs. The returned programs should have
-     *            {@link Programs#COLUMN_END_TIME_UTC_MILLIS} that is greater than this time.
-     * @param endTime The end time used to filter programs. The returned programs should have
-     *            {@link Programs#COLUMN_START_TIME_UTC_MILLIS} that is less than this time.
+     * @param startTime The start time used to filter programs. The returned programs will have a
+     *            {@link Programs#COLUMN_END_TIME_UTC_MILLIS} that is greater than or equal to
+                  {@code startTime}.
+     * @param endTime The end time used to filter programs. The returned programs will have
+     *            {@link Programs#COLUMN_START_TIME_UTC_MILLIS} that is less than or equal to
+     *            {@code endTime}.
      */
     public static Uri buildProgramsUriForChannel(long channelId, long startTime,
             long endTime) {
@@ -726,6 +728,13 @@ public final class TvContract {
      */
     public static boolean isProgramUri(Uri uri) {
         return isTvUri(uri) && isTwoSegmentUriStartingWith(uri, PATH_PROGRAM);
+    }
+
+    /**
+     * Returns {@code true}, if {@code uri} is a recorded program URI.
+     */
+    public static boolean isRecordedProgramUri(Uri uri) {
+        return isTvUri(uri) && isTwoSegmentUriStartingWith(uri, PATH_RECORDED_PROGRAM);
     }
 
     /**

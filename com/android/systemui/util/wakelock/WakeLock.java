@@ -42,6 +42,17 @@ public interface WakeLock {
                     .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, tag);
     }
 
+    static Runnable wrapImpl(WakeLock w, Runnable r) {
+        w.acquire();
+        return () -> {
+            try {
+                r.run();
+            } finally {
+                w.release();
+            }
+        };
+    }
+
     static WakeLock wrap(final PowerManager.WakeLock inner) {
         return new WakeLock() {
             /** @see PowerManager.WakeLock#acquire() */
@@ -56,7 +67,7 @@ public interface WakeLock {
 
             /** @see PowerManager.WakeLock#wrap(Runnable) */
             public Runnable wrap(Runnable runnable) {
-                return inner.wrap(runnable);
+                return wrapImpl(this, runnable);
             }
         };
     }

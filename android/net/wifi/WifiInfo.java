@@ -105,34 +105,43 @@ public class WifiInfo implements Parcelable {
     private boolean mEphemeral;
 
     /**
+     * Running total count of lost (not ACKed) transmitted unicast data packets.
      * @hide
      */
     public long txBad;
     /**
+     * Running total count of transmitted unicast data retry packets.
      * @hide
      */
     public long txRetries;
     /**
+     * Running total count of successfully transmitted (ACKed) unicast data packets.
      * @hide
      */
     public long txSuccess;
     /**
+     * Running total count of received unicast data packets.
      * @hide
      */
     public long rxSuccess;
+
     /**
+     * Average rate of lost transmitted packets, in units of packets per 5 seconds.
      * @hide
      */
     public double txBadRate;
     /**
+     * Average rate of transmitted retry packets, in units of packets per 5 seconds.
      * @hide
      */
     public double txRetriesRate;
     /**
+     * Average rate of successfully transmitted unicast packets, in units of packets per 5 seconds.
      * @hide
      */
     public double txSuccessRate;
     /**
+     * Average rate of received unicast data packets, in units of packets per 5 seconds.
      * @hide
      */
     public double rxSuccessRate;
@@ -142,8 +151,9 @@ public class WifiInfo implements Parcelable {
     /**
      * This factor is used to adjust the rate output under the new algorithm
      * such that the result is comparable to the previous algorithm.
+     * This actually converts from unit 'packets per second' to 'packets per 5 seconds'.
      */
-    private static final long OUTPUT_SCALE_FACTOR = 5000;
+    private static final long OUTPUT_SCALE_FACTOR = 5;
     private long mLastPacketCountUpdateTimeStamp;
 
     /**
@@ -189,16 +199,16 @@ public class WifiInfo implements Parcelable {
                     double currentSampleWeight = 1.0 - lastSampleWeight;
 
                     txBadRate = txBadRate * lastSampleWeight
-                        + (txbad - txBad) * OUTPUT_SCALE_FACTOR / timeDelta
+                        + (txbad - txBad) * OUTPUT_SCALE_FACTOR * 1000 / timeDelta
                         * currentSampleWeight;
                     txSuccessRate = txSuccessRate * lastSampleWeight
-                        + (txgood - txSuccess) * OUTPUT_SCALE_FACTOR / timeDelta
+                        + (txgood - txSuccess) * OUTPUT_SCALE_FACTOR * 1000 / timeDelta
                         * currentSampleWeight;
                     rxSuccessRate = rxSuccessRate * lastSampleWeight
-                        + (rxgood - rxSuccess) * OUTPUT_SCALE_FACTOR / timeDelta
+                        + (rxgood - rxSuccess) * OUTPUT_SCALE_FACTOR * 1000 / timeDelta
                         * currentSampleWeight;
                     txRetriesRate = txRetriesRate * lastSampleWeight
-                        + (txretries - txRetries) * OUTPUT_SCALE_FACTOR / timeDelta
+                        + (txretries - txRetries) * OUTPUT_SCALE_FACTOR * 1000/ timeDelta
                         * currentSampleWeight;
             } else {
                 txBadRate = 0;
@@ -336,7 +346,8 @@ public class WifiInfo implements Parcelable {
      * Returns the service set identifier (SSID) of the current 802.11 network.
      * If the SSID can be decoded as UTF-8, it will be returned surrounded by double
      * quotation marks. Otherwise, it is returned as a string of hex digits. The
-     * SSID may be &lt;unknown ssid&gt; if there is no network currently connected.
+     * SSID may be &lt;unknown ssid&gt; if there is no network currently connected,
+     * or if the caller has insufficient permissions to access the SSID.
      * @return the SSID
      */
     public String getSSID() {
@@ -438,6 +449,22 @@ public class WifiInfo implements Parcelable {
     }
 
     /**
+     * @hide
+     * This returns txSuccessRate in packets per second.
+     */
+    public double getTxSuccessRatePps() {
+        return txSuccessRate / OUTPUT_SCALE_FACTOR;
+    }
+
+    /**
+     * @hide
+     * This returns rxSuccessRate in packets per second.
+     */
+    public double getRxSuccessRatePps() {
+        return rxSuccessRate / OUTPUT_SCALE_FACTOR;
+    }
+
+    /**
      * Record the MAC address of the WLAN interface
      * @param macAddress the MAC address in {@code XX:XX:XX:XX:XX:XX} form
      * @hide
@@ -459,7 +486,13 @@ public class WifiInfo implements Parcelable {
         return mMacAddress != null && !DEFAULT_MAC_ADDRESS.equals(mMacAddress);
     }
 
-    /** {@hide} */
+    /**
+     * Indicates if we've dynamically detected this active network connection as
+     * being metered.
+     *
+     * @see WifiConfiguration#isMetered(WifiConfiguration, WifiInfo)
+     * @hide
+     */
     public void setMeteredHint(boolean meteredHint) {
         mMeteredHint = meteredHint;
     }

@@ -65,8 +65,12 @@ class ExpiringCache {
     ExpiringCache(long millisUntilExpiration) {
         this.millisUntilExpiration = millisUntilExpiration;
         map = new LinkedHashMap<String,Entry>() {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry eldest) {
+            // Android-changed: Qualified ExpiringCache.Entry to distinguish from Map.Entry.
+            // There seems to be a compiler difference between javac and jack here;
+            // Map.Entry<String,Entry> doesn't work on jack since the latter "Entry" gets
+            // interpreted as referring to Map.Entry rather than ExpiringCache.Entry.
+            // protected boolean removeEldestEntry(Map.Entry<String,Entry> eldest) {
+            protected boolean removeEldestEntry(Map.Entry<String,ExpiringCache.Entry> eldest) {
               return size() > MAX_ENTRIES;
             }
           };

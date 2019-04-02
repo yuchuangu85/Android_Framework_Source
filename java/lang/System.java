@@ -989,7 +989,7 @@ public final class System {
         }
         p.put("os.version", info.release);
 
-        // Undocumented Android-only properties.
+        // Android-added: Undocumented properties that exist only on Android.
         p.put("android.icu.library.version", ICU.getIcuVersion());
         p.put("android.icu.unicode.version", ICU.getUnicodeVersion());
         p.put("android.icu.cldr.version", ICU.getCldrVersion());

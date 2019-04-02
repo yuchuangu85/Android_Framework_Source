@@ -107,7 +107,7 @@ public final class Zygote {
                   fdsToIgnore, instructionSet, appDataDir);
         // Enable tracing as soon as possible for the child process.
         if (pid == 0) {
-            Trace.setTracingEnabled(true);
+            Trace.setTracingEnabled(true, debugFlags);
 
             // Note that this event ends at the end of handleChildProc,
             Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "PostFork");
@@ -119,6 +119,11 @@ public final class Zygote {
     native private static int nativeForkAndSpecialize(int uid, int gid, int[] gids,int debugFlags,
           int[][] rlimits, int mountExternal, String seInfo, String niceName, int[] fdsToClose,
           int[] fdsToIgnore, String instructionSet, String appDataDir);
+
+    /**
+     * Called to do any initialization before starting an application.
+     */
+    native static void nativePreApplicationInit();
 
     /**
      * Special method to start the system server process. In addition to the
@@ -152,7 +157,7 @@ public final class Zygote {
                 uid, gid, gids, debugFlags, rlimits, permittedCapabilities, effectiveCapabilities);
         // Enable tracing as soon as we enter the system_server.
         if (pid == 0) {
-            Trace.setTracingEnabled(true);
+            Trace.setTracingEnabled(true, debugFlags);
         }
         VM_HOOKS.postForkCommon();
         return pid;
@@ -214,41 +219,6 @@ public final class Zygote {
     public static void appendQuotedShellArgs(StringBuilder command, String[] args) {
         for (String arg : args) {
             command.append(" '").append(arg.replace("'", "'\\''")).append("'");
-        }
-    }
-
-    /**
-     * Helper exception class which holds a method and arguments and
-     * can call them. This is used as part of a trampoline to get rid of
-     * the initial process setup stack frames.
-     */
-    public static class MethodAndArgsCaller extends Exception
-            implements Runnable {
-        /** method to call */
-        private final Method mMethod;
-
-        /** argument array */
-        private final String[] mArgs;
-
-        public MethodAndArgsCaller(Method method, String[] args) {
-            mMethod = method;
-            mArgs = args;
-        }
-
-        public void run() {
-            try {
-                mMethod.invoke(null, new Object[] { mArgs });
-            } catch (IllegalAccessException ex) {
-                throw new RuntimeException(ex);
-            } catch (InvocationTargetException ex) {
-                Throwable cause = ex.getCause();
-                if (cause instanceof RuntimeException) {
-                    throw (RuntimeException) cause;
-                } else if (cause instanceof Error) {
-                    throw (Error) cause;
-                }
-                throw new RuntimeException(ex);
-            }
         }
     }
 }

@@ -65,7 +65,8 @@ public class SurfaceControl {
     private static native void nativeSetSize(long nativeObject, int w, int h);
     private static native void nativeSetTransparentRegionHint(long nativeObject, Region region);
     private static native void nativeSetAlpha(long nativeObject, float alpha);
-    private static native void nativeSetMatrix(long nativeObject, float dsdx, float dtdx, float dsdy, float dtdy);
+    private static native void nativeSetMatrix(long nativeObject, float dsdx, float dtdx,
+            float dtdy, float dsdy);
     private static native void nativeSetFlags(long nativeObject, int flags, int mask);
     private static native void nativeSetWindowCrop(long nativeObject, int l, int t, int r, int b);
     private static native void nativeSetFinalCrop(long nativeObject, int l, int t, int r, int b);
@@ -270,6 +271,15 @@ public class SurfaceControl {
      * low power mode.  Use only with {@link SurfaceControl#setDisplayPowerMode}.
      */
     public static final int POWER_MODE_DOZE_SUSPEND = 3;
+
+    /**
+     * A value for windowType used to indicate that the window should be omitted from screenshots
+     * and display mirroring. A temporary workaround until we express such things with
+     * the hierarchy.
+     * TODO: b/64227542
+     * @hide
+     */
+    public static final int WINDOW_TYPE_DONT_SCREENSHOT = 441731;
 
     /**
      * Create a surface with a name.

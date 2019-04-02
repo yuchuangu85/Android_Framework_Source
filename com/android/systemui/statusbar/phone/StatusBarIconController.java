@@ -14,7 +14,10 @@
 
 package com.android.systemui.statusbar.phone;
 
+import android.annotation.ColorInt;
 import android.content.Context;
+import android.content.res.TypedArray;
+import android.graphics.Color;
 import android.support.annotation.VisibleForTesting;
 import android.text.TextUtils;
 import android.util.ArraySet;
@@ -26,6 +29,7 @@ import android.widget.LinearLayout;
 import android.widget.LinearLayout.LayoutParams;
 
 import com.android.internal.statusbar.StatusBarIcon;
+import com.android.settingslib.Utils;
 import com.android.systemui.Dependency;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.StatusBarIconView;
@@ -56,7 +60,6 @@ public interface StatusBarIconController {
         }
         return ret;
     }
-
 
     /**
      * Version of ViewGroup that observers state from the DarkIconDispatcher.
@@ -105,6 +108,31 @@ public interface StatusBarIconController {
         public void onSetIcon(int viewIndex, StatusBarIcon icon) {
             super.onSetIcon(viewIndex, icon);
             mDarkIconDispatcher.applyDark((ImageView) mGroup.getChildAt(viewIndex));
+        }
+    }
+
+    public static class TintedIconManager extends IconManager {
+        private int mColor;
+
+        public TintedIconManager(ViewGroup group) {
+            super(group);
+        }
+
+        @Override
+        protected void onIconAdded(int index, String slot, boolean blocked, StatusBarIcon icon) {
+            StatusBarIconView v = addIcon(index, slot, blocked, icon);
+            v.setStaticDrawableColor(mColor);
+        }
+
+        public void setTint(int color) {
+            mColor = color;
+            for (int i = 0; i < mGroup.getChildCount(); i++) {
+                View child = mGroup.getChildAt(i);
+                if (child instanceof StatusBarIconView) {
+                    StatusBarIconView icon = (StatusBarIconView) child;
+                    icon.setStaticDrawableColor(mColor);
+                }
+            }
         }
     }
 

@@ -225,8 +225,10 @@ public abstract class WindowManagerInternal {
      */
     public abstract boolean isKeyguardLocked();
 
-    /** @return {@code true} if the keyguard is going away. */
-    public abstract boolean isKeyguardGoingAway();
+    /**
+    * @return Whether the keyguard is showing and not occluded.
+    */
+    public abstract boolean isKeyguardShowingAndNotOccluded();
 
     /**
      * Gets the frame of a window given its token.
@@ -342,4 +344,11 @@ public abstract class WindowManagerInternal {
      * Requests the window manager to recompute the windows for accessibility.
      */
     public abstract void computeWindowsForAccessibility();
+
+    /**
+     * Called after virtual display Id is updated by
+     * {@link com.android.server.vr.Vr2dDisplay} with a specific
+     * {@param vr2dDisplayId}.
+     */
+    public abstract void setVr2dDisplayId(int vr2dDisplayId);
 }

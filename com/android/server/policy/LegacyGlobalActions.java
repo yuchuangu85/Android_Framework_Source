@@ -202,11 +202,14 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
                 && !(mAdapter.getItem(0) instanceof LongPressAction)) {
             ((SinglePressAction) mAdapter.getItem(0)).onPress();
         } else {
-            WindowManager.LayoutParams attrs = mDialog.getWindow().getAttributes();
-            attrs.setTitle("LegacyGlobalActions");
-            mDialog.getWindow().setAttributes(attrs);
-            mDialog.show();
-            mDialog.getWindow().getDecorView().setSystemUiVisibility(View.STATUS_BAR_DISABLE_EXPAND);
+            if (mDialog != null) {
+                WindowManager.LayoutParams attrs = mDialog.getWindow().getAttributes();
+                attrs.setTitle("LegacyGlobalActions");
+                mDialog.getWindow().setAttributes(attrs);
+                mDialog.show();
+                mDialog.getWindow().getDecorView().setSystemUiVisibility(
+                        View.STATUS_BAR_DISABLE_EXPAND);
+            }
         }
     }
 
@@ -228,6 +231,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
                 R.string.global_actions_airplane_mode_on_status,
                 R.string.global_actions_airplane_mode_off_status) {
 
+            @Override
             void onToggle(boolean on) {
                 if (mHasTelephony && Boolean.parseBoolean(
                         SystemProperties.get(TelephonyProperties.PROPERTY_INECM_MODE))) {
@@ -254,10 +258,12 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
                 }
             }
 
+            @Override
             public boolean showDuringKeyguard() {
                 return true;
             }
 
+            @Override
             public boolean showBeforeProvisioning() {
                 return false;
             }
@@ -457,6 +463,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
             return false;
         }
 
+        @Override
         public boolean showDuringKeyguard() {
             return true;
         }
@@ -616,6 +623,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
                             com.android.internal.R.drawable.ic_menu_cc, icon,
                             (user.name != null ? user.name : "Primary")
                             + (isCurrentUser ? " \u2714" : "")) {
+                        @Override
                         public void onPress() {
                             try {
                                 ActivityManager.getService().switchUser(user.id);
@@ -624,10 +632,12 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
                             }
                         }
 
+                        @Override
                         public boolean showDuringKeyguard() {
                             return true;
                         }
 
+                        @Override
                         public boolean showBeforeProvisioning() {
                             return false;
                         }
@@ -659,6 +669,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
     }
 
     /** {@inheritDoc} */
+    @Override
     public void onDismiss(DialogInterface dialog) {
         if (mOnDismiss != null) {
             mOnDismiss.run();
@@ -674,6 +685,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
     }
 
     /** {@inheritDoc} */
+    @Override
     public void onClick(DialogInterface dialog, int which) {
         if (!(mAdapter.getItem(which) instanceof SilentModeTriStateAction)) {
             dialog.dismiss();
@@ -689,6 +701,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
      */
     private class MyAdapter extends BaseAdapter {
 
+        @Override
         public int getCount() {
             int count = 0;
 
@@ -716,6 +729,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
             return false;
         }
 
+        @Override
         public Action getItem(int position) {
 
             int filteredPos = 0;
@@ -740,11 +754,12 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
                     + ", provisioned=" + mDeviceProvisioned);
         }
 
-
+        @Override
         public long getItemId(int position) {
             return position;
         }
 
+        @Override
         public View getView(int position, View convertView, ViewGroup parent) {
             Action action = getItem(position);
             return action.create(mContext, convertView, parent, LayoutInflater.from(mContext));
@@ -817,6 +832,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
             mIcon = icon;
         }
 
+        @Override
         public boolean isEnabled() {
             return true;
         }
@@ -825,8 +841,10 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
             return null;
         }
 
+        @Override
         abstract public void onPress();
 
+        @Override
         public CharSequence getLabelForAccessibility(Context context) {
             if (mMessage != null) {
                 return mMessage;
@@ -835,6 +853,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
             }
         }
 
+        @Override
         public View create(
                 Context context, View convertView, ViewGroup parent, LayoutInflater inflater) {
             View v = inflater.inflate(R.layout.global_actions_item, parent, false);
@@ -929,6 +948,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
             return context.getString(mMessageResId);
         }
 
+        @Override
         public View create(Context context, View convertView, ViewGroup parent,
                 LayoutInflater inflater) {
             willCreate();
@@ -963,6 +983,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
             return v;
         }
 
+        @Override
         public final void onPress() {
             if (mState.inTransition()) {
                 Log.w(TAG, "shouldn't be able to toggle when in transition");
@@ -974,6 +995,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
             changeStateFromPress(nowOn);
         }
 
+        @Override
         public boolean isEnabled() {
             return !mState.inTransition();
         }
@@ -1004,6 +1026,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
                     R.string.global_action_silent_mode_off_status);
         }
 
+        @Override
         void onToggle(boolean on) {
             if (on) {
                 mAudioManager.setRingerMode(AudioManager.RINGER_MODE_SILENT);
@@ -1012,10 +1035,12 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
             }
         }
 
+        @Override
         public boolean showDuringKeyguard() {
             return true;
         }
 
+        @Override
         public boolean showBeforeProvisioning() {
             return false;
         }
@@ -1050,6 +1075,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
             return null;
         }
 
+        @Override
         public View create(Context context, View convertView, ViewGroup parent,
                 LayoutInflater inflater) {
             View v = inflater.inflate(R.layout.global_actions_silent_mode, parent, false);
@@ -1065,17 +1091,21 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
             return v;
         }
 
+        @Override
         public void onPress() {
         }
 
+        @Override
         public boolean showDuringKeyguard() {
             return true;
         }
 
+        @Override
         public boolean showBeforeProvisioning() {
             return false;
         }
 
+        @Override
         public boolean isEnabled() {
             return true;
         }
@@ -1083,6 +1113,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
         void willCreate() {
         }
 
+        @Override
         public void onClick(View v) {
             if (!(v.getTag() instanceof Integer)) return;
 
@@ -1093,6 +1124,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
     }
 
     private BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
+        @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
             if (Intent.ACTION_CLOSE_SYSTEM_DIALOGS.equals(action)
@@ -1146,6 +1178,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
     private static final int DIALOG_DISMISS_DELAY = 300; // ms
 
     private Handler mHandler = new Handler() {
+        @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
             case MESSAGE_DISMISS:

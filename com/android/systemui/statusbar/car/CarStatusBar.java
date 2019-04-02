@@ -23,9 +23,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.PixelFormat;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.RemoteException;
 import android.os.UserHandle;
+import android.service.notification.StatusBarNotification;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
@@ -33,6 +35,7 @@ import android.view.ViewGroup.LayoutParams;
 import android.view.ViewStub;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
+
 import com.android.systemui.BatteryMeterView;
 import com.android.systemui.Dependency;
 import com.android.systemui.R;
@@ -41,13 +44,21 @@ import com.android.systemui.fragments.FragmentHostManager;
 import com.android.systemui.recents.Recents;
 import com.android.systemui.recents.misc.SystemServicesProxy;
 import com.android.systemui.recents.misc.SystemServicesProxy.TaskStackListener;
+import com.android.systemui.statusbar.NotificationData;
 import com.android.systemui.statusbar.StatusBarState;
 import com.android.systemui.statusbar.phone.CollapsedStatusBarFragment;
 import com.android.systemui.statusbar.phone.NavigationBarView;
 import com.android.systemui.statusbar.phone.StatusBar;
 import com.android.systemui.statusbar.policy.BatteryController;
 import com.android.systemui.statusbar.policy.UserSwitcherController;
+import com.android.keyguard.KeyguardUpdateMonitor;
+import com.android.systemui.classifier.FalsingLog;
+import com.android.systemui.classifier.FalsingManager;
+import com.android.systemui.Prefs;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+import java.util.Map;
 /**
  * A status bar (and navigation bar) tailored for the automotive use case.
  */
@@ -62,10 +73,13 @@ public class CarStatusBar extends StatusBar implements
 
     private CarBatteryController mCarBatteryController;
     private BatteryMeterView mBatteryMeterView;
+    private Drawable mNotificationPanelBackground;
 
     private ConnectedDeviceSignalController mConnectedDeviceSignalController;
+    private ViewGroup mNavigationBarWindow;
     private CarNavigationBarView mNavigationBarView;
 
+    private final Object mQueueLock = new Object();
     @Override
     public void start() {
         super.start();
@@ -84,6 +98,11 @@ public class CarStatusBar extends StatusBar implements
         mCarBatteryController.stopListening();
         mConnectedDeviceSignalController.stopListening();
 
+        if (mNavigationBarWindow != null) {
+            mWindowManager.removeViewImmediate(mNavigationBarWindow);
+            mNavigationBarView = null;
+        }
+
         super.destroy();
     }
 
@@ -91,17 +110,18 @@ public class CarStatusBar extends StatusBar implements
     protected void makeStatusBarView() {
         super.makeStatusBarView();
 
+        mNotificationPanelBackground = getDefaultWallpaper();
+        mScrimController.setScrimBehindDrawable(mNotificationPanelBackground);
+
         FragmentHostManager manager = FragmentHostManager.get(mStatusBarWindow);
         manager.addTagListener(CollapsedStatusBarFragment.TAG, (tag, fragment) -> {
-            mBatteryMeterView = ((BatteryMeterView) fragment.getView().findViewById(
-                    R.id.battery));
+            mBatteryMeterView = fragment.getView().findViewById(R.id.battery);
 
             // By default, the BatteryMeterView should not be visible. It will be toggled
             // when a device has connected by bluetooth.
             mBatteryMeterView.setVisibility(View.GONE);
 
-            ViewStub stub = (ViewStub) fragment.getView().findViewById(
-                    R.id.connected_device_signals_stub);
+            ViewStub stub = fragment.getView().findViewById(R.id.connected_device_signals_stub);
             View signalsView = stub.inflate();
 
             // When a ViewStub if inflated, it does not respect the margins on the
@@ -139,10 +159,19 @@ public class CarStatusBar extends StatusBar implements
         // SystemUI requires that the navigation bar view have a parent. Since the regular
         // StatusBar inflates navigation_bar_window as this parent view, use the same view for the
         // CarNavigationBarView.
-        ViewGroup navigationBarWindow = (ViewGroup) View.inflate(mContext,
+        mNavigationBarWindow = (ViewGroup) View.inflate(mContext,
                 R.layout.navigation_bar_window, null);
-        View.inflate(mContext, R.layout.car_navigation_bar, navigationBarWindow);
-        mNavigationBarView = (CarNavigationBarView) navigationBarWindow.getChildAt(0);
+        if (mNavigationBarWindow == null) {
+            Log.e(TAG, "CarStatusBar failed inflate for R.layout.navigation_bar_window");
+        }
+
+
+        View.inflate(mContext, R.layout.car_navigation_bar, mNavigationBarWindow);
+        mNavigationBarView = (CarNavigationBarView) mNavigationBarWindow.getChildAt(0);
+        if (mNavigationBarView == null) {
+            Log.e(TAG, "CarStatusBar failed inflate for R.layout.car_navigation_bar");
+        }
+
 
         mController = new CarNavigationBarController(mContext, mNavigationBarView,
                 this /* ActivityStarter*/);
@@ -154,18 +183,59 @@ public class CarStatusBar extends StatusBar implements
                         | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                         | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-                        | WindowManager.LayoutParams.FLAG_SPLIT_TOUCH
-                        | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+                        | WindowManager.LayoutParams.FLAG_SPLIT_TOUCH,
                 PixelFormat.TRANSLUCENT);
         lp.setTitle("CarNavigationBar");
         lp.windowAnimations = 0;
 
-        mWindowManager.addView(navigationBarWindow, lp);
+        mWindowManager.addView(mNavigationBarWindow, lp);
+    }
+
+    @Override
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        //When executing dump() funciton simultaneously, we need to serialize them
+        //to get mStackScroller's position correctly.
+        synchronized (mQueueLock) {
+            pw.println("  mStackScroller: " + viewInfo(mStackScroller));
+            pw.println("  mStackScroller: " + viewInfo(mStackScroller)
+                    + " scroll " + mStackScroller.getScrollX()
+                    + "," + mStackScroller.getScrollY());
+        }
+
+        pw.print("  mTaskStackListener="); pw.println(mTaskStackListener);
+        pw.print("  mController=");
+        pw.println(mController);
+        pw.print("  mFullscreenUserSwitcher="); pw.println(mFullscreenUserSwitcher);
+        pw.print("  mCarBatteryController=");
+        pw.println(mCarBatteryController);
+        pw.print("  mBatteryMeterView=");
+        pw.println(mBatteryMeterView);
+        pw.print("  mConnectedDeviceSignalController=");
+        pw.println(mConnectedDeviceSignalController);
+        pw.print("  mNavigationBarView=");
+        pw.println(mNavigationBarView);
+
+        if (KeyguardUpdateMonitor.getInstance(mContext) != null) {
+            KeyguardUpdateMonitor.getInstance(mContext).dump(fd, pw, args);
+        }
+
+        FalsingManager.getInstance(mContext).dump(pw);
+        FalsingLog.dump(pw);
+
+        pw.println("SharedPreferences:");
+        for (Map.Entry<String, ?> entry : Prefs.getAll(mContext).entrySet()) {
+            pw.print("  "); pw.print(entry.getKey()); pw.print("="); pw.println(entry.getValue());
+        }
     }
 
     @Override
     public NavigationBarView getNavigationBarView() {
         return mNavigationBarView;
+    }
+
+    @Override
+    public View getNavigationBarWindow() {
+        return mNavigationBarWindow;
     }
 
     @Override
@@ -256,7 +326,7 @@ public class CarStatusBar extends StatusBar implements
         if (userSwitcherController.useFullscreenUserSwitcher()) {
             mFullscreenUserSwitcher = new FullscreenUserSwitcher(this,
                     userSwitcherController,
-                    (ViewStub) mStatusBarWindow.findViewById(R.id.fullscreen_user_switcher_stub));
+                    mStatusBarWindow.findViewById(R.id.fullscreen_user_switcher_stub));
         } else {
             super.createUserSwitcher();
         }
@@ -314,13 +384,46 @@ public class CarStatusBar extends StatusBar implements
         return startActivityWithOptions(intent, options.toBundle());
     }
 
+    @Override
+    protected boolean shouldPeek(NotificationData.Entry entry, StatusBarNotification sbn) {
+        // Because space is usually constrained in the auto use-case, there should not be a
+        // pinned notification when the shade has been expanded. Ensure this by not pinning any
+        // notification if the shade is already opened.
+        if (mPanelExpanded) {
+            return false;
+        }
+
+        return super.shouldPeek(entry, sbn);
+    }
+
+    @Override
+    public void animateExpandNotificationsPanel() {
+        // Because space is usually constrained in the auto use-case, there should not be a
+        // pinned notification when the shade has been expanded. Ensure this by removing all heads-
+        // up notifications.
+        mHeadsUpManager.removeAllHeadsUpEntries();
+        super.animateExpandNotificationsPanel();
+    }
+
     /**
      * Ensures that relevant child views are appropriately recreated when the device's density
      * changes.
      */
     @Override
-    protected void onDensityOrFontScaleChanged() {
+    public void onDensityOrFontScaleChanged() {
         super.onDensityOrFontScaleChanged();
         mController.onDensityOrFontScaleChanged();
+
+        // Need to update the background on density changed in case the change was due to night
+        // mode.
+        mNotificationPanelBackground = getDefaultWallpaper();
+        mScrimController.setScrimBehindDrawable(mNotificationPanelBackground);
+    }
+
+    /**
+     * Returns the {@link Drawable} that represents the wallpaper that the user has currently set.
+     */
+    private Drawable getDefaultWallpaper() {
+        return mContext.getDrawable(com.android.internal.R.drawable.default_wallpaper);
     }
 }

@@ -13,7 +13,6 @@ import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.util.Slog;
 
-import com.android.server.backup.BackupManagerService.FileMetadata;
 import libcore.io.IoUtils;
 
 import java.io.File;
@@ -34,11 +33,11 @@ import java.util.Map;
  * TODO: We should create unified backup/restore engines that can be used for both transport and
  * adb backup/restore, and for fullbackup and key-value backup.
  */
-class KeyValueAdbRestoreEngine implements Runnable {
+public class KeyValueAdbRestoreEngine implements Runnable {
     private static final String TAG = "KeyValueAdbRestoreEngine";
     private static final boolean DEBUG = false;
 
-    private final BackupManagerService mBackupManagerService;
+    private final BackupManagerServiceInterface mBackupManagerService;
     private final File mDataDir;
 
     FileMetadata mInfo;
@@ -47,8 +46,9 @@ class KeyValueAdbRestoreEngine implements Runnable {
     IBackupAgent mAgent;
     int mToken;
 
-    KeyValueAdbRestoreEngine(BackupManagerService backupManagerService, File dataDir,
-            FileMetadata info, ParcelFileDescriptor inFD, IBackupAgent agent, int token) {
+    public KeyValueAdbRestoreEngine(BackupManagerServiceInterface backupManagerService,
+            File dataDir, FileMetadata info, ParcelFileDescriptor inFD, IBackupAgent agent,
+            int token) {
         mBackupManagerService = backupManagerService;
         mDataDir = dataDir;
         mInfo = info;
@@ -96,7 +96,7 @@ class KeyValueAdbRestoreEngine implements Runnable {
                         + versionCode);
             }
             agent.doRestore(backupData, versionCode, newState, mToken,
-                    mBackupManagerService.mBackupManagerBinder);
+                    mBackupManagerService.getBackupManagerBinder());
         } catch (IOException e) {
             Slog.e(TAG, "Exception opening file. " + e);
         } catch (RemoteException e) {

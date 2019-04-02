@@ -32,6 +32,8 @@ import com.android.server.wifi.WifiMonitor;
 import com.android.server.wifi.WifiNative;
 import com.android.server.wifi.scanner.ChannelHelper.ChannelCollection;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -81,6 +83,7 @@ public class WificondScannerImpl extends WifiScannerImpl implements Handler.Call
     private boolean mBackgroundScanPaused = false;
     private ScanBuffer mBackgroundScanBuffer = new ScanBuffer(SCAN_BUFFER_CAPACITY);
 
+    private ArrayList<ScanDetail> mNativeScanResults;
     private WifiScanner.ScanData mLatestSingleScanResult =
             new WifiScanner.ScanData(0, 0, new ScanResult[0]);
 
@@ -419,11 +422,22 @@ public class WificondScannerImpl extends WifiScannerImpl implements Handler.Call
                 mPendingSingleScanEventHandler = null;
             }
 
-            if ((newScanSettings.backgroundScanActive || newScanSettings.singleScanActive)
-                    && !allFreqs.isEmpty()) {
-                pauseHwPnoScan();
-                Set<Integer> freqs = allFreqs.getScanFreqs();
-                boolean success = mWifiNative.scan(freqs, hiddenNetworkSSIDSet);
+            if (newScanSettings.backgroundScanActive || newScanSettings.singleScanActive) {
+                boolean success = false;
+                Set<Integer> freqs;
+                if (!allFreqs.isEmpty()) {
+                    pauseHwPnoScan();
+                    freqs = allFreqs.getScanFreqs();
+                    success = mWifiNative.scan(freqs, hiddenNetworkSSIDSet);
+                    if (!success) {
+                        Log.e(TAG, "Failed to start scan, freqs=" + freqs);
+                    }
+                } else {
+                    // There is a scan request but no available channels could be scanned for.
+                    // We regard it as a scan failure in this case.
+                    Log.e(TAG, "Failed to start scan because there is "
+                            + "no available channel to scan for");
+                }
                 if (success) {
                     // TODO handle scan timeout
                     if (DBG) {
@@ -436,7 +450,6 @@ public class WificondScannerImpl extends WifiScannerImpl implements Handler.Call
                             mClock.getElapsedSinceBootMillis() + SCAN_TIMEOUT_MS,
                             TIMEOUT_ALARM_TAG, mScanTimeoutListener, mEventHandler);
                 } else {
-                    Log.e(TAG, "Failed to start scan, freqs=" + freqs);
                     // indicate scan failure async
                     mEventHandler.post(new Runnable() {
                             public void run() {
@@ -535,11 +548,11 @@ public class WificondScannerImpl extends WifiScannerImpl implements Handler.Call
                  // got a scan before we started scanning or after scan was canceled
                 return;
             }
-            ArrayList<ScanDetail> nativeResults = mWifiNative.getScanResults();
+            mNativeScanResults = mWifiNative.getPnoScanResults();
             List<ScanResult> hwPnoScanResults = new ArrayList<>();
             int numFilteredScanResults = 0;
-            for (int i = 0; i < nativeResults.size(); ++i) {
-                ScanResult result = nativeResults.get(i).getScanResult();
+            for (int i = 0; i < mNativeScanResults.size(); ++i) {
+                ScanResult result = mNativeScanResults.get(i).getScanResult();
                 long timestamp_ms = result.timestamp / 1000; // convert us -> ms
                 if (timestamp_ms > mLastScanSettings.startTime) {
                     if (mLastScanSettings.hwPnoScanActive) {
@@ -556,11 +569,8 @@ public class WificondScannerImpl extends WifiScannerImpl implements Handler.Call
 
             if (mLastScanSettings.hwPnoScanActive
                     && mLastScanSettings.pnoScanEventHandler != null) {
-                ScanResult[] pnoScanResultsArray = new ScanResult[hwPnoScanResults.size()];
-                for (int i = 0; i < pnoScanResultsArray.length; ++i) {
-                    ScanResult result = nativeResults.get(i).getScanResult();
-                    pnoScanResultsArray[i] = hwPnoScanResults.get(i);
-                }
+                ScanResult[] pnoScanResultsArray =
+                        hwPnoScanResults.toArray(new ScanResult[hwPnoScanResults.size()]);
                 mLastScanSettings.pnoScanEventHandler.onPnoNetworkFound(pnoScanResultsArray);
             }
             // On pno scan result event, we are expecting a mLastScanSettings for pno scan.
@@ -598,12 +608,12 @@ public class WificondScannerImpl extends WifiScannerImpl implements Handler.Call
             }
 
             if (DBG) Log.d(TAG, "Polling scan data for scan: " + mLastScanSettings.scanId);
-            ArrayList<ScanDetail> nativeResults = mWifiNative.getScanResults();
+            mNativeScanResults = mWifiNative.getScanResults();
             List<ScanResult> singleScanResults = new ArrayList<>();
             List<ScanResult> backgroundScanResults = new ArrayList<>();
             int numFilteredScanResults = 0;
-            for (int i = 0; i < nativeResults.size(); ++i) {
-                ScanResult result = nativeResults.get(i).getScanResult();
+            for (int i = 0; i < mNativeScanResults.size(); ++i) {
+                ScanResult result = mNativeScanResults.get(i).getScanResult();
                 long timestamp_ms = result.timestamp / 1000; // convert us -> ms
                 if (timestamp_ms > mLastScanSettings.startTime) {
                     if (mLastScanSettings.backgroundScanActive) {
@@ -770,6 +780,40 @@ public class WificondScannerImpl extends WifiScannerImpl implements Handler.Call
     @Override
     public boolean shouldScheduleBackgroundScanForHwPno() {
         return false;
+    }
+
+    @Override
+    protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        synchronized (mSettingsLock) {
+            pw.println("Latest native scan results:");
+            if (mNativeScanResults != null && mNativeScanResults.size() != 0) {
+                long nowMs = mClock.getElapsedSinceBootMillis();
+                pw.println("    BSSID              Frequency  RSSI  Age(sec)   SSID "
+                        + "                                Flags");
+                for (ScanDetail scanDetail : mNativeScanResults) {
+                    ScanResult r = scanDetail.getScanResult();
+                    long timeStampMs = r.timestamp / 1000;
+                    String age;
+                    if (timeStampMs <= 0) {
+                        age = "___?___";
+                    } else if (nowMs < timeStampMs) {
+                        age = "  0.000";
+                    } else if (timeStampMs < nowMs - 1000000) {
+                        age = ">1000.0";
+                    } else {
+                        age = String.format("%3.3f", (nowMs - timeStampMs) / 1000.0);
+                    }
+                    String ssid = r.SSID == null ? "" : r.SSID;
+                    pw.printf("  %17s  %9d  %5d   %7s    %-32s  %s\n",
+                              r.BSSID,
+                              r.frequency,
+                              r.level,
+                              age,
+                              String.format("%1.32s", ssid),
+                              r.capabilities);
+                }
+            }
+        }
     }
 
     private static class LastScanSettings {

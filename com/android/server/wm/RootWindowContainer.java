@@ -18,6 +18,7 @@ package com.android.server.wm;
 
 import android.content.res.Configuration;
 import android.graphics.Rect;
+import android.hardware.display.DisplayManager;
 import android.hardware.power.V1_0.PowerHint;
 import android.os.Binder;
 import android.os.Debug;
@@ -31,6 +32,7 @@ import android.os.RemoteException;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.provider.Settings;
+import android.util.ArraySet;
 import android.util.EventLog;
 import android.util.Slog;
 import android.util.SparseIntArray;
@@ -51,6 +53,7 @@ import static android.app.AppOpsManager.MODE_ALLOWED;
 import static android.app.AppOpsManager.MODE_DEFAULT;
 import static android.app.AppOpsManager.OP_NONE;
 import static android.view.Display.DEFAULT_DISPLAY;
+import static android.view.Display.INVALID_DISPLAY;
 import static android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
 import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_KEYGUARD;
 import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_SUSTAINED_PERFORMANCE_MODE;
@@ -243,12 +246,24 @@ class RootWindowContainer extends WindowContainer<DisplayContent> {
                     displayId, displayInfo);
             mService.configureDisplayPolicyLocked(dc);
 
-            // TODO(multi-display): Create an input channel for each display with touch capability.
-            if (displayId == DEFAULT_DISPLAY && mService.canDispatchPointerEvents()) {
-                dc.mTapDetector = new TaskTapPointerEventListener(
-                        mService, dc);
+            // Tap Listeners are supported for:
+            // 1. All physical displays (multi-display).
+            // 2. VirtualDisplays that support virtual touch input. (Only VR for now)
+            // TODO(multi-display): Support VirtualDisplays with no virtual touch input.
+            if ((display.getType() != Display.TYPE_VIRTUAL
+                    || (display.getType() == Display.TYPE_VIRTUAL
+                        // Only VR VirtualDisplays
+                        && displayId == mService.mVr2dDisplayId))
+                    && mService.canDispatchPointerEvents()) {
+                if (DEBUG_DISPLAY) {
+                    Slog.d(TAG,
+                            "Registering PointerEventListener for DisplayId: " + displayId);
+                }
+                dc.mTapDetector = new TaskTapPointerEventListener(mService, dc);
                 mService.registerPointerEventListener(dc.mTapDetector);
-                mService.registerPointerEventListener(mService.mMousePositionTracker);
+                if (displayId == DEFAULT_DISPLAY) {
+                    mService.registerPointerEventListener(mService.mMousePositionTracker);
+                }
             }
         }
 
@@ -649,19 +664,7 @@ class RootWindowContainer extends WindowContainer<DisplayContent> {
                     defaultDisplay.pendingLayoutChanges);
         }
 
-        for (i = mService.mResizingWindows.size() - 1; i >= 0; i--) {
-            WindowState win = mService.mResizingWindows.get(i);
-            if (win.mAppFreezing) {
-                // Don't remove this window until rotation has completed.
-                continue;
-            }
-            // Discard the saved surface if window size is changed, it can't be reused.
-            if (win.mAppToken != null) {
-                win.mAppToken.destroySavedSurfaces();
-            }
-            win.reportResized();
-            mService.mResizingWindows.remove(i);
-        }
+        final ArraySet<DisplayContent> touchExcludeRegionUpdateDisplays = handleResizingWindows();
 
         if (DEBUG_ORIENTATION && mService.mDisplayFrozen) Slog.v(TAG,
                 "With display frozen, orientationChangeComplete=" + mOrientationChangeComplete);
@@ -754,6 +757,15 @@ class RootWindowContainer extends WindowContainer<DisplayContent> {
             } else {
                 mUpdateRotation = false;
             }
+            // Update rotation of VR virtual display separately. Currently this is the only kind of
+            // secondary display that can be rotated because of the single-display limitations in
+            // PhoneWindowManager.
+            final DisplayContent vrDisplay = mService.mVr2dDisplayId != INVALID_DISPLAY
+                    ? getDisplayContent(mService.mVr2dDisplayId) : null;
+            if (vrDisplay != null && vrDisplay.updateRotationUnchecked(false /* inTransaction */)) {
+                mService.mH.obtainMessage(SEND_NEW_CONFIGURATION, mService.mVr2dDisplayId)
+                        .sendToTarget();
+            }
         }
 
         if (mService.mWaitingForDrawnCallback != null ||
@@ -794,6 +806,16 @@ class RootWindowContainer extends WindowContainer<DisplayContent> {
             mService.mInputMonitor.updateInputWindowsLw(false /*force*/);
         }
         mService.setFocusTaskRegionLocked(null);
+        if (touchExcludeRegionUpdateDisplays != null) {
+            final DisplayContent focusedDc = mService.mFocusedApp != null
+                    ? mService.mFocusedApp.getDisplayContent() : null;
+            for (DisplayContent dc : touchExcludeRegionUpdateDisplays) {
+                // The focused DisplayContent was recalcuated in setFocusTaskRegionLocked
+                if (focusedDc != dc) {
+                    dc.setTouchExcludeRegion(null /* focusedTask */);
+                }
+            }
+        }
 
         // Check to see if we are now in a state where the screen should
         // be enabled, because the window obscured flags have changed.
@@ -842,6 +864,37 @@ class RootWindowContainer extends WindowContainer<DisplayContent> {
         // Give the display manager a chance to adjust properties like display rotation if it needs
         // to.
         mService.mDisplayManagerInternal.performTraversalInTransactionFromWindowManager();
+    }
+
+    /**
+     * Handles resizing windows during surface placement.
+     *
+     * @return A set of any DisplayContent whose touch exclude region needs to be recalculated due
+     *         to a tap-exclude window resizing, or null if no such DisplayContents were found.
+     */
+    private ArraySet<DisplayContent> handleResizingWindows() {
+        ArraySet<DisplayContent> touchExcludeRegionUpdateSet = null;
+        for (int i = mService.mResizingWindows.size() - 1; i >= 0; i--) {
+            WindowState win = mService.mResizingWindows.get(i);
+            if (win.mAppFreezing) {
+                // Don't remove this window until rotation has completed.
+                continue;
+            }
+            // Discard the saved surface if window size is changed, it can't be reused.
+            if (win.mAppToken != null) {
+                win.mAppToken.destroySavedSurfaces();
+            }
+            win.reportResized();
+            mService.mResizingWindows.remove(i);
+            if (WindowManagerService.excludeWindowTypeFromTapOutTask(win.mAttrs.type)) {
+                final DisplayContent dc = win.getDisplayContent();
+                if (touchExcludeRegionUpdateSet == null) {
+                    touchExcludeRegionUpdateSet = new ArraySet<>();
+                }
+                touchExcludeRegionUpdateSet.add(dc);
+            }
+        }
+        return touchExcludeRegionUpdateSet;
     }
 
     /**

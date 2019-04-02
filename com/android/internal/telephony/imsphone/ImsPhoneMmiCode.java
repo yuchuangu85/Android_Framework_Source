@@ -16,6 +16,17 @@
 
 package com.android.internal.telephony.imsphone;
 
+import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA;
+import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA_ASYNC;
+import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA_SYNC;
+import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_FAX;
+import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_MAX;
+import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_NONE;
+import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_PACKET;
+import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_PAD;
+import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_SMS;
+import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_VOICE;
+
 import android.content.Context;
 import android.content.res.Resources;
 import android.os.AsyncResult;
@@ -24,36 +35,23 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.ResultReceiver;
 import android.telephony.PhoneNumberUtils;
+import android.telephony.Rlog;
 import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
-import android.telephony.Rlog;
 
 import com.android.ims.ImsException;
-import com.android.ims.ImsReasonInfo;
 import com.android.ims.ImsSsInfo;
 import com.android.ims.ImsUtInterface;
 import com.android.internal.telephony.CallForwardInfo;
-import com.android.internal.telephony.CommandException;
 import com.android.internal.telephony.CallStateException;
+import com.android.internal.telephony.CommandException;
 import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.uicc.IccRecords;
-
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_NONE;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_VOICE;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_FAX;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_SMS;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA_SYNC;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA_ASYNC;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_PACKET;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_PAD;
-import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_MAX;
-
 import com.android.internal.telephony.MmiCode;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.uicc.IccRecords;
 
-import java.util.regex.Pattern;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The motto for this file is:
@@ -245,6 +243,14 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
         Matcher m;
         ImsPhoneMmiCode ret = null;
 
+        if (phone.getDefaultPhone().getServiceState().getVoiceRoaming()
+                && phone.getDefaultPhone().supportsConversionOfCdmaCallerIdMmiCodesWhileRoaming()) {
+            /* The CDMA MMI coded dialString will be converted to a 3GPP MMI Coded dialString
+               so that it can be processed by the matcher and code below
+             */
+            dialString = convertCdmaMmiCodesTo3gppMmiCodes(dialString);
+        }
+
         m = sPatternSuppService.matcher(dialString);
 
         // Is this formatted like a standard supplementary service code?
@@ -287,6 +293,25 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
         }
 
         return ret;
+    }
+
+    private static String convertCdmaMmiCodesTo3gppMmiCodes(String dialString) {
+        Matcher m;
+        m = sPatternCdmaMmiCodeWhileRoaming.matcher(dialString);
+        if (m.matches()) {
+            String serviceCode = makeEmptyNull(m.group(MATCH_GROUP_CDMA_MMI_CODE_SERVICE_CODE));
+            String prefix = m.group(MATCH_GROUP_CDMA_MMI_CODE_NUMBER_PREFIX);
+            String number = makeEmptyNull(m.group(MATCH_GROUP_CDMA_MMI_CODE_NUMBER));
+
+            if (serviceCode.equals("67") && number != null) {
+                // "#31#number" to invoke CLIR
+                dialString = ACTION_DEACTIVATE + SC_CLIR + ACTION_DEACTIVATE + prefix + number;
+            } else if (serviceCode.equals("82") && number != null) {
+                // "*31#number" to suppress CLIR
+                dialString = ACTION_ACTIVATE + SC_CLIR + ACTION_DEACTIVATE + prefix + number;
+            }
+        }
+        return dialString;
     }
 
     static ImsPhoneMmiCode
@@ -697,7 +722,6 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
     boolean
     isSupportedOverImsPhone() {
         if (isShortCode()) return true;
-        else if (mDialingNumber != null) return false;
         else if (isServiceCodeCallForwarding(mSc)
                 || isServiceCodeCallBarring(mSc)
                 || (mSc != null && mSc.equals(SC_WAIT))

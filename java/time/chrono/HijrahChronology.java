@@ -544,7 +544,7 @@ public final class HijrahChronology extends AbstractChronology implements Serial
     //-----------------------------------------------------------------------
     @Override
     public boolean isLeapYear(long prolepticYear) {
-      checkCalendarInit();
+        checkCalendarInit();
         if (prolepticYear < getMinimumYear() || prolepticYear > getMaximumYear()) {
             return false;
         }

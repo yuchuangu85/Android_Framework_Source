@@ -48,6 +48,7 @@ public class Constants {
     public static final int HS_NAI_HOME_REALM_QUERY = 6;
     public static final int HS_OSU_PROVIDERS = 8;
     public static final int HS_ICON_REQUEST = 10;
+    public static final int HS_ICON_FILE = 11;
 
     public enum ANQPElementType {
         ANQPQueryList,
@@ -64,7 +65,8 @@ public class Constants {
         HSConnCapability,
         HSNAIHomeRealmQuery,
         HSOSUProviders,
-        HSIconRequest
+        HSIconRequest,
+        HSIconFile
     }
 
     private static final Map<Integer, ANQPElementType> sAnqpMap = new HashMap<>();
@@ -91,6 +93,7 @@ public class Constants {
         sHs20Map.put(HS_NAI_HOME_REALM_QUERY, ANQPElementType.HSNAIHomeRealmQuery);
         sHs20Map.put(HS_OSU_PROVIDERS, ANQPElementType.HSOSUProviders);
         sHs20Map.put(HS_ICON_REQUEST, ANQPElementType.HSIconRequest);
+        sHs20Map.put(HS_ICON_FILE, ANQPElementType.HSIconFile);
 
         for (Map.Entry<Integer, ANQPElementType> entry : sAnqpMap.entrySet()) {
             sRevAnqpmap.put(entry.getValue(), entry.getKey());

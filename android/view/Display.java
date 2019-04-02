@@ -21,10 +21,12 @@ import static android.Manifest.permission.CONFIGURE_DISPLAY_COLOR_MODE;
 import android.annotation.IntDef;
 import android.annotation.RequiresPermission;
 import android.content.res.CompatibilityInfo;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.hardware.display.DisplayManager;
 import android.hardware.display.DisplayManagerGlobal;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -199,11 +201,16 @@ public final class Display {
      * Display flag: Indicates that the display can show its content when non-secure keyguard is
      * shown.
      * <p>
-     * This flag identifies secondary displays that won't show keyguard if it can be dismissed
-     * without entering credentials. Display content will be shown even if other displays are
-     * locked.
+     * This flag identifies secondary displays that will continue showing content if keyguard can be
+     * dismissed without entering credentials.
+     * </p><p>
+     * An example of usage is a virtual display which content is displayed on external hardware
+     * display that is not visible to the system directly.
      * </p>
      *
+     * @see DisplayManager#VIRTUAL_DISPLAY_FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD
+     * @see WindowManagerPolicy#isKeyguardSecure(int)
+     * @see WindowManagerPolicy#isKeyguardTrustedLw()
      * @see #getFlags
      * @hide
      */
@@ -854,6 +861,9 @@ public final class Display {
 
     /**
      * Returns whether this display can be used to display wide color gamut content.
+     * This does not necessarily mean the device itself can render wide color gamut
+     * content. To ensure wide color gamut content can be produced, refer to
+     * {@link Configuration#isScreenWideColorGamut()}.
      */
     public boolean isWideColorGamut() {
         synchronized (this) {
@@ -1115,6 +1125,15 @@ public final class Display {
      */
     public static boolean isSuspendedState(int state) {
         return state == STATE_OFF || state == STATE_DOZE_SUSPEND;
+    }
+
+    /**
+     * Returns true if the display may be in a reduced operating mode while in the
+     * specified display power state.
+     * @hide
+     */
+    public static boolean isDozeState(int state) {
+        return state == STATE_DOZE || state == STATE_DOZE_SUSPEND;
     }
 
     /**

@@ -1,24 +1,21 @@
 package com.android.server.wifi;
 
-import android.content.pm.UserInfo;
+import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.os.UserHandle;
 import android.os.UserManager;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public class ConfigurationMap {
     private final Map<Integer, WifiConfiguration> mPerID = new HashMap<>();
 
     private final Map<Integer, WifiConfiguration> mPerIDForCurrentUser = new HashMap<>();
-    private final Map<String, WifiConfiguration> mPerFQDNForCurrentUser = new HashMap<>();
+    private final Map<ScanResultMatchInfo, WifiConfiguration>
+            mScanResultMatchInfoMapForCurrentUser = new HashMap<>();
 
     private final UserManager mUserManager;
 
@@ -34,9 +31,8 @@ public class ConfigurationMap {
         if (WifiConfigurationUtil.isVisibleToAnyProfile(config,
                 mUserManager.getProfiles(mCurrentUserId))) {
             mPerIDForCurrentUser.put(config.networkId, config);
-            if (config.FQDN != null && config.FQDN.length() > 0) {
-                mPerFQDNForCurrentUser.put(config.FQDN, config);
-            }
+            mScanResultMatchInfoMapForCurrentUser.put(
+                    ScanResultMatchInfo.fromWifiConfiguration(config), config);
         }
         return current;
     }
@@ -48,11 +44,12 @@ public class ConfigurationMap {
         }
 
         mPerIDForCurrentUser.remove(netID);
-        Iterator<Map.Entry<String, WifiConfiguration>> entries =
-                mPerFQDNForCurrentUser.entrySet().iterator();
-        while (entries.hasNext()) {
-            if (entries.next().getValue().networkId == netID) {
-                entries.remove();
+
+        Iterator<Map.Entry<ScanResultMatchInfo, WifiConfiguration>> scanResultMatchInfoEntries =
+                mScanResultMatchInfoMapForCurrentUser.entrySet().iterator();
+        while (scanResultMatchInfoEntries.hasNext()) {
+            if (scanResultMatchInfoEntries.next().getValue().networkId == netID) {
+                scanResultMatchInfoEntries.remove();
                 break;
             }
         }
@@ -62,7 +59,7 @@ public class ConfigurationMap {
     public void clear() {
         mPerID.clear();
         mPerIDForCurrentUser.clear();
-        mPerFQDNForCurrentUser.clear();
+        mScanResultMatchInfoMapForCurrentUser.clear();
     }
 
     /**
@@ -91,10 +88,6 @@ public class ConfigurationMap {
         return mPerIDForCurrentUser.size();
     }
 
-    public WifiConfiguration getByFQDNForCurrentUser(String fqdn) {
-        return mPerFQDNForCurrentUser.get(fqdn);
-    }
-
     public WifiConfiguration getByConfigKeyForCurrentUser(String key) {
         if (key == null) {
             return null;
@@ -107,23 +100,14 @@ public class ConfigurationMap {
         return null;
     }
 
-    public Collection<WifiConfiguration> getEnabledNetworksForCurrentUser() {
-        List<WifiConfiguration> list = new ArrayList<>();
-        for (WifiConfiguration config : mPerIDForCurrentUser.values()) {
-            if (config.status != WifiConfiguration.Status.DISABLED) {
-                list.add(config);
-            }
-        }
-        return list;
-    }
-
-    public WifiConfiguration getEphemeralForCurrentUser(String ssid) {
-        for (WifiConfiguration config : mPerIDForCurrentUser.values()) {
-            if (ssid.equals(config.SSID) && config.ephemeral) {
-                return config;
-            }
-        }
-        return null;
+    /**
+     * Retrieves the |WifiConfiguration| object matching the provided |scanResult| from the internal
+     * map.
+     * Essentially checks if network config and scan result have the same SSID and encryption type.
+     */
+    public WifiConfiguration getByScanResultForCurrentUser(ScanResult scanResult) {
+        return mScanResultMatchInfoMapForCurrentUser.get(
+                ScanResultMatchInfo.fromScanResult(scanResult));
     }
 
     public Collection<WifiConfiguration> valuesForAllUsers() {

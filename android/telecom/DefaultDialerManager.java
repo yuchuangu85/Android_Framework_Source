@@ -22,6 +22,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Process;
+import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.TextUtils;
 
@@ -163,14 +164,17 @@ public class DefaultDialerManager {
 
         for (ResolveInfo resolveInfo : resolveInfoList) {
             final ActivityInfo activityInfo = resolveInfo.activityInfo;
-            if (activityInfo != null && !packageNames.contains(activityInfo.packageName)) {
+            if (activityInfo != null
+                    && !packageNames.contains(activityInfo.packageName)
+                    // ignore cross profile intent handler
+                    && resolveInfo.targetUserId == UserHandle.USER_CURRENT) {
                 packageNames.add(activityInfo.packageName);
             }
         }
 
         final Intent dialIntentWithTelScheme = new Intent(Intent.ACTION_DIAL);
         dialIntentWithTelScheme.setData(Uri.fromParts(PhoneAccount.SCHEME_TEL, "", null));
-        return filterByIntent(context, packageNames, dialIntentWithTelScheme);
+        return filterByIntent(context, packageNames, dialIntentWithTelScheme, userId);
     }
 
     public static List<String> getInstalledDialerApplications(Context context) {
@@ -204,17 +208,18 @@ public class DefaultDialerManager {
      *
      * @param context A valid context
      * @param packageNames List of package names to filter.
+     * @param userId The UserId
      * @return The filtered list.
      */
     private static List<String> filterByIntent(Context context, List<String> packageNames,
-            Intent intent) {
+            Intent intent, int userId) {
         if (packageNames == null || packageNames.isEmpty()) {
             return new ArrayList<>();
         }
 
         final List<String> result = new ArrayList<>();
         final List<ResolveInfo> resolveInfoList = context.getPackageManager()
-                .queryIntentActivities(intent, 0);
+                .queryIntentActivitiesAsUser(intent, 0, userId);
         final int length = resolveInfoList.size();
         for (int i = 0; i < length; i++) {
             final ActivityInfo info = resolveInfoList.get(i).activityInfo;

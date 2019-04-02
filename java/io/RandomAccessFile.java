@@ -65,10 +65,12 @@ import static android.system.OsConstants.*;
 
 public class RandomAccessFile implements DataOutput, DataInput, Closeable {
 
+    // BEGIN Android-added: CloseGuard and some helper fields for Android changes in this file.
     private final CloseGuard guard = CloseGuard.get();
     private final byte[] scratch = new byte[8];
     private boolean syncMetadata = false;
     private int mode;
+    // END Android-added: CloseGuard and some helper fields for Android changes in this file.
 
     private FileDescriptor fd;
     private FileChannel channel = null;
@@ -82,11 +84,14 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
 
     private Object closeLock = new Object();
     private volatile boolean closed = false;
+
+    // BEGIN Android-added: IoTracker.
     /**
      * A single tracker to track both read and write. The tracker resets when the operation
      * performed is different from the operation last performed.
      */
     private final IoTracker ioTracker = new IoTracker();
+    // END Android-added: IoTracker.
 
     /**
      * Creates a random access file stream to read from, and optionally
@@ -216,43 +221,57 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
         throws FileNotFoundException
     {
         String name = (file != null ? file.getPath() : null);
-        this.mode = -1;
+        int imode = -1;
         if (mode.equals("r")) {
-            this.mode = O_RDONLY;
+            imode = O_RDONLY;
         } else if (mode.startsWith("rw")) {
             // Android-changed: Added. O_CREAT
-            this.mode = O_RDWR | O_CREAT;
+            // imode = O_RDWR;
+            imode = O_RDWR | O_CREAT;
             rw = true;
             if (mode.length() > 2) {
                 if (mode.equals("rws")) {
+                    // Android-changed: Don't use O_SYNC for "rws". Is this correct?
+                    // imode |= O_SYNC;
                     syncMetadata = true;
                 } else if (mode.equals("rwd")) {
-                    // Android-changed: Should this be O_DSYNC and the above O_SYNC ?
-                    this.mode |= O_SYNC;
+                    // Android-changed: Use O_SYNC rather than O_DSYNC for "rwd". Is this correct?
+                    // imode |= O_DSYNC;
+                    imode |= O_SYNC;
                 } else {
-                    this.mode = -1;
+                    imode = -1;
                 }
             }
         }
-
-        if (this.mode < 0) {
+        if (imode < 0) {
             throw new IllegalArgumentException("Illegal mode \"" + mode
                                                + "\" must be one of "
                                                + "\"r\", \"rw\", \"rws\","
                                                + " or \"rwd\"");
         }
-
+        // Android-removed: do not use legacy security code
+        /*
+        SecurityManager security = System.getSecurityManager();
+        if (security != null) {
+            security.checkRead(name);
+            if (rw) {
+                security.checkWrite(name);
+            }
+        }
+        */
         if (name == null) {
+            // Android-changed: different exception message in ctor when file == null.
+            // throw new NullPointerException();
             throw new NullPointerException("file == null");
         }
-
         if (file.isInvalid()) {
             throw new FileNotFoundException("Invalid file path");
         }
         this.path = name;
+        this.mode = imode;
 
-        // Android-changed: Use IoBridge.open() instead of open.
-        fd = IoBridge.open(file.getPath(), this.mode);
+        // BEGIN Android-changed: Use IoBridge.open() instead of open.
+        fd = IoBridge.open(name, imode);
         if (syncMetadata) {
             try {
                 fd.sync();
@@ -261,6 +280,7 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
             }
         }
         guard.open("close");
+        // END Android-changed: Use IoBridge.open() instead of open.
     }
 
     /**
@@ -321,6 +341,8 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
      *                          end-of-file has been reached.
      */
     public int read() throws IOException {
+        // Android-changed: Implement on top of low-level API, not directly natively.
+        // return read0();
         return (read(scratch, 0, 1) != -1) ? scratch[0] & 0xff : -1;
     }
 
@@ -332,6 +354,7 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
      * @exception IOException If an I/O error has occurred.
      */
     private int readBytes(byte b[], int off, int len) throws IOException {
+        // Android-changed: Implement on top of low-level API, not directly natively.
         ioTracker.trackIo(len, IoTracker.Mode.READ);
         return IoBridge.read(fd, b, off, len);
     }
@@ -474,6 +497,8 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
      * @exception  IOException  if an I/O error occurs.
      */
     public void write(int b) throws IOException {
+        // Android-changed: Implement on top of low-level API, not directly natively.
+        // write0(b);
         scratch[0] = (byte) (b & 0xff);
         write(scratch, 0, 1);
     }
@@ -481,11 +506,13 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
     /**
      * Writes a sub array as a sequence of bytes.
      * @param b the data to be written
+
      * @param off the start offset in the data
      * @param len the number of bytes that are written
      * @exception IOException If an I/O error has occurred.
      */
     private void writeBytes(byte b[], int off, int len) throws IOException {
+        // Android-changed: Implement on top of low-level API, not directly natively.
         ioTracker.trackIo(len, IoTracker.Mode.WRITE);
         IoBridge.write(fd, b, off, len);
         // if we are in "rws" mode, attempt to sync file+metadata
@@ -528,6 +555,7 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
      * @exception  IOException  if an I/O error occurs.
      */
     public long getFilePointer() throws IOException {
+        // Android-changed: Implement on top of low-level API, not directly natively.
         try {
             return Libcore.os.lseek(fd, 0L, SEEK_CUR);
         } catch (ErrnoException errnoException) {
@@ -543,21 +571,26 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
      * change only by writing after the offset has been set beyond the end
      * of the file.
      *
-     * @param      offset   the offset position, measured in bytes from the
+     * @param      pos   the offset position, measured in bytes from the
      *                   beginning of the file, at which to set the file
      *                   pointer.
      * @exception  IOException  if {@code pos} is less than
      *                          {@code 0} or if an I/O error occurs.
      */
-    public void seek(long offset) throws IOException {
-        if (offset < 0) {
-            throw new IOException("offset < 0: " + offset);
-        }
-        try {
-            Libcore.os.lseek(fd, offset, SEEK_SET);
-            ioTracker.reset();
-        } catch (ErrnoException errnoException) {
-            throw errnoException.rethrowAsIOException();
+    public void seek(long pos) throws IOException {
+        if (pos < 0) {
+            // Android-changed: different exception message for seek(-1).
+            // throw new IOException("Negative seek offset");
+            throw new IOException("offset < 0: " + pos);
+        } else {
+            // Android-changed: Implement on top of low-level API, not directly natively.
+            // seek0(pos);
+            try {
+                Libcore.os.lseek(fd, pos, SEEK_SET);
+                ioTracker.reset();
+            } catch (ErrnoException errnoException) {
+                throw errnoException.rethrowAsIOException();
+            }
         }
     }
 
@@ -568,6 +601,7 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
      * @exception  IOException  if an I/O error occurs.
      */
     public long length() throws IOException {
+        // Android-changed: Implement on top of low-level API, not directly natively.
         try {
             return Libcore.os.fstat(fd).st_size;
         } catch (ErrnoException errnoException) {
@@ -595,6 +629,7 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
      * @since      1.2
      */
     public void setLength(long newLength) throws IOException {
+        // BEGIN Android-changed: Implement on top of low-level API, not directly natively.
         if (newLength < 0) {
             throw new IllegalArgumentException("newLength < 0");
         }
@@ -612,6 +647,7 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
         if (syncMetadata) {
             fd.sync();
         }
+        // END Android-changed: Implement on top of low-level API, not directly natively.
     }
 
 
@@ -638,10 +674,12 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
             closed = true;
         }
 
+        // BEGIN Android-changed: Implement on top of low-level API, not directly natively.
         if (channel != null && channel.isOpen()) {
             channel.close();
         }
         IoBridge.closeAndSignalBlockedThreads(fd);
+        // END Android-changed: Implement on top of low-level API, not directly natively.
     }
 
     //
@@ -1166,6 +1204,7 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
         DataOutputStream.writeUTF(str, this);
     }
 
+    // Android-added: use finalize() to detect if not close()d.
     @Override protected void finalize() throws Throwable {
         try {
             if (guard != null) {

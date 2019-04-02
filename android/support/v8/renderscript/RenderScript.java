@@ -131,10 +131,22 @@ public class RenderScript {
         return useNative;
     }
     /*
-     * Detect the bitness of the VM to allow FieldPacker to do the right thing.
+     * Detect the bitness of the VM to allow FieldPacker and generated code to do the right thing.
      */
     static native int rsnSystemGetPointerSize();
     static int sPointerSize;
+    static public int getPointerSize() {
+        // We provide an accessor rather than making the data item public for two reasons.
+        // 1) Prevents anyone outside this class from writing the data item.
+        // 2) Prevents anyone outside this class from reading the data item unless a class
+        //    instance has been created (ensuring the data item has been initialized).
+        // DISCLAIMER: Reflection can circumvent these preventive measures.
+        synchronized(lock) {
+            if (!sInitialized)
+                throw new RSInvalidStateException("Calling getPointerSize() before any RenderScript instantiated");
+        }
+        return sPointerSize;
+    }
 
     /**
      * Determines whether or not we should be thunking into the native

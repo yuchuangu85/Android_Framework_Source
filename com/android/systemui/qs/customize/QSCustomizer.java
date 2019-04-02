@@ -18,8 +18,12 @@ package com.android.systemui.qs.customize;
 import android.animation.Animator;
 import android.animation.Animator.AnimatorListener;
 import android.animation.AnimatorListenerAdapter;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.res.Configuration;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.TransitionDrawable;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.support.v7.widget.DefaultItemAnimator;
@@ -32,6 +36,8 @@ import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.WindowManager;
+import android.view.WindowManager.LayoutParams;
 import android.widget.LinearLayout;
 import android.widget.Toolbar;
 import android.widget.Toolbar.OnMenuItemClickListener;
@@ -42,9 +48,12 @@ import com.android.systemui.Dependency;
 import com.android.systemui.R;
 import com.android.systemui.plugins.qs.QS;
 import com.android.systemui.plugins.qs.QSTile;
+import com.android.systemui.qs.QSContainerImpl;
 import com.android.systemui.qs.QSDetailClipper;
 import com.android.systemui.qs.QSTileHost;
+import com.android.systemui.statusbar.phone.LightBarController;
 import com.android.systemui.statusbar.phone.NotificationsQuickSettingsContainer;
+import com.android.systemui.statusbar.phone.SystemUIDialog;
 import com.android.systemui.statusbar.policy.KeyguardMonitor;
 import com.android.systemui.statusbar.policy.KeyguardMonitor.Callback;
 
@@ -60,8 +69,10 @@ import java.util.List;
 public class QSCustomizer extends LinearLayout implements OnMenuItemClickListener {
 
     private static final int MENU_RESET = Menu.FIRST;
+    private static final String EXTRA_QS_CUSTOMIZING = "qs_customizing";
 
     private final QSDetailClipper mClipper;
+    private final LightBarController mLightBarController;
 
     private boolean isShown;
     private QSTileHost mHost;
@@ -75,6 +86,7 @@ public class QSCustomizer extends LinearLayout implements OnMenuItemClickListene
     private int mX;
     private int mY;
     private boolean mOpening;
+    private boolean mIsShowingNavBackdrop;
 
     public QSCustomizer(Context context, AttributeSet attrs) {
         super(new ContextThemeWrapper(context, R.style.edit_theme), attrs);
@@ -109,17 +121,28 @@ public class QSCustomizer extends LinearLayout implements OnMenuItemClickListene
         DefaultItemAnimator animator = new DefaultItemAnimator();
         animator.setMoveDuration(TileAdapter.MOVE_DURATION);
         mRecyclerView.setItemAnimator(animator);
+        mLightBarController = Dependency.get(LightBarController.class);
+        updateNavBackDrop(getResources().getConfiguration());
     }
 
     @Override
     protected void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        updateNavBackDrop(newConfig);
+    }
+
+    private void updateNavBackDrop(Configuration newConfig) {
         View navBackdrop = findViewById(R.id.nav_bar_background);
+        mIsShowingNavBackdrop = newConfig.smallestScreenWidthDp >= 600
+                || newConfig.orientation != Configuration.ORIENTATION_LANDSCAPE;
         if (navBackdrop != null) {
-            boolean shouldShow = newConfig.smallestScreenWidthDp >= 600
-                    || newConfig.orientation != Configuration.ORIENTATION_LANDSCAPE;
-            navBackdrop.setVisibility(shouldShow ? View.VISIBLE : View.GONE);
+            navBackdrop.setVisibility(mIsShowingNavBackdrop ? View.VISIBLE : View.GONE);
         }
+        updateNavColors();
+    }
+
+    private void updateNavColors() {
+        mLightBarController.setQsCustomizing(mIsShowingNavBackdrop && isShown);
     }
 
     public void setHost(QSTileHost host) {
@@ -151,6 +174,23 @@ public class QSCustomizer extends LinearLayout implements OnMenuItemClickListene
             announceForAccessibility(mContext.getString(
                     R.string.accessibility_desc_quick_settings_edit));
             Dependency.get(KeyguardMonitor.class).addCallback(mKeyguardCallback);
+            updateNavColors();
+        }
+    }
+
+
+    public void showImmediately() {
+        if (!isShown) {
+            setVisibility(VISIBLE);
+            mClipper.showBackground();
+            isShown = true;
+            setTileSpecs();
+            setCustomizing(true);
+            queryTiles();
+            mNotifQsContainer.setCustomizerAnimating(false);
+            mNotifQsContainer.setCustomizerShowing(true);
+            Dependency.get(KeyguardMonitor.class).addCallback(mKeyguardCallback);
+            updateNavColors();
         }
     }
 
@@ -176,6 +216,7 @@ public class QSCustomizer extends LinearLayout implements OnMenuItemClickListene
             announceForAccessibility(mContext.getString(
                     R.string.accessibility_desc_quick_settings));
             Dependency.get(KeyguardMonitor.class).removeCallback(mKeyguardCallback);
+            updateNavColors();
         }
     }
 
@@ -225,6 +266,35 @@ public class QSCustomizer extends LinearLayout implements OnMenuItemClickListene
         if (mFinishedFetchingTiles) {
             mTileAdapter.saveSpecs(mHost);
         }
+    }
+
+
+    public void saveInstanceState(Bundle outState) {
+        if (isShown) {
+            Dependency.get(KeyguardMonitor.class).removeCallback(mKeyguardCallback);
+        }
+        outState.putBoolean(EXTRA_QS_CUSTOMIZING, mCustomizing);
+    }
+
+    public void restoreInstanceState(Bundle savedInstanceState) {
+        boolean customizing = savedInstanceState.getBoolean(EXTRA_QS_CUSTOMIZING);
+        if (customizing) {
+            setVisibility(VISIBLE);
+            addOnLayoutChangeListener(new OnLayoutChangeListener() {
+                @Override
+                public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                        int oldLeft,
+                        int oldTop, int oldRight, int oldBottom) {
+                    removeOnLayoutChangeListener(this);
+                    showImmediately();
+                }
+            });
+        }
+    }
+
+    public void setEditLocation(int x, int y) {
+        mX = x;
+        mY = y;
     }
 
     private final Callback mKeyguardCallback = () -> {

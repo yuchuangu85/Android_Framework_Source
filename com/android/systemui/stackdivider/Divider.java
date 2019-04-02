@@ -82,6 +82,7 @@ public class Divider extends SystemUI {
     private void addDivider(Configuration configuration) {
         mView = (DividerView)
                 LayoutInflater.from(mContext).inflate(R.layout.docked_stack_divider, null);
+        mView.injectDependencies(mWindowManager, mDividerState);
         mView.setVisibility(mVisible ? View.VISIBLE : View.INVISIBLE);
         mView.setMinimizedDockStack(mMinimized, mHomeStackResizable);
         final int size = mContext.getResources().getDimensionPixelSize(
@@ -90,7 +91,6 @@ public class Divider extends SystemUI {
         final int width = landscape ? size : MATCH_PARENT;
         final int height = landscape ? MATCH_PARENT : size;
         mWindowManager.add(mView, width, height);
-        mView.injectDependencies(mWindowManager, mDividerState);
     }
 
     private void removeDivider() {

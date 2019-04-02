@@ -101,7 +101,7 @@ public class ListMixinTest {
     }
 
     @Test
-    public void testDividerInset() {
+    public void testDividerInsetLegacy() {
         ListMixin mixin = new ListMixin(mTemplateLayout, null, 0);
         mixin.setDividerInset(123);
 
@@ -116,7 +116,23 @@ public class ListMixinTest {
     }
 
     @Test
-    public void testDividerInsetRtl() {
+    public void testDividerInsets() {
+        ListMixin mixin = new ListMixin(mTemplateLayout, null, 0);
+        mixin.setDividerInsets(123, 456);
+
+        assertEquals(123, mixin.getDividerInsetStart());
+        assertEquals(456, mixin.getDividerInsetEnd());
+
+        final Drawable divider = mListView.getDivider();
+        InsetDrawable insetDrawable = (InsetDrawable) divider;
+        Rect rect = new Rect();
+        insetDrawable.getPadding(rect);
+
+        assertEquals(new Rect(123, 0, 456, 0), rect);
+    }
+
+    @Test
+    public void testDividerInsetLegacyRtl() {
         if (VERSION.SDK_INT >= VERSION_CODES.JELLY_BEAN_MR1) {
             doReturn(View.LAYOUT_DIRECTION_RTL).when(mTemplateLayout).getLayoutDirection();
 
@@ -131,6 +147,27 @@ public class ListMixinTest {
             insetDrawable.getPadding(rect);
 
             assertEquals(new Rect(0, 0, 123, 0), rect);
+        }
+        // else the test passes
+    }
+
+    @Test
+    public void testDividerInsetsRtl() {
+        if (VERSION.SDK_INT >= VERSION_CODES.JELLY_BEAN_MR1) {
+            doReturn(View.LAYOUT_DIRECTION_RTL).when(mTemplateLayout).getLayoutDirection();
+
+            ListMixin mixin = new ListMixin(mTemplateLayout, null, 0);
+            mixin.setDividerInsets(123, 456);
+
+            assertEquals(123, mixin.getDividerInsetStart());
+            assertEquals(456, mixin.getDividerInsetEnd());
+
+            final Drawable divider = mListView.getDivider();
+            InsetDrawable insetDrawable = (InsetDrawable) divider;
+            Rect rect = new Rect();
+            insetDrawable.getPadding(rect);
+
+            assertEquals(new Rect(456, 0, 123, 0), rect);
         }
         // else the test passes
     }

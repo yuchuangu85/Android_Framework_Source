@@ -31,6 +31,7 @@ import android.app.ActivityThread;
 import android.app.AppOpsManager;
 import android.app.Application;
 import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.SearchManager;
 import android.app.WallpaperManager;
 import android.content.ComponentName;
@@ -194,6 +195,24 @@ public final class Settings {
             "android.settings.AIRPLANE_MODE_SETTINGS";
 
     /**
+     * Activity Action: Show mobile data usage list.
+     * <p>
+     * Input: {@link EXTRA_NETWORK_TEMPLATE} and {@link EXTRA_SUB_ID} should be included to specify
+     * how and what mobile data statistics should be collected.
+     * <p>
+     * Output: Nothing
+     * @hide
+     */
+    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
+    public static final String ACTION_MOBILE_DATA_USAGE =
+            "android.settings.MOBILE_DATA_USAGE";
+
+    /** @hide */
+    public static final String EXTRA_NETWORK_TEMPLATE = "network_template";
+    /** @hide */
+    public static final String EXTRA_SUB_ID = "sub_id";
+
+    /**
      * Activity Action: Modify Airplane mode settings using a voice command.
      * <p>
      * In some cases, a matching Activity may not exist, so ensure you safeguard against this.
@@ -291,10 +310,7 @@ public final class Settings {
 
     /**
      * Activity Action: Show settings to allow configuration of trusted external sources
-     * <p>
-     * In some cases, a matching Activity may not exist, so ensure you
-     * safeguard against this.
-     * <p>
+     *
      * Input: Optionally, the Intent's data URI can specify the application package name to
      * directly invoke the management GUI specific to the package name. For example
      * "package:com.my.app".
@@ -408,6 +424,21 @@ public final class Settings {
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_BLUETOOTH_SETTINGS =
             "android.settings.BLUETOOTH_SETTINGS";
+
+    /**
+     * Activity Action: Show settings to allow configuration of Assist Gesture.
+     * <p>
+     * In some cases, a matching Activity may not exist, so ensure you
+     * safeguard against this.
+     * <p>
+     * Input: Nothing.
+     * <p>
+     * Output: Nothing.
+     * @hide
+     */
+    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
+    public static final String ACTION_ASSIST_GESTURE_SETTINGS =
+            "android.settings.ASSIST_GESTURE_SETTINGS";
 
     /**
      * Activity Action: Show settings to allow configuration of cast endpoints.
@@ -543,21 +574,6 @@ public final class Settings {
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_INPUT_METHOD_SUBTYPE_SETTINGS =
             "android.settings.INPUT_METHOD_SUBTYPE_SETTINGS";
-
-    /**
-     * Activity Action: Show a dialog to select input method.
-     * <p>
-     * In some cases, a matching Activity may not exist, so ensure you
-     * safeguard against this.
-     * <p>
-     * Input: Nothing.
-     * <p>
-     * Output: Nothing.
-     * @hide
-     */
-    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
-    public static final String ACTION_SHOW_INPUT_METHOD_PICKER =
-            "android.settings.SHOW_INPUT_METHOD_PICKER";
 
     /**
      * Activity Action: Show settings to manage the user input dictionary.
@@ -1422,10 +1438,10 @@ public final class Settings {
      * to the caller package.
      *
      * <p>
-     * <b>NOTE: </b> applications should call
+     * <b>NOTE: </b> Applications should call
      * {@link android.view.autofill.AutofillManager#hasEnabledAutofillServices()} and
-     * {@link android.view.autofill.AutofillManager#isAutofillSupported()} first, and only
-     * broadcast this intent if they return {@code false} and {@code true} respectively.
+     * {@link android.view.autofill.AutofillManager#isAutofillSupported()}, and only use this action
+     * to start an activity if they return {@code false} and {@code true} respectively.
      */
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_REQUEST_SET_AUTOFILL_SERVICE =
@@ -1779,6 +1795,12 @@ public final class Settings {
                 return mContentProvider;
             }
         }
+
+        public void clearProviderForTest() {
+            synchronized (mLock) {
+                mContentProvider = null;
+            }
+        }
     }
 
     // Thread-safe.
@@ -1994,6 +2016,16 @@ public final class Settings {
                 if (c != null) c.close();
             }
         }
+
+        public void clearGenerationTrackerForTest() {
+            synchronized (NameValueCache.this) {
+                if (mGenerationTracker != null) {
+                    mGenerationTracker.destroy();
+                }
+                mValues.clear();
+                mGenerationTracker = null;
+            }
+        }
     }
 
     /**
@@ -2180,6 +2212,12 @@ public final class Settings {
         /** @hide */
         public static void getNonLegacyMovedKeys(HashSet<String> outKeySet) {
             outKeySet.addAll(MOVED_TO_GLOBAL);
+        }
+
+        /** @hide */
+        public static void clearProviderForTest() {
+            sProviderHolder.clearProviderForTest();
+            sNameValueCache.clearGenerationTrackerForTest();
         }
 
         /**
@@ -3951,6 +3989,15 @@ public final class Settings {
         };
 
         /**
+         * Keys we no longer back up under the current schema, but want to continue to
+         * process when restoring historical backup datasets.
+         *
+         * @hide
+         */
+        public static final String[] LEGACY_RESTORE_SETTINGS = {
+        };
+
+        /**
          * These are all public system settings
          *
          * @hide
@@ -4595,6 +4642,12 @@ public final class Settings {
             outKeySet.addAll(MOVED_TO_GLOBAL);
         }
 
+        /** @hide */
+        public static void clearProviderForTest() {
+            sProviderHolder.clearProviderForTest();
+            sNameValueCache.clearGenerationTrackerForTest();
+        }
+
         /**
          * Look up a name in the database.
          * @param resolver to access the database with
@@ -5106,17 +5159,39 @@ public final class Settings {
         public static final String ALLOW_MOCK_LOCATION = "mock_location";
 
         /**
-         * A 64-bit number (as a hex string) that is randomly
-         * generated when the user first sets up the device and should remain
-         * constant for the lifetime of the user's device. The value may
-         * change if a factory reset is performed on the device.
-         * <p class="note"><strong>Note:</strong> When a device has <a
-         * href="{@docRoot}about/versions/android-4.2.html#MultipleUsers">multiple users</a>
-         * (available on certain devices running Android 4.2 or higher), each user appears as a
-         * completely separate device, so the {@code ANDROID_ID} value is unique to each
-         * user.</p>
+         * On Android 8.0 (API level 26) and higher versions of the platform,
+         * a 64-bit number (expressed as a hexadecimal string), unique to
+         * each combination of app-signing key, user, and device.
+         * Values of {@code ANDROID_ID} are scoped by signing key and user.
+         * The value may change if a factory reset is performed on the
+         * device or if an APK signing key changes.
          *
-         * <p class="note"><strong>Note:</strong> If the caller is an Instant App the id is scoped
+         * For more information about how the platform handles {@code ANDROID_ID}
+         * in Android 8.0 (API level 26) and higher, see <a
+         * href="{@docRoot}preview/behavior-changes.html#privacy-all">
+         * Android 8.0 Behavior Changes</a>.
+         *
+         * <p class="note"><strong>Note:</strong> For apps that were installed
+         * prior to updating the device to a version of Android 8.0
+         * (API level 26) or higher, the value of {@code ANDROID_ID} changes
+         * if the app is uninstalled and then reinstalled after the OTA.
+         * To preserve values across uninstalls after an OTA to Android 8.0
+         * or higher, developers can use
+         * <a href="{@docRoot}guide/topics/data/keyvaluebackup.html">
+         * Key/Value Backup</a>.</p>
+         *
+         * <p>In versions of the platform lower than Android 8.0 (API level 26),
+         * a 64-bit number (expressed as a hexadecimal string) that is randomly
+         * generated when the user first sets up the device and should remain
+         * constant for the lifetime of the user's device.
+         *
+         * On devices that have
+         * <a href="{@docRoot}about/versions/android-4.2.html#MultipleUsers">
+         * multiple users</a>, each user appears as a
+         * completely separate device, so the {@code ANDROID_ID} value is
+         * unique to each user.</p>
+         *
+         * <p class="note"><strong>Note:</strong> If the caller is an Instant App the ID is scoped
          * to the Instant App, it is generated when the Instant App is first installed and reset if
          * the user clears the Instant App.
          */
@@ -5185,6 +5260,7 @@ public final class Settings {
          * Whether the current user has been set up via setup wizard (0 = false, 1 = true)
          * @hide
          */
+        @TestApi
         public static final String USER_SETUP_COMPLETE = "user_setup_complete";
 
         /**
@@ -6472,6 +6548,12 @@ public final class Settings {
         public static final String DOZE_PULSE_ON_PICK_UP = "doze_pulse_on_pick_up";
 
         /**
+         * Whether the device should pulse on long press gesture.
+         * @hide
+         */
+        public static final String DOZE_PULSE_ON_LONG_PRESS = "doze_pulse_on_long_press";
+
+        /**
          * Whether the device should pulse on double tap gesture.
          * @hide
          */
@@ -6581,28 +6663,36 @@ public final class Settings {
         public static final String ASSIST_DISCLOSURE_ENABLED = "assist_disclosure_enabled";
 
         /**
-         * Name of the service components that the current user has explicitly allowed to
+         * Read only list of the service components that the current user has explicitly allowed to
          * see and assist with all of the user's notifications.
          *
+         * @deprecated Use
+         * {@link NotificationManager#isNotificationListenerAccessGranted(ComponentName)}.
          * @hide
          */
+        @Deprecated
         public static final String ENABLED_NOTIFICATION_ASSISTANT =
                 "enabled_notification_assistant";
 
         /**
-         * Names of the service components that the current user has explicitly allowed to
+         * Read only list of the service components that the current user has explicitly allowed to
          * see all of the user's notifications, separated by ':'.
          *
          * @hide
+         * @deprecated Use
+         * {@link NotificationManager#isNotificationAssistantAccessGranted(ComponentName)}.
          */
+        @Deprecated
         public static final String ENABLED_NOTIFICATION_LISTENERS = "enabled_notification_listeners";
 
         /**
-         * Names of the packages that the current user has explicitly allowed to
-         * manage notification policy configuration, separated by ':'.
+         * Read only list of the packages that the current user has explicitly allowed to
+         * manage do not disturb, separated by ':'.
          *
+         * @deprecated Use {@link NotificationManager#isNotificationPolicyAccessGranted()}.
          * @hide
          */
+        @Deprecated
         @TestApi
         public static final String ENABLED_NOTIFICATION_POLICY_ACCESS_PACKAGES =
                 "enabled_notification_policy_access_packages";
@@ -6755,6 +6845,21 @@ public final class Settings {
                 "camera_double_twist_to_flip_enabled";
 
         /**
+         * Whether or not the smart camera lift trigger that launches the camera when the user moves
+         * the phone into a position for taking photos should be enabled.
+         *
+         * @hide
+         */
+        public static final String CAMERA_LIFT_TRIGGER_ENABLED = "camera_lift_trigger_enabled";
+
+        /**
+         * The default enable state of the camera lift trigger.
+         *
+         * @hide
+         */
+        public static final int CAMERA_LIFT_TRIGGER_ENABLED_DEFAULT = 1;
+
+        /**
          * Whether the assist gesture should be enabled.
          *
          * @hide
@@ -6767,6 +6872,29 @@ public final class Settings {
          * @hide
          */
         public static final String ASSIST_GESTURE_SENSITIVITY = "assist_gesture_sensitivity";
+
+        /**
+         * Whether the assist gesture should silence alerts.
+         *
+         * @hide
+         */
+        public static final String ASSIST_GESTURE_SILENCE_ALERTS_ENABLED =
+                "assist_gesture_silence_alerts_enabled";
+
+        /**
+         * Whether the assist gesture should wake the phone.
+         *
+         * @hide
+         */
+        public static final String ASSIST_GESTURE_WAKE_ENABLED =
+                "assist_gesture_wake_enabled";
+
+        /**
+         * Whether Assist Gesture Deferred Setup has been completed
+         *
+         * @hide
+         */
+        public static final String ASSIST_GESTURE_SETUP_COMPLETE = "assist_gesture_setup_complete";
 
         /**
          * Control whether Night display is currently activated.
@@ -6803,8 +6931,9 @@ public final class Settings {
         public static final String NIGHT_DISPLAY_CUSTOM_END_TIME = "night_display_custom_end_time";
 
         /**
-         * Time in milliseconds (since epoch) when Night display was last activated. Use to decide
-         * whether to apply the current activated state after a reboot or user change.
+         * A String representing the LocalDateTime when Night display was last activated. Use to
+         * decide whether to apply the current activated state after a reboot or user change. In
+         * legacy cases, this is represented by the time in milliseconds (since epoch).
          * @hide
          */
         public static final String NIGHT_DISPLAY_LAST_ACTIVATED_TIME =
@@ -6908,6 +7037,16 @@ public final class Settings {
                 "automatic_storage_manager_last_run";
 
         /**
+         * If the automatic storage manager has been disabled by policy. Note that this doesn't
+         * mean that the automatic storage manager is prevented from being re-enabled -- this only
+         * means that it was turned off by policy at least once.
+         *
+         * @hide
+         */
+        public static final String AUTOMATIC_STORAGE_MANAGER_TURNED_OFF_BY_POLICY =
+                "automatic_storage_manager_turned_off_by_policy";
+
+        /**
          * Whether SystemUI navigation keys is enabled.
          * @hide
          */
@@ -6963,6 +7102,12 @@ public final class Settings {
         public static final String NOTIFICATION_BADGING = "notification_badging";
 
         /**
+         * Comma separated list of QS tiles that have been auto-added already.
+         * @hide
+         */
+        public static final String QS_AUTO_ADDED_TILES = "qs_auto_tiles";
+
+        /**
          * This are the settings to be backed up.
          *
          * NOTE: Settings are backed up and restored in the order they appear
@@ -6985,7 +7130,6 @@ public final class Settings {
             AUTOFILL_SERVICE,
             ACCESSIBILITY_DISPLAY_MAGNIFICATION_SCALE,
             ENABLED_ACCESSIBILITY_SERVICES,
-            ENABLED_NOTIFICATION_LISTENERS,
             ENABLED_VR_LISTENERS,
             ENABLED_INPUT_METHODS,
             TOUCH_EXPLORATION_GRANTED_ACCESSIBILITY_SERVICES,
@@ -7043,8 +7187,6 @@ public final class Settings {
             NIGHT_DISPLAY_CUSTOM_END_TIME,
             NIGHT_DISPLAY_COLOR_TEMPERATURE,
             NIGHT_DISPLAY_AUTO_MODE,
-            NIGHT_DISPLAY_LAST_ACTIVATED_TIME,
-            NIGHT_DISPLAY_ACTIVATED,
             SYNC_PARENT_SOUNDS,
             CAMERA_DOUBLE_TWIST_TO_FLIP_ENABLED,
             CAMERA_DOUBLE_TAP_POWER_GESTURE_DISABLED,
@@ -7057,8 +7199,23 @@ public final class Settings {
             AUTOMATIC_STORAGE_MANAGER_DAYS_TO_RETAIN,
             ASSIST_GESTURE_ENABLED,
             ASSIST_GESTURE_SENSITIVITY,
+            ASSIST_GESTURE_SETUP_COMPLETE,
+            ASSIST_GESTURE_SILENCE_ALERTS_ENABLED,
+            ASSIST_GESTURE_WAKE_ENABLED,
             VR_DISPLAY_MODE,
-            NOTIFICATION_BADGING
+            NOTIFICATION_BADGING,
+            QS_AUTO_ADDED_TILES,
+            SCREENSAVER_ENABLED,
+            SCREENSAVER_COMPONENTS,
+            SCREENSAVER_ACTIVATE_ON_DOCK,
+            SCREENSAVER_ACTIVATE_ON_SLEEP,
+        };
+
+        /** @hide */
+        public static final String[] LEGACY_RESTORE_SETTINGS = {
+                ENABLED_NOTIFICATION_LISTENERS,
+                ENABLED_NOTIFICATION_ASSISTANT,
+                ENABLED_NOTIFICATION_POLICY_ACCESS_PACKAGES
         };
 
         /**
@@ -7595,6 +7752,16 @@ public final class Settings {
          */
         public static final String CDMA_SUBSCRIPTION_MODE = "subscription_mode";
 
+        /**
+         * The default value for whether background data is enabled or not.
+         *
+         * Used by {@code NetworkPolicyManagerService}.
+         *
+         * @hide
+         */
+        public static final String DEFAULT_RESTRICT_BACKGROUND_DATA =
+                "default_restrict_background_data";
+
         /** Inactivity timeout to track mobile data activity.
         *
         * If set to a positive integer, it indicates the inactivity timeout value in seconds to
@@ -7638,6 +7805,31 @@ public final class Settings {
         * @hide
         */
        public static final String FORCE_ALLOW_ON_EXTERNAL = "force_allow_on_external";
+
+        /**
+         * The default SM-DP+ configured for this device.
+         *
+         * <p>An SM-DP+ is used by an LPA (see {@link android.service.euicc.EuiccService}) to
+         * download profiles. If this value is set, the LPA will query this server for any profiles
+         * available to this device. If any are available, they may be downloaded during device
+         * provisioning or in settings without needing the user to enter an activation code.
+         *
+         * @see android.service.euicc.EuiccService
+         * @hide
+         *
+         * TODO(b/35851809): Make this a SystemApi.
+         */
+        public static final String DEFAULT_SM_DP_PLUS = "default_sm_dp_plus";
+
+        /**
+         * Whether any profile has ever been downloaded onto a eUICC on the device.
+         *
+         * <p>Used to hide eUICC UI from users who have never made use of it and would only be
+         * confused by seeing references to it in settings.
+         * (0 = false, 1 = true)
+         * @hide
+         */
+        public static final String EUICC_PROVISIONED = "euicc_provisioned";
 
         /**
          * Whether any activity can be resized. When this is true, any
@@ -7835,6 +8027,8 @@ public final class Settings {
        public static final String NETSTATS_GLOBAL_ALERT_BYTES = "netstats_global_alert_bytes";
        /** {@hide} */
        public static final String NETSTATS_SAMPLE_ENABLED = "netstats_sample_enabled";
+       /** {@hide} */
+       public static final String NETSTATS_AUGMENT_ENABLED = "netstats_augment_enabled";
 
        /** {@hide} */
        public static final String NETSTATS_DEV_BUCKET_DURATION = "netstats_dev_bucket_duration";
@@ -8126,6 +8320,15 @@ public final class Settings {
         */
        public static final String TETHER_DUN_APN = "tether_dun_apn";
 
+        /**
+         * Used to disable trying to talk to any available tethering offload HAL.
+         *
+         * Integer values are interpreted as boolean, and the absence of an explicit setting
+         * is interpreted as |false|.
+         * @hide
+         */
+        public static final String TETHER_OFFLOAD_DISABLED = "tether_offload_disabled";
+
        /**
         * List of carrier apps which are whitelisted to prompt the user for install when
         * a sim card with matching uicc carrier privilege rules is inserted.
@@ -8350,6 +8553,16 @@ public final class Settings {
          * @hide
          */
         public static final String NETWORK_SCORING_UI_ENABLED = "network_scoring_ui_enabled";
+
+        /**
+         * Value to specify how long in milliseconds to retain seen score cache curves to be used
+         * when generating SSID only bases score curves.
+         *
+         * Type: long
+         * @hide
+         */
+        public static final String SPEED_LABEL_CACHE_EVICTION_AGE_MILLIS =
+                "speed_label_cache_eviction_age_millis";
 
         /**
          * Value to specify if network recommendations from
@@ -9047,9 +9260,11 @@ public final class Settings {
          * gc_min_interval                      (long)
          * full_pss_min_interval                (long)
          * full_pss_lowered_interval            (long)
-         * power_check_delay                    (long)
-         * wake_lock_min_check_duration         (long)
-         * cpu_min_check_duration               (long)
+         * power_check_interval                 (long)
+         * power_check_max_cpu_1                (int)
+         * power_check_max_cpu_2                (int)
+         * power_check_max_cpu_3                (int)
+         * power_check_max_cpu_4                (int)
          * service_usage_interaction_time       (long)
          * usage_stats_interaction_interval     (long)
          * service_restart_duration             (long)
@@ -9131,6 +9346,50 @@ public final class Settings {
          * @see com.android.server.power.BatterySaverPolicy
          */
         public static final String BATTERY_SAVER_CONSTANTS = "battery_saver_constants";
+
+        /**
+         * Battery anomaly detection specific settings
+         * This is encoded as a key=value list, separated by commas.
+         * wakeup_blacklisted_tags is a string, encoded as a set of tags, encoded via
+         * {@link Uri#encode(String)}, separated by colons. Ex:
+         *
+         * "anomaly_detection_enabled=true,wakelock_threshold=2000,wakeup_alarm_enabled=true,"
+         * "wakeup_alarm_threshold=10,wakeup_blacklisted_tags=tag1:tag2:with%2Ccomma:with%3Acolon"
+         *
+         * The following keys are supported:
+         *
+         * <pre>
+         * anomaly_detection_enabled       (boolean)
+         * wakelock_enabled                (boolean)
+         * wakelock_threshold              (long)
+         * wakeup_alarm_enabled            (boolean)
+         * wakeup_alarm_threshold          (long)
+         * wakeup_blacklisted_tags         (string)
+         * bluetooth_scan_enabled          (boolean)
+         * bluetooth_scan_threshold        (long)
+         * </pre>
+         * @hide
+         */
+        public static final String ANOMALY_DETECTION_CONSTANTS = "anomaly_detection_constants";
+
+        /**
+         * Always on display(AOD) specific settings
+         * This is encoded as a key=value list, separated by commas. Ex:
+         *
+         * "prox_screen_off_delay=10000,screen_brightness_array=0:1:2:3:4"
+         *
+         * The following keys are supported:
+         *
+         * <pre>
+         * screen_brightness_array         (string)
+         * dimming_scrim_array             (string)
+         * prox_screen_off_delay           (long)
+         * prox_cooldown_trigger           (long)
+         * prox_cooldown_period            (long)
+         * </pre>
+         * @hide
+         */
+        public static final String ALWAYS_ON_DISPLAY_CONSTANTS = "always_on_display_constants";
 
         /**
          * App standby (app idle) specific settings.
@@ -9269,6 +9528,22 @@ public final class Settings {
          * see also com.android.server.devicepolicy.DevicePolicyConstants
          */
         public static final String DEVICE_POLICY_CONSTANTS = "device_policy_constants";
+
+        /**
+         * TextClassifier specific settings.
+         * This is encoded as a key=value list, separated by commas. Ex:
+         *
+         * <pre>
+         * smart_selection_dark_launch              (boolean)
+         * smart_selection_enabled_for_edit_text    (boolean)
+         * </pre>
+         *
+         * <p>
+         * Type: string
+         * @hide
+         * see also android.view.textclassifier.TextClassifierConstants
+         */
+        public static final String TEXT_CLASSIFIER_CONSTANTS = "text_classifier_constants";
 
         /**
          * Get the key that retrieves a bluetooth headset's priority.
@@ -9920,22 +10195,6 @@ public final class Settings {
         public static final String DEVICE_DEMO_MODE = "device_demo_mode";
 
         /**
-         * Retail mode specific settings. This is encoded as a key=value list, separated by commas.
-         * Ex: "user_inactivity_timeout_ms=30000,warning_dialog_timeout_ms=10000". The following
-         * keys are supported:
-         *
-         * <pre>
-         * user_inactivity_timeout_ms  (long)
-         * warning_dialog_timeout_ms   (long)
-         * </pre>
-         * <p>
-         * Type: string
-         *
-         * @hide
-         */
-        public static final String RETAIL_DEMO_MODE_CONSTANTS = "retail_demo_mode_constants";
-
-        /**
          * Indicates the maximum time that an app is blocked for the network rules to get updated.
          *
          * Type: long
@@ -9981,6 +10240,32 @@ public final class Settings {
                 "location_settings_link_to_permissions_enabled";
 
         /**
+         * Flag to enable use of RefactoredBackupManagerService.
+         *
+         * @hide
+         */
+        public static final String BACKUP_REFACTORED_SERVICE_DISABLED =
+            "backup_refactored_service_disabled";
+
+        /**
+         * Flag to set the waiting time for euicc factory reset inside System > Settings
+         * Type: long
+         *
+         * @hide
+         */
+        public static final String EUICC_FACTORY_RESET_TIMEOUT_MILLIS =
+                "euicc_factory_reset_timeout_millis";
+
+        /**
+         * Flag to set the timeout for when to refresh the storage settings cached data.
+         * Type: long
+         *
+         * @hide
+         */
+        public static final String STORAGE_SETTINGS_CLOBBER_THRESHOLD =
+                "storage_settings_clobber_threshold";
+
+        /**
          * Settings to backup. This is here so that it's in the same place as the settings
          * keys and easy to update.
          *
@@ -10018,6 +10303,10 @@ public final class Settings {
             BLUETOOTH_ON
         };
 
+        /** @hide */
+        public static final String[] LEGACY_RESTORE_SETTINGS = {
+        };
+
         private static final ContentProviderHolder sProviderHolder =
                 new ContentProviderHolder(CONTENT_URI);
 
@@ -10038,6 +10327,12 @@ public final class Settings {
         /** @hide */
         public static void getMovedToSecureSettings(Set<String> outKeySet) {
             outKeySet.addAll(MOVED_TO_SECURE);
+        }
+
+        /** @hide */
+        public static void clearProviderForTest() {
+            sProviderHolder.clearProviderForTest();
+            sNameValueCache.clearGenerationTrackerForTest();
         }
 
         /**
@@ -10497,7 +10792,7 @@ public final class Settings {
         /**
          * The maximum allowed notification enqueue rate in Hertz.
          *
-         * Should be a float, and includes both posts and updates.
+         * Should be a float, and includes updates only.
          * @hide
          */
         public static final String MAX_NOTIFICATION_ENQUEUE_RATE = "max_notification_enqueue_rate";
@@ -10534,6 +10829,7 @@ public final class Settings {
             INSTANT_APP_SETTINGS.add(ANIMATOR_DURATION_SCALE);
             INSTANT_APP_SETTINGS.add(DEBUG_VIEW_ATTRIBUTES);
             INSTANT_APP_SETTINGS.add(WTF_IS_FATAL);
+            INSTANT_APP_SETTINGS.add(SEND_ACTION_APP_ERROR);
         }
 
         /**
@@ -10560,6 +10856,33 @@ public final class Settings {
          */
         public static final String ENABLE_CACHE_QUOTA_CALCULATION =
                 "enable_cache_quota_calculation";
+
+        /**
+         * Whether the Deletion Helper no threshold toggle is available.
+         * @hide
+         */
+        public static final String ENABLE_DELETION_HELPER_NO_THRESHOLD_TOGGLE =
+                "enable_deletion_helper_no_threshold_toggle";
+
+        /**
+         * The list of snooze options for notifications
+         * This is encoded as a key=value list, separated by commas. Ex:
+         *
+         * "default=60,options_array=15:30:60:120"
+         *
+         * The following keys are supported:
+         *
+         * <pre>
+         * default               (int)
+         * options_array         (string)
+         * </pre>
+         *
+         * All delays in integer minutes. Array order is respected.
+         * Options will be used in order up to the maximum allowed by the UI.
+         * @hide
+         */
+        public static final String NOTIFICATION_SNOOZE_OPTIONS =
+                "notification_snooze_options";
     }
 
     /**

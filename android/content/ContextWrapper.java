@@ -19,7 +19,6 @@ package android.content;
 import android.annotation.SystemApi;
 import android.app.IApplicationThread;
 import android.app.IServiceConnection;
-import android.app.Notification;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
@@ -38,6 +37,7 @@ import android.os.Looper;
 import android.os.UserHandle;
 import android.view.Display;
 import android.view.DisplayAdjustments;
+import android.view.autofill.AutofillManager.AutofillClient;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -171,6 +171,12 @@ public class ContextWrapper extends Context {
     @Override
     public SharedPreferences getSharedPreferences(File file, int mode) {
         return mBase.getSharedPreferences(file, mode);
+    }
+
+    /** @hide */
+    @Override
+    public void reloadSharedPreferences() {
+        mBase.reloadSharedPreferences();
     }
 
     @Override
@@ -962,7 +968,24 @@ public class ContextWrapper extends Context {
     /**
      * @hide
      */
+    @Override
     public int getNextAutofillId() {
         return mBase.getNextAutofillId();
+    }
+
+    /**
+     * @hide
+     */
+    @Override
+    public AutofillClient getAutofillClient() {
+        return mBase.getAutofillClient();
+    }
+
+    /**
+     * @hide
+     */
+    @Override
+    public void setAutofillClient(AutofillClient client) {
+        mBase.setAutofillClient(client);
     }
 }

@@ -26,7 +26,7 @@ public class CallStateException extends Exception
     /** The error code is not valid (Not received a disconnect cause) */
     public static final int ERROR_INVALID = -1;
 
-    public static final int ERROR_DISCONNECTED = 1;
+    public static final int ERROR_OUT_OF_SERVICE = 1;
     public static final int ERROR_POWER_OFF = 2;
 
     public

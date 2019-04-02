@@ -77,8 +77,11 @@ public class CommandQueue extends IStatusBar.Stub {
     private static final int MSG_TOGGLE_APP_SPLIT_SCREEN       = 30 << MSG_SHIFT;
     private static final int MSG_APP_TRANSITION_FINISHED       = 31 << MSG_SHIFT;
     private static final int MSG_DISMISS_KEYBOARD_SHORTCUTS    = 32 << MSG_SHIFT;
-    private static final int MSG_HANDLE_SYSNAV_KEY             = 33 << MSG_SHIFT;
+    private static final int MSG_HANDLE_SYSTEM_KEY             = 33 << MSG_SHIFT;
     private static final int MSG_SHOW_GLOBAL_ACTIONS           = 34 << MSG_SHIFT;
+    private static final int MSG_TOGGLE_PANEL                  = 35 << MSG_SHIFT;
+    private static final int MSG_SHOW_SHUTDOWN_UI              = 36 << MSG_SHIFT;
+    private static final int MSG_SET_TOP_APP_HIDES_STATUS_BAR  = 37 << MSG_SHIFT;
 
     public static final int FLAG_EXCLUDE_NONE = 0;
     public static final int FLAG_EXCLUDE_SEARCH_PANEL = 1 << 0;
@@ -104,6 +107,7 @@ public class CommandQueue extends IStatusBar.Stub {
         default void disable(int state1, int state2, boolean animate) { }
         default void animateExpandNotificationsPanel() { }
         default void animateCollapsePanels(int flags) { }
+        default void togglePanel() { }
         default void animateExpandSettingsPanel(String obj) { }
         default void setSystemUiVisibility(int vis, int fullscreenStackVis,
                 int dockedStackVis, int mask, Rect fullscreenStackBounds, Rect dockedStackBounds) {
@@ -129,13 +133,15 @@ public class CommandQueue extends IStatusBar.Stub {
         default void startAssist(Bundle args) { }
         default void onCameraLaunchGestureDetected(int source) { }
         default void showPictureInPictureMenu() { }
+        default void setTopAppHidesStatusBar(boolean topAppHidesStatusBar) { }
 
         default void addQsTile(ComponentName tile) { }
         default void remQsTile(ComponentName tile) { }
         default void clickTile(ComponentName tile) { }
 
-        default void handleSystemNavigationKey(int arg1) { }
+        default void handleSystemKey(int arg1) { }
         default void handleShowGlobalActionsMenu() { }
+        default void handleShowShutdownUi(boolean isReboot, String reason) { }
     }
 
     @VisibleForTesting
@@ -208,6 +214,13 @@ public class CommandQueue extends IStatusBar.Stub {
         synchronized (mLock) {
             mHandler.removeMessages(MSG_COLLAPSE_PANELS);
             mHandler.obtainMessage(MSG_COLLAPSE_PANELS, flags, 0).sendToTarget();
+        }
+    }
+
+    public void togglePanel() {
+        synchronized (mLock) {
+            mHandler.removeMessages(MSG_TOGGLE_PANEL);
+            mHandler.obtainMessage(MSG_TOGGLE_PANEL, 0, 0).sendToTarget();
         }
     }
 
@@ -415,9 +428,9 @@ public class CommandQueue extends IStatusBar.Stub {
     }
 
     @Override
-    public void handleSystemNavigationKey(int key) {
+    public void handleSystemKey(int key) {
         synchronized (mLock) {
-            mHandler.obtainMessage(MSG_HANDLE_SYSNAV_KEY, key, 0).sendToTarget();
+            mHandler.obtainMessage(MSG_HANDLE_SYSTEM_KEY, key, 0).sendToTarget();
         }
     }
 
@@ -426,6 +439,22 @@ public class CommandQueue extends IStatusBar.Stub {
         synchronized (mLock) {
             mHandler.removeMessages(MSG_SHOW_GLOBAL_ACTIONS);
             mHandler.obtainMessage(MSG_SHOW_GLOBAL_ACTIONS).sendToTarget();
+        }
+    }
+
+    @Override
+    public void setTopAppHidesStatusBar(boolean hidesStatusBar) {
+        mHandler.removeMessages(MSG_SET_TOP_APP_HIDES_STATUS_BAR);
+        mHandler.obtainMessage(MSG_SET_TOP_APP_HIDES_STATUS_BAR, hidesStatusBar ? 1 : 0, 0)
+                .sendToTarget();
+    }
+
+    @Override
+    public void showShutdownUi(boolean isReboot, String reason) {
+        synchronized (mLock) {
+            mHandler.removeMessages(MSG_SHOW_SHUTDOWN_UI);
+            mHandler.obtainMessage(MSG_SHOW_SHUTDOWN_UI, isReboot ? 1 : 0, 0, reason)
+                    .sendToTarget();
         }
     }
 
@@ -467,6 +496,11 @@ public class CommandQueue extends IStatusBar.Stub {
                 case MSG_COLLAPSE_PANELS:
                     for (int i = 0; i < mCallbacks.size(); i++) {
                         mCallbacks.get(i).animateCollapsePanels(msg.arg1);
+                    }
+                    break;
+                case MSG_TOGGLE_PANEL:
+                    for (int i = 0; i < mCallbacks.size(); i++) {
+                        mCallbacks.get(i).togglePanel();
                     }
                     break;
                 case MSG_EXPAND_SETTINGS:
@@ -600,14 +634,24 @@ public class CommandQueue extends IStatusBar.Stub {
                         mCallbacks.get(i).toggleSplitScreen();
                     }
                     break;
-                case MSG_HANDLE_SYSNAV_KEY:
+                case MSG_HANDLE_SYSTEM_KEY:
                     for (int i = 0; i < mCallbacks.size(); i++) {
-                        mCallbacks.get(i).handleSystemNavigationKey(msg.arg1);
+                        mCallbacks.get(i).handleSystemKey(msg.arg1);
                     }
                     break;
                 case MSG_SHOW_GLOBAL_ACTIONS:
                     for (int i = 0; i < mCallbacks.size(); i++) {
                         mCallbacks.get(i).handleShowGlobalActionsMenu();
+                    }
+                    break;
+                case MSG_SHOW_SHUTDOWN_UI:
+                    for (int i = 0; i < mCallbacks.size(); i++) {
+                        mCallbacks.get(i).handleShowShutdownUi(msg.arg1 != 0, (String) msg.obj);
+                    }
+                    break;
+                case MSG_SET_TOP_APP_HIDES_STATUS_BAR:
+                    for (int i = 0; i < mCallbacks.size(); i++) {
+                        mCallbacks.get(i).setTopAppHidesStatusBar(msg.arg1 != 0);
                     }
                     break;
             }

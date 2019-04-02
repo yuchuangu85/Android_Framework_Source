@@ -34,7 +34,6 @@ import android.annotation.TestApi;
 import android.annotation.UserIdInt;
 import android.app.IApplicationThread;
 import android.app.IServiceConnection;
-import android.app.Notification;
 import android.app.VrManager;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -65,6 +64,7 @@ import android.view.DisplayAdjustments;
 import android.view.View;
 import android.view.ViewDebug;
 import android.view.WindowManager;
+import android.view.autofill.AutofillManager.AutofillClient;
 import android.view.textclassifier.TextClassificationManager;
 
 import java.io.File;
@@ -127,8 +127,8 @@ public abstract class Context {
      * File creation mode: allow all other applications to have read access to
      * the created file.
      * <p>
-     * As of {@link android.os.Build.VERSION_CODES#N} attempting to use this
-     * mode will throw a {@link SecurityException}.
+     * Starting from {@link android.os.Build.VERSION_CODES#N}, attempting to use this
+     * mode throws a {@link SecurityException}.
      *
      * @deprecated Creating world-readable files is very dangerous, and likely
      *             to cause security holes in applications. It is strongly
@@ -147,7 +147,7 @@ public abstract class Context {
      * File creation mode: allow all other applications to have write access to
      * the created file.
      * <p>
-     * As of {@link android.os.Build.VERSION_CODES#N} attempting to use this
+     * Starting from {@link android.os.Build.VERSION_CODES#N}, attempting to use this
      * mode will throw a {@link SecurityException}.
      *
      * @deprecated Creating world-writable files is very dangerous, and likely
@@ -814,6 +814,9 @@ public abstract class Context {
      */
     public abstract boolean deleteSharedPreferences(String name);
 
+    /** @hide */
+    public abstract void reloadSharedPreferences();
+
     /**
      * Open a private file associated with this Context's application package
      * for reading.
@@ -1127,13 +1130,47 @@ public abstract class Context {
      * </ul>
      * <p>
      * Starting in {@link android.os.Build.VERSION_CODES#KITKAT}, no permissions
-     * are required to read or write to the returned path; it's always
-     * accessible to the calling app. This only applies to paths generated for
-     * package name of the calling application. To access paths belonging to
-     * other packages,
-     * {@link android.Manifest.permission#WRITE_EXTERNAL_STORAGE} and/or
-     * {@link android.Manifest.permission#READ_EXTERNAL_STORAGE} are required.
+     * are required to read or write to the path that this method returns.
+     * However, starting from {@link android.os.Build.VERSION_CODES#M},
+     * to read the OBB expansion files, you must declare the
+     * {@link android.Manifest.permission#READ_EXTERNAL_STORAGE} permission in the app manifest and ask for
+     * permission at runtime as follows:
+     * </p>
      * <p>
+     * {@code <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+     * android:maxSdkVersion="23" />}
+     * </p>
+     * <p>
+     * Starting from {@link android.os.Build.VERSION_CODES#N},
+     * {@link android.Manifest.permission#READ_EXTERNAL_STORAGE}
+     * permission is not required, so don’t ask for this
+     * permission at runtime. To handle both cases, your app must first try to read the OBB file,
+     * and if it fails, you must request
+     * {@link android.Manifest.permission#READ_EXTERNAL_STORAGE} permission at runtime.
+     * </p>
+     *
+     * <p>
+     * The following code snippet shows how to do this:
+     * </p>
+     *
+     * <pre>
+     * File obb = new File(obb_filename);
+     * boolean open_failed = false;
+     *
+     * try {
+     *     BufferedReader br = new BufferedReader(new FileReader(obb));
+     *     open_failed = false;
+     *     ReadObbFile(br);
+     * } catch (IOException e) {
+     *     open_failed = true;
+     * }
+     *
+     * if (open_failed) {
+     *     // request READ_EXTERNAL_STORAGE permission before reading OBB file
+     *     ReadObbFileWithPermission();
+     * }
+     * </pre>
+     *
      * On devices with multiple users (as described by {@link UserManager}),
      * multiple users may share the same OBB storage location. Applications
      * should ensure that multiple instances running under different users don't
@@ -2675,8 +2712,8 @@ public abstract class Context {
 
     /**
      * Similar to {@link #startService(Intent)}, but with an implicit promise that the
-     * Service will call {@link android.app.Service#startForeground(int, Notification)
-     * startForeground(int, Notification)} once it begins running.  The service is given
+     * Service will call {@link android.app.Service#startForeground(int, android.app.Notification)
+     * startForeground(int, android.app.Notification)} once it begins running.  The service is given
      * an amount of time comparable to the ANR interval to do this, otherwise the system
      * will automatically stop the service and declare the app ANR.
      *
@@ -2697,7 +2734,7 @@ public abstract class Context {
      * or the service can not be found.
      *
      * @see #stopService
-     * @see android.app.Service#startForeground(int, Notification)
+     * @see android.app.Service#startForeground(int, android.app.Notification)
      */
     @Nullable
     public abstract ComponentName startForegroundService(Intent service);
@@ -2885,6 +2922,7 @@ public abstract class Context {
             STORAGE_SERVICE,
             STORAGE_STATS_SERVICE,
             WALLPAPER_SERVICE,
+            TIME_ZONE_RULES_MANAGER_SERVICE,
             VIBRATOR_SERVICE,
             //@hide: STATUS_BAR_SERVICE,
             CONNECTIVITY_SERVICE,
@@ -2897,6 +2935,7 @@ public abstract class Context {
             WIFI_AWARE_SERVICE,
             WIFI_P2P_SERVICE,
             WIFI_SCANNING_SERVICE,
+            //@hide: LOWPAN_SERVICE,
             //@hide: WIFI_RTT_SERVICE,
             //@hide: ETHERNET_SERVICE,
             WIFI_RTT_SERVICE,
@@ -2952,7 +2991,8 @@ public abstract class Context {
             SHORTCUT_SERVICE,
             //@hide: CONTEXTHUB_SERVICE,
             SYSTEM_HEALTH_SERVICE,
-            //@hide: INCIDENT_SERVICE
+            //@hide: INCIDENT_SERVICE,
+            COMPANION_DEVICE_SERVICE
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface ServiceName {}
@@ -3425,6 +3465,18 @@ public abstract class Context {
 
     /**
      * Use with {@link #getSystemService} to retrieve a {@link
+     * android.net.lowpan.LowpanManager} for handling management of
+     * LoWPAN access.
+     *
+     * @see #getSystemService
+     * @see android.net.lowpan.LowpanManager
+     *
+     * @hide
+     */
+    public static final String LOWPAN_SERVICE = "lowpan";
+
+    /**
+     * Use with {@link #getSystemService} to retrieve a {@link
      * android.net.EthernetManager} for handling management of
      * Ethernet access.
      *
@@ -3522,6 +3574,17 @@ public abstract class Context {
      * @see android.telephony.CarrierConfigManager
      */
     public static final String CARRIER_CONFIG_SERVICE = "carrier_config";
+
+    /**
+     * Use with {@link #getSystemService} to retrieve a
+     * {@link android.telephony.euicc.EuiccManager} to manage the device eUICC (embedded SIM).
+     *
+     * @see #getSystemService
+     * @see android.telephony.euicc.EuiccManager
+     * TODO(b/35851809): Unhide this API.
+     * @hide
+     */
+    public static final String EUICC_SERVICE = "euicc_service";
 
     /**
      * Use with {@link #getSystemService} to retrieve a
@@ -3899,7 +3962,7 @@ public abstract class Context {
      * @see #getSystemService
      * @hide
      */
-    public static final String RADIO_SERVICE = "radio";
+    public static final String RADIO_SERVICE = "broadcastradio";
 
     /**
      * Use with {@link #getSystemService} to retrieve a
@@ -3976,6 +4039,15 @@ public abstract class Context {
      */
     @SystemApi
     public static final String VR_SERVICE = "vrmanager";
+
+    /**
+     * Use with {@link #getSystemService} to retrieve an
+     * {@link android.app.timezone.ITimeZoneRulesManager}.
+     * @hide
+     *
+     * @see #getSystemService
+     */
+    public static final String TIME_ZONE_RULES_MANAGER_SERVICE = "timezone";
 
     /**
      * Determine whether the given permission is allowed for a particular
@@ -4691,6 +4763,19 @@ public abstract class Context {
      */
     public Handler getMainThreadHandler() {
         throw new RuntimeException("Not implemented. Must override in a subclass.");
+    }
+
+    /**
+     * @hide
+     */
+    public AutofillClient getAutofillClient() {
+        return null;
+    }
+
+    /**
+     * @hide
+     */
+    public void setAutofillClient(AutofillClient client) {
     }
 
     /**

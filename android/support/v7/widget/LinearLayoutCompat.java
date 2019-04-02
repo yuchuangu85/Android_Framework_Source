@@ -22,7 +22,6 @@ import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
-import android.os.Build;
 import android.support.annotation.IntDef;
 import android.support.annotation.RestrictTo;
 import android.support.v4.view.GravityCompat;
@@ -37,7 +36,6 @@ import android.view.accessibility.AccessibilityNodeInfo;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-
 
 /**
  * A Layout that arranges its children in a single column or a single row. The direction of
@@ -610,7 +608,7 @@ public class LinearLayoutCompat extends ViewGroup {
         final int baselineChildIndex = mBaselineAlignedChildIndex;
         final boolean useLargestChild = mUseLargestChild;
 
-        int largestChildHeight = Integer.MIN_VALUE;
+        int largestChildHeight = 0;
 
         // See how tall everyone is. Also remember max width.
         for (int i = 0; i < count; ++i) {
@@ -956,7 +954,7 @@ public class LinearLayoutCompat extends ViewGroup {
 
         final boolean isExactly = widthMode == MeasureSpec.EXACTLY;
 
-        int largestChildWidth = Integer.MIN_VALUE;
+        int largestChildWidth = 0;
 
         // See how wide everyone is. Also remember max height.
         for (int i = 0; i < count; ++i) {
@@ -1054,8 +1052,7 @@ public class LinearLayoutCompat extends ViewGroup {
 
             final int margin = lp.topMargin + lp.bottomMargin;
             final int childHeight = child.getMeasuredHeight() + margin;
-            childState = ViewUtils.combineMeasuredStates(childState,
-                    child.getMeasuredState());
+            childState = View.combineMeasuredStates(childState, child.getMeasuredState());
 
             if (baselineAligned) {
                 final int childBaseline = child.getBaseline();
@@ -1753,18 +1750,14 @@ public class LinearLayoutCompat extends ViewGroup {
 
     @Override
     public void onInitializeAccessibilityEvent(AccessibilityEvent event) {
-        if (Build.VERSION.SDK_INT >= 14) {
-            super.onInitializeAccessibilityEvent(event);
-            event.setClassName(LinearLayoutCompat.class.getName());
-        }
+        super.onInitializeAccessibilityEvent(event);
+        event.setClassName(LinearLayoutCompat.class.getName());
     }
 
     @Override
     public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
-        if (Build.VERSION.SDK_INT >= 14) {
-            super.onInitializeAccessibilityNodeInfo(info);
-            info.setClassName(LinearLayoutCompat.class.getName());
-        }
+        super.onInitializeAccessibilityNodeInfo(info);
+        info.setClassName(LinearLayoutCompat.class.getName());
     }
 
     /**

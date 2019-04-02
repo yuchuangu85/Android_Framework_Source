@@ -43,6 +43,15 @@ public final class PhoneAccount implements Parcelable {
 
     /**
      * {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which determines the
+     * sort order for {@link PhoneAccount}s from the same
+     * {@link android.telecom.ConnectionService}.
+     * @hide
+     */
+    public static final String EXTRA_SORT_ORDER =
+            "android.telecom.extra.SORT_ORDER";
+
+    /**
+     * {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which determines the
      * maximum permitted length of a call subject specified via the
      * {@link TelecomManager#EXTRA_CALL_SUBJECT} extra on an
      * {@link android.content.Intent#ACTION_CALL} intent.  Ultimately a {@link ConnectionService} is
@@ -66,6 +75,67 @@ public final class PhoneAccount implements Parcelable {
      */
     public static final String EXTRA_CALL_SUBJECT_CHARACTER_ENCODING =
             "android.telecom.extra.CALL_SUBJECT_CHARACTER_ENCODING";
+
+     /**
+     * Indicating flag for phone account whether to use voip audio mode for voip calls
+     * @hide
+     */
+    public static final String EXTRA_ALWAYS_USE_VOIP_AUDIO_MODE =
+            "android.telecom.extra.ALWAYS_USE_VOIP_AUDIO_MODE";
+
+    /**
+     * Boolean {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which
+     * indicates whether this {@link PhoneAccount} is capable of supporting a request to handover a
+     * connection (see {@link android.telecom.Call#EVENT_REQUEST_HANDOVER}) to this
+     * {@link PhoneAccount} from a {@link PhoneAccount} specifying
+     * {@link #EXTRA_SUPPORTS_HANDOVER_FROM}.
+     * <p>
+     * A handover request is initiated by the user from the default dialer app to indicate a desire
+     * to handover a call from one {@link PhoneAccount}/{@link ConnectionService} to another.
+     * @hide
+     */
+    public static final String EXTRA_SUPPORTS_HANDOVER_TO =
+            "android.telecom.extra.SUPPORTS_HANDOVER_TO";
+
+    /**
+     * Boolean {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which
+     * indicates whether this {@link PhoneAccount} supports using a fallback if video calling is
+     * not available. This extra is for device level support, {@link
+     * android.telephony.CarrierConfigManager#KEY_ALLOW_VIDEO_CALLING_FALLBACK_BOOL} should also
+     * be checked to ensure it is not disabled by individual carrier.
+     *
+     * @hide
+     */
+    public static final String EXTRA_SUPPORTS_VIDEO_CALLING_FALLBACK =
+            "android.telecom.extra.SUPPORTS_VIDEO_CALLING_FALLBACK";
+
+    /**
+     * Boolean {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which
+     * indicates whether this {@link PhoneAccount} is capable of supporting a request to handover a
+     * connection from this {@link PhoneAccount} to another {@link PhoneAccount}.
+     * (see {@link android.telecom.Call#EVENT_REQUEST_HANDOVER}) which specifies
+     * {@link #EXTRA_SUPPORTS_HANDOVER_TO}.
+     * <p>
+     * A handover request is initiated by the user from the default dialer app to indicate a desire
+     * to handover a call from one {@link PhoneAccount}/{@link ConnectionService} to another.
+     * @hide
+     */
+    public static final String EXTRA_SUPPORTS_HANDOVER_FROM =
+            "android.telecom.extra.SUPPORTS_HANDOVER_FROM";
+
+
+    /**
+     * Boolean {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which
+     * indicates whether a Self-Managed {@link PhoneAccount} should log its calls to the call log.
+     * Self-Managed {@link PhoneAccount}s are responsible for their own notifications, so the system
+     * will not create a notification when a missed call is logged.
+     * <p>
+     * By default, Self-Managed {@link PhoneAccount}s do not log their calls to the call log.
+     * Setting this extra to {@code true} provides a means for them to log their calls.
+     * @hide
+     */
+    public static final String EXTRA_LOG_SELF_MANAGED_CALLS =
+            "android.telecom.extra.LOG_SELF_MANAGED_CALLS";
 
     /**
      * Flag indicating that this {@code PhoneAccount} can act as a connection manager for

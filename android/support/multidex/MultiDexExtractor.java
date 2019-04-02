@@ -18,7 +18,6 @@ package android.support.multidex;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.content.pm.ApplicationInfo;
 import android.os.Build;
 import android.util.Log;
 import java.io.BufferedOutputStream;
@@ -93,10 +92,11 @@ final class MultiDexExtractor {
      * @throws IOException if encounters a problem while reading or writing
      *         secondary dex files
      */
-    static List<? extends File> load(Context context, ApplicationInfo applicationInfo, File dexDir,
+    static List<? extends File> load(Context context, File sourceApk, File dexDir,
+            String prefsKeyPrefix,
             boolean forceReload) throws IOException {
-        Log.i(TAG, "MultiDexExtractor.load(" + applicationInfo.sourceDir + ", " + forceReload + ")");
-        final File sourceApk = new File(applicationInfo.sourceDir);
+        Log.i(TAG, "MultiDexExtractor.load(" + sourceApk.getPath() + ", " + forceReload + ", " +
+                prefsKeyPrefix + ")");
 
         long currentCrc = getZipCrc(sourceApk);
 
@@ -113,19 +113,21 @@ final class MultiDexExtractor {
             cacheLock = lockChannel.lock();
             Log.i(TAG, lockFile.getPath() + " locked");
 
-            if (!forceReload && !isModified(context, sourceApk, currentCrc)) {
+            if (!forceReload && !isModified(context, sourceApk, currentCrc, prefsKeyPrefix)) {
                 try {
-                    files = loadExistingExtractions(context, sourceApk, dexDir);
+                    files = loadExistingExtractions(context, sourceApk, dexDir, prefsKeyPrefix);
                 } catch (IOException ioe) {
                     Log.w(TAG, "Failed to reload existing extracted secondary dex files,"
                             + " falling back to fresh extraction", ioe);
                     files = performExtractions(sourceApk, dexDir);
-                    putStoredApkInfo(context, getTimeStamp(sourceApk), currentCrc, files);
+                    putStoredApkInfo(context, prefsKeyPrefix, getTimeStamp(sourceApk), currentCrc,
+                            files);
                 }
             } else {
                 Log.i(TAG, "Detected that extraction must be performed.");
                 files = performExtractions(sourceApk, dexDir);
-                putStoredApkInfo(context, getTimeStamp(sourceApk), currentCrc, files);
+                putStoredApkInfo(context, prefsKeyPrefix, getTimeStamp(sourceApk), currentCrc,
+                        files);
             }
         } finally {
             if (cacheLock != null) {
@@ -157,13 +159,14 @@ final class MultiDexExtractor {
      * {@link #LOCK_FILENAME}.
      */
     private static List<ExtractedDex> loadExistingExtractions(
-            Context context, File sourceApk, File dexDir)
+            Context context, File sourceApk, File dexDir,
+            String prefsKeyPrefix)
             throws IOException {
         Log.i(TAG, "loading existing secondary dex files");
 
         final String extractedFilePrefix = sourceApk.getName() + EXTRACTED_NAME_EXT;
         SharedPreferences multiDexPreferences = getMultiDexPreferences(context);
-        int totalDexNumber = multiDexPreferences.getInt(KEY_DEX_NUMBER, 1);
+        int totalDexNumber = multiDexPreferences.getInt(prefsKeyPrefix + KEY_DEX_NUMBER, 1);
         final List<ExtractedDex> files = new ArrayList<ExtractedDex>(totalDexNumber - 1);
 
         for (int secondaryNumber = 2; secondaryNumber <= totalDexNumber; secondaryNumber++) {
@@ -171,15 +174,15 @@ final class MultiDexExtractor {
             ExtractedDex extractedFile = new ExtractedDex(dexDir, fileName);
             if (extractedFile.isFile()) {
                 extractedFile.crc = getZipCrc(extractedFile);
-                long expectedCrc =
-                        multiDexPreferences.getLong(KEY_DEX_CRC + secondaryNumber, NO_VALUE);
-                long expectedModTime =
-                        multiDexPreferences.getLong(KEY_DEX_TIME + secondaryNumber, NO_VALUE);
+                long expectedCrc = multiDexPreferences.getLong(
+                        prefsKeyPrefix + KEY_DEX_CRC + secondaryNumber, NO_VALUE);
+                long expectedModTime = multiDexPreferences.getLong(
+                        prefsKeyPrefix + KEY_DEX_TIME + secondaryNumber, NO_VALUE);
                 long lastModified = extractedFile.lastModified();
                 if ((expectedModTime != lastModified)
                         || (expectedCrc != extractedFile.crc)) {
                     throw new IOException("Invalid extracted dex: " + extractedFile +
-                            ", expected modification time: "
+                            " (key \"" + prefsKeyPrefix + "\"), expected modification time: "
                             + expectedModTime + ", modification time: "
                             + lastModified + ", expected crc: "
                             + expectedCrc + ", file crc: " + extractedFile.crc);
@@ -199,10 +202,11 @@ final class MultiDexExtractor {
      * Compare current archive and crc with values stored in {@link SharedPreferences}. Should be
      * called only while owning the lock on {@link #LOCK_FILENAME}.
      */
-    private static boolean isModified(Context context, File archive, long currentCrc) {
+    private static boolean isModified(Context context, File archive, long currentCrc,
+            String prefsKeyPrefix) {
         SharedPreferences prefs = getMultiDexPreferences(context);
-        return (prefs.getLong(KEY_TIME_STAMP, NO_VALUE) != getTimeStamp(archive))
-                || (prefs.getLong(KEY_CRC, NO_VALUE) != currentCrc);
+        return (prefs.getLong(prefsKeyPrefix + KEY_TIME_STAMP, NO_VALUE) != getTimeStamp(archive))
+                || (prefs.getLong(prefsKeyPrefix + KEY_CRC, NO_VALUE) != currentCrc);
     }
 
     private static long getTimeStamp(File archive) {
@@ -303,18 +307,18 @@ final class MultiDexExtractor {
      * Save {@link SharedPreferences}. Should be called only while owning the lock on
      * {@link #LOCK_FILENAME}.
      */
-    private static void putStoredApkInfo(Context context, long timeStamp, long crc,
-            List<ExtractedDex> extractedDexes) {
+    private static void putStoredApkInfo(Context context, String keyPrefix, long timeStamp,
+            long crc, List<ExtractedDex> extractedDexes) {
         SharedPreferences prefs = getMultiDexPreferences(context);
         SharedPreferences.Editor edit = prefs.edit();
-        edit.putLong(KEY_TIME_STAMP, timeStamp);
-        edit.putLong(KEY_CRC, crc);
-        edit.putInt(KEY_DEX_NUMBER, extractedDexes.size() + 1);
+        edit.putLong(keyPrefix + KEY_TIME_STAMP, timeStamp);
+        edit.putLong(keyPrefix + KEY_CRC, crc);
+        edit.putInt(keyPrefix + KEY_DEX_NUMBER, extractedDexes.size() + 1);
 
         int extractedDexId = 2;
         for (ExtractedDex dex : extractedDexes) {
-            edit.putLong(KEY_DEX_CRC + extractedDexId, dex.crc);
-            edit.putLong(KEY_DEX_TIME + extractedDexId, dex.lastModified());
+            edit.putLong(keyPrefix + KEY_DEX_CRC + extractedDexId, dex.crc);
+            edit.putLong(keyPrefix + KEY_DEX_TIME + extractedDexId, dex.lastModified());
             extractedDexId++;
         }
         /* Use commit() and not apply() as advised by the doc because we need synchronous writing of

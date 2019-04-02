@@ -14,6 +14,7 @@ import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.LayerDrawable;
 import android.net.ConnectivityManager;
@@ -21,6 +22,7 @@ import android.net.NetworkBadging;
 import android.os.BatteryManager;
 import android.os.UserManager;
 import android.print.PrintManager;
+import android.provider.Settings;
 import android.view.View;
 
 import com.android.internal.util.UserIcons;
@@ -34,7 +36,7 @@ public class Utils {
     private static String sServicesSystemSharedLibPackageName;
     private static String sSharedSystemSharedLibPackageName;
 
-    public static final int[] WIFI_PIE_FOR_BADGING = {
+    static final int[] WIFI_PIE_FOR_BADGING = {
           com.android.internal.R.drawable.ic_signal_wifi_badged_0_bars,
           com.android.internal.R.drawable.ic_signal_wifi_badged_1_bar,
           com.android.internal.R.drawable.ic_signal_wifi_badged_2_bars,
@@ -94,13 +96,12 @@ public class Utils {
     /**
      * Returns a circular icon for a user.
      */
-    public static UserIconDrawable getUserIcon(Context context, UserManager um, UserInfo user) {
+    public static Drawable getUserIcon(Context context, UserManager um, UserInfo user) {
         final int iconSize = UserIconDrawable.getSizeForList(context);
         if (user.isManagedProfile()) {
-            // We use predefined values for managed profiles
-            Bitmap b = BitmapFactory.decodeResource(context.getResources(),
-                    com.android.internal.R.drawable.ic_corp_icon);
-            return new UserIconDrawable(iconSize).setIcon(b).bake();
+            Drawable drawable = context.getDrawable(com.android.internal.R.drawable.ic_corp_icon);
+            drawable.setBounds(0, 0, iconSize, iconSize);
+            return drawable;
         }
         if (user.iconPath != null) {
             Bitmap icon = um.getUserIcon(user.id);
@@ -129,7 +130,7 @@ public class Utils {
     }
 
     /** Formats a double from 0.0..1.0 as a percentage. */
-    private static String formatPercentage(double percentage) {
+    public static String formatPercentage(double percentage) {
         return NumberFormat.getPercentInstance().format(percentage);
     }
 
@@ -293,12 +294,7 @@ public class Utils {
                 });
     }
 
-    /**
-     * Returns the resource id for the given badge or {@link View.NO_ID} if no badge is to be shown.
-     *
-     * @throws IllegalArgumentException if the given badge value is not supported.
-     */
-    public static int getWifiBadgeResource(int badge) {
+    private static int getWifiBadgeResource(int badge) {
         switch (badge) {
             case NetworkBadging.BADGING_NONE:
                 return View.NO_ID;
@@ -312,5 +308,21 @@ public class Utils {
                 throw new IllegalArgumentException(
                     "No badge resource found for badge value: " + badge);
         }
+    }
+
+    public static int getDefaultStorageManagerDaysToRetain(Resources resources) {
+        int defaultDays = Settings.Secure.AUTOMATIC_STORAGE_MANAGER_DAYS_TO_RETAIN_DEFAULT;
+        try {
+            defaultDays =
+                    resources.getInteger(
+                            com.android
+                                    .internal
+                                    .R
+                                    .integer
+                                    .config_storageManagerDaystoRetainDefault);
+        } catch (Resources.NotFoundException e) {
+            // We are likely in a test environment.
+        }
+        return defaultDays;
     }
 }

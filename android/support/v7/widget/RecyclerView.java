@@ -73,6 +73,7 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
 import android.view.animation.Interpolator;
 import android.widget.EdgeEffect;
+import android.widget.LinearLayout;
 import android.widget.OverScroller;
 
 import java.lang.annotation.Retention;
@@ -205,8 +206,15 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
     private static final boolean IGNORE_DETACHED_FOCUSED_CHILD = Build.VERSION.SDK_INT <= 15;
 
     static final boolean DISPATCH_TEMP_DETACH = false;
-    public static final int HORIZONTAL = 0;
-    public static final int VERTICAL = 1;
+
+    /** @hide */
+    @RestrictTo(LIBRARY_GROUP)
+    @IntDef({HORIZONTAL, VERTICAL})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface Orientation {}
+
+    public static final int HORIZONTAL = LinearLayout.HORIZONTAL;
+    public static final int VERTICAL = LinearLayout.VERTICAL;
 
     public static final int NO_POSITION = -1;
     public static final long NO_ID = -1;
@@ -636,20 +644,15 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
         setNestedScrollingEnabled(nestedScrollingEnabled);
     }
 
-    @Override
-    public String toString() {
-        return super.toString()
-                + ", adapter:" + mAdapter
-                + ", layout:" + mLayout
-                + ", context:" + getContext();
-    }
-
     /**
      * Label appended to all public exception strings, used to help find which RV in an app is
      * hitting an exception.
      */
     String exceptionLabel() {
-        return " " + this;
+        return " " + super.toString()
+                + ", adapter:" + mAdapter
+                + ", layout:" + mLayout
+                + ", context:" + getContext();
     }
 
     /**
@@ -677,7 +680,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
             int defStyleAttr, int defStyleRes) {
         if (className != null) {
             className = className.trim();
-            if (className.length() != 0) {  // Can't use isEmpty since it was added in API 9.
+            if (!className.isEmpty()) {
                 className = getFullClassName(context, className);
                 try {
                     ClassLoader classLoader;
@@ -1038,7 +1041,6 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
         // bail out if layout is frozen
         setLayoutFrozen(false);
         setAdapterInternal(adapter, true, removeAndRecycleExistingViews);
-        setDataSetChangedAfterLayout();
         requestLayout();
     }
     /**
@@ -1107,7 +1109,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
         }
         mRecycler.onAdapterChanged(oldAdapter, mAdapter, compatibleWithPrevious);
         mState.mStructureChanged = true;
-        markKnownViewsInvalid();
+        setDataSetChangedAfterLayout();
     }
 
     /**
@@ -1494,11 +1496,35 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
      * @return the ItemDecoration at index position, or null if invalid index.
      */
     public ItemDecoration getItemDecorationAt(int index) {
-        if (index < 0 || index >= mItemDecorations.size()) {
-            return null;
+        final int size = getItemDecorationCount();
+        if (index < 0 || index >= size) {
+            throw new IndexOutOfBoundsException(index + " is an invalid index for size " + size);
         }
 
         return mItemDecorations.get(index);
+    }
+
+    /**
+     * Returns the number of {@link ItemDecoration} currently added to this RecyclerView.
+     *
+     * @return number of ItemDecorations currently added added to this RecyclerView.
+     */
+    public int getItemDecorationCount() {
+        return mItemDecorations.size();
+    }
+
+    /**
+     * Removes the {@link ItemDecoration} associated with the supplied index position.
+     *
+     * @param index The index position of the ItemDecoration to be removed.
+     */
+    public void removeItemDecorationAt(int index) {
+        final int size = getItemDecorationCount();
+        if (index < 0 || index >= size) {
+            throw new IndexOutOfBoundsException(index + " is an invalid index for size " + size);
+        }
+
+        removeItemDecoration(getItemDecorationAt(index));
     }
 
     /**
@@ -2458,52 +2484,46 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
             return true;
         }
 
-        if (direction == View.FOCUS_FORWARD || direction == View.FOCUS_BACKWARD) {
-            final boolean rtl = mLayout.getLayoutDirection() == ViewCompat.LAYOUT_DIRECTION_RTL;
-            final int absHorizontal = (direction == View.FOCUS_FORWARD) ^ rtl
-                    ? View.FOCUS_RIGHT : View.FOCUS_LEFT;
-            if (isPreferredNextFocusAbsolute(focused, next, absHorizontal)) {
-                return true;
-            }
-            if (direction == View.FOCUS_FORWARD) {
-                return isPreferredNextFocusAbsolute(focused, next, View.FOCUS_DOWN);
-            } else {
-                return isPreferredNextFocusAbsolute(focused, next, View.FOCUS_UP);
-            }
-        } else {
-            return isPreferredNextFocusAbsolute(focused, next, direction);
-        }
-
-    }
-
-    /**
-     * Logic taken from FocusSearch#isCandidate
-     */
-    private boolean isPreferredNextFocusAbsolute(View focused, View next, int direction) {
         mTempRect.set(0, 0, focused.getWidth(), focused.getHeight());
         mTempRect2.set(0, 0, next.getWidth(), next.getHeight());
         offsetDescendantRectToMyCoords(focused, mTempRect);
         offsetDescendantRectToMyCoords(next, mTempRect2);
+        final int rtl = mLayout.getLayoutDirection() == ViewCompat.LAYOUT_DIRECTION_RTL ? -1 : 1;
+        int rightness = 0;
+        if ((mTempRect.left < mTempRect2.left
+                || mTempRect.right <= mTempRect2.left)
+                && mTempRect.right < mTempRect2.right) {
+            rightness = 1;
+        } else if ((mTempRect.right > mTempRect2.right
+                || mTempRect.left >= mTempRect2.right)
+                && mTempRect.left > mTempRect2.left) {
+            rightness = -1;
+        }
+        int downness = 0;
+        if ((mTempRect.top < mTempRect2.top
+                || mTempRect.bottom <= mTempRect2.top)
+                && mTempRect.bottom < mTempRect2.bottom) {
+            downness = 1;
+        } else if ((mTempRect.bottom > mTempRect2.bottom
+                || mTempRect.top >= mTempRect2.bottom)
+                && mTempRect.top > mTempRect2.top) {
+            downness = -1;
+        }
         switch (direction) {
             case View.FOCUS_LEFT:
-                return (mTempRect.right > mTempRect2.right
-                        || mTempRect.left >= mTempRect2.right)
-                        && mTempRect.left > mTempRect2.left;
+                return rightness < 0;
             case View.FOCUS_RIGHT:
-                return (mTempRect.left < mTempRect2.left
-                        || mTempRect.right <= mTempRect2.left)
-                        && mTempRect.right < mTempRect2.right;
+                return rightness > 0;
             case View.FOCUS_UP:
-                return (mTempRect.bottom > mTempRect2.bottom
-                        || mTempRect.top >= mTempRect2.bottom)
-                        && mTempRect.top > mTempRect2.top;
+                return downness < 0;
             case View.FOCUS_DOWN:
-                return (mTempRect.top < mTempRect2.top
-                        || mTempRect.bottom <= mTempRect2.top)
-                        && mTempRect.bottom < mTempRect2.bottom;
+                return downness > 0;
+            case View.FOCUS_FORWARD:
+                return downness > 0 || (downness == 0 && rightness * rtl >= 0);
+            case View.FOCUS_BACKWARD:
+                return downness < 0 || (downness == 0 && rightness * rtl <= 0);
         }
-        throw new IllegalArgumentException("direction must be absolute. received:"
-                + direction + exceptionLabel());
+        throw new IllegalArgumentException("Invalid direction: " + direction + exceptionLabel());
     }
 
     @Override
@@ -3149,6 +3169,14 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
                 }
                 mAdapterUpdateDuringMeasure = false;
                 resumeRequestLayout(false);
+            } else if (mState.mRunPredictiveAnimations) {
+                // If mAdapterUpdateDuringMeasure is false and mRunPredictiveAnimations is true:
+                // this means there is already an onMeasure() call performed to handle the pending
+                // adapter change, two onMeasure() calls can happen if RV is a child of LinearLayout
+                // with layout_width=MATCH_PARENT. RV cannot call LM.onMeasure() second time
+                // because getViewForPosition() will crash when LM uses a child to measure.
+                setMeasuredDimension(getMeasuredWidth(), getMeasuredHeight());
+                return;
             }
 
             if (mAdapter != null) {
@@ -4234,8 +4262,8 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
 
     /**
      * Call this method to signal that *all* adapter content has changed (generally, because of
-     * swapAdapter, or notifyDataSetChanged), and that once layout occurs, all attached items should
-     * be discarded or animated.
+     * setAdapter, swapAdapter, or notifyDataSetChanged), and that once layout occurs, all
+     * attached items should be discarded or animated.
      *
      * Attached items are labeled as invalid, and all cached items are discarded.
      *
@@ -5009,6 +5037,12 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
             setScrollState(SCROLL_STATE_SETTLING);
             mLastFlingX = mLastFlingY = 0;
             mScroller.startScroll(0, 0, dx, dy, duration);
+            if (Build.VERSION.SDK_INT < 23) {
+                // b/64931938 before API 23, startScroll() does not reset getCurX()/getCurY()
+                // to start values, which causes fillRemainingScrollValues() put in obsolete values
+                // for LayoutManager.onLayoutChildren().
+                mScroller.computeScrollOffset();
+            }
             postOnAnimation();
         }
 

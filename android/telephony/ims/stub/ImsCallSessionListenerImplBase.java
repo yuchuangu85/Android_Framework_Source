@@ -196,6 +196,23 @@ public class ImsCallSessionListenerImplBase extends IImsCallSessionListener.Stub
     }
 
     /**
+     * Notifies of a case where a {@link com.android.ims.internal.ImsCallSession} may potentially
+     * handover from one radio technology to another.
+     * @param session
+     * @param srcAccessTech The source radio access technology; one of the access technology
+     *                      constants defined in {@link android.telephony.ServiceState}.  For
+     *                      example {@link android.telephony.ServiceState#RIL_RADIO_TECHNOLOGY_LTE}.
+     * @param targetAccessTech The target radio access technology; one of the access technology
+     *                      constants defined in {@link android.telephony.ServiceState}.  For
+     *                      example {@link android.telephony.ServiceState#RIL_RADIO_TECHNOLOGY_LTE}.
+     */
+    @Override
+    public void callSessionMayHandover(IImsCallSession session, int srcAccessTech,
+            int targetAccessTech) {
+        // no-op
+    }
+
+    /**
      * Notifies of handover information for this call
      */
     @Override
@@ -245,6 +262,36 @@ public class ImsCallSessionListenerImplBase extends IImsCallSessionListener.Stub
     @Override
     public void callSessionSuppServiceReceived(IImsCallSession session,
             ImsSuppServiceNotification suppSrvNotification) {
+        // no-op
+    }
+
+    /**
+     * Received RTT modify request from Remote Party
+     * @param session The call session.
+     * @param callProfile ImsCallProfile with updated attribute
+     */
+    @Override
+    public void callSessionRttModifyRequestReceived(IImsCallSession session,
+            ImsCallProfile callProfile) {
+        // no-op
+    }
+
+    /**
+     * Received response for RTT modify request
+     * @param status true : Accepted the request
+     *               false : Declined the request
+     */
+    @Override
+    public void callSessionRttModifyResponseReceived(int status) {
+        // no -op
+    }
+
+    /**
+     * Device received RTT message from Remote UE
+     * @param rttMessage RTT message received
+     */
+    @Override
+    public void callSessionRttMessageReceived(String rttMessage) {
         // no-op
     }
 }

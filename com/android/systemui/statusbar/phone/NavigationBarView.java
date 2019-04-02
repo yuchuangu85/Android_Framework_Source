@@ -59,6 +59,7 @@ import com.android.systemui.statusbar.policy.KeyButtonDrawable;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.util.function.Consumer;
 
 public class NavigationBarView extends FrameLayout implements PluginListener<NavGesture> {
     final static boolean DEBUG = false;
@@ -74,7 +75,6 @@ public class NavigationBarView extends FrameLayout implements PluginListener<Nav
     View[] mRotatedViews = new View[4];
 
     boolean mVertical;
-    boolean mScreenOn;
     private int mCurrentRotation = -1;
 
     boolean mShowMenu;
@@ -317,7 +317,8 @@ public class NavigationBarView extends FrameLayout implements PluginListener<Nav
             mDockedIcon = getDrawable(ctx,
                     R.drawable.ic_sysbar_docked, R.drawable.ic_sysbar_docked_dark);
         }
-        if (oldConfig.densityDpi != newConfig.densityDpi) {
+        if (oldConfig.densityDpi != newConfig.densityDpi
+                || oldConfig.getLayoutDirection() != newConfig.getLayoutDirection()) {
             mBackIcon = getDrawable(ctx, R.drawable.ic_sysbar_back, R.drawable.ic_sysbar_back_dark);
             mBackLandIcon = mBackIcon;
             mBackAltIcon = getDrawable(ctx,
@@ -364,8 +365,7 @@ public class NavigationBarView extends FrameLayout implements PluginListener<Nav
         super.setLayoutDirection(layoutDirection);
     }
 
-    public void notifyScreenOn(boolean screenOn) {
-        mScreenOn = screenOn;
+    public void notifyScreenOn() {
         setDisabledFlags(mDisabledFlags, true);
     }
 
@@ -560,18 +560,15 @@ public class NavigationBarView extends FrameLayout implements PluginListener<Nav
     public void onFinishInflate() {
         mNavigationInflaterView = (NavigationBarInflaterView) findViewById(
                 R.id.navigation_inflater);
-        updateRotatedViews();
         mNavigationInflaterView.setButtonDispatchers(mButtonDispatchers);
 
         getImeSwitchButton().setOnClickListener(mImeSwitcherClickListener);
 
-        DockedStackExistsListener.register(exists -> mHandler.post(() -> {
-            mDockedStackExists = exists;
-            updateRecentsIcon();
-        }));
+        DockedStackExistsListener.register(mDockedListener);
+        updateRotatedViews();
     }
 
-    void updateRotatedViews() {
+    private void updateRotatedViews() {
         mRotatedViews[Surface.ROTATION_0] =
                 mRotatedViews[Surface.ROTATION_180] = findViewById(R.id.rot0);
         mRotatedViews[Surface.ROTATION_270] =
@@ -612,6 +609,7 @@ public class NavigationBarView extends FrameLayout implements PluginListener<Nav
         updateCurrentView();
 
         mDeadZone = (DeadZone) mCurrentView.findViewById(R.id.deadzone);
+
         ((NavigationBarFrame) getRootView()).setDeadZone(mDeadZone);
         mDeadZone.setDisplayRotation(mCurrentRotation);
 
@@ -628,9 +626,6 @@ public class NavigationBarView extends FrameLayout implements PluginListener<Nav
         setNavigationIconHints(mNavigationIconHints, true);
 
         getHomeButton().setVertical(mVertical);
-    }
-
-    public void onKeyguardOccludedChanged(boolean keyguardOccluded) {
     }
 
     private void updateTaskSwitchHelper() {
@@ -669,7 +664,8 @@ public class NavigationBarView extends FrameLayout implements PluginListener<Nav
         updateTaskSwitchHelper();
         updateIcons(getContext(), mConfiguration, newConfig);
         updateRecentsIcon();
-        if (uiCarModeChanged || mConfiguration.densityDpi != newConfig.densityDpi) {
+        if (uiCarModeChanged || mConfiguration.densityDpi != newConfig.densityDpi
+                || mConfiguration.getLayoutDirection() != newConfig.getLayoutDirection()) {
             // If car mode or density changes, we need to reset the icons.
             setNavigationIconHints(mNavigationIconHints, true);
         }
@@ -687,8 +683,6 @@ public class NavigationBarView extends FrameLayout implements PluginListener<Nav
 
             if (isCarMode != mInCarMode) {
                 mInCarMode = isCarMode;
-                getHomeButton().setCarMode(isCarMode);
-
                 if (ALTERNATE_CAR_MODE_UI) {
                     mUseCarModeUi = isCarMode;
                     uiCarModeChanged = true;
@@ -754,6 +748,7 @@ public class NavigationBarView extends FrameLayout implements PluginListener<Nav
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
+        reorient();
         onPluginDisconnected(null); // Create default gesture helper
         Dependency.get(PluginManager.class).addPluginListener(this,
                 NavGesture.class, false /* Only one */);
@@ -836,4 +831,8 @@ public class NavigationBarView extends FrameLayout implements PluginListener<Nav
         void onVerticalChanged(boolean isVertical);
     }
 
+    private final Consumer<Boolean> mDockedListener = exists -> mHandler.post(() -> {
+        mDockedStackExists = exists;
+        updateRecentsIcon();
+    });
 }

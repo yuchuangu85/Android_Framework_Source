@@ -23,7 +23,6 @@ import android.accessibilityservice.AccessibilityServiceInfo;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SdkConstant;
-import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.content.ComponentName;
 import android.content.Context;
@@ -42,6 +41,7 @@ import android.os.SystemClock;
 import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.util.Log;
+import android.util.SparseArray;
 import android.view.IWindow;
 import android.view.View;
 
@@ -143,6 +143,11 @@ public final class AccessibilityManager {
 
     private final ArrayMap<AccessibilityServicesStateChangeListener, Handler>
             mServicesStateChangeListeners = new ArrayMap<>();
+
+    /**
+     * Map from a view's accessibility id to the list of request preparers set for that view
+     */
+    private SparseArray<List<AccessibilityRequestPreparer>> mRequestPreparerLists;
 
     /**
      * Listener for the system accessibility state. To listen for changes to the
@@ -697,6 +702,54 @@ public final class AccessibilityManager {
     }
 
     /**
+     * Registers a {@link AccessibilityRequestPreparer}.
+     */
+    public void addAccessibilityRequestPreparer(AccessibilityRequestPreparer preparer) {
+        if (mRequestPreparerLists == null) {
+            mRequestPreparerLists = new SparseArray<>(1);
+        }
+        int id = preparer.getView().getAccessibilityViewId();
+        List<AccessibilityRequestPreparer> requestPreparerList = mRequestPreparerLists.get(id);
+        if (requestPreparerList == null) {
+            requestPreparerList = new ArrayList<>(1);
+            mRequestPreparerLists.put(id, requestPreparerList);
+        }
+        requestPreparerList.add(preparer);
+    }
+
+    /**
+     * Unregisters a {@link AccessibilityRequestPreparer}.
+     */
+    public void removeAccessibilityRequestPreparer(AccessibilityRequestPreparer preparer) {
+        if (mRequestPreparerLists == null) {
+            return;
+        }
+        int viewId = preparer.getView().getAccessibilityViewId();
+        List<AccessibilityRequestPreparer> requestPreparerList = mRequestPreparerLists.get(viewId);
+        if (requestPreparerList != null) {
+            requestPreparerList.remove(preparer);
+            if (requestPreparerList.isEmpty()) {
+                mRequestPreparerLists.remove(viewId);
+            }
+        }
+    }
+
+    /**
+     * Get the preparers that are registered for an accessibility ID
+     *
+     * @param id The ID of interest
+     * @return The list of preparers, or {@code null} if there are none.
+     *
+     * @hide
+     */
+    public List<AccessibilityRequestPreparer> getRequestPreparersForAccessibilityId(int id) {
+        if (mRequestPreparerLists == null) {
+            return null;
+        }
+        return mRequestPreparerLists.get(id);
+    }
+
+    /**
      * Registers a {@link HighTextContrastChangeListener} for changes in
      * the global high text contrast state of the system.
      *
@@ -1059,9 +1112,7 @@ public final class AccessibilityManager {
      *
      * @return {@code true} if the accessibility button is supported on this device,
      * {@code false} otherwise
-     * @hide
      */
-    @SystemApi
     public static boolean isAccessibilityButtonSupported() {
         final Resources res = Resources.getSystem();
         return res.getBoolean(com.android.internal.R.bool.config_showNavigationBar);

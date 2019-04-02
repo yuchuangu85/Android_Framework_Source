@@ -178,7 +178,7 @@ public class LockIcon extends KeyguardAffordanceView implements OnUserInfoChange
                     : 0);
             setRestingAlpha(
                     anyFingerprintIcon ? 1f : KeyguardAffordanceHelper.SWIPE_RESTING_ALPHA_AMOUNT);
-            setImageDrawable(icon);
+            setImageDrawable(icon, false);
             mHasFingerPrintIcon = anyFingerprintIcon;
             if (animation != null && isAnim) {
                 animation.forceAnimationOnUI();
@@ -207,9 +207,9 @@ public class LockIcon extends KeyguardAffordanceView implements OnUserInfoChange
         if (mAccessibilityController == null) {
             return;
         }
-        boolean clickToUnlock = mAccessibilityController.isTouchExplorationEnabled();
+        boolean clickToUnlock = mAccessibilityController.isAccessibilityEnabled();
         boolean clickToForceLock = mUnlockMethodCache.isTrustManaged()
-                && !mAccessibilityController.isAccessibilityEnabled();
+                && !clickToUnlock;
         boolean longClickToForceLock = mUnlockMethodCache.isTrustManaged()
                 && !clickToForceLock;
         setClickable(clickToForceLock || clickToUnlock);

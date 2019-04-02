@@ -293,7 +293,6 @@ public class NetworkDetail {
         } else {
             mWifiMode = 0;
             mMaxRate = 0;
-            Log.w("WifiMode", mSSID + ", Invalid SupportedRates!!!");
         }
         if (DBG) {
             Log.d(TAG, mSSID + "ChannelWidth is: " + mChannelWidth + " PrimaryFreq: " + mPrimaryFreq

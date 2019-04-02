@@ -61,14 +61,15 @@ public class WifiAwareClientState {
     private final String mCallingPackage;
     private final boolean mNotifyIdentityChange;
 
-    private AppOpsManager mAppOps;
+    private final AppOpsManager mAppOps;
+    private final long mCreationTime;
 
     private static final byte[] ALL_ZERO_MAC = new byte[] {0, 0, 0, 0, 0, 0};
     private byte[] mLastDiscoveryInterfaceMac = ALL_ZERO_MAC;
 
     public WifiAwareClientState(Context context, int clientId, int uid, int pid,
             String callingPackage, IWifiAwareEventCallback callback, ConfigRequest configRequest,
-            boolean notifyIdentityChange) {
+            boolean notifyIdentityChange, long creationTime) {
         mContext = context;
         mClientId = clientId;
         mUid = uid;
@@ -79,6 +80,7 @@ public class WifiAwareClientState {
         mNotifyIdentityChange = notifyIdentityChange;
 
         mAppOps = (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
+        mCreationTime = creationTime;
     }
 
     /**
@@ -107,6 +109,14 @@ public class WifiAwareClientState {
 
     public boolean getNotifyIdentityChange() {
         return mNotifyIdentityChange;
+    }
+
+    public long getCreationTime() {
+        return mCreationTime;
+    }
+
+    public SparseArray<WifiAwareDiscoverySessionState> getSessions() {
+        return mSessions;
     }
 
     /**
@@ -164,15 +174,17 @@ public class WifiAwareClientState {
      *
      * @param sessionId The session ID of the session to be destroyed.
      */
-    public void terminateSession(int sessionId) {
+    public WifiAwareDiscoverySessionState terminateSession(int sessionId) {
         WifiAwareDiscoverySessionState session = mSessions.get(sessionId);
         if (session == null) {
             Log.e(TAG, "terminateSession: sessionId doesn't exist - " + sessionId);
-            return;
+            return null;
         }
 
         session.terminate();
         mSessions.delete(sessionId);
+
+        return session;
     }
 
     /**
@@ -240,7 +252,8 @@ public class WifiAwareClientState {
             try {
                 boolean hasPermission = hasLocationingPermission();
                 if (VDBG) Log.v(TAG, "hasPermission=" + hasPermission);
-                mCallback.onIdentityChanged(hasPermission ? mac : ALL_ZERO_MAC);
+                mCallback.onIdentityChanged(
+                        hasPermission ? currentDiscoveryInterfaceMac : ALL_ZERO_MAC);
             } catch (RemoteException e) {
                 Log.w(TAG, "onIdentityChanged: RemoteException - ignored: " + e);
             }

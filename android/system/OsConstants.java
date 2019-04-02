@@ -261,7 +261,7 @@ public final class OsConstants {
     public static final int FD_CLOEXEC = placeholder();
     public static final int FIONREAD = placeholder();
     public static final int F_DUPFD = placeholder();
-    /** @hide */ public static final int F_DUPFD_CLOEXEC = placeholder();
+    public static final int F_DUPFD_CLOEXEC = placeholder();
     public static final int F_GETFD = placeholder();
     public static final int F_GETFL = placeholder();
     public static final int F_GETLK = placeholder();
@@ -357,6 +357,7 @@ public final class OsConstants {
     public static final int MS_ASYNC = placeholder();
     public static final int MS_INVALIDATE = placeholder();
     public static final int MS_SYNC = placeholder();
+    /** @hide */ public static final int NETLINK_NETFILTER = placeholder();
     /** @hide */ public static final int NETLINK_ROUTE = placeholder();
     public static final int NI_DGRAM = placeholder();
     public static final int NI_NAMEREQD = placeholder();
@@ -365,7 +366,7 @@ public final class OsConstants {
     public static final int NI_NUMERICSERV = placeholder();
     public static final int O_ACCMODE = placeholder();
     public static final int O_APPEND = placeholder();
-    /** @hide */ public static final int O_CLOEXEC = placeholder();
+    public static final int O_CLOEXEC = placeholder();
     public static final int O_CREAT = placeholder();
     public static final int O_EXCL = placeholder();
     public static final int O_NOCTTY = placeholder();
@@ -374,7 +375,7 @@ public final class OsConstants {
     public static final int O_RDONLY = placeholder();
     public static final int O_RDWR = placeholder();
     public static final int O_SYNC = placeholder();
-    /** @hide */ public static final int O_DSYNC = placeholder();
+    public static final int O_DSYNC = placeholder();
     public static final int O_TRUNC = placeholder();
     public static final int O_WRONLY = placeholder();
     public static final int POLLERR = placeholder();
@@ -397,6 +398,7 @@ public final class OsConstants {
     public static final int PROT_READ = placeholder();
     public static final int PROT_WRITE = placeholder();
     public static final int R_OK = placeholder();
+    /** @hide */ public static final int RLIMIT_NOFILE = placeholder();
     public static final int RT_SCOPE_HOST = placeholder();
     public static final int RT_SCOPE_LINK = placeholder();
     public static final int RT_SCOPE_NOWHERE = placeholder();

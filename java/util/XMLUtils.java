@@ -92,7 +92,7 @@ class XMLUtils {
     {
         DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
         dbf.setIgnoringElementContentWhitespace(true);
-        // Android-chanaged: We don't currently have a validating document builder.
+        // Android-changed: We don't currently have a validating document builder.
         // Revert this if the situation changes.
         //
         // dbf.setValidating(true);

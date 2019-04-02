@@ -96,6 +96,7 @@ import static android.content.pm.ActivityInfo.RESIZE_MODE_RESIZEABLE_AND_PIPABLE
 import static android.content.pm.ActivityInfo.RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION;
 import static android.content.pm.ApplicationInfo.PRIVATE_FLAG_PRIVILEGED;
 import static android.os.Trace.TRACE_TAG_ACTIVITY_MANAGER;
+import static android.provider.Settings.Global.DEVELOPMENT_FORCE_RESIZABLE_ACTIVITIES;
 import static android.provider.Settings.Secure.USER_SETUP_COMPLETE;
 import static android.view.Display.DEFAULT_DISPLAY;
 
@@ -1045,8 +1046,7 @@ final class TaskRecord extends ConfigurationContainer implements TaskWindowConta
         }
         // We need to provide the current orientation of the display on which this task resides,
         // not the orientation of the task.
-        final int orientation =
-                getStack().mActivityContainer.mActivityDisplay.getConfiguration().orientation;
+        final int orientation = getStack().getDisplay().getConfiguration().orientation;
         return setLastThumbnailLocked(thumbnail, taskWidth, taskHeight, orientation);
     }
 
@@ -1125,9 +1125,13 @@ final class TaskRecord extends ConfigurationContainer implements TaskWindowConta
     }
 
     ActivityRecord getTopActivity() {
+        return getTopActivity(true /* includeOverlays */);
+    }
+
+    ActivityRecord getTopActivity(boolean includeOverlays) {
         for (int i = mActivities.size() - 1; i >= 0; --i) {
             final ActivityRecord r = mActivities.get(i);
-            if (r.finishing) {
+            if (r.finishing || (!includeOverlays && r.mTaskOverlay)) {
                 continue;
             }
             return r;
@@ -1145,6 +1149,17 @@ final class TaskRecord extends ConfigurationContainer implements TaskWindowConta
             }
         }
         return null;
+    }
+
+    void getAllRunningVisibleActivitiesLocked(ArrayList<ActivityRecord> outActivities) {
+        if (mStack != null) {
+            for (int activityNdx = mActivities.size() - 1; activityNdx >= 0; --activityNdx) {
+                ActivityRecord r = mActivities.get(activityNdx);
+                if (!r.finishing && r.okToShowLocked() && r.visibleIgnoringKeyguard) {
+                    outActivities.add(r);
+                }
+            }
+        }
     }
 
     ActivityRecord topRunningActivityWithStartingWindowLocked() {
@@ -1270,7 +1285,6 @@ final class TaskRecord extends ConfigurationContainer implements TaskWindowConta
             // created controller for the activity we are starting yet.
             mWindowContainerController.positionChildAt(appController, index);
         }
-        r.onOverrideConfigurationSent();
 
         // Make sure the list of display UID whitelists is updated
         // now that this record is in a new task.
@@ -1557,8 +1571,9 @@ final class TaskRecord extends ConfigurationContainer implements TaskWindowConta
         // A task can not be docked even if it is considered resizeable because it only supports
         // picture-in-picture mode but has a non-resizeable resizeMode
         return mService.mSupportsSplitScreenMultiWindow
-                && isResizeable(false /* checkSupportsPip */)
-                && !ActivityInfo.isPreserveOrientationMode(mResizeMode);
+                && (mService.mForceResizableActivities
+                        || (isResizeable(false /* checkSupportsPip */)
+                                && !ActivityInfo.isPreserveOrientationMode(mResizeMode)));
     }
 
     /**
@@ -1569,7 +1584,8 @@ final class TaskRecord extends ConfigurationContainer implements TaskWindowConta
      */
     boolean canBeLaunchedOnDisplay(int displayId) {
         return mService.mStackSupervisor.canPlaceEntityOnDisplay(displayId,
-                isResizeable(false /* checkSupportsPip */));
+                isResizeable(false /* checkSupportsPip */), -1 /* don't check PID */,
+                -1 /* don't check UID */, null /* activityInfo */);
     }
 
     /**
@@ -1589,6 +1605,13 @@ final class TaskRecord extends ConfigurationContainer implements TaskWindowConta
         }
         return (mResizeMode != RESIZE_MODE_FORCE_RESIZABLE_PORTRAIT_ONLY || !landscape)
                 && (mResizeMode != RESIZE_MODE_FORCE_RESIZABLE_LANDSCAPE_ONLY || landscape);
+    }
+
+    /**
+     * @return {@code true} if the task is being cleared for the purposes of being reused.
+     */
+    boolean isClearingToReuseTask() {
+        return mReuseTask;
     }
 
     /**
@@ -2329,7 +2352,7 @@ final class TaskRecord extends ConfigurationContainer implements TaskWindowConta
                 pw.print(" mResizeMode=" + ActivityInfo.resizeModeToString(mResizeMode));
                 pw.print(" mSupportsPictureInPicture=" + mSupportsPictureInPicture);
                 pw.print(" isResizeable=" + isResizeable());
-                pw.print(" firstActiveTime=" + lastActiveTime);
+                pw.print(" firstActiveTime=" + firstActiveTime);
                 pw.print(" lastActiveTime=" + lastActiveTime);
                 pw.println(" (inactive for " + (getInactiveDuration() / 1000) + "s)");
     }

@@ -16,6 +16,9 @@
 
 package com.android.server.pm;
 
+import com.android.server.pm.dex.DexManager;
+import com.android.server.pm.dex.PackageDexUsage;
+
 import static com.android.server.pm.PackageManagerService.DEBUG_DEXOPT;
 import static com.android.server.pm.PackageManagerService.TAG;
 
@@ -133,9 +136,11 @@ public class PackageManagerServiceUtils {
                 sortTemp, packageManagerService);
 
         // Give priority to apps used by other apps.
+        DexManager dexManager = packageManagerService.getDexManager();
         applyPackageFilter((pkg) ->
-                packageManagerService.getDexManager().isUsedByOtherApps(pkg.packageName), result,
-                remainingPkgs, sortTemp, packageManagerService);
+                dexManager.getPackageUseInfoOrDefault(pkg.packageName)
+                        .isAnyCodePathUsedByOtherApps(),
+                result, remainingPkgs, sortTemp, packageManagerService);
 
         // Filter out packages that aren't recently used, add all remaining apps.
         // TODO: add a property to control this?
@@ -176,6 +181,41 @@ public class PackageManagerServiceUtils {
         }
 
         return result;
+    }
+
+    /**
+     * Checks if the package was inactive during since <code>thresholdTimeinMillis</code>.
+     * Package is considered active, if:
+     * 1) It was active in foreground.
+     * 2) It was active in background and also used by other apps.
+     *
+     * If it doesn't have sufficient information about the package, it return <code>false</code>.
+     */
+    static boolean isUnusedSinceTimeInMillis(long firstInstallTime, long currentTimeInMillis,
+            long thresholdTimeinMillis, PackageDexUsage.PackageUseInfo packageUseInfo,
+            long latestPackageUseTimeInMillis, long latestForegroundPackageUseTimeInMillis) {
+
+        if (currentTimeInMillis - firstInstallTime < thresholdTimeinMillis) {
+            return false;
+        }
+
+        // If the app was active in foreground during the threshold period.
+        boolean isActiveInForeground = (currentTimeInMillis
+                - latestForegroundPackageUseTimeInMillis)
+                < thresholdTimeinMillis;
+
+        if (isActiveInForeground) {
+            return false;
+        }
+
+        // If the app was active in background during the threshold period and was used
+        // by other packages.
+        boolean isActiveInBackgroundAndUsedByOtherPackages = ((currentTimeInMillis
+                - latestPackageUseTimeInMillis)
+                < thresholdTimeinMillis)
+                && packageUseInfo.isAnyCodePathUsedByOtherApps();
+
+        return !isActiveInBackgroundAndUsedByOtherPackages;
     }
 
     /**

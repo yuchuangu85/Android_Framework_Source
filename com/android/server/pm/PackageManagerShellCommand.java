@@ -148,6 +148,8 @@ class PackageManagerShellCommand extends ShellCommand {
                     return runSetHomeActivity();
                 case "get-privapp-permissions":
                     return runGetPrivappPermissions();
+                case "get-privapp-deny-permissions":
+                    return runGetPrivappDenyPermissions();
                 case "get-instantapp-resolver":
                     return runGetInstantAppResolver();
                 case "has-feature":
@@ -365,6 +367,7 @@ class PackageManagerShellCommand extends ShellCommand {
         String compilationReason = null;
         String checkProfilesRaw = null;
         boolean secondaryDex = false;
+        String split = null;
 
         String opt;
         while ((opt = getNextOption()) != null) {
@@ -395,6 +398,9 @@ class PackageManagerShellCommand extends ShellCommand {
                 case "--secondary-dex":
                     secondaryDex = true;
                     break;
+                case "--split":
+                    split = getNextArgRequired();
+                    break;
                 default:
                     pw.println("Error: Unknown option: " + opt);
                     return 1;
@@ -420,6 +426,16 @@ class PackageManagerShellCommand extends ShellCommand {
         if (compilerFilter == null && compilationReason == null) {
             pw.println("Cannot run without any of compilation filter (\"-m\") and compilation " +
                     "reason (\"-r\") at the same time");
+            return 1;
+        }
+
+        if (allPackages && split != null) {
+            pw.println("-a cannot be specified together with --split");
+            return 1;
+        }
+
+        if (secondaryDex && split != null) {
+            pw.println("--secondary-dex cannot be specified together with --split");
             return 1;
         }
 
@@ -471,7 +487,8 @@ class PackageManagerShellCommand extends ShellCommand {
                     ? mInterface.performDexOptSecondary(packageName,
                             targetCompilerFilter, forceCompilation)
                     : mInterface.performDexOptMode(packageName,
-                            checkProfiles, targetCompilerFilter, forceCompilation);
+                            checkProfiles, targetCompilerFilter, forceCompilation,
+                            true /* bootComplete */, split);
             if (!result) {
                 failedPackages.add(packageName);
             }
@@ -1206,6 +1223,9 @@ class PackageManagerShellCommand extends ShellCommand {
                 case "--full":
                     sessionParams.setInstallAsInstantApp(false /*isInstantApp*/);
                     break;
+                case "--preload":
+                    sessionParams.setInstallAsVirtualPreload();
+                    break;
                 case "--user":
                     params.userId = UserHandle.parseUserArg(getNextArgRequired());
                     break;
@@ -1272,6 +1292,19 @@ class PackageManagerShellCommand extends ShellCommand {
         ArraySet<String> privAppPermissions = SystemConfig.getInstance().getPrivAppPermissions(pkg);
         getOutPrintWriter().println(privAppPermissions == null
                 ? "{}" : privAppPermissions.toString());
+        return 0;
+    }
+
+    private int runGetPrivappDenyPermissions() {
+        final String pkg = getNextArg();
+        if (pkg == null) {
+            System.err.println("Error: no package specified.");
+            return 1;
+        }
+        ArraySet<String> privAppDenyPermissions =
+                SystemConfig.getInstance().getPrivAppDenyPermissions(pkg);
+        getOutPrintWriter().println(privAppDenyPermissions == null
+                ? "{}" : privAppDenyPermissions.toString());
         return 0;
     }
 
@@ -1608,7 +1641,7 @@ class PackageManagerShellCommand extends ShellCommand {
         pw.println("  help");
         pw.println("    Print this help text.");
         pw.println("");
-        pw.println("  compile [-m MODE | -r REASON] [-f] [-c]");
+        pw.println("  compile [-m MODE | -r REASON] [-f] [-c] [--split SPLIT_NAME]");
         pw.println("          [--reset] [--check-prof (true | false)] (-a | TARGET-PACKAGE)");
         pw.println("    Trigger compilation of TARGET-PACKAGE or all packages if \"-a\".");
         pw.println("    Options:");
@@ -1634,6 +1667,7 @@ class PackageManagerShellCommand extends ShellCommand {
         pw.println("      --reset: restore package to its post-install state");
         pw.println("      --check-prof (true | false): look at profiles when doing dexopt?");
         pw.println("      --secondary-dex: compile app secondary dex files");
+        pw.println("      --split SPLIT: compile only the given split name");
         pw.println("  bg-dexopt-job");
         pw.println("    Execute the background optimizations immediately.");
         pw.println("    Note that the command only runs the background optimizer logic. It may");

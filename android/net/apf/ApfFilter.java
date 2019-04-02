@@ -18,6 +18,14 @@ package android.net.apf;
 
 import static android.system.OsConstants.*;
 
+import static com.android.internal.util.BitUtils.bytesToBEInt;
+import static com.android.internal.util.BitUtils.getUint16;
+import static com.android.internal.util.BitUtils.getUint32;
+import static com.android.internal.util.BitUtils.getUint8;
+import static com.android.internal.util.BitUtils.uint16;
+import static com.android.internal.util.BitUtils.uint32;
+import static com.android.internal.util.BitUtils.uint8;
+
 import android.os.SystemClock;
 import android.net.LinkAddress;
 import android.net.LinkProperties;
@@ -171,6 +179,7 @@ public class ApfFilter {
     private static final int ETH_HEADER_LEN = 14;
     private static final int ETH_DEST_ADDR_OFFSET = 0;
     private static final int ETH_ETHERTYPE_OFFSET = 12;
+    private static final int ETH_TYPE_MIN = 0x0600;
     private static final byte[] ETH_BROADCAST_MAC_ADDRESS =
             {(byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff };
     // TODO: Make these offsets relative to end of link-layer header; don't include ETH_HEADER_LEN.
@@ -183,6 +192,11 @@ public class ApfFilter {
     private static final int IPV4_ANY_HOST_ADDRESS = 0;
     private static final int IPV4_BROADCAST_ADDRESS = -1; // 255.255.255.255
 
+    // Traffic class and Flow label are not byte aligned. Luckily we
+    // don't care about either value so we'll consider bytes 1-3 of the
+    // IPv6 header as don't care.
+    private static final int IPV6_FLOW_LABEL_OFFSET = ETH_HEADER_LEN + 1;
+    private static final int IPV6_FLOW_LABEL_LEN = 3;
     private static final int IPV6_NEXT_HEADER_OFFSET = ETH_HEADER_LEN + 6;
     private static final int IPV6_SRC_ADDR_OFFSET = ETH_HEADER_LEN + 8;
     private static final int IPV6_DEST_ADDR_OFFSET = ETH_HEADER_LEN + 24;
@@ -223,6 +237,7 @@ public class ApfFilter {
     private final IpManager.Callback mIpManagerCallback;
     private final NetworkInterface mNetworkInterface;
     private final IpConnectivityLog mMetricsLog;
+
     @VisibleForTesting
     byte[] mHardwareAddress;
     @VisibleForTesting
@@ -231,6 +246,7 @@ public class ApfFilter {
     private long mUniqueCounter;
     @GuardedBy("this")
     private boolean mMulticastFilter;
+    private final boolean mDrop802_3Frames;
     // Our IPv4 address, if we have just one, otherwise null.
     @GuardedBy("this")
     private byte[] mIPv4Address;
@@ -240,11 +256,13 @@ public class ApfFilter {
 
     @VisibleForTesting
     ApfFilter(ApfCapabilities apfCapabilities, NetworkInterface networkInterface,
-            IpManager.Callback ipManagerCallback, boolean multicastFilter, IpConnectivityLog log) {
+            IpManager.Callback ipManagerCallback, boolean multicastFilter,
+            boolean ieee802_3Filter, IpConnectivityLog log) {
         mApfCapabilities = apfCapabilities;
         mIpManagerCallback = ipManagerCallback;
         mNetworkInterface = networkInterface;
         mMulticastFilter = multicastFilter;
+        mDrop802_3Frames = ieee802_3Filter;
         mMetricsLog = log;
 
         // TODO: ApfFilter should not generate programs until IpManager sends provisioning success.
@@ -465,8 +483,13 @@ public class ApfFilter {
 
             RaEvent.Builder builder = new RaEvent.Builder();
 
-            // Ignore the checksum.
+            // Ignore the flow label and low 4 bits of traffic class.
             int lastNonLifetimeStart = addNonLifetime(0,
+                    IPV6_FLOW_LABEL_OFFSET,
+                    IPV6_FLOW_LABEL_LEN);
+
+            // Ignore the checksum.
+            lastNonLifetimeStart = addNonLifetime(lastNonLifetimeStart,
                     ICMP6_RA_CHECKSUM_OFFSET,
                     ICMP6_RA_CHECKSUM_LEN);
 
@@ -557,9 +580,14 @@ public class ApfFilter {
             for (int i = 0; (i + 1) < mNonLifetimes.size(); i++) {
                 int offset = mNonLifetimes.get(i).first + mNonLifetimes.get(i).second;
 
+                // The flow label is in mNonLifetimes, but it's not a lifetime.
+                if (offset == IPV6_FLOW_LABEL_OFFSET) {
+                    continue;
+                }
+
                 // The checksum is in mNonLifetimes, but it's not a lifetime.
                 if (offset == ICMP6_RA_CHECKSUM_OFFSET) {
-                     continue;
+                    continue;
                 }
 
                 final int lifetimeLength = mNonLifetimes.get(i+1).first - offset;
@@ -621,6 +649,11 @@ public class ApfFilter {
                 if ((i + 1) < mNonLifetimes.size()) {
                     Pair<Integer, Integer> nextNonLifetime = mNonLifetimes.get(i + 1);
                     int offset = nonLifetime.first + nonLifetime.second;
+
+                    // Skip the Flow label.
+                    if (offset == IPV6_FLOW_LABEL_OFFSET) {
+                        continue;
+                    }
                     // Skip the checksum.
                     if (offset == ICMP6_RA_CHECKSUM_OFFSET) {
                         continue;
@@ -857,6 +890,7 @@ public class ApfFilter {
     /**
      * Begin generating an APF program to:
      * <ul>
+     * <li>Drop/Pass 802.3 frames (based on policy)
      * <li>Drop ARP requests not for us, if mIPv4Address is set,
      * <li>Drop IPv4 broadcast packets, except DHCP destined to our MAC,
      * <li>Drop IPv4 multicast packets, if mMulticastFilter,
@@ -878,6 +912,8 @@ public class ApfFilter {
 
         // Here's a basic summary of what the initial program does:
         //
+        // if it's a 802.3 Frame (ethtype < 0x0600):
+        //    drop or pass based on configurations
         // if it's ARP:
         //   insert ARP filter to drop or pass these appropriately
         // if it's IPv4:
@@ -888,9 +924,15 @@ public class ApfFilter {
         //   pass
         // insert IPv6 filter to drop, pass, or fall off the end for ICMPv6 packets
 
+        gen.addLoad16(Register.R0, ETH_ETHERTYPE_OFFSET);
+
+        if (mDrop802_3Frames) {
+            // drop 802.3 frames (ethtype < 0x0600)
+            gen.addJumpIfR0LessThan(ETH_TYPE_MIN, gen.DROP_LABEL);
+        }
+
         // Add ARP filters:
         String skipArpFiltersLabel = "skipArpFilters";
-        gen.addLoad16(Register.R0, ETH_ETHERTYPE_OFFSET);
         gen.addJumpIfR0NotEquals(ETH_P_ARP, skipArpFiltersLabel);
         generateArpFilterLocked(gen);
         gen.defineLabel(skipArpFiltersLabel);
@@ -1073,7 +1115,7 @@ public class ApfFilter {
      */
     public static ApfFilter maybeCreate(ApfCapabilities apfCapabilities,
             NetworkInterface networkInterface, IpManager.Callback ipManagerCallback,
-            boolean multicastFilter) {
+            boolean multicastFilter, boolean ieee802_3Filter) {
         if (apfCapabilities == null || networkInterface == null) return null;
         if (apfCapabilities.apfVersionSupported == 0) return null;
         if (apfCapabilities.maximumApfProgramSize < 512) {
@@ -1090,7 +1132,7 @@ public class ApfFilter {
             return null;
         }
         return new ApfFilter(apfCapabilities, networkInterface, ipManagerCallback,
-                multicastFilter, new IpConnectivityLog());
+                multicastFilter, ieee802_3Filter, new IpConnectivityLog());
     }
 
     public synchronized void shutdown() {
@@ -1185,41 +1227,9 @@ public class ApfFilter {
         }
     }
 
-    private static int uint8(byte b) {
-        return b & 0xff;
-    }
-
-    private static int uint16(short s) {
-        return s & 0xffff;
-    }
-
-    private static long uint32(int i) {
-        return i & 0xffffffffL;
-    }
-
-    private static int getUint8(ByteBuffer buffer, int position) {
-        return uint8(buffer.get(position));
-    }
-
-    private static int getUint16(ByteBuffer buffer, int position) {
-        return uint16(buffer.getShort(position));
-    }
-
-    private static long getUint32(ByteBuffer buffer, int position) {
-        return uint32(buffer.getInt(position));
-    }
-
     // TODO: move to android.net.NetworkUtils
     @VisibleForTesting
     public static int ipv4BroadcastAddress(byte[] addrBytes, int prefixLength) {
-        return bytesToInt(addrBytes) | (int) (uint32(-1) >>> prefixLength);
-    }
-
-    @VisibleForTesting
-    public static int bytesToInt(byte[] addrBytes) {
-        return (uint8(addrBytes[0]) << 24)
-                + (uint8(addrBytes[1]) << 16)
-                + (uint8(addrBytes[2]) << 8)
-                + (uint8(addrBytes[3]));
+        return bytesToBEInt(addrBytes) | (int) (uint32(-1) >>> prefixLength);
     }
 }

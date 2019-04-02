@@ -31,6 +31,8 @@ import android.Manifest;
 import android.annotation.NonNull;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.content.res.Resources;
+import android.graphics.Point;
 import android.hardware.SensorManager;
 import android.hardware.display.DisplayManagerGlobal;
 import android.hardware.display.DisplayManagerInternal;
@@ -132,7 +134,7 @@ public final class DisplayManagerService extends SystemService {
 
     private static final long WAIT_FOR_DEFAULT_DISPLAY_TIMEOUT = 10000;
 
-    private static final int MSG_REGISTER_DEFAULT_DISPLAY_ADAPTER = 1;
+    private static final int MSG_REGISTER_DEFAULT_DISPLAY_ADAPTERS = 1;
     private static final int MSG_REGISTER_ADDITIONAL_DISPLAY_ADAPTERS = 2;
     private static final int MSG_DELIVER_DISPLAY_EVENT = 3;
     private static final int MSG_REQUEST_TRAVERSAL = 4;
@@ -211,6 +213,12 @@ public final class DisplayManagerService extends SystemService {
     // The virtual display adapter, or null if not registered.
     private VirtualDisplayAdapter mVirtualDisplayAdapter;
 
+    // The stable device screen height and width. These are not tied to a specific display, even
+    // the default display, because they need to be stable over the course of the device's entire
+    // life, even if the default display changes (e.g. a new monitor is plugged into a PC-like
+    // device).
+    private Point mStableDisplaySize = new Point();
+
     // Viewports of the default display and the display that should receive touch
     // input from an external source.  Used by the input system.
     private final DisplayViewport mDefaultViewport = new DisplayViewport();
@@ -266,7 +274,6 @@ public final class DisplayManagerService extends SystemService {
 
         PowerManager pm = (PowerManager) mContext.getSystemService(Context.POWER_SERVICE);
         mGlobalDisplayBrightness = pm.getDefaultScreenBrightnessSetting();
-
     }
 
     public void setupSchedulerPolicies() {
@@ -284,9 +291,12 @@ public final class DisplayManagerService extends SystemService {
         // We need to pre-load the persistent data store so it's ready before the default display
         // adapter is up so that we have it's configuration. We could load it lazily, but since
         // we're going to have to read it in eventually we may as well do it here rather than after
-        // we've waited for the diplay to register itself with us.
-        mPersistentDataStore.loadIfNeeded();
-        mHandler.sendEmptyMessage(MSG_REGISTER_DEFAULT_DISPLAY_ADAPTER);
+        // we've waited for the display to register itself with us.
+		synchronized(mSyncRoot) {
+			mPersistentDataStore.loadIfNeeded();
+			loadStableDisplayValuesLocked();
+        }
+        mHandler.sendEmptyMessage(MSG_REGISTER_DEFAULT_DISPLAY_ADAPTERS);
 
         publishBinderService(Context.DISPLAY_SERVICE, new BinderService(),
                 true /*allowIsolated*/);
@@ -298,12 +308,16 @@ public final class DisplayManagerService extends SystemService {
     public void onBootPhase(int phase) {
         if (phase == PHASE_WAIT_FOR_DEFAULT_DISPLAY) {
             synchronized (mSyncRoot) {
-                long timeout = SystemClock.uptimeMillis() + WAIT_FOR_DEFAULT_DISPLAY_TIMEOUT;
-                while (mLogicalDisplays.get(Display.DEFAULT_DISPLAY) == null) {
+                long timeout = SystemClock.uptimeMillis()
+                        + mInjector.getDefaultDisplayDelayTimeout();
+                while (mLogicalDisplays.get(Display.DEFAULT_DISPLAY) == null ||
+                        mVirtualDisplayAdapter == null) {
                     long delay = timeout - SystemClock.uptimeMillis();
                     if (delay <= 0) {
                         throw new RuntimeException("Timeout waiting for default display "
-                                + "to be initialized.");
+                                + "to be initialized. DefaultDisplay="
+                                + mLogicalDisplays.get(Display.DEFAULT_DISPLAY)
+                                + ", mVirtualDisplayAdapter=" + mVirtualDisplayAdapter);
                     }
                     if (DEBUG) {
                         Slog.d(TAG, "waitForDefaultDisplay: waiting, timeout=" + delay);
@@ -341,6 +355,34 @@ public final class DisplayManagerService extends SystemService {
     @VisibleForTesting
     Handler getDisplayHandler() {
         return mHandler;
+    }
+
+    private void loadStableDisplayValuesLocked() {
+        final Point size = mPersistentDataStore.getStableDisplaySize();
+        if (size.x > 0 && size.y > 0) {
+            // Just set these values directly so we don't write the display persistent data again
+            // unnecessarily
+            mStableDisplaySize.set(size.x, size.y);
+        } else {
+            final Resources res = mContext.getResources();
+            final int width = res.getInteger(
+                    com.android.internal.R.integer.config_stableDeviceDisplayWidth);
+            final int height = res.getInteger(
+                    com.android.internal.R.integer.config_stableDeviceDisplayHeight);
+            if (width > 0 && height > 0) {
+                setStableDisplaySizeLocked(width, height);
+            }
+        }
+    }
+
+    private Point getStableDisplaySizeInternal() {
+        Point r = new Point();
+        synchronized (mSyncRoot) {
+            if (mStableDisplaySize.x > 0 && mStableDisplaySize.y > 0) {
+                r.set(mStableDisplaySize.x, mStableDisplaySize.y);
+            }
+        }
+        return r;
     }
 
     private void registerDisplayTransactionListenerInternal(
@@ -685,11 +727,23 @@ public final class DisplayManagerService extends SystemService {
         }
     }
 
-    private void registerDefaultDisplayAdapter() {
-        // Register default display adapter.
+    private void registerDefaultDisplayAdapters() {
+        // Register default display adapters.
         synchronized (mSyncRoot) {
+            // main display adapter
             registerDisplayAdapterLocked(new LocalDisplayAdapter(
                     mSyncRoot, mContext, mHandler, mDisplayAdapterListener));
+
+            // Standalone VR devices rely on a virtual display as their primary display for
+            // 2D UI. We register virtual display adapter along side the main display adapter
+            // here so that it is ready by the time the system sends the home Intent for
+            // early apps like SetupWizard/Launcher. In particular, SUW is displayed using
+            // the virtual display inside VR before any VR-specific apps even run.
+            mVirtualDisplayAdapter = mInjector.getVirtualDisplayAdapter(mSyncRoot, mContext,
+                    mHandler, mDisplayAdapterListener);
+            if (mVirtualDisplayAdapter != null) {
+                registerDisplayAdapterLocked(mVirtualDisplayAdapter);
+            }
         }
     }
 
@@ -698,7 +752,6 @@ public final class DisplayManagerService extends SystemService {
             if (shouldRegisterNonEssentialDisplayAdaptersLocked()) {
                 registerOverlayDisplayAdapterLocked();
                 registerWifiDisplayAdapterLocked();
-                registerVirtualDisplayAdapterLocked();
             }
         }
     }
@@ -717,12 +770,6 @@ public final class DisplayManagerService extends SystemService {
                     mPersistentDataStore);
             registerDisplayAdapterLocked(mWifiDisplayAdapter);
         }
-    }
-
-    private void registerVirtualDisplayAdapterLocked() {
-        mVirtualDisplayAdapter = mInjector.getVirtualDisplayAdapter(mSyncRoot, mContext, mHandler,
-                mDisplayAdapterListener);
-        registerDisplayAdapterLocked(mVirtualDisplayAdapter);
     }
 
     private boolean shouldRegisterNonEssentialDisplayAdaptersLocked() {
@@ -761,18 +808,6 @@ public final class DisplayManagerService extends SystemService {
         Runnable work = updateDisplayStateLocked(device);
         if (work != null) {
             work.run();
-        }
-        if (display != null && display.getPrimaryDisplayDeviceLocked() == device) {
-            int colorMode = mPersistentDataStore.getColorMode(device);
-            if (colorMode == Display.COLOR_MODE_INVALID) {
-                if ((device.getDisplayDeviceInfoLocked().flags
-                     & DisplayDeviceInfo.FLAG_DEFAULT_DISPLAY) != 0) {
-                    colorMode = mDefaultDisplayDefaultColorMode;
-                } else {
-                    colorMode = Display.COLOR_MODE_DEFAULT;
-                }
-            }
-            display.setRequestedColorModeLocked(colorMode);
         }
         scheduleTraversalLocked(false);
     }
@@ -878,6 +913,11 @@ public final class DisplayManagerService extends SystemService {
             return null;
         }
 
+        configureColorModeLocked(display, device);
+        if (isDefault) {
+            recordStableDisplayStatsIfNeededLocked(display);
+        }
+
         mLogicalDisplays.put(displayId, display);
 
         // Wake up waitForDefaultDisplay.
@@ -897,6 +937,40 @@ public final class DisplayManagerService extends SystemService {
         // Currently layer stacks and display ids are the same.
         // This need not be the case.
         return displayId;
+    }
+
+    private void configureColorModeLocked(LogicalDisplay display, DisplayDevice device) {
+        if (display.getPrimaryDisplayDeviceLocked() == device) {
+            int colorMode = mPersistentDataStore.getColorMode(device);
+            if (colorMode == Display.COLOR_MODE_INVALID) {
+                if ((device.getDisplayDeviceInfoLocked().flags
+                     & DisplayDeviceInfo.FLAG_DEFAULT_DISPLAY) != 0) {
+                    colorMode = mDefaultDisplayDefaultColorMode;
+                } else {
+                    colorMode = Display.COLOR_MODE_DEFAULT;
+                }
+            }
+            display.setRequestedColorModeLocked(colorMode);
+        }
+    }
+
+    // If we've never recorded stable device stats for this device before and they aren't
+    // explicitly configured, go ahead and record the stable device stats now based on the status
+    // of the default display at first boot.
+    private void recordStableDisplayStatsIfNeededLocked(LogicalDisplay d) {
+        if (mStableDisplaySize.x <= 0 && mStableDisplaySize.y <= 0) {
+            DisplayInfo info = d.getDisplayInfoLocked();
+            setStableDisplaySizeLocked(info.getNaturalWidth(), info.getNaturalHeight());
+        }
+    }
+
+    private void setStableDisplaySizeLocked(int width, int height) {
+        mStableDisplaySize = new Point(width, height);
+        try {
+            mPersistentDataStore.setStableDisplaySize(mStableDisplaySize);
+        } finally {
+            mPersistentDataStore.saveIfNeeded();
+        }
     }
 
     // Updates all existing logical displays given the current set of display devices.
@@ -1158,6 +1232,8 @@ public final class DisplayManagerService extends SystemService {
             pw.println("  mDefaultDisplayDefaultColorMode=" + mDefaultDisplayDefaultColorMode);
             pw.println("  mSingleDisplayDemoMode=" + mSingleDisplayDemoMode);
             pw.println("  mWifiDisplayScanRequestCount=" + mWifiDisplayScanRequestCount);
+            pw.println("  mStableDisplaySize=" + mStableDisplaySize);
+
 
             IndentingPrintWriter ipw = new IndentingPrintWriter(pw, "    ");
             ipw.increaseIndent();
@@ -1219,6 +1295,22 @@ public final class DisplayManagerService extends SystemService {
                 Handler handler, DisplayAdapter.Listener displayAdapterListener) {
             return new VirtualDisplayAdapter(syncRoot, context, handler, displayAdapterListener);
         }
+
+        long getDefaultDisplayDelayTimeout() {
+            return WAIT_FOR_DEFAULT_DISPLAY_TIMEOUT;
+        }
+    }
+
+    @VisibleForTesting
+    DisplayDeviceInfo getDisplayDeviceInfoInternal(int displayId) {
+        synchronized (mSyncRoot) {
+            LogicalDisplay display = mLogicalDisplays.get(displayId);
+            if (display != null) {
+                DisplayDevice displayDevice = display.getPrimaryDisplayDeviceLocked();
+                return displayDevice.getDisplayDeviceInfoLocked();
+            }
+            return null;
+        }
     }
 
     private final class DisplayManagerHandler extends Handler {
@@ -1229,8 +1321,8 @@ public final class DisplayManagerService extends SystemService {
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
-                case MSG_REGISTER_DEFAULT_DISPLAY_ADAPTER:
-                    registerDefaultDisplayAdapter();
+                case MSG_REGISTER_DEFAULT_DISPLAY_ADAPTERS:
+                    registerDefaultDisplayAdapters();
                     break;
 
                 case MSG_REGISTER_ADDITIONAL_DISPLAY_ADAPTERS:
@@ -1349,6 +1441,19 @@ public final class DisplayManagerService extends SystemService {
             final long token = Binder.clearCallingIdentity();
             try {
                 return getDisplayIdsInternal(callingUid);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        /**
+         * Returns the stable device display size, in pixels.
+         */
+        @Override // Binder call
+        public Point getStableDisplaySize() {
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return getStableDisplaySizeInternal();
             } finally {
                 Binder.restoreCallingIdentity(token);
             }

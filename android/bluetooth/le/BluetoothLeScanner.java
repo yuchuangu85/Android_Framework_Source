@@ -137,6 +137,11 @@ public final class BluetoothLeScanner {
      * the PendingIntent. Use this method of scanning if your process is not always running and it
      * should be started when scan results are available.
      * <p>
+     * An app must hold
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION ACCESS_COARSE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION ACCESS_FINE_LOCATION} permission
+     * in order to get results.
+     * <p>
      * When the PendingIntent is delivered, the Intent passed to the receiver or activity
      * will contain one or more of the extras {@link #EXTRA_CALLBACK_TYPE},
      * {@link #EXTRA_ERROR_CODE} and {@link #EXTRA_LIST_SCAN_RESULT} to indicate the result of
@@ -205,7 +210,8 @@ public final class BluetoothLeScanner {
         }
         synchronized (mLeScanClients) {
             if (callback != null && mLeScanClients.containsKey(callback)) {
-                postCallbackError(callback, ScanCallback.SCAN_FAILED_ALREADY_STARTED);
+                return postCallbackErrorOrReturn(callback,
+                            ScanCallback.SCAN_FAILED_ALREADY_STARTED);
             }
             IBluetoothGatt gatt;
             try {
@@ -343,6 +349,7 @@ public final class BluetoothLeScanner {
         private List<List<ResultStorageDescriptor>> mResultStorages;
 
         // mLeHandle 0: not registered
+        // -2: registration failed because app is scanning to frequently
         // -1: scan stopped or registration failed
         // > 0: registered and scan started
         private int mScannerId;
@@ -363,7 +370,7 @@ public final class BluetoothLeScanner {
         public void startRegistration() {
             synchronized (this) {
                 // Scan stopped.
-                if (mScannerId == -1) return;
+                if (mScannerId == -1 || mScannerId == -2) return;
                 try {
                     mBluetoothGatt.registerScanner(this, mWorkSource);
                     wait(REGISTRATION_CALLBACK_TIMEOUT_MILLIS);
@@ -377,6 +384,10 @@ public final class BluetoothLeScanner {
                     // Registration timed out or got exception, reset scannerId to -1 so no
                     // subsequent operations can proceed.
                     if (mScannerId == 0) mScannerId = -1;
+
+                    // If scanning too frequently, don't report anything to the app.
+                    if (mScannerId == -2) return;
+
                     postCallbackError(mScanCallback,
                             ScanCallback.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED);
                 }
@@ -436,6 +447,9 @@ public final class BluetoothLeScanner {
                         Log.e(TAG, "fail to start le scan: " + e);
                         mScannerId = -1;
                     }
+                } else if (status == ScanCallback.SCAN_FAILED_SCANNING_TOO_FREQUENTLY) {
+                    // applicaiton was scanning too frequently
+                    mScannerId = -2;
                 } else {
                     // registration failed
                     mScannerId = -1;

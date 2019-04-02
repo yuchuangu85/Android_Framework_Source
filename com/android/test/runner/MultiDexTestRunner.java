@@ -32,7 +32,7 @@ public class MultiDexTestRunner extends InstrumentationTestRunner {
 
     @Override
     public void onCreate(Bundle arguments) {
-        MultiDex.install(getTargetContext());
+        MultiDex.installInstrumentation(getContext(), getTargetContext());
         super.onCreate(arguments);
     }
 

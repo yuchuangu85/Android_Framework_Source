@@ -16,13 +16,16 @@
 
 package com.android.server.wifi;
 
+import android.annotation.NonNull;
 import android.content.Context;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiConfiguration.KeyMgmt;
 import android.os.Environment;
+import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.internal.R;
+import com.android.internal.annotations.VisibleForTesting;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -31,6 +34,7 @@ import java.io.DataOutputStream;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Random;
 import java.util.UUID;
@@ -49,6 +53,15 @@ public class WifiApConfigStore {
 
     private static final int RAND_SSID_INT_MIN = 1000;
     private static final int RAND_SSID_INT_MAX = 9999;
+
+    @VisibleForTesting
+    static final int SSID_MIN_LEN = 1;
+    @VisibleForTesting
+    static final int SSID_MAX_LEN = 32;
+    @VisibleForTesting
+    static final int PSK_MIN_LEN = 8;
+    @VisibleForTesting
+    static final int PSK_MAX_LEN = 63;
 
     private WifiConfiguration mWifiApConfig = null;
 
@@ -223,5 +236,111 @@ public class WifiApConfigStore {
         // first 12 chars from xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
         config.preSharedKey = randomUUID.substring(0, 8) + randomUUID.substring(9, 13);
         return config;
+    }
+
+    /**
+     * Verify provided SSID for existence, length and conversion to bytes
+     *
+     * @param ssid String ssid name
+     * @return boolean indicating ssid met requirements
+     */
+    private static boolean validateApConfigSsid(String ssid) {
+        if (TextUtils.isEmpty(ssid)) {
+            Log.d(TAG, "SSID for softap configuration must be set.");
+            return false;
+        }
+
+        if (ssid.length() < SSID_MIN_LEN || ssid.length() > SSID_MAX_LEN) {
+            Log.d(TAG, "SSID for softap configuration string size must be at least "
+                    + SSID_MIN_LEN + " and not more than " + SSID_MAX_LEN);
+            return false;
+        }
+
+        try {
+            ssid.getBytes(StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "softap config SSID verification failed: malformed string " + ssid);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Verify provided preSharedKey in ap config for WPA2_PSK network meets requirements.
+     */
+    private static boolean validateApConfigPreSharedKey(String preSharedKey) {
+        if (preSharedKey.length() < PSK_MIN_LEN || preSharedKey.length() > PSK_MAX_LEN) {
+            Log.d(TAG, "softap network password string size must be at least " + PSK_MIN_LEN
+                    + " and no more than " + PSK_MAX_LEN);
+            return false;
+        }
+
+        try {
+            preSharedKey.getBytes(StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "softap network password verification failed: malformed string");
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Validate a WifiConfiguration is properly configured for use by SoftApManager.
+     *
+     * This method checks the length of the SSID and for sanity between security settings (if it
+     * requires a password, was one provided?).
+     *
+     * @param apConfig {@link WifiConfiguration} to use for softap mode
+     * @return boolean true if the provided config meets the minimum set of details, false
+     * otherwise.
+     */
+    static boolean validateApWifiConfiguration(@NonNull WifiConfiguration apConfig) {
+        // first check the SSID
+        if (!validateApConfigSsid(apConfig.SSID)) {
+            // failed SSID verificiation checks
+            return false;
+        }
+
+        // now check security settings: settings app allows open and WPA2 PSK
+        if (apConfig.allowedKeyManagement == null) {
+            Log.d(TAG, "softap config key management bitset was null");
+            return false;
+        }
+
+        String preSharedKey = apConfig.preSharedKey;
+        boolean hasPreSharedKey = !TextUtils.isEmpty(preSharedKey);
+        int authType;
+
+        try {
+            authType = apConfig.getAuthType();
+        } catch (IllegalStateException e) {
+            Log.d(TAG, "Unable to get AuthType for softap config: " + e.getMessage());
+            return false;
+        }
+
+        if (authType == KeyMgmt.NONE) {
+            // open networks should not have a password
+            if (hasPreSharedKey) {
+                Log.d(TAG, "open softap network should not have a password");
+                return false;
+            }
+        } else if (authType == KeyMgmt.WPA2_PSK) {
+            // this is a config that should have a password - check that first
+            if (!hasPreSharedKey) {
+                Log.d(TAG, "softap network password must be set");
+                return false;
+            }
+
+            if (!validateApConfigPreSharedKey(preSharedKey)) {
+                // failed preSharedKey checks
+                return false;
+            }
+        } else {
+            // this is not a supported security type
+            Log.d(TAG, "softap configs must either be open or WPA2 PSK networks");
+            return false;
+        }
+
+        return true;
     }
 }

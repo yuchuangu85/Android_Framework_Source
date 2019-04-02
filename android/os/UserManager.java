@@ -303,10 +303,12 @@ public class UserManager {
     public static final String DISALLOW_DEBUGGING_FEATURES = "no_debugging_features";
 
     /**
-     * Specifies if a user is disallowed from configuring VPN.
-     * The default value is <code>false</code>.
-     * This restriction has an effect in a managed profile only from
-     * {@link android.os.Build.VERSION_CODES#M}
+     * Specifies if a user is disallowed from configuring a VPN. The default value is
+     * <code>false</code>. This restriction has an effect when set by device owners and, in Android
+     * 6.0 ({@linkplain android.os.Build.VERSION_CODES#M API level 23}) or higher, profile owners.
+     * <p>This restriction also prevents VPNs from starting. However, in Android 7.0
+     * ({@linkplain android.os.Build.VERSION_CODES#N API level 24}) or higher, the system does
+     * start always-on VPNs created by the device or profile owner.
      *
      * <p>Key for user restrictions.
      * <p>Type: Boolean
@@ -389,10 +391,13 @@ public class UserManager {
     public static final String DISALLOW_ADD_MANAGED_PROFILE = "no_add_managed_profile";
 
     /**
-     * Specifies if a user is disallowed from disabling application verification.
-     * Starting from {@link android.os.Build.VERSION_CODES#O}, application verification
-     * is enforced across all users on the device if a profile owner or device owner sets
-     * this restriction to <code>true</code>. The default value is <code>false</code>.
+     * Specifies if a user is disallowed from disabling application verification. The default
+     * value is <code>false</code>.
+     *
+     * <p>In Android 8.0 ({@linkplain android.os.Build.VERSION_CODES#O API level 26}) and higher,
+     * this is a global user restriction. If a device owner or profile owner sets this restriction,
+     * the system enforces app verification across all users on the device. Running in earlier
+     * Android versions, this restriction affects only the profile that sets it.
      *
      * <p>Key for user restrictions.
      * <p>Type: Boolean
@@ -901,11 +906,8 @@ public class UserManager {
      * @return the user name
      */
     public String getUserName() {
-        try {
-            return mService.getUserInfo(getUserHandle()).name;
-        } catch (RemoteException re) {
-            throw re.rethrowFromSystemServer();
-        }
+        UserInfo user = getUserInfo(getUserHandle());
+        return user == null ? "" : user.name;
     }
 
     /**
@@ -1458,7 +1460,7 @@ public class UserManager {
             user = mService.createUser(name, flags);
             // TODO: Keep this in sync with
             // UserManagerService.LocalService.createUserEvenWhenDisallowed
-            if (user != null && !user.isAdmin()) {
+            if (user != null && !user.isAdmin() && !user.isDemo()) {
                 mService.setUserRestriction(DISALLOW_SMS, true, user.id);
                 mService.setUserRestriction(DISALLOW_OUTGOING_CALLS, true, user.id);
             }

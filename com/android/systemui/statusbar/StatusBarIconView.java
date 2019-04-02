@@ -23,11 +23,12 @@ import android.animation.ValueAnimator;
 import android.app.Notification;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
-import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
@@ -42,6 +43,7 @@ import android.util.FloatProperty;
 import android.util.Log;
 import android.util.Property;
 import android.util.TypedValue;
+import android.view.View;
 import android.view.ViewDebug;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.animation.Interpolator;
@@ -54,9 +56,16 @@ import com.android.systemui.statusbar.notification.NotificationIconDozeHelper;
 import com.android.systemui.statusbar.notification.NotificationUtils;
 
 import java.text.NumberFormat;
+import java.util.Arrays;
 
 public class StatusBarIconView extends AnimatedImageView {
     public static final int NO_COLOR = 0;
+
+    /**
+     * Multiply alpha values with (1+DARK_ALPHA_BOOST) when dozing. The chosen value boosts
+     * everything above 30% to 50%, making it appear on 1bit color depths.
+     */
+    private static final float DARK_ALPHA_BOOST = 0.67f;
     private final int ANIMATION_DURATION_FAST = 100;
 
     public static final int STATE_ICON = 0;
@@ -131,6 +140,10 @@ public class StatusBarIconView extends AnimatedImageView {
     private final NotificationIconDozeHelper mDozer;
     private int mContrastedDrawableColor;
     private int mCachedContrastBackgroundColor = NO_COLOR;
+    private float[] mMatrix;
+    private ColorMatrixColorFilter mMatrixColorFilter;
+    private boolean mIsInShelf;
+    private Runnable mLayoutRunnable;
 
     public StatusBarIconView(Context context, String slot, StatusBarNotification sbn) {
         this(context, slot, sbn, false);
@@ -544,12 +557,31 @@ public class StatusBarIconView extends AnimatedImageView {
 
     private void updateIconColor() {
         if (mCurrentSetColor != NO_COLOR) {
-            setImageTintList(ColorStateList.valueOf(NotificationUtils.interpolateColors(
-                    mCurrentSetColor, Color.WHITE, mDarkAmount)));
+            if (mMatrixColorFilter == null) {
+                mMatrix = new float[4 * 5];
+                mMatrixColorFilter = new ColorMatrixColorFilter(mMatrix);
+            }
+            int color = NotificationUtils.interpolateColors(
+                    mCurrentSetColor, Color.WHITE, mDarkAmount);
+            updateTintMatrix(mMatrix, color, DARK_ALPHA_BOOST * mDarkAmount);
+            mMatrixColorFilter.setColorMatrixArray(mMatrix);
+            setColorFilter(mMatrixColorFilter);
+            invalidate();  // setColorFilter only invalidates if the filter instance changed.
         } else {
-            setImageTintList(null);
             mDozer.updateGrayscale(this, mDarkAmount);
         }
+    }
+
+    /**
+     * Updates {@param array} such that it represents a matrix that changes RGB to {@param color}
+     * and multiplies the alpha channel with the color's alpha+{@param alphaBoost}.
+     */
+    private static void updateTintMatrix(float[] array, int color, float alphaBoost) {
+        Arrays.fill(array, 0);
+        array[4] = Color.red(color);
+        array[9] = Color.green(color);
+        array[14] = Color.blue(color);
+        array[18] = Color.alpha(color) / 255f + alphaBoost;
     }
 
     public void setIconColor(int iconColor, boolean animate) {
@@ -756,7 +788,53 @@ public class StatusBarIconView extends AnimatedImageView {
             updateIconScale();
             updateDecorColor();
             updateIconColor();
+            updateAllowAnimation();
         }, dark, fade, delay);
+    }
+
+    private void updateAllowAnimation() {
+        if (mDarkAmount == 0 || mDarkAmount == 1) {
+            setAllowAnimation(mDarkAmount == 0);
+        }
+    }
+
+    /**
+     * This method returns the drawing rect for the view which is different from the regular
+     * drawing rect, since we layout all children at position 0 and usually the translation is
+     * neglected. The standard implementation doesn't account for translation.
+     *
+     * @param outRect The (scrolled) drawing bounds of the view.
+     */
+    @Override
+    public void getDrawingRect(Rect outRect) {
+        super.getDrawingRect(outRect);
+        float translationX = getTranslationX();
+        float translationY = getTranslationY();
+        outRect.left += translationX;
+        outRect.right += translationX;
+        outRect.top += translationY;
+        outRect.bottom += translationY;
+    }
+
+    public void setIsInShelf(boolean isInShelf) {
+        mIsInShelf = isInShelf;
+    }
+
+    public boolean isInShelf() {
+        return mIsInShelf;
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        super.onLayout(changed, left, top, right, bottom);
+        if (mLayoutRunnable != null) {
+            mLayoutRunnable.run();
+            mLayoutRunnable = null;
+        }
+    }
+
+    public void executeOnLayout(Runnable runnable) {
+        mLayoutRunnable = runnable;
     }
 
     public interface OnVisibilityChangedListener {

@@ -218,6 +218,7 @@ public final class AudioAttributes implements Parcelable {
         SUPPRESSIBLE_USAGES.put(USAGE_NOTIFICATION_COMMUNICATION_DELAYED,SUPPRESSIBLE_NOTIFICATION);
         SUPPRESSIBLE_USAGES.put(USAGE_NOTIFICATION_EVENT,                SUPPRESSIBLE_NOTIFICATION);
         SUPPRESSIBLE_USAGES.put(USAGE_ASSISTANCE_ACCESSIBILITY,          SUPPRESSIBLE_NEVER);
+        SUPPRESSIBLE_USAGES.put(USAGE_VOICE_COMMUNICATION,               SUPPRESSIBLE_NEVER);
     }
 
     /**
@@ -841,8 +842,8 @@ public final class AudioAttributes implements Parcelable {
     @Override
     public String toString () {
         return new String("AudioAttributes:"
-                + " usage=" + mUsage
-                + " content=" + mContentType
+                + " usage=" + usageToString()
+                + " content=" + contentTypeToString()
                 + " flags=0x" + Integer.toHexString(mFlags).toUpperCase()
                 + " tags=" + mFormattedTags
                 + " bundle=" + (mBundle == null ? "null" : mBundle.toString()));
@@ -890,6 +891,19 @@ public final class AudioAttributes implements Parcelable {
                 return new String("USAGE_ASSISTANT");
             default:
                 return new String("unknown usage " + usage);
+        }
+    }
+
+    /** @hide */
+    public String contentTypeToString() {
+        switch(mContentType) {
+            case CONTENT_TYPE_UNKNOWN:
+                return new String("CONTENT_TYPE_UNKNOWN");
+            case CONTENT_TYPE_SPEECH: return new String("CONTENT_TYPE_SPEECH");
+            case CONTENT_TYPE_MUSIC: return new String("CONTENT_TYPE_MUSIC");
+            case CONTENT_TYPE_MOVIE: return new String("CONTENT_TYPE_MOVIE");
+            case CONTENT_TYPE_SONIFICATION: return new String("CONTENT_TYPE_SONIFICATION");
+            default: return new String("unknown content type " + mContentType);
         }
     }
 

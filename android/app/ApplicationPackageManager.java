@@ -31,7 +31,6 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ChangedPackages;
 import android.content.pm.ComponentInfo;
-import android.content.pm.InstantAppInfo;
 import android.content.pm.FeatureInfo;
 import android.content.pm.IOnPermissionsChangeListener;
 import android.content.pm.IPackageDataObserver;
@@ -40,6 +39,7 @@ import android.content.pm.IPackageInstallObserver;
 import android.content.pm.IPackageManager;
 import android.content.pm.IPackageMoveObserver;
 import android.content.pm.IPackageStatsObserver;
+import android.content.pm.InstantAppInfo;
 import android.content.pm.InstrumentationInfo;
 import android.content.pm.IntentFilterVerificationInfo;
 import android.content.pm.KeySet;
@@ -78,19 +78,24 @@ import android.os.UserManager;
 import android.os.storage.StorageManager;
 import android.os.storage.VolumeInfo;
 import android.provider.Settings;
+import android.system.ErrnoException;
+import android.system.Os;
+import android.system.OsConstants;
+import android.system.StructStat;
 import android.util.ArrayMap;
 import android.util.IconDrawableFactory;
 import android.util.LauncherIcons;
 import android.util.Log;
 import android.view.Display;
 
-import dalvik.system.VMRuntime;
-
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.util.Preconditions;
 import com.android.internal.util.UserIcons;
+
+import dalvik.system.VMRuntime;
+
 import libcore.util.EmptyArray;
 
 import java.lang.ref.WeakReference;
@@ -281,7 +286,8 @@ public class ApplicationPackageManager extends PackageManager {
     public PermissionInfo getPermissionInfo(String name, int flags)
             throws NameNotFoundException {
         try {
-            PermissionInfo pi = mPM.getPermissionInfo(name, flags);
+            PermissionInfo pi = mPM.getPermissionInfo(name,
+                    mContext.getOpPackageName(), flags);
             if (pi != null) {
                 return pi;
             }
@@ -695,6 +701,15 @@ public class ApplicationPackageManager extends PackageManager {
     public String getNameForUid(int uid) {
         try {
             return mPM.getNameForUid(uid);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    @Override
+    public String[] getNamesForUids(int[] uids) {
+        try {
+            return mPM.getNamesForUids(uids);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -2670,6 +2685,80 @@ public class ApplicationPackageManager extends PackageManager {
     public String getInstantAppAndroidId(String packageName, UserHandle user) {
         try {
             return mPM.getInstantAppAndroidId(packageName, user.getIdentifier());
+        } catch (RemoteException e) {
+            throw e.rethrowAsRuntimeException();
+        }
+    }
+
+    private static class DexModuleRegisterResult {
+        final String dexModulePath;
+        final boolean success;
+        final String message;
+
+        private DexModuleRegisterResult(String dexModulePath, boolean success, String message) {
+            this.dexModulePath = dexModulePath;
+            this.success = success;
+            this.message = message;
+        }
+    }
+
+    private static class DexModuleRegisterCallbackDelegate
+            extends android.content.pm.IDexModuleRegisterCallback.Stub
+            implements Handler.Callback {
+        private static final int MSG_DEX_MODULE_REGISTERED = 1;
+        private final DexModuleRegisterCallback callback;
+        private final Handler mHandler;
+
+        DexModuleRegisterCallbackDelegate(@NonNull DexModuleRegisterCallback callback) {
+            this.callback = callback;
+            mHandler = new Handler(Looper.getMainLooper(), this);
+        }
+
+        @Override
+        public void onDexModuleRegistered(@NonNull String dexModulePath, boolean success,
+                @Nullable String message)throws RemoteException {
+            mHandler.obtainMessage(MSG_DEX_MODULE_REGISTERED,
+                    new DexModuleRegisterResult(dexModulePath, success, message)).sendToTarget();
+        }
+
+        @Override
+        public boolean handleMessage(Message msg) {
+            if (msg.what != MSG_DEX_MODULE_REGISTERED) {
+                return false;
+            }
+            DexModuleRegisterResult result = (DexModuleRegisterResult)msg.obj;
+            callback.onDexModuleRegistered(result.dexModulePath, result.success, result.message);
+            return true;
+        }
+    }
+
+    @Override
+    public void registerDexModule(@NonNull String dexModule,
+            @Nullable DexModuleRegisterCallback callback) {
+        // Check if this is a shared module by looking if the others can read it.
+        boolean isSharedModule = false;
+        try {
+            StructStat stat = Os.stat(dexModule);
+            if ((OsConstants.S_IROTH & stat.st_mode) != 0) {
+                isSharedModule = true;
+            }
+        } catch (ErrnoException e) {
+            callback.onDexModuleRegistered(dexModule, false,
+                    "Could not get stat the module file: " + e.getMessage());
+            return;
+        }
+
+        // Module path is ok.
+        // Create the callback delegate to be passed to package manager service.
+        DexModuleRegisterCallbackDelegate callbackDelegate = null;
+        if (callback != null) {
+            callbackDelegate = new DexModuleRegisterCallbackDelegate(callback);
+        }
+
+        // Invoke the package manager service.
+        try {
+            mPM.registerDexModule(mContext.getPackageName(), dexModule,
+                    isSharedModule, callbackDelegate);
         } catch (RemoteException e) {
             throw e.rethrowAsRuntimeException();
         }

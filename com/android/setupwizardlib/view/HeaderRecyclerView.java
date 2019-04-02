@@ -16,7 +16,6 @@
 
 package com.android.setupwizardlib.view;
 
-import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.os.Build;
@@ -41,7 +40,7 @@ public class HeaderRecyclerView extends RecyclerView {
     private static class HeaderViewHolder extends ViewHolder
             implements DividerItemDecoration.DividedViewHolder {
 
-        public HeaderViewHolder(View itemView) {
+        HeaderViewHolder(View itemView) {
             super(itemView);
         }
 
@@ -119,23 +118,18 @@ public class HeaderRecyclerView extends RecyclerView {
             setHasStableIds(mAdapter.hasStableIds());
         }
 
-        @SuppressLint("InlinedApi")  // MATCH_PARENT is the same constant as FILL_PARENT available
-                                     // on earlier versions.
         @Override
         public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            /*
-             * Returning the same view (mHeader) results in crash ".. but view is not a real child."
-             * The framework creates more than one instance of header because of "disappear"
-             * animations applied on the header and this necessitates creation of another headerview
-             * to use after the animation. We work around this restriction by returning an empty
-             * framelayout to which the header is attached using #onBindViewHolder method.
-             */
+            // Returning the same view (mHeader) results in crash ".. but view is not a real child."
+            // The framework creates more than one instance of header because of "disappear"
+            // animations applied on the header and this necessitates creation of another header
+            // view to use after the animation. We work around this restriction by returning an
+            // empty FrameLayout to which the header is attached using #onBindViewHolder method.
             if (viewType == HEADER_VIEW_TYPE) {
                 FrameLayout frameLayout = new FrameLayout(parent.getContext());
                 FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT
-                );
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT);
                 frameLayout.setLayoutParams(params);
                 return new HeaderViewHolder(frameLayout);
             } else {

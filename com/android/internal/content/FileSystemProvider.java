@@ -27,6 +27,8 @@ import android.database.MatrixCursor;
 import android.database.MatrixCursor.RowBuilder;
 import android.graphics.Point;
 import android.net.Uri;
+import android.os.Binder;
+import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.FileObserver;
 import android.os.FileUtils;
@@ -36,6 +38,7 @@ import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 import android.provider.DocumentsProvider;
 import android.provider.MediaStore;
+import android.provider.MetadataReader;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
@@ -43,7 +46,10 @@ import android.webkit.MimeTypeMap;
 
 import com.android.internal.annotations.GuardedBy;
 
+import libcore.io.IoUtils;
+
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.LinkedList;
@@ -66,6 +72,13 @@ public abstract class FileSystemProvider extends DocumentsProvider {
     private final ArrayMap<File, DirectoryObserver> mObservers = new ArrayMap<>();
 
     private Handler mHandler;
+
+
+    private static final String MIMETYPE_JPEG = "image/jpeg";
+
+    private static final String MIMETYPE_JPG = "image/jpg";
+
+
 
     protected abstract File getFileForDocId(String docId, boolean visible)
             throws FileNotFoundException;
@@ -96,6 +109,30 @@ public abstract class FileSystemProvider extends DocumentsProvider {
             throw new IllegalArgumentException(
                     "Failed to determine if " + docId + " is child of " + parentDocId + ": " + e);
         }
+    }
+
+    @Override
+    public @Nullable Bundle getDocumentMetadata(String documentId, @Nullable String[] tags)
+            throws FileNotFoundException {
+        File file = getFileForDocId(documentId);
+        if (!(file.exists() && file.isFile() && file.canRead())) {
+            return Bundle.EMPTY;
+        }
+        String filePath = file.getAbsolutePath();
+        Bundle metadata = new Bundle();
+        if (getTypeForFile(file).equals(MIMETYPE_JPEG)
+                || getTypeForFile(file).equals(MIMETYPE_JPG)) {
+            FileInputStream stream = new FileInputStream(filePath);
+            try {
+                MetadataReader.getMetadata(metadata, stream, getTypeForFile(file), tags);
+                return metadata;
+            } catch (IOException e) {
+                Log.e(TAG, "An error occurred retrieving the metadata", e);
+            } finally {
+                IoUtils.closeQuietly(stream);
+            }
+        }
+        return null;
     }
 
     protected final List<String> findDocumentPath(File parent, File doc)
@@ -156,11 +193,17 @@ public abstract class FileSystemProvider extends DocumentsProvider {
         if (visibleFolder != null) {
             assert (visibleFolder.isDirectory());
 
-            final ContentResolver resolver = getContext().getContentResolver();
-            final Uri uri = MediaStore.Files.getDirectoryUri("external");
-            ContentValues values = new ContentValues();
-            values.put(MediaStore.Files.FileColumns.DATA, visibleFolder.getAbsolutePath());
-            resolver.insert(uri, values);
+            final long token = Binder.clearCallingIdentity();
+
+            try {
+                final ContentResolver resolver = getContext().getContentResolver();
+                final Uri uri = MediaStore.Files.getDirectoryUri("external");
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Files.FileColumns.DATA, visibleFolder.getAbsolutePath());
+                resolver.insert(uri, values);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
         }
     }
 
@@ -214,22 +257,28 @@ public abstract class FileSystemProvider extends DocumentsProvider {
         // They should be all null or not null at the same time. File#renameTo() doesn't work across
         // volumes so an exception will be thrown before calling this method.
         if (oldVisibleFile != null && newVisibleFile != null) {
-            final ContentResolver resolver = getContext().getContentResolver();
-            final Uri externalUri = newVisibleFile.isDirectory()
-                    ? MediaStore.Files.getDirectoryUri("external")
-                    : MediaStore.Files.getContentUri("external");
+            final long token = Binder.clearCallingIdentity();
 
-            ContentValues values = new ContentValues();
-            values.put(MediaStore.Files.FileColumns.DATA, newVisibleFile.getAbsolutePath());
+            try {
+                final ContentResolver resolver = getContext().getContentResolver();
+                final Uri externalUri = newVisibleFile.isDirectory()
+                        ? MediaStore.Files.getDirectoryUri("external")
+                        : MediaStore.Files.getContentUri("external");
 
-            // Logic borrowed from MtpDatabase.
-            // note - we are relying on a special case in MediaProvider.update() to update
-            // the paths for all children in the case where this is a directory.
-            final String path = oldVisibleFile.getAbsolutePath();
-            resolver.update(externalUri,
-                    values,
-                    "_data LIKE ? AND lower(_data)=lower(?)",
-                    new String[] { path, path });
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Files.FileColumns.DATA, newVisibleFile.getAbsolutePath());
+
+                // Logic borrowed from MtpDatabase.
+                // note - we are relying on a special case in MediaProvider.update() to update
+                // the paths for all children in the case where this is a directory.
+                final String path = oldVisibleFile.getAbsolutePath();
+                resolver.update(externalUri,
+                        values,
+                        "_data LIKE ? AND lower(_data)=lower(?)",
+                        new String[]{path, path});
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
         }
     }
 
@@ -253,23 +302,29 @@ public abstract class FileSystemProvider extends DocumentsProvider {
             throws FileNotFoundException {
         // visibleFolder is null if we're removing a document from external thumb drive or SD card.
         if (visibleFile != null) {
-            final ContentResolver resolver = getContext().getContentResolver();
-            final Uri externalUri = MediaStore.Files.getContentUri("external");
+            final long token = Binder.clearCallingIdentity();
 
-            // Remove media store entries for any files inside this directory, using
-            // path prefix match. Logic borrowed from MtpDatabase.
-            if (isFolder) {
-                final String path = visibleFile.getAbsolutePath() + "/";
+            try {
+                final ContentResolver resolver = getContext().getContentResolver();
+                final Uri externalUri = MediaStore.Files.getContentUri("external");
+
+                // Remove media store entries for any files inside this directory, using
+                // path prefix match. Logic borrowed from MtpDatabase.
+                if (isFolder) {
+                    final String path = visibleFile.getAbsolutePath() + "/";
+                    resolver.delete(externalUri,
+                            "_data LIKE ?1 AND lower(substr(_data,1,?2))=lower(?3)",
+                            new String[]{path + "%", Integer.toString(path.length()), path});
+                }
+
+                // Remove media store entry for this exact file.
+                final String path = visibleFile.getAbsolutePath();
                 resolver.delete(externalUri,
-                        "_data LIKE ?1 AND lower(substr(_data,1,?2))=lower(?3)",
-                        new String[] { path + "%", Integer.toString(path.length()), path });
+                        "_data LIKE ?1 AND lower(_data)=lower(?2)",
+                        new String[]{path, path});
+            } finally {
+                Binder.restoreCallingIdentity(token);
             }
-
-            // Remove media store entry for this exact file.
-            final String path = visibleFile.getAbsolutePath();
-            resolver.delete(externalUri,
-                    "_data LIKE ?1 AND lower(_data)=lower(?2)",
-                    new String[] { path, path });
         }
     }
 

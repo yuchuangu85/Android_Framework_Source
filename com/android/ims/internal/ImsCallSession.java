@@ -345,6 +345,24 @@ public class ImsCallSession {
         }
 
         /**
+         * Called when an {@link ImsCallSession} may handover from one radio technology to another.
+         * For example, the session may handover from WIFI to LTE if conditions are right.
+         * <p>
+         * If handover is attempted,
+         * {@link #callSessionHandover(ImsCallSession, int, int, ImsReasonInfo)} or
+         * {@link #callSessionHandoverFailed(ImsCallSession, int, int, ImsReasonInfo)} will be
+         * called to indicate the success or failure of the handover.
+         *
+         * @param session IMS session object
+         * @param srcAccessTech original access technology
+         * @param targetAccessTech new access technology
+         */
+        public void callSessionMayHandover(ImsCallSession session, int srcAccessTech,
+                int targetAccessTech) {
+            // no-op
+        }
+
+        /**
          * Called when session access technology changes
          *
          * @param session IMS session object
@@ -402,6 +420,28 @@ public class ImsCallSession {
          */
         public void callSessionSuppServiceReceived(ImsCallSession session,
                 ImsSuppServiceNotification suppServiceInfo) {
+        }
+
+        /**
+         * Received RTT modify request from Remote Party
+         */
+        public void callSessionRttModifyRequestReceived(ImsCallSession session,
+            ImsCallProfile callProfile) {
+            // no-op
+        }
+
+        /**
+         * Received response for RTT modify request
+         */
+        public void callSessionRttModifyResponseReceived(int status) {
+            // no -op
+        }
+
+        /**
+         * Device received RTT message from Remote UE
+         */
+        public void callSessionRttMessageReceived(String rttMessage) {
+            // no-op
         }
     }
 
@@ -944,6 +984,57 @@ public class ImsCallSession {
     }
 
     /**
+     * Sends Rtt Message
+     *
+     * @param rttMessage rtt text to be sent
+     * @throws ImsException if call is absent
+     */
+    public void sendRttMessage(String rttMessage) {
+        if (mClosed) {
+            return;
+        }
+
+        try {
+            miSession.sendRttMessage(rttMessage);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Sends RTT Upgrade request
+     *
+     * @param to   : expected profile
+     * @throws CallStateException
+     */
+    public void sendRttModifyRequest(ImsCallProfile to) {
+        if (mClosed) {
+            return;
+        }
+
+        try {
+            miSession.sendRttModifyRequest(to);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Sends RTT Upgrade response
+     *
+     * @param response : response for upgrade
+     * @throws CallStateException
+     */
+    public void sendRttModifyResponse(boolean response) {
+        if (mClosed) {
+            return;
+        }
+
+        try {
+            miSession.sendRttModifyResponse(response);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
      * A listener type for receiving notification on IMS call session events.
      * When an event is generated for an {@link IImsCallSession},
      * the application is notified by having one of the methods called on
@@ -1208,6 +1299,28 @@ public class ImsCallSession {
         }
 
         /**
+         * Notifies of a case where a {@link com.android.ims.internal.ImsCallSession} may
+         * potentially handover from one radio technology to another.
+         * @param session
+         * @param srcAccessTech The source radio access technology; one of the access technology
+         *                      constants defined in {@link android.telephony.ServiceState}.  For
+         *                      example
+         *                      {@link android.telephony.ServiceState#RIL_RADIO_TECHNOLOGY_LTE}.
+         * @param targetAccessTech The target radio access technology; one of the access technology
+         *                      constants defined in {@link android.telephony.ServiceState}.  For
+         *                      example
+         *                      {@link android.telephony.ServiceState#RIL_RADIO_TECHNOLOGY_LTE}.
+         */
+        @Override
+        public void callSessionMayHandover(IImsCallSession session,
+                int srcAccessTech, int targetAccessTech) {
+            if (mListener != null) {
+                mListener.callSessionMayHandover(ImsCallSession.this, srcAccessTech,
+                        targetAccessTech);
+            }
+        }
+
+        /**
          * Notifies of handover information for this call
          */
         @Override
@@ -1267,6 +1380,36 @@ public class ImsCallSession {
             }
         }
 
+        /**
+         * Received RTT modify request from remote party
+         */
+        @Override
+        public void callSessionRttModifyRequestReceived(IImsCallSession session,
+                ImsCallProfile callProfile) {
+            if (mListener != null) {
+                mListener.callSessionRttModifyRequestReceived(ImsCallSession.this, callProfile);
+            }
+        }
+
+        /**
+         * Received response for RTT modify request
+         */
+        @Override
+        public void callSessionRttModifyResponseReceived(int status) {
+            if (mListener != null) {
+                mListener.callSessionRttModifyResponseReceived(status);
+            }
+        }
+
+        /**
+         * RTT Message received
+         */
+        @Override
+        public void callSessionRttMessageReceived(String rttMessage) {
+            if (mListener != null) {
+                mListener.callSessionRttMessageReceived(rttMessage);
+            }
+        }
     }
 
     /**

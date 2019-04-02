@@ -1063,6 +1063,7 @@ public abstract class SSLSocket extends Socket
     public abstract String [] getEnabledProtocols();
 
 
+    // Android-added: Added paragraph about contiguous protocols.
     /**
      * Sets the protocol versions enabled for use on this connection.
      * <P>
@@ -1070,6 +1071,11 @@ public abstract class SSLSocket extends Socket
      * <code>getSupportedProtocols()</code> as being supported.
      * Following a successful call to this method, only protocols listed
      * in the <code>protocols</code> parameter are enabled for use.
+     * <p>
+     * Because of the way the protocol version is negotiated, connections
+     * will only be able to use a member of the lowest set of contiguous
+     * enabled protocol versions.  For example, enabling TLSv1.2 and TLSv1
+     * will result in connections only being able to use TLSv1.
      *
      * @param protocols Names of all the protocols to enable.
      * @throws IllegalArgumentException when one or more of

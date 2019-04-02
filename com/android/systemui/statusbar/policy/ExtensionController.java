@@ -14,6 +14,8 @@
 
 package com.android.systemui.statusbar.policy;
 
+import android.content.Context;
+
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -28,12 +30,21 @@ public interface ExtensionController {
 
     interface Extension<T> {
         T get();
+        Context getContext();
         void destroy();
+        void addCallback(Consumer<T> callback);
         /**
          * Triggers the extension to cycle through each of the sources again because something
          * (like configuration) may have changed.
          */
         T reload();
+
+        /**
+         * Null out the cached item for the purpose of memory saving, should only be done
+         * when any other references are already gotten.
+         * @param isDestroyed
+         */
+        void clearItem(boolean isDestroyed);
     }
 
     interface ExtensionBuilder<T> {
@@ -44,6 +55,8 @@ public interface ExtensionController {
                 PluginConverter<T, P> converter);
         ExtensionBuilder<T> withDefault(Supplier<T> def);
         ExtensionBuilder<T> withCallback(Consumer<T> callback);
+        ExtensionBuilder<T> withUiMode(int mode, Supplier<T> def);
+        ExtensionBuilder<T> withFeature(String feature, Supplier<T> def);
         Extension build();
     }
 

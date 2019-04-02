@@ -147,17 +147,40 @@ public class GlifRecyclerLayout extends GlifLayout {
     }
 
     /**
-     * @see RecyclerMixin#setDividerInset(int)
+     * @deprecated Use {@link #setDividerInsets(int, int)} instead.
      */
+    @Deprecated
     public void setDividerInset(int inset) {
         mRecyclerMixin.setDividerInset(inset);
     }
 
     /**
-     * @see RecyclerMixin#getDividerInset()
+     * @see RecyclerMixin#setDividerInset(int)
      */
+    public void setDividerInsets(int start, int end) {
+        mRecyclerMixin.setDividerInsets(start, end);
+    }
+
+    /**
+     * @deprecated Use {@link #getDividerInsetStart()} instead.
+     */
+    @Deprecated
     public int getDividerInset() {
         return mRecyclerMixin.getDividerInset();
+    }
+
+    /**
+     * @see RecyclerMixin#getDividerInsetStart()
+     */
+    public int getDividerInsetStart() {
+        return mRecyclerMixin.getDividerInsetStart();
+    }
+
+    /**
+     * @see RecyclerMixin#getDividerInsetEnd()
+     */
+    public int getDividerInsetEnd() {
+        return mRecyclerMixin.getDividerInsetEnd();
     }
 
     /**

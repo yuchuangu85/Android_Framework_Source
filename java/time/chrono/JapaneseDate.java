@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -432,7 +432,11 @@ public final class JapaneseDate
                 field == ALIGNED_WEEK_OF_MONTH || field == ALIGNED_WEEK_OF_YEAR) {
             return false;
         }
-        return ChronoLocalDate.super.isSupported(field);
+        // Android-changed: Apply upstream OpenJDK 9 compilation fix.
+        // Applied OpenJDK 9 change from http://hg.openjdk.java.net/jdk9/dev/jdk/rev/2b7b09c81bf1
+        // On OpenJDK 8, either version is supported and has the same behavior.
+        // return ChronoLocalDate.super.isSupported(field);
+        return super.isSupported(field);
     }
 
     @Override

@@ -178,6 +178,10 @@ class HttpsURLConnection extends HttpURLConnection
         }
     }
 
+    // BEGIN Android-changed: Use lazily-created OkHttp hostname verifier
+    // The RI default hostname verifier is a static member of the class, which means
+    // it's created when the class is initialized.  As well, its default verifier
+    // just fails all verification attempts, whereas we use OkHttp's verifier.
     /*
      * Holds the default instance so class preloading doesn't create an instance of
      * it.
@@ -207,6 +211,7 @@ class HttpsURLConnection extends HttpURLConnection
      * The <code>hostnameVerifier</code> for this object.
      */
     protected HostnameVerifier hostnameVerifier;
+    // END Android-changed: Use lazily-created OkHttp hostname verifier
 
     /**
      * Sets the default <code>HostnameVerifier</code> inherited by a
@@ -279,6 +284,7 @@ class HttpsURLConnection extends HttpURLConnection
      * @see #setDefaultHostnameVerifier(HostnameVerifier)
      */
     public HostnameVerifier getHostnameVerifier() {
+        // Android-added: Use the default verifier if none is set
         if (hostnameVerifier == null) {
             hostnameVerifier = NoPreloadHolder.defaultHostnameVerifier;
         }

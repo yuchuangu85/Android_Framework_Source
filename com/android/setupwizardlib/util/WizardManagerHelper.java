@@ -43,6 +43,8 @@ public class WizardManagerHelper {
     private static final String EXTRA_RESULT_CODE = "com.android.setupwizard.ResultCode";
     @VisibleForTesting
     static final String EXTRA_IS_FIRST_RUN = "firstRun";
+    @VisibleForTesting
+    static final String EXTRA_IS_DEFERRED_SETUP = "deferredSetup";
 
     public static final String EXTRA_THEME = "theme";
     public static final String EXTRA_USE_IMMERSIVE_MODE = "useImmersiveMode";
@@ -71,13 +73,25 @@ public class WizardManagerHelper {
      * Passed in a setup wizard intent as {@link #EXTRA_THEME}. This is the dark variant of the
      * theme used in setup wizard for O DR.
      */
-    public static final String THEME_GLIF_PIXEL = "glif_pixel";
+    public static final String THEME_GLIF_V2 = "glif_v2";
+
+    /**
+     * @deprecated Use {@link #THEME_GLIF_V2} instead.
+     */
+    @Deprecated
+    public static final String THEME_GLIF_PIXEL = THEME_GLIF_V2;
 
     /**
      * Passed in a setup wizard intent as {@link #EXTRA_THEME}. This is the default theme used in
      * setup wizard for O DR.
      */
-    public static final String THEME_GLIF_PIXEL_LIGHT = "glif_pixel_light";
+    public static final String THEME_GLIF_V2_LIGHT = "glif_v2_light";
+
+    /**
+     * @deprecated Use {@link #THEME_GLIF_V2_LIGHT} instead.
+     */
+    @Deprecated
+    public static final String THEME_GLIF_PIXEL_LIGHT = THEME_GLIF_V2_LIGHT;
 
     /**
      * Get an intent that will invoke the next step of setup wizard.
@@ -129,6 +143,8 @@ public class WizardManagerHelper {
         dstIntent.putExtra(EXTRA_THEME, srcIntent.getStringExtra(EXTRA_THEME));
         dstIntent.putExtra(EXTRA_IS_FIRST_RUN,
                 srcIntent.getBooleanExtra(EXTRA_IS_FIRST_RUN, false));
+        dstIntent.putExtra(EXTRA_IS_DEFERRED_SETUP,
+                srcIntent.getBooleanExtra(EXTRA_IS_DEFERRED_SETUP, false));
         dstIntent.putExtra(EXTRA_SCRIPT_URI, srcIntent.getStringExtra(EXTRA_SCRIPT_URI));
         dstIntent.putExtra(EXTRA_ACTION_ID, srcIntent.getStringExtra(EXTRA_ACTION_ID));
     }
@@ -185,6 +201,18 @@ public class WizardManagerHelper {
     }
 
     /**
+     * Checks whether an intent is running in the deferred setup wizard flow.
+     *
+     * @param originalIntent The original intent that was used to start the step, usually via
+     *                       {@link android.app.Activity#getIntent()}.
+     * @return true if the intent passed in was running in deferred setup wizard.
+     */
+    public static boolean isDeferredSetupWizard(Intent originalIntent) {
+        return originalIntent != null
+                && originalIntent.getBooleanExtra(EXTRA_IS_DEFERRED_SETUP, false);
+    }
+
+    /**
      * Checks the intent whether the extra indicates that the light theme should be used or not. If
      * the theme is not specified in the intent, or the theme specified is unknown, the value def
      * will be returned.
@@ -208,10 +236,10 @@ public class WizardManagerHelper {
      */
     public static boolean isLightTheme(String theme, boolean def) {
         if (THEME_HOLO_LIGHT.equals(theme) || THEME_MATERIAL_LIGHT.equals(theme)
-                || THEME_GLIF_LIGHT.equals(theme) || THEME_GLIF_PIXEL_LIGHT.equals(theme)) {
+                || THEME_GLIF_LIGHT.equals(theme) || THEME_GLIF_V2_LIGHT.equals(theme)) {
             return true;
         } else if (THEME_HOLO.equals(theme) || THEME_MATERIAL.equals(theme)
-                || THEME_GLIF.equals(theme) || THEME_GLIF_PIXEL.equals(theme)) {
+                || THEME_GLIF.equals(theme) || THEME_GLIF_V2.equals(theme)) {
             return false;
         } else {
             return def;
@@ -256,10 +284,10 @@ public class WizardManagerHelper {
     public static @StyleRes int getThemeRes(String theme, @StyleRes int defaultTheme) {
         if (theme != null) {
             switch (theme) {
-                case THEME_GLIF_PIXEL_LIGHT:
-                    return R.style.SuwThemeGlifPixel_Light;
-                case THEME_GLIF_PIXEL:
-                    return R.style.SuwThemeGlifPixel;
+                case THEME_GLIF_V2_LIGHT:
+                    return R.style.SuwThemeGlifV2_Light;
+                case THEME_GLIF_V2:
+                    return R.style.SuwThemeGlifV2;
                 case THEME_GLIF_LIGHT:
                     return R.style.SuwThemeGlif_Light;
                 case THEME_GLIF:
@@ -268,6 +296,8 @@ public class WizardManagerHelper {
                     return R.style.SuwThemeMaterial_Light;
                 case THEME_MATERIAL:
                     return R.style.SuwThemeMaterial;
+                default:
+                    // fall through
             }
         }
         return defaultTheme;

@@ -501,10 +501,8 @@ class AlertController {
 
             // Only show the divider if we have a title.
             View divider = null;
-            if (mMessage != null || mListView != null || hasCustomPanel) {
-                if (!hasCustomPanel) {
-                    divider = topPanel.findViewById(R.id.titleDividerNoCustom);
-                }
+            if (mMessage != null || mListView != null) {
+                divider = topPanel.findViewById(R.id.titleDividerNoCustom);
             }
 
             if (divider != null) {
@@ -738,11 +736,11 @@ class AlertController {
     static void manageScrollIndicators(View v, View upIndicator, View downIndicator) {
         if (upIndicator != null) {
             upIndicator.setVisibility(
-                    ViewCompat.canScrollVertically(v, -1) ? View.VISIBLE : View.INVISIBLE);
+                    v.canScrollVertically(-1) ? View.VISIBLE : View.INVISIBLE);
         }
         if (downIndicator != null) {
             downIndicator.setVisibility(
-                    ViewCompat.canScrollVertically(v, 1) ? View.VISIBLE : View.INVISIBLE);
+                    v.canScrollVertically(1) ? View.VISIBLE : View.INVISIBLE);
         }
     }
 

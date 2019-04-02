@@ -56,6 +56,18 @@ public class LinkSpanTest {
         // Just check that no uncaught exception here.
     }
 
+    @Test
+    public void testWrappedListener() {
+        final TestContext context = new TestContext(application);
+        final Context wrapperContext = new ContextWrapper(context);
+        final TextView textView = new TextView(wrapperContext);
+        final LinkSpan linkSpan = new LinkSpan("test_id");
+
+
+        linkSpan.onClick(textView);
+        assertSame("Clicked LinkSpan should be passed to setup", linkSpan, context.clickedSpan);
+    }
+
     private static class TestContext extends ContextWrapper implements LinkSpan.OnClickListener {
 
         public LinkSpan clickedSpan = null;

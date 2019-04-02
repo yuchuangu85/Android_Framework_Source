@@ -386,6 +386,12 @@ public class Process {
      **/
     public static final int THREAD_GROUP_TOP_APP = 5;
 
+    /**
+     * Thread group for RT app.
+     * @hide
+     **/
+    public static final int THREAD_GROUP_RT_APP = 6;
+
     public static final int SIGNAL_QUIT = 3;
     public static final int SIGNAL_KILL = 9;
     public static final int SIGNAL_USR1 = 10;
@@ -767,7 +773,8 @@ public class Process {
     /**
      * Return the current priority of a thread, based on Linux priorities.
      * 
-     * @param tid The identifier of the thread/process to change.
+     * @param tid The identifier of the thread/process. If tid equals zero, the priority of the
+     * calling process/thread will be returned.
      * 
      * @return Returns the current priority, as a Linux priority level,
      * from -20 for highest scheduling priority to 19 for lowest scheduling

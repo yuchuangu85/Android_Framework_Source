@@ -2403,13 +2403,15 @@ public final class Class<T> implements java.io.Serializable,
         return (values != null) ? values.clone() : null;
     }
 
+    // Android-changed: Made public/hidden instead of using sun.misc.SharedSecrets.
     /**
      * Returns the elements of this enum class or null if this
      * Class object does not represent an enum type;
      * identical to getEnumConstants except that the result is
      * uncloned, cached, and shared by all callers.
+     * @hide
      */
-    T[] getEnumConstantsShared() {
+    public T[] getEnumConstantsShared() {
         if (!isEnum()) return null;
         return (T[]) Enum.getSharedConstants((Class) this);
     }

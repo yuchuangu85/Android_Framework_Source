@@ -523,6 +523,7 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
 
         switch(msg.what) {
         case EVENT_PBR_LOAD_DONE:
+            log("Loading PBR records done");
             ar = (AsyncResult) msg.obj;
             if (ar.exception == null) {
                 createPbrFile((ArrayList<byte[]>)ar.result);

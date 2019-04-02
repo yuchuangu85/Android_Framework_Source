@@ -139,24 +139,48 @@ public class SetupWizardRecyclerLayout extends SetupWizardLayout {
     }
 
     /**
-     * Sets the start inset of the divider. This will use the default divider drawable set in the
-     * theme and inset it {@code inset} pixels to the right (or left in RTL layouts).
-     *
-     * @param inset The number of pixels to inset on the "start" side of the list divider. Typically
-     *              this will be either {@code @dimen/suw_items_icon_divider_inset} or
-     *              {@code @dimen/suw_items_text_divider_inset}.
-     *
-     * @see RecyclerMixin#setDividerInset(int)
+     * @deprecated Use {@link #setDividerInsets(int, int)} instead.
      */
+    @Deprecated
     public void setDividerInset(int inset) {
         mRecyclerMixin.setDividerInset(inset);
     }
 
     /**
-     * @see RecyclerMixin#getDividerInset()
+     * Sets the start inset of the divider. This will use the default divider drawable set in the
+     * theme and apply insets to it.
+     *
+     * @param start The number of pixels to inset on the "start" side of the list divider. Typically
+     *              this will be either {@code @dimen/suw_items_icon_divider_inset} or
+     *              {@code @dimen/suw_items_text_divider_inset}.
+     * @param end The number of pixels to inset on the "end" side of the list divider.
+     *
+     * @see RecyclerMixin#setDividerInsets(int, int)
      */
+    public void setDividerInsets(int start, int end) {
+        mRecyclerMixin.setDividerInsets(start, end);
+    }
+
+    /**
+     * @deprecated Use {@link #getDividerInsetStart()} instead.
+     */
+    @Deprecated
     public int getDividerInset() {
         return mRecyclerMixin.getDividerInset();
+    }
+
+    /**
+     * @see RecyclerMixin#getDividerInsetStart()
+     */
+    public int getDividerInsetStart() {
+        return mRecyclerMixin.getDividerInsetStart();
+    }
+
+    /**
+     * @see RecyclerMixin#getDividerInsetEnd()
+     */
+    public int getDividerInsetEnd() {
+        return mRecyclerMixin.getDividerInsetEnd();
     }
 
     /**

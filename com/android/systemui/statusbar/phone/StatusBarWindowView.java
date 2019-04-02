@@ -246,18 +246,27 @@ public class StatusBarWindowView extends FrameLayout {
         return false;
     }
 
+    public void setTouchActive(boolean touchActive) {
+        mTouchActive = touchActive;
+        mStackScrollLayout.setTouchActive(touchActive);
+    }
+
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
         boolean isDown = ev.getActionMasked() == MotionEvent.ACTION_DOWN;
+        boolean isCancel = ev.getActionMasked() == MotionEvent.ACTION_CANCEL;
+        if (!isCancel && mService.shouldIgnoreTouch()) {
+            return false;
+        }
         if (isDown && mNotificationPanel.isFullyCollapsed()) {
             mNotificationPanel.startExpandLatencyTracking();
         }
         if (isDown) {
-            mTouchActive = true;
+            setTouchActive(true);
             mTouchCancelled = false;
         } else if (ev.getActionMasked() == MotionEvent.ACTION_UP
                 || ev.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-            mTouchActive = false;
+            setTouchActive(false);
         }
         if (mTouchCancelled) {
             return false;
@@ -413,7 +422,7 @@ public class StatusBarWindowView extends FrameLayout {
             mFloatingActionMode.finish();
         }
         cleanupFloatingActionModeViews();
-        mFloatingToolbar = new FloatingToolbar(mContext, mFakeWindow);
+        mFloatingToolbar = new FloatingToolbar(mFakeWindow);
         final FloatingActionMode mode =
                 new FloatingActionMode(mContext, callback, originatingView, mFloatingToolbar);
         mFloatingActionModeOriginatingView = originatingView;

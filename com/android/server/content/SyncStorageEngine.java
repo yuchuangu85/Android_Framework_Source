@@ -911,6 +911,12 @@ public class SyncStorageEngine extends Handler {
         }
     }
 
+    public int getAuthorityCount() {
+        synchronized (mAuthorities) {
+            return mAuthorities.size();
+        }
+    }
+
     public AuthorityInfo getAuthority(int authorityId) {
         synchronized (mAuthorities) {
             return mAuthorities.get(authorityId);
@@ -1183,6 +1189,16 @@ public class SyncStorageEngine extends Handler {
                 ds.failureCount++;
                 ds.failureTime += elapsedTime;
             }
+            final StringBuilder event = new StringBuilder();
+            event.append("" + resultMessage + " Source=" + SyncStorageEngine.SOURCES[item.source]
+                    + " Elapsed=");
+            SyncManager.formatDurationHMS(event, elapsedTime);
+            event.append(" Reason=");
+            event.append(SyncOperation.reasonToString(null, item.reason));
+            event.append(" Extras=");
+            SyncOperation.extrasToStringBuilder(item.extras, event);
+
+            status.addEvent(event.toString());
 
             if (writeStatusNow) {
                 writeStatusLocked();

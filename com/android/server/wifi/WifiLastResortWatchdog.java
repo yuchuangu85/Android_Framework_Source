@@ -365,7 +365,7 @@ public class WifiLastResortWatchdog {
     /**
      * Clear failure counts for each network in recentAvailableNetworks
      */
-    private void clearAllFailureCounts() {
+    public void clearAllFailureCounts() {
         if (mVerboseLoggingEnabled) Log.v(TAG, "clearAllFailureCounts.");
         for (Map.Entry<String, AvailableNetworkFailureCount> entry
                 : mRecentAvailableNetworks.entrySet()) {

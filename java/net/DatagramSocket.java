@@ -1347,17 +1347,16 @@ class DatagramSocket implements java.io.Closeable {
         factory = fac;
     }
 
+    // Android-added: for testing and internal use.
     /**
-     * Android-added: for testing and internal use.
-     *
      * @hide internal use only
      */
     public FileDescriptor getFileDescriptor$() {
         return impl.fd;
     }
 
+    // Android-added: setNetworkInterface() to set the network interface used by this socket.
     /**
-     * Android-added:
      * Sets the network interface used by this socket.  Any packets sent
      * via this socket are transmitted via the specified interface.  Any
      * packets received by this socket will come from the specified

@@ -80,6 +80,8 @@ public class DcAsyncChannel extends AsyncChannel {
         sCmdToString[RSP_RESET - BASE] = "RSP_RESET";
     }
 
+    ConnectionParams mLastConnectionParams;
+
     // Convert cmd to string or null if unknown
     protected static String cmdToString(int cmd) {
         cmd -= BASE;
@@ -377,9 +379,9 @@ public class DcAsyncChannel extends AsyncChannel {
             log("bringUp: apnContext=" + apnContext + "unmeteredUseOnly=" + unmeteredUseOnly
                     + " onCompletedMsg=" + onCompletedMsg);
         }
-        sendMessage(DataConnection.EVENT_CONNECT,
-                new ConnectionParams(apnContext, profileId, rilRadioTechnology, unmeteredUseOnly,
-                        onCompletedMsg, connectionGeneration));
+        mLastConnectionParams = new ConnectionParams(apnContext, profileId, rilRadioTechnology,
+                unmeteredUseOnly, onCompletedMsg, connectionGeneration);
+        sendMessage(DataConnection.EVENT_CONNECT, mLastConnectionParams);
     }
 
     /**

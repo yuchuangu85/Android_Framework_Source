@@ -19,9 +19,15 @@ package com.android.keyguard;
 import android.app.ActivityManager;
 import android.app.AlarmManager;
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.graphics.Color;
+import android.graphics.PorterDuff;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.UserHandle;
+import android.support.v4.graphics.ColorUtils;
 import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.util.AttributeSet;
@@ -44,6 +50,7 @@ import java.util.Locale;
 public class KeyguardStatusView extends GridLayout {
     private static final boolean DEBUG = KeyguardConstants.DEBUG;
     private static final String TAG = "KeyguardStatusView";
+    private static final int MARQUEE_DELAY_MS = 2000;
 
     private final LockPatternUtils mLockPatternUtils;
     private final AlarmManager mAlarmManager;
@@ -54,10 +61,16 @@ public class KeyguardStatusView extends GridLayout {
     private TextView mOwnerInfo;
     private ViewGroup mClockContainer;
     private ChargingView mBatteryDoze;
+    private View mKeyguardStatusArea;
+    private Runnable mPendingMarqueeStart;
+    private Handler mHandler;
 
     private View[] mVisibleInDoze;
     private boolean mPulsing;
-    private boolean mDark;
+    private float mDarkAmount = 0;
+    private int mTextColor;
+    private int mDateTextColor;
+    private int mAlarmTextColor;
 
     private KeyguardUpdateMonitorCallback mInfoCallback = new KeyguardUpdateMonitorCallback() {
 
@@ -104,9 +117,29 @@ public class KeyguardStatusView extends GridLayout {
         super(context, attrs, defStyle);
         mAlarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         mLockPatternUtils = new LockPatternUtils(getContext());
+        mHandler = new Handler(Looper.myLooper());
     }
 
     private void setEnableMarquee(boolean enabled) {
+        if (DEBUG) Log.v(TAG, "Schedule setEnableMarquee: " + (enabled ? "Enable" : "Disable"));
+        if (enabled) {
+            if (mPendingMarqueeStart == null) {
+                mPendingMarqueeStart = () -> {
+                    setEnableMarqueeImpl(true);
+                    mPendingMarqueeStart = null;
+                };
+                mHandler.postDelayed(mPendingMarqueeStart, MARQUEE_DELAY_MS);
+            }
+        } else {
+            if (mPendingMarqueeStart != null) {
+                mHandler.removeCallbacks(mPendingMarqueeStart);
+                mPendingMarqueeStart = null;
+            }
+            setEnableMarqueeImpl(false);
+        }
+    }
+
+    private void setEnableMarqueeImpl(boolean enabled) {
         if (DEBUG) Log.v(TAG, (enabled ? "Enable" : "Disable") + " transport text marquee");
         if (mAlarmStatusView != null) mAlarmStatusView.setSelected(enabled);
         if (mOwnerInfo != null) mOwnerInfo.setSelected(enabled);
@@ -120,10 +153,16 @@ public class KeyguardStatusView extends GridLayout {
         mDateView = findViewById(R.id.date_view);
         mClockView = findViewById(R.id.clock_view);
         mClockView.setShowCurrentUserTime(true);
-        mClockView.setAccessibilityDelegate(new KeyguardClockAccessibilityDelegate(mContext));
+        if (KeyguardClockAccessibilityDelegate.isNeeded(mContext)) {
+            mClockView.setAccessibilityDelegate(new KeyguardClockAccessibilityDelegate(mContext));
+        }
         mOwnerInfo = findViewById(R.id.owner_info);
         mBatteryDoze = findViewById(R.id.battery_doze);
-        mVisibleInDoze = new View[]{mBatteryDoze, mClockView};
+        mKeyguardStatusArea = findViewById(R.id.keyguard_status_area);
+        mVisibleInDoze = new View[]{mBatteryDoze, mClockView, mKeyguardStatusArea};
+        mTextColor = mClockView.getCurrentTextColor();
+        mDateTextColor = mDateView.getCurrentTextColor();
+        mAlarmTextColor = mAlarmStatusView.getCurrentTextColor();
 
         boolean shouldMarquee = KeyguardUpdateMonitor.getInstance(mContext).isDeviceInteractive();
         setEnableMarquee(shouldMarquee);
@@ -182,8 +221,11 @@ public class KeyguardStatusView extends GridLayout {
     }
 
     public int getClockBottom() {
-        return mClockView.getBottom() +
-                ((MarginLayoutParams) mClockView.getLayoutParams()).bottomMargin;
+        return mKeyguardStatusArea.getBottom();
+    }
+
+    public float getClockTextSize() {
+        return mClockView.getTextSize();
     }
 
     public static String formatNextAlarm(Context context, AlarmManager.AlarmClockInfo info) {
@@ -278,12 +320,13 @@ public class KeyguardStatusView extends GridLayout {
         }
     }
 
-    public void setDark(boolean dark) {
-        if (mDark == dark) {
+    public void setDark(float darkAmount) {
+        if (mDarkAmount == darkAmount) {
             return;
         }
-        mDark = dark;
+        mDarkAmount = darkAmount;
 
+        boolean dark = darkAmount == 1;
         final int N = mClockContainer.getChildCount();
         for (int i = 0; i < N; i++) {
             View child = mClockContainer.getChildAt(i);
@@ -292,8 +335,17 @@ public class KeyguardStatusView extends GridLayout {
             }
             child.setAlpha(dark ? 0 : 1);
         }
+        if (mOwnerInfo != null) {
+            mOwnerInfo.setAlpha(dark ? 0 : 1);
+        }
+
         updateDozeVisibleViews();
         mBatteryDoze.setDark(dark);
+        mClockView.setTextColor(ColorUtils.blendARGB(mTextColor, Color.WHITE, darkAmount));
+        mDateView.setTextColor(ColorUtils.blendARGB(mDateTextColor, Color.WHITE, darkAmount));
+        int blendedAlarmColor = ColorUtils.blendARGB(mAlarmTextColor, Color.WHITE, darkAmount);
+        mAlarmStatusView.setTextColor(blendedAlarmColor);
+        mAlarmStatusView.setCompoundDrawableTintList(ColorStateList.valueOf(blendedAlarmColor));
     }
 
     public void setPulsing(boolean pulsing) {
@@ -303,7 +355,7 @@ public class KeyguardStatusView extends GridLayout {
 
     private void updateDozeVisibleViews() {
         for (View child : mVisibleInDoze) {
-            child.setAlpha(mDark && mPulsing ? 0.8f : 1);
+            child.setAlpha(mDarkAmount == 1 && mPulsing ? 0.8f : 1);
         }
     }
 }

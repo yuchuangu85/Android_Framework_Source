@@ -52,10 +52,11 @@ public abstract class VrManagerInternal {
      * @param enabled {@code true} to enable VR mode.
      * @param packageName The package name of the requested VrListenerService to bind.
      * @param userId the user requesting the VrListenerService component.
+     * @param processId the process the component is running in.
      * @param calling the component currently using VR mode, or null to leave unchanged.
      */
     public abstract void setVrMode(boolean enabled, @NonNull ComponentName packageName,
-            int userId, @NonNull ComponentName calling);
+            int userId, int processId, @NonNull ComponentName calling);
 
     /**
      * Set whether the system has acquired a sleep token.
@@ -71,6 +72,13 @@ public abstract class VrManagerInternal {
      *      or {@code false} otherwise.
      */
     public abstract void onScreenStateChanged(boolean isScreenOn);
+
+    /**
+     * Set whether the keyguard is currently active/showing.
+     *
+     * @param isShowing is {@code true} if the keyguard is active/showing.
+     */
+    public abstract void onKeyguardStateChanged(boolean isShowing);
 
     /**
      * Return NO_ERROR if the given package is installed on the device and enabled as a

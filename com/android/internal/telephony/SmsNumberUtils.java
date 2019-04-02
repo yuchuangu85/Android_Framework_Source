@@ -16,22 +16,23 @@
 
 package com.android.internal.telephony;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-
 import android.content.Context;
-import android.os.Build;
-import android.os.PersistableBundle;
-import android.text.TextUtils;
 import android.database.Cursor;
 import android.database.SQLException;
+import android.os.Binder;
+import android.os.Build;
+import android.os.PersistableBundle;
 import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneNumberUtils;
-import android.telephony.TelephonyManager;
 import android.telephony.Rlog;
+import android.telephony.TelephonyManager;
+import android.text.TextUtils;
 
 import com.android.internal.telephony.HbpcdLookup.MccIdd;
 import com.android.internal.telephony.HbpcdLookup.MccLookup;
+
+import java.util.ArrayList;
+import java.util.HashMap;
 
 
  /**
@@ -601,14 +602,21 @@ public class SmsNumberUtils {
     }
 
     private static boolean needToConvert(Phone phone) {
-        CarrierConfigManager configManager = (CarrierConfigManager)
-                phone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
-        if (configManager != null) {
-            PersistableBundle bundle = configManager.getConfig();
-            if (bundle != null) {
-                return bundle.getBoolean(
-                        CarrierConfigManager.KEY_SMS_REQUIRES_DESTINATION_NUMBER_CONVERSION_BOOL);
+        // Calling package may not have READ_PHONE_STATE which is required for getConfig().
+        // Clear the calling identity so that it is called as self.
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            CarrierConfigManager configManager = (CarrierConfigManager)
+                    phone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
+            if (configManager != null) {
+                PersistableBundle bundle = configManager.getConfig();
+                if (bundle != null) {
+                    return bundle.getBoolean(CarrierConfigManager
+                            .KEY_SMS_REQUIRES_DESTINATION_NUMBER_CONVERSION_BOOL);
+                }
             }
+        } finally {
+            Binder.restoreCallingIdentity(identity);
         }
         // by default this value is false
         return false;

@@ -161,12 +161,16 @@ public class SoftApManager implements ActiveModeManager {
 
         int encryptionType = getIApInterfaceEncryptionType(localConfig);
 
+        if (localConfig.hiddenSSID) {
+            Log.d(TAG, "SoftAP is a hidden network");
+        }
+
         try {
             // Note that localConfig.SSID is intended to be either a hex string or "double quoted".
             // However, it seems that whatever is handing us these configurations does not obey
             // this convention.
             boolean success = mApInterface.writeHostapdConfig(
-                    localConfig.SSID.getBytes(StandardCharsets.UTF_8), false,
+                    localConfig.SSID.getBytes(StandardCharsets.UTF_8), localConfig.hiddenSSID,
                     localConfig.apChannel, encryptionType,
                     (localConfig.preSharedKey != null)
                             ? localConfig.preSharedKey.getBytes(StandardCharsets.UTF_8)

@@ -183,11 +183,8 @@ public class OperationScheduler {
                 (options.backoffIncrementalMillis * errorCount) +
                 (((long)options.backoffExponentialMillis) << shift);
 
-            // Treat backoff like a moratorium: don't let the backoff
-            // time grow too large.
-            if (moratoriumTimeMillis > 0 && backoff > moratoriumTimeMillis) {
-                backoff = moratoriumTimeMillis;
-            }
+            // Treat backoff like a moratorium: don't let the backoff time grow too large.
+            backoff = Math.min(backoff, options.maxMoratoriumMillis);
 
             time = Math.max(time, lastErrorTimeMillis + backoff);
         }

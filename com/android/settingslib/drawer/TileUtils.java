@@ -21,7 +21,6 @@ import android.content.IContentProvider;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Resources;
@@ -35,6 +34,7 @@ import android.provider.Settings.Global;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Pair;
+import android.widget.RemoteViews;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -133,15 +133,25 @@ public class TileUtils {
 
     /**
      * Name of the meta-data item that should be set in the AndroidManifest.xml
-     * to specify the title that should be displayed for the preference.
+     * to specify whether the icon is tintable. This should be a boolean value {@code true} or
+     * {@code false}, set using {@code android:value}
      */
-    @Deprecated
-    public static final String META_DATA_PREFERENCE_TITLE = "com.android.settings.title";
+    public static final String META_DATA_PREFERENCE_ICON_TINTABLE =
+            "com.android.settings.icon_tintable";
 
     /**
      * Name of the meta-data item that should be set in the AndroidManifest.xml
      * to specify the title that should be displayed for the preference.
+     *
+     * <p>Note: It is preferred to provide this value using {@code android:resource} with a string
+     * resource for localization.
      */
+    public static final String META_DATA_PREFERENCE_TITLE = "com.android.settings.title";
+
+    /**
+     * @deprecated Use {@link #META_DATA_PREFERENCE_TITLE} with {@code android:resource}
+     */
+    @Deprecated
     public static final String META_DATA_PREFERENCE_TITLE_RES_ID =
             "com.android.settings.title.resid";
 
@@ -160,6 +170,17 @@ public class TileUtils {
      */
     public static final String META_DATA_PREFERENCE_SUMMARY_URI =
             "com.android.settings.summary_uri";
+
+    /**
+     * Name of the meta-data item that should be set in the AndroidManifest.xml to specify the
+     * custom view which should be displayed for the preference. The custom view will be inflated
+     * as a remote view.
+     *
+     * This also can be used with {@link META_DATA_PREFERENCE_SUMMARY_URI} above, by setting the id
+     * of the summary TextView to '@android:id/summary'.
+     */
+    public static final String META_DATA_PREFERENCE_CUSTOM_VIEW =
+            "com.android.settings.custom_view";
 
     public static final String SETTING_PKG = "com.android.settings";
 
@@ -298,15 +319,26 @@ public class TileUtils {
             intent.setPackage(settingPkg);
         }
         getTilesForIntent(context, user, intent, addedCache, defaultCategory, outTiles,
-                usePriority, true);
+                usePriority, true, true);
     }
 
-    public static void getTilesForIntent(Context context, UserHandle user, Intent intent,
+    public static void getTilesForIntent(
+            Context context, UserHandle user, Intent intent,
             Map<Pair<String, String>, Tile> addedCache, String defaultCategory, List<Tile> outTiles,
-            boolean usePriority, boolean checkCategory) {
+            boolean usePriority, boolean checkCategory, boolean forceTintExternalIcon) {
+        getTilesForIntent(context, user, intent, addedCache, defaultCategory, outTiles,
+                usePriority, checkCategory, forceTintExternalIcon, false /* shouldUpdateTiles */);
+    }
+
+    public static void getTilesForIntent(
+            Context context, UserHandle user, Intent intent,
+            Map<Pair<String, String>, Tile> addedCache, String defaultCategory, List<Tile> outTiles,
+            boolean usePriority, boolean checkCategory, boolean forceTintExternalIcon,
+            boolean shouldUpdateTiles) {
         PackageManager pm = context.getPackageManager();
         List<ResolveInfo> results = pm.queryIntentActivitiesAsUser(intent,
                 PackageManager.GET_META_DATA, user.getIdentifier());
+        Map<String, IContentProvider> providerMap = new HashMap<>();
         for (ResolveInfo resolved : results) {
             if (!resolved.system) {
                 // Do not allow any app to add to settings, only system ones.
@@ -338,11 +370,13 @@ public class TileUtils {
                 tile.priority = usePriority ? resolved.priority : 0;
                 tile.metaData = activityInfo.metaData;
                 updateTileData(context, tile, activityInfo, activityInfo.applicationInfo,
-                        pm);
+                        pm, providerMap, forceTintExternalIcon);
                 if (DEBUG) Log.d(LOG_TAG, "Adding tile " + tile.title);
-
                 addedCache.put(key, tile);
+            } else if (shouldUpdateTiles) {
+                updateSummaryAndTitle(context, providerMap, tile);
             }
+
             if (!tile.userHandle.contains(user)) {
                 tile.userHandle.add(user);
             }
@@ -353,24 +387,39 @@ public class TileUtils {
     }
 
     private static boolean updateTileData(Context context, Tile tile,
-            ActivityInfo activityInfo, ApplicationInfo applicationInfo, PackageManager pm) {
+            ActivityInfo activityInfo, ApplicationInfo applicationInfo, PackageManager pm,
+            Map<String, IContentProvider> providerMap, boolean forceTintExternalIcon) {
         if (applicationInfo.isSystemApp()) {
+            boolean forceTintIcon = false;
             int icon = 0;
             Pair<String, Integer> iconFromUri = null;
             CharSequence title = null;
             String summary = null;
             String keyHint = null;
-            Uri uri = null;
+            boolean isIconTintable = false;
 
             // Get the activity's meta-data
             try {
-                Resources res = pm.getResourcesForApplication(
-                        applicationInfo.packageName);
+                Resources res = pm.getResourcesForApplication(applicationInfo.packageName);
                 Bundle metaData = activityInfo.metaData;
+
+                if (forceTintExternalIcon
+                        && !context.getPackageName().equals(applicationInfo.packageName)) {
+                    isIconTintable = true;
+                    forceTintIcon = true;
+                }
 
                 if (res != null && metaData != null) {
                     if (metaData.containsKey(META_DATA_PREFERENCE_ICON)) {
                         icon = metaData.getInt(META_DATA_PREFERENCE_ICON);
+                    }
+                    if (metaData.containsKey(META_DATA_PREFERENCE_ICON_TINTABLE)) {
+                        if (forceTintIcon) {
+                            Log.w(LOG_TAG, "Ignoring icon tintable for " + activityInfo);
+                        } else {
+                            isIconTintable =
+                                    metaData.getBoolean(META_DATA_PREFERENCE_ICON_TINTABLE);
+                        }
                     }
                     int resId = 0;
                     if (metaData.containsKey(META_DATA_PREFERENCE_TITLE_RES_ID)) {
@@ -379,8 +428,6 @@ public class TileUtils {
                             title = res.getString(resId);
                         }
                     }
-                    // Fallback to legacy title extraction if we couldn't get the title through
-                    // res id.
                     if ((resId == 0) && metaData.containsKey(META_DATA_PREFERENCE_TITLE)) {
                         if (metaData.get(META_DATA_PREFERENCE_TITLE) instanceof Integer) {
                             title = res.getString(metaData.getInt(META_DATA_PREFERENCE_TITLE));
@@ -401,6 +448,11 @@ public class TileUtils {
                         } else {
                             keyHint = metaData.getString(META_DATA_PREFERENCE_KEYHINT);
                         }
+                    }
+                    if (metaData.containsKey(META_DATA_PREFERENCE_CUSTOM_VIEW)) {
+                        int layoutId = metaData.getInt(META_DATA_PREFERENCE_CUSTOM_VIEW);
+                        tile.remoteViews = new RemoteViews(applicationInfo.packageName, layoutId);
+                        updateSummaryAndTitle(context, providerMap, tile);
                     }
                 }
             } catch (PackageManager.NameNotFoundException | Resources.NotFoundException e) {
@@ -431,11 +483,32 @@ public class TileUtils {
                     activityInfo.name);
             // Suggest a key for this tile
             tile.key = keyHint;
+            tile.isIconTintable = isIconTintable;
 
             return true;
         }
 
         return false;
+    }
+
+    private static void updateSummaryAndTitle(
+            Context context, Map<String, IContentProvider> providerMap, Tile tile) {
+        if (tile == null || tile.metaData == null
+                || !tile.metaData.containsKey(META_DATA_PREFERENCE_SUMMARY_URI)) {
+            return;
+        }
+
+        String uriString = tile.metaData.getString(META_DATA_PREFERENCE_SUMMARY_URI);
+        Bundle bundle = getBundleFromUri(context, uriString, providerMap);
+        String overrideSummary = getString(bundle, META_DATA_PREFERENCE_SUMMARY);
+        String overrideTitle = getString(bundle, META_DATA_PREFERENCE_TITLE);
+        if (overrideSummary != null) {
+            tile.remoteViews.setTextViewText(android.R.id.summary, overrideSummary);
+        }
+
+        if (overrideTitle != null) {
+            tile.remoteViews.setTextViewText(android.R.id.title, overrideTitle);
+        }
     }
 
     /**
@@ -501,6 +574,10 @@ public class TileUtils {
         } catch (RemoteException e) {
             return null;
         }
+    }
+
+    private static String getString(Bundle bundle, String key) {
+        return bundle == null ? null : bundle.getString(key);
     }
 
     private static IContentProvider getProviderFromUri(Context context, Uri uri,

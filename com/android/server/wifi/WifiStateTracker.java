@@ -22,6 +22,8 @@ import android.util.Log;
 
 import com.android.internal.app.IBatteryStats;
 
+import java.util.concurrent.RejectedExecutionException;
+
 /**
  * This class is used to track WifiState to update BatteryStats
  */
@@ -46,6 +48,8 @@ public class WifiStateTracker {
             mBatteryStats.noteWifiState(state, null);
         } catch (RemoteException e) {
             Log.e(TAG, "Battery stats unreachable " + e.getMessage());
+        } catch (RejectedExecutionException e) {
+            Log.e(TAG, "Battery stats executor is being shutdown " + e.getMessage());
         }
     }
 

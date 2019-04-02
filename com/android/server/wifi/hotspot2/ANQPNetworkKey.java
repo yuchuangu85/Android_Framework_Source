@@ -96,10 +96,9 @@ public class ANQPNetworkKey {
         if (mHESSID != 0L) {
             return Utils.macToString(mHESSID) + ":" + mAnqpDomainID;
         } else if (mBSSID != 0L) {
-            return Utils.macToString(mBSSID)
-                    + ":<" + Utils.toUnicodeEscapedString(mSSID) + ">";
+            return Utils.macToString(mBSSID) + ":<" + mSSID + ">";
         } else {
-            return "<" + Utils.toUnicodeEscapedString(mSSID) + ">:" + mAnqpDomainID;
+            return "<" + mSSID + ">:" + mAnqpDomainID;
         }
     }
 }

@@ -92,6 +92,10 @@ public class PasspointNetworkEvaluator implements WifiNetworkSelector.NetworkEva
             Pair<PasspointProvider, PasspointMatch> bestProvider =
                     mPasspointManager.matchProvider(scanDetail.getScanResult());
             if (bestProvider != null) {
+                if (bestProvider.first.isSimCredential() && !mWifiConfigManager.isSimPresent()) {
+                    // Skip providers backed by SIM credential when SIM is not present.
+                    continue;
+                }
                 candidateList.add(new PasspointNetworkCandidate(
                         bestProvider.first, bestProvider.second, scanDetail));
             }
@@ -111,6 +115,13 @@ public class PasspointNetworkEvaluator implements WifiNetworkSelector.NetworkEva
         if (currentNetwork != null && TextUtils.equals(currentNetwork.SSID,
                 ScanResultUtil.createQuotedSSID(bestNetwork.mScanDetail.getSSID()))) {
             localLog("Staying with current Passpoint network " + currentNetwork.SSID);
+
+            // Update current network with the latest scan info.
+            mWifiConfigManager.setNetworkCandidateScanResult(currentNetwork.networkId,
+                    bestNetwork.mScanDetail.getScanResult(), 0);
+            mWifiConfigManager.updateScanDetailForNetwork(currentNetwork.networkId,
+                    bestNetwork.mScanDetail);
+
             connectableNetworks.add(Pair.create(bestNetwork.mScanDetail, currentNetwork));
             return currentNetwork;
         }

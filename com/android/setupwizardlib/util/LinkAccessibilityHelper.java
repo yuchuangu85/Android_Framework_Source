@@ -16,9 +16,8 @@
 
 package com.android.setupwizardlib.util;
 
-import static android.support.v4.os.BuildCompat.isAtLeastO;
-
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.v4.view.AccessibilityDelegateCompat;
 import android.support.v4.view.accessibility.AccessibilityNodeInfoCompat;
@@ -74,7 +73,7 @@ public class LinkAccessibilityHelper extends AccessibilityDelegateCompat {
     private final ExploreByTouchHelper mExploreByTouchHelper;
 
     public LinkAccessibilityHelper(TextView view) {
-        if (!isAtLeastO()) {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N_MR1) {
             // Pre-O, we essentially extend ExploreByTouchHelper to expose a virtual view hierarchy
             mExploreByTouchHelper = new ExploreByTouchHelper(view) {
                 @Override
@@ -90,15 +89,15 @@ public class LinkAccessibilityHelper extends AccessibilityDelegateCompat {
                 @Override
                 protected void onPopulateEventForVirtualView(int virtualViewId,
                         AccessibilityEvent event) {
-                    LinkAccessibilityHelper.this
-                            .onPopulateEventForVirtualView(virtualViewId, event);
+                    LinkAccessibilityHelper
+                            .this.onPopulateEventForVirtualView(virtualViewId, event);
                 }
 
                 @Override
                 protected void onPopulateNodeForVirtualView(int virtualViewId,
                         AccessibilityNodeInfoCompat infoCompat) {
-                    LinkAccessibilityHelper.this
-                            .onPopulateNodeForVirtualView(virtualViewId, infoCompat);
+                    LinkAccessibilityHelper
+                            .this.onPopulateNodeForVirtualView(virtualViewId, infoCompat);
 
                 }
 

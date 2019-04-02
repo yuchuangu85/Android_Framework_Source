@@ -193,6 +193,8 @@ public class FocusFinder {
     private View findNextUserSpecifiedFocus(ViewGroup root, View focused, int direction) {
         // check for user specified next focus
         View userSetNextFocus = focused.findUserSetNextFocus(root, direction);
+        View cycleCheck = userSetNextFocus;
+        boolean cycleStep = true; // we want the first toggle to yield false
         while (userSetNextFocus != null) {
             if (userSetNextFocus.isFocusable()
                     && userSetNextFocus.getVisibility() == View.VISIBLE
@@ -201,6 +203,14 @@ public class FocusFinder {
                 return userSetNextFocus;
             }
             userSetNextFocus = userSetNextFocus.findUserSetNextFocus(root, direction);
+            if (cycleStep = !cycleStep) {
+                cycleCheck = cycleCheck.findUserSetNextFocus(root, direction);
+                if (cycleCheck == userSetNextFocus) {
+                    // found a cycle, user-specified focus forms a loop and none of the views
+                    // are currently focusable.
+                    break;
+                }
+            }
         }
         return null;
     }
@@ -564,10 +574,10 @@ public class FocusFinder {
         switch (direction) {
             case View.FOCUS_LEFT:
             case View.FOCUS_RIGHT:
-                return (rect2.bottom >= rect1.top) && (rect2.top <= rect1.bottom);
+                return (rect2.bottom > rect1.top) && (rect2.top < rect1.bottom);
             case View.FOCUS_UP:
             case View.FOCUS_DOWN:
-                return (rect2.right >= rect1.left) && (rect2.left <= rect1.right);
+                return (rect2.right > rect1.left) && (rect2.left < rect1.right);
         }
         throw new IllegalArgumentException("direction must be one of "
                 + "{FOCUS_UP, FOCUS_DOWN, FOCUS_LEFT, FOCUS_RIGHT}.");

@@ -96,7 +96,7 @@ public class ANQPParser {
             case HSConnCapability:
                 return HSConnectionCapabilityElement.parse(payload);
             case HSOSUProviders:
-                return RawByteElement.parse(infoID, payload);
+                return HSOsuProvidersElement.parse(payload);
             default:
                 throw new ProtocolException("Unknown element ID: " + infoID);
         }

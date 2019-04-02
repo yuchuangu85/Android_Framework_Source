@@ -1033,7 +1033,7 @@ public final class Pm {
 
             if (info != null) {
                 System.out.println("Success: created user id " + info.id);
-                return 1;
+                return 0;
             } else {
                 System.err.println("Error: couldn't create User.");
                 return 1;
@@ -1473,7 +1473,7 @@ public final class Pm {
         ClearDataObserver obs = new ClearDataObserver();
         try {
             mPm.freeStorageAndNotify(volumeUuid, sizeVal,
-                    StorageManager.FLAG_ALLOCATE_DEFY_RESERVED, obs);
+                    StorageManager.FLAG_ALLOCATE_DEFY_ALL_RESERVED, obs);
             synchronized (obs) {
                 while (!obs.finished) {
                     try {

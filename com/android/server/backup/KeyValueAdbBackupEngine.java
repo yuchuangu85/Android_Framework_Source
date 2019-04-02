@@ -35,7 +35,7 @@ import java.io.OutputStream;
  * TODO: We should create unified backup/restore engines that can be used for both transport and
  * adb backup/restore, and for fullbackup and key-value backup.
  */
-class KeyValueAdbBackupEngine {
+public class KeyValueAdbBackupEngine {
     private static final String TAG = "KeyValueAdbBackupEngine";
     private static final boolean DEBUG = false;
 
@@ -44,7 +44,7 @@ class KeyValueAdbBackupEngine {
     private static final String BACKUP_KEY_VALUE_BACKUP_DATA_FILENAME_SUFFIX = ".data";
     private static final String BACKUP_KEY_VALUE_NEW_STATE_FILENAME_SUFFIX = ".new";
 
-    private BackupManagerService mBackupManagerService;
+    private BackupManagerServiceInterface mBackupManagerService;
     private final PackageManager mPackageManager;
     private final OutputStream mOutput;
     private final PackageInfo mCurrentPackage;
@@ -58,8 +58,8 @@ class KeyValueAdbBackupEngine {
     private ParcelFileDescriptor mBackupData;
     private ParcelFileDescriptor mNewState;
 
-    KeyValueAdbBackupEngine(OutputStream output, PackageInfo packageInfo,
-            BackupManagerService backupManagerService, PackageManager packageManager,
+    public KeyValueAdbBackupEngine(OutputStream output, PackageInfo packageInfo,
+            BackupManagerServiceInterface backupManagerService, PackageManager packageManager,
             File baseStateDir, File dataDir) {
         mOutput = output;
         mCurrentPackage = packageInfo;
@@ -81,7 +81,7 @@ class KeyValueAdbBackupEngine {
         mManifestFile = new File(mDataDir, BackupManagerService.BACKUP_MANIFEST_FILENAME);
     }
 
-    void backupOnePackage() throws IOException {
+    public void backupOnePackage() throws IOException {
         ApplicationInfo targetApp = mCurrentPackage.applicationInfo;
 
         try {
@@ -145,14 +145,14 @@ class KeyValueAdbBackupEngine {
 
     // Return true on backup success, false otherwise
     private boolean invokeAgentForAdbBackup(String packageName, IBackupAgent agent) {
-        int token = mBackupManagerService.generateToken();
+        int token = mBackupManagerService.generateRandomIntegerToken();
         try {
             mBackupManagerService.prepareOperationTimeout(token, TIMEOUT_BACKUP_INTERVAL, null,
                     OP_TYPE_BACKUP_WAIT);
 
             // Start backup and wait for BackupManagerService to get callback for success or timeout
             agent.doBackup(mSavedState, mBackupData, mNewState, Long.MAX_VALUE, token,
-                    mBackupManagerService.mBackupManagerBinder);
+                    mBackupManagerService.getBackupManagerBinder());
             if (!mBackupManagerService.waitUntilOperationComplete(token)) {
                 Slog.e(TAG, "Key-value backup failed on package " + packageName);
                 return false;
@@ -214,7 +214,7 @@ class KeyValueAdbBackupEngine {
                 }
 
                 try {
-                    mBackupManagerService.mBackupManagerBinder.opComplete(mToken, 0);
+                    mBackupManagerService.getBackupManagerBinder().opComplete(mToken, 0);
                 } catch (RemoteException e) {
                     // we'll time out anyway, so we're safe
                 }
@@ -229,7 +229,7 @@ class KeyValueAdbBackupEngine {
 
     private void writeBackupData() throws IOException {
 
-        int token = mBackupManagerService.generateToken();
+        int token = mBackupManagerService.generateRandomIntegerToken();
 
         ParcelFileDescriptor[] pipes = null;
         try {

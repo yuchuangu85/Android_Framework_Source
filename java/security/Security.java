@@ -48,9 +48,16 @@ import sun.security.jca.Providers;
 
 public final class Security {
 
+    // Android-added: Track the version to allow callers know when something has changed.
     private static final AtomicInteger version = new AtomicInteger();
 
+    // Android-removed: Debug is stubbed and disabled on Android.
+    // /* Are we debugging? -- for developers */
+    // private static final Debug sdebug =
+    //                     Debug.getInstance("properties");
+
     /* The java.security properties */
+    // Android-changed: Added final.
     private static final Properties props;
 
     // An element in the cache
@@ -60,12 +67,31 @@ public final class Security {
     }
 
     static {
+// BEGIN Android-changed: doPrivileged is stubbed on Android.
+// Also, because props is final it must be assigned in the static block, not a method.
+        /*
+        // doPrivileged here because there are multiple
+        // things in initialize that might require privs.
+        // (the FileInputStream call and the File.exists call,
+        // the securityPropFile call, etc)
+        AccessController.doPrivileged(new PrivilegedAction<Void>() {
+            public Void run() {
+                initialize();
+                return null;
+            }
+        });
+    }
+
+    private static void initialize() {
+        */
+// END Android-changed: doPrivileged is stubbed on Android.
         props = new Properties();
         boolean loadedProps = false;
+        // BEGIN Android-changed: Use a resource file, Android logging, and only one file.
         InputStream is = null;
         try {
             /*
-             * Android keeps the property file in a jar resource.
+             * Android keeps the property file in a resource file.
              */
             InputStream propStream = Security.class.getResourceAsStream("security.properties");
             if (propStream == null) {
@@ -84,6 +110,7 @@ public final class Security {
                 } catch (IOException ignored) {}
             }
         }
+        // END Android-changed: Use a resource file, Android logging, and only one file.
 
         if (!loadedProps) {
             initializeStatic();
@@ -95,6 +122,15 @@ public final class Security {
      * is not found.
      */
     private static void initializeStatic() {
+        // Android-changed: Use Conscrypt and BC, not the sun.security providers.
+        /*
+        props.put("security.provider.1", "sun.security.provider.Sun");
+        props.put("security.provider.2", "sun.security.rsa.SunRsaSign");
+        props.put("security.provider.3", "com.sun.net.ssl.internal.ssl.Provider");
+        props.put("security.provider.4", "com.sun.crypto.provider.SunJCE");
+        props.put("security.provider.5", "sun.security.jgss.SunProvider");
+        props.put("security.provider.6", "com.sun.security.sasl.Provider");
+        */
         props.put("security.provider.1", "com.android.org.conscrypt.OpenSSLProvider");
         props.put("security.provider.2", "sun.security.provider.CertPathProvider");
         props.put("security.provider.3", "com.android.org.bouncycastle.jce.provider.BouncyCastleProvider");
@@ -247,15 +283,14 @@ public final class Security {
     public static synchronized int insertProviderAt(Provider provider,
             int position) {
         String providerName = provider.getName();
-        // Android-removed
-        // Checks using SecurityManager, which is not functional in Android.
+        // Android-removed: Checks using SecurityManager, which is not functional in Android.
         // checkInsertProvider(providerName);
-        // Android-removed
         ProviderList list = Providers.getFullProviderList();
         ProviderList newList = ProviderList.insertAt(list, provider, position - 1);
         if (list == newList) {
             return -1;
         }
+        // Android-added: Version tracking call.
         increaseVersion();
         Providers.setProviderList(newList);
         return newList.getIndex(providerName) + 1;
@@ -331,10 +366,12 @@ public final class Security {
      * @see #addProvider
      */
     public static synchronized void removeProvider(String name) {
-        check("removeProvider." + name);
+        // Android-removed: Checks using SecurityManager, which is not functional in Android.
+        // check("removeProvider." + name);
         ProviderList list = Providers.getFullProviderList();
         ProviderList newList = ProviderList.remove(list, name);
         Providers.setProviderList(newList);
+        // Android-added: Version tracking call.
         increaseVersion();
     }
 
@@ -685,8 +722,10 @@ public final class Security {
      * @see java.security.SecurityPermission
      */
     public static void setProperty(String key, String datum) {
-        check("setProperty."+key);
+        // Android-removed: Checks using SecurityManager, which is not functional in Android.
+        // check("setProperty."+key);
         props.put(key, datum);
+        // Android-added: Version tracking call.
         increaseVersion();
         invalidateSMCache(key);  /* See below. */
     }
@@ -745,12 +784,33 @@ public final class Security {
         }  /* if */
     }
 
+    // BEGIN Android-removed: SecurityManager is stubbed on Android.
+    /*
     private static void check(String directive) {
         SecurityManager security = System.getSecurityManager();
         if (security != null) {
             security.checkSecurityAccess(directive);
         }
     }
+
+    private static void checkInsertProvider(String name) {
+        SecurityManager security = System.getSecurityManager();
+        if (security != null) {
+            try {
+                security.checkSecurityAccess("insertProvider");
+            } catch (SecurityException se1) {
+                try {
+                    security.checkSecurityAccess("insertProvider." + name);
+                } catch (SecurityException se2) {
+                    // throw first exception, but add second to suppressed
+                    se1.addSuppressed(se2);
+                    throw se1;
+                }
+            }
+        }
+    }
+    */
+    // END Android-removed: SecurityManager is stubbed on Android.
 
     /*
     * Returns all providers who satisfy the specified
@@ -1004,6 +1064,7 @@ public final class Security {
         return Collections.unmodifiableSet(result);
     }
 
+    // BEGIN Android-added: Methods for version handling.
     /**
      * @hide
      */
@@ -1016,4 +1077,5 @@ public final class Security {
     public static int getVersion() {
         return version.get();
     }
+    // END Android-added: Methods for version handling.
 }

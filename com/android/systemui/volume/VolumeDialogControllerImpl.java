@@ -43,12 +43,17 @@ import android.provider.Settings;
 import android.service.notification.Condition;
 import android.util.ArrayMap;
 import android.util.Log;
+import android.view.accessibility.AccessibilityManager;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.systemui.Dumpable;
 import com.android.systemui.R;
+import com.android.systemui.SysUiServiceProvider;
+import com.android.systemui.keyguard.ScreenLifecycle;
+import com.android.systemui.keyguard.WakefulnessLifecycle;
 import com.android.systemui.plugins.VolumeDialogController;
 import com.android.systemui.qs.tiles.DndTile;
+import com.android.systemui.statusbar.phone.StatusBar;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -88,13 +93,14 @@ public class VolumeDialogControllerImpl implements VolumeDialogController, Dumpa
     private final W mWorker;
     private final Context mContext;
     private AudioManager mAudio;
+    protected StatusBar mStatusBar;
     private final NotificationManager mNoMan;
     private final SettingObserver mObserver;
     private final Receiver mReceiver = new Receiver();
     private final MediaSessions mMediaSessions;
-    private final C mCallbacks = new C();
+    protected C mCallbacks = new C();
     private final State mState = new State();
-    private final MediaSessionsCallbacks mMediaSessionsCallbacksW = new MediaSessionsCallbacks();
+    protected final MediaSessionsCallbacks mMediaSessionsCallbacksW = new MediaSessionsCallbacks();
     private final Vibrator mVibrator;
     private final boolean mHasVibrator;
     private boolean mShowA11yStream;
@@ -122,6 +128,13 @@ public class VolumeDialogControllerImpl implements VolumeDialogController, Dumpa
         mReceiver.init();
         mVibrator = (Vibrator) mContext.getSystemService(Context.VIBRATOR_SERVICE);
         mHasVibrator = mVibrator != null && mVibrator.hasVibrator();
+        updateStatusBar();
+
+        boolean accessibilityVolumeStreamActive = context.getSystemService(
+                AccessibilityManager.class).isAccessibilityVolumeStreamActive();
+        mVolumeController.setA11yMode(accessibilityVolumeStreamActive ?
+                    VolumePolicy.A11Y_MODE_INDEPENDENT_A11Y_VOLUME :
+                        VolumePolicy.A11Y_MODE_MEDIA_A11Y_VOLUME);
     }
 
     public AudioManager getAudioManager() {
@@ -210,6 +223,7 @@ public class VolumeDialogControllerImpl implements VolumeDialogController, Dumpa
 
     public void addCallback(Callbacks callback, Handler handler) {
         mCallbacks.add(callback, handler);
+        callback.onAccessibilityModeChanged(mShowA11yStream);
     }
 
     public void setUserActivityListener(UserActivityListener listener) {
@@ -318,8 +332,23 @@ public class VolumeDialogControllerImpl implements VolumeDialogController, Dumpa
         return changed;
     }
 
-    private boolean onVolumeChangedW(int stream, int flags) {
-        final boolean showUI = (flags & AudioManager.FLAG_SHOW_UI) != 0;
+    private void updateStatusBar() {
+        if (mStatusBar == null) {
+            mStatusBar = SysUiServiceProvider.getComponent(mContext, StatusBar.class);
+        }
+    }
+
+    private boolean shouldShowUI(int flags) {
+        updateStatusBar();
+        return mStatusBar != null
+                && mStatusBar.getWakefulnessState() != WakefulnessLifecycle.WAKEFULNESS_ASLEEP
+                && mStatusBar.getWakefulnessState() != WakefulnessLifecycle.WAKEFULNESS_GOING_TO_SLEEP
+                && mStatusBar.isDeviceInteractive()
+                && (flags & AudioManager.FLAG_SHOW_UI) != 0;
+    }
+
+    boolean onVolumeChangedW(int stream, int flags) {
+        final boolean showUI = shouldShowUI(flags);
         final boolean fromKey = (flags & AudioManager.FLAG_FROM_KEY) != 0;
         final boolean showVibrateHint = (flags & AudioManager.FLAG_SHOW_VIBRATE_HINT) != 0;
         final boolean showSilentHint = (flags & AudioManager.FLAG_SHOW_SILENT_HINT) != 0;
@@ -630,7 +659,7 @@ public class VolumeDialogControllerImpl implements VolumeDialogController, Dumpa
         }
     }
 
-    private final class C implements Callbacks {
+    class C implements Callbacks {
         private final HashMap<Callbacks, Handler> mCallbackMap = new HashMap<>();
 
         public void add(Callbacks callback, Handler handler) {
@@ -877,18 +906,14 @@ public class VolumeDialogControllerImpl implements VolumeDialogController, Dumpa
         }
     }
 
-    private final class MediaSessionsCallbacks implements MediaSessions.Callbacks {
+    protected final class MediaSessionsCallbacks implements MediaSessions.Callbacks {
         private final HashMap<Token, Integer> mRemoteStreams = new HashMap<>();
 
         private int mNextStream = DYNAMIC_STREAM_START_INDEX;
 
         @Override
         public void onRemoteUpdate(Token token, String name, PlaybackInfo pi) {
-            if (!mRemoteStreams.containsKey(token)) {
-                mRemoteStreams.put(token, mNextStream);
-                if (D.BUG) Log.d(TAG, "onRemoteUpdate: " + name + " is stream " + mNextStream);
-                mNextStream++;
-            }
+            addStream(token, "onRemoteUpdate");
             final int stream = mRemoteStreams.get(token);
             boolean changed = mState.states.indexOfKey(stream) < 0;
             final StreamState ss = streamStateW(stream);
@@ -913,8 +938,9 @@ public class VolumeDialogControllerImpl implements VolumeDialogController, Dumpa
 
         @Override
         public void onRemoteVolumeChanged(Token token, int flags) {
+            addStream(token, "onRemoteVolumeChanged");
             final int stream = mRemoteStreams.get(token);
-            final boolean showUI = (flags & AudioManager.FLAG_SHOW_UI) != 0;
+            final boolean showUI = shouldShowUI(flags);
             boolean changed = updateActiveStreamW(stream);
             if (showUI) {
                 changed |= checkRoutedToBluetoothW(AudioManager.STREAM_MUSIC);
@@ -929,6 +955,11 @@ public class VolumeDialogControllerImpl implements VolumeDialogController, Dumpa
 
         @Override
         public void onRemoteRemoved(Token token) {
+            if (!mRemoteStreams.containsKey(token)) {
+                if (D.BUG) Log.d(TAG, "onRemoteRemoved: stream doesn't exist, "
+                        + "aborting remote removed for token:" +  token.toString());
+                return;
+            }
             final int stream = mRemoteStreams.get(token);
             mState.states.remove(stream);
             if (mState.activeStream == stream) {
@@ -953,6 +984,15 @@ public class VolumeDialogControllerImpl implements VolumeDialogController, Dumpa
                 }
             }
             return null;
+        }
+
+        private void addStream(Token token, String triggeringMethod) {
+            if (!mRemoteStreams.containsKey(token)) {
+                mRemoteStreams.put(token, mNextStream);
+                if (D.BUG) Log.d(TAG, triggeringMethod + ": added stream " +  mNextStream
+                        + " from token + "+ token.toString());
+                mNextStream++;
+            }
         }
     }
 

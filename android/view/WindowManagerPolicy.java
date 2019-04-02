@@ -16,6 +16,8 @@
 
 package android.view;
 
+import static android.Manifest.permission;
+import static android.view.Display.DEFAULT_DISPLAY;
 import static android.view.WindowManager.LayoutParams.FIRST_APPLICATION_WINDOW;
 import static android.view.WindowManager.LayoutParams.LAST_APPLICATION_WINDOW;
 import static android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY;
@@ -148,6 +150,11 @@ public interface WindowManagerPolicy {
     // of some type are available.
     public final static int PRESENCE_INTERNAL = 1 << 0;
     public final static int PRESENCE_EXTERNAL = 1 << 1;
+
+    // Navigation bar position values
+    int NAV_BAR_LEFT = 1 << 0;
+    int NAV_BAR_RIGHT = 1 << 1;
+    int NAV_BAR_BOTTOM = 1 << 2;
 
     public final static boolean WATCH_POINTER = false;
 
@@ -479,11 +486,17 @@ public interface WindowManagerPolicy {
 
         /**
          * Returns true if the window owner can add internal system windows.
-         * That is, they have {@link android.Manifest.permission#INTERNAL_SYSTEM_WINDOW}.
+         * That is, they have {@link permission#INTERNAL_SYSTEM_WINDOW}.
          */
         default boolean canAddInternalSystemWindow() {
             return false;
         }
+
+        /**
+         * Returns true if the window owner has the permission to acquire a sleep token when it's
+         * visible. That is, they have the permission {@link permission#DEVICE_POWER}.
+         */
+        boolean canAcquireSleepToken();
     }
 
     /**
@@ -611,7 +624,16 @@ public interface WindowManagerPolicy {
          * 2. motionEvent will be recycled after onPointerEvent returns so if it is needed later a
          * copy() must be made and the copy must be recycled.
          **/
-        public void onPointerEvent(MotionEvent motionEvent);
+        void onPointerEvent(MotionEvent motionEvent);
+
+        /**
+         * @see #onPointerEvent(MotionEvent)
+         **/
+        default void onPointerEvent(MotionEvent motionEvent, int displayId) {
+            if (displayId == DEFAULT_DISPLAY) {
+                onPointerEvent(motionEvent);
+            }
+        }
     }
 
     /** Window has been added to the screen. */
@@ -759,7 +781,7 @@ public interface WindowManagerPolicy {
      * @param type The type of window being assigned.
      * @param canAddInternalSystemWindow If the owner window associated with the type we are
      *        evaluating can add internal system windows. I.e they have
-     *        {@link android.Manifest.permission#INTERNAL_SYSTEM_WINDOW}. If true, alert window
+     *        {@link permission#INTERNAL_SYSTEM_WINDOW}. If true, alert window
      *        types {@link android.view.WindowManager.LayoutParams#isSystemAlertWindowType(int)}
      *        can be assigned layers greater than the layer for
      *        {@link android.view.WindowManager.LayoutParams#TYPE_APPLICATION_OVERLAY} Else, their
@@ -1311,6 +1333,14 @@ public interface WindowManagerPolicy {
     public boolean isScreenOn();
 
     /**
+     * @return whether the device is currently allowed to animate.
+     *
+     * Note: this can be true even if it is not appropriate to animate for reasons that are outside
+     *       of the policy's authority.
+     */
+    boolean okToAnimate();
+
+    /**
      * Tell the policy that the lid switch has changed state.
      * @param whenNanos The time when the change occurred in uptime nanoseconds.
      * @param lidOpen True if the lid is now open.
@@ -1665,6 +1695,14 @@ public interface WindowManagerPolicy {
      * @return true if the navigation bar is forced to stay visible
      */
     public boolean isNavBarForcedShownLw(WindowState win);
+
+    /**
+     * @return The side of the screen where navigation bar is positioned.
+     * @see #NAV_BAR_LEFT
+     * @see #NAV_BAR_RIGHT
+     * @see #NAV_BAR_BOTTOM
+     */
+    int getNavBarPosition();
 
     /**
      * Calculates the insets for the areas that could never be removed in Honeycomb, i.e. system

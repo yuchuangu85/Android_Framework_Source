@@ -190,7 +190,7 @@ public class LinkedHashMap<K,V>
      * LinkedHashMap.Entry is now treated as intermediary node class
      * that can also be converted to tree form.
      *
-     * BEGIN Android-changed
+     // BEGIN Android-changed
      * LinkedHashMapEntry should not be renamed. Specifically, for
      * source compatibility with earlier versions of Android, this
      * nested class must not be named "Entry". Otherwise, it would
@@ -201,7 +201,7 @@ public class LinkedHashMap<K,V>
      * To compile, that code snippet's "LinkedHashMap.Entry" must
      * mean java.util.Map.Entry which is the compile time type of
      * entrySet()'s elements.
-     * END Android-changed
+     // END Android-changed
      *
      * The changes in node classes also require using two fields
      * (head, tail) rather than a pointer to a header node to maintain

@@ -1,6 +1,3 @@
-// CHECKSTYLE:OFF Generated code
-/* This file is auto-generated from OnboardingFragment.java.  DO NOT MODIFY. */
-
 /*
  * Copyright (C) 2015 The Android Open Source Project
  *
@@ -25,7 +22,6 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.animation.TimeInterpolator;
-import android.support.v4.app.Fragment;
 import android.content.Context;
 import android.graphics.Color;
 import android.os.Bundle;
@@ -33,6 +29,7 @@ import android.support.annotation.ColorInt;
 import android.support.annotation.Nullable;
 import android.support.v17.leanback.R;
 import android.support.v17.leanback.widget.PagingIndicator;
+import android.support.v4.app.Fragment;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.ContextThemeWrapper;
@@ -155,7 +152,7 @@ import java.util.List;
  * @attr ref R.styleable#LeanbackOnboardingTheme_onboardingLogoStyle
  */
 abstract public class OnboardingSupportFragment extends Fragment {
-    private static final String TAG = "OnboardingSupportFragment";
+    private static final String TAG = "OnboardingF";
     private static final boolean DEBUG = false;
 
     private static final long LOGO_SPLASH_PAUSE_DURATION_MS = 1333;
@@ -596,6 +593,9 @@ abstract public class OnboardingSupportFragment extends Fragment {
 
     boolean startLogoAnimation() {
         final Context context = getContext();
+        if (context == null) {
+            return false;
+        }
         Animator animator = null;
         if (mLogoResourceId != 0) {
             mLogoView.setVisibility(View.VISIBLE);
@@ -716,12 +716,15 @@ abstract public class OnboardingSupportFragment extends Fragment {
      *                          been done in the past, {@code false} otherwise
      */
     protected final void startEnterAnimation(boolean force) {
+        final Context context = getContext();
+        if (context == null) {
+            return;
+        }
         hideLogoView();
         if (mEnterAnimationFinished && !force) {
             return;
         }
         List<Animator> animators = new ArrayList<>();
-        final Context context = getContext();
         Animator animator = AnimatorInflater.loadAnimator(context,
                 R.animator.lb_onboarding_page_indicator_enter);
         animator.setTarget(getPageCount() <= 1 ? mStartButton : mPageIndicator);

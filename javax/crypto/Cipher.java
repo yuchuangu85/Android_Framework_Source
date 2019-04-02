@@ -44,9 +44,6 @@ import javax.crypto.spec.*;
 
 import java.nio.ByteBuffer;
 import java.nio.ReadOnlyBufferException;
-/* Android-removed: this debugging mechanism is not used in Android
-import sun.security.util.Debug;
-*/
 import sun.security.jca.*;
 
 /**
@@ -230,7 +227,11 @@ import sun.security.jca.*;
 
 public class Cipher {
 
-    /* Android-removed: this debugging mechanism is not used in Android
+    // Android-removed: this debugging mechanism is not used in Android.
+    /*
+    private static final Debug debug =
+                        Debug.getInstance("jca", "Cipher");
+
     private static final Debug pdebug =
                         Debug.getInstance("provider", "Provider");
     private static final boolean skipDebug =
@@ -835,7 +836,8 @@ public class Cipher {
 
         initialized = true;
         this.opmode = opmode;
-        /* Android-removed: this debugging mechanism is not used in Android
+        // Android-removed: this debugging mechanism is not used in Android.
+        /*
         if (!skipDebug && pdebug != null) {
             pdebug.println("Cipher." + transformation + " " +
                 getOpmodeString(opmode) + " algorithm from: " +
@@ -975,7 +977,8 @@ public class Cipher {
         initialized = true;
         this.opmode = opmode;
 
-        /* Android-removed: this debugging mechanism is not used in Android
+        // Android-removed: this debugging mechanism is not used in Android.
+        /*
         if (!skipDebug && pdebug != null) {
             pdebug.println("Cipher." + transformation + " " +
                 getOpmodeString(opmode) + " algorithm from: " +
@@ -1115,7 +1118,8 @@ public class Cipher {
         initialized = true;
         this.opmode = opmode;
 
-        /* Android-removed: this debugging mechanism is not used in Android
+        // Android-removed: this debugging mechanism is not used in Android.
+        /*
         if (!skipDebug && pdebug != null) {
             pdebug.println("Cipher." + transformation + " " +
                 getOpmodeString(opmode) + " algorithm from: " +
@@ -1301,7 +1305,8 @@ public class Cipher {
         initialized = true;
         this.opmode = opmode;
 
-        /* Android-removed: this debugging mechanism is not used in Android
+        // Android-removed: this debugging mechanism is not used in Android.
+        /*
         if (!skipDebug && pdebug != null) {
             pdebug.println("Cipher." + transformation + " " +
                 getOpmodeString(opmode) + " algorithm from: " +
@@ -2171,8 +2176,8 @@ public class Cipher {
      */
     public static final int getMaxAllowedKeyLength(String transformation)
             throws NoSuchAlgorithmException {
-        // Android-changed: Remove references to CryptoPermission and throw early
-        // if transformation == null or isn't valid.
+        // Android-changed: Remove references to CryptoPermission.
+        // Throw early if transformation == null or isn't valid.
         //
         // CryptoPermission cp = getConfiguredPermission(transformation);
         // return cp.getMaxAllowedKeyLength();
@@ -2204,8 +2209,8 @@ public class Cipher {
      */
     public static final AlgorithmParameterSpec getMaxAllowedParameterSpec(
             String transformation) throws NoSuchAlgorithmException {
-        // Android-changed: Remove references to CryptoPermission and throw early
-        // if transformation == null or isn't valid.
+        // Android-changed: Remove references to CryptoPermission.
+        // Throw early if transformation == null or isn't valid.
         //
         // CryptoPermission cp = getConfiguredPermission(transformation);
         // return cp.getAlgorithmParameterSpec();

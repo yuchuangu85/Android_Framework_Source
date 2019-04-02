@@ -20,7 +20,6 @@ import android.app.ActivityThread;
 import android.app.StatusBarManager;
 import android.content.ComponentName;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.graphics.Rect;
 import android.os.Binder;
 import android.os.Bundle;
@@ -36,6 +35,7 @@ import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Slog;
 
+import com.android.internal.R;
 import com.android.internal.statusbar.IStatusBar;
 import com.android.internal.statusbar.IStatusBarService;
 import com.android.internal.statusbar.NotificationVisibility;
@@ -329,6 +329,29 @@ public class StatusBarManagerService extends IStatusBarService.Stub {
                 } catch (RemoteException ex) {}
             }
         }
+
+        @Override
+        public void setTopAppHidesStatusBar(boolean hidesStatusBar) {
+            if (mBar != null) {
+                try {
+                    mBar.setTopAppHidesStatusBar(hidesStatusBar);
+                } catch (RemoteException ex) {}
+            }
+        }
+
+        @Override
+        public boolean showShutdownUi(boolean isReboot, String reason) {
+            if (!mContext.getResources().getBoolean(R.bool.config_showSysuiShutdown)) {
+                return false;
+            }
+            if (mBar != null) {
+                try {
+                    mBar.showShutdownUi(isReboot, reason);
+                    return true;
+                } catch (RemoteException ex) {}
+            }
+            return false;
+        }
     };
 
     // ================================================================================
@@ -353,6 +376,18 @@ public class StatusBarManagerService extends IStatusBarService.Stub {
         if (mBar != null) {
             try {
                 mBar.animateCollapsePanels();
+            } catch (RemoteException ex) {
+            }
+        }
+    }
+
+    @Override
+    public void togglePanel() {
+        enforceExpandStatusBar();
+
+        if (mBar != null) {
+            try {
+                mBar.togglePanel();
             } catch (RemoteException ex) {
             }
         }
@@ -404,12 +439,12 @@ public class StatusBarManagerService extends IStatusBarService.Stub {
     }
 
     @Override
-    public void handleSystemNavigationKey(int key) throws RemoteException {
+    public void handleSystemKey(int key) throws RemoteException {
         enforceExpandStatusBar();
 
         if (mBar != null) {
             try {
-                mBar.handleSystemNavigationKey(key);
+                mBar.handleSystemKey(key);
             } catch (RemoteException ex) {
             }
         }
@@ -783,7 +818,7 @@ public class StatusBarManagerService extends IStatusBarService.Stub {
             mHandler.post(() -> {
                 // ShutdownThread displays UI, so give it a UI context.
                 if (safeMode) {
-                    ShutdownThread.rebootSafeMode(getUiContext(), false);
+                    ShutdownThread.rebootSafeMode(getUiContext(), true);
                 } else {
                     ShutdownThread.reboot(getUiContext(),
                             PowerManager.SHUTDOWN_USER_REQUESTED, false);
@@ -919,6 +954,10 @@ public class StatusBarManagerService extends IStatusBarService.Stub {
             String[] args, ShellCallback callback, ResultReceiver resultReceiver) {
         (new StatusBarShellCommand(this)).exec(
                 this, in, out, err, args, callback, resultReceiver);
+    }
+
+    public String[] getStatusBarIcons() {
+        return mContext.getResources().getStringArray(R.array.config_statusBarIcons);
     }
 
     // ================================================================================

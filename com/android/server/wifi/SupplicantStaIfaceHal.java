@@ -72,10 +72,15 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.annotation.concurrent.ThreadSafe;
+
 /**
  * Hal calls for bring up/shut down of the supplicant daemon and for
  * sending requests to the supplicant daemon
+ * To maintain thread-safety, the locking protocol is that every non-static method (regardless of
+ * access level) acquires mLock.
  */
+@ThreadSafe
 public class SupplicantStaIfaceHal {
     private static final String TAG = "SupplicantStaIfaceHal";
     /**
@@ -112,16 +117,16 @@ public class SupplicantStaIfaceHal {
     };
     private final HwRemoteBinder.DeathRecipient mServiceManagerDeathRecipient =
             cookie -> {
-                Log.w(TAG, "IServiceManager died: cookie=" + cookie);
                 synchronized (mLock) {
+                    Log.w(TAG, "IServiceManager died: cookie=" + cookie);
                     supplicantServiceDiedHandler();
                     mIServiceManager = null; // Will need to register a new ServiceNotification
                 }
             };
     private final HwRemoteBinder.DeathRecipient mSupplicantDeathRecipient =
             cookie -> {
-                Log.w(TAG, "ISupplicant/ISupplicantStaIface died: cookie=" + cookie);
                 synchronized (mLock) {
+                    Log.w(TAG, "ISupplicant/ISupplicantStaIface died: cookie=" + cookie);
                     supplicantServiceDiedHandler();
                 }
             };
@@ -144,23 +149,27 @@ public class SupplicantStaIfaceHal {
      * @param enable true to enable, false to disable.
      */
     void enableVerboseLogging(boolean enable) {
-        mVerboseLoggingEnabled = enable;
+        synchronized (mLock) {
+            mVerboseLoggingEnabled = enable;
+        }
     }
 
     private boolean linkToServiceManagerDeath() {
-        if (mIServiceManager == null) return false;
-        try {
-            if (!mIServiceManager.linkToDeath(mServiceManagerDeathRecipient, 0)) {
-                Log.wtf(TAG, "Error on linkToDeath on IServiceManager");
-                supplicantServiceDiedHandler();
-                mIServiceManager = null; // Will need to register a new ServiceNotification
+        synchronized (mLock) {
+            if (mIServiceManager == null) return false;
+            try {
+                if (!mIServiceManager.linkToDeath(mServiceManagerDeathRecipient, 0)) {
+                    Log.wtf(TAG, "Error on linkToDeath on IServiceManager");
+                    supplicantServiceDiedHandler();
+                    mIServiceManager = null; // Will need to register a new ServiceNotification
+                    return false;
+                }
+            } catch (RemoteException e) {
+                Log.e(TAG, "IServiceManager.linkToDeath exception", e);
                 return false;
             }
-        } catch (RemoteException e) {
-            Log.e(TAG, "IServiceManager.linkToDeath exception", e);
-            return false;
+            return true;
         }
-        return true;
     }
 
     /**
@@ -169,8 +178,10 @@ public class SupplicantStaIfaceHal {
      * @return true if the service notification was successfully registered
      */
     public boolean initialize() {
-        if (mVerboseLoggingEnabled) Log.i(TAG, "Registering ISupplicant service ready callback.");
         synchronized (mLock) {
+            if (mVerboseLoggingEnabled) {
+                Log.i(TAG, "Registering ISupplicant service ready callback.");
+            }
             mISupplicant = null;
             mISupplicantStaIface = null;
             if (mIServiceManager != null) {
@@ -206,18 +217,20 @@ public class SupplicantStaIfaceHal {
     }
 
     private boolean linkToSupplicantDeath() {
-        if (mISupplicant == null) return false;
-        try {
-            if (!mISupplicant.linkToDeath(mSupplicantDeathRecipient, 0)) {
-                Log.wtf(TAG, "Error on linkToDeath on ISupplicant");
-                supplicantServiceDiedHandler();
+        synchronized (mLock) {
+            if (mISupplicant == null) return false;
+            try {
+                if (!mISupplicant.linkToDeath(mSupplicantDeathRecipient, 0)) {
+                    Log.wtf(TAG, "Error on linkToDeath on ISupplicant");
+                    supplicantServiceDiedHandler();
+                    return false;
+                }
+            } catch (RemoteException e) {
+                Log.e(TAG, "ISupplicant.linkToDeath exception", e);
                 return false;
             }
-        } catch (RemoteException e) {
-            Log.e(TAG, "ISupplicant.linkToDeath exception", e);
-            return false;
+            return true;
         }
-        return true;
     }
 
     private boolean initSupplicantService() {
@@ -240,25 +253,29 @@ public class SupplicantStaIfaceHal {
     }
 
     private boolean linkToSupplicantStaIfaceDeath() {
-        if (mISupplicantStaIface == null) return false;
-        try {
-            if (!mISupplicantStaIface.linkToDeath(mSupplicantDeathRecipient, 0)) {
-                Log.wtf(TAG, "Error on linkToDeath on ISupplicantStaIface");
-                supplicantServiceDiedHandler();
+        synchronized (mLock) {
+            if (mISupplicantStaIface == null) return false;
+            try {
+                if (!mISupplicantStaIface.linkToDeath(mSupplicantDeathRecipient, 0)) {
+                    Log.wtf(TAG, "Error on linkToDeath on ISupplicantStaIface");
+                    supplicantServiceDiedHandler();
+                    return false;
+                }
+            } catch (RemoteException e) {
+                Log.e(TAG, "ISupplicantStaIface.linkToDeath exception", e);
                 return false;
             }
-        } catch (RemoteException e) {
-            Log.e(TAG, "ISupplicantStaIface.linkToDeath exception", e);
-            return false;
+            return true;
         }
-        return true;
     }
 
     private int getCurrentNetworkId() {
-        if (mCurrentNetworkLocalConfig == null) {
-            return WifiConfiguration.INVALID_NETWORK_ID;
+        synchronized (mLock) {
+            if (mCurrentNetworkLocalConfig == null) {
+                return WifiConfiguration.INVALID_NETWORK_ID;
+            }
+            return mCurrentNetworkLocalConfig.networkId;
         }
-        return mCurrentNetworkLocalConfig.networkId;
     }
 
     private boolean initSupplicantStaIface() {
@@ -331,29 +348,39 @@ public class SupplicantStaIfaceHal {
      * Signals whether Initialization completed successfully.
      */
     public boolean isInitializationStarted() {
-        return mIServiceManager != null;
+        synchronized (mLock) {
+            return mIServiceManager != null;
+        }
     }
 
     /**
      * Signals whether Initialization completed successfully.
      */
     public boolean isInitializationComplete() {
-        return mISupplicantStaIface != null;
+        synchronized (mLock) {
+            return mISupplicantStaIface != null;
+        }
     }
 
     /**
      * Wrapper functions to access static HAL methods, created to be mockable in unit tests
      */
     protected IServiceManager getServiceManagerMockable() throws RemoteException {
-        return IServiceManager.getService();
+        synchronized (mLock) {
+            return IServiceManager.getService();
+        }
     }
 
     protected ISupplicant getSupplicantMockable() throws RemoteException {
-        return ISupplicant.getService();
+        synchronized (mLock) {
+            return ISupplicant.getService();
+        }
     }
 
     protected ISupplicantStaIface getStaIfaceMockable(ISupplicantIface iface) {
-        return ISupplicantStaIface.asInterface(iface.asBinder());
+        synchronized (mLock) {
+            return ISupplicantStaIface.asInterface(iface.asBinder());
+        }
     }
 
     /**
@@ -365,30 +392,32 @@ public class SupplicantStaIfaceHal {
      */
     private Pair<SupplicantStaNetworkHal, WifiConfiguration>
             addNetworkAndSaveConfig(WifiConfiguration config) {
-        logi("addSupplicantStaNetwork via HIDL");
-        if (config == null) {
-            loge("Cannot add NULL network!");
-            return null;
-        }
-        SupplicantStaNetworkHal network = addNetwork();
-        if (network == null) {
-            loge("Failed to add a network!");
-            return null;
-        }
-        boolean saveSuccess = false;
-        try {
-            saveSuccess = network.saveWifiConfiguration(config);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Exception while saving config params: " + config, e);
-        }
-        if (!saveSuccess) {
-            loge("Failed to save variables for: " + config.configKey());
-            if (!removeAllNetworks()) {
-                loge("Failed to remove all networks on failure.");
+        synchronized (mLock) {
+            logi("addSupplicantStaNetwork via HIDL");
+            if (config == null) {
+                loge("Cannot add NULL network!");
+                return null;
             }
-            return null;
+            SupplicantStaNetworkHal network = addNetwork();
+            if (network == null) {
+                loge("Failed to add a network!");
+                return null;
+            }
+            boolean saveSuccess = false;
+            try {
+                saveSuccess = network.saveWifiConfiguration(config);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Exception while saving config params: " + config, e);
+            }
+            if (!saveSuccess) {
+                loge("Failed to save variables for: " + config.configKey());
+                if (!removeAllNetworks()) {
+                    loge("Failed to remove all networks on failure.");
+                }
+                return null;
+            }
+            return new Pair(network, new WifiConfiguration(config));
         }
-        return new Pair(network, new WifiConfiguration(config));
     }
 
     /**
@@ -402,30 +431,33 @@ public class SupplicantStaIfaceHal {
      * @return {@code true} if it succeeds, {@code false} otherwise
      */
     public boolean connectToNetwork(@NonNull WifiConfiguration config) {
-        logd("connectToNetwork " + config.configKey());
-        if (WifiConfigurationUtil.isSameNetwork(config, mCurrentNetworkLocalConfig)) {
-            logd("Network is already saved, will not trigger remove and add operation.");
-        } else {
-            mCurrentNetworkRemoteHandle = null;
-            mCurrentNetworkLocalConfig = null;
-            if (!removeAllNetworks()) {
-                loge("Failed to remove existing networks");
-                return false;
+        synchronized (mLock) {
+            logd("connectToNetwork " + config.configKey());
+            if (WifiConfigurationUtil.isSameNetwork(config, mCurrentNetworkLocalConfig)) {
+                logd("Network is already saved, will not trigger remove and add operation.");
+            } else {
+                mCurrentNetworkRemoteHandle = null;
+                mCurrentNetworkLocalConfig = null;
+                if (!removeAllNetworks()) {
+                    loge("Failed to remove existing networks");
+                    return false;
+                }
+                Pair<SupplicantStaNetworkHal, WifiConfiguration> pair =
+                        addNetworkAndSaveConfig(config);
+                if (pair == null) {
+                    loge("Failed to add/save network configuration: " + config.configKey());
+                    return false;
+                }
+                mCurrentNetworkRemoteHandle = pair.first;
+                mCurrentNetworkLocalConfig = pair.second;
             }
-            Pair<SupplicantStaNetworkHal, WifiConfiguration> pair = addNetworkAndSaveConfig(config);
-            if (pair == null) {
-                loge("Failed to add/save network configuration: " + config.configKey());
-                return false;
-            }
-            mCurrentNetworkRemoteHandle = pair.first;
-            mCurrentNetworkLocalConfig = pair.second;
-        }
 
-        if (!mCurrentNetworkRemoteHandle.select()) {
-            loge("Failed to select network configuration: " + config.configKey());
-            return false;
+            if (!mCurrentNetworkRemoteHandle.select()) {
+                loge("Failed to select network configuration: " + config.configKey());
+                return false;
+            }
+            return true;
         }
-        return true;
     }
 
     /**
@@ -441,22 +473,24 @@ public class SupplicantStaIfaceHal {
      * @return {@code true} if it succeeds, {@code false} otherwise
      */
     public boolean roamToNetwork(WifiConfiguration config) {
-        if (getCurrentNetworkId() != config.networkId) {
-            Log.w(TAG, "Cannot roam to a different network, initiate new connection. "
-                    + "Current network ID: " + getCurrentNetworkId());
-            return connectToNetwork(config);
+        synchronized (mLock) {
+            if (getCurrentNetworkId() != config.networkId) {
+                Log.w(TAG, "Cannot roam to a different network, initiate new connection. "
+                        + "Current network ID: " + getCurrentNetworkId());
+                return connectToNetwork(config);
+            }
+            String bssid = config.getNetworkSelectionStatus().getNetworkSelectionBSSID();
+            logd("roamToNetwork" + config.configKey() + " (bssid " + bssid + ")");
+            if (!mCurrentNetworkRemoteHandle.setBssid(bssid)) {
+                loge("Failed to set new bssid on network: " + config.configKey());
+                return false;
+            }
+            if (!reassociate()) {
+                loge("Failed to trigger reassociate");
+                return false;
+            }
+            return true;
         }
-        String bssid = config.getNetworkSelectionStatus().getNetworkSelectionBSSID();
-        logd("roamToNetwork" + config.configKey() + " (bssid " + bssid + ")");
-        if (!mCurrentNetworkRemoteHandle.setBssid(bssid)) {
-            loge("Failed to set new bssid on network: " + config.configKey());
-            return false;
-        }
-        if (!reassociate()) {
-            loge("Failed to trigger reassociate");
-            return false;
-        }
-        return true;
     }
 
     /**
@@ -469,45 +503,48 @@ public class SupplicantStaIfaceHal {
      */
     public boolean loadNetworks(Map<String, WifiConfiguration> configs,
                                 SparseArray<Map<String, String>> networkExtras) {
-        List<Integer> networkIds = listNetworks();
-        if (networkIds == null) {
-            Log.e(TAG, "Failed to list networks");
-            return false;
-        }
-        for (Integer networkId : networkIds) {
-            SupplicantStaNetworkHal network = getNetwork(networkId);
-            if (network == null) {
-                Log.e(TAG, "Failed to get network with ID: " + networkId);
+        synchronized (mLock) {
+            List<Integer> networkIds = listNetworks();
+            if (networkIds == null) {
+                Log.e(TAG, "Failed to list networks");
                 return false;
             }
-            WifiConfiguration config = new WifiConfiguration();
-            Map<String, String> networkExtra = new HashMap<>();
-            boolean loadSuccess = false;
-            try {
-                loadSuccess = network.loadWifiConfiguration(config, networkExtra);
-            } catch (IllegalArgumentException e) {
-                Log.wtf(TAG, "Exception while loading config params: " + config, e);
-            }
-            if (!loadSuccess) {
-                Log.e(TAG, "Failed to load wifi configuration for network with ID: " + networkId
-                        + ". Skipping...");
-                continue;
-            }
-            // Set the default IP assignments.
-            config.setIpAssignment(IpConfiguration.IpAssignment.DHCP);
-            config.setProxySettings(IpConfiguration.ProxySettings.NONE);
+            for (Integer networkId : networkIds) {
+                SupplicantStaNetworkHal network = getNetwork(networkId);
+                if (network == null) {
+                    Log.e(TAG, "Failed to get network with ID: " + networkId);
+                    return false;
+                }
+                WifiConfiguration config = new WifiConfiguration();
+                Map<String, String> networkExtra = new HashMap<>();
+                boolean loadSuccess = false;
+                try {
+                    loadSuccess = network.loadWifiConfiguration(config, networkExtra);
+                } catch (IllegalArgumentException e) {
+                    Log.wtf(TAG, "Exception while loading config params: " + config, e);
+                }
+                if (!loadSuccess) {
+                    Log.e(TAG, "Failed to load wifi configuration for network with ID: " + networkId
+                            + ". Skipping...");
+                    continue;
+                }
+                // Set the default IP assignments.
+                config.setIpAssignment(IpConfiguration.IpAssignment.DHCP);
+                config.setProxySettings(IpConfiguration.ProxySettings.NONE);
 
-            networkExtras.put(networkId, networkExtra);
-            String configKey = networkExtra.get(SupplicantStaNetworkHal.ID_STRING_KEY_CONFIG_KEY);
-            final WifiConfiguration duplicateConfig = configs.put(configKey, config);
-            if (duplicateConfig != null) {
-                // The network is already known. Overwrite the duplicate entry.
-                Log.i(TAG, "Replacing duplicate network: " + duplicateConfig.networkId);
-                removeNetwork(duplicateConfig.networkId);
-                networkExtras.remove(duplicateConfig.networkId);
+                networkExtras.put(networkId, networkExtra);
+                String configKey =
+                        networkExtra.get(SupplicantStaNetworkHal.ID_STRING_KEY_CONFIG_KEY);
+                final WifiConfiguration duplicateConfig = configs.put(configKey, config);
+                if (duplicateConfig != null) {
+                    // The network is already known. Overwrite the duplicate entry.
+                    Log.i(TAG, "Replacing duplicate network: " + duplicateConfig.networkId);
+                    removeNetwork(duplicateConfig.networkId);
+                    networkExtras.remove(duplicateConfig.networkId);
+                }
             }
+            return true;
         }
-        return true;
     }
 
     /**
@@ -541,12 +578,12 @@ public class SupplicantStaIfaceHal {
                     return false;
                 }
             }
+            // Reset current network info.  Probably not needed once we add support to remove/reset
+            // current network on receiving disconnection event from supplicant (b/32898136).
+            mCurrentNetworkLocalConfig = null;
+            mCurrentNetworkRemoteHandle = null;
+            return true;
         }
-        // Reset current network info.  Probably not needed once we add support to remove/reset
-        // current network on receiving disconnection event from supplicant (b/32898136).
-        mCurrentNetworkLocalConfig = null;
-        mCurrentNetworkRemoteHandle = null;
-        return true;
     }
 
     /**
@@ -556,8 +593,10 @@ public class SupplicantStaIfaceHal {
      * @return true if succeeds, false otherwise.
      */
     public boolean setCurrentNetworkBssid(String bssidStr) {
-        if (mCurrentNetworkRemoteHandle == null) return false;
-        return mCurrentNetworkRemoteHandle.setBssid(bssidStr);
+        synchronized (mLock) {
+            if (mCurrentNetworkRemoteHandle == null) return false;
+            return mCurrentNetworkRemoteHandle.setBssid(bssidStr);
+        }
     }
 
     /**
@@ -566,8 +605,10 @@ public class SupplicantStaIfaceHal {
      * @return Hex string corresponding to the WPS NFC token.
      */
     public String getCurrentNetworkWpsNfcConfigurationToken() {
-        if (mCurrentNetworkRemoteHandle == null) return null;
-        return mCurrentNetworkRemoteHandle.getWpsNfcConfigurationToken();
+        synchronized (mLock) {
+            if (mCurrentNetworkRemoteHandle == null) return null;
+            return mCurrentNetworkRemoteHandle.getWpsNfcConfigurationToken();
+        }
     }
 
     /**
@@ -576,8 +617,10 @@ public class SupplicantStaIfaceHal {
      * @return anonymous identity string if succeeds, null otherwise.
      */
     public String getCurrentNetworkEapAnonymousIdentity() {
-        if (mCurrentNetworkRemoteHandle == null) return null;
-        return mCurrentNetworkRemoteHandle.fetchEapAnonymousIdentity();
+        synchronized (mLock) {
+            if (mCurrentNetworkRemoteHandle == null) return null;
+            return mCurrentNetworkRemoteHandle.fetchEapAnonymousIdentity();
+        }
     }
 
     /**
@@ -587,8 +630,10 @@ public class SupplicantStaIfaceHal {
      * @return true if succeeds, false otherwise.
      */
     public boolean sendCurrentNetworkEapIdentityResponse(String identityStr) {
-        if (mCurrentNetworkRemoteHandle == null) return false;
-        return mCurrentNetworkRemoteHandle.sendNetworkEapIdentityResponse(identityStr);
+        synchronized (mLock) {
+            if (mCurrentNetworkRemoteHandle == null) return false;
+            return mCurrentNetworkRemoteHandle.sendNetworkEapIdentityResponse(identityStr);
+        }
     }
 
     /**
@@ -598,8 +643,10 @@ public class SupplicantStaIfaceHal {
      * @return true if succeeds, false otherwise.
      */
     public boolean sendCurrentNetworkEapSimGsmAuthResponse(String paramsStr) {
-        if (mCurrentNetworkRemoteHandle == null) return false;
-        return mCurrentNetworkRemoteHandle.sendNetworkEapSimGsmAuthResponse(paramsStr);
+        synchronized (mLock) {
+            if (mCurrentNetworkRemoteHandle == null) return false;
+            return mCurrentNetworkRemoteHandle.sendNetworkEapSimGsmAuthResponse(paramsStr);
+        }
     }
 
     /**
@@ -608,8 +655,10 @@ public class SupplicantStaIfaceHal {
      * @return true if succeeds, false otherwise.
      */
     public boolean sendCurrentNetworkEapSimGsmAuthFailure() {
-        if (mCurrentNetworkRemoteHandle == null) return false;
-        return mCurrentNetworkRemoteHandle.sendNetworkEapSimGsmAuthFailure();
+        synchronized (mLock) {
+            if (mCurrentNetworkRemoteHandle == null) return false;
+            return mCurrentNetworkRemoteHandle.sendNetworkEapSimGsmAuthFailure();
+        }
     }
 
     /**
@@ -619,8 +668,10 @@ public class SupplicantStaIfaceHal {
      * @return true if succeeds, false otherwise.
      */
     public boolean sendCurrentNetworkEapSimUmtsAuthResponse(String paramsStr) {
-        if (mCurrentNetworkRemoteHandle == null) return false;
-        return mCurrentNetworkRemoteHandle.sendNetworkEapSimUmtsAuthResponse(paramsStr);
+        synchronized (mLock) {
+            if (mCurrentNetworkRemoteHandle == null) return false;
+            return mCurrentNetworkRemoteHandle.sendNetworkEapSimUmtsAuthResponse(paramsStr);
+        }
     }
 
     /**
@@ -630,8 +681,10 @@ public class SupplicantStaIfaceHal {
      * @return true if succeeds, false otherwise.
      */
     public boolean sendCurrentNetworkEapSimUmtsAutsResponse(String paramsStr) {
-        if (mCurrentNetworkRemoteHandle == null) return false;
-        return mCurrentNetworkRemoteHandle.sendNetworkEapSimUmtsAutsResponse(paramsStr);
+        synchronized (mLock) {
+            if (mCurrentNetworkRemoteHandle == null) return false;
+            return mCurrentNetworkRemoteHandle.sendNetworkEapSimUmtsAutsResponse(paramsStr);
+        }
     }
 
     /**
@@ -640,8 +693,10 @@ public class SupplicantStaIfaceHal {
      * @return true if succeeds, false otherwise.
      */
     public boolean sendCurrentNetworkEapSimUmtsAuthFailure() {
-        if (mCurrentNetworkRemoteHandle == null) return false;
-        return mCurrentNetworkRemoteHandle.sendNetworkEapSimUmtsAuthFailure();
+        synchronized (mLock) {
+            if (mCurrentNetworkRemoteHandle == null) return false;
+            return mCurrentNetworkRemoteHandle.sendNetworkEapSimUmtsAuthFailure();
+        }
     }
 
     /**
@@ -701,13 +756,15 @@ public class SupplicantStaIfaceHal {
      */
     protected SupplicantStaNetworkHal getStaNetworkMockable(
             ISupplicantStaNetwork iSupplicantStaNetwork) {
-        SupplicantStaNetworkHal network =
-                new SupplicantStaNetworkHal(iSupplicantStaNetwork, mIfaceName, mContext,
-                        mWifiMonitor);
-        if (network != null) {
-            network.enableVerboseLogging(mVerboseLoggingEnabled);
+        synchronized (mLock) {
+            SupplicantStaNetworkHal network =
+                    new SupplicantStaNetworkHal(iSupplicantStaNetwork, mIfaceName, mContext,
+                            mWifiMonitor);
+            if (network != null) {
+                network.enableVerboseLogging(mVerboseLoggingEnabled);
+            }
+            return network;
         }
-        return network;
     }
 
     /**
@@ -803,25 +860,27 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean setWpsDeviceType(String typeStr) {
-        try {
-            Matcher match = WPS_DEVICE_TYPE_PATTERN.matcher(typeStr);
-            if (!match.find() || match.groupCount() != 3) {
-                Log.e(TAG, "Malformed WPS device type " + typeStr);
+        synchronized (mLock) {
+            try {
+                Matcher match = WPS_DEVICE_TYPE_PATTERN.matcher(typeStr);
+                if (!match.find() || match.groupCount() != 3) {
+                    Log.e(TAG, "Malformed WPS device type " + typeStr);
+                    return false;
+                }
+                short categ = Short.parseShort(match.group(1));
+                byte[] oui = NativeUtil.hexStringToByteArray(match.group(2));
+                short subCateg = Short.parseShort(match.group(3));
+
+                byte[] bytes = new byte[8];
+                ByteBuffer byteBuffer = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN);
+                byteBuffer.putShort(categ);
+                byteBuffer.put(oui);
+                byteBuffer.putShort(subCateg);
+                return setWpsDeviceType(bytes);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + typeStr, e);
                 return false;
             }
-            short categ = Short.parseShort(match.group(1));
-            byte[] oui = NativeUtil.hexStringToByteArray(match.group(2));
-            short subCateg = Short.parseShort(match.group(3));
-
-            byte[] bytes = new byte[8];
-            ByteBuffer byteBuffer = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN);
-            byteBuffer.putShort(categ);
-            byteBuffer.put(oui);
-            byteBuffer.putShort(subCateg);
-            return setWpsDeviceType(bytes);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + typeStr, e);
-            return false;
         }
     }
 
@@ -926,12 +985,14 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean setWpsConfigMethods(String configMethodsStr) {
-        short configMethodsMask = 0;
-        String[] configMethodsStrArr = configMethodsStr.split("\\s+");
-        for (int i = 0; i < configMethodsStrArr.length; i++) {
-            configMethodsMask |= stringToWpsConfigMethod(configMethodsStrArr[i]);
+        synchronized (mLock) {
+            short configMethodsMask = 0;
+            String[] configMethodsStrArr = configMethodsStr.split("\\s+");
+            for (int i = 0; i < configMethodsStrArr.length; i++) {
+                configMethodsMask |= stringToWpsConfigMethod(configMethodsStrArr[i]);
+            }
+            return setWpsConfigMethods(configMethodsMask);
         }
-        return setWpsConfigMethods(configMethodsMask);
     }
 
     private boolean setWpsConfigMethods(short configMethods) {
@@ -1032,11 +1093,13 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean initiateTdlsDiscover(String macAddress) {
-        try {
-            return initiateTdlsDiscover(NativeUtil.macAddressToByteArray(macAddress));
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + macAddress, e);
-            return false;
+        synchronized (mLock) {
+            try {
+                return initiateTdlsDiscover(NativeUtil.macAddressToByteArray(macAddress));
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + macAddress, e);
+                return false;
+            }
         }
     }
     /** See ISupplicantStaIface.hal for documentation */
@@ -1061,11 +1124,13 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean initiateTdlsSetup(String macAddress) {
-        try {
-            return initiateTdlsSetup(NativeUtil.macAddressToByteArray(macAddress));
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + macAddress, e);
-            return false;
+        synchronized (mLock) {
+            try {
+                return initiateTdlsSetup(NativeUtil.macAddressToByteArray(macAddress));
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + macAddress, e);
+                return false;
+            }
         }
     }
     /** See ISupplicantStaIface.hal for documentation */
@@ -1089,11 +1154,13 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean initiateTdlsTeardown(String macAddress) {
-        try {
-            return initiateTdlsTeardown(NativeUtil.macAddressToByteArray(macAddress));
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + macAddress, e);
-            return false;
+        synchronized (mLock) {
+            try {
+                return initiateTdlsTeardown(NativeUtil.macAddressToByteArray(macAddress));
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + macAddress, e);
+                return false;
+            }
         }
     }
 
@@ -1122,12 +1189,14 @@ public class SupplicantStaIfaceHal {
      */
     public boolean initiateAnqpQuery(String bssid, ArrayList<Short> infoElements,
                                      ArrayList<Integer> hs20SubTypes) {
-        try {
-            return initiateAnqpQuery(
-                    NativeUtil.macAddressToByteArray(bssid), infoElements, hs20SubTypes);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + bssid, e);
-            return false;
+        synchronized (mLock) {
+            try {
+                return initiateAnqpQuery(
+                        NativeUtil.macAddressToByteArray(bssid), infoElements, hs20SubTypes);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + bssid, e);
+                return false;
+            }
         }
     }
 
@@ -1156,11 +1225,13 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean initiateHs20IconQuery(String bssid, String fileName) {
-        try {
-            return initiateHs20IconQuery(NativeUtil.macAddressToByteArray(bssid), fileName);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + bssid, e);
-            return false;
+        synchronized (mLock) {
+            try {
+                return initiateHs20IconQuery(NativeUtil.macAddressToByteArray(bssid), fileName);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + bssid, e);
+                return false;
+            }
         }
     }
 
@@ -1250,19 +1321,21 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean addRxFilter(int type) {
-        byte halType;
-        switch (type) {
-            case WifiNative.RX_FILTER_TYPE_V4_MULTICAST:
-                halType = ISupplicantStaIface.RxFilterType.V4_MULTICAST;
-                break;
-            case WifiNative.RX_FILTER_TYPE_V6_MULTICAST:
-                halType = ISupplicantStaIface.RxFilterType.V6_MULTICAST;
-                break;
-            default:
-                Log.e(TAG, "Invalid Rx Filter type: " + type);
-                return false;
+        synchronized (mLock) {
+            byte halType;
+            switch (type) {
+                case WifiNative.RX_FILTER_TYPE_V4_MULTICAST:
+                    halType = ISupplicantStaIface.RxFilterType.V4_MULTICAST;
+                    break;
+                case WifiNative.RX_FILTER_TYPE_V6_MULTICAST:
+                    halType = ISupplicantStaIface.RxFilterType.V6_MULTICAST;
+                    break;
+                default:
+                    Log.e(TAG, "Invalid Rx Filter type: " + type);
+                    return false;
+            }
+            return addRxFilter(halType);
         }
-        return addRxFilter(halType);
     }
 
     public boolean addRxFilter(byte type) {
@@ -1287,19 +1360,21 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean removeRxFilter(int type) {
-        byte halType;
-        switch (type) {
-            case WifiNative.RX_FILTER_TYPE_V4_MULTICAST:
-                halType = ISupplicantStaIface.RxFilterType.V4_MULTICAST;
-                break;
-            case WifiNative.RX_FILTER_TYPE_V6_MULTICAST:
-                halType = ISupplicantStaIface.RxFilterType.V6_MULTICAST;
-                break;
-            default:
-                Log.e(TAG, "Invalid Rx Filter type: " + type);
-                return false;
+        synchronized (mLock) {
+            byte halType;
+            switch (type) {
+                case WifiNative.RX_FILTER_TYPE_V4_MULTICAST:
+                    halType = ISupplicantStaIface.RxFilterType.V4_MULTICAST;
+                    break;
+                case WifiNative.RX_FILTER_TYPE_V6_MULTICAST:
+                    halType = ISupplicantStaIface.RxFilterType.V6_MULTICAST;
+                    break;
+                default:
+                    Log.e(TAG, "Invalid Rx Filter type: " + type);
+                    return false;
+            }
+            return removeRxFilter(halType);
         }
-        return removeRxFilter(halType);
     }
 
     public boolean removeRxFilter(byte type) {
@@ -1325,22 +1400,24 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean setBtCoexistenceMode(int mode) {
-        byte halMode;
-        switch (mode) {
-            case WifiNative.BLUETOOTH_COEXISTENCE_MODE_ENABLED:
-                halMode = ISupplicantStaIface.BtCoexistenceMode.ENABLED;
-                break;
-            case WifiNative.BLUETOOTH_COEXISTENCE_MODE_DISABLED:
-                halMode = ISupplicantStaIface.BtCoexistenceMode.DISABLED;
-                break;
-            case WifiNative.BLUETOOTH_COEXISTENCE_MODE_SENSE:
-                halMode = ISupplicantStaIface.BtCoexistenceMode.SENSE;
-                break;
-            default:
-                Log.e(TAG, "Invalid Bt Coex mode: " + mode);
-                return false;
+        synchronized (mLock) {
+            byte halMode;
+            switch (mode) {
+                case WifiNative.BLUETOOTH_COEXISTENCE_MODE_ENABLED:
+                    halMode = ISupplicantStaIface.BtCoexistenceMode.ENABLED;
+                    break;
+                case WifiNative.BLUETOOTH_COEXISTENCE_MODE_DISABLED:
+                    halMode = ISupplicantStaIface.BtCoexistenceMode.DISABLED;
+                    break;
+                case WifiNative.BLUETOOTH_COEXISTENCE_MODE_SENSE:
+                    halMode = ISupplicantStaIface.BtCoexistenceMode.SENSE;
+                    break;
+                default:
+                    Log.e(TAG, "Invalid Bt Coex mode: " + mode);
+                    return false;
+            }
+            return setBtCoexistenceMode(halMode);
         }
-        return setBtCoexistenceMode(halMode);
     }
 
     private boolean setBtCoexistenceMode(byte mode) {
@@ -1404,8 +1481,10 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean setCountryCode(String codeStr) {
-        if (TextUtils.isEmpty(codeStr)) return false;
-        return setCountryCode(NativeUtil.stringToByteArray(codeStr));
+        synchronized (mLock) {
+            if (TextUtils.isEmpty(codeStr)) return false;
+            return setCountryCode(NativeUtil.stringToByteArray(codeStr));
+        }
     }
 
     /** See ISupplicantStaIface.hal for documentation */
@@ -1431,12 +1510,14 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean startWpsRegistrar(String bssidStr, String pin) {
-        if (TextUtils.isEmpty(bssidStr) || TextUtils.isEmpty(pin)) return false;
-        try {
-            return startWpsRegistrar(NativeUtil.macAddressToByteArray(bssidStr), pin);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + bssidStr, e);
-            return false;
+        synchronized (mLock) {
+            if (TextUtils.isEmpty(bssidStr) || TextUtils.isEmpty(pin)) return false;
+            try {
+                return startWpsRegistrar(NativeUtil.macAddressToByteArray(bssidStr), pin);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + bssidStr, e);
+                return false;
+            }
         }
     }
 
@@ -1462,11 +1543,13 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean startWpsPbc(String bssidStr) {
-        try {
-            return startWpsPbc(NativeUtil.macAddressToByteArray(bssidStr));
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + bssidStr, e);
-            return false;
+        synchronized (mLock) {
+            try {
+                return startWpsPbc(NativeUtil.macAddressToByteArray(bssidStr));
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + bssidStr, e);
+                return false;
+            }
         }
     }
 
@@ -1513,11 +1596,13 @@ public class SupplicantStaIfaceHal {
      * @return new pin generated on success, null otherwise.
      */
     public String startWpsPinDisplay(String bssidStr) {
-        try {
-            return startWpsPinDisplay(NativeUtil.macAddressToByteArray(bssidStr));
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "Illegal argument " + bssidStr, e);
-            return null;
+        synchronized (mLock) {
+            try {
+                return startWpsPinDisplay(NativeUtil.macAddressToByteArray(bssidStr));
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Illegal argument " + bssidStr, e);
+                return null;
+            }
         }
     }
 
@@ -1602,10 +1687,12 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean setLogLevel(boolean turnOnVerbose) {
-        int logLevel = turnOnVerbose
-                ? ISupplicant.DebugLevel.DEBUG
-                : ISupplicant.DebugLevel.INFO;
-        return setDebugParams(logLevel, false, false);
+        synchronized (mLock) {
+            int logLevel = turnOnVerbose
+                    ? ISupplicant.DebugLevel.DEBUG
+                    : ISupplicant.DebugLevel.INFO;
+            return setDebugParams(logLevel, false, false);
+        }
     }
 
     /** See ISupplicant.hal for documentation */
@@ -1632,10 +1719,12 @@ public class SupplicantStaIfaceHal {
      * @return true if request is sent successfully, false otherwise.
      */
     public boolean setConcurrencyPriority(boolean isStaHigherPriority) {
-        if (isStaHigherPriority) {
-            return setConcurrencyPriority(IfaceType.STA);
-        } else {
-            return setConcurrencyPriority(IfaceType.P2P);
+        synchronized (mLock) {
+            if (isStaHigherPriority) {
+                return setConcurrencyPriority(IfaceType.STA);
+            } else {
+                return setConcurrencyPriority(IfaceType.P2P);
+            }
         }
     }
 
@@ -1658,22 +1747,26 @@ public class SupplicantStaIfaceHal {
      * Returns false if Supplicant is null, and logs failure to call methodStr
      */
     private boolean checkSupplicantAndLogFailure(final String methodStr) {
-        if (mISupplicant == null) {
-            Log.e(TAG, "Can't call " + methodStr + ", ISupplicant is null");
-            return false;
+        synchronized (mLock) {
+            if (mISupplicant == null) {
+                Log.e(TAG, "Can't call " + methodStr + ", ISupplicant is null");
+                return false;
+            }
+            return true;
         }
-        return true;
     }
 
     /**
      * Returns false if SupplicantStaIface is null, and logs failure to call methodStr
      */
     private boolean checkSupplicantStaIfaceAndLogFailure(final String methodStr) {
-        if (mISupplicantStaIface == null) {
-            Log.e(TAG, "Can't call " + methodStr + ", ISupplicantStaIface is null");
-            return false;
+        synchronized (mLock) {
+            if (mISupplicantStaIface == null) {
+                Log.e(TAG, "Can't call " + methodStr + ", ISupplicantStaIface is null");
+                return false;
+            }
+            return true;
         }
-        return true;
     }
 
     /**
@@ -1682,15 +1775,17 @@ public class SupplicantStaIfaceHal {
      */
     private boolean checkStatusAndLogFailure(SupplicantStatus status,
             final String methodStr) {
-        if (status.code != SupplicantStatusCode.SUCCESS) {
-            Log.e(TAG, "ISupplicantStaIface." + methodStr + " failed: "
-                    + supplicantStatusCodeToString(status.code) + ", " + status.debugMessage);
-            return false;
-        } else {
-            if (mVerboseLoggingEnabled) {
-                Log.d(TAG, "ISupplicantStaIface." + methodStr + " succeeded");
+        synchronized (mLock) {
+            if (status.code != SupplicantStatusCode.SUCCESS) {
+                Log.e(TAG, "ISupplicantStaIface." + methodStr + " failed: "
+                        + supplicantStatusCodeToString(status.code) + ", " + status.debugMessage);
+                return false;
+            } else {
+                if (mVerboseLoggingEnabled) {
+                    Log.d(TAG, "ISupplicantStaIface." + methodStr + " succeeded");
+                }
+                return true;
             }
-            return true;
         }
     }
 
@@ -1698,15 +1793,19 @@ public class SupplicantStaIfaceHal {
      * Helper function to log callbacks.
      */
     private void logCallback(final String methodStr) {
-        if (mVerboseLoggingEnabled) {
-            Log.d(TAG, "ISupplicantStaIfaceCallback." + methodStr + " received");
+        synchronized (mLock) {
+            if (mVerboseLoggingEnabled) {
+                Log.d(TAG, "ISupplicantStaIfaceCallback." + methodStr + " received");
+            }
         }
     }
 
 
     private void handleRemoteException(RemoteException e, String methodStr) {
-        supplicantServiceDiedHandler();
-        Log.e(TAG, "ISupplicantStaIface." + methodStr + " failed with exception", e);
+        synchronized (mLock) {
+            supplicantServiceDiedHandler();
+            Log.e(TAG, "ISupplicantStaIface." + methodStr + " failed with exception", e);
+        }
     }
 
     /**
@@ -1835,15 +1934,17 @@ public class SupplicantStaIfaceHal {
          */
         private ANQPElement parseAnqpElement(Constants.ANQPElementType infoID,
                                              ArrayList<Byte> payload) {
-            try {
-                return Constants.getANQPElementID(infoID) != null
-                        ? ANQPParser.parseElement(
-                        infoID, ByteBuffer.wrap(NativeUtil.byteArrayFromArrayList(payload)))
-                        : ANQPParser.parseHS20Element(
-                        infoID, ByteBuffer.wrap(NativeUtil.byteArrayFromArrayList(payload)));
-            } catch (IOException | BufferUnderflowException e) {
-                Log.e(TAG, "Failed parsing ANQP element payload: " + infoID, e);
-                return null;
+            synchronized (mLock) {
+                try {
+                    return Constants.getANQPElementID(infoID) != null
+                            ? ANQPParser.parseElement(
+                            infoID, ByteBuffer.wrap(NativeUtil.byteArrayFromArrayList(payload)))
+                            : ANQPParser.parseHS20Element(
+                            infoID, ByteBuffer.wrap(NativeUtil.byteArrayFromArrayList(payload)));
+                } catch (IOException | BufferUnderflowException e) {
+                    Log.e(TAG, "Failed parsing ANQP element payload: " + infoID, e);
+                    return null;
+                }
             }
         }
 
@@ -1857,28 +1958,34 @@ public class SupplicantStaIfaceHal {
         private void addAnqpElementToMap(Map<Constants.ANQPElementType, ANQPElement> elementsMap,
                                          Constants.ANQPElementType infoID,
                                          ArrayList<Byte> payload) {
-            if (payload == null || payload.isEmpty()) return;
-            ANQPElement element = parseAnqpElement(infoID, payload);
-            if (element != null) {
-                elementsMap.put(infoID, element);
+            synchronized (mLock) {
+                if (payload == null || payload.isEmpty()) return;
+                ANQPElement element = parseAnqpElement(infoID, payload);
+                if (element != null) {
+                    elementsMap.put(infoID, element);
+                }
             }
         }
 
         @Override
         public void onNetworkAdded(int id) {
-            logCallback("onNetworkAdded");
+            synchronized (mLock) {
+                logCallback("onNetworkAdded");
+            }
         }
 
         @Override
         public void onNetworkRemoved(int id) {
-            logCallback("onNetworkRemoved");
+            synchronized (mLock) {
+                logCallback("onNetworkRemoved");
+            }
         }
 
         @Override
         public void onStateChanged(int newState, byte[/* 6 */] bssid, int id,
                                    ArrayList<Byte> ssid) {
-            logCallback("onStateChanged");
             synchronized (mLock) {
+                logCallback("onStateChanged");
                 SupplicantState newSupplicantState = supplicantHidlStateToFrameworkState(newState);
                 WifiSsid wifiSsid =
                         WifiSsid.createFromByteArray(NativeUtil.byteArrayFromArrayList(ssid));
@@ -1897,8 +2004,8 @@ public class SupplicantStaIfaceHal {
         public void onAnqpQueryDone(byte[/* 6 */] bssid,
                                     ISupplicantStaIfaceCallback.AnqpData data,
                                     ISupplicantStaIfaceCallback.Hs20AnqpData hs20Data) {
-            logCallback("onAnqpQueryDone");
             synchronized (mLock) {
+                logCallback("onAnqpQueryDone");
                 Map<Constants.ANQPElementType, ANQPElement> elementsMap = new HashMap<>();
                 addAnqpElementToMap(elementsMap, ANQPVenueName, data.venueName);
                 addAnqpElementToMap(elementsMap, ANQPRoamingConsortium, data.roamingConsortium);
@@ -1919,8 +2026,8 @@ public class SupplicantStaIfaceHal {
         @Override
         public void onHs20IconQueryDone(byte[/* 6 */] bssid, String fileName,
                                         ArrayList<Byte> data) {
-            logCallback("onHs20IconQueryDone");
             synchronized (mLock) {
+                logCallback("onHs20IconQueryDone");
                 mWifiMonitor.broadcastIconDoneEvent(
                         mIfaceName,
                         new IconEvent(NativeUtil.macAddressToLong(bssid), fileName, data.size(),
@@ -1930,8 +2037,8 @@ public class SupplicantStaIfaceHal {
 
         @Override
         public void onHs20SubscriptionRemediation(byte[/* 6 */] bssid, byte osuMethod, String url) {
-            logCallback("onHs20SubscriptionRemediation");
             synchronized (mLock) {
+                logCallback("onHs20SubscriptionRemediation");
                 mWifiMonitor.broadcastWnmEvent(
                         mIfaceName,
                         new WnmData(NativeUtil.macAddressToLong(bssid), url, osuMethod));
@@ -1941,8 +2048,8 @@ public class SupplicantStaIfaceHal {
         @Override
         public void onHs20DeauthImminentNotice(byte[/* 6 */] bssid, int reasonCode,
                                                int reAuthDelayInSec, String url) {
-            logCallback("onHs20DeauthImminentNotice");
             synchronized (mLock) {
+                logCallback("onHs20DeauthImminentNotice");
                 mWifiMonitor.broadcastWnmEvent(
                         mIfaceName,
                         new WnmData(NativeUtil.macAddressToLong(bssid), url,
@@ -1952,8 +2059,8 @@ public class SupplicantStaIfaceHal {
 
         @Override
         public void onDisconnected(byte[/* 6 */] bssid, boolean locallyGenerated, int reasonCode) {
-            logCallback("onDisconnected");
             synchronized (mLock) {
+                logCallback("onDisconnected");
                 if (mVerboseLoggingEnabled) {
                     Log.e(TAG, "onDisconnected 4way=" + mStateIsFourway
                             + " locallyGenerated=" + locallyGenerated
@@ -1972,8 +2079,8 @@ public class SupplicantStaIfaceHal {
 
         @Override
         public void onAssociationRejected(byte[/* 6 */] bssid, int statusCode, boolean timedOut) {
-            logCallback("onAssociationRejected");
             synchronized (mLock) {
+                logCallback("onAssociationRejected");
                 mWifiMonitor.broadcastAssociationRejectionEvent(mIfaceName, statusCode, timedOut,
                         NativeUtil.macAddressFromByteArray(bssid));
             }
@@ -1981,8 +2088,8 @@ public class SupplicantStaIfaceHal {
 
         @Override
         public void onAuthenticationTimeout(byte[/* 6 */] bssid) {
-            logCallback("onAuthenticationTimeout");
             synchronized (mLock) {
+                logCallback("onAuthenticationTimeout");
                 mWifiMonitor.broadcastAuthenticationFailureEvent(
                         mIfaceName, WifiManager.ERROR_AUTH_FAILURE_TIMEOUT);
             }
@@ -1990,8 +2097,8 @@ public class SupplicantStaIfaceHal {
 
         @Override
         public void onBssidChanged(byte reason, byte[/* 6 */] bssid) {
-            logCallback("onBssidChanged");
             synchronized (mLock) {
+                logCallback("onBssidChanged");
                 if (reason == BssidChangeReason.ASSOC_START) {
                     mWifiMonitor.broadcastTargetBssidEvent(
                             mIfaceName, NativeUtil.macAddressFromByteArray(bssid));
@@ -2004,8 +2111,8 @@ public class SupplicantStaIfaceHal {
 
         @Override
         public void onEapFailure() {
-            logCallback("onEapFailure");
             synchronized (mLock) {
+                logCallback("onEapFailure");
                 mWifiMonitor.broadcastAuthenticationFailureEvent(
                         mIfaceName, WifiManager.ERROR_AUTH_FAILURE_EAP_FAILURE);
             }
@@ -2021,8 +2128,8 @@ public class SupplicantStaIfaceHal {
 
         @Override
         public void onWpsEventFail(byte[/* 6 */] bssid, short configError, short errorInd) {
-            logCallback("onWpsEventFail");
             synchronized (mLock) {
+                logCallback("onWpsEventFail");
                 if (configError == WpsConfigError.MSG_TIMEOUT
                         && errorInd == WpsErrorIndication.NO_ERROR) {
                     mWifiMonitor.broadcastWpsTimeoutEvent(mIfaceName);
@@ -2034,32 +2141,36 @@ public class SupplicantStaIfaceHal {
 
         @Override
         public void onWpsEventPbcOverlap() {
-            logCallback("onWpsEventPbcOverlap");
             synchronized (mLock) {
+                logCallback("onWpsEventPbcOverlap");
                 mWifiMonitor.broadcastWpsOverlapEvent(mIfaceName);
             }
         }
 
         @Override
         public void onExtRadioWorkStart(int id) {
-            logCallback("onExtRadioWorkStart");
+            synchronized (mLock) {
+                logCallback("onExtRadioWorkStart");
+            }
         }
 
         @Override
         public void onExtRadioWorkTimeout(int id) {
-            logCallback("onExtRadioWorkTimeout");
+            synchronized (mLock) {
+                logCallback("onExtRadioWorkTimeout");
+            }
         }
     }
 
-    private void logd(String s) {
+    private static void logd(String s) {
         Log.d(TAG, s);
     }
 
-    private void logi(String s) {
+    private static void logi(String s) {
         Log.i(TAG, s);
     }
 
-    private void loge(String s) {
+    private static void loge(String s) {
         Log.e(TAG, s);
     }
 }

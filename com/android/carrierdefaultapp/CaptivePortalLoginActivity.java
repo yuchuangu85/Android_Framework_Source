@@ -20,6 +20,9 @@ import android.app.Activity;
 import android.app.LoadedApk;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.ConnectivityManager;
 import android.net.ConnectivityManager.NetworkCallback;
@@ -34,6 +37,7 @@ import android.os.Bundle;
 import android.telephony.CarrierConfigManager;
 import android.telephony.Rlog;
 import android.telephony.SubscriptionManager;
+import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.util.TypedValue;
@@ -68,7 +72,7 @@ public class CaptivePortalLoginActivity extends Activity {
     private static final boolean DBG = true;
 
     private static final int SOCKET_TIMEOUT_MS = 10 * 1000;
-    public static final int NETWORK_REQUEST_TIMEOUT_MS = 5 * 1000;
+    private static final int NETWORK_REQUEST_TIMEOUT_MS = 5 * 1000;
 
     private URL mUrl;
     private Network mNetwork;
@@ -77,6 +81,8 @@ public class CaptivePortalLoginActivity extends Activity {
     private WebView mWebView;
     private MyWebViewClient mWebViewClient;
     private boolean mLaunchBrowser = false;
+    private Thread mTestingThread = null;
+    private boolean mReload = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -127,8 +133,6 @@ public class CaptivePortalLoginActivity extends Activity {
 
     @Override
     public void onDestroy() {
-        super.onDestroy();
-        releaseNetworkRequest();
         if (mLaunchBrowser) {
             // Give time for this network to become default. After 500ms just proceed.
             for (int i = 0; i < 5; i++) {
@@ -143,6 +147,13 @@ public class CaptivePortalLoginActivity extends Activity {
             if (DBG) logd("starting activity with intent ACTION_VIEW for " + url);
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
         }
+
+        if (mTestingThread != null) {
+            mTestingThread.interrupt();
+        }
+        mWebView.destroy();
+        releaseNetworkRequest();
+        super.onDestroy();
     }
 
     // Find WebView's proxy BroadcastReceiver and prompt it to read proxy system properties.
@@ -182,16 +193,19 @@ public class CaptivePortalLoginActivity extends Activity {
             CarrierActionUtils.applyCarrierAction(
                     CarrierActionUtils.CARRIER_ACTION_CANCEL_ALL_NOTIFICATIONS, getIntent(),
                     getApplicationContext());
-
+            CarrierActionUtils.applyCarrierAction(
+                    CarrierActionUtils.CARRIER_ACTION_DISABLE_DEFAULT_URL_HANDLER, getIntent(),
+                    getApplicationContext());
+            CarrierActionUtils.applyCarrierAction(
+                    CarrierActionUtils.CARRIER_ACTION_DEREGISTER_DEFAULT_NETWORK_AVAIL, getIntent(),
+                    getApplicationContext());
         }
         finishAndRemoveTask();
     }
 
     private URL getUrlForCaptivePortal() {
         String url = getIntent().getStringExtra(TelephonyIntents.EXTRA_REDIRECTION_URL_KEY);
-        if (url.isEmpty()) {
-            url = mCm.getCaptivePortalServerUrl();
-        }
+        if (TextUtils.isEmpty(url)) url = mCm.getCaptivePortalServerUrl();
         final CarrierConfigManager configManager = getApplicationContext()
                 .getSystemService(CarrierConfigManager.class);
         final int subId = getIntent().getIntExtra(PhoneConstants.SUBSCRIPTION_KEY,
@@ -215,18 +229,20 @@ public class CaptivePortalLoginActivity extends Activity {
     }
 
     private void testForCaptivePortal() {
-        new Thread(new Runnable() {
+        mTestingThread = new Thread(new Runnable() {
             public void run() {
                 // Give time for captive portal to open.
                 try {
                     Thread.sleep(1000);
                 } catch (InterruptedException e) {
                 }
+                if (isFinishing() || isDestroyed()) return;
                 HttpURLConnection urlConnection = null;
                 int httpResponseCode = 500;
                 int oldTag = TrafficStats.getAndSetThreadStatsTag(TrafficStats.TAG_SYSTEM_PROBE);
                 try {
-                    urlConnection = (HttpURLConnection) mNetwork.openConnection(mUrl);
+                    urlConnection = (HttpURLConnection) mNetwork.openConnection(
+                            new URL(mCm.getCaptivePortalServerUrl()));
                     urlConnection.setInstanceFollowRedirects(false);
                     urlConnection.setConnectTimeout(SOCKET_TIMEOUT_MS);
                     urlConnection.setReadTimeout(SOCKET_TIMEOUT_MS);
@@ -234,6 +250,7 @@ public class CaptivePortalLoginActivity extends Activity {
                     urlConnection.getInputStream();
                     httpResponseCode = urlConnection.getResponseCode();
                 } catch (IOException e) {
+                    loge(e.getMessage());
                 } finally {
                     if (urlConnection != null) urlConnection.disconnect();
                     TrafficStats.setThreadStatsTag(oldTag);
@@ -242,7 +259,8 @@ public class CaptivePortalLoginActivity extends Activity {
                     done(true);
                 }
             }
-        }).start();
+        });
+        mTestingThread.start();
     }
 
     private Network getNetworkForCaptivePortal() {
@@ -273,9 +291,13 @@ public class CaptivePortalLoginActivity extends Activity {
                 mCm.bindProcessToNetwork(network);
                 mNetwork = network;
                 runOnUiThreadIfNotFinishing(() -> {
-                    // Start initial page load so WebView finishes loading proxy settings.
-                    // Actual load of mUrl is initiated by MyWebViewClient.
-                    mWebView.loadData("", "text/html", null);
+                    if (mReload) {
+                        mWebView.reload();
+                    } else {
+                        // Start initial page load so WebView finishes loading proxy settings.
+                        // Actual load of mUrl is initiated by MyWebViewClient.
+                        mWebView.loadData("", "text/html", null);
+                    }
                 });
             }
 
@@ -287,6 +309,12 @@ public class CaptivePortalLoginActivity extends Activity {
                     // HTTP error page in the absence of network connection.
                     mWebView.loadUrl(mUrl.toString());
                 });
+            }
+
+            @Override
+            public void onLost(Network lostNetwork) {
+                if (DBG) logd("Network lost");
+                mReload = true;
             }
         };
         logd("request Network for captive portal");
@@ -425,6 +453,27 @@ public class CaptivePortalLoginActivity extends Activity {
         if (!isFinishing()) {
             runOnUiThread(r);
         }
+    }
+
+    /**
+     * This alias presents the target activity, CaptivePortalLoginActivity, as a independent
+     * entity with its own intent filter to handle URL links. This alias will be enabled/disabled
+     * dynamically to handle url links based on the network conditions.
+     */
+    public static String getAlias(Context context) {
+        try {
+            PackageInfo p = context.getPackageManager().getPackageInfo(context.getPackageName(),
+                    PackageManager.GET_ACTIVITIES | PackageManager.MATCH_DISABLED_COMPONENTS);
+            for (ActivityInfo activityInfo : p.activities) {
+                String targetActivity = activityInfo.targetActivity;
+                if (CaptivePortalLoginActivity.class.getName().equals(targetActivity)) {
+                    return activityInfo.name;
+                }
+            }
+        } catch (PackageManager.NameNotFoundException e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 
     private static void logd(String s) {

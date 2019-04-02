@@ -24,7 +24,6 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
-import android.net.NetworkScoreManager;
 import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
@@ -59,10 +58,8 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 import static android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED;
 
@@ -92,7 +89,6 @@ public class NetworkControllerImpl extends BroadcastReceiver
     private final DataSaverController mDataSaverController;
     private final CurrentUserTracker mUserTracker;
     private Config mConfig;
-    private final NetworkScoreManager mNetworkScoreManager;
 
     // Subcontrollers.
     @VisibleForTesting
@@ -118,7 +114,7 @@ public class NetworkControllerImpl extends BroadcastReceiver
 
     // States that don't belong to a subcontroller.
     private boolean mAirplaneMode = false;
-    private boolean mHasNoSims;
+    private boolean mHasNoSubs;
     private Locale mLocale = null;
     // This list holds our ordering.
     private List<SubscriptionInfo> mCurrentSubscriptions = new ArrayList<>();
@@ -142,6 +138,7 @@ public class NetworkControllerImpl extends BroadcastReceiver
     @VisibleForTesting
     ServiceState mLastServiceState;
     private boolean mUserSetup;
+    private boolean mSimDetected;
 
     /**
      * Construct this controller object and register for updates.
@@ -149,12 +146,9 @@ public class NetworkControllerImpl extends BroadcastReceiver
     public NetworkControllerImpl(Context context, Looper bgLooper,
             DeviceProvisionedController deviceProvisionedController) {
         this(context, (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE),
-                context.getSystemService(NetworkScoreManager.class),
                 (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE),
                 (WifiManager) context.getSystemService(Context.WIFI_SERVICE),
-                SubscriptionManager.from(context),
-                Config.readConfig(context),
-                bgLooper,
+                SubscriptionManager.from(context), Config.readConfig(context), bgLooper,
                 new CallbackHandler(),
                 new AccessPointControllerImpl(context, bgLooper),
                 new DataUsageController(context),
@@ -165,12 +159,8 @@ public class NetworkControllerImpl extends BroadcastReceiver
 
     @VisibleForTesting
     NetworkControllerImpl(Context context, ConnectivityManager connectivityManager,
-            NetworkScoreManager networkScoreManager,
-            TelephonyManager telephonyManager,
-            WifiManager wifiManager,
-            SubscriptionManager subManager,
-            Config config,
-            Looper bgLooper,
+            TelephonyManager telephonyManager, WifiManager wifiManager,
+            SubscriptionManager subManager, Config config, Looper bgLooper,
             CallbackHandler callbackHandler,
             AccessPointControllerImpl accessPointController,
             DataUsageController dataUsageController,
@@ -193,7 +183,6 @@ public class NetworkControllerImpl extends BroadcastReceiver
 
         // wifi
         mWifiManager = wifiManager;
-        mNetworkScoreManager = networkScoreManager;
 
         mLocale = mContext.getResources().getConfiguration().locale;
         mAccessPoints = accessPointController;
@@ -207,7 +196,7 @@ public class NetworkControllerImpl extends BroadcastReceiver
             }
         });
         mWifiSignalController = new WifiSignalController(mContext, mHasMobileDataFeature,
-                mCallbackHandler, this, mNetworkScoreManager);
+                mCallbackHandler, this);
 
         mEthernetSignalController = new EthernetSignalController(mContext, mCallbackHandler, this);
 
@@ -373,7 +362,7 @@ public class NetworkControllerImpl extends BroadcastReceiver
         cb.setSubs(mCurrentSubscriptions);
         cb.setIsAirplaneMode(new IconState(mAirplaneMode,
                 TelephonyIcons.FLIGHT_MODE_ICON, R.string.accessibility_airplane_mode, mContext));
-        cb.setNoSims(mHasNoSims);
+        cb.setNoSims(mHasNoSubs, mSimDetected);
         mWifiSignalController.notifyListeners(cb);
         mEthernetSignalController.notifyListeners(cb);
         for (int i = 0; i < mMobileSignalControllers.size(); i++) {
@@ -508,11 +497,25 @@ public class NetworkControllerImpl extends BroadcastReceiver
 
     @VisibleForTesting
     protected void updateNoSims() {
-        boolean hasNoSims = mHasMobileDataFeature && mMobileSignalControllers.size() == 0;
-        if (hasNoSims != mHasNoSims) {
-            mHasNoSims = hasNoSims;
-            mCallbackHandler.setNoSims(mHasNoSims);
+        boolean hasNoSubs = mHasMobileDataFeature && mMobileSignalControllers.size() == 0;
+        boolean simDetected = hasAnySim();
+        if (hasNoSubs != mHasNoSubs || simDetected != mSimDetected) {
+            mHasNoSubs = hasNoSubs;
+            mSimDetected = simDetected;
+            mCallbackHandler.setNoSims(mHasNoSubs, mSimDetected);
         }
+    }
+
+    private boolean hasAnySim() {
+        int simCount = mPhone.getSimCount();
+        for (int i = 0; i < simCount; i++) {
+            int state = mPhone.getSimState(i);
+            if (state != TelephonyManager.SIM_STATE_ABSENT
+                    && state != TelephonyManager.SIM_STATE_UNKNOWN) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @VisibleForTesting
@@ -641,7 +644,7 @@ public class NetworkControllerImpl extends BroadcastReceiver
     private void notifyListeners() {
         mCallbackHandler.setIsAirplaneMode(new IconState(mAirplaneMode,
                 TelephonyIcons.FLIGHT_MODE_ICON, R.string.accessibility_airplane_mode, mContext));
-        mCallbackHandler.setNoSims(mHasNoSims);
+        mCallbackHandler.setNoSims(mHasNoSubs, mSimDetected);
     }
 
     /**
@@ -832,8 +835,8 @@ public class NetworkControllerImpl extends BroadcastReceiver
             }
             String nosim = args.getString("nosim");
             if (nosim != null) {
-                mHasNoSims = nosim.equals("show");
-                mCallbackHandler.setNoSims(mHasNoSims);
+                mHasNoSubs = nosim.equals("show");
+                mCallbackHandler.setNoSims(mHasNoSubs, mSimDetected);
             }
             String mobile = args.getString("mobile");
             if (mobile != null) {
@@ -968,6 +971,7 @@ public class NetworkControllerImpl extends BroadcastReceiver
         boolean show4gForLte = false;
         boolean hideLtePlus = false;
         boolean hspaDataDistinguishable;
+        boolean inflateSignalStrengths = false;
 
         static Config readConfig(Context context) {
             Config config = new Config();
@@ -980,6 +984,7 @@ public class NetworkControllerImpl extends BroadcastReceiver
             config.hspaDataDistinguishable =
                     res.getBoolean(R.bool.config_hspa_data_distinguishable);
             config.hideLtePlus = res.getBoolean(R.bool.config_hideLtePlus);
+            config.inflateSignalStrengths = res.getBoolean(R.bool.config_inflateSignalStrength);
             return config;
         }
     }

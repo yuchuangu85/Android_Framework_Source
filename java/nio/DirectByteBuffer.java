@@ -55,6 +55,17 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         boolean isAccessible;
         boolean isFreed;
 
+
+        // Reference to original DirectByteBuffer that held this MemoryRef. The field is set
+        // only for the MemoryRef created through JNI NewDirectByteBuffer(void*, long) function.
+        // This allows users of JNI NewDirectByteBuffer to create a PhantomReference on the
+        // DirectByteBuffer instance that will only be put in the associated ReferenceQueue when
+        // the underlying memory is not referenced by any DirectByteBuffer instance. The
+        // MemoryRef can outlive the original DirectByteBuffer instance if, for example, slice()
+        // or asReadOnlyBuffer() are called and all strong references to the original DirectByteBuffer
+        // are discarded.
+        final Object originalBufferObject;
+
         MemoryRef(int capacity) {
             VMRuntime runtime = VMRuntime.getRuntime();
             buffer = (byte[]) runtime.newNonMovableArray(byte.class, capacity + 7);
@@ -63,12 +74,14 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
             offset = (int) (((allocatedAddress + 7) & ~(long) 7) - allocatedAddress);
             isAccessible = true;
             isFreed = false;
+            originalBufferObject = null;
         }
 
-        MemoryRef(long allocatedAddress) {
+        MemoryRef(long allocatedAddress, Object originalBufferObject) {
             buffer = null;
             this.allocatedAddress = allocatedAddress;
             this.offset = 0;
+            this.originalBufferObject = originalBufferObject;
             isAccessible = true;
         }
 
@@ -97,7 +110,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
     @SuppressWarnings("unused")
     private DirectByteBuffer(long addr, int cap) {
         super(-1, 0, cap, cap);
-        memoryRef = new MemoryRef(addr);
+        memoryRef = new MemoryRef(addr, this);
         address = addr;
         cleaner = null;
     }
@@ -109,7 +122,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
                             boolean isReadOnly) {
         super(-1, 0, cap, cap, fd);
         this.isReadOnly = isReadOnly;
-        memoryRef = new MemoryRef(addr);
+        memoryRef = new MemoryRef(addr, null);
         address = addr;
         cleaner = Cleaner.create(memoryRef, unmapper);
     }

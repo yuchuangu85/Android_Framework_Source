@@ -89,6 +89,7 @@ public class NotificationData {
         private int mCachedContrastColor = COLOR_INVALID;
         private int mCachedContrastColorIsFor = COLOR_INVALID;
         private InflationTask mRunningTask = null;
+        private Throwable mDebugThrowable;
 
         public Entry(StatusBarNotification n) {
             this.key = n.getKey();
@@ -107,7 +108,6 @@ public class NotificationData {
          * Resets the notification entry to be re-used.
          */
         public void reset() {
-            lastFullScreenIntentLaunchTime = NOT_LAUNCHED_YET;
             if (row != null) {
                 row.reset();
             }
@@ -122,6 +122,7 @@ public class NotificationData {
         }
 
         public void notifyFullScreenIntentLaunched() {
+            setInterruption();
             lastFullScreenIntentLaunchTime = SystemClock.elapsedRealtime();
         }
 
@@ -249,6 +250,19 @@ public class NotificationData {
         public InflationTask getRunningTask() {
             return mRunningTask;
         }
+
+        /**
+         * Set a throwable that is used for debugging
+         *
+         * @param debugThrowable the throwable to save
+         */
+        public void setDebugThrowable(Throwable debugThrowable) {
+            mDebugThrowable = debugThrowable;
+        }
+
+        public Throwable getDebugThrowable() {
+            return mDebugThrowable;
+        }
     }
 
     private final ArrayMap<String, Entry> mEntries = new ArrayMap<>();
@@ -278,8 +292,8 @@ public class NotificationData {
 
             if (mRankingMap != null) {
                 // RankingMap as received from NoMan
-                mRankingMap.getRanking(a.key, mRankingA);
-                mRankingMap.getRanking(b.key, mRankingB);
+                getRanking(a.key, mRankingA);
+                getRanking(b.key, mRankingB);
                 aImportance = mRankingA.getImportance();
                 bImportance = mRankingB.getImportance();
                 aRank = mRankingA.getRank();
@@ -367,7 +381,7 @@ public class NotificationData {
 
     public boolean isAmbient(String key) {
         if (mRankingMap != null) {
-            mRankingMap.getRanking(key, mTmpRanking);
+            getRanking(key, mTmpRanking);
             return mTmpRanking.isAmbient();
         }
         return false;
@@ -375,7 +389,7 @@ public class NotificationData {
 
     public int getVisibilityOverride(String key) {
         if (mRankingMap != null) {
-            mRankingMap.getRanking(key, mTmpRanking);
+            getRanking(key, mTmpRanking);
             return mTmpRanking.getVisibilityOverride();
         }
         return Ranking.VISIBILITY_NO_OVERRIDE;
@@ -383,7 +397,7 @@ public class NotificationData {
 
     public boolean shouldSuppressScreenOff(String key) {
         if (mRankingMap != null) {
-            mRankingMap.getRanking(key, mTmpRanking);
+            getRanking(key, mTmpRanking);
             return (mTmpRanking.getSuppressedVisualEffects()
                     & NotificationListenerService.SUPPRESSED_EFFECT_SCREEN_OFF) != 0;
         }
@@ -392,7 +406,7 @@ public class NotificationData {
 
     public boolean shouldSuppressScreenOn(String key) {
         if (mRankingMap != null) {
-            mRankingMap.getRanking(key, mTmpRanking);
+            getRanking(key, mTmpRanking);
             return (mTmpRanking.getSuppressedVisualEffects()
                     & NotificationListenerService.SUPPRESSED_EFFECT_SCREEN_ON) != 0;
         }
@@ -401,7 +415,7 @@ public class NotificationData {
 
     public int getImportance(String key) {
         if (mRankingMap != null) {
-            mRankingMap.getRanking(key, mTmpRanking);
+            getRanking(key, mTmpRanking);
             return mTmpRanking.getImportance();
         }
         return NotificationManager.IMPORTANCE_UNSPECIFIED;
@@ -409,7 +423,7 @@ public class NotificationData {
 
     public String getOverrideGroupKey(String key) {
         if (mRankingMap != null) {
-            mRankingMap.getRanking(key, mTmpRanking);
+            getRanking(key, mTmpRanking);
             return mTmpRanking.getOverrideGroupKey();
         }
          return null;
@@ -417,7 +431,7 @@ public class NotificationData {
 
     public List<SnoozeCriterion> getSnoozeCriteria(String key) {
         if (mRankingMap != null) {
-            mRankingMap.getRanking(key, mTmpRanking);
+            getRanking(key, mTmpRanking);
             return mTmpRanking.getSnoozeCriteria();
         }
         return null;
@@ -425,7 +439,7 @@ public class NotificationData {
 
     public NotificationChannel getChannel(String key) {
         if (mRankingMap != null) {
-            mRankingMap.getRanking(key, mTmpRanking);
+            getRanking(key, mTmpRanking);
             return mTmpRanking.getChannel();
         }
         return null;
@@ -438,6 +452,9 @@ public class NotificationData {
                 final int N = mEntries.size();
                 for (int i = 0; i < N; i++) {
                     Entry entry = mEntries.valueAt(i);
+                    if (!getRanking(entry.key, mTmpRanking)) {
+                        continue;
+                    }
                     final StatusBarNotification oldSbn = entry.notification.cloneLight();
                     final String overrideGroupKey = getOverrideGroupKey(entry.key);
                     if (!Objects.equals(oldSbn.getOverrideGroupKey(), overrideGroupKey)) {
@@ -450,6 +467,19 @@ public class NotificationData {
             }
         }
         filterAndSort();
+    }
+
+    /**
+     * Get the ranking from the current ranking map.
+     *
+     * @param key the key to look up
+     * @param outRanking the ranking to populate
+     *
+     * @return {@code true} if the ranking was properly obtained.
+     */
+    @VisibleForTesting
+    protected boolean getRanking(String key, Ranking outRanking) {
+        return mRankingMap.getRanking(key, outRanking);
     }
 
     // TODO: This should not be public. Instead the Environment should notify this class when
@@ -559,7 +589,7 @@ public class NotificationData {
     }
 
     private void dumpEntry(PrintWriter pw, String indent, int i, Entry e) {
-        mRankingMap.getRanking(e.key, mTmpRanking);
+        getRanking(e.key, mTmpRanking);
         pw.print(indent);
         pw.println("  [" + i + "] key=" + e.key + " icon=" + e.icon);
         StatusBarNotification n = e.notification;

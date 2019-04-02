@@ -132,6 +132,86 @@ public final class Call {
     public static final String EXTRA_LAST_EMERGENCY_CALLBACK_TIME_MILLIS =
             "android.telecom.extra.LAST_EMERGENCY_CALLBACK_TIME_MILLIS";
 
+    /**
+     * Call event sent from a {@link Call} via {@link #sendCallEvent(String, Bundle)} to inform
+     * Telecom that the user has requested that the current {@link Call} should be handed over
+     * to another {@link ConnectionService}.
+     * <p>
+     * The caller must specify the {@link #EXTRA_HANDOVER_PHONE_ACCOUNT_HANDLE} to indicate to
+     * Telecom which {@link PhoneAccountHandle} the {@link Call} should be handed over to.
+     * @hide
+     */
+    public static final String EVENT_REQUEST_HANDOVER =
+            "android.telecom.event.REQUEST_HANDOVER";
+
+    /**
+     * Extra key used with the {@link #EVENT_REQUEST_HANDOVER} call event.  Specifies the
+     * {@link PhoneAccountHandle} to which a call should be handed over to.
+     * @hide
+     */
+    public static final String EXTRA_HANDOVER_PHONE_ACCOUNT_HANDLE =
+            "android.telecom.extra.HANDOVER_PHONE_ACCOUNT_HANDLE";
+
+    /**
+     * Integer extra key used with the {@link #EVENT_REQUEST_HANDOVER} call event.  Specifies the
+     * video state of the call when it is handed over to the new {@link PhoneAccount}.
+     * <p>
+     * Valid values: {@link VideoProfile#STATE_AUDIO_ONLY},
+     * {@link VideoProfile#STATE_BIDIRECTIONAL}, {@link VideoProfile#STATE_RX_ENABLED}, and
+     * {@link VideoProfile#STATE_TX_ENABLED}.
+     * @hide
+     */
+    public static final String EXTRA_HANDOVER_VIDEO_STATE =
+            "android.telecom.extra.HANDOVER_VIDEO_STATE";
+
+    /**
+     * Extra key used with the {@link #EVENT_REQUEST_HANDOVER} call event.  Used by the
+     * {@link InCallService} initiating a handover to provide a {@link Bundle} with extra
+     * information to the handover {@link ConnectionService} specified by
+     * {@link #EXTRA_HANDOVER_PHONE_ACCOUNT_HANDLE}.
+     * <p>
+     * This {@link Bundle} is not interpreted by Telecom, but passed as-is to the
+     * {@link ConnectionService} via the request extras when
+     * {@link ConnectionService#onCreateOutgoingConnection(PhoneAccountHandle, ConnectionRequest)}
+     * is called to initate the handover.
+     * @hide
+     */
+    public static final String EXTRA_HANDOVER_EXTRAS = "android.telecom.extra.HANDOVER_EXTRAS";
+
+    /**
+     * Call event sent from Telecom to the handover {@link ConnectionService} via
+     * {@link Connection#onCallEvent(String, Bundle)} to inform a {@link Connection} that a handover
+     * to the {@link ConnectionService} has completed successfully.
+     * <p>
+     * A handover is initiated with the {@link #EVENT_REQUEST_HANDOVER} call event.
+     * @hide
+     */
+    public static final String EVENT_HANDOVER_COMPLETE =
+            "android.telecom.event.HANDOVER_COMPLETE";
+
+    /**
+     * Call event sent from Telecom to the handover destination {@link ConnectionService} via
+     * {@link Connection#onCallEvent(String, Bundle)} to inform the handover destination that the
+     * source connection has disconnected.  The {@link Bundle} parameter for the call event will be
+     * {@code null}.
+     * <p>
+     * A handover is initiated with the {@link #EVENT_REQUEST_HANDOVER} call event.
+     * @hide
+     */
+    public static final String EVENT_HANDOVER_SOURCE_DISCONNECTED =
+            "android.telecom.event.HANDOVER_SOURCE_DISCONNECTED";
+
+    /**
+     * Call event sent from Telecom to the handover {@link ConnectionService} via
+     * {@link Connection#onCallEvent(String, Bundle)} to inform a {@link Connection} that a handover
+     * to the {@link ConnectionService} has failed.
+     * <p>
+     * A handover is initiated with the {@link #EVENT_REQUEST_HANDOVER} call event.
+     * @hide
+     */
+    public static final String EVENT_HANDOVER_FAILED =
+            "android.telecom.event.HANDOVER_FAILED";
+
     public static class Details {
 
         /** Call can currently be put on hold or unheld. */
@@ -1018,6 +1098,24 @@ public final class Call {
                 return new String(mReadBuffer, 0, numRead);
             } catch (IOException e) {
                 Log.w(this, "Exception encountered when reading from InputStreamReader: %s", e);
+                return null;
+            }
+        }
+
+        /**
+         * Non-blocking version of {@link #read()}. Returns {@code null} if there is nothing to
+         * be read.
+         * @return A string containing text entered by the user, or {@code null} if the user has
+         * not entered any new text yet.
+         */
+        public String readImmediately() throws IOException {
+            if (mReceiveStream.ready()) {
+                int numRead = mReceiveStream.read(mReadBuffer, 0, READ_BUFFER_SIZE);
+                if (numRead < 0) {
+                    return null;
+                }
+                return new String(mReadBuffer, 0, numRead);
+            } else {
                 return null;
             }
         }

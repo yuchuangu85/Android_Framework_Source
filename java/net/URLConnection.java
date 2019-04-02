@@ -364,6 +364,14 @@ public abstract class URLConnection {
      * the specified timeout. To see the connect timeout set, please
      * call getConnectTimeout().
      *
+     * <p><strong>Warning</strong>: If the hostname resolves to multiple IP
+     * addresses, Android's default implementation of {@link HttpURLConnection}
+     * will try each in
+     * <a href="http://www.ietf.org/rfc/rfc3484.txt">RFC 3484</a> order. If
+     * connecting to each of these addresses fails, multiple timeouts will
+     * elapse before the connect attempt throws an exception. Host names
+     * that support both IPv6 and IPv4 always have at least 2 IP addresses.
+     *
      * @param timeout an {@code int} that specifies the connect
      *               timeout value in milliseconds
      * @throws IllegalArgumentException if the timeout parameter is negative

@@ -45,7 +45,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
-import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.provider.Settings;
@@ -94,7 +93,7 @@ import java.util.Locale;
  */
 public class NavigationBarFragment extends Fragment implements Callbacks {
 
-    private static final String TAG = "NavigationBar";
+    public static final String TAG = "NavigationBar";
     private static final boolean DEBUG = false;
     private static final String EXTRA_DISABLE_STATE = "disabled_state";
 
@@ -202,8 +201,7 @@ public class NavigationBarFragment extends Fragment implements Callbacks {
         IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
         getContext().registerReceiverAsUser(mBroadcastReceiver, UserHandle.ALL, filter, null, null);
-        PowerManager pm = getContext().getSystemService(PowerManager.class);
-        notifyNavigationBarScreenOn(pm.isScreenOn());
+        notifyNavigationBarScreenOn();
     }
 
     @Override
@@ -378,8 +376,8 @@ public class NavigationBarFragment extends Fragment implements Callbacks {
                 ((View) mNavigationBarView.getParent()).getLayoutParams());
     }
 
-    private void notifyNavigationBarScreenOn(boolean screenOn) {
-        mNavigationBarView.notifyScreenOn(screenOn);
+    private void notifyNavigationBarScreenOn() {
+        mNavigationBarView.notifyScreenOn();
     }
 
     private void prepareNavigationBarView() {
@@ -546,7 +544,8 @@ public class NavigationBarFragment extends Fragment implements Callbacks {
 
     private boolean onLongPressRecents() {
         if (mRecents == null || !ActivityManager.supportsMultiWindow(getContext())
-                || !mDivider.getView().getSnapAlgorithm().isSplitScreenFeasible()) {
+                || !mDivider.getView().getSnapAlgorithm().isSplitScreenFeasible()
+                || Recents.getConfiguration().isLowRamDevice) {
             return false;
         }
 
@@ -604,10 +603,6 @@ public class NavigationBarFragment extends Fragment implements Callbacks {
         return mNavigationBarMode == MODE_SEMI_TRANSPARENT;
     }
 
-    public void onKeyguardOccludedChanged(boolean keyguardOccluded) {
-        mNavigationBarView.onKeyguardOccludedChanged(keyguardOccluded);
-    }
-
     public void disableAnimationsDuringHide(long delay) {
         mNavigationBarView.setLayoutTransitionsEnabled(false);
         mNavigationBarView.postDelayed(() -> mNavigationBarView.setLayoutTransitionsEnabled(true),
@@ -663,10 +658,9 @@ public class NavigationBarFragment extends Fragment implements Callbacks {
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
-            if (Intent.ACTION_SCREEN_OFF.equals(action)) {
-                notifyNavigationBarScreenOn(false);
-            } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
-                notifyNavigationBarScreenOn(true);
+            if (Intent.ACTION_SCREEN_OFF.equals(action)
+                    || Intent.ACTION_SCREEN_ON.equals(action)) {
+                notifyNavigationBarScreenOn();
             }
         }
     };
@@ -683,10 +677,6 @@ public class NavigationBarFragment extends Fragment implements Callbacks {
                         | WindowManager.LayoutParams.FLAG_SLIPPERY,
                 PixelFormat.TRANSLUCENT);
         lp.token = new Binder();
-        // this will allow the navbar to run in an overlay on devices that support this
-        if (ActivityManager.isHighEndGfx()) {
-            lp.flags |= WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED;
-        }
         lp.setTitle("NavigationBar");
         lp.windowAnimations = 0;
 

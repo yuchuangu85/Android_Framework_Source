@@ -29,8 +29,10 @@ import android.os.ServiceManager;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
+import android.telephony.euicc.EuiccManager;
 import android.util.AttributeSet;
 import android.util.Log;
+import android.view.View;
 import android.view.WindowManager;
 import android.widget.ImageView;
 
@@ -60,9 +62,27 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
     KeyguardUpdateMonitorCallback mUpdateMonitorCallback = new KeyguardUpdateMonitorCallback() {
         @Override
         public void onSimStateChanged(int subId, int slotId, State simState) {
-           if (DEBUG) Log.v(TAG, "onSimStateChanged(subId=" + subId + ",state=" + simState + ")");
-           resetState();
-       };
+            if (DEBUG) Log.v(TAG, "onSimStateChanged(subId=" + subId + ",state=" + simState + ")");
+            switch(simState) {
+                // If the SIM is removed, then we must remove the keyguard. It will be put up
+                // again when the PUK locked SIM is re-entered.
+                case ABSENT:
+                // intentional fall-through
+                // If the SIM is unlocked via a key sequence through the emergency dialer, it will
+                // move into the READY state and the PUK lock keyguard should be removed.
+                case READY: {
+                    KeyguardUpdateMonitor.getInstance(getContext()).reportSimUnlocked(mSubId);
+                    // mCallback can be null if onSimStateChanged callback is called when keyguard
+                    // isn't active.
+                    if (mCallback != null) {
+                        mCallback.dismiss(true, KeyguardUpdateMonitor.getCurrentUser());
+                    }
+                    break;
+                }
+                default:
+                    resetState();
+            }
+        }
     };
 
     public KeyguardSimPukView(Context context) {
@@ -118,10 +138,11 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
             state = ENTER_PUK;
             KeyguardUpdateMonitor monitor = KeyguardUpdateMonitor.getInstance(mContext);
             mSubId = monitor.getNextSubIdForState(IccCardConstants.State.PUK_REQUIRED);
+            boolean isEsimLocked = KeyguardEsimArea.isEsimLocked(mContext, mSubId);
             if (SubscriptionManager.isValidSubscriptionId(mSubId)) {
                 int count = TelephonyManager.getDefault().getSimCount();
                 Resources rez = getResources();
-                final String msg;
+                String msg;
                 int color = Color.WHITE;
                 if (count < 2) {
                     msg = rez.getString(R.string.kg_puk_enter_puk_hint);
@@ -133,11 +154,18 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
                         color = info.getIconTint();
                     }
                 }
+                if (isEsimLocked) {
+                    msg = msg + " " + rez.getString(R.string.kg_sim_lock_instructions_esim);
+                }
                 mSecurityMessageDisplay.setMessage(msg);
                 mSimImageView.setImageTintList(ColorStateList.valueOf(color));
             }
+            KeyguardEsimArea esimButton = findViewById(R.id.keyguard_esim_area);
+            esimButton.setVisibility(isEsimLocked ? View.VISIBLE : View.GONE);
             mPasswordEntry.requestFocus();
         }
+
+
     }
 
     @Override

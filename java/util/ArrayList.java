@@ -103,8 +103,8 @@ import java.util.function.UnaryOperator;
  * @see     Vector
  * @since   1.2
  */
+// Android-changed: Inlined methods; CME in iterators; throw AIOOBE when toIndex < fromIndex.
 /*
- * Android-changed:
  * - AOSP commit 3be987f0f18648b3c532c8b89d09505e18594241
  *   Inline for improved performance:
  *   - checkForComodification

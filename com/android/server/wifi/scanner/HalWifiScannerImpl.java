@@ -27,6 +27,9 @@ import com.android.server.wifi.Clock;
 import com.android.server.wifi.WifiMonitor;
 import com.android.server.wifi.WifiNative;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+
 /**
  * WifiScanner implementation that takes advantage of the gscan HAL API
  * The gscan API is used to perform background scans and wificond is used for oneshot scans.
@@ -39,7 +42,6 @@ public class HalWifiScannerImpl extends WifiScannerImpl implements Handler.Callb
     private final WifiNative mWifiNative;
     private final ChannelHelper mChannelHelper;
     private final WificondScannerImpl mWificondScannerDelegate;
-    private final boolean mHalBasedPnoSupported;
 
     public HalWifiScannerImpl(Context context, WifiNative wifiNative, WifiMonitor wifiMonitor,
                               Looper looper, Clock clock) {
@@ -48,9 +50,6 @@ public class HalWifiScannerImpl extends WifiScannerImpl implements Handler.Callb
         mWificondScannerDelegate =
                 new WificondScannerImpl(context, wifiNative, wifiMonitor, mChannelHelper,
                         looper, clock);
-
-        // We are not going to support HAL ePNO currently.
-        mHalBasedPnoSupported = false;
     }
 
     @Override
@@ -118,37 +117,26 @@ public class HalWifiScannerImpl extends WifiScannerImpl implements Handler.Callb
     @Override
     public boolean setHwPnoList(WifiNative.PnoSettings settings,
             WifiNative.PnoEventHandler eventHandler) {
-        if (mHalBasedPnoSupported) {
-            return mWifiNative.setPnoList(settings, eventHandler);
-        } else {
-            return mWificondScannerDelegate.setHwPnoList(settings, eventHandler);
-        }
+        return mWificondScannerDelegate.setHwPnoList(settings, eventHandler);
     }
 
     @Override
     public boolean resetHwPnoList() {
-        if (mHalBasedPnoSupported) {
-            return mWifiNative.resetPnoList();
-        } else {
-            return mWificondScannerDelegate.resetHwPnoList();
-        }
+        return mWificondScannerDelegate.resetHwPnoList();
     }
 
     @Override
     public boolean isHwPnoSupported(boolean isConnectedPno) {
-        if (mHalBasedPnoSupported) {
-            return true;
-        } else {
-            return mWificondScannerDelegate.isHwPnoSupported(isConnectedPno);
-        }
+        return mWificondScannerDelegate.isHwPnoSupported(isConnectedPno);
     }
 
     @Override
     public boolean shouldScheduleBackgroundScanForHwPno() {
-        if (mHalBasedPnoSupported) {
-            return true;
-        } else {
-            return mWificondScannerDelegate.shouldScheduleBackgroundScanForHwPno();
-        }
+        return mWificondScannerDelegate.shouldScheduleBackgroundScanForHwPno();
+    }
+
+    @Override
+    protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        mWificondScannerDelegate.dump(fd, pw, args);
     }
 }

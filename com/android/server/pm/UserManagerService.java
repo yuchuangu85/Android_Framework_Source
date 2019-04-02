@@ -128,6 +128,7 @@ import java.util.List;
  *
  * Method naming convention:
  * <ul>
+ * <li> Methods suffixed with "LAr" should be called within the {@link #mAppRestrictionsLock} lock.
  * <li> Methods suffixed with "LP" should be called within the {@link #mPackagesLock} lock.
  * <li> Methods suffixed with "LR" should be called within the {@link #mRestrictionsLock} lock.
  * <li> Methods suffixed with "LU" should be called within the {@link #mUsersLock} lock.
@@ -223,6 +224,7 @@ public class UserManagerService extends IUserManager.Stub {
     // Tron counters
     private static final String TRON_GUEST_CREATED = "users_guest_created";
     private static final String TRON_USER_CREATED = "users_user_created";
+    private static final String TRON_DEMO_CREATED = "users_demo_created";
 
     private final Context mContext;
     private final PackageManagerService mPm;
@@ -231,6 +233,8 @@ public class UserManagerService extends IUserManager.Stub {
     // Short-term lock for internal state, when interaction/sync with PM is not required
     private final Object mUsersLock = LockGuard.installNewLock(LockGuard.INDEX_USER);
     private final Object mRestrictionsLock = new Object();
+    // Used for serializing access to app restriction files
+    private final Object mAppRestrictionsLock = new Object();
 
     private final Handler mHandler;
 
@@ -948,7 +952,7 @@ public class UserManagerService extends IUserManager.Stub {
     @Override
     public boolean isUserUnlocked(int userId) {
         checkManageOrInteractPermIfCallerInOtherProfileGroup(userId, "isUserUnlocked");
-        return mLocalService.isUserUnlockingOrUnlocked(userId);
+        return mLocalService.isUserUnlocked(userId);
     }
 
     @Override
@@ -2327,13 +2331,11 @@ public class UserManagerService extends IUserManager.Stub {
     /**
      * Removes the app restrictions file for a specific package and user id, if it exists.
      */
-    private void cleanAppRestrictionsForPackage(String pkg, int userId) {
-        synchronized (mPackagesLock) {
-            File dir = Environment.getUserSystemDirectory(userId);
-            File resFile = new File(dir, packageToRestrictionsFileName(pkg));
-            if (resFile.exists()) {
-                resFile.delete();
-            }
+    private static void cleanAppRestrictionsForPackageLAr(String pkg, int userId) {
+        File dir = Environment.getUserSystemDirectory(userId);
+        File resFile = new File(dir, packageToRestrictionsFileName(pkg));
+        if (resFile.exists()) {
+            resFile.delete();
         }
     }
 
@@ -2523,7 +2525,8 @@ public class UserManagerService extends IUserManager.Stub {
             addedIntent.putExtra(Intent.EXTRA_USER_HANDLE, userId);
             mContext.sendBroadcastAsUser(addedIntent, UserHandle.ALL,
                     android.Manifest.permission.MANAGE_USERS);
-            MetricsLogger.count(mContext, isGuest ? TRON_GUEST_CREATED : TRON_USER_CREATED, 1);
+            MetricsLogger.count(mContext, isGuest ? TRON_GUEST_CREATED
+                    : (isDemo ? TRON_DEMO_CREATED : TRON_USER_CREATED), 1);
         } finally {
             Binder.restoreCallingIdentity(ident);
         }
@@ -2678,11 +2681,6 @@ public class UserManagerService extends IUserManager.Stub {
                     addRemovingUserIdLocked(userHandle);
                 }
 
-                try {
-                    mAppOpsService.removeUser(userHandle);
-                } catch (RemoteException e) {
-                    Log.w(LOG_TAG, "Unable to notify AppOpsService of removing user", e);
-                }
                 // Set this to a partially created user, so that the user will be purged
                 // on next startup, in case the runtime stops now before stopping and
                 // removing the user completely.
@@ -2691,6 +2689,11 @@ public class UserManagerService extends IUserManager.Stub {
                 // profiles are queried.
                 userData.info.flags |= UserInfo.FLAG_DISABLED;
                 writeUserLP(userData);
+            }
+            try {
+                mAppOpsService.removeUser(userHandle);
+            } catch (RemoteException e) {
+                Log.w(LOG_TAG, "Unable to notify AppOpsService of removing user", e);
             }
 
             if (userData.info.profileGroupId != UserInfo.NO_PROFILE_GROUP_ID
@@ -2851,9 +2854,9 @@ public class UserManagerService extends IUserManager.Stub {
                 || !UserHandle.isSameApp(Binder.getCallingUid(), getUidForPackage(packageName))) {
             checkSystemOrRoot("get application restrictions for other user/app " + packageName);
         }
-        synchronized (mPackagesLock) {
+        synchronized (mAppRestrictionsLock) {
             // Read the restrictions from XML
-            return readApplicationRestrictionsLP(packageName, userId);
+            return readApplicationRestrictionsLAr(packageName, userId);
         }
     }
 
@@ -2864,12 +2867,12 @@ public class UserManagerService extends IUserManager.Stub {
         if (restrictions != null) {
             restrictions.setDefusable(true);
         }
-        synchronized (mPackagesLock) {
+        synchronized (mAppRestrictionsLock) {
             if (restrictions == null || restrictions.isEmpty()) {
-                cleanAppRestrictionsForPackage(packageName, userId);
+                cleanAppRestrictionsForPackageLAr(packageName, userId);
             } else {
                 // Write the restrictions to XML
-                writeApplicationRestrictionsLP(packageName, restrictions, userId);
+                writeApplicationRestrictionsLAr(packageName, restrictions, userId);
             }
         }
 
@@ -2892,15 +2895,17 @@ public class UserManagerService extends IUserManager.Stub {
         }
     }
 
-    private Bundle readApplicationRestrictionsLP(String packageName, int userId) {
+    @GuardedBy("mAppRestrictionsLock")
+    private static Bundle readApplicationRestrictionsLAr(String packageName, int userId) {
         AtomicFile restrictionsFile =
                 new AtomicFile(new File(Environment.getUserSystemDirectory(userId),
                         packageToRestrictionsFileName(packageName)));
-        return readApplicationRestrictionsLP(restrictionsFile);
+        return readApplicationRestrictionsLAr(restrictionsFile);
     }
 
     @VisibleForTesting
-    static Bundle readApplicationRestrictionsLP(AtomicFile restrictionsFile) {
+    @GuardedBy("mAppRestrictionsLock")
+    static Bundle readApplicationRestrictionsLAr(AtomicFile restrictionsFile) {
         final Bundle restrictions = new Bundle();
         final ArrayList<String> values = new ArrayList<>();
         if (!restrictionsFile.getBaseFile().exists()) {
@@ -2983,16 +2988,18 @@ public class UserManagerService extends IUserManager.Stub {
         return childBundle;
     }
 
-    private void writeApplicationRestrictionsLP(String packageName,
+    @GuardedBy("mAppRestrictionsLock")
+    private static void writeApplicationRestrictionsLAr(String packageName,
             Bundle restrictions, int userId) {
         AtomicFile restrictionsFile = new AtomicFile(
                 new File(Environment.getUserSystemDirectory(userId),
                         packageToRestrictionsFileName(packageName)));
-        writeApplicationRestrictionsLP(restrictions, restrictionsFile);
+        writeApplicationRestrictionsLAr(restrictions, restrictionsFile);
     }
 
     @VisibleForTesting
-    static void writeApplicationRestrictionsLP(Bundle restrictions, AtomicFile restrictionsFile) {
+    @GuardedBy("mAppRestrictionsLock")
+    static void writeApplicationRestrictionsLAr(Bundle restrictions, AtomicFile restrictionsFile) {
         FileOutputStream fos = null;
         try {
             fos = restrictionsFile.startWrite();
@@ -3236,7 +3243,7 @@ public class UserManagerService extends IUserManager.Stub {
         return -1;
     }
 
-    private String packageToRestrictionsFileName(String packageName) {
+    private static String packageToRestrictionsFileName(String packageName) {
         return RESTRICTIONS_FILE_PREFIX + packageName + XML_SUFFIX;
     }
 
@@ -3650,7 +3657,7 @@ public class UserManagerService extends IUserManager.Stub {
         public UserInfo createUserEvenWhenDisallowed(String name, int flags) {
             UserInfo user = createUserInternalUnchecked(name, flags, UserHandle.USER_NULL, null);
             // Keep this in sync with UserManager.createUser
-            if (user != null && !user.isAdmin()) {
+            if (user != null && !user.isAdmin() && !user.isDemo()) {
                 setUserRestriction(UserManager.DISALLOW_SMS, true, user.id);
                 setUserRestriction(UserManager.DISALLOW_OUTGOING_CALLS, true, user.id);
             }
@@ -3690,19 +3697,29 @@ public class UserManagerService extends IUserManager.Stub {
 
         @Override
         public boolean isUserUnlockingOrUnlocked(int userId) {
+            int state;
             synchronized (mUserStates) {
-                int state = mUserStates.get(userId, -1);
-                return (state == UserState.STATE_RUNNING_UNLOCKING)
-                        || (state == UserState.STATE_RUNNING_UNLOCKED);
+                state = mUserStates.get(userId, -1);
             }
+            // Special case, in the stopping/shutdown state user key can still be unlocked
+            if (state == UserState.STATE_STOPPING || state == UserState.STATE_SHUTDOWN) {
+                return StorageManager.isUserKeyUnlocked(userId);
+            }
+            return (state == UserState.STATE_RUNNING_UNLOCKING)
+                    || (state == UserState.STATE_RUNNING_UNLOCKED);
         }
 
         @Override
         public boolean isUserUnlocked(int userId) {
+            int state;
             synchronized (mUserStates) {
-                int state = mUserStates.get(userId, -1);
-                return state == UserState.STATE_RUNNING_UNLOCKED;
+                state = mUserStates.get(userId, -1);
             }
+            // Special case, in the stopping/shutdown state user key can still be unlocked
+            if (state == UserState.STATE_STOPPING || state == UserState.STATE_SHUTDOWN) {
+                return StorageManager.isUserKeyUnlocked(userId);
+            }
+            return state == UserState.STATE_RUNNING_UNLOCKED;
         }
     }
 

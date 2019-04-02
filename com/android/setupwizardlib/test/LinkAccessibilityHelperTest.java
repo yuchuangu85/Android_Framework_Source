@@ -16,12 +16,11 @@
 
 package com.android.setupwizardlib.test;
 
-import static android.support.v4.os.BuildCompat.isAtLeastO;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
@@ -59,7 +58,7 @@ public class LinkAccessibilityHelperTest {
 
     @Test
     public void testGetVirtualViewAt() {
-        if (isAtLeastO()) return;
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N_MR1) return;
         initTextView();
         final int virtualViewId = mHelper.getVirtualViewAt(dp2Px(15), dp2Px(10));
         assertEquals("Virtual view ID should be 1", 1, virtualViewId);
@@ -67,7 +66,7 @@ public class LinkAccessibilityHelperTest {
 
     @Test
     public void testGetVirtualViewAtHost() {
-        if (isAtLeastO()) return;
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N_MR1) return;
         initTextView();
         final int virtualViewId = mHelper.getVirtualViewAt(dp2Px(100), dp2Px(100));
         assertEquals("Virtual view ID should be INVALID_ID",
@@ -76,7 +75,7 @@ public class LinkAccessibilityHelperTest {
 
     @Test
     public void testGetVisibleVirtualViews() {
-        if (isAtLeastO()) return;
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N_MR1) return;
         initTextView();
         List<Integer> virtualViewIds = new ArrayList<>();
         mHelper.getVisibleVirtualViews(virtualViewIds);
@@ -87,7 +86,7 @@ public class LinkAccessibilityHelperTest {
 
     @Test
     public void testOnPopulateEventForVirtualView() {
-        if (isAtLeastO()) return;
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N_MR1) return;
         initTextView();
         AccessibilityEvent event = AccessibilityEvent.obtain();
         mHelper.onPopulateEventForVirtualView(1, event);
@@ -101,7 +100,7 @@ public class LinkAccessibilityHelperTest {
 
     @Test
     public void testOnPopulateEventForVirtualViewHost() {
-        if (isAtLeastO()) return;
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N_MR1) return;
         initTextView();
         AccessibilityEvent event = AccessibilityEvent.obtain();
         mHelper.onPopulateEventForVirtualView(ExploreByTouchHelper.INVALID_ID, event);
@@ -114,7 +113,7 @@ public class LinkAccessibilityHelperTest {
 
     @Test
     public void testOnPopulateNodeForVirtualView() {
-        if (isAtLeastO()) return;
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N_MR1) return;
         initTextView();
         AccessibilityNodeInfoCompat info = AccessibilityNodeInfoCompat.obtain();
         mHelper.onPopulateNodeForVirtualView(1, info);
@@ -133,7 +132,7 @@ public class LinkAccessibilityHelperTest {
 
     @Test
     public void testNullLayout() {
-        if (isAtLeastO()) return;
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N_MR1) return;
         initTextView();
         // Setting the padding will cause the layout to be null-ed out.
         mTextView.setPadding(1, 1, 1, 1);
@@ -151,7 +150,7 @@ public class LinkAccessibilityHelperTest {
 
     @Test
     public void testRtlLayout() {
-        if (isAtLeastO()) return;
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N_MR1) return;
         SpannableStringBuilder ssb = new SpannableStringBuilder("מכונה בתרגום");
         ssb.setSpan(LINK_SPAN, 1, 2, 0 /* flags */);
         initTextView(ssb);
@@ -171,7 +170,7 @@ public class LinkAccessibilityHelperTest {
 
     @Test
     public void testMultilineLink() {
-        if (isAtLeastO()) return;
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N_MR1) return;
         SpannableStringBuilder ssb = new SpannableStringBuilder(
                 "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
                 + "Praesent accumsan efficitur eros eu porttitor.");
@@ -193,7 +192,7 @@ public class LinkAccessibilityHelperTest {
 
     @Test
     public void testRtlMultilineLink() {
-        if (isAtLeastO()) return;
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N_MR1) return;
         String iwLoremIpsum = "אחר על רביעי אקטואליה. לוח דת אחרות המקובל רומנית, מיזמים מועמדים "
                 + "האנציקלופדיה בה צ'ט. מתן מה שנורו לערוך ייִדיש, בקר או החול אנתרופולוגיה, עוד "
                 + "דפים המחשב מיזמים ב.";
@@ -217,7 +216,7 @@ public class LinkAccessibilityHelperTest {
 
     @Test
     public void testBidiMultilineLink() {
-        if (isAtLeastO()) return;
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N_MR1) return;
         String iwLoremIpsum = "אחר על רביעי אקטואליה. לוח דת אחרות המקובל רומנית, מיזמים מועמדים "
                 + "האנציקלופדיה בה צ'ט. מתן מה שנורו לערוך ייִדיש, בקר או החול אנתרופולוגיה, עוד "
                 + "דפים המחשב מיזמים ב.";

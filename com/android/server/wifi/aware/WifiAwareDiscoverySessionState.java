@@ -28,6 +28,7 @@ import libcore.util.HexEncoding;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.util.Arrays;
 
 /**
  * Manages the state of a single Aware discovery session (publish or subscribe).
@@ -40,21 +41,43 @@ public class WifiAwareDiscoverySessionState {
     private static final boolean DBG = false;
     private static final boolean VDBG = false; // STOPSHIP if true
 
+    private int mNextPeerIdToBeAllocated = 100; // used to create a unique peer ID
+
     private final WifiAwareNativeApi mWifiAwareNativeApi;
     private int mSessionId;
-    private int mPubSubId;
+    private byte mPubSubId;
     private IWifiAwareDiscoverySessionCallback mCallback;
     private boolean mIsPublishSession;
+    private final long mCreationTime;
 
-    private final SparseArray<String> mMacByRequestorInstanceId = new SparseArray<>();
+    static class PeerInfo {
+        PeerInfo(int instanceId, byte[] mac) {
+            mInstanceId = instanceId;
+            mMac = mac;
+        }
+
+        int mInstanceId;
+        byte[] mMac;
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder("instanceId [");
+            sb.append(mInstanceId).append(", mac=").append(HexEncoding.encode(mMac)).append("]");
+            return sb.toString();
+        }
+    }
+
+    private final SparseArray<PeerInfo> mPeerInfoByRequestorInstanceId = new SparseArray<>();
 
     public WifiAwareDiscoverySessionState(WifiAwareNativeApi wifiAwareNativeApi, int sessionId,
-            int pubSubId, IWifiAwareDiscoverySessionCallback callback, boolean isPublishSession) {
+            byte pubSubId, IWifiAwareDiscoverySessionCallback callback, boolean isPublishSession,
+            long creationTime) {
         mWifiAwareNativeApi = wifiAwareNativeApi;
         mSessionId = sessionId;
         mPubSubId = pubSubId;
         mCallback = callback;
         mIsPublishSession = isPublishSession;
+        mCreationTime = creationTime;
     }
 
     public int getSessionId() {
@@ -69,21 +92,20 @@ public class WifiAwareDiscoverySessionState {
         return mIsPublishSession;
     }
 
+    public long getCreationTime() {
+        return mCreationTime;
+    }
+
     public IWifiAwareDiscoverySessionCallback getCallback() {
         return mCallback;
     }
 
     /**
-     * Return the MAC address (String) of the specified peer ID - or a null if no such address is
+     * Return the peer information of the specified peer ID - or a null if no such peer ID is
      * registered.
      */
-    public String getMac(int peerId, String sep) {
-        String mac = mMacByRequestorInstanceId.get(peerId);
-        if (mac != null && sep != null && !sep.isEmpty()) {
-            mac = new StringBuilder(mac).insert(10, sep).insert(8, sep).insert(6, sep)
-                    .insert(4, sep).insert(2, sep).toString();
-        }
-        return mac;
+    public PeerInfo getPeerInfo(int peerId) {
+        return mPeerInfoByRequestorInstanceId.get(peerId);
     }
 
     /**
@@ -183,8 +205,8 @@ public class WifiAwareDiscoverySessionState {
      *            callbacks related to the message (success/failure).
      */
     public boolean sendMessage(short transactionId, int peerId, byte[] message, int messageId) {
-        String peerMacStr = mMacByRequestorInstanceId.get(peerId);
-        if (peerMacStr == null) {
+        PeerInfo peerInfo = mPeerInfoByRequestorInstanceId.get(peerId);
+        if (peerInfo == null) {
             Log.e(TAG, "sendMessage: attempting to send a message to an address which didn't "
                     + "match/contact us");
             try {
@@ -194,10 +216,9 @@ public class WifiAwareDiscoverySessionState {
             }
             return false;
         }
-        byte[] peerMac = HexEncoding.decode(peerMacStr.toCharArray(), false);
 
-        boolean success = mWifiAwareNativeApi.sendMessage(transactionId, mPubSubId, peerId, peerMac,
-                message, messageId);
+        boolean success = mWifiAwareNativeApi.sendMessage(transactionId, mPubSubId,
+                peerInfo.mInstanceId, peerInfo.mMac, message, messageId);
         if (!success) {
             try {
                 mCallback.onMessageSendFail(messageId, NanStatusType.INTERNAL_FAILURE);
@@ -226,13 +247,10 @@ public class WifiAwareDiscoverySessionState {
      */
     public void onMatch(int requestorInstanceId, byte[] peerMac, byte[] serviceSpecificInfo,
             byte[] matchFilter) {
-        String prevMac = mMacByRequestorInstanceId.get(requestorInstanceId);
-        mMacByRequestorInstanceId.put(requestorInstanceId, new String(HexEncoding.encode(peerMac)));
-
-        if (DBG) Log.d(TAG, "onMatch: previous peer MAC replaced - " + prevMac);
+        int peerId = getPeerIdOrAddIfNew(requestorInstanceId, peerMac);
 
         try {
-            mCallback.onMatch(requestorInstanceId, serviceSpecificInfo, matchFilter);
+            mCallback.onMatch(peerId, serviceSpecificInfo, matchFilter);
         } catch (RemoteException e) {
             Log.w(TAG, "onMatch: RemoteException (FYI): " + e);
         }
@@ -249,18 +267,33 @@ public class WifiAwareDiscoverySessionState {
      * @param message The received message.
      */
     public void onMessageReceived(int requestorInstanceId, byte[] peerMac, byte[] message) {
-        String prevMac = mMacByRequestorInstanceId.get(requestorInstanceId);
-        mMacByRequestorInstanceId.put(requestorInstanceId, new String(HexEncoding.encode(peerMac)));
-
-        if (DBG) {
-            Log.d(TAG, "onMessageReceived: previous peer MAC replaced - " + prevMac);
-        }
+        int peerId = getPeerIdOrAddIfNew(requestorInstanceId, peerMac);
 
         try {
-            mCallback.onMessageReceived(requestorInstanceId, message);
+            mCallback.onMessageReceived(peerId, message);
         } catch (RemoteException e) {
             Log.w(TAG, "onMessageReceived: RemoteException (FYI): " + e);
         }
+    }
+
+    private int getPeerIdOrAddIfNew(int requestorInstanceId, byte[] peerMac) {
+        for (int i = 0; i < mPeerInfoByRequestorInstanceId.size(); ++i) {
+            PeerInfo peerInfo = mPeerInfoByRequestorInstanceId.valueAt(i);
+            if (peerInfo.mInstanceId == requestorInstanceId && Arrays.equals(peerMac,
+                    peerInfo.mMac)) {
+                return mPeerInfoByRequestorInstanceId.keyAt(i);
+            }
+        }
+
+        int newPeerId = mNextPeerIdToBeAllocated++;
+        PeerInfo newPeerInfo = new PeerInfo(requestorInstanceId, peerMac);
+        mPeerInfoByRequestorInstanceId.put(newPeerId, newPeerInfo);
+
+        if (DBG) {
+            Log.d(TAG, "New peer info: peerId=" + newPeerId + ", peerInfo=" + newPeerInfo);
+        }
+
+        return newPeerId;
     }
 
     /**
@@ -271,6 +304,6 @@ public class WifiAwareDiscoverySessionState {
         pw.println("  mSessionId: " + mSessionId);
         pw.println("  mIsPublishSession: " + mIsPublishSession);
         pw.println("  mPubSubId: " + mPubSubId);
-        pw.println("  mMacByRequestorInstanceId: [" + mMacByRequestorInstanceId + "]");
+        pw.println("  mPeerInfoByRequestorInstanceId: [" + mPeerInfoByRequestorInstanceId + "]");
     }
 }

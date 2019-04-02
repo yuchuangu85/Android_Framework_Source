@@ -87,14 +87,17 @@ public class PasspointProvider {
     private final int mEAPMethodID;
     private final AuthParam mAuthParam;
 
+    private boolean mHasEverConnected;
+
     public PasspointProvider(PasspointConfiguration config, WifiKeyStore keyStore,
             SIMAccessor simAccessor, long providerId, int creatorUid) {
-        this(config, keyStore, simAccessor, providerId, creatorUid, null, null, null);
+        this(config, keyStore, simAccessor, providerId, creatorUid, null, null, null, false);
     }
 
     public PasspointProvider(PasspointConfiguration config, WifiKeyStore keyStore,
             SIMAccessor simAccessor, long providerId, int creatorUid, String caCertificateAlias,
-            String clientCertificateAlias, String clientPrivateKeyAlias) {
+            String clientCertificateAlias, String clientPrivateKeyAlias,
+            boolean hasEverConnected) {
         // Maintain a copy of the configuration to avoid it being updated by others.
         mConfig = new PasspointConfiguration(config);
         mKeyStore = keyStore;
@@ -103,6 +106,7 @@ public class PasspointProvider {
         mCaCertificateAlias = caCertificateAlias;
         mClientCertificateAlias = clientCertificateAlias;
         mClientPrivateKeyAlias = clientPrivateKeyAlias;
+        mHasEverConnected = hasEverConnected;
 
         // Setup EAP method and authentication parameter based on the credential.
         if (mConfig.getCredential().getUserCredential() != null) {
@@ -148,6 +152,14 @@ public class PasspointProvider {
 
     public int getCreatorUid() {
         return mCreatorUid;
+    }
+
+    public boolean getHasEverConnected() {
+        return mHasEverConnected;
+    }
+
+    public void setHasEverConnected(boolean hasEverConnected) {
+        mHasEverConnected = hasEverConnected;
     }
 
     /**
@@ -300,6 +312,13 @@ public class PasspointProvider {
         }
         wifiConfig.enterpriseConfig = enterpriseConfig;
         return wifiConfig;
+    }
+
+    /**
+     * @return true if provider is backed by a SIM credential.
+     */
+    public boolean isSimCredential() {
+        return mConfig.getCredential().getSimCredential() != null;
     }
 
     /**

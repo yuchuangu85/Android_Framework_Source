@@ -69,7 +69,10 @@ import android.view.animation.AnimationUtils;
 import android.view.animation.Interpolator;
 import android.widget.AbsListView;
 import android.widget.BaseAdapter;
+import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.Space;
+
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.ResolverActivity.TargetInfo;
@@ -97,7 +100,7 @@ public class ChooserActivity extends ResolverActivity {
     private static final boolean DEBUG = false;
 
     private static final int QUERY_TARGET_SERVICE_LIMIT = 5;
-    private static final int WATCHDOG_TIMEOUT_MILLIS = 5000;
+    private static final int WATCHDOG_TIMEOUT_MILLIS = 2000;
 
     private Bundle mReplacementExtras;
     private IntentSender mChosenComponentSender;
@@ -1412,6 +1415,10 @@ public class ChooserActivity extends ResolverActivity {
                 } else {
                     lp.height = v.getMeasuredHeight();
                 }
+                if (i != (mColumnCount - 1)) {
+                    row.addView(new Space(ChooserActivity.this),
+                            new LinearLayout.LayoutParams(0, 0, 1));
+                }
             }
 
             // Pre-measure so we can scale later.
@@ -1439,8 +1446,32 @@ public class ChooserActivity extends ResolverActivity {
             if (startType == ChooserListAdapter.TARGET_SERVICE) {
                 holder.row.setBackgroundColor(
                         getColor(R.color.chooser_service_row_background_color));
+                int nextStartType = mChooserListAdapter.getPositionTargetType(
+                        getFirstRowPosition(rowPosition + 1));
+                int serviceSpacing = holder.row.getContext().getResources()
+                        .getDimensionPixelSize(R.dimen.chooser_service_spacing);
+                if (rowPosition == 0 && nextStartType != ChooserListAdapter.TARGET_SERVICE) {
+                    // if the row is the only row for target service
+                    setVertPadding(holder, 0, 0);
+                } else {
+                    int top = rowPosition == 0 ? serviceSpacing : 0;
+                    if (nextStartType != ChooserListAdapter.TARGET_SERVICE) {
+                        setVertPadding(holder, top, serviceSpacing);
+                    } else {
+                        setVertPadding(holder, top, 0);
+                    }
+                }
             } else {
                 holder.row.setBackgroundColor(Color.TRANSPARENT);
+                int lastStartType = mChooserListAdapter.getPositionTargetType(
+                        getFirstRowPosition(rowPosition - 1));
+                if (lastStartType == ChooserListAdapter.TARGET_SERVICE || rowPosition == 0) {
+                    int serviceSpacing = holder.row.getContext().getResources()
+                            .getDimensionPixelSize(R.dimen.chooser_service_spacing);
+                    setVertPadding(holder, serviceSpacing, 0);
+                } else {
+                    setVertPadding(holder, 0, 0);
+                }
             }
 
             final int oldHeight = holder.row.getLayoutParams().height;
@@ -1457,9 +1488,14 @@ public class ChooserActivity extends ResolverActivity {
                     holder.itemIndices[i] = start + i;
                     mChooserListAdapter.bindView(holder.itemIndices[i], v);
                 } else {
-                    v.setVisibility(View.GONE);
+                    v.setVisibility(View.INVISIBLE);
                 }
             }
+        }
+
+        private void setVertPadding(RowViewHolder holder, int top, int bottom) {
+            holder.row.setPadding(holder.row.getPaddingLeft(), top,
+                    holder.row.getPaddingRight(), bottom);
         }
 
         int getFirstRowPosition(int row) {
@@ -1549,8 +1585,8 @@ public class ChooserActivity extends ResolverActivity {
                 } catch (RemoteException e) {
                     Log.e(TAG, "Querying ChooserTargetService " + name + " failed.", e);
                     mChooserActivity.unbindService(this);
-                    destroy();
                     mChooserActivity.mServiceConnections.remove(this);
+                    destroy();
                 }
             }
         }
@@ -1566,7 +1602,6 @@ public class ChooserActivity extends ResolverActivity {
                 }
 
                 mChooserActivity.unbindService(this);
-                destroy();
                 mChooserActivity.mServiceConnections.remove(this);
                 if (mChooserActivity.mServiceConnections.isEmpty()) {
                     mChooserActivity.mChooserHandler.removeMessages(
@@ -1574,6 +1609,7 @@ public class ChooserActivity extends ResolverActivity {
                     mChooserActivity.sendVoiceChoicesIfNeeded();
                 }
                 mConnectedComponent = null;
+                destroy();
             }
         }
 

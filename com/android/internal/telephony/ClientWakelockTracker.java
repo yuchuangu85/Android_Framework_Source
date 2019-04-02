@@ -18,10 +18,10 @@ package com.android.internal.telephony;
 
 import android.os.SystemClock;
 import android.telephony.ClientRequestStats;
-import android.telephony.Rlog;
 
 import com.android.internal.annotations.VisibleForTesting;
 
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -119,12 +119,12 @@ public class ClientWakelockTracker {
         return false;
     }
 
-    void dumpClientRequestTracker() {
-        Rlog.d(RIL.RILJ_LOG_TAG, "-------mClients---------------");
+    void dumpClientRequestTracker(PrintWriter pw) {
+        pw.println("-------mClients---------------");
         synchronized (mClients) {
             for (String key : mClients.keySet()) {
-                Rlog.d(RIL.RILJ_LOG_TAG, "Client : " + key);
-                Rlog.d(RIL.RILJ_LOG_TAG, mClients.get(key).toString());
+                pw.println("Client : " + key);
+                pw.println(mClients.get(key).toString());
             }
         }
     }

@@ -23,20 +23,20 @@ import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Matrix;
 import android.graphics.Paint;
-import android.graphics.Paint.Style;
 import android.graphics.Path;
 import android.graphics.Path.Direction;
 import android.graphics.Path.FillType;
 import android.graphics.Path.Op;
+import android.graphics.PointF;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.util.LayoutDirection;
-import android.util.Log;
 
 import com.android.settingslib.R;
 import com.android.settingslib.Utils;
+import com.android.systemui.qs.SlashDrawable;
 
 public class SignalDrawable extends Drawable {
 
@@ -85,8 +85,28 @@ public class SignalDrawable extends Drawable {
             {-1.9f / VIEWPORT, -1.9f / VIEWPORT},
     };
 
+    // Rounded corners are achieved by arcing a circle of radius `R` from its tangent points along
+    // the curve (curve ≡ triangle). On the top and left corners of the triangle, the tangents are
+    // as follows:
+    //      1) Along the straight lines (y = 0 and x = width):
+    //          Ps = circleOffset + R
+    //      2) Along the diagonal line (y = x):
+    //          Pd = √((Ps^2) / 2)
+    //              or (remember: sin(π/4) ≈ 0.7071)
+    //          Pd = (circleOffset + R - 0.7071, height - R - 0.7071)
+    //         Where Pd is the (x,y) coords of the point that intersects the circle at the bottom
+    //         left of the triangle
+    private static final float RADIUS_RATIO = 0.75f / 17f;
+    private static final float DIAG_OFFSET_MULTIPLIER = 0.707107f;
+    // How far the circle defining the corners is inset from the edges
+    private final float mAppliedCornerInset;
+
     private static final float INV_TAN = 1f / (float) Math.tan(Math.PI / 8f);
     private static final float CUT_WIDTH_DP = 1f / 12f;
+
+    // Where the top and left points of the triangle would be if not for rounding
+    private final PointF mVirtualTop  = new PointF();
+    private final PointF mVirtualLeft = new PointF();
 
     private final Paint mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mForegroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -124,6 +144,9 @@ public class SignalDrawable extends Drawable {
 
         mHandler = new Handler();
         setDarkIntensity(0);
+
+        mAppliedCornerInset = context.getResources()
+                .getDimensionPixelSize(R.dimen.stat_sys_mobile_signal_circle_inset);
     }
 
     public void setIntrinsicSize(int size) {
@@ -176,6 +199,11 @@ public class SignalDrawable extends Drawable {
         return true;
     }
 
+    public void setColors(int background, int foreground) {
+        mPaint.setColor(background);
+        mForegroundPaint.setColor(foreground);
+    }
+
     public void setDarkIntensity(float darkIntensity) {
         if (darkIntensity == mOldDarkIntensity) {
             return;
@@ -208,22 +236,57 @@ public class SignalDrawable extends Drawable {
 
     @Override
     public void draw(@NonNull Canvas canvas) {
+        final float width = getBounds().width();
+        final float height = getBounds().height();
+
         boolean isRtl = getLayoutDirection() == LayoutDirection.RTL;
         if (isRtl) {
             canvas.save();
             // Mirror the drawable
-            canvas.translate(canvas.getWidth(), 0);
+            canvas.translate(width, 0);
             canvas.scale(-1.0f, 1.0f);
         }
         mFullPath.reset();
         mFullPath.setFillType(FillType.WINDING);
-        float width = getBounds().width();
-        float height = getBounds().height();
-        float padding = Math.round(PAD * width);
-        mFullPath.moveTo(width - padding, height - padding);
-        mFullPath.lineTo(width - padding, padding);
-        mFullPath.lineTo(padding, height - padding);
-        mFullPath.lineTo(width - padding, height - padding);
+
+        final float padding = Math.round(PAD * width);
+        final float cornerRadius = RADIUS_RATIO * height;
+        // Offset from circle where the hypotenuse meets the circle
+        final float diagOffset = DIAG_OFFSET_MULTIPLIER * cornerRadius;
+
+        // 1 - Bottom right, above corner
+        mFullPath.moveTo(width - padding, height - padding - cornerRadius);
+        // 2 - Line to top right, below corner
+        mFullPath.lineTo(width - padding, padding + cornerRadius + mAppliedCornerInset);
+        // 3 - Arc to top right, on hypotenuse
+        mFullPath.arcTo(
+                width - padding - (2 * cornerRadius),
+                padding + mAppliedCornerInset,
+                width - padding,
+                padding + mAppliedCornerInset + (2 * cornerRadius),
+                0.f, -135.f, false
+        );
+        // 4 - Line to bottom left, on hypotenuse
+        mFullPath.lineTo(padding + mAppliedCornerInset + cornerRadius - diagOffset,
+                height - padding - cornerRadius - diagOffset);
+        // 5 - Arc to bottom left, on leg
+        mFullPath.arcTo(
+                padding + mAppliedCornerInset,
+                height - padding - (2 * cornerRadius),
+                padding + mAppliedCornerInset + ( 2 * cornerRadius),
+                height - padding,
+                -135.f, -135.f, false
+        );
+        // 6 - Line to bottom rght, before corner
+        mFullPath.lineTo(width - padding - cornerRadius, height - padding);
+        // 7 - Arc to beginning (bottom right, above corner)
+        mFullPath.arcTo(
+                width - padding - (2 * cornerRadius),
+                height - padding - (2 * cornerRadius),
+                width - padding,
+                height - padding,
+                90.f, -90.f, false
+        );
 
         if (mState == STATE_CARRIER_CHANGE) {
             float cutWidth = (DOT_CUT_WIDTH * width);
@@ -253,27 +316,32 @@ public class SignalDrawable extends Drawable {
         }
 
         if (mState == STATE_EMPTY) {
+            // Where the corners would be if this were a real triangle
+            mVirtualTop.set(
+                    width - padding,
+                    (padding + cornerRadius + mAppliedCornerInset) - (INV_TAN * cornerRadius));
+            mVirtualLeft.set(
+                    (padding + cornerRadius + mAppliedCornerInset) - (INV_TAN * cornerRadius),
+                    height - padding);
+
             final float cutWidth = CUT_WIDTH_DP * height;
             final float cutDiagInset = cutWidth * INV_TAN;
 
             // Cut out a smaller triangle from the center of mFullPath
             mCutPath.reset();
             mCutPath.setFillType(FillType.WINDING);
-            mCutPath.moveTo(width - padding - cutWidth,
-                    height - padding - cutWidth);
-            mCutPath.lineTo(width - padding - cutWidth, padding + cutDiagInset);
-            mCutPath.lineTo(padding + cutDiagInset, height - padding - cutWidth);
-            mCutPath.lineTo(width - padding - cutWidth,
-                    height - padding - cutWidth);
+            mCutPath.moveTo(width - padding - cutWidth, height - padding - cutWidth);
+            mCutPath.lineTo(width - padding - cutWidth, mVirtualTop.y + cutDiagInset);
+            mCutPath.lineTo(mVirtualLeft.x + cutDiagInset, height - padding - cutWidth);
+            mCutPath.lineTo(width - padding - cutWidth, height - padding - cutWidth);
 
             // Draw empty state as only background
             mForegroundPath.reset();
             mFullPath.op(mCutPath, Path.Op.DIFFERENCE);
         } else if (mState == STATE_AIRPLANE) {
-            // Airplane mode is slashed, full-signal
-            mForegroundPath.set(mFullPath);
-            mFullPath.reset();
-            mSlash.draw((int) height, (int) width, canvas, mForegroundPaint);
+            // Airplane mode is slashed, fully drawn background
+            mForegroundPath.reset();
+            mSlash.draw((int) height, (int) width, canvas, mPaint);
         } else if (mState != STATE_CARRIER_CHANGE) {
             mForegroundPath.reset();
             int sigWidth = Math.round(calcFit(mLevel / (mNumLevels - 1)) * (width - 2 * padding));
@@ -410,6 +478,7 @@ public class SignalDrawable extends Drawable {
 
         void draw(int height, int width, @NonNull Canvas canvas, Paint paint) {
             Matrix m = new Matrix();
+            final float radius = scale(SlashDrawable.CORNER_RADIUS, width);
             updateRect(
                     scale(LEFT, width),
                     scale(TOP, height),
@@ -418,7 +487,7 @@ public class SignalDrawable extends Drawable {
 
             mPath.reset();
             // Draw the slash vertically
-            mPath.addRect(mSlashRect, Direction.CW);
+            mPath.addRoundRect(mSlashRect, radius, radius, Direction.CW);
             m.setRotate(ROTATION, width / 2, height / 2);
             mPath.transform(m);
             canvas.drawPath(mPath, paint);
@@ -428,7 +497,7 @@ public class SignalDrawable extends Drawable {
             mPath.transform(m);
             m.setTranslate(mSlashRect.width(), 0);
             mPath.transform(m);
-            mPath.addRect(mSlashRect, Direction.CW);
+            mPath.addRoundRect(mSlashRect, radius, radius, Direction.CW);
             m.setRotate(ROTATION, width / 2, height / 2);
             mPath.transform(m);
             canvas.clipOutPath(mPath);

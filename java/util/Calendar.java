@@ -1773,11 +1773,11 @@ public abstract class Calendar implements Serializable, Cloneable, Comparable<Ca
     public void setTimeInMillis(long millis) {
         // If we don't need to recalculate the calendar field values,
         // do nothing.
-// BEGIN Android-changed: Removed ZoneInfo support
+// BEGIN Android-changed: Android doesn't have sun.util.calendar.ZoneInfo.
 //        if (time == millis && isTimeSet && areFieldsSet && areAllFieldsSet
 //            && (zone instanceof ZoneInfo) && !((ZoneInfo)zone).isDirty()) {
         if (time == millis && isTimeSet && areFieldsSet && areAllFieldsSet) {
-// END Android-changed: Removed ZoneInfo support
+// END Android-changed: Android doesn't have sun.util.calendar.ZoneInfo.
 
             return;
         }
@@ -3508,7 +3508,7 @@ public abstract class Calendar implements Serializable, Cloneable, Comparable<Ca
             catch (IllegalArgumentException e) {}
         }
 
-        // Android-changed: Removed ZoneInfo support/workaround.
+        // Android-changed: Android doesn't have sun.util.calendar.ZoneInfo.
         // Write out the 1.1 FCS object.
         stream.defaultWriteObject();
     }
@@ -3560,7 +3560,7 @@ public abstract class Calendar implements Serializable, Cloneable, Comparable<Ca
 
         serialVersionOnStream = currentSerialVersion;
 
-        // Android-changed: removed ZoneInfo support.
+        // Android-changed: Android doesn't have sun.util.calendar.ZoneInfo.
 
         // If the deserialized object has a SimpleTimeZone, try to
         // replace it with a ZoneInfo equivalent (as of 1.4) in order

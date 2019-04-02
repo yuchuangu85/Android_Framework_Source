@@ -44,7 +44,9 @@ public abstract class Utils {
     }
 
     public static long parseMac(String s) {
-
+        if (s == null) {
+            throw new IllegalArgumentException("Null MAC adddress");
+        }
         long mac = 0;
         int count = 0;
         for (int n = 0; n < s.length(); n++) {

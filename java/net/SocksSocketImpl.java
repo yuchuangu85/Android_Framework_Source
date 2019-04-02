@@ -347,8 +347,9 @@ class SocksSocketImpl extends PlainSocketImpl implements SocksConsts {
                                       epoint.getPort());
         }
         if (server == null) {
+            // Android-removed: Logic to establish proxy connection based on default ProxySelector
             /*
-             * Android-changed: Removed code that tried to establish proxy connection if
+             * Removed code that tried to establish proxy connection if
              * ProxySelector#getDefault() is not null.
              * This was never the case in previous android releases, was causing
              * issues and therefore was removed.

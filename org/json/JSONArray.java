@@ -290,7 +290,7 @@ public class JSONArray {
             }
             return value;
         } catch (IndexOutOfBoundsException e) {
-            throw new JSONException("Index " + index + " out of range [0.." + values.size() + ")");
+            throw new JSONException("Index " + index + " out of range [0.." + values.size() + ")", e);
         }
     }
 

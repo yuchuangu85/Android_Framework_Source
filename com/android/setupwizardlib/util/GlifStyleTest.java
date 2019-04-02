@@ -20,9 +20,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.robolectric.RuntimeEnvironment.application;
 
+import android.annotation.TargetApi;
+import android.app.Activity;
 import android.content.Context;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
+import android.os.Bundle;
+import android.support.annotation.Nullable;
 import android.view.ContextThemeWrapper;
 import android.widget.Button;
 
@@ -61,6 +65,23 @@ public class GlifStyleTest {
             // Robolectric resolved the wrong theme attribute on versions >= M
             // https://github.com/robolectric/robolectric/issues/2940
             assertEquals("ff4285f4", Integer.toHexString(button.getTextColors().getDefaultColor()));
+        }
+    }
+
+    @TargetApi(VERSION_CODES.LOLLIPOP)
+    @Config(sdk = Config.NEWEST_SDK)
+    @Test
+    public void glifThemeLight_statusBarColorShouldBeTransparent() {
+        GlifThemeActivity activity = Robolectric.setupActivity(GlifThemeActivity.class);
+        assertEquals(0x00000000, activity.getWindow().getStatusBarColor());
+    }
+
+    private static class GlifThemeActivity extends Activity {
+
+        @Override
+        protected void onCreate(@Nullable Bundle savedInstanceState) {
+            setTheme(R.style.SuwThemeGlif_Light);
+            super.onCreate(savedInstanceState);
         }
     }
 }

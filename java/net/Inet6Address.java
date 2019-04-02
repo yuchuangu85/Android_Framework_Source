@@ -262,7 +262,8 @@ class Inet6Address extends InetAddress {
             }
         }
 
-        /* ----- Android-removed -----
+        // Android-removed: getnameinfo returns smarter representations than getHostAddress()
+        /*
         String getHostAddress() {
             String s = numericToTextFormat(ipaddress);
             if (scope_ifname != null) { // must check this first
@@ -271,7 +272,8 @@ class Inet6Address extends InetAddress {
                 s = s + "%" + scope_id;
             }
             return s;
-        } */
+        }
+        */
 
         public boolean equals(Object o) {
             if (! (o instanceof Inet6AddressHolder)) {
@@ -870,7 +872,7 @@ class Inet6Address extends InetAddress {
      */
     @Override
     public String getHostAddress() {
-        // Android-changed: getnameinfo returns smarter representations
+        // Android-changed: getnameinfo returns smarter representations than getHostAddress()
         // return holder6.getHostAddress();
         return Libcore.os.getnameinfo(this, NI_NUMERICHOST); // Can't throw.
     }

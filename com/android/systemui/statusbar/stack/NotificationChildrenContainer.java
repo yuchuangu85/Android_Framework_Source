@@ -19,6 +19,7 @@ package com.android.systemui.statusbar.stack;
 import android.app.Notification;
 import android.content.Context;
 import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.graphics.drawable.ColorDrawable;
 import android.service.notification.StatusBarNotification;
 import android.util.AttributeSet;
@@ -66,8 +67,9 @@ public class NotificationChildrenContainer extends ViewGroup {
     private final HybridGroupManager mHybridGroupManager;
     private int mChildPadding;
     private int mDividerHeight;
-    private int mMaxNotificationHeight;
+    private float mDividerAlpha;
     private int mNotificationHeaderMargin;
+
     private int mNotificatonTopPadding;
     private float mCollapsedBottompadding;
     private boolean mChildrenExpanded;
@@ -79,6 +81,11 @@ public class NotificationChildrenContainer extends ViewGroup {
     private int mActualHeight;
     private boolean mNeverAppliedGroupState;
     private int mHeaderHeight;
+
+    /**
+     * Whether or not individual notifications that are part of this container will have shadows.
+     */
+    private boolean mEnableShadowOnChildNotifications;
 
     private NotificationHeaderView mNotificationHeader;
     private NotificationViewWrapper mNotificationHeaderWrapper;
@@ -92,6 +99,9 @@ public class NotificationChildrenContainer extends ViewGroup {
     private boolean mIsLowPriority;
     private OnClickListener mHeaderClickListener;
     private ViewGroup mCurrentHeader;
+
+    private boolean mShowDividersWhenExpanded;
+    private boolean mHideDividersDuringExpand;
 
     public NotificationChildrenContainer(Context context) {
         this(context, null);
@@ -113,19 +123,25 @@ public class NotificationChildrenContainer extends ViewGroup {
     }
 
     private void initDimens() {
-        mChildPadding = getResources().getDimensionPixelSize(
-                R.dimen.notification_children_padding);
-        mDividerHeight = Math.max(1, getResources().getDimensionPixelSize(
-                R.dimen.notification_divider_height));
-        mHeaderHeight = getResources().getDimensionPixelSize(R.dimen.notification_header_height);
-        mMaxNotificationHeight = getResources().getDimensionPixelSize(
-                R.dimen.notification_max_height);
-        mNotificationHeaderMargin = getResources().getDimensionPixelSize(
-                com.android.internal.R.dimen.notification_content_margin_top);
-        mNotificatonTopPadding = getResources().getDimensionPixelSize(
+        Resources res = getResources();
+        mChildPadding = res.getDimensionPixelSize(R.dimen.notification_children_padding);
+        mDividerHeight = res.getDimensionPixelSize(
+                R.dimen.notification_children_container_divider_height);
+        mDividerAlpha = res.getFloat(R.dimen.notification_divider_alpha);
+        mHeaderHeight = res.getDimensionPixelSize(
+                R.dimen.notification_children_container_header_height);
+        mNotificationHeaderMargin = res.getDimensionPixelSize(
+                R.dimen.notification_children_container_margin_top);
+        mNotificatonTopPadding = res.getDimensionPixelSize(
                 R.dimen.notification_children_container_top_padding);
-        mCollapsedBottompadding = getResources().getDimensionPixelSize(
+        mCollapsedBottompadding = res.getDimensionPixelSize(
                 com.android.internal.R.dimen.notification_content_margin_bottom);
+        mEnableShadowOnChildNotifications =
+                res.getBoolean(R.bool.config_enableShadowOnChildNotifications);
+        mShowDividersWhenExpanded =
+                res.getBoolean(R.bool.config_showDividersWhenGroupNotificationExpanded);
+        mHideDividersDuringExpand =
+                res.getBoolean(R.bool.config_hideDividersDuringExpand);
     }
 
     @Override
@@ -566,7 +582,8 @@ public class NotificationChildrenContainer extends ViewGroup {
             childState.hidden = false;
             // When the group is expanded, the children cast the shadows rather than the parent
             // so use the parent's elevation here.
-            childState.zTranslation = childrenExpandedAndNotAnimating
+            childState.zTranslation =
+                    (childrenExpandedAndNotAnimating && mEnableShadowOnChildNotifications)
                     ? mContainingNotification.getTranslationZ()
                     : 0;
             childState.dimmed = parentState.dimmed;
@@ -677,7 +694,9 @@ public class NotificationChildrenContainer extends ViewGroup {
             expandFraction = getGroupExpandFraction();
         }
         final boolean dividersVisible = mUserLocked && !showingAsLowPriority()
-                || mContainingNotification.isGroupExpansionChanging();
+                || (mChildrenExpanded && mShowDividersWhenExpanded)
+                || (mContainingNotification.isGroupExpansionChanging()
+                && !mHideDividersDuringExpand);
         for (int i = 0; i < childCount; i++) {
             ExpandableNotificationRow child = mChildren.get(i);
             ExpandableViewState viewState = state.getViewStateForView(child);
@@ -687,7 +706,7 @@ public class NotificationChildrenContainer extends ViewGroup {
             View divider = mDividers.get(i);
             tmpState.initFrom(divider);
             tmpState.yTranslation = viewState.yTranslation - mDividerHeight;
-            float alpha = mChildrenExpanded && viewState.alpha != 0 ? 0.5f : 0;
+            float alpha = mChildrenExpanded && viewState.alpha != 0 ? mDividerAlpha : 0;
             if (mUserLocked && !showingAsLowPriority() && viewState.alpha != 0) {
                 alpha = NotificationUtils.interpolate(0, 0.5f,
                         Math.min(viewState.alpha, expandFraction));
@@ -751,7 +770,9 @@ public class NotificationChildrenContainer extends ViewGroup {
         ViewState tmpState = new ViewState();
         float expandFraction = getGroupExpandFraction();
         final boolean dividersVisible = mUserLocked && !showingAsLowPriority()
-                || mContainingNotification.isGroupExpansionChanging();
+                || (mChildrenExpanded && mShowDividersWhenExpanded)
+                || (mContainingNotification.isGroupExpansionChanging()
+                && !mHideDividersDuringExpand);
         for (int i = childCount - 1; i >= 0; i--) {
             ExpandableNotificationRow child = mChildren.get(i);
             ExpandableViewState viewState = state.getViewStateForView(child);

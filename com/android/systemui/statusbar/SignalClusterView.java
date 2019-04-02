@@ -16,18 +16,13 @@
 
 package com.android.systemui.statusbar;
 
-import android.annotation.ColorInt;
 import android.annotation.DrawableRes;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
-import android.content.res.TypedArray;
 import android.graphics.Color;
 import android.graphics.Rect;
-import android.graphics.drawable.Animatable;
-import android.graphics.drawable.AnimatedVectorDrawable;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.LayerDrawable;
 import android.telephony.SubscriptionInfo;
 import android.util.ArraySet;
 import android.util.AttributeSet;
@@ -46,6 +41,7 @@ import com.android.systemui.statusbar.phone.SignalDrawable;
 import com.android.systemui.statusbar.phone.StatusBarIconController;
 import com.android.systemui.statusbar.policy.DarkIconDispatcher;
 import com.android.systemui.statusbar.policy.DarkIconDispatcher.DarkReceiver;
+import com.android.systemui.statusbar.policy.IconLogger;
 import com.android.systemui.statusbar.policy.NetworkController;
 import com.android.systemui.statusbar.policy.NetworkController.IconState;
 import com.android.systemui.statusbar.policy.NetworkControllerImpl;
@@ -55,6 +51,7 @@ import com.android.systemui.tuner.TunerService.Tunable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 // Intimately tied to the design of res/layout/signal_cluster_view.xml
 public class SignalClusterView extends LinearLayout implements NetworkControllerImpl.SignalCallback,
@@ -68,21 +65,21 @@ public class SignalClusterView extends LinearLayout implements NetworkController
     private static final String SLOT_MOBILE = "mobile";
     private static final String SLOT_WIFI = "wifi";
     private static final String SLOT_ETHERNET = "ethernet";
+    private static final String SLOT_VPN = "vpn";
 
     private final NetworkController mNetworkController;
     private final SecurityController mSecurityController;
 
     private boolean mNoSimsVisible = false;
     private boolean mVpnVisible = false;
+    private boolean mSimDetected;
     private int mVpnIconId = 0;
     private int mLastVpnIconId = -1;
     private boolean mEthernetVisible = false;
     private int mEthernetIconId = 0;
     private int mLastEthernetIconId = -1;
-    private int mWifiBadgeId = -1;
     private boolean mWifiVisible = false;
     private int mWifiStrengthId = 0;
-    private int mLastWifiBadgeId = -1;
     private int mLastWifiStrengthId = -1;
     private boolean mWifiIn;
     private boolean mWifiOut;
@@ -121,6 +118,8 @@ public class SignalClusterView extends LinearLayout implements NetworkController
     private boolean mBlockEthernet;
     private boolean mActivityEnabled;
     private boolean mForceBlockWifi;
+
+    private final IconLogger mIconLogger = Dependency.get(IconLogger.class);
 
     public SignalClusterView(Context context) {
         this(context, null);
@@ -290,7 +289,6 @@ public class SignalClusterView extends LinearLayout implements NetworkController
             boolean activityIn, boolean activityOut, String description, boolean isTransient) {
         mWifiVisible = statusIcon.visible && !mBlockWifi;
         mWifiStrengthId = statusIcon.icon;
-        mWifiBadgeId = statusIcon.iconOverlay;
         mWifiDescription = statusIcon.contentDescription;
         mWifiIn = activityIn && mActivityEnabled && mWifiVisible;
         mWifiOut = activityOut && mActivityEnabled && mWifiVisible;
@@ -329,8 +327,9 @@ public class SignalClusterView extends LinearLayout implements NetworkController
     }
 
     @Override
-    public void setNoSims(boolean show) {
+    public void setNoSims(boolean show, boolean simDetected) {
         mNoSimsVisible = show && !mBlockMobile;
+        mSimDetected = simDetected;
         apply();
     }
 
@@ -427,7 +426,6 @@ public class SignalClusterView extends LinearLayout implements NetworkController
             mWifi.setImageDrawable(null);
             mWifiDark.setImageDrawable(null);
             mLastWifiStrengthId = -1;
-            mLastWifiBadgeId = -1;
         }
 
         for (PhoneState state : mPhoneStates) {
@@ -454,14 +452,15 @@ public class SignalClusterView extends LinearLayout implements NetworkController
     private void apply() {
         if (mWifiGroup == null) return;
 
-        mVpn.setVisibility(mVpnVisible ? View.VISIBLE : View.GONE);
         if (mVpnVisible) {
             if (mLastVpnIconId != mVpnIconId) {
                 setIconForView(mVpn, mVpnIconId);
                 mLastVpnIconId = mVpnIconId;
             }
+            mIconLogger.onIconShown(SLOT_VPN);
             mVpn.setVisibility(View.VISIBLE);
         } else {
+            mIconLogger.onIconHidden(SLOT_VPN);
             mVpn.setVisibility(View.GONE);
         }
         if (DEBUG) Log.d(TAG, String.format("vpn: %s", mVpnVisible ? "VISIBLE" : "GONE"));
@@ -473,8 +472,10 @@ public class SignalClusterView extends LinearLayout implements NetworkController
                 mLastEthernetIconId = mEthernetIconId;
             }
             mEthernetGroup.setContentDescription(mEthernetDescription);
+            mIconLogger.onIconShown(SLOT_ETHERNET);
             mEthernetGroup.setVisibility(View.VISIBLE);
         } else {
+            mIconLogger.onIconHidden(SLOT_ETHERNET);
             mEthernetGroup.setVisibility(View.GONE);
         }
 
@@ -483,20 +484,16 @@ public class SignalClusterView extends LinearLayout implements NetworkController
                     (mEthernetVisible ? "VISIBLE" : "GONE")));
 
         if (mWifiVisible) {
-            if (mWifiStrengthId != mLastWifiStrengthId || mWifiBadgeId != mLastWifiBadgeId) {
-                if (mWifiBadgeId == -1) {
-                    setIconForView(mWifi, mWifiStrengthId);
-                    setIconForView(mWifiDark, mWifiStrengthId);
-                } else {
-                    setBadgedWifiIconForView(mWifi, mWifiStrengthId, mWifiBadgeId);
-                    setBadgedWifiIconForView(mWifiDark, mWifiStrengthId, mWifiBadgeId);
-                }
+            if (mWifiStrengthId != mLastWifiStrengthId) {
+                setIconForView(mWifi, mWifiStrengthId);
+                setIconForView(mWifiDark, mWifiStrengthId);
                 mLastWifiStrengthId = mWifiStrengthId;
-                mLastWifiBadgeId = mWifiBadgeId;
             }
+            mIconLogger.onIconShown(SLOT_WIFI);
             mWifiGroup.setContentDescription(mWifiDescription);
             mWifiGroup.setVisibility(View.VISIBLE);
         } else {
+            mIconLogger.onIconHidden(SLOT_WIFI);
             mWifiGroup.setVisibility(View.GONE);
         }
 
@@ -518,6 +515,11 @@ public class SignalClusterView extends LinearLayout implements NetworkController
                 }
             }
         }
+        if (anyMobileVisible) {
+            mIconLogger.onIconShown(SLOT_MOBILE);
+        } else {
+            mIconLogger.onIconHidden(SLOT_MOBILE);
+        }
 
         if (mIsAirplaneMode) {
             if (mLastAirplaneIconId != mAirplaneIconId) {
@@ -525,8 +527,10 @@ public class SignalClusterView extends LinearLayout implements NetworkController
                 mLastAirplaneIconId = mAirplaneIconId;
             }
             mAirplane.setContentDescription(mAirplaneContentDescription);
+            mIconLogger.onIconShown(SLOT_AIRPLANE);
             mAirplane.setVisibility(View.VISIBLE);
         } else {
+            mIconLogger.onIconHidden(SLOT_AIRPLANE);
             mAirplane.setVisibility(View.GONE);
         }
 
@@ -542,7 +546,30 @@ public class SignalClusterView extends LinearLayout implements NetworkController
             mWifiSignalSpacer.setVisibility(View.GONE);
         }
 
-        mNoSimsCombo.setVisibility(mNoSimsVisible ? View.VISIBLE : View.GONE);
+        if (mNoSimsVisible) {
+            mIconLogger.onIconShown(SLOT_MOBILE);
+            mNoSimsCombo.setVisibility(View.VISIBLE);
+            if (!Objects.equals(mSimDetected, mNoSimsCombo.getTag())) {
+                mNoSimsCombo.setTag(mSimDetected);
+                if (mSimDetected) {
+                    SignalDrawable d = new SignalDrawable(mNoSims.getContext());
+                    d.setDarkIntensity(0);
+                    mNoSims.setImageDrawable(d);
+                    mNoSims.setImageLevel(SignalDrawable.getEmptyState(4));
+
+                    SignalDrawable dark = new SignalDrawable(mNoSims.getContext());
+                    dark.setDarkIntensity(1);
+                    mNoSimsDark.setImageDrawable(dark);
+                    mNoSimsDark.setImageLevel(SignalDrawable.getEmptyState(4));
+                } else {
+                    mNoSims.setImageResource(R.drawable.stat_sys_no_sims);
+                    mNoSimsDark.setImageResource(R.drawable.stat_sys_no_sims);
+                }
+            }
+        } else {
+            mIconLogger.onIconHidden(SLOT_MOBILE);
+            mNoSimsCombo.setVisibility(View.GONE);
+        }
 
         boolean anythingVisible = mNoSimsVisible || mWifiVisible || mIsAirplaneMode
                 || anyMobileVisible || mVpnVisible || mEthernetVisible;
@@ -557,10 +584,6 @@ public class SignalClusterView extends LinearLayout implements NetworkController
         // Using the imageView's context to retrieve the Drawable so that theme is preserved.
         Drawable icon = imageView.getContext().getDrawable(iconId);
 
-        setScaledIcon(imageView, icon);
-    }
-
-    private void setScaledIcon(ImageView imageView, Drawable icon) {
         if (mIconScaleFactor == 1.f) {
             imageView.setImageDrawable(icon);
         } else {
@@ -568,32 +591,6 @@ public class SignalClusterView extends LinearLayout implements NetworkController
         }
     }
 
-    /**
-     * Creates and sets a LayerDrawable from the given ids on the given view.
-     *
-     * <p>This method will also scale the icon by {@link #mIconScaleFactor} if appropriate.
-     */
-    private void setBadgedWifiIconForView(ImageView imageView, @DrawableRes int wifiPieId,
-            @DrawableRes int badgeId) {
-        // Using the imageView's context to retrieve the Drawable so that theme is preserved.;
-        LayerDrawable icon = new LayerDrawable(new Drawable[] {
-                imageView.getContext().getDrawable(wifiPieId),
-                imageView.getContext().getDrawable(badgeId)});
-
-        // The LayerDrawable shares an underlying state so we must mutate the object to change the
-        // color between the light and dark themes.
-        icon.mutate().setTint(getColorAttr(imageView.getContext(), R.attr.singleToneColor));
-
-        setScaledIcon(imageView, icon);
-    }
-
-    /** Returns the given color attribute value, or white if not defined. */
-    @ColorInt private static int getColorAttr(Context context, int attr) {
-        TypedArray ta = context.obtainStyledAttributes(new int[] {attr});
-        @ColorInt int colorAccent = ta.getColor(0, Color.WHITE);
-        ta.recycle();
-        return colorAccent;
-    }
 
     @Override
     public void onDarkChanged(Rect tintArea, float darkIntensity, int tint) {

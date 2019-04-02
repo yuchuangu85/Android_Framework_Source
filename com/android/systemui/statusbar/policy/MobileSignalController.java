@@ -235,6 +235,9 @@ public class MobileSignalController extends SignalController<
     }
 
     private int getNumLevels() {
+        if (mConfig.inflateSignalStrengths) {
+            return SignalStrength.NUM_SIGNAL_STRENGTH_BINS + 1;
+        }
         return SignalStrength.NUM_SIGNAL_STRENGTH_BINS;
     }
 
@@ -243,7 +246,11 @@ public class MobileSignalController extends SignalController<
         if (mCurrentState.iconGroup == TelephonyIcons.CARRIER_NETWORK_CHANGE) {
             return SignalDrawable.getCarrierChangeState(getNumLevels());
         } else if (mCurrentState.connected) {
-            return SignalDrawable.getState(mCurrentState.level, getNumLevels(),
+            int level = mCurrentState.level;
+            if (mConfig.inflateSignalStrengths) {
+                level++;
+            }
+            return SignalDrawable.getState(level, getNumLevels(),
                     mCurrentState.inetCondition == 0);
         } else if (mCurrentState.enabled) {
             return SignalDrawable.getEmptyState(getNumLevels());
@@ -338,7 +345,7 @@ public class MobileSignalController extends SignalController<
         if (isCarrierNetworkChangeActive()) {
             return false;
         }
-        if (isCdma()) {
+        if (isCdma() && mServiceState != null) {
             final int iconMode = mServiceState.getCdmaEriIconMode();
             return mServiceState.getCdmaEriIconIndex() != EriInfo.ROAMING_INDICATOR_OFF
                     && (iconMode == EriInfo.ROAMING_ICON_MODE_NORMAL
@@ -513,10 +520,12 @@ public class MobileSignalController extends SignalController<
                         + " dataState=" + state.getDataRegState());
             }
             mServiceState = state;
-            mDataNetType = state.getDataNetworkType();
-            if (mDataNetType == TelephonyManager.NETWORK_TYPE_LTE && mServiceState != null &&
-                    mServiceState.isUsingCarrierAggregation()) {
-                mDataNetType = TelephonyManager.NETWORK_TYPE_LTE_CA;
+            if (state != null) {
+                mDataNetType = state.getDataNetworkType();
+                if (mDataNetType == TelephonyManager.NETWORK_TYPE_LTE && mServiceState != null &&
+                        mServiceState.isUsingCarrierAggregation()) {
+                    mDataNetType = TelephonyManager.NETWORK_TYPE_LTE_CA;
+                }
             }
             updateTelephony();
         }

@@ -80,6 +80,15 @@ public interface StatusBarManagerInternal {
     void setGlobalActionsListener(GlobalActionsListener listener);
     void showGlobalActions();
 
+    /**
+     * Set whether the top app currently hides the statusbar.
+     *
+     * @param hidesStatusBar whether it is being hidden
+     */
+    void setTopAppHidesStatusBar(boolean hidesStatusBar);
+
+    boolean showShutdownUi(boolean isReboot, String requestString);
+
     public interface GlobalActionsListener {
         /**
          * Called when sysui starts and connects its status bar, or when the status bar binder

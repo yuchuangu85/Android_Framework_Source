@@ -32,6 +32,7 @@ import android.util.Log;
 import com.android.server.wifi.hotspot2.NetworkDetail;
 import com.android.server.wifi.util.InformationElementUtil;
 import com.android.server.wifi.util.NativeUtil;
+import com.android.server.wifi.util.ScanResultUtil;
 import com.android.server.wifi.wificond.ChannelSettings;
 import com.android.server.wifi.wificond.HiddenNetwork;
 import com.android.server.wifi.wificond.NativeScanResult;
@@ -50,8 +51,16 @@ public class WificondControl {
     private boolean mVerboseLoggingEnabled = false;
 
     private static final String TAG = "WificondControl";
+
+    /* Get scan results for a single scan */
+    public static final int SCAN_TYPE_SINGLE_SCAN = 0;
+
+    /* Get scan results for Pno Scan */
+    public static final int SCAN_TYPE_PNO_SCAN = 1;
+
     private WifiInjector mWifiInjector;
     private WifiMonitor mWifiMonitor;
+    private final CarrierNetworkConfig mCarrierNetworkConfig;
 
     // Cached wificond binder handlers.
     private IWificond mWificond;
@@ -78,9 +87,11 @@ public class WificondControl {
         }
     }
 
-    WificondControl(WifiInjector wifiInjector, WifiMonitor wifiMonitor) {
+    WificondControl(WifiInjector wifiInjector, WifiMonitor wifiMonitor,
+            CarrierNetworkConfig carrierNetworkConfig) {
         mWifiInjector = wifiInjector;
         mWifiMonitor = wifiMonitor;
+        mCarrierNetworkConfig = carrierNetworkConfig;
     }
 
     private class PnoScanEventHandler extends IPnoScanEvent.Stub {
@@ -88,12 +99,25 @@ public class WificondControl {
         public void OnPnoNetworkFound() {
             Log.d(TAG, "Pno scan result event");
             mWifiMonitor.broadcastPnoScanResultEvent(mClientInterfaceName);
+            mWifiInjector.getWifiMetrics().incrementPnoFoundNetworkEventCount();
         }
 
         @Override
         public void OnPnoScanFailed() {
             Log.d(TAG, "Pno Scan failed event");
-            // Nothing to do for now.
+            mWifiInjector.getWifiMetrics().incrementPnoScanFailedCount();
+        }
+
+        @Override
+        public void OnPnoScanOverOffloadStarted() {
+            Log.d(TAG, "Pno scan over offload started");
+            mWifiInjector.getWifiMetrics().incrementPnoScanStartedOverOffloadCount();
+        }
+
+        @Override
+        public void OnPnoScanOverOffloadFailed(int reason) {
+            Log.d(TAG, "Pno scan over offload failed");
+            mWifiInjector.getWifiMetrics().incrementPnoScanFailedOverOffloadCount();
         }
     }
 
@@ -318,14 +342,19 @@ public class WificondControl {
     * @return Returns an ArrayList of ScanDetail.
     * Returns an empty ArrayList on failure.
     */
-    public ArrayList<ScanDetail> getScanResults() {
+    public ArrayList<ScanDetail> getScanResults(int scanType) {
         ArrayList<ScanDetail> results = new ArrayList<>();
         if (mWificondScanner == null) {
             Log.e(TAG, "No valid wificond scanner interface handler");
             return results;
         }
         try {
-            NativeScanResult[] nativeResults = mWificondScanner.getScanResults();
+            NativeScanResult[] nativeResults;
+            if (scanType == SCAN_TYPE_SINGLE_SCAN) {
+                nativeResults = mWificondScanner.getScanResults();
+            } else {
+                nativeResults = mWificondScanner.getPnoScanResults();
+            }
             for (NativeScanResult result : nativeResults) {
                 WifiSsid wifiSsid = WifiSsid.createFromByteArray(result.ssid);
                 String bssid;
@@ -345,15 +374,26 @@ public class WificondControl {
                         new InformationElementUtil.Capabilities();
                 capabilities.from(ies, result.capability);
                 String flags = capabilities.generateCapabilitiesString();
-                NetworkDetail networkDetail =
-                        new NetworkDetail(bssid, ies, null, result.frequency);
-
-                if (!wifiSsid.toString().equals(networkDetail.getTrimmedSSID())) {
-                    Log.e(TAG, "Inconsistent SSID on BSSID: " + bssid);
+                NetworkDetail networkDetail;
+                try {
+                    networkDetail = new NetworkDetail(bssid, ies, null, result.frequency);
+                } catch (IllegalArgumentException e) {
+                    Log.e(TAG, "Illegal argument for scan result with bssid: " + bssid, e);
                     continue;
                 }
+
                 ScanDetail scanDetail = new ScanDetail(networkDetail, wifiSsid, bssid, flags,
                         result.signalMbm / 100, result.frequency, result.tsf, ies, null);
+                // Update carrier network info if this AP's SSID is associated with a carrier Wi-Fi
+                // network and it uses EAP.
+                if (ScanResultUtil.isScanResultForEapNetwork(scanDetail.getScanResult())
+                        && mCarrierNetworkConfig.isCarrierNetwork(wifiSsid.toString())) {
+                    scanDetail.getScanResult().isCarrierAp = true;
+                    scanDetail.getScanResult().carrierApEapType =
+                            mCarrierNetworkConfig.getNetworkEapType(wifiSsid.toString());
+                    scanDetail.getScanResult().carrierName =
+                            mCarrierNetworkConfig.getCarrierName(wifiSsid.toString());
+                }
                 results.add(scanDetail);
             }
         } catch (RemoteException e1) {
@@ -441,9 +481,14 @@ public class WificondControl {
         }
 
         try {
-            return mWificondScanner.startPnoScan(settings);
+            boolean success = mWificondScanner.startPnoScan(settings);
+            mWifiInjector.getWifiMetrics().incrementPnoScanStartAttempCount();
+            if (!success) {
+                mWifiInjector.getWifiMetrics().incrementPnoScanFailedCount();
+            }
+            return success;
         } catch (RemoteException e1) {
-            Log.e(TAG, "Failed to stop pno scan due to remote exception");
+            Log.e(TAG, "Failed to start pno scan due to remote exception");
         }
         return false;
     }

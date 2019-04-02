@@ -80,6 +80,14 @@ public class WizardManagerHelperTest {
     }
 
     @Test
+    public void testIsDeferredSetupTrue() {
+        final Intent intent = new Intent();
+        intent.putExtra("deferredSetup", true);
+        assertTrue("Is deferred setup wizard should be true",
+                WizardManagerHelper.isDeferredSetupWizard(intent));
+    }
+
+    @Test
     public void testIsSetupWizardFalse() {
         final Intent intent = new Intent();
         intent.putExtra("firstRun", false);
@@ -140,22 +148,22 @@ public class WizardManagerHelperTest {
     }
 
     @Test
-    public void testGlifPixelIsDarkTheme() {
+    public void testGlifV2IsDarkTheme() {
         final Intent intent = new Intent();
-        intent.putExtra("theme", "glif_pixel");
-        assertFalse("Theme glif_pixel should be dark theme",
+        intent.putExtra("theme", "glif_v2");
+        assertFalse("Theme glif_v2 should be dark theme",
                 WizardManagerHelper.isLightTheme(intent, false));
-        assertFalse("Theme glif_pixel should be dark theme",
+        assertFalse("Theme glif_v2 should be dark theme",
                 WizardManagerHelper.isLightTheme(intent, true));
     }
 
     @Test
-    public void testGlifPixelLightIsLightTheme() {
+    public void testGlifV2LightIsLightTheme() {
         final Intent intent = new Intent();
-        intent.putExtra("theme", "glif_pixel_light");
-        assertTrue("Theme glif_pixel_light should be light theme",
+        intent.putExtra("theme", "glif_v2_light");
+        assertTrue("Theme glif_v2_light should be light theme",
                 WizardManagerHelper.isLightTheme(intent, false));
-        assertTrue("Theme glif_pixel_light should be light theme",
+        assertTrue("Theme glif_v2_light should be light theme",
                 WizardManagerHelper.isLightTheme(intent, true));
     }
 
@@ -195,15 +203,15 @@ public class WizardManagerHelperTest {
     }
 
     @Test
-    public void testGetThemeResGlifPixelLight() {
-        assertEquals(R.style.SuwThemeGlifPixel_Light,
-                WizardManagerHelper.getThemeRes("glif_pixel_light", 0));
+    public void testGetThemeResGlifV2Light() {
+        assertEquals(R.style.SuwThemeGlifV2_Light,
+                WizardManagerHelper.getThemeRes("glif_v2_light", 0));
     }
 
     @Test
-    public void testGetThemeResGlifPixel() {
-        assertEquals(R.style.SuwThemeGlifPixel,
-                WizardManagerHelper.getThemeRes("glif_pixel", 0));
+    public void testGetThemeResGlifV2() {
+        assertEquals(R.style.SuwThemeGlifV2,
+                WizardManagerHelper.getThemeRes("glif_v2", 0));
     }
 
     @Test
@@ -257,6 +265,7 @@ public class WizardManagerHelperTest {
                 .putExtra(WizardManagerHelper.EXTRA_THEME, "test_theme")
                 .putExtra(WizardManagerHelper.EXTRA_WIZARD_BUNDLE, wizardBundle)
                 .putExtra(WizardManagerHelper.EXTRA_IS_FIRST_RUN, true)
+                .putExtra(WizardManagerHelper.EXTRA_IS_DEFERRED_SETUP, true)
                 // Script URI and Action ID are kept for backwards compatibility
                 .putExtra(WizardManagerHelper.EXTRA_SCRIPT_URI, "test_script_uri")
                 .putExtra(WizardManagerHelper.EXTRA_ACTION_ID, "test_action_id");
@@ -273,6 +282,8 @@ public class WizardManagerHelperTest {
 
         assertTrue("EXTRA_IS_FIRST_RUN should be copied",
                 intent.getBooleanExtra(WizardManagerHelper.EXTRA_IS_FIRST_RUN, false));
+        assertTrue("EXTRA_IS_DEFERRED_SETUP should be copied",
+                intent.getBooleanExtra(WizardManagerHelper.EXTRA_IS_DEFERRED_SETUP, false));
 
         // Script URI and Action ID are replaced by Wizard Bundle in M, but are kept for backwards
         // compatibility

@@ -95,29 +95,29 @@ public class GlifLayoutTest {
     }
 
     @Test
-    public void testGlifPixelTheme() {
+    public void testGlifV2Theme() {
         mContext = new ContextThemeWrapper(InstrumentationRegistry.getContext(),
-                R.style.SuwThemeGlifPixel_Light);
+                R.style.SuwThemeGlifV2_Light);
         final GlifLayout glifLayout = new GlifLayout(mContext);
         final TextView titleView = (TextView) glifLayout.findManagedViewById(R.id.suw_layout_title);
         if (VERSION.SDK_INT >= VERSION_CODES.JELLY_BEAN_MR1) {
             assertEquals(View.TEXT_ALIGNMENT_GRAVITY, titleView.getTextAlignment());
         }
-        assertEquals("Title text should be center aligned on GLIF Pixel theme",
+        assertEquals("Title text should be center aligned on GLIF v2 theme",
                 Gravity.CENTER_HORIZONTAL, titleView.getGravity() & Gravity.CENTER_HORIZONTAL);
 
         if (VERSION.SDK_INT >= VERSION_CODES.N) {
             // LinearLayout.getGravity is only available on versions >= N
             final View iconView = glifLayout.findManagedViewById(R.id.suw_layout_icon);
             final LinearLayout parent = (LinearLayout) iconView.getParent();
-            assertEquals("Icon should be center aligned on GLIF Pixel theme",
+            assertEquals("Icon should be center aligned on GLIF v2 theme",
                     Gravity.CENTER_HORIZONTAL, parent.getGravity() & Gravity.CENTER_HORIZONTAL);
         }
 
-        assertEquals("Status bar color should be white in GLIF Pixel theme",
-                "fffafafa",
+        assertEquals("Status bar color should be white in GLIF v2 theme",
+                "ffffffff",
                 Integer.toHexString(glifLayout.getBackgroundBaseColor().getDefaultColor()));
-        assertFalse("GLIF Pixel theme shuold not have patterned background",
+        assertFalse("GLIF v2 theme shuold not have patterned background",
                 glifLayout.isBackgroundPatterned());
 
         if (VERSION.SDK_INT >= VERSION_CODES.M) {

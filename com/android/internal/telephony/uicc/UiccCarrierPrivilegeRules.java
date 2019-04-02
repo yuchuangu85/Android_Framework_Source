@@ -28,16 +28,14 @@ import android.os.Handler;
 import android.os.Message;
 import android.telephony.Rlog;
 import android.telephony.TelephonyManager;
+import android.telephony.UiccAccessRule;
 import android.text.TextUtils;
 
 import com.android.internal.telephony.CommandException;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -94,6 +92,8 @@ public class UiccCarrierPrivilegeRules extends Handler {
     private static final String TAG_PKG_REF_DO = "CA";
     private static final String TAG_AR_DO = "E3";
     private static final String TAG_PERM_AR_DO = "DB";
+    private static final String TAG_AID_REF_DO = "4F";
+    private static final String CARRIER_PRIVILEGE_AID = "FFFFFFFFFFFF";
 
     private static final int EVENT_OPEN_LOGICAL_CHANNEL_DONE = 1;
     private static final int EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE = 2;
@@ -108,30 +108,6 @@ public class UiccCarrierPrivilegeRules extends Handler {
     // Max number of retries for open logical channel, interval is 10s.
     private static final int MAX_RETRY = 1;
     private static final int RETRY_INTERVAL_MS = 10000;
-
-    // Describes a single rule.
-    private static class AccessRule {
-        public byte[] certificateHash;
-        public String packageName;
-        public long accessType;   // This bit is not currently used, but reserved for future use.
-
-        AccessRule(byte[] certificateHash, String packageName, long accessType) {
-            this.certificateHash = certificateHash;
-            this.packageName = packageName;
-            this.accessType = accessType;
-        }
-
-        boolean matches(byte[] certHash, String packageName) {
-          return certHash != null && Arrays.equals(this.certificateHash, certHash) &&
-                (TextUtils.isEmpty(this.packageName) || this.packageName.equals(packageName));
-        }
-
-        @Override
-        public String toString() {
-            return "cert: " + IccUtils.bytesToHexString(certificateHash) + " pkg: " +
-                packageName + " access: " + accessType;
-        }
-    }
 
     // Used for parsing the data from the UICC.
     public static class TLV {
@@ -202,7 +178,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
     private UiccCard mUiccCard;  // Parent
     private UiccPkcs15 mUiccPkcs15; // ARF fallback
     private AtomicInteger mState;
-    private List<AccessRule> mAccessRules;
+    private List<UiccAccessRule> mAccessRules;
     private String mRules;
     private Message mLoadedCallback;
     private String mStatusMessage;  // Only used for debugging.
@@ -229,7 +205,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
         mStatusMessage = "Not loaded.";
         mLoadedCallback = loadedCallback;
         mRules = "";
-        mAccessRules = new ArrayList<AccessRule>();
+        mAccessRules = new ArrayList<>();
 
         openChannel();
     }
@@ -256,9 +232,9 @@ public class UiccCarrierPrivilegeRules extends Handler {
     public List<String> getPackageNames() {
         List<String> pkgNames = new ArrayList<String>();
         if (mAccessRules != null) {
-            for (AccessRule ar : mAccessRules) {
-                if(!TextUtils.isEmpty(ar.packageName)) {
-                    pkgNames.add(ar.packageName);
+            for (UiccAccessRule ar : mAccessRules) {
+                if (!TextUtils.isEmpty(ar.getPackageName())) {
+                    pkgNames.add(ar.getPackageName());
                 }
             }
         }
@@ -280,12 +256,10 @@ public class UiccCarrierPrivilegeRules extends Handler {
             return TelephonyManager.CARRIER_PRIVILEGE_STATUS_ERROR_LOADING_RULES;
         }
 
-        // SHA-1 is for backward compatible support only, strongly discouraged for new use.
-        byte[] certHash = getCertHash(signature, "SHA-1");
-        byte[] certHash256 = getCertHash(signature, "SHA-256");
-        for (AccessRule ar : mAccessRules) {
-            if (ar.matches(certHash, packageName) || ar.matches(certHash256, packageName)) {
-                return TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS;
+        for (UiccAccessRule ar : mAccessRules) {
+            int accessStatus = ar.getCarrierPrivilegeStatus(signature, packageName);
+            if (accessStatus != TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS) {
+                return accessStatus;
             }
         }
 
@@ -316,7 +290,8 @@ public class UiccCarrierPrivilegeRules extends Handler {
             // is disabled by default, and some other component wants to enable it when it has
             // gained carrier privileges (as an indication that a matching SIM has been inserted).
             PackageInfo pInfo = packageManager.getPackageInfo(packageName,
-                PackageManager.GET_SIGNATURES | PackageManager.GET_DISABLED_UNTIL_USED_COMPONENTS);
+                    PackageManager.GET_SIGNATURES
+                            | PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS);
             return getCarrierPrivilegeStatus(pInfo);
         } catch (PackageManager.NameNotFoundException ex) {
             Rlog.e(LOG_TAG, "NameNotFoundException", ex);
@@ -331,9 +306,15 @@ public class UiccCarrierPrivilegeRules extends Handler {
      * @return Access status.
      */
     public int getCarrierPrivilegeStatus(PackageInfo packageInfo) {
-        Signature[] signatures = packageInfo.signatures;
-        for (Signature sig : signatures) {
-            int accessStatus = getCarrierPrivilegeStatus(sig, packageInfo.packageName);
+        int state = mState.get();
+        if (state == STATE_LOADING) {
+            return TelephonyManager.CARRIER_PRIVILEGE_STATUS_RULES_NOT_LOADED;
+        } else if (state == STATE_ERROR) {
+            return TelephonyManager.CARRIER_PRIVILEGE_STATUS_ERROR_LOADING_RULES;
+        }
+
+        for (UiccAccessRule ar : mAccessRules) {
+            int accessStatus = ar.getCarrierPrivilegeStatus(packageInfo);
             if (accessStatus != TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS) {
                 return accessStatus;
             }
@@ -487,7 +468,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
                     updateState(STATE_ERROR, "No ARA or ARF.");
                 } else {
                     for (String cert : mUiccPkcs15.getRules()) {
-                        AccessRule accessRule = new AccessRule(
+                        UiccAccessRule accessRule = new UiccAccessRule(
                                 IccUtils.hexStringToBytes(cert), "", 0x00);
                         mAccessRules.add(accessRule);
                     }
@@ -526,18 +507,18 @@ public class UiccCarrierPrivilegeRules extends Handler {
     /*
      * Parses the rules from the input string.
      */
-    private static List<AccessRule> parseRules(String rules) {
+    private static List<UiccAccessRule> parseRules(String rules) {
         log("Got rules: " + rules);
 
         TLV allRefArDo = new TLV(TAG_ALL_REF_AR_DO); //FF40
         allRefArDo.parse(rules, true);
 
         String arDos = allRefArDo.value;
-        List<AccessRule> accessRules = new ArrayList<AccessRule>();
+        List<UiccAccessRule> accessRules = new ArrayList<>();
         while (!arDos.isEmpty()) {
             TLV refArDo = new TLV(TAG_REF_AR_DO); //E2
             arDos = refArDo.parse(arDos, false);
-            AccessRule accessRule = parseRefArdo(refArDo.value);
+            UiccAccessRule accessRule = parseRefArdo(refArDo.value);
             if (accessRule != null) {
                 accessRules.add(accessRule);
             } else {
@@ -550,7 +531,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
     /*
      * Parses a single rule.
      */
-    private static AccessRule parseRefArdo(String rule) {
+    private static UiccAccessRule parseRefArdo(String rule) {
         log("Got rule: " + rule);
 
         String certificateHash = null;
@@ -562,59 +543,61 @@ public class UiccCarrierPrivilegeRules extends Handler {
             if (rule.startsWith(TAG_REF_DO)) {
                 TLV refDo = new TLV(TAG_REF_DO); //E1
                 rule = refDo.parse(rule, false);
-
-                // Skip unrelated rules.
-                if (!refDo.value.startsWith(TAG_DEVICE_APP_ID_REF_DO)) {
+                // Allow 4F tag with a default value "FF FF FF FF FF FF" to be compatible with
+                // devices having GP access control enforcer:
+                //  - If no 4F tag is present, it's a CP rule.
+                //  - If 4F tag has value "FF FF FF FF FF FF", it's a CP rule.
+                //  - If 4F tag has other values, it's not a CP rule and Android should ignore it.
+                TLV deviceDo = new TLV(TAG_DEVICE_APP_ID_REF_DO); //C1
+                if (refDo.value.startsWith(TAG_AID_REF_DO)) {
+                    TLV cpDo = new TLV(TAG_AID_REF_DO); //4F
+                    String remain = cpDo.parse(refDo.value, false);
+                    if (!cpDo.lengthBytes.equals("06") || !cpDo.value.equals(CARRIER_PRIVILEGE_AID)
+                            || remain.isEmpty() || !remain.startsWith(TAG_DEVICE_APP_ID_REF_DO)) {
+                        return null;
+                    }
+                    tmp = deviceDo.parse(remain, false);
+                    certificateHash = deviceDo.value;
+                } else if (refDo.value.startsWith(TAG_DEVICE_APP_ID_REF_DO)) {
+                    tmp = deviceDo.parse(refDo.value, false);
+                    certificateHash = deviceDo.value;
+                } else {
                     return null;
                 }
-
-                TLV deviceDo = new TLV(TAG_DEVICE_APP_ID_REF_DO); //C1
-                tmp = deviceDo.parse(refDo.value, false);
-                certificateHash = deviceDo.value;
-
                 if (!tmp.isEmpty()) {
-                  if (!tmp.startsWith(TAG_PKG_REF_DO)) {
-                      return null;
-                  }
-                  TLV pkgDo = new TLV(TAG_PKG_REF_DO); //CA
-                  pkgDo.parse(tmp, true);
-                  packageName = new String(IccUtils.hexStringToBytes(pkgDo.value));
+                    if (!tmp.startsWith(TAG_PKG_REF_DO)) {
+                        return null;
+                    }
+                    TLV pkgDo = new TLV(TAG_PKG_REF_DO); //CA
+                    pkgDo.parse(tmp, true);
+                    packageName = new String(IccUtils.hexStringToBytes(pkgDo.value));
                 } else {
-                  packageName = null;
+                    packageName = null;
                 }
             } else if (rule.startsWith(TAG_AR_DO)) {
                 TLV arDo = new TLV(TAG_AR_DO); //E3
                 rule = arDo.parse(rule, false);
-
-                // Skip unrelated rules.
-                if (!arDo.value.startsWith(TAG_PERM_AR_DO)) {
+                // Skip all the irrelevant tags (All the optional tags here are two bytes
+                // according to the spec GlobalPlatform Secure Element Access Control).
+                String remain = arDo.value;
+                while (!remain.isEmpty() && !remain.startsWith(TAG_PERM_AR_DO)) {
+                    TLV tmpDo = new TLV(remain.substring(0, 2));
+                    remain = tmpDo.parse(remain, false);
+                }
+                if (remain.isEmpty()) {
                     return null;
                 }
-
                 TLV permDo = new TLV(TAG_PERM_AR_DO); //DB
-                permDo.parse(arDo.value, true);
+                permDo.parse(remain, true);
             } else  {
                 // Spec requires it must be either TAG_REF_DO or TAG_AR_DO.
                 throw new RuntimeException("Invalid Rule type");
             }
         }
 
-        AccessRule accessRule = new AccessRule(IccUtils.hexStringToBytes(certificateHash),
-            packageName, accessType);
+        UiccAccessRule accessRule = new UiccAccessRule(
+                IccUtils.hexStringToBytes(certificateHash), packageName, accessType);
         return accessRule;
-    }
-
-    /*
-     * Converts a Signature into a Certificate hash usable for comparison.
-     */
-    private static byte[] getCertHash(Signature signature, String algo) {
-        try {
-            MessageDigest md = MessageDigest.getInstance(algo);
-            return md.digest(signature.toByteArray());
-        } catch (NoSuchAlgorithmException ex) {
-            Rlog.e(LOG_TAG, "NoSuchAlgorithmException: " + ex);
-        }
-        return null;
     }
 
     /*
@@ -642,7 +625,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
         pw.println(" mStatusMessage='" + mStatusMessage + "'");
         if (mAccessRules != null) {
             pw.println(" mAccessRules: ");
-            for (AccessRule ar : mAccessRules) {
+            for (UiccAccessRule ar : mAccessRules) {
                 pw.println("  rule='" + ar + "'");
             }
         } else {

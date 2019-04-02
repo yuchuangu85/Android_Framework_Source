@@ -28,6 +28,7 @@ import android.net.wifi.p2p.nsd.WifiP2pServiceRequest;
 import android.net.wifi.p2p.nsd.WifiP2pServiceResponse;
 import android.net.wifi.p2p.nsd.WifiP2pUpnpServiceInfo;
 import android.net.wifi.p2p.nsd.WifiP2pUpnpServiceResponse;
+import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -39,6 +40,8 @@ import android.util.Log;
 
 import com.android.internal.util.AsyncChannel;
 import com.android.internal.util.Protocol;
+
+import dalvik.system.CloseGuard;
 
 import java.util.HashMap;
 import java.util.List;
@@ -667,22 +670,66 @@ public class WifiP2pManager {
      * Most p2p operations require a Channel as an argument. An instance of Channel is obtained
      * by doing a call on {@link #initialize}
      */
-    public static class Channel {
-        Channel(Context context, Looper looper, ChannelListener l) {
+    public static class Channel implements AutoCloseable {
+        /** @hide */
+        public Channel(Context context, Looper looper, ChannelListener l, Binder binder,
+                WifiP2pManager p2pManager) {
             mAsyncChannel = new AsyncChannel();
             mHandler = new P2pHandler(looper);
             mChannelListener = l;
             mContext = context;
+            mBinder = binder;
+            mP2pManager = p2pManager;
+
+            mCloseGuard.open("close");
         }
         private final static int INVALID_LISTENER_KEY = 0;
+        private final WifiP2pManager mP2pManager;
         private ChannelListener mChannelListener;
         private ServiceResponseListener mServRspListener;
         private DnsSdServiceResponseListener mDnsSdServRspListener;
         private DnsSdTxtRecordListener mDnsSdTxtListener;
         private UpnpServiceResponseListener mUpnpServRspListener;
         private HashMap<Integer, Object> mListenerMap = new HashMap<Integer, Object>();
-        private Object mListenerMapLock = new Object();
+        private final Object mListenerMapLock = new Object();
         private int mListenerKey = 0;
+
+        private final CloseGuard mCloseGuard = CloseGuard.get();
+
+        /**
+         * Close the current P2P connection and indicate to the P2P service that connections
+         * created by the app can be removed.
+         */
+        public void close() {
+            if (mP2pManager == null) {
+                Log.w(TAG, "Channel.close(): Null mP2pManager!?");
+            } else {
+                try {
+                    mP2pManager.mService.close(mBinder);
+                } catch (RemoteException e) {
+                    throw e.rethrowFromSystemServer();
+                }
+            }
+
+            mAsyncChannel.disconnect();
+            mCloseGuard.close();
+        }
+
+        /** @hide */
+        @Override
+        protected void finalize() throws Throwable {
+            try {
+                if (mCloseGuard != null) {
+                    mCloseGuard.warnIfOpen();
+                }
+
+                close();
+            } finally {
+                super.finalize();
+            }
+        }
+
+        /* package */ final Binder mBinder;
 
         private AsyncChannel mAsyncChannel;
         private P2pHandler mHandler;
@@ -889,7 +936,10 @@ public class WifiP2pManager {
      * @return Channel instance that is necessary for performing any further p2p operations
      */
     public Channel initialize(Context srcContext, Looper srcLooper, ChannelListener listener) {
-        return initalizeChannel(srcContext, srcLooper, listener, getMessenger());
+        Binder binder = new Binder();
+        Channel channel = initalizeChannel(srcContext, srcLooper, listener, getMessenger(binder),
+                binder);
+        return channel;
     }
 
     /**
@@ -898,18 +948,20 @@ public class WifiP2pManager {
      */
     public Channel initializeInternal(Context srcContext, Looper srcLooper,
                                       ChannelListener listener) {
-        return initalizeChannel(srcContext, srcLooper, listener, getP2pStateMachineMessenger());
+        return initalizeChannel(srcContext, srcLooper, listener, getP2pStateMachineMessenger(),
+                null);
     }
 
     private Channel initalizeChannel(Context srcContext, Looper srcLooper, ChannelListener listener,
-                                     Messenger messenger) {
+                                     Messenger messenger, Binder binder) {
         if (messenger == null) return null;
 
-        Channel c = new Channel(srcContext, srcLooper, listener);
+        Channel c = new Channel(srcContext, srcLooper, listener, binder, this);
         if (c.mAsyncChannel.connectSync(srcContext, c.mHandler, messenger)
                 == AsyncChannel.STATUS_SUCCESSFUL) {
             return c;
         } else {
+            c.close();
             return null;
         }
     }
@@ -1385,12 +1437,14 @@ public class WifiP2pManager {
      * Get a reference to WifiP2pService handler. This is used to establish
      * an AsyncChannel communication with WifiService
      *
+     * @param binder A binder for the service to associate with this client.
+     *
      * @return Messenger pointing to the WifiP2pService handler
      * @hide
      */
-    public Messenger getMessenger() {
+    public Messenger getMessenger(Binder binder) {
         try {
-            return mService.getMessenger();
+            return mService.getMessenger(binder);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

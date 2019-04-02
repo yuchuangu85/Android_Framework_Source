@@ -818,6 +818,13 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         if (mFocusedInCluster != child) {
             return;
         }
+        clearFocusedInCluster();
+    }
+
+    /**
+     * Removes the focusedInCluster chain from this up to the cluster containing it.
+     */
+    void clearFocusedInCluster() {
         View top = findKeyboardNavigationCluster();
         ViewParent parent = this;
         do {
@@ -3400,6 +3407,13 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         if (childrenCount <= 0) {
             return;
         }
+
+        if (!isLaidOut()) {
+            Log.v(VIEW_LOG_TAG, "dispatchProvideStructure(): not laid out, ignoring "
+                    + childrenCount + " children of " + getAccessibilityViewId());
+            return;
+        }
+
         structure.setChildCount(childrenCount);
         ArrayList<View> preorderedList = buildOrderedChildList();
         boolean customOrder = preorderedList == null
@@ -3476,6 +3490,13 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         if (structure.getChildCount() != 0) {
             return;
         }
+
+        if (!isLaidOut()) {
+            Log.v(VIEW_LOG_TAG, "dispatchProvideAutofillStructure(): not laid out, ignoring "
+                    + mChildrenCount + " children of " + getAutofillId());
+            return;
+        }
+
         final ChildListForAutoFill children = getChildrenForAutofill(flags);
         final int childrenCount = children.size();
         structure.setChildCount(childrenCount);
@@ -3565,7 +3586,8 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         // If this is a live region, we should send a subtree change event
         // from this view. Otherwise, we can let it propagate up.
         if (getAccessibilityLiveRegion() != ACCESSIBILITY_LIVE_REGION_NONE) {
-            notifyViewAccessibilityStateChangedIfNeeded(changeType);
+            notifyViewAccessibilityStateChangedIfNeeded(
+                    AccessibilityEvent.CONTENT_CHANGE_TYPE_SUBTREE);
         } else if (mParent != null) {
             try {
                 mParent.notifySubtreeAccessibilityStateChanged(this, source, changeType);

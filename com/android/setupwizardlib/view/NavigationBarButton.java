@@ -26,6 +26,10 @@ import android.support.annotation.NonNull;
 import android.util.AttributeSet;
 import android.widget.Button;
 
+/**
+ * Button for navigation bar, which includes tinting of its compound drawables to be used for dark
+ * and light themes.
+ */
 public class NavigationBarButton extends Button {
 
     public NavigationBarButton(Context context) {
@@ -120,7 +124,7 @@ public class NavigationBarButton extends Button {
 
         private ColorStateList mTintList = null;
 
-        public TintedDrawable(Drawable wrapped) {
+        TintedDrawable(Drawable wrapped) {
             super(new Drawable[] { wrapped });
         }
 

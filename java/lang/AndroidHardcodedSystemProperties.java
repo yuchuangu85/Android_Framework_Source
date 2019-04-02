@@ -87,7 +87,7 @@ public final class AndroidHardcodedSystemProperties {
         // Hardcode MessagePattern apostrophe mode to be default. b/27265238
         { "android.icu.text.MessagePattern.ApostropheMode", null },
 
-        // Hardcode "sun.io.useCanonCaches" to use the default (on). b/28174137
+        // Hardcode "sun.io.useCanonCaches" to use the default (off). b/28174137, b/62301183
         { "sun.io.useCanonCaches", null },
         { "sun.io.useCanonPrefixCache", null },
 
@@ -111,4 +111,3 @@ public final class AndroidHardcodedSystemProperties {
         { "java.util.logging.manager", null },
     };
 }
-

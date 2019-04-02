@@ -245,7 +245,7 @@ public class ListRowPresenter extends RowPresenter {
 
         @Override
         public void onBind(final ItemBridgeAdapter.ViewHolder viewHolder) {
-            // Only when having an OnItemClickListner, we will attach the OnClickListener.
+            // Only when having an OnItemClickListener, we will attach the OnClickListener.
             if (mRowViewHolder.getOnItemViewClickedListener() != null) {
                 viewHolder.mHolder.view.setOnClickListener(new View.OnClickListener() {
                     @Override
@@ -419,7 +419,8 @@ public class ListRowPresenter extends RowPresenter {
             mShadowOverlayHelper = new ShadowOverlayHelper.Builder()
                     .needsOverlay(needsDefaultListSelectEffect())
                     .needsShadow(needsDefaultShadow())
-                    .needsRoundedCorner(areChildRoundedCornersEnabled())
+                    .needsRoundedCorner(isUsingOutlineClipping(context)
+                            && areChildRoundedCornersEnabled())
                     .preferZOrder(isUsingZOrder(context))
                     .keepForegroundDrawable(mKeepChildForeground)
                     .options(createShadowOverlayOptions())
@@ -705,6 +706,18 @@ public class ListRowPresenter extends RowPresenter {
     }
 
     /**
+     * Returns true if leanback view outline is enabled on the system or false otherwise. When
+     * false, rounded corner will not be enabled even {@link #enableChildRoundedCorners(boolean)}
+     * is called with true.
+     *
+     * @param context Context to retrieve system settings.
+     * @return True if leanback view outline is enabled on the system or false otherwise.
+     */
+    public boolean isUsingOutlineClipping(Context context) {
+        return !Settings.getInstance(context).isOutlineClippingDisabled();
+    }
+
+    /**
      * Enables or disables child shadow.
      * This is not only for enable/disable default shadow implementation but also subclass must
      * respect this flag.
@@ -829,6 +842,7 @@ public class ListRowPresenter extends RowPresenter {
     public void freeze(RowPresenter.ViewHolder holder, boolean freeze) {
         ViewHolder vh = (ViewHolder) holder;
         vh.mGridView.setScrollEnabled(!freeze);
+        vh.mGridView.setAnimateChildLayout(!freeze);
     }
 
     @Override

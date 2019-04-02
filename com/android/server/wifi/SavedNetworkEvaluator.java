@@ -23,6 +23,7 @@ import android.util.LocalLog;
 import android.util.Pair;
 
 import com.android.internal.R;
+import com.android.server.wifi.util.TelephonyUtil;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -248,7 +249,7 @@ public class SavedNetworkEvaluator implements WifiNetworkSelector.NetworkEvaluat
             // the scores and use the highest one as the ScanResult's score.
             List<WifiConfiguration> associatedConfigurations = null;
             WifiConfiguration associatedConfiguration =
-                    mWifiConfigManager.getSavedNetworkForScanDetailAndCache(scanDetail);
+                    mWifiConfigManager.getConfiguredNetworkForScanDetailAndCache(scanDetail);
 
             if (associatedConfiguration == null) {
                 continue;
@@ -281,6 +282,10 @@ public class SavedNetworkEvaluator implements WifiNetworkSelector.NetworkEvaluat
                     localLog("Network " + WifiNetworkSelector.toNetworkString(network)
                             + " has specified BSSID " + network.BSSID + ". Skip "
                             + scanResult.BSSID);
+                    continue;
+                } else if (TelephonyUtil.isSimConfig(network)
+                        && !mWifiConfigManager.isSimPresent()) {
+                    // Don't select if security type is EAP SIM/AKA/AKA' when SIM is not present.
                     continue;
                 }
 

@@ -25,7 +25,6 @@ import android.support.annotation.StyleRes;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.ViewStub;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -114,7 +113,7 @@ public class ButtonFooterMixin implements Mixin {
     public View addSpace() {
         final LinearLayout buttonContainer = ensureFooterInflated();
         View space = new View(buttonContainer.getContext());
-        space.setLayoutParams(new LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f));
+        space.setLayoutParams(new LayoutParams(0, 0, 1.0f));
         space.setVisibility(View.INVISIBLE);
         buttonContainer.addView(space);
         return space;

@@ -26,11 +26,14 @@ import android.net.Uri;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import android.os.UserHandle;
+import android.text.format.Time;
 import android.util.ArraySet;
+import android.util.Pair;
 import android.util.Slog;
 import android.util.TimeUtils;
 
 import com.android.server.job.GrantedUriPermissions;
+import com.android.server.job.JobSchedulerService;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -49,6 +52,7 @@ import java.util.Arrays;
  */
 public final class JobStatus {
     static final String TAG = "JobSchedulerService";
+    static final boolean DEBUG = JobSchedulerService.DEBUG;
 
     public static final long NO_LATEST_RUNTIME = Long.MAX_VALUE;
     public static final long NO_EARLIEST_RUNTIME = 0L;
@@ -184,6 +188,29 @@ public final class JobStatus {
     public long madeActive;
 
     /**
+     * Last time a job finished successfully for a periodic job, in the currentTimeMillis time,
+     * for dumpsys.
+     */
+    private long mLastSuccessfulRunTime;
+
+    /**
+     * Last time a job finished unsuccessfully, in the currentTimeMillis time, for dumpsys.
+     */
+    private long mLastFailedRunTime;
+
+    /**
+     * Transient: when a job is inflated from disk before we have a reliable RTC clock time,
+     * we retain the canonical (delay, deadline) scheduling tuple read out of the persistent
+     * store in UTC so that we can fix up the job's scheduling criteria once we get a good
+     * wall-clock time.  If we have to persist the job again before the clock has been updated,
+     * we record these times again rather than calculating based on the earliest/latest elapsed
+     * time base figures.
+     *
+     * 'first' is the earliest/delay time, and 'second' is the latest/deadline time.
+     */
+    private Pair<Long, Long> mPersistedUtcTimes;
+
+    /**
      * For use only by ContentObserverController: state it is maintaining about content URIs
      * being observed.
      */
@@ -196,7 +223,7 @@ public final class JobStatus {
 
     private JobStatus(JobInfo job, int callingUid, String sourcePackageName,
             int sourceUserId, String tag, int numFailures, long earliestRunTimeElapsedMillis,
-            long latestRunTimeElapsedMillis) {
+            long latestRunTimeElapsedMillis, long lastSuccessfulRunTime, long lastFailedRunTime) {
         this.job = job;
         this.callingUid = callingUid;
 
@@ -263,14 +290,25 @@ public final class JobStatus {
             requiredConstraints |= CONSTRAINT_CONTENT_TRIGGER;
         }
         this.requiredConstraints = requiredConstraints;
+
+        mLastSuccessfulRunTime = lastSuccessfulRunTime;
+        mLastFailedRunTime = lastFailedRunTime;
     }
 
-    /** Copy constructor. */
+    /** Copy constructor: used specifically when cloning JobStatus objects for persistence,
+     *   so we preserve RTC window bounds if the source object has them. */
     public JobStatus(JobStatus jobStatus) {
         this(jobStatus.getJob(), jobStatus.getUid(),
                 jobStatus.getSourcePackageName(), jobStatus.getSourceUserId(),
                 jobStatus.getSourceTag(), jobStatus.getNumFailures(),
-                jobStatus.getEarliestRunTime(), jobStatus.getLatestRunTimeElapsed());
+                jobStatus.getEarliestRunTime(), jobStatus.getLatestRunTimeElapsed(),
+                jobStatus.getLastSuccessfulRunTime(), jobStatus.getLastFailedRunTime());
+        mPersistedUtcTimes = jobStatus.mPersistedUtcTimes;
+        if (jobStatus.mPersistedUtcTimes != null) {
+            if (DEBUG) {
+                Slog.i(TAG, "Cloning job with persisted run times", new RuntimeException("here"));
+            }
+        }
     }
 
     /**
@@ -281,18 +319,34 @@ public final class JobStatus {
      * We consider a freshly loaded job to no longer be in back-off.
      */
     public JobStatus(JobInfo job, int callingUid, String sourcePackageName, int sourceUserId,
-            String sourceTag, long earliestRunTimeElapsedMillis, long latestRunTimeElapsedMillis) {
+            String sourceTag, long earliestRunTimeElapsedMillis, long latestRunTimeElapsedMillis,
+            long lastSuccessfulRunTime, long lastFailedRunTime,
+            Pair<Long, Long> persistedExecutionTimesUTC) {
         this(job, callingUid, sourcePackageName, sourceUserId, sourceTag, 0,
-                earliestRunTimeElapsedMillis, latestRunTimeElapsedMillis);
+                earliestRunTimeElapsedMillis, latestRunTimeElapsedMillis,
+                lastSuccessfulRunTime, lastFailedRunTime);
+
+        // Only during initial inflation do we record the UTC-timebase execution bounds
+        // read from the persistent store.  If we ever have to recreate the JobStatus on
+        // the fly, it means we're rescheduling the job; and this means that the calculated
+        // elapsed timebase bounds intrinsically become correct.
+        this.mPersistedUtcTimes = persistedExecutionTimesUTC;
+        if (persistedExecutionTimesUTC != null) {
+            if (DEBUG) {
+                Slog.i(TAG, "+ restored job with RTC times because of bad boot clock");
+            }
+        }
     }
 
     /** Create a new job to be rescheduled with the provided parameters. */
     public JobStatus(JobStatus rescheduling, long newEarliestRuntimeElapsedMillis,
-                      long newLatestRuntimeElapsedMillis, int backoffAttempt) {
+            long newLatestRuntimeElapsedMillis, int backoffAttempt,
+            long lastSuccessfulRunTime, long lastFailedRunTime) {
         this(rescheduling.job, rescheduling.getUid(),
                 rescheduling.getSourcePackageName(), rescheduling.getSourceUserId(),
                 rescheduling.getSourceTag(), backoffAttempt, newEarliestRuntimeElapsedMillis,
-                newLatestRuntimeElapsedMillis);
+                newLatestRuntimeElapsedMillis,
+                lastSuccessfulRunTime, lastFailedRunTime);
     }
 
     /**
@@ -316,7 +370,8 @@ public final class JobStatus {
                     elapsedNow + job.getMaxExecutionDelayMillis() : NO_LATEST_RUNTIME;
         }
         return new JobStatus(job, callingUid, sourcePackageName, sourceUserId, tag, 0,
-                earliestRunTimeElapsedMillis, latestRunTimeElapsedMillis);
+                earliestRunTimeElapsedMillis, latestRunTimeElapsedMillis,
+                0 /* lastSuccessfulRunTime */, 0 /* lastFailedRunTime */);
     }
 
     public void enqueueWorkLocked(IActivityManager am, JobWorkItem work) {
@@ -591,6 +646,14 @@ public final class JobStatus {
         return latestRunTimeElapsedMillis;
     }
 
+    public Pair<Long, Long> getPersistedUtcTimes() {
+        return mPersistedUtcTimes;
+    }
+
+    public void clearPersistedUtcTimes() {
+        mPersistedUtcTimes = null;
+    }
+
     boolean setChargingConstraintSatisfied(boolean state) {
         return setConstraintSatisfied(CONSTRAINT_CHARGING, state);
     }
@@ -667,6 +730,14 @@ public final class JobStatus {
 
     void setTrackingController(int which) {
         trackingControllers |= which;
+    }
+
+    public long getLastSuccessfulRunTime() {
+        return mLastSuccessfulRunTime;
+    }
+
+    public long getLastFailedRunTime() {
+        return mLastFailedRunTime;
     }
 
     public boolean shouldDump(int filterUid) {
@@ -769,6 +840,9 @@ public final class JobStatus {
         }
         if (job.isRequireDeviceIdle()) {
             sb.append(" IDLE");
+        }
+        if (job.isPeriodic()) {
+            sb.append(" PERIODIC");
         }
         if (job.isPersisted()) {
             sb.append(" PERSISTED");
@@ -1040,6 +1114,18 @@ public final class JobStatus {
         pw.println();
         if (numFailures != 0) {
             pw.print(prefix); pw.print("Num failures: "); pw.println(numFailures);
+        }
+        final Time t = new Time();
+        final String format = "%Y-%m-%d %H:%M:%S";
+        if (mLastSuccessfulRunTime != 0) {
+            pw.print(prefix); pw.print("Last successful run: ");
+            t.set(mLastSuccessfulRunTime);
+            pw.println(t.format(format));
+        }
+        if (mLastFailedRunTime != 0) {
+            pw.print(prefix); pw.print("Last failed run: ");
+            t.set(mLastFailedRunTime);
+            pw.println(t.format(format));
         }
     }
 }

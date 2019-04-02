@@ -17,7 +17,6 @@
 package android.support.design.widget;
 
 import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-import static android.support.v4.utils.ObjectUtils.objectEquals;
 
 import android.content.Context;
 import android.content.res.Resources;
@@ -46,6 +45,7 @@ import android.support.design.R;
 import android.support.v4.content.ContextCompat;
 import android.support.v4.graphics.drawable.DrawableCompat;
 import android.support.v4.math.MathUtils;
+import android.support.v4.util.ObjectsCompat;
 import android.support.v4.util.Pools;
 import android.support.v4.view.AbsSavedState;
 import android.support.v4.view.GravityCompat;
@@ -232,7 +232,7 @@ public class CoordinatorLayout extends ViewGroup implements NestedScrollingParen
     @Override
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
-        resetTouchBehaviors();
+        resetTouchBehaviors(false);
         if (mNeedsPreDrawListener) {
             if (mOnPreDrawListener == null) {
                 mOnPreDrawListener = new OnPreDrawListener();
@@ -251,7 +251,7 @@ public class CoordinatorLayout extends ViewGroup implements NestedScrollingParen
     @Override
     public void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        resetTouchBehaviors();
+        resetTouchBehaviors(false);
         if (mNeedsPreDrawListener && mOnPreDrawListener != null) {
             final ViewTreeObserver vto = getViewTreeObserver();
             vto.removeOnPreDrawListener(mOnPreDrawListener);
@@ -351,7 +351,7 @@ public class CoordinatorLayout extends ViewGroup implements NestedScrollingParen
     }
 
     final WindowInsetsCompat setWindowInsets(WindowInsetsCompat insets) {
-        if (!objectEquals(mLastInsets, insets)) {
+        if (!ObjectsCompat.equals(mLastInsets, insets)) {
             mLastInsets = insets;
             mDrawStatusBarBackground = insets != null && insets.getSystemWindowInsetTop() > 0;
             setWillNotDraw(!mDrawStatusBarBackground && getBackground() == null);
@@ -373,20 +373,25 @@ public class CoordinatorLayout extends ViewGroup implements NestedScrollingParen
      * in response to an UP or CANCEL event, when intercept is request-disallowed
      * and similar cases where an event stream in progress will be aborted.
      */
-    private void resetTouchBehaviors() {
-        if (mBehaviorTouchView != null) {
-            final Behavior b = ((LayoutParams) mBehaviorTouchView.getLayoutParams()).getBehavior();
+    private void resetTouchBehaviors(boolean notifyOnInterceptTouchEvent) {
+        final int childCount = getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            final View child = getChildAt(i);
+            final LayoutParams lp = (LayoutParams) child.getLayoutParams();
+            final Behavior b = lp.getBehavior();
             if (b != null) {
                 final long now = SystemClock.uptimeMillis();
                 final MotionEvent cancelEvent = MotionEvent.obtain(now, now,
                         MotionEvent.ACTION_CANCEL, 0.0f, 0.0f, 0);
-                b.onTouchEvent(this, mBehaviorTouchView, cancelEvent);
+                if (notifyOnInterceptTouchEvent) {
+                    b.onInterceptTouchEvent(this, child, cancelEvent);
+                } else {
+                    b.onTouchEvent(this, child, cancelEvent);
+                }
                 cancelEvent.recycle();
             }
-            mBehaviorTouchView = null;
         }
 
-        final int childCount = getChildCount();
         for (int i = 0; i < childCount; i++) {
             final View child = getChildAt(i);
             final LayoutParams lp = (LayoutParams) child.getLayoutParams();
@@ -493,7 +498,7 @@ public class CoordinatorLayout extends ViewGroup implements NestedScrollingParen
 
         // Make sure we reset in case we had missed a previous important event.
         if (action == MotionEvent.ACTION_DOWN) {
-            resetTouchBehaviors();
+            resetTouchBehaviors(true);
         }
 
         final boolean intercepted = performIntercept(ev, TYPE_ON_INTERCEPT);
@@ -503,7 +508,7 @@ public class CoordinatorLayout extends ViewGroup implements NestedScrollingParen
         }
 
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-            resetTouchBehaviors();
+            resetTouchBehaviors(true);
         }
 
         return intercepted;
@@ -548,7 +553,7 @@ public class CoordinatorLayout extends ViewGroup implements NestedScrollingParen
         }
 
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-            resetTouchBehaviors();
+            resetTouchBehaviors(false);
         }
 
         return handled;
@@ -558,7 +563,7 @@ public class CoordinatorLayout extends ViewGroup implements NestedScrollingParen
     public void requestDisallowInterceptTouchEvent(boolean disallowIntercept) {
         super.requestDisallowInterceptTouchEvent(disallowIntercept);
         if (disallowIntercept && !mDisallowInterceptReset) {
-            resetTouchBehaviors();
+            resetTouchBehaviors(false);
             mDisallowInterceptReset = true;
         }
     }
