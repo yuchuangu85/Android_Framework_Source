@@ -161,6 +161,8 @@ import java.util.function.BiConsumer;
  * @see     TreeMap
  * @see     Hashtable
  * @since   1.4
+ *
+ * 参考：https://www.jianshu.com/p/8f4f58b4b8ab
  */
 
 public class LinkedHashMap<K,V>
@@ -257,7 +259,10 @@ public class LinkedHashMap<K,V>
      */
     @Override
     void init() {
+        // 创建了一个hash=-1，key、value、next都为null的Entry
         header = new LinkedHashMapEntry<>(-1, null, null, null);
+        // 让创建的Entry的before和after都指向自身，注意after不是之前提到的next
+        // 其实就是创建了一个只有头部节点的双向链表
         header.before = header.after = header;
     }
 
@@ -461,6 +466,7 @@ public class LinkedHashMap<K,V>
             }
         }
 
+        // 调用父类的addEntry，增加一个Entry到HashMap中
         super.addEntry(hash, key, value, bucketIndex);
     }
 

@@ -124,6 +124,20 @@ import java.util.function.BiConsumer;
  * @see     TreeMap
  * @see     Hashtable
  * @since   1.2
+ *
+ * 注释参考：图解HashMap原理（https://www.jianshu.com/p/dde9b12343c1）
+ *
+ * 1.HashMap是基于哈希表实现的，用Entry[]来存储数据，而Entry中封装了key、value、hash以及Entry类型的next
+ * 2.HashMap存储数据是无序的
+ * 3.hash冲突是通过拉链法解决的
+ * 4.HashMap的容量永远为2的幂次方，有利于哈希表的散列
+ * 5.HashMap不支持存储多个相同的key，且只保存一个key为null的值，多个会覆盖
+ * 6.put过程，是先通过key算出hash，然后用hash算出应该存储在table中的index，然后遍历table[index]，
+ *  看是否有相同的key存在，存在，则更新value；不存在则插入到table[index]单向链表的表头，时间复杂度为O(n)
+ * 7.get过程，通过key算出hash，然后用hash算出应该存储在table中的index，然后遍历table[index]，然后比对key，
+ * 找到相同的key，则取出其value，时间复杂度为O(n)
+ * 8.HashMap是线程不安全的，如果有线程安全需求，推荐使用ConcurrentHashMap。
+ *
  */
 
 public class HashMap<K,V>
@@ -133,6 +147,7 @@ public class HashMap<K,V>
 
     /**
      * The default initial capacity - MUST be a power of two.
+     * 初始容量，必须为2的倍数，默认为4
      */
     static final int DEFAULT_INITIAL_CAPACITY = 4;
 
@@ -155,11 +170,13 @@ public class HashMap<K,V>
 
     /**
      * The table, resized as necessary. Length MUST Always be a power of two.
+     * 用transient关键字标记的成员变量不参与序列化过程
      */
     transient HashMapEntry<K,V>[] table = (HashMapEntry<K,V>[]) EMPTY_TABLE;
 
     /**
      * The number of key-value mappings contained in this map.
+     * 用transient关键字标记的成员变量不参与序列化过程
      */
     transient int size;
 
@@ -194,7 +211,7 @@ public class HashMap<K,V>
      * capacity and load factor.
      *
      * @param  initialCapacity the initial capacity
-     * @param  loadFactor      the load factor
+     * @param  loadFactor      the load factor（负载因子，0.75）
      * @throws IllegalArgumentException if the initial capacity is negative
      *         or the load factor is nonpositive
      */
@@ -202,9 +219,9 @@ public class HashMap<K,V>
         if (initialCapacity < 0)
             throw new IllegalArgumentException("Illegal initial capacity: " +
                                                initialCapacity);
-        if (initialCapacity > MAXIMUM_CAPACITY) {
+        if (initialCapacity > MAXIMUM_CAPACITY) {// 限定最大值
             initialCapacity = MAXIMUM_CAPACITY;
-        } else if (initialCapacity < DEFAULT_INITIAL_CAPACITY) {
+        } else if (initialCapacity < DEFAULT_INITIAL_CAPACITY) {// 最小4个
             initialCapacity = DEFAULT_INITIAL_CAPACITY;
         }
 
@@ -217,7 +234,9 @@ public class HashMap<K,V>
         // inflateTable() when table == EMPTY_TABLE. That method will take "threshold"
         // to mean "capacity" and then replace it with the real threshold (i.e, multiplied with
         // the load factor).
+        // HashMap扩容的阀值，当HashMap超过阈值，就会扩容
         threshold = initialCapacity;
+        // 该方法为空实现，主要是给子类去实现
         init();
     }
 
@@ -301,6 +320,12 @@ public class HashMap<K,V>
 
     /**
      * Returns index for hash code h.
+     * 这其实就是mod取余的一种替换方式，相当于h%(lenght-1)，其中h为hash值，length为HashMap的当前长度。
+     * 而&是位运算，效率要高于%。至于为什么是跟length-1进行&的位运算，是因为length为2的幂次方，即一定是偶数，
+     * 偶数减1，即是奇数，这样保证了（length-1）在二进制中最低位是1，而&运算结果的最低位是1还是0完全取决于
+     * hash值二进制的最低位。如果length为奇数，则length-1则为偶数，则length-1二进制的最低位横为0，则&位运算
+     * 的结果最低位横为0，即横为偶数。这样table数组就只可能在偶数下标的位置存储了数据，浪费了所有奇数下标的位置，
+     * 这样也更容易产生hash冲突。这也是HashMap的容量为什么总是2的平方数的原因。
      */
     static int indexFor(int h, int length) {
         // assert Integer.bitCount(length) == 1 : "length must be a non-zero power of 2";
@@ -345,6 +370,7 @@ public class HashMap<K,V>
     public V get(Object key) {
         if (key == null)
             return getForNullKey();
+        // 根据key得到key对应的Entry
         Entry<K,V> entry = getEntry(key);
 
         return null == entry ? null : entry.getValue();
@@ -361,7 +387,9 @@ public class HashMap<K,V>
         if (size == 0) {
             return null;
         }
+        //  遍历table[0]上的单向链表
         for (HashMapEntry<K,V> e = table[0]; e != null; e = e.next) {
+            // 如果key为null，则返回该Entry的value值
             if (e.key == null)
                 return e.value;
         }
@@ -390,11 +418,14 @@ public class HashMap<K,V>
             return null;
         }
 
+        // 根据key算出hash
         int hash = (key == null) ? 0 : sun.misc.Hashing.singleWordWangJenkinsHash(key);
+        // 先算出hash在table中存储的index，然后遍历table中下标为index的单向链表
         for (HashMapEntry<K,V> e = table[indexFor(hash, table.length)];
              e != null;
              e = e.next) {
             Object k;
+            // 如果hash和key都相同，则把Entry返回
             if (e.hash == hash &&
                 ((k = e.key) == key || (key != null && key.equals(k))))
                 return e;
@@ -415,15 +446,23 @@ public class HashMap<K,V>
      *         previously associated <tt>null</tt> with <tt>key</tt>.)
      */
     public V put(K key, V value) {
-        if (table == EMPTY_TABLE) {
-            inflateTable(threshold);
+        if (table == EMPTY_TABLE) {// 如果table是空的，还没有放值进去
+            inflateTable(threshold);// 初始化一个，容量为初始阈值
         }
-        if (key == null)
+        if (key == null)// key是空
             return putForNullKey(value);
+        // 根据key算出hash值
         int hash = sun.misc.Hashing.singleWordWangJenkinsHash(key);
+        // 根据hash值和HashMap容量算出在table中应该存储的下标i
         int i = indexFor(hash, table.length);
         for (HashMapEntry<K,V> e = table[i]; e != null; e = e.next) {
             Object k;
+            /**
+             * 先判断hash值是否一样，如果一样，再判断key是否一样
+             * 这里为什么判断两个：
+             * 1.因为不同对象的hash值可能一样
+             * 2.因为equal可能被重写了，重写后的equal的效率要低于hash的直接比较
+             */
             if (e.hash == hash && ((k = e.key) == key || key.equals(k))) {
                 V oldValue = e.value;
                 e.value = value;
@@ -441,7 +480,9 @@ public class HashMap<K,V>
      * Offloaded version of put for null keys
      */
     private V putForNullKey(V value) {
+        // 遍历table[0]上的单向链表
         for (HashMapEntry<K,V> e = table[0]; e != null; e = e.next) {
+            // 如果有key为null的Entry，则替换该Entry中的value
             if (e.key == null) {
                 V oldValue = e.value;
                 e.value = value;
@@ -450,6 +491,8 @@ public class HashMap<K,V>
             }
         }
         modCount++;
+        // 如果没有key为null的Entry，则构造一个hash为0、key为null、value为真实值的Entry
+        // 插入到table[0]上单向链表的头部
         addEntry(0, null, value, 0);
         return null;
     }
@@ -501,16 +544,20 @@ public class HashMap<K,V>
      *        is irrelevant).
      */
     void resize(int newCapacity) {
+        // 保存老的table和老table的长度
         HashMapEntry[] oldTable = table;
         int oldCapacity = oldTable.length;
         if (oldCapacity == MAXIMUM_CAPACITY) {
             threshold = Integer.MAX_VALUE;
             return;
         }
-
+        // 创建一个新的table，长度为之前的两倍
         HashMapEntry[] newTable = new HashMapEntry[newCapacity];
+        // 将老table的原有数据，从新存储到新table中
         transfer(newTable);
+        // 使用新table
         table = newTable;
+        // 扩容后的HashMap的扩容阀门值
         threshold = (int)Math.min(newCapacity * loadFactor, MAXIMUM_CAPACITY + 1);
     }
 
@@ -519,12 +566,19 @@ public class HashMap<K,V>
      */
     void transfer(HashMapEntry[] newTable) {
         int newCapacity = newTable.length;
+        // 遍历老的table数组
         for (HashMapEntry<K,V> e : table) {
             while(null != e) {
+                // 取出老table中每个Entry
                 HashMapEntry<K,V> next = e.next;
+                // 根据hash值，算出老table中的Entry应该在新table中存储的index
                 int i = indexFor(e.hash, newCapacity);
+                // 让老table转移的Entry的next指向新table中它应该存储的位置
+                // 即插入到了新table中index处单链表的表头
                 e.next = newTable[i];
+                // 将老table取出的entry，放入到新table中
                 newTable[i] = e;
+                // 继续取老talbe的下一个Entry
                 e = next;
             }
         }
@@ -594,25 +648,34 @@ public class HashMap<K,V>
         if (size == 0) {
             return null;
         }
+        // 算出hash
         int hash = (key == null) ? 0 : sun.misc.Hashing.singleWordWangJenkinsHash(key);
+        // 得到在table中的index
         int i = indexFor(hash, table.length);
+        // 当前结点的上一个结点，初始为table[index]上单向链表的头结点
         HashMapEntry<K,V> prev = table[i];
         HashMapEntry<K,V> e = prev;
 
         while (e != null) {
+            // 得到下一个结点
             HashMapEntry<K,V> next = e.next;
             Object k;
+            // 如果找到了删除的结点
             if (e.hash == hash &&
                 ((k = e.key) == key || (key != null && key.equals(k)))) {
                 modCount++;
                 size--;
+                // 如果是table上的单向链表的头结点，则直接让把该结点的next结点放到头结点
                 if (prev == e)
                     table[i] = next;
                 else
+                    // 如果不是单向链表的头结点，则把上一个结点的next指向本结点的next
                     prev.next = next;
+                // 空实现
                 e.recordRemoval(this);
                 return e;
             }
+            // 没有找到删除的结点，继续往下找
             prev = e;
             e = next;
         }
@@ -730,6 +793,7 @@ public class HashMap<K,V>
     static class HashMapEntry<K,V> implements Map.Entry<K,V> {
         final K key;
         V value;
+        // 单链表结构
         HashMapEntry<K,V> next;
         int hash;
 
@@ -804,12 +868,16 @@ public class HashMap<K,V>
      * Subclass overrides this to alter the behavior of put method.
      */
     void addEntry(int hash, K key, V value, int bucketIndex) {
+        // 当前HashMap存储元素的个数大于HashMap扩容的阀值，则进行扩容
         if ((size >= threshold) && (null != table[bucketIndex])) {
+            // 将table表的长度增加到之前的两倍
             resize(2 * table.length);
+            // 重新计算哈希值
             hash = (null != key) ? sun.misc.Hashing.singleWordWangJenkinsHash(key) : 0;
+            // 从新计算新增元素在扩容后的table中应该存放的index
             bucketIndex = indexFor(hash, table.length);
         }
-
+        // 使用key、value创建Entry并加入到table中
         createEntry(hash, key, value, bucketIndex);
     }
 
@@ -820,10 +888,20 @@ public class HashMap<K,V>
      *
      * Subclass overrides this to alter the behavior of HashMap(Map),
      * clone, and readObject.
+     *
+     * 这里其实就是根据hash、key、value以及table中下标为bucketIndex的Entry去构建一个新的Entry，
+     * 其中table中下标为bucketIndex的Entry作为新Entry的next，这也说明了，当hash冲突时，
+     * 采用的拉链法来解决hash冲突的，并且是把新元素是插入到单边表的表头
+     *
      */
     void createEntry(int hash, K key, V value, int bucketIndex) {
+        // 取出table中下标为bucketIndex的Entry
         HashMapEntry<K,V> e = table[bucketIndex];
+        // 利用key、value来构建新的Entry
+        // 并且之前存放在table[bucketIndex]处的Entry作为新Entry的next
+        // 把新创建的Entry放到table[bucketIndex]位置
         table[bucketIndex] = new HashMapEntry<>(hash, key, value, e);
+        // HashMap当前存储的元素个数size自增
         size++;
     }
 
@@ -849,12 +927,16 @@ public class HashMap<K,V>
         final Entry<K,V> nextEntry() {
             if (modCount != expectedModCount)
                 throw new ConcurrentModificationException();
+            // 保存下一个需要返回的Entry，作为返回结果
             HashMapEntry<K,V> e = next;
             if (e == null)
                 throw new NoSuchElementException();
 
+            // 如果遍历到table上单向链表的最后一个元素时
             if ((next = e.next) == null) {
                 HashMapEntry[] t = table;
+                // 继续往下寻找table上有元素的下标
+                // 并且把下一个table上有单向链表的表头，作为下一个返回的Entry next
                 while (index < t.length && (next = t[index++]) == null)
                     ;
             }
@@ -1305,6 +1387,7 @@ public class HashMap<K,V>
     }
 
     private final class EntrySet extends AbstractSet<Map.Entry<K,V>> {
+        // 重写了iterator方法
         public Iterator<Map.Entry<K,V>> iterator() {
             return newEntryIterator();
         }
