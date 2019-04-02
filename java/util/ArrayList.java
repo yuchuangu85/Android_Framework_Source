@@ -111,6 +111,7 @@ public class ArrayList<E> extends AbstractList<E>
 
     /**
      * Default initial capacity.
+     * 默认存储大小
      */
     private static final int DEFAULT_CAPACITY = 10;
 
@@ -120,17 +121,22 @@ public class ArrayList<E> extends AbstractList<E>
     private static final Object[] EMPTY_ELEMENTDATA = {};
 
     /**
-     * The array buffer into which the elements of the ArrayList are stored.
+     * 元素数组
+     *
+     * The array buffer（缓冲） into which the elements of the ArrayList are stored.
      * The capacity of the ArrayList is the length of this array buffer. Any
      * empty ArrayList with elementData == EMPTY_ELEMENTDATA will be expanded to
      * DEFAULT_CAPACITY when the first element is added.
      *
      * Package private to allow access from java.util.Collections.
+     *
+     * transient：关键字表示：该变量不需要被序列化
      */
     transient Object[] elementData;
 
     /**
      * The size of the ArrayList (the number of elements it contains).
+     * 数组包含的元素个数
      *
      * @serial
      */
@@ -176,7 +182,7 @@ public class ArrayList<E> extends AbstractList<E>
     }
 
     /**
-     * Trims the capacity of this <tt>ArrayList</tt> instance to be the
+     * Trims（修剪，整理） the capacity of this <tt>ArrayList</tt> instance to be the
      * list's current size.  An application can use this operation to minimize
      * the storage of an <tt>ArrayList</tt> instance.
      */

@@ -338,11 +338,11 @@ public final class System {
 
     /**
      * Copies an array from the specified source array, beginning at the
-     * specified position, to the specified position of the destination array.
-     * A subsequence of array components are copied from the source
-     * array referenced by <code>src</code> to the destination array
+     * specified position, to the specified position of the destination(目的地) array.
+     * A subsequence（子序列） of array components are copied from the source
+     * array referenced（引用） by <code>src</code> to the destination array
      * referenced by <code>dest</code>. The number of components copied is
-     * equal to the <code>length</code> argument. The components at
+     * equal to the <code>length</code> argument（内容）. The components at
      * positions <code>srcPos</code> through
      * <code>srcPos+length-1</code> in the source array are copied into
      * positions <code>destPos</code> through
@@ -352,7 +352,7 @@ public final class System {
      * If the <code>src</code> and <code>dest</code> arguments refer to the
      * same array object, then the copying is performed as if the
      * components at positions <code>srcPos</code> through
-     * <code>srcPos+length-1</code> were first copied to a temporary
+     * <code>srcPos+length-1</code> were first copied to a temporary（临时的）
      * array with <code>length</code> components and then the contents of
      * the temporary array were copied into positions
      * <code>destPos</code> through <code>destPos+length-1</code> of the
@@ -415,11 +415,11 @@ public final class System {
      * paragraph effectively applies only to the situation where both
      * arrays have component types that are reference types.)
      *
-     * @param      src      the source array.
-     * @param      srcPos   starting position in the source array.
-     * @param      dest     the destination array.
-     * @param      destPos  starting position in the destination data.
-     * @param      length   the number of array elements to be copied.
+     * @param      src      the source array.（来源数组）
+     * @param      srcPos   starting position in the source array.（来源数组的起始位置）
+     * @param      dest     the destination array.（目标数组）
+     * @param      destPos  starting position in the destination data.（目标数组的插入起始位置）
+     * @param      length   the number of array elements to be copied.（需要拷贝的数组长度）
      * @exception  IndexOutOfBoundsException  if copying would cause
      *               access of data outside array bounds.
      * @exception  ArrayStoreException  if an element in the <code>src</code>
