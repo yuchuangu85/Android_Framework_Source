@@ -16,6 +16,13 @@
 
 package android.support.v4.app;
 
+import static android.support.v4.app.NotificationCompat.DEFAULT_SOUND;
+import static android.support.v4.app.NotificationCompat.DEFAULT_VIBRATE;
+import static android.support.v4.app.NotificationCompat.FLAG_GROUP_SUMMARY;
+import static android.support.v4.app.NotificationCompat.GROUP_ALERT_ALL;
+import static android.support.v4.app.NotificationCompat.GROUP_ALERT_CHILDREN;
+import static android.support.v4.app.NotificationCompat.GROUP_ALERT_SUMMARY;
+
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.RemoteInput;
@@ -23,10 +30,12 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.os.Parcelable;
+import android.support.annotation.RequiresApi;
 import android.widget.RemoteViews;
 
 import java.util.ArrayList;
 
+@RequiresApi(20)
 class NotificationCompatApi20 {
     public static class Builder implements NotificationBuilderWithBuilderAccessor,
             NotificationBuilderWithActions {
@@ -34,6 +43,7 @@ class NotificationCompatApi20 {
         private Bundle mExtras;
         private RemoteViews mContentView;
         private RemoteViews mBigContentView;
+        private int mGroupAlertBehavior;
 
         public Builder(Context context, Notification n,
                 CharSequence contentTitle, CharSequence contentText, CharSequence contentInfo,
@@ -42,7 +52,8 @@ class NotificationCompatApi20 {
                 int progressMax, int progress, boolean progressIndeterminate, boolean showWhen,
                 boolean useChronometer, int priority, CharSequence subText, boolean localOnly,
                 ArrayList<String> people, Bundle extras, String groupKey, boolean groupSummary,
-                String sortKey, RemoteViews contentView, RemoteViews bigContentView) {
+                String sortKey, RemoteViews contentView, RemoteViews bigContentView,
+                int groupAlertBehavior) {
             b = new Notification.Builder(context)
                 .setWhen(n.when)
                 .setShowWhen(showWhen)
@@ -83,6 +94,7 @@ class NotificationCompatApi20 {
             }
             mContentView = contentView;
             mBigContentView = bigContentView;
+            mGroupAlertBehavior = groupAlertBehavior;
         }
 
         @Override
@@ -105,7 +117,30 @@ class NotificationCompatApi20 {
             if (mBigContentView != null) {
                 notification.bigContentView = mBigContentView;
             }
+
+            if (mGroupAlertBehavior != GROUP_ALERT_ALL) {
+                // if is summary and only children should alert
+                if (notification.getGroup() != null
+                        && (notification.flags & FLAG_GROUP_SUMMARY) != 0
+                        && mGroupAlertBehavior == GROUP_ALERT_CHILDREN) {
+                    removeSoundAndVibration(notification);
+                }
+                // if is group child and only summary should alert
+                if (notification.getGroup() != null
+                        && (notification.flags & FLAG_GROUP_SUMMARY) == 0
+                        && mGroupAlertBehavior == GROUP_ALERT_SUMMARY) {
+                    removeSoundAndVibration(notification);
+                }
+            }
+
             return notification;
+        }
+
+        private void removeSoundAndVibration(Notification notification) {
+            notification.sound = null;
+            notification.vibrate = null;
+            notification.defaults &= ~DEFAULT_SOUND;
+            notification.defaults &= ~DEFAULT_VIBRATE;
         }
     }
 
@@ -144,14 +179,22 @@ class NotificationCompatApi20 {
         boolean allowGeneratedReplies = action.getExtras().getBoolean(
                 NotificationCompatJellybean.EXTRA_ALLOW_GENERATED_REPLIES);
         return actionFactory.build(action.icon, action.title, action.actionIntent,
-                action.getExtras(), remoteInputs, allowGeneratedReplies);
+                action.getExtras(), remoteInputs, null, allowGeneratedReplies);
     }
 
     private static Notification.Action getActionFromActionCompat(
             NotificationCompatBase.Action actionCompat) {
         Notification.Action.Builder actionBuilder = new Notification.Action.Builder(
-                actionCompat.getIcon(), actionCompat.getTitle(), actionCompat.getActionIntent())
-                .addExtras(actionCompat.getExtras());
+                actionCompat.getIcon(), actionCompat.getTitle(), actionCompat.getActionIntent());
+        Bundle actionExtras;
+        if (actionCompat.getExtras() != null) {
+            actionExtras = new Bundle(actionCompat.getExtras());
+        } else {
+            actionExtras = new Bundle();
+        }
+        actionExtras.putBoolean(NotificationCompatJellybean.EXTRA_ALLOW_GENERATED_REPLIES,
+                actionCompat.getAllowGeneratedReplies());
+        actionBuilder.addExtras(actionExtras);
         RemoteInputCompatBase.RemoteInput[] remoteInputCompats = actionCompat.getRemoteInputs();
         if (remoteInputCompats != null) {
             RemoteInput[] remoteInputs = RemoteInputCompatApi20.fromCompat(remoteInputCompats);
@@ -198,21 +241,5 @@ class NotificationCompatApi20 {
             parcelables.add(getActionFromActionCompat(action));
         }
         return parcelables;
-    }
-
-    public static boolean getLocalOnly(Notification notif) {
-        return (notif.flags & Notification.FLAG_LOCAL_ONLY) != 0;
-    }
-
-    public static String getGroup(Notification notif) {
-        return notif.getGroup();
-    }
-
-    public static boolean isGroupSummary(Notification notif) {
-        return (notif.flags & Notification.FLAG_GROUP_SUMMARY) != 0;
-    }
-
-    public static String getSortKey(Notification notif) {
-        return notif.getSortKey();
     }
 }

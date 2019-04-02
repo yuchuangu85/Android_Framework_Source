@@ -16,14 +16,21 @@
 
 package android.support.v4.view;
 
+import android.content.res.ColorStateList;
+import android.graphics.PorterDuff;
+import android.graphics.drawable.Drawable;
+import android.support.annotation.RequiresApi;
 import android.support.v4.internal.view.SupportMenuItem;
+import android.support.v4.os.BuildCompat;
 import android.util.Log;
+import android.view.KeyEvent;
+import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 
 /**
  * Helper for accessing features in {@link android.view.MenuItem}
- * introduced after API level 4 in a backwards compatible fashion.
+ * introduced after API level 14 in a backwards compatible fashion.
  * <p class="note"><strong>Note:</strong> You cannot get an instance of this class. Instead,
  * it provides <em>static</em> methods that correspond to the methods in {@link
  * android.view.MenuItem}, but take a {@link android.view.MenuItem} object as an additional
@@ -34,13 +41,19 @@ public final class MenuItemCompat {
 
     /**
      * Never show this item as a button in an Action Bar.
+     *
+     * @deprecated Use {@link MenuItem#SHOW_AS_ACTION_NEVER} directly.
      */
+    @Deprecated
     public static final int SHOW_AS_ACTION_NEVER = 0;
 
     /**
      * Show this item as a button in an Action Bar if the system
      * decides there is room for it.
+     *
+     * @deprecated Use {@link MenuItem#SHOW_AS_ACTION_IF_ROOM} directly.
      */
+    @Deprecated
     public static final int SHOW_AS_ACTION_IF_ROOM = 1;
 
     /**
@@ -49,34 +62,49 @@ public final class MenuItemCompat {
      * crowd the Action Bar and degrade the user experience on devices with
      * smaller screens. A good rule of thumb is to have no more than 2
      * items set to always show at a time.
+     *
+     * @deprecated Use {@link MenuItem#SHOW_AS_ACTION_ALWAYS} directly.
      */
+    @Deprecated
     public static final int SHOW_AS_ACTION_ALWAYS = 2;
 
     /**
      * When this item is in the action bar, always show it with a
      * text label even if it also has an icon specified.
+     *
+     * @deprecated Use {@link MenuItem#SHOW_AS_ACTION_WITH_TEXT} directly.
      */
+    @Deprecated
     public static final int SHOW_AS_ACTION_WITH_TEXT = 4;
 
     /**
      * This item's action view collapses to a normal menu item.
      * When expanded, the action view temporarily takes over
      * a larger segment of its container.
+     *
+     * @deprecated Use {@link MenuItem#SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW} directly.
      */
+    @Deprecated
     public static final int SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW = 8;
 
     /**
      * Interface for the full API.
      */
     interface MenuVersionImpl {
-        void setShowAsAction(MenuItem item, int actionEnum);
-        MenuItem setActionView(MenuItem item, View view);
-        MenuItem setActionView(MenuItem item, int resId);
-        View getActionView(MenuItem item);
-        boolean expandActionView(MenuItem item);
-        boolean collapseActionView(MenuItem item);
-        boolean isActionViewExpanded(MenuItem item);
-        MenuItem setOnActionExpandListener(MenuItem item, OnActionExpandListener listener);
+        void setContentDescription(MenuItem item, CharSequence contentDescription);
+        CharSequence getContentDescription(MenuItem item);
+        void setTooltipText(MenuItem item, CharSequence tooltipText);
+        CharSequence getTooltipText(MenuItem item);
+        void setShortcut(MenuItem item, char numericChar, char alphaChar, int numericModifiers,
+                int alphaModifiers);
+        void setAlphabeticShortcut(MenuItem item, char alphaChar, int alphaModifiers);
+        int getAlphabeticModifiers(MenuItem item);
+        void setNumericShortcut(MenuItem item, char numericChar, int numericModifiers);
+        int getNumericModifiers(MenuItem item);
+        void setIconTintList(MenuItem item, ColorStateList tint);
+        ColorStateList getIconTintList(MenuItem item);
+        void setIconTintMode(MenuItem item, PorterDuff.Mode tintMode);
+        PorterDuff.Mode getIconTintMode(MenuItem item);
     }
 
     /**
@@ -86,7 +114,10 @@ public final class MenuItemCompat {
      * @see #expandActionView(android.view.MenuItem)
      * @see #collapseActionView(android.view.MenuItem)
      * @see #setShowAsAction(android.view.MenuItem, int)
+     *
+     * @deprecated Use {@link MenuItem.OnActionExpandListener} directly.
      */
+    @Deprecated
     public interface OnActionExpandListener {
 
         /**
@@ -96,7 +127,7 @@ public final class MenuItemCompat {
          * @param item Item that was expanded
          * @return true if the item should expand, false if expansion should be suppressed.
          */
-        public boolean onMenuItemActionExpand(MenuItem item);
+        boolean onMenuItemActionExpand(MenuItem item);
 
         /**
          * Called when a menu item with {@link #SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW}
@@ -105,137 +136,136 @@ public final class MenuItemCompat {
          * @param item Item that was collapsed
          * @return true if the item should collapse, false if collapsing should be suppressed.
          */
-        public boolean onMenuItemActionCollapse(MenuItem item);
+        boolean onMenuItemActionCollapse(MenuItem item);
     }
 
-    /**
-     * Interface implementation that doesn't use anything about v4 APIs.
-     */
-    static class BaseMenuVersionImpl implements MenuVersionImpl {
+    static class MenuItemCompatBaseImpl implements MenuVersionImpl {
         @Override
-        public void setShowAsAction(MenuItem item, int actionEnum) {
+        public void setContentDescription(MenuItem item, CharSequence contentDescription) {
         }
 
         @Override
-        public MenuItem setActionView(MenuItem item, View view) {
-            return item;
-        }
-
-        @Override
-        public MenuItem setActionView(MenuItem item, int resId) {
-            return item;
-        }
-
-        @Override
-        public View getActionView(MenuItem item) {
+        public CharSequence getContentDescription(MenuItem item) {
             return null;
         }
 
         @Override
-        public boolean expandActionView(MenuItem item) {
-            return false;
+        public void setTooltipText(MenuItem item, CharSequence tooltipText) {
         }
 
         @Override
-        public boolean collapseActionView(MenuItem item) {
-            return false;
+        public CharSequence getTooltipText(MenuItem item) {
+            return null;
         }
 
         @Override
-        public boolean isActionViewExpanded(MenuItem item) {
-            return false;
+        public void setShortcut(MenuItem item, char numericChar, char alphaChar,
+                int numericModifiers, int alphaModifiers) {
         }
 
         @Override
-        public MenuItem setOnActionExpandListener(MenuItem item, OnActionExpandListener listener) {
-            return item;
-        }
-    }
-
-    /**
-     * Interface implementation for devices with at least v11 APIs.
-     */
-    static class HoneycombMenuVersionImpl implements MenuVersionImpl {
-        @Override
-        public void setShowAsAction(MenuItem item, int actionEnum) {
-            MenuItemCompatHoneycomb.setShowAsAction(item, actionEnum);
+        public void setAlphabeticShortcut(MenuItem item, char alphaChar, int alphaModifiers) {
         }
 
         @Override
-        public MenuItem setActionView(MenuItem item, View view) {
-            return MenuItemCompatHoneycomb.setActionView(item, view);
+        public int getAlphabeticModifiers(MenuItem item) {
+            return 0;
         }
 
         @Override
-        public MenuItem setActionView(MenuItem item, int resId) {
-            return MenuItemCompatHoneycomb.setActionView(item, resId);
+        public void setNumericShortcut(MenuItem item, char numericChar, int numericModifiers) {
         }
 
         @Override
-        public View getActionView(MenuItem item) {
-            return MenuItemCompatHoneycomb.getActionView(item);
+        public int getNumericModifiers(MenuItem item) {
+            return 0;
         }
 
         @Override
-        public boolean expandActionView(MenuItem item) {
-            return false;
+        public void setIconTintList(MenuItem item, ColorStateList tint) {
         }
 
         @Override
-        public boolean collapseActionView(MenuItem item) {
-            return false;
+        public ColorStateList getIconTintList(MenuItem item) {
+            return null;
         }
 
         @Override
-        public boolean isActionViewExpanded(MenuItem item) {
-            return false;
+        public void setIconTintMode(MenuItem item, PorterDuff.Mode tintMode) {
         }
 
         @Override
-        public MenuItem setOnActionExpandListener(MenuItem item, OnActionExpandListener listener) {
-            return item;
+        public PorterDuff.Mode getIconTintMode(MenuItem item) {
+            return null;
         }
     }
 
-    static class IcsMenuVersionImpl extends HoneycombMenuVersionImpl {
+    @RequiresApi(26)
+    static class MenuItemCompatApi26Impl extends MenuItemCompatBaseImpl {
         @Override
-        public boolean expandActionView(MenuItem item) {
-            return MenuItemCompatIcs.expandActionView(item);
+        public void setContentDescription(MenuItem item, CharSequence contentDescription) {
+            item.setContentDescription(contentDescription);
         }
 
         @Override
-        public boolean collapseActionView(MenuItem item) {
-            return MenuItemCompatIcs.collapseActionView(item);
+        public CharSequence getContentDescription(MenuItem item) {
+            return item.getContentDescription();
         }
 
         @Override
-        public boolean isActionViewExpanded(MenuItem item) {
-            return MenuItemCompatIcs.isActionViewExpanded(item);
+        public void setTooltipText(MenuItem item, CharSequence tooltipText) {
+            item.setTooltipText(tooltipText);
         }
 
         @Override
-        public MenuItem setOnActionExpandListener(MenuItem item,
-                final OnActionExpandListener listener) {
-            if (listener == null) {
-                return MenuItemCompatIcs.setOnActionExpandListener(item, null);
-            }
-            /*
-             * MenuItemCompatIcs is a dependency of this segment of the support lib
-             * but not the other way around, so we need to take an extra step here to proxy
-             * to the right types.
-             */
-            return MenuItemCompatIcs.setOnActionExpandListener(item,
-                    new MenuItemCompatIcs.SupportActionExpandProxy() {
-                @Override
-                public boolean onMenuItemActionExpand(MenuItem item) {
-                    return listener.onMenuItemActionExpand(item);
-                }
+        public CharSequence getTooltipText(MenuItem item) {
+            return item.getTooltipText();
+        }
 
-                @Override
-                public boolean onMenuItemActionCollapse(MenuItem item) {
-                    return listener.onMenuItemActionCollapse(item);
-                }
-            });
+        @Override
+        public void setShortcut(MenuItem item, char numericChar, char alphaChar,
+                int numericModifiers, int alphaModifiers) {
+            item.setShortcut(numericChar, alphaChar, numericModifiers, alphaModifiers);
+        }
+
+        @Override
+        public void setAlphabeticShortcut(MenuItem item, char alphaChar, int alphaModifiers) {
+            item.setAlphabeticShortcut(alphaChar, alphaModifiers);
+        }
+
+        @Override
+        public int getAlphabeticModifiers(MenuItem item) {
+            return item.getAlphabeticModifiers();
+        }
+
+        @Override
+        public void setNumericShortcut(MenuItem item, char numericChar, int numericModifiers) {
+            item.setNumericShortcut(numericChar, numericModifiers);
+        }
+
+        @Override
+        public int getNumericModifiers(MenuItem item) {
+            return item.getNumericModifiers();
+        }
+
+        @Override
+        public void setIconTintList(MenuItem item, ColorStateList tint) {
+            item.setIconTintList(tint);
+        }
+
+        @Override
+        public ColorStateList getIconTintList(MenuItem item) {
+            return item.getIconTintList();
+        }
+
+        @Override
+        public void setIconTintMode(MenuItem item, PorterDuff.Mode tintMode) {
+            item.setIconTintMode(tintMode);
+        }
+
+        @Override
+        public PorterDuff.Mode getIconTintMode(MenuItem item) {
+            return item.getIconTintMode();
         }
     }
 
@@ -244,13 +274,10 @@ public final class MenuItemCompat {
      */
     static final MenuVersionImpl IMPL;
     static {
-        final int version = android.os.Build.VERSION.SDK_INT;
-        if (version >= 14) {
-            IMPL = new IcsMenuVersionImpl();
-        } else if (version >= 11) {
-            IMPL = new HoneycombMenuVersionImpl();
+        if (BuildCompat.isAtLeastO()) {
+            IMPL = new MenuItemCompatApi26Impl();
         } else {
-            IMPL = new BaseMenuVersionImpl();
+            IMPL = new MenuItemCompatBaseImpl();
         }
     }
 
@@ -263,13 +290,12 @@ public final class MenuItemCompat {
      *
      * @param item - the item to change
      * @param actionEnum - How the item should display.
+     *
+     * @deprecated Use {@link MenuItem#setShowAsAction(int)} directly.
      */
+    @Deprecated
     public static void setShowAsAction(MenuItem item, int actionEnum) {
-        if (item instanceof SupportMenuItem) {
-            ((SupportMenuItem) item).setShowAsAction(actionEnum);
-        } else {
-            IMPL.setShowAsAction(item, actionEnum);
-        }
+        item.setShowAsAction(actionEnum);
     }
 
     /**
@@ -282,12 +308,12 @@ public final class MenuItemCompat {
      * @return This Item so additional setters can be called.
      *
      * @see #setShowAsAction(MenuItem, int)
+     *
+     * @deprecated Use {@link MenuItem#setActionView(View)} directly.
      */
+    @Deprecated
     public static MenuItem setActionView(MenuItem item, View view) {
-        if (item instanceof SupportMenuItem) {
-            return ((SupportMenuItem) item).setActionView(view);
-        }
-        return IMPL.setActionView(item, view);
+        return item.setActionView(view);
     }
 
     /**
@@ -304,12 +330,12 @@ public final class MenuItemCompat {
      * @return This Item so additional setters can be called.
      *
      * @see #setShowAsAction(MenuItem, int)
+     *
+     * @deprecated Use {@link MenuItem#setActionView(int)} directly.
      */
+    @Deprecated
     public static MenuItem setActionView(MenuItem item, int resId) {
-        if (item instanceof SupportMenuItem) {
-            return ((SupportMenuItem) item).setActionView(resId);
-        }
-        return IMPL.setActionView(item, resId);
+        return item.setActionView(resId);
     }
 
     /**
@@ -317,12 +343,12 @@ public final class MenuItemCompat {
      *
      * @param item the item to query
      * @return This item's action view
+     *
+     * @deprecated Use {@link MenuItem#getActionView()} directly.
      */
+    @Deprecated
     public static View getActionView(MenuItem item) {
-        if (item instanceof SupportMenuItem) {
-            return ((SupportMenuItem) item).getActionView();
-        }
-        return IMPL.getActionView(item);
+        return item.getActionView();
     }
 
     /**
@@ -378,12 +404,12 @@ public final class MenuItemCompat {
      * the action view.
      *
      * @return true if the action view was expanded, false otherwise.
+     *
+     * @deprecated Use {@link MenuItem#expandActionView()} directly.
      */
+    @Deprecated
     public static boolean expandActionView(MenuItem item) {
-        if (item instanceof SupportMenuItem) {
-            return ((SupportMenuItem) item).expandActionView();
-        }
-        return IMPL.expandActionView(item);
+        return item.expandActionView();
     }
 
     /**
@@ -397,12 +423,12 @@ public final class MenuItemCompat {
      * the action view.
      *
      * @return true if the action view was collapsed, false otherwise.
+     *
+     * @deprecated Use {@link MenuItem#collapseActionView()} directly.
      */
+    @Deprecated
     public static boolean collapseActionView(MenuItem item) {
-        if (item instanceof SupportMenuItem) {
-            return ((SupportMenuItem) item).collapseActionView();
-        }
-        return IMPL.collapseActionView(item);
+        return item.collapseActionView();
     }
 
     /**
@@ -413,12 +439,12 @@ public final class MenuItemCompat {
      * @see #collapseActionView(MenuItem)
      * @see #SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW
      * @see android.support.v4.view.MenuItemCompat.OnActionExpandListener
+     *
+     * @deprecated Use {@link MenuItem#isActionViewExpanded()} directly.
      */
+    @Deprecated
     public static boolean isActionViewExpanded(MenuItem item) {
-        if (item instanceof SupportMenuItem) {
-            return ((SupportMenuItem) item).isActionViewExpanded();
-        }
-        return IMPL.isActionViewExpanded(item);
+        return item.isActionViewExpanded();
     }
 
     /**
@@ -429,13 +455,248 @@ public final class MenuItemCompat {
      *
      * @param listener Listener that will respond to expand/collapse events
      * @return This menu item instance for call chaining
+     *
+     * @deprecated Use {@link MenuItem#setOnActionExpandListener(MenuItem.OnActionExpandListener)}
+     * directly.
      */
+    @Deprecated
     public static MenuItem setOnActionExpandListener(MenuItem item,
-            OnActionExpandListener listener) {
+            final OnActionExpandListener listener) {
+        return item.setOnActionExpandListener(new MenuItem.OnActionExpandListener() {
+            @Override
+            public boolean onMenuItemActionExpand(MenuItem item) {
+                return listener.onMenuItemActionExpand(item);
+            }
+
+            @Override
+            public boolean onMenuItemActionCollapse(MenuItem item) {
+                return listener.onMenuItemActionCollapse(item);
+            }
+        });
+    }
+
+    /**
+     * Change the content description associated with this menu item.
+     *
+     * @param item item to change.
+     * @param contentDescription The new content description.
+     */
+    public static void setContentDescription(MenuItem item, CharSequence contentDescription) {
         if (item instanceof SupportMenuItem) {
-            return ((SupportMenuItem) item).setSupportOnActionExpandListener(listener);
+            ((SupportMenuItem) item).setContentDescription(contentDescription);
+        } else {
+            IMPL.setContentDescription(item, contentDescription);
         }
-        return IMPL.setOnActionExpandListener(item, listener);
+    }
+
+    /**
+     * Retrieve the content description associated with this menu item.
+     *
+     * @return The content description.
+     */
+    public static CharSequence getContentDescription(MenuItem item) {
+        if (item instanceof SupportMenuItem) {
+            return ((SupportMenuItem) item).getContentDescription();
+        }
+        return IMPL.getContentDescription(item);
+    }
+
+    /**
+     * Change the tooltip text associated with this menu item.
+     *
+     * @param item item to change.
+     * @param tooltipText The new tooltip text
+     */
+    public static void setTooltipText(MenuItem item, CharSequence tooltipText) {
+        if (item instanceof SupportMenuItem) {
+            ((SupportMenuItem) item).setTooltipText(tooltipText);
+        } else {
+            IMPL.setTooltipText(item, tooltipText);
+        }
+    }
+
+    /**
+     * Retrieve the tooltip text associated with this menu item.
+     *
+     * @return The tooltip text.
+     */
+    public static CharSequence getTooltipText(MenuItem item) {
+        if (item instanceof SupportMenuItem) {
+            return ((SupportMenuItem) item).getTooltipText();
+        }
+        return IMPL.getTooltipText(item);
+    }
+
+    /**
+     * Change both the numeric and alphabetic shortcut associated with this
+     * item. Note that the shortcut will be triggered when the key that
+     * generates the given character is pressed along with the corresponding
+     * modifier key. Also note that case is not significant and that alphabetic
+     * shortcut characters will be handled in lower case.
+     * <p>
+     * See {@link Menu} for the menu types that support shortcuts.
+     *
+     * @param numericChar The numeric shortcut key. This is the shortcut when
+     *        using a numeric (e.g., 12-key) keyboard.
+     * @param numericModifiers The numeric modifier associated with the shortcut. It should
+     *        be a combination of {@link KeyEvent#META_META_ON}, {@link KeyEvent#META_CTRL_ON},
+     *        {@link KeyEvent#META_ALT_ON}, {@link KeyEvent#META_SHIFT_ON},
+     *        {@link KeyEvent#META_SYM_ON}, {@link KeyEvent#META_FUNCTION_ON}.
+     * @param alphaChar The alphabetic shortcut key. This is the shortcut when
+     *        using a keyboard with alphabetic keys.
+     * @param alphaModifiers The alphabetic modifier associated with the shortcut. It should
+     *        be a combination of {@link KeyEvent#META_META_ON}, {@link KeyEvent#META_CTRL_ON},
+     *        {@link KeyEvent#META_ALT_ON}, {@link KeyEvent#META_SHIFT_ON},
+     *        {@link KeyEvent#META_SYM_ON}, {@link KeyEvent#META_FUNCTION_ON}.
+     */
+    public static void setShortcut(MenuItem item, char numericChar, char alphaChar,
+            int numericModifiers, int alphaModifiers) {
+        if (item instanceof SupportMenuItem) {
+            ((SupportMenuItem) item).setShortcut(numericChar, alphaChar, numericModifiers,
+                    alphaModifiers);
+        } else {
+            IMPL.setShortcut(item, numericChar, alphaChar, numericModifiers, alphaModifiers);
+        }
+    }
+
+    /**
+     * Change the numeric shortcut and modifiers associated with this item.
+     * <p>
+     * See {@link Menu} for the menu types that support shortcuts.
+     *
+     * @param numericChar The numeric shortcut key.  This is the shortcut when
+     *                 using a 12-key (numeric) keyboard.
+     * @param numericModifiers The modifier associated with the shortcut. It should
+     *        be a combination of {@link KeyEvent#META_META_ON}, {@link KeyEvent#META_CTRL_ON},
+     *        {@link KeyEvent#META_ALT_ON}, {@link KeyEvent#META_SHIFT_ON},
+     *        {@link KeyEvent#META_SYM_ON}, {@link KeyEvent#META_FUNCTION_ON}.
+     */
+    public static void setNumericShortcut(MenuItem item, char numericChar, int numericModifiers) {
+        if (item instanceof SupportMenuItem) {
+            ((SupportMenuItem) item).setNumericShortcut(numericChar, numericModifiers);
+        } else {
+            IMPL.setNumericShortcut(item, numericChar, numericModifiers);
+        }
+    }
+
+    /**
+     * Return the modifiers for this menu item's numeric (12-key) shortcut.
+     * The modifier is a combination of {@link KeyEvent#META_META_ON},
+     * {@link KeyEvent#META_CTRL_ON}, {@link KeyEvent#META_ALT_ON},
+     * {@link KeyEvent#META_SHIFT_ON}, {@link KeyEvent#META_SYM_ON},
+     * {@link KeyEvent#META_FUNCTION_ON}.
+     * For example, {@link KeyEvent#META_FUNCTION_ON}|{@link KeyEvent#META_CTRL_ON}
+     *
+     * @return Modifier associated with the numeric shortcut.
+     */
+    public static int getNumericModifiers(MenuItem item) {
+        if (item instanceof SupportMenuItem) {
+            return ((SupportMenuItem) item).getNumericModifiers();
+        }
+        return IMPL.getNumericModifiers(item);
+    }
+
+    /**
+     * Change the alphabetic shortcut associated with this item. The shortcut
+     * will be triggered when the key that generates the given character is
+     * pressed along with the modifier keys. Case is not significant and shortcut
+     * characters will be displayed in lower case. Note that menu items with
+     * the characters '\b' or '\n' as shortcuts will get triggered by the
+     * Delete key or Carriage Return key, respectively.
+     * <p>
+     * See {@link Menu} for the menu types that support shortcuts.
+     *
+     * @param alphaChar The alphabetic shortcut key. This is the shortcut when
+     *        using a keyboard with alphabetic keys.
+     * @param alphaModifiers The modifier associated with the shortcut. It should
+     *        be a combination of {@link KeyEvent#META_META_ON}, {@link KeyEvent#META_CTRL_ON},
+     *        {@link KeyEvent#META_ALT_ON}, {@link KeyEvent#META_SHIFT_ON},
+     *        {@link KeyEvent#META_SYM_ON}, {@link KeyEvent#META_FUNCTION_ON}.
+     */
+    public static void setAlphabeticShortcut(MenuItem item, char alphaChar, int alphaModifiers) {
+        if (item instanceof SupportMenuItem) {
+            ((SupportMenuItem) item).setAlphabeticShortcut(alphaChar, alphaModifiers);
+        } else {
+            IMPL.setAlphabeticShortcut(item, alphaChar, alphaModifiers);
+        }
+    }
+
+    /**
+     * Return the modifier for this menu item's alphabetic shortcut.
+     * The modifier is a combination of {@link KeyEvent#META_META_ON},
+     * {@link KeyEvent#META_CTRL_ON}, {@link KeyEvent#META_ALT_ON},
+     * {@link KeyEvent#META_SHIFT_ON}, {@link KeyEvent#META_SYM_ON},
+     * {@link KeyEvent#META_FUNCTION_ON}.
+     * For example, {@link KeyEvent#META_FUNCTION_ON}|{@link KeyEvent#META_CTRL_ON}
+     *
+     * @return Modifier associated with the keyboard shortcut.
+     */
+    public static int getAlphabeticModifiers(MenuItem item) {
+        if (item instanceof SupportMenuItem) {
+            return ((SupportMenuItem) item).getAlphabeticModifiers();
+        }
+        return IMPL.getAlphabeticModifiers(item);
+    }
+
+    /**
+     * Applies a tint to the item's icon. Does not modify the
+     * current tint mode of that item, which is {@link PorterDuff.Mode#SRC_IN} by default.
+     * <p>
+     * Subsequent calls to {@link MenuItem#setIcon(Drawable)} or {@link MenuItem#setIcon(int)} will
+     * automatically mutate the icon and apply the specified tint and
+     * tint mode.
+     *
+     * @param tint the tint to apply, may be {@code null} to clear tint
+     *
+     * @see #getIconTintList(MenuItem)
+     */
+    public static void setIconTintList(MenuItem item, ColorStateList tint) {
+        if (item instanceof SupportMenuItem) {
+            ((SupportMenuItem) item).setIconTintList(tint);
+        } else {
+            IMPL.setIconTintList(item, tint);
+        }
+    }
+
+    /**
+     * @return the tint applied to the item's icon
+     * @see #setIconTintList(MenuItem, ColorStateList)
+     */
+    public static ColorStateList getIconTintList(MenuItem item) {
+        if (item instanceof SupportMenuItem) {
+            return ((SupportMenuItem) item).getIconTintList();
+        }
+        return IMPL.getIconTintList(item);
+    }
+
+    /**
+     * Specifies the blending mode used to apply the tint specified by
+     * {@link #setIconTintList(MenuItem, ColorStateList)} to the item's icon. The default mode is
+     * {@link PorterDuff.Mode#SRC_IN}.
+     *
+     * @param tintMode the blending mode used to apply the tint, may be
+     *                 {@code null} to clear tint
+     * @see #setIconTintList(MenuItem, ColorStateList)
+     */
+    public static void setIconTintMode(MenuItem item, PorterDuff.Mode tintMode) {
+        if (item instanceof SupportMenuItem) {
+            ((SupportMenuItem) item).setIconTintMode(tintMode);
+        } else {
+            IMPL.setIconTintMode(item, tintMode);
+        }
+    }
+
+    /**
+     * Returns the blending mode used to apply the tint to the item's icon, if specified.
+     *
+     * @return the blending mode used to apply the tint to the item's icon
+     * @see #setIconTintMode(MenuItem, PorterDuff.Mode)
+     */
+    public static PorterDuff.Mode getIconTintMode(MenuItem item) {
+        if (item instanceof SupportMenuItem) {
+            return ((SupportMenuItem) item).getIconTintMode();
+        }
+        return IMPL.getIconTintMode(item);
     }
 
     private MenuItemCompat() {}

@@ -94,7 +94,7 @@ public class BracketTest extends BaseDataBinderTest<BracketTestBinding> {
     @UiThreadTest
     public void testBracketObj() {
         mBinder.executePendingBindings();
-        assertEquals("Hello World", mBinder.indexObj.getText().toString());
+        assertEquals("Hello World", mBinder.indexObjView.getText().toString());
         assertEquals("Hello", mBinder.sparseArrayTextObj.getText().toString());
     }
 

@@ -28,6 +28,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
+import android.os.Process;
+import android.os.SystemClock;
 import android.os.UserHandle;
 import android.service.carrier.CarrierService;
 import android.telephony.SubscriptionManager;
@@ -47,6 +49,12 @@ import java.util.List;
  */
 public class CarrierServiceBindHelper {
     private static final String LOG_TAG = "CarrierSvcBindHelper";
+
+    /**
+     * How long to linger a binding after an app loses carrier privileges, as long as no new
+     * binding comes in to take its place.
+     */
+    private static final int UNBIND_DELAY_MILLIS = 30 * 1000; // 30 seconds
 
     private Context mContext;
     private AppBinding[] mBindings;
@@ -70,6 +78,7 @@ public class CarrierServiceBindHelper {
     };
 
     private static final int EVENT_REBIND = 0;
+    private static final int EVENT_PERFORM_IMMEDIATE_UNBIND = 1;
 
     private Handler mHandler = new Handler() {
         @Override
@@ -82,6 +91,10 @@ public class CarrierServiceBindHelper {
                     binding = (AppBinding) msg.obj;
                     log("Rebinding if necessary for phoneId: " + binding.getPhoneId());
                     binding.rebind();
+                    break;
+                case EVENT_PERFORM_IMMEDIATE_UNBIND:
+                    binding = (AppBinding) msg.obj;
+                    binding.performImmediateUnbind();
                     break;
             }
         }
@@ -129,6 +142,7 @@ public class CarrierServiceBindHelper {
         private long lastUnbindMillis;
         private String carrierPackage;
         private String carrierServiceClass;
+        private long mUnbindScheduledUptimeMillis = -1;
 
         public AppBinding(int phoneId) {
             this.phoneId = phoneId;
@@ -158,15 +172,16 @@ public class CarrierServiceBindHelper {
 
             if (carrierPackageNames == null || carrierPackageNames.size() <= 0) {
                 log("No carrier app for: " + phoneId);
-                unbind();
+                // Unbind after a delay in case this is a temporary blip in carrier privileges.
+                unbind(false /* immediate */);
                 return;
             }
 
             log("Found carrier app: " + carrierPackageNames);
             String candidateCarrierPackage = carrierPackageNames.get(0);
-            // If we are binding to a different package, unbind from the current one.
+            // If we are binding to a different package, unbind immediately from the current one.
             if (!TextUtils.equals(carrierPackage, candidateCarrierPackage)) {
-                unbind();
+                unbind(true /* immediate */);
             }
 
             // Look up the carrier service
@@ -187,15 +202,17 @@ public class CarrierServiceBindHelper {
             if (metadata == null ||
                 !metadata.getBoolean("android.service.carrier.LONG_LIVED_BINDING", false)) {
                 log("Carrier app does not want a long lived binding");
-                unbind();
+                unbind(true /* immediate */);
                 return;
             }
 
             if (!TextUtils.equals(carrierServiceClass, candidateServiceClass)) {
-                // Unbind if the carrier service component has changed.
-                unbind();
+                // Unbind immediately if the carrier service component has changed.
+                unbind(true /* immediate */);
             } else if (connection != null) {
-                // Component is unchanged and connection is up - do nothing.
+                // Component is unchanged and connection is up - do nothing, but cancel any
+                // scheduled unbinds.
+                cancelScheduledUnbind();
                 return;
             }
 
@@ -212,8 +229,9 @@ public class CarrierServiceBindHelper {
 
             String error;
             try {
-                if (mContext.bindService(carrierService, connection, Context.BIND_AUTO_CREATE |
-                            Context.BIND_FOREGROUND_SERVICE)) {
+                if (mContext.bindServiceAsUser(carrierService, connection,
+                        Context.BIND_AUTO_CREATE |  Context.BIND_FOREGROUND_SERVICE,
+                        mHandler, Process.myUserHandle())) {
                     return;
                 }
 
@@ -224,19 +242,46 @@ public class CarrierServiceBindHelper {
 
             log("Unable to bind to " + carrierPackage + " for phone " + phoneId +
                 ". Error: " + error);
-            unbind();
+            unbind(true /* immediate */);
         }
 
-        void unbind() {
+        /**
+         * Release the binding.
+         *
+         * @param immediate whether the binding should be released immediately or after a short
+         *                  delay. This should be true unless the reason for the unbind is that no
+         *                  app has carrier privileges, in which case it is useful to delay
+         *                  unbinding in case this is a temporary SIM blip.
+         */
+        void unbind(boolean immediate) {
             if (connection == null) {
+                // Already fully unbound.
                 return;
             }
 
+            // Only let the binding linger if a delayed unbind is requested *and* the connection is
+            // currently active. If the connection is down, unbind immediately as the app is likely
+            // not running anyway and it may be a permanent disconnection (e.g. the app was
+            // disabled).
+            if (immediate || !connection.connected) {
+                cancelScheduledUnbind();
+                performImmediateUnbind();
+            } else if (mUnbindScheduledUptimeMillis == -1) {
+                long currentUptimeMillis = SystemClock.uptimeMillis();
+                mUnbindScheduledUptimeMillis = currentUptimeMillis + UNBIND_DELAY_MILLIS;
+                log("Scheduling unbind in " + UNBIND_DELAY_MILLIS + " millis");
+                mHandler.sendMessageAtTime(
+                        mHandler.obtainMessage(EVENT_PERFORM_IMMEDIATE_UNBIND, this),
+                        mUnbindScheduledUptimeMillis);
+            }
+        }
+
+        private void performImmediateUnbind() {
             // Log debug information
             unbindCount++;
             lastUnbindMillis = System.currentTimeMillis();
 
-            // Clear package state now that no binding is present.
+            // Clear package state now that no binding is desired.
             carrierPackage = null;
             carrierServiceClass = null;
 
@@ -244,6 +289,12 @@ public class CarrierServiceBindHelper {
             log("Unbinding from carrier app");
             mContext.unbindService(connection);
             connection = null;
+            mUnbindScheduledUptimeMillis = -1;
+        }
+
+        private void cancelScheduledUnbind() {
+            mHandler.removeMessages(EVENT_PERFORM_IMMEDIATE_UNBIND);
+            mUnbindScheduledUptimeMillis = -1;
         }
 
         public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
@@ -253,6 +304,7 @@ public class CarrierServiceBindHelper {
             pw.println("  lastBindStartMillis: " + lastBindStartMillis);
             pw.println("  unbindCount: " + unbindCount);
             pw.println("  lastUnbindMillis: " + lastUnbindMillis);
+            pw.println("  mUnbindScheduledUptimeMillis: " + mUnbindScheduledUptimeMillis);
             pw.println();
         }
     }
@@ -322,7 +374,7 @@ public class CarrierServiceBindHelper {
                 }
                 if (appBindingPackage == null || isBindingForPackage) {
                     if (forceUnbind) {
-                        appBinding.unbind();
+                        appBinding.unbind(true /* immediate */);
                     }
                     appBinding.rebind();
                 }

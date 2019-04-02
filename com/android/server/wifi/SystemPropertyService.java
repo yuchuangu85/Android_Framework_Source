@@ -27,4 +27,9 @@ class SystemPropertyService implements PropertyService {
     public void set(String key, String val) {
         android.os.SystemProperties.set(key, val);
     }
+
+    @Override
+    public boolean getBoolean(String key, boolean defaultValue) {
+        return android.os.SystemProperties.getBoolean(key, defaultValue);
+    }
 }

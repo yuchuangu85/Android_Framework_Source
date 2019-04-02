@@ -27,6 +27,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import junit.framework.TestCase;
@@ -823,6 +824,12 @@ public class JSONObjectTest extends TestCase {
         assertFalse(object.has("bar"));
         assertTrue(object.isNull("foo"));
         assertTrue(object.isNull("bar"));
+    }
+
+    public void testNullValue_equalsAndHashCode() {
+        assertTrue(JSONObject.NULL.equals(null)); // guaranteed by javadoc
+        // not guaranteed by javadoc, but seems like a good idea
+        assertEquals(Objects.hashCode(null), JSONObject.NULL.hashCode());
     }
 
     public void testHas() throws JSONException {

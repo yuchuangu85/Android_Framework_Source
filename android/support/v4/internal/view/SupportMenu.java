@@ -16,9 +16,10 @@
 
 package android.support.v4.internal.view;
 
-import android.support.annotation.RestrictTo;
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+import android.support.annotation.RestrictTo;
+import android.view.KeyEvent;
 
 /**
  * Interface for managing the items in a menu.
@@ -29,7 +30,7 @@ import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
  * @see android.view.Menu
  * @hide
  */
-@RestrictTo(GROUP_ID)
+@RestrictTo(LIBRARY_GROUP)
 public interface SupportMenu extends android.view.Menu {
 
     /**
@@ -51,6 +52,13 @@ public interface SupportMenu extends android.view.Menu {
      * Bit shift of the category portion of the order integer.
      */
     int CATEGORY_SHIFT = 16;
+
+    /**
+     * A mask of all supported modifiers for MenuItem's keyboard shortcuts
+     */
+    int SUPPORTED_MODIFIERS_MASK = KeyEvent.META_META_ON | KeyEvent.META_CTRL_ON
+            | KeyEvent.META_ALT_ON | KeyEvent.META_SHIFT_ON | KeyEvent.META_SYM_ON
+            | KeyEvent.META_FUNCTION_ON;
 
     /**
      * Flag which stops the Menu being closed when a sub menu is opened

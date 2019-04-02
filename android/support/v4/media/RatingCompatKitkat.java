@@ -17,7 +17,9 @@
 package android.support.v4.media;
 
 import android.media.Rating;
+import android.support.annotation.RequiresApi;
 
+@RequiresApi(19)
 class RatingCompatKitkat {
     public static Object newUnratedRating(int ratingStyle) {
         return Rating.newUnratedRating(ratingStyle);

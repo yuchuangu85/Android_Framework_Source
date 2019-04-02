@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007,2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,7 +24,28 @@
  */
 package java.net;
 
+import android.system.ErrnoException;
+import android.system.StructGroupReq;
+
 import java.io.IOException;
+import libcore.io.IoBridge;
+import libcore.io.Libcore;
+import libcore.util.EmptyArray;
+
+import jdk.net.*;
+
+import static android.system.OsConstants.AF_INET6;
+import static android.system.OsConstants.AF_UNSPEC;
+import static android.system.OsConstants.IPPROTO_IP;
+import static android.system.OsConstants.IP_MULTICAST_ALL;
+import static android.system.OsConstants.MSG_PEEK;
+import static android.system.OsConstants.POLLERR;
+import static android.system.OsConstants.POLLIN;
+import static android.system.OsConstants.SOCK_DGRAM;
+import static libcore.io.IoBridge.JAVA_IP_MULTICAST_TTL;
+import static libcore.io.IoBridge.JAVA_MCAST_JOIN_GROUP;
+import static libcore.io.IoBridge.JAVA_MCAST_LEAVE_GROUP;
+import static sun.net.ExtendedOptionsImpl.*;
 
 /*
  * On Unix systems we simply delegate to native methods.
@@ -34,51 +55,200 @@ import java.io.IOException;
 
 class PlainDatagramSocketImpl extends AbstractPlainDatagramSocketImpl
 {
-    static {
-        init();
+    // Android-removed: init method has been removed
+    // static {
+    //     init();
+    // }
+
+    protected <T> void setOption(SocketOption<T> name, T value) throws IOException {
+        if (!name.equals(ExtendedSocketOptions.SO_FLOW_SLA)) {
+            super.setOption(name, value);
+        } else {
+            if (isClosed()) {
+                throw new SocketException("Socket closed");
+            }
+            checkSetOptionPermission(name);
+            checkValueType(value, SocketFlow.class);
+            setFlowOption(getFileDescriptor(), (SocketFlow)value);
+        }
     }
 
-    protected synchronized native void bind0(int lport, InetAddress laddr)
-        throws SocketException;
+    protected <T> T getOption(SocketOption<T> name) throws IOException {
+        if (!name.equals(ExtendedSocketOptions.SO_FLOW_SLA)) {
+            return super.getOption(name);
+        }
+        if (isClosed()) {
+            throw new SocketException("Socket closed");
+        }
+        checkGetOptionPermission(name);
+        SocketFlow flow = SocketFlow.create();
+        getFlowOption(getFileDescriptor(), flow);
+        return (T)flow;
+    }
 
-    protected native void send(DatagramPacket p) throws IOException;
+    protected void socketSetOption(int opt, Object val) throws SocketException {
+        try {
+            socketSetOption0(opt, val);
+        } catch (SocketException se) {
+            if (!connected)
+                throw se;
+        }
+    }
 
-    protected synchronized native int peek(InetAddress i) throws IOException;
+    protected synchronized void bind0(int lport, InetAddress laddr) throws SocketException {
+        if (isClosed()) {
+            throw new SocketException("Socket closed");
+        }
 
-    protected synchronized native int peekData(DatagramPacket p) throws IOException;
+        IoBridge.bind(fd, laddr, lport);
 
-    protected synchronized native void receive0(DatagramPacket p)
-        throws IOException;
+        if (lport == 0) {
+            // Now that we're a connected socket, let's extract the port number that the system
+            // chose for us and store it in the Socket object.
+            localPort = IoBridge.getLocalInetSocketAddress(fd).getPort();
+        } else {
+            localPort = lport;
+        }
+    }
 
-    protected native void setTimeToLive(int ttl) throws IOException;
+    protected void send(DatagramPacket p) throws IOException {
+        if (isClosed()) {
+            throw new SocketException("Socket closed");
+        }
+        if (p.getData() == null || p.getAddress() == null) {
+            throw new NullPointerException("null buffer || null address");
+        }
 
-    protected native int getTimeToLive() throws IOException;
+        int port = connected ? 0 : p.getPort();
+        InetAddress address = connected ? null : p.getAddress();
+        IoBridge.sendto(fd, p.getData(), p.getOffset(), p.getLength(), 0, address, port);
+    }
 
-    protected native void setTTL(byte ttl) throws IOException;
+    protected synchronized int peek(InetAddress i) throws IOException {
+        DatagramPacket p = new DatagramPacket(EmptyArray.BYTE, 0);
+        doRecv(p, MSG_PEEK);
+        i.holder().address = p.getAddress().holder().address;
+        return p.getPort();
+    }
 
-    protected native byte getTTL() throws IOException;
+    protected synchronized int peekData(DatagramPacket p) throws IOException {
+        doRecv(p, MSG_PEEK);
+        return p.getPort();
+    }
 
-    protected native void join(InetAddress inetaddr, NetworkInterface netIf)
-        throws IOException;
+    protected synchronized void receive0(DatagramPacket p) throws IOException {
+        doRecv(p, 0);
+    }
 
-    protected native void leave(InetAddress inetaddr, NetworkInterface netIf)
-        throws IOException;
+    private void doRecv(DatagramPacket p, int flags) throws IOException {
+        if (isClosed()) {
+            throw new SocketException("Socket closed");
+        }
 
-    protected native void datagramSocketCreate() throws SocketException;
+        if (timeout != 0) {
+            IoBridge.poll(fd, POLLIN | POLLERR, timeout);
+        }
 
-    protected native void datagramSocketClose();
+        IoBridge.recvfrom(false, fd, p.getData(), p.getOffset(), p.bufLength, flags, p,
+                connected);
+    }
 
-    protected native void socketSetOption(int opt, Object val)
-        throws SocketException;
+    protected void setTimeToLive(int ttl) throws IOException {
+        IoBridge.setSocketOption(fd, JAVA_IP_MULTICAST_TTL, ttl);
+    }
 
-    protected native Object socketGetOption(int opt) throws SocketException;
+    protected int getTimeToLive() throws IOException {
+        return (Integer) IoBridge.getSocketOption(fd, JAVA_IP_MULTICAST_TTL);
+    }
 
-    protected native void connect0(InetAddress address, int port) throws SocketException;
+    protected void setTTL(byte ttl) throws IOException {
+        setTimeToLive((int) ttl & 0xff);
+    }
 
-    protected native void disconnect0(int family);
+    protected byte getTTL() throws IOException {
+        return (byte) getTimeToLive();
+    }
 
-    /**
-     * Perform class load-time initializations.
-     */
-    private native static void init();
+    private static StructGroupReq makeGroupReq(InetAddress gr_group,
+            NetworkInterface networkInterface) {
+        int gr_interface = (networkInterface != null) ? networkInterface.getIndex() : 0;
+        return new StructGroupReq(gr_interface, gr_group);
+    }
+
+    protected void join(InetAddress inetaddr, NetworkInterface netIf) throws IOException {
+        if (isClosed()) {
+            throw new SocketException("Socket closed");
+        }
+
+        IoBridge.setSocketOption(fd, JAVA_MCAST_JOIN_GROUP, makeGroupReq(inetaddr, netIf));
+    }
+
+    protected void leave(InetAddress inetaddr, NetworkInterface netIf)
+        throws IOException {
+        if (isClosed()) {
+            throw new SocketException("Socket closed");
+        }
+
+        IoBridge.setSocketOption(fd, JAVA_MCAST_LEAVE_GROUP, makeGroupReq(inetaddr, netIf));
+    }
+
+    protected void datagramSocketCreate() throws SocketException {
+        fd = IoBridge.socket(AF_INET6, SOCK_DGRAM, 0);
+        IoBridge.setSocketOption(fd, SO_BROADCAST, true);
+
+        try {
+            Libcore.os.setsockoptInt(fd, IPPROTO_IP, IP_MULTICAST_ALL, 0);
+        } catch (ErrnoException errnoException) {
+            throw errnoException.rethrowAsSocketException();
+        }
+    }
+
+    protected void datagramSocketClose() {
+        try {
+            IoBridge.closeAndSignalBlockedThreads(fd);
+        } catch (IOException ignored) { }
+    }
+
+    protected void socketSetOption0(int opt, Object val) throws SocketException {
+        if (isClosed()) {
+            throw new SocketException("Socket closed");
+        }
+
+        IoBridge.setSocketOption(fd, opt, val);
+    }
+
+    protected Object socketGetOption(int opt) throws SocketException {
+        if (isClosed()) {
+            throw new SocketException("Socket closed");
+        }
+
+        return IoBridge.getSocketOption(fd, opt);
+    }
+
+    protected void connect0(InetAddress address, int port) throws SocketException {
+        if (isClosed()) {
+            throw new SocketException("Socket closed");
+        }
+
+        IoBridge.connect(fd, address, port);
+    }
+
+    protected void disconnect0(int family) {
+        if (isClosed()) {
+            return;
+        }
+
+        InetAddress inetAddressUnspec = new InetAddress();
+        inetAddressUnspec.holder().family = AF_UNSPEC;
+
+        try {
+            IoBridge.connect(fd, inetAddressUnspec, 0);
+        } catch (SocketException ignored) { }
+    }
+
+    // Android-removed: JNI has been removed
+    // /**
+    //  * Perform class load-time initializations.
+    //  */
+    // private native static void init();
 }

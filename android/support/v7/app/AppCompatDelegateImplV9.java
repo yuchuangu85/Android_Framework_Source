@@ -36,14 +36,11 @@ import android.os.Parcelable;
 import android.support.annotation.IdRes;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.annotation.RequiresApi;
 import android.support.v4.app.NavUtils;
-import android.support.v4.os.ParcelableCompat;
-import android.support.v4.os.ParcelableCompatCreatorCallbacks;
 import android.support.v4.view.LayoutInflaterCompat;
-import android.support.v4.view.LayoutInflaterFactory;
 import android.support.v4.view.OnApplyWindowInsetsListener;
 import android.support.v4.view.ViewCompat;
-import android.support.v4.view.ViewConfigurationCompat;
 import android.support.v4.view.ViewPropertyAnimatorCompat;
 import android.support.v4.view.ViewPropertyAnimatorListenerAdapter;
 import android.support.v4.view.WindowCompat;
@@ -90,8 +87,13 @@ import android.widget.FrameLayout;
 import android.widget.PopupWindow;
 import android.widget.TextView;
 
+import org.xmlpull.v1.XmlPullParser;
+
+@RequiresApi(14)
 class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
-        implements MenuBuilder.Callback, LayoutInflaterFactory {
+        implements MenuBuilder.Callback, LayoutInflater.Factory2 {
+
+    private static final boolean IS_PRE_LOLLIPOP = Build.VERSION.SDK_INT < 21;
 
     private DecorContentParent mDecorContentParent;
     private ActionMenuPresenterCallback mActionMenuPresenterCallback;
@@ -212,7 +214,7 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
 
         if (toolbar != null) {
             final ToolbarActionBar tbab = new ToolbarActionBar(toolbar,
-                    ((Activity) mContext).getTitle(), mAppCompatWindowCallback);
+                    ((Activity) mOriginalWindowCallback).getTitle(), mAppCompatWindowCallback);
             mActionBar = tbab;
             mWindow.setCallback(tbab.getWrappedWindowCallback());
         } else {
@@ -224,11 +226,12 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
         invalidateOptionsMenu();
     }
 
+    @SuppressWarnings("TypeParameterUnusedInFormals")
     @Nullable
     @Override
-    public View findViewById(@IdRes int id) {
+    public <T extends View> T findViewById(@IdRes int id) {
         ensureSubDecor();
-        return mWindow.findViewById(id);
+        return (T) mWindow.findViewById(id);
     }
 
     @Override
@@ -619,7 +622,7 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
             case Window.FEATURE_NO_TITLE:
                 return mWindowNoTitle;
         }
-        return mWindow.hasFeature(featureId);
+        return false;
     }
 
     @Override
@@ -781,7 +784,7 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
                             endOnGoingFadeAnimation();
 
                             if (shouldAnimateActionModeView()) {
-                                ViewCompat.setAlpha(mActionModeView, 0f);
+                                mActionModeView.setAlpha(0f);
                                 mFadeAnim = ViewCompat.animate(mActionModeView).alpha(1f);
                                 mFadeAnim.setListener(new ViewPropertyAnimatorListenerAdapter() {
                                     @Override
@@ -791,13 +794,13 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
 
                                     @Override
                                     public void onAnimationEnd(View view) {
-                                        ViewCompat.setAlpha(mActionModeView, 1f);
+                                        mActionModeView.setAlpha(1f);
                                         mFadeAnim.setListener(null);
                                         mFadeAnim = null;
                                     }
                                 });
                             } else {
-                                ViewCompat.setAlpha(mActionModeView, 1f);
+                                mActionModeView.setAlpha(1f);
                                 mActionModeView.setVisibility(View.VISIBLE);
                             }
                         }
@@ -824,7 +827,7 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
                     mActionMode = mode;
 
                     if (shouldAnimateActionModeView()) {
-                        ViewCompat.setAlpha(mActionModeView, 0f);
+                        mActionModeView.setAlpha(0f);
                         mFadeAnim = ViewCompat.animate(mActionModeView).alpha(1f);
                         mFadeAnim.setListener(new ViewPropertyAnimatorListenerAdapter() {
                             @Override
@@ -839,13 +842,13 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
 
                             @Override
                             public void onAnimationEnd(View view) {
-                                ViewCompat.setAlpha(mActionModeView, 1f);
+                                mActionModeView.setAlpha(1f);
                                 mFadeAnim.setListener(null);
                                 mFadeAnim = null;
                             }
                         });
                     } else {
-                        ViewCompat.setAlpha(mActionModeView, 1f);
+                        mActionModeView.setAlpha(1f);
                         mActionModeView.setVisibility(View.VISIBLE);
                         mActionModeView.sendAccessibilityEvent(
                                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
@@ -1005,17 +1008,21 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
     @Override
     public View createView(View parent, final String name, @NonNull Context context,
             @NonNull AttributeSet attrs) {
-        final boolean isPre21 = Build.VERSION.SDK_INT < 21;
-
         if (mAppCompatViewInflater == null) {
             mAppCompatViewInflater = new AppCompatViewInflater();
         }
 
-        // We only want the View to inherit its context if we're running pre-v21
-        final boolean inheritContext = isPre21 && shouldInheritContext((ViewParent) parent);
+        boolean inheritContext = false;
+        if (IS_PRE_LOLLIPOP) {
+            inheritContext = (attrs instanceof XmlPullParser)
+                    // If we have a XmlPullParser, we can detect where we are in the layout
+                    ? ((XmlPullParser) attrs).getDepth() > 1
+                    // Otherwise we have to use the old heuristic
+                    : shouldInheritContext((ViewParent) parent);
+        }
 
         return mAppCompatViewInflater.createView(parent, name, context, attrs, inheritContext,
-                isPre21, /* Only read android:theme pre-L (L+ handles this anyway) */
+                IS_PRE_LOLLIPOP, /* Only read android:theme pre-L (L+ handles this anyway) */
                 true, /* Read read app:theme as a fallback at all times for legacy reasons */
                 VectorEnabledTintResources.shouldBeUsed() /* Only tint wrap the context if enabled */
         );
@@ -1050,10 +1057,9 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
     public void installViewFactory() {
         LayoutInflater layoutInflater = LayoutInflater.from(mContext);
         if (layoutInflater.getFactory() == null) {
-            LayoutInflaterCompat.setFactory(layoutInflater, this);
+            LayoutInflaterCompat.setFactory2(layoutInflater, this);
         } else {
-            if (!(LayoutInflaterCompat.getFactory(layoutInflater)
-                    instanceof AppCompatDelegateImplV9)) {
+            if (!(layoutInflater.getFactory2() instanceof AppCompatDelegateImplV9)) {
                 Log.i(TAG, "The Activity's LayoutInflater already has a Factory installed"
                         + " so we can not install AppCompat's");
             }
@@ -1061,11 +1067,10 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
     }
 
     /**
-     * From {@link android.support.v4.view.LayoutInflaterFactory}
+     * From {@link LayoutInflater.Factory2}.
      */
     @Override
-    public final View onCreateView(View parent, String name,
-            Context context, AttributeSet attrs) {
+    public final View onCreateView(View parent, String name, Context context, AttributeSet attrs) {
         // First let the Activity's Factory try and inflate the view
         final View view = callActivityOnCreateView(parent, name, context, attrs);
         if (view != null) {
@@ -1074,6 +1079,14 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
 
         // If the Factory didn't handle it, let our createView() method try
         return createView(parent, name, context, attrs);
+    }
+
+    /**
+     * From {@link LayoutInflater.Factory2}.
+     */
+    @Override
+    public View onCreateView(String name, Context context, AttributeSet attrs) {
+        return onCreateView(null, name, context, attrs);
     }
 
     View callActivityOnCreateView(View parent, String name, Context context, AttributeSet attrs) {
@@ -1196,9 +1209,9 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
     }
 
     private void reopenMenu(MenuBuilder menu, boolean toggleMenuMode) {
-        if (mDecorContentParent != null && mDecorContentParent.canShowOverflowMenu() &&
-                (!ViewConfigurationCompat.hasPermanentMenuKey(ViewConfiguration.get(mContext)) ||
-                        mDecorContentParent.isOverflowMenuShowPending())) {
+        if (mDecorContentParent != null && mDecorContentParent.canShowOverflowMenu()
+                && (!ViewConfiguration.get(mContext).hasPermanentMenuKey()
+                        || mDecorContentParent.isOverflowMenuShowPending())) {
 
             final Window.Callback cb = getWindowCallback();
 
@@ -1477,7 +1490,7 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
         final PanelFeatureState st = getPanelState(featureId, true);
         if (featureId == FEATURE_OPTIONS_PANEL && mDecorContentParent != null &&
                 mDecorContentParent.canShowOverflowMenu() &&
-                !ViewConfigurationCompat.hasPermanentMenuKey(ViewConfiguration.get(mContext))) {
+                !ViewConfiguration.get(mContext).hasPermanentMenuKey()) {
             if (!mDecorContentParent.isOverflowMenuShowing()) {
                 if (!isDestroyed() && preparePanel(st, event)) {
                     handled = mDecorContentParent.showOverflowMenu();
@@ -2086,19 +2099,22 @@ class AppCompatDelegateImplV9 extends AppCompatDelegateImplBase
                 return savedState;
             }
 
-            public static final Parcelable.Creator<SavedState> CREATOR
-                    = ParcelableCompat.newCreator(
-                    new ParcelableCompatCreatorCallbacks<SavedState>() {
-                        @Override
-                        public SavedState createFromParcel(Parcel in, ClassLoader loader) {
-                            return readFromParcel(in, loader);
-                        }
+            public static final Creator<SavedState> CREATOR = new ClassLoaderCreator<SavedState>() {
+                @Override
+                public SavedState createFromParcel(Parcel in, ClassLoader loader) {
+                    return readFromParcel(in, loader);
+                }
 
-                        @Override
-                        public SavedState[] newArray(int size) {
-                            return new SavedState[size];
-                        }
-                    });
+                @Override
+                public SavedState createFromParcel(Parcel in) {
+                    return readFromParcel(in, null);
+                }
+
+                @Override
+                public SavedState[] newArray(int size) {
+                    return new SavedState[size];
+                }
+            };
         }
     }
 

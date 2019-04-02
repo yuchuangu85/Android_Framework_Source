@@ -23,8 +23,6 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.util.SparseArrayCompat;
 import android.support.v4.view.AccessibilityDelegateCompat;
-import android.support.v4.view.KeyEventCompat;
-import android.support.v4.view.MotionEventCompat;
 import android.support.v4.view.ViewCompat;
 import android.support.v4.view.ViewCompat.FocusDirection;
 import android.support.v4.view.ViewCompat.FocusRealDirection;
@@ -40,6 +38,7 @@ import android.view.View;
 import android.view.ViewParent;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
+import android.view.accessibility.AccessibilityRecord;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,8 +48,7 @@ import java.util.List;
  * support in custom {@link View}s that represent a collection of View-like
  * logical items. It extends {@link AccessibilityNodeProviderCompat} and
  * simplifies many aspects of providing information to accessibility services
- * and managing accessibility focus. This class does not currently support
- * hierarchies of logical items.
+ * and managing accessibility focus.
  * <p>
  * Clients should override abstract methods on this class and attach it to the
  * host view using {@link ViewCompat#setAccessibilityDelegate}:
@@ -185,12 +183,12 @@ public abstract class ExploreByTouchHelper extends AccessibilityDelegateCompat {
         }
 
         switch (event.getAction()) {
-            case MotionEventCompat.ACTION_HOVER_MOVE:
-            case MotionEventCompat.ACTION_HOVER_ENTER:
+            case MotionEvent.ACTION_HOVER_MOVE:
+            case MotionEvent.ACTION_HOVER_ENTER:
                 final int virtualViewId = getVirtualViewAt(event.getX(), event.getY());
                 updateHoveredVirtualView(virtualViewId);
                 return (virtualViewId != INVALID_ID);
-            case MotionEventCompat.ACTION_HOVER_EXIT:
+            case MotionEvent.ACTION_HOVER_EXIT:
                 if (mAccessibilityFocusedVirtualViewId != INVALID_ID) {
                     updateHoveredVirtualView(INVALID_ID);
                     return true;
@@ -224,7 +222,7 @@ public abstract class ExploreByTouchHelper extends AccessibilityDelegateCompat {
                 case KeyEvent.KEYCODE_DPAD_UP:
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
                 case KeyEvent.KEYCODE_DPAD_DOWN:
-                    if (KeyEventCompat.hasNoModifiers(event)) {
+                    if (event.hasNoModifiers()) {
                         final int direction = keyToDirection(keyCode);
                         final int count = 1 + event.getRepeatCount();
                         for (int i = 0; i < count; i++) {
@@ -238,7 +236,7 @@ public abstract class ExploreByTouchHelper extends AccessibilityDelegateCompat {
                     break;
                 case KeyEvent.KEYCODE_DPAD_CENTER:
                 case KeyEvent.KEYCODE_ENTER:
-                    if (KeyEventCompat.hasNoModifiers(event)) {
+                    if (event.hasNoModifiers()) {
                         if (event.getRepeatCount() == 0) {
                             clickKeyboardFocusedVirtualView();
                             handled = true;
@@ -246,9 +244,9 @@ public abstract class ExploreByTouchHelper extends AccessibilityDelegateCompat {
                     }
                     break;
                 case KeyEvent.KEYCODE_TAB:
-                    if (KeyEventCompat.hasNoModifiers(event)) {
+                    if (event.hasNoModifiers()) {
                         handled = moveFocus(View.FOCUS_FORWARD, null);
-                    } else if (KeyEventCompat.hasModifiers(event, KeyEvent.META_SHIFT_ON)) {
+                    } else if (event.hasModifiers(KeyEvent.META_SHIFT_ON)) {
                         handled = moveFocus(View.FOCUS_BACKWARD, null);
                     }
                     break;
@@ -619,9 +617,9 @@ public abstract class ExploreByTouchHelper extends AccessibilityDelegateCompat {
 
         // Stay consistent with framework behavior by sending ENTER/EXIT pairs
         // in reverse order. This is accurate as of API 18.
-        sendEventForVirtualView(virtualViewId, AccessibilityEventCompat.TYPE_VIEW_HOVER_ENTER);
+        sendEventForVirtualView(virtualViewId, AccessibilityEvent.TYPE_VIEW_HOVER_ENTER);
         sendEventForVirtualView(
-                previousVirtualViewId, AccessibilityEventCompat.TYPE_VIEW_HOVER_EXIT);
+                previousVirtualViewId, AccessibilityEvent.TYPE_VIEW_HOVER_EXIT);
     }
 
     /**
@@ -676,16 +674,15 @@ public abstract class ExploreByTouchHelper extends AccessibilityDelegateCompat {
      */
     private AccessibilityEvent createEventForChild(int virtualViewId, int eventType) {
         final AccessibilityEvent event = AccessibilityEvent.obtain(eventType);
-        final AccessibilityRecordCompat record = AccessibilityEventCompat.asRecord(event);
         final AccessibilityNodeInfoCompat node = obtainAccessibilityNodeInfo(virtualViewId);
 
         // Allow the client to override these properties,
-        record.getText().add(node.getText());
-        record.setContentDescription(node.getContentDescription());
-        record.setScrollable(node.isScrollable());
-        record.setPassword(node.isPassword());
-        record.setEnabled(node.isEnabled());
-        record.setChecked(node.isChecked());
+        event.getText().add(node.getText());
+        event.setContentDescription(node.getContentDescription());
+        event.setScrollable(node.isScrollable());
+        event.setPassword(node.isPassword());
+        event.setEnabled(node.isEnabled());
+        event.setChecked(node.isChecked());
 
         // Allow the client to populate the event.
         onPopulateEventForVirtualView(virtualViewId, event);
@@ -697,8 +694,8 @@ public abstract class ExploreByTouchHelper extends AccessibilityDelegateCompat {
         }
 
         // Don't allow the client to override these properties.
-        record.setClassName(node.getClassName());
-        record.setSource(mHost, virtualViewId);
+        event.setClassName(node.getClassName());
+        AccessibilityRecordCompat.setSource(event, mHost, virtualViewId);
         event.setPackageName(mHost.getContext().getPackageName());
 
         return event;
@@ -798,6 +795,7 @@ public abstract class ExploreByTouchHelper extends AccessibilityDelegateCompat {
         node.setClassName(DEFAULT_CLASS_NAME);
         node.setBoundsInParent(INVALID_PARENT_BOUNDS);
         node.setBoundsInScreen(INVALID_PARENT_BOUNDS);
+        node.setParent(mHost);
 
         // Allow the client to populate the node.
         onPopulateNodeForVirtualView(virtualViewId, node);
@@ -827,7 +825,6 @@ public abstract class ExploreByTouchHelper extends AccessibilityDelegateCompat {
         // Don't allow the client to override these properties.
         node.setPackageName(mHost.getContext().getPackageName());
         node.setSource(mHost, virtualViewId);
-        node.setParent(mHost);
 
         // Manage internal accessibility focus state.
         if (mAccessibilityFocusedVirtualViewId == virtualViewId) {
@@ -847,21 +844,47 @@ public abstract class ExploreByTouchHelper extends AccessibilityDelegateCompat {
         }
         node.setFocused(isFocused);
 
-        // Set the visibility based on the parent bound.
-        if (intersectVisibleToUser(mTempParentRect)) {
-            node.setVisibleToUser(true);
-            node.setBoundsInParent(mTempParentRect);
-        }
+        mHost.getLocationOnScreen(mTempGlobalRect);
 
         // If not explicitly specified, calculate screen-relative bounds and
         // offset for scroll position based on bounds in parent.
         node.getBoundsInScreen(mTempScreenRect);
         if (mTempScreenRect.equals(INVALID_PARENT_BOUNDS)) {
-            mHost.getLocationOnScreen(mTempGlobalRect);
             node.getBoundsInParent(mTempScreenRect);
+
+            // If there is a parent node, adjust bounds based on the parent node.
+            if (node.mParentVirtualDescendantId != HOST_ID) {
+                AccessibilityNodeInfoCompat parentNode = AccessibilityNodeInfoCompat.obtain();
+                // Walk up the node tree to adjust the screen rect.
+                for (int virtualDescendantId = node.mParentVirtualDescendantId;
+                        virtualDescendantId != HOST_ID;
+                        virtualDescendantId = parentNode.mParentVirtualDescendantId) {
+                    // Reset the values in the parent node we'll be using.
+                    parentNode.setParent(mHost, HOST_ID);
+                    parentNode.setBoundsInParent(INVALID_PARENT_BOUNDS);
+                    // Adjust the bounds for the parent node.
+                    onPopulateNodeForVirtualView(virtualDescendantId, parentNode);
+                    parentNode.getBoundsInParent(mTempParentRect);
+                    mTempScreenRect.offset(mTempParentRect.left, mTempParentRect.top);
+                }
+                parentNode.recycle();
+            }
+            // Adjust the rect for the host view's location.
             mTempScreenRect.offset(mTempGlobalRect[0] - mHost.getScrollX(),
                     mTempGlobalRect[1] - mHost.getScrollY());
-            node.setBoundsInScreen(mTempScreenRect);
+        }
+
+        if (mHost.getLocalVisibleRect(mTempVisibleRect)) {
+            mTempVisibleRect.offset(mTempGlobalRect[0] - mHost.getScrollX(),
+                    mTempGlobalRect[1] - mHost.getScrollY());
+            final boolean intersects = mTempScreenRect.intersect(mTempVisibleRect);
+            if (intersects) {
+                node.setBoundsInScreen(mTempScreenRect);
+
+                if (isVisibleToUser(mTempScreenRect)) {
+                    node.setVisibleToUser(true);
+                }
+            }
         }
 
         return node;
@@ -903,7 +926,7 @@ public abstract class ExploreByTouchHelper extends AccessibilityDelegateCompat {
      * @param localRect a rectangle in local (parent) coordinates
      * @return whether the specified {@link Rect} is visible on the screen
      */
-    private boolean intersectVisibleToUser(Rect localRect) {
+    private boolean isVisibleToUser(Rect localRect) {
         // Missing or empty bounds mean this view is not visible.
         if ((localRect == null) || localRect.isEmpty()) {
             return false;
@@ -925,17 +948,7 @@ public abstract class ExploreByTouchHelper extends AccessibilityDelegateCompat {
         }
 
         // A null parent implies the view is not visible.
-        if (viewParent == null) {
-            return false;
-        }
-
-        // If no portion of the parent is visible, this view is not visible.
-        if (!mHost.getLocalVisibleRect(mTempVisibleRect)) {
-            return false;
-        }
-
-        // Check if the view intersects the visible portion of the parent.
-        return localRect.intersect(mTempVisibleRect);
+        return viewParent != null;
     }
 
     /**
@@ -1090,7 +1103,7 @@ public abstract class ExploreByTouchHelper extends AccessibilityDelegateCompat {
      * <li>package name, set to the package of the host view's
      * {@link Context}, see {@link AccessibilityEvent#setPackageName}
      * <li>event source, set to the host view and virtual view identifier,
-     * see {@link AccessibilityRecordCompat#setSource(View, int)}
+     * see {@link AccessibilityRecordCompat#setSource(AccessibilityRecord, View, int)}
      * </ul>
      *
      * @param virtualViewId The virtual view id for the item for which to

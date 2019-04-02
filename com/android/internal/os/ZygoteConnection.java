@@ -24,6 +24,7 @@ import static android.system.OsConstants.STDOUT_FILENO;
 
 import android.net.Credentials;
 import android.net.LocalSocket;
+import android.os.FactoryTest;
 import android.os.Process;
 import android.os.SELinux;
 import android.os.SystemProperties;
@@ -43,6 +44,7 @@ import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import libcore.io.IoUtils;
 
 /**
@@ -117,7 +119,7 @@ class ZygoteConnection {
 
     /**
      * Reads one start command from the command socket. If successful,
-     * a child is forked and a {@link ZygoteInit.MethodAndArgsCaller}
+     * a child is forked and a {@link Zygote.MethodAndArgsCaller}
      * exception is thrown in that child while in the parent process,
      * the method returns normally. On failure, the child is not
      * spawned and messages are printed to the log and stderr. Returns
@@ -126,17 +128,16 @@ class ZygoteConnection {
      *
      * @return false if command socket should continue to be read from, or
      * true if an end-of-file has been encountered.
-     * @throws ZygoteInit.MethodAndArgsCaller trampoline to invoke main()
+     * @throws Zygote.MethodAndArgsCaller trampoline to invoke main()
      * method in child process
      */
-    boolean runOnce() throws ZygoteInit.MethodAndArgsCaller {
+    boolean runOnce(ZygoteServer zygoteServer) throws Zygote.MethodAndArgsCaller {
 
         String args[];
         Arguments parsedArgs = null;
         FileDescriptor[] descriptors;
 
         try {
-            // 获得创建应用程序进程需要的启动参数，并且保存在一个Arguments对象parsedArgs中
             args = readArgumentList();
             descriptors = mSocket.getAncillaryFileDescriptors();
         } catch (IOException ex) {
@@ -170,6 +171,15 @@ class ZygoteConnection {
                 return handleAbiListQuery();
             }
 
+            if (parsedArgs.preloadDefault) {
+                return handlePreload();
+            }
+
+            if (parsedArgs.preloadPackage != null) {
+                return handlePreloadPackage(parsedArgs.preloadPackage,
+                        parsedArgs.preloadPackageLibs, parsedArgs.preloadPackageCacheKey);
+            }
+
             if (parsedArgs.permittedCapabilities != 0 || parsedArgs.effectiveCapabilities != 0) {
                 throw new ZygoteSecurityException("Client may not specify capabilities: " +
                         "permitted=0x" + Long.toHexString(parsedArgs.permittedCapabilities) +
@@ -188,11 +198,14 @@ class ZygoteConnection {
                 rlimits = parsedArgs.rlimits.toArray(intArray2d);
             }
 
+            int[] fdsToIgnore = null;
+
             if (parsedArgs.invokeWith != null) {
                 FileDescriptor[] pipeFds = Os.pipe2(O_CLOEXEC);
                 childPipeFd = pipeFds[1];
                 serverPipeFd = pipeFds[0];
                 Os.fcntlInt(childPipeFd, F_SETFD, 0);
+                fdsToIgnore = new int[] { childPipeFd.getInt$(), serverPipeFd.getInt$() };
             }
 
             /**
@@ -215,7 +228,7 @@ class ZygoteConnection {
                 fdsToClose[0] = fd.getInt$();
             }
 
-            fd = ZygoteInit.getServerSocketFileDescriptor();
+            fd = zygoteServer.getServerSocketFileDescriptor();
 
             if (fd != null) {
                 fdsToClose[1] = fd.getInt$();
@@ -223,12 +236,9 @@ class ZygoteConnection {
 
             fd = null;
 
-            // 调用forkAndSpecialize方法来创建这个应用程序进程，最终通过函数fork在当前进程中创建一个子进程，
-            // 因此，当它的返回值等于0时，就表示是在新创建的子进程中执行的，这时候ZygoteConnection类就会调用
-            // 成员函数handleChildProc来启动这个子进程
             pid = Zygote.forkAndSpecialize(parsedArgs.uid, parsedArgs.gid, parsedArgs.gids,
                     parsedArgs.debugFlags, rlimits, parsedArgs.mountExternal, parsedArgs.seInfo,
-                    parsedArgs.niceName, fdsToClose, parsedArgs.instructionSet,
+                    parsedArgs.niceName, fdsToClose, fdsToIgnore, parsedArgs.instructionSet,
                     parsedArgs.appDataDir);
         } catch (ErrnoException ex) {
             logAndPrintError(newStderr, "Exception creating pipe", ex);
@@ -242,12 +252,13 @@ class ZygoteConnection {
         try {
             if (pid == 0) {
                 // in child
+                zygoteServer.closeServerSocket();
                 IoUtils.closeQuietly(serverPipeFd);
                 serverPipeFd = null;
                 handleChildProc(parsedArgs, descriptors, childPipeFd, newStderr);
 
                 // should never get here, the child is expected to either
-                // throw ZygoteInit.MethodAndArgsCaller or exec().
+                // throw Zygote.MethodAndArgsCaller or exec().
                 return true;
             } else {
                 // in parent...pid of < 0 means failure
@@ -271,6 +282,40 @@ class ZygoteConnection {
             Log.e(TAG, "Error writing to command socket", ioe);
             return true;
         }
+    }
+
+    /**
+     * Preloads resources if the zygote is in lazily preload mode. Writes the result of the
+     * preload operation; {@code 0} when a preload was initiated due to this request and {@code 1}
+     * if no preload was initiated. The latter implies that the zygote is not configured to load
+     * resources lazy or that the zygote has already handled a previous request to handlePreload.
+     */
+    private boolean handlePreload() {
+        try {
+            if (isPreloadComplete()) {
+                mSocketOutStream.writeInt(1);
+            } else {
+                preload();
+                mSocketOutStream.writeInt(0);
+            }
+
+            return false;
+        } catch (IOException ioe) {
+            Log.e(TAG, "Error writing to command socket", ioe);
+            return true;
+        }
+    }
+
+    protected void preload() {
+        ZygoteInit.lazyPreload();
+    }
+
+    protected boolean isPreloadComplete() {
+        return ZygoteInit.isPreloadComplete();
+    }
+
+    protected boolean handlePreloadPackage(String packagePath, String libsPath, String cacheKey) {
+        throw new RuntimeException("Zyogte does not support package preloading");
     }
 
     /**
@@ -325,8 +370,9 @@ class ZygoteConnection {
         int[] gids;
 
         /**
-         * From --enable-debugger, --enable-checkjni, --enable-assert,
-         * --enable-safemode, --generate-debug-info and --enable-jni-logging.
+         * From --enable-jdwp, --enable-checkjni, --enable-assert,
+         * --enable-safemode, --generate-debug-info, --enable-jni-logging,
+         * --java-debuggable, and --native-debuggable.
          */
         int debugFlags;
 
@@ -376,6 +422,20 @@ class ZygoteConnection {
          * not be reliable in the case of process-sharing apps.
          */
         String appDataDir;
+
+        /**
+         * Whether to preload a package, with the package path in the remainingArgs.
+         */
+        String preloadPackage;
+        String preloadPackageLibs;
+        String preloadPackageCacheKey;
+
+        /**
+         * Whether this is a request to start preloading the default resources and classes.
+         * This argument only makes sense when the zygote is in lazy preload mode (i.e, when
+         * it's started with --enable-lazy-preload).
+         */
+        boolean preloadDefault;
 
         /**
          * Constructs instance and parses args
@@ -430,8 +490,8 @@ class ZygoteConnection {
                     targetSdkVersionSpecified = true;
                     targetSdkVersion = Integer.parseInt(
                             arg.substring(arg.indexOf('=') + 1));
-                } else if (arg.equals("--enable-debugger")) {
-                    debugFlags |= Zygote.DEBUG_ENABLE_DEBUGGER;
+                } else if (arg.equals("--enable-jdwp")) {
+                    debugFlags |= Zygote.DEBUG_ENABLE_JDWP;
                 } else if (arg.equals("--enable-safemode")) {
                     debugFlags |= Zygote.DEBUG_ENABLE_SAFEMODE;
                 } else if (arg.equals("--enable-checkjni")) {
@@ -442,6 +502,8 @@ class ZygoteConnection {
                     debugFlags |= Zygote.DEBUG_ALWAYS_JIT;
                 } else if (arg.equals("--native-debuggable")) {
                     debugFlags |= Zygote.DEBUG_NATIVE_DEBUGGABLE;
+                } else if (arg.equals("--java-debuggable")) {
+                    debugFlags |= Zygote.DEBUG_JAVA_DEBUGGABLE;
                 } else if (arg.equals("--enable-jni-logging")) {
                     debugFlags |= Zygote.DEBUG_ENABLE_JNI_LOGGING;
                 } else if (arg.equals("--enable-assert")) {
@@ -535,6 +597,12 @@ class ZygoteConnection {
                     instructionSet = arg.substring(arg.indexOf('=') + 1);
                 } else if (arg.startsWith("--app-data-dir=")) {
                     appDataDir = arg.substring(arg.indexOf('=') + 1);
+                } else if (arg.equals("--preload-package")) {
+                    preloadPackage = args[++curArg];
+                    preloadPackageLibs = args[++curArg];
+                    preloadPackageCacheKey = args[++curArg];
+                } else if (arg.equals("--preload-default")) {
+                    preloadDefault = true;
                 } else {
                     break;
                 }
@@ -544,7 +612,12 @@ class ZygoteConnection {
                 if (args.length - curArg > 0) {
                     throw new IllegalArgumentException("Unexpected arguments after --query-abi-list.");
                 }
-            } else {
+            } else if (preloadPackage != null) {
+                if (args.length - curArg > 0) {
+                    throw new IllegalArgumentException(
+                            "Unexpected arguments after --preload-package.");
+                }
+            } else if (!preloadDefault) {
                 if (!seenRuntimeArgs) {
                     throw new IllegalArgumentException("Unexpected argument : " + args[curArg]);
                 }
@@ -618,13 +691,10 @@ class ZygoteConnection {
             throws ZygoteSecurityException {
 
         if (peer.getUid() == Process.SYSTEM_UID) {
-            String factoryTest = SystemProperties.get("ro.factorytest");
-            boolean uidRestricted;
-
             /* In normal operation, SYSTEM_UID can only specify a restricted
              * set of UIDs. In factory test mode, SYSTEM_UID may specify any uid.
              */
-            uidRestricted = !(factoryTest.equals("1") || factoryTest.equals("2"));
+            boolean uidRestricted = FactoryTest.getMode() == FactoryTest.FACTORY_TEST_OFF;
 
             if (uidRestricted && args.uidSpecified && (args.uid < Process.SYSTEM_UID)) {
                 throw new ZygoteSecurityException(
@@ -648,14 +718,14 @@ class ZygoteConnection {
      * Applies debugger system properties to the zygote arguments.
      *
      * If "ro.debuggable" is "1", all apps are debuggable. Otherwise,
-     * the debugger state is specified via the "--enable-debugger" flag
+     * the debugger state is specified via the "--enable-jdwp" flag
      * in the spawn request.
      *
      * @param args non-null; zygote spawner args
      */
     public static void applyDebuggerSystemProperty(Arguments args) {
-        if ("1".equals(SystemProperties.get("ro.debuggable"))) {
-            args.debugFlags |= Zygote.DEBUG_ENABLE_DEBUGGER;
+        if (RoSystemProperties.DEBUGGABLE) {
+            args.debugFlags |= Zygote.DEBUG_ENABLE_JDWP;
         }
     }
 
@@ -676,9 +746,11 @@ class ZygoteConnection {
             throws ZygoteSecurityException {
         int peerUid = peer.getUid();
 
-        if (args.invokeWith != null && peerUid != 0) {
-            throw new ZygoteSecurityException("Peer is not permitted to specify "
-                    + "an explicit invoke-with wrapper command");
+        if (args.invokeWith != null && peerUid != 0 &&
+            (args.debugFlags & Zygote.DEBUG_ENABLE_JDWP) == 0) {
+            throw new ZygoteSecurityException("Peer is permitted to specify an"
+                    + "explicit invoke-with wrapper command only for debuggable"
+                    + "applications.");
         }
     }
 
@@ -690,14 +762,6 @@ class ZygoteConnection {
     public static void applyInvokeWithSystemProperty(Arguments args) {
         if (args.invokeWith == null && args.niceName != null) {
             String property = "wrap." + args.niceName;
-            if (property.length() > 31) {
-                // Properties with a trailing "." are illegal.
-                if (property.charAt(30) != '.') {
-                    property = property.substring(0, 31);
-                } else {
-                    property = property.substring(0, 30);
-                }
-            }
             args.invokeWith = SystemProperties.get(property);
             if (args.invokeWith != null && args.invokeWith.length() == 0) {
                 args.invokeWith = null;
@@ -716,12 +780,12 @@ class ZygoteConnection {
      * @param newStderr null-ok; stream to use for stderr until stdio
      * is reopened.
      *
-     * @throws ZygoteInit.MethodAndArgsCaller on success to
+     * @throws Zygote.MethodAndArgsCaller on success to
      * trampoline to code that invokes static main.
      */
     private void handleChildProc(Arguments parsedArgs,
             FileDescriptor[] descriptors, FileDescriptor pipeFd, PrintStream newStderr)
-            throws ZygoteInit.MethodAndArgsCaller {
+            throws Zygote.MethodAndArgsCaller {
         /**
          * By the time we get here, the native code has closed the two actual Zygote
          * socket connections, and substituted /dev/null in their place.  The LocalSocket
@@ -729,8 +793,6 @@ class ZygoteConnection {
          */
 
         closeSocket();
-        ZygoteInit.closeServerSocket();
-
         if (descriptors != null) {
             try {
                 Os.dup2(descriptors[0], STDIN_FILENO);
@@ -758,8 +820,7 @@ class ZygoteConnection {
                     VMRuntime.getCurrentInstructionSet(),
                     pipeFd, parsedArgs.remainingArgs);
         } else {
-            // 初始化运行库以及启动一个Binder线程池
-            RuntimeInit.zygoteInit(parsedArgs.targetSdkVersion,
+            ZygoteInit.zygoteInit(parsedArgs.targetSdkVersion,
                     parsedArgs.remainingArgs, null /* classLoader */);
         }
     }

@@ -100,7 +100,7 @@ public class NoBandChannelHelper extends ChannelHelper {
 
         @Override
         public boolean partiallyContainsBand(int band) {
-            // We don't need to partially collapse settings in supplicant scanner because we
+            // We don't need to partially collapse settings in wificond scanner because we
             // don't have any limitation on the number of channels that can be scanned. We also
             // don't currently keep track of bands very well in NoBandChannelHelper.
             return false;
@@ -124,7 +124,7 @@ public class NoBandChannelHelper extends ChannelHelper {
 
         @Override
         public Set<Integer> getMissingChannelsFromBand(int band) {
-            // We don't need to partially collapse settings in supplicant scanner because we
+            // We don't need to partially collapse settings in wificond scanner because we
             // don't have any limitation on the number of channels that can be scanned. We also
             // don't currently keep track of bands very well in NoBandChannelHelper.
             return new ArraySet<Integer>();
@@ -132,7 +132,7 @@ public class NoBandChannelHelper extends ChannelHelper {
 
         @Override
         public Set<Integer> getContainingChannelsFromBand(int band) {
-            // We don't need to partially collapse settings in supplicant scanner because we
+            // We don't need to partially collapse settings in wificond scanner because we
             // don't have any limitation on the number of channels that can be scanned. We also
             // don't currently keep track of bands very well in NoBandChannelHelper.
             return new ArraySet<Integer>();
@@ -166,7 +166,7 @@ public class NoBandChannelHelper extends ChannelHelper {
         }
 
         @Override
-        public Set<Integer> getSupplicantScanFreqs() {
+        public Set<Integer> getScanFreqs() {
             if (mAllChannels) {
                 return null;
             } else {

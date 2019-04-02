@@ -16,6 +16,7 @@
 
 package android.net.wifi;
 
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -66,6 +67,93 @@ public class ScanResult implements Parcelable {
      * supported by the access point.
      */
     public String capabilities;
+
+    /**
+     * @hide
+     * No security protocol.
+     */
+    public static final int PROTOCOL_NONE = 0;
+    /**
+     * @hide
+     * Security protocol type: WPA version 1.
+     */
+    public static final int PROTOCOL_WPA = 1;
+    /**
+     * @hide
+     * Security protocol type: WPA version 2, also called RSN.
+     */
+    public static final int PROTOCOL_WPA2 = 2;
+    /**
+     * @hide
+     * Security protocol type:
+     * OSU Server-only authenticated layer 2 Encryption Network.
+     * Used for Hotspot 2.0.
+     */
+    public static final int PROTOCOL_OSEN = 3;
+
+    /**
+     * @hide
+     * No security key management scheme.
+     */
+    public static final int KEY_MGMT_NONE = 0;
+    /**
+     * @hide
+     * Security key management scheme: PSK.
+     */
+    public static final int KEY_MGMT_PSK = 1;
+    /**
+     * @hide
+     * Security key management scheme: EAP.
+     */
+    public static final int KEY_MGMT_EAP = 2;
+    /**
+     * @hide
+     * Security key management scheme: FT_PSK.
+     */
+    public static final int KEY_MGMT_FT_PSK = 3;
+    /**
+     * @hide
+     * Security key management scheme: FT_EAP.
+     */
+    public static final int KEY_MGMT_FT_EAP = 4;
+    /**
+     * @hide
+     * Security key management scheme: PSK_SHA256
+     */
+    public static final int KEY_MGMT_PSK_SHA256 = 5;
+    /**
+     * @hide
+     * Security key management scheme: EAP_SHA256.
+     */
+    public static final int KEY_MGMT_EAP_SHA256 = 6;
+    /**
+     * @hide
+     * Security key management scheme: OSEN.
+     * Used for Hotspot 2.0.
+     */
+    public static final int KEY_MGMT_OSEN = 7;
+
+    /**
+     * @hide
+     * No cipher suite.
+     */
+    public static final int CIPHER_NONE = 0;
+    /**
+     * @hide
+     * No group addressed, only used for group data cipher.
+     */
+    public static final int CIPHER_NO_GROUP_ADDRESSED = 1;
+    /**
+     * @hide
+     * Cipher suite: TKIP
+     */
+    public static final int CIPHER_TKIP = 2;
+    /**
+     * @hide
+     * Cipher suite: CCMP
+     */
+    public static final int CIPHER_CCMP = 3;
+
     /**
      * The detected signal level in dBm, also known as the RSSI.
      *
@@ -139,12 +227,6 @@ public class ScanResult implements Parcelable {
     public long seen;
 
     /**
-     * If the scan result is a valid autojoin candidate
-     * {@hide}
-     */
-    public int isAutoJoinCandidate;
-
-    /**
      * @hide
      * Update RSSI of the scan result
      * @param previousRssi
@@ -178,10 +260,10 @@ public class ScanResult implements Parcelable {
     public long blackListTimestamp;
 
     /**
-     * Status: indicating the scan result is not a result
-     * that is part of user's saved configurations
+     * Status indicating the scan result does not correspond to a user's saved configuration
      * @hide
      */
+    @SystemApi
     public boolean untrusted;
 
     /**
@@ -254,12 +336,12 @@ public class ScanResult implements Parcelable {
 
     /**
      * Indicates venue name (such as 'San Francisco Airport') published by access point; only
-     * available on passpoint network and if published by access point.
+     * available on Passpoint network and if published by access point.
      */
     public CharSequence venueName;
 
     /**
-     * Indicates passpoint operator name published by access point.
+     * Indicates Passpoint operator name published by access point.
      */
     public CharSequence operatorFriendlyName;
 
@@ -452,7 +534,6 @@ public class ScanResult implements Parcelable {
             numConnection = source.numConnection;
             numUsage = source.numUsage;
             numIpConfigFailures = source.numIpConfigFailures;
-            isAutoJoinCandidate = source.isAutoJoinCandidate;
             venueName = source.venueName;
             operatorFriendlyName = source.operatorFriendlyName;
             flags = source.flags;
@@ -530,7 +611,6 @@ public class ScanResult implements Parcelable {
         dest.writeInt(numConnection);
         dest.writeInt(numUsage);
         dest.writeInt(numIpConfigFailures);
-        dest.writeInt(isAutoJoinCandidate);
         dest.writeString((venueName != null) ? venueName.toString() : "");
         dest.writeString((operatorFriendlyName != null) ? operatorFriendlyName.toString() : "");
         dest.writeLong(this.flags);
@@ -600,7 +680,6 @@ public class ScanResult implements Parcelable {
                 sr.numConnection = in.readInt();
                 sr.numUsage = in.readInt();
                 sr.numIpConfigFailures = in.readInt();
-                sr.isAutoJoinCandidate = in.readInt();
                 sr.venueName = in.readString();
                 sr.operatorFriendlyName = in.readString();
                 sr.flags = in.readLong();

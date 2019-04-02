@@ -22,6 +22,11 @@ import android.test.InstrumentationTestRunner;
 
 /**
  * {@link android.test.InstrumentationTestRunner} for testing application needing multidex support.
+ *
+ * @deprecated Use
+ * <a href="{@docRoot}reference/android/support/test/runner/AndroidJUnitRunner.html">
+ * AndroidJUnitRunner</a> instead. New tests should be written using the
+ * <a href="{@docRoot}tools/testing-support-library/index.html">Android Testing Support Library</a>.
  */
 public class MultiDexTestRunner extends InstrumentationTestRunner {
 

@@ -22,6 +22,7 @@ import android.net.InterfaceConfiguration;
 import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.NetworkUtils;
+import android.net.util.SharedLog;
 import android.os.INetworkManagementService;
 import android.os.Looper;
 import android.os.Message;
@@ -78,9 +79,11 @@ public class TetherInterfaceStateMachine extends StateMachine {
     public static final int CMD_IPV6_TETHER_UPDATE          = BASE_IFACE + 13;
 
     private final State mInitialState;
+    private final State mLocalHotspotState;
     private final State mTetheredState;
     private final State mUnavailableState;
 
+    private final SharedLog mLog;
     private final INetworkManagementService mNMService;
     private final INetworkStatsService mStatsService;
     private final IControlsTethering mTetherController;
@@ -92,31 +95,41 @@ public class TetherInterfaceStateMachine extends StateMachine {
     private int mLastError;
     private String mMyUpstreamIfaceName;  // may change over time
 
-    public TetherInterfaceStateMachine(String ifaceName, Looper looper, int interfaceType,
-                    INetworkManagementService nMService, INetworkStatsService statsService,
-                    IControlsTethering tetherController) {
+    public TetherInterfaceStateMachine(
+            String ifaceName, Looper looper, int interfaceType, SharedLog log,
+            INetworkManagementService nMService, INetworkStatsService statsService,
+            IControlsTethering tetherController, IPv6TetheringInterfaceServices ipv6Svc) {
         super(ifaceName, looper);
+        mLog = log.forSubComponent(ifaceName);
         mNMService = nMService;
         mStatsService = statsService;
         mTetherController = tetherController;
         mIfaceName = ifaceName;
         mInterfaceType = interfaceType;
-        mIPv6TetherSvc = new IPv6TetheringInterfaceServices(mIfaceName, mNMService);
+        mIPv6TetherSvc = ipv6Svc;
         mLastError = ConnectivityManager.TETHER_ERROR_NO_ERROR;
 
         mInitialState = new InitialState();
-        addState(mInitialState);
+        mLocalHotspotState = new LocalHotspotState();
         mTetheredState = new TetheredState();
-        addState(mTetheredState);
         mUnavailableState = new UnavailableState();
+        addState(mInitialState);
+        addState(mLocalHotspotState);
+        addState(mTetheredState);
         addState(mUnavailableState);
 
         setInitialState(mInitialState);
     }
 
-    public int interfaceType() {
-        return mInterfaceType;
-    }
+    public String interfaceName() { return mIfaceName; }
+
+    public int interfaceType() { return mInterfaceType; }
+
+    public int lastError() { return mLastError; }
+
+    public void stop() { sendMessage(CMD_INTERFACE_DOWN); }
+
+    public void unwanted() { sendMessage(CMD_TETHER_UNREQUESTED); }
 
     // configured when we start tethering and unconfig'd on error or conclusion
     private boolean configureIfaceIp(boolean enabled) {
@@ -141,16 +154,23 @@ public class TetherInterfaceStateMachine extends StateMachine {
             if (ifcg != null) {
                 InetAddress addr = NetworkUtils.numericToInetAddress(ipAsString);
                 ifcg.setLinkAddress(new LinkAddress(addr, prefixLen));
-                if (enabled) {
-                    ifcg.setInterfaceUp();
+                if (mInterfaceType == ConnectivityManager.TETHERING_WIFI) {
+                    // The WiFi stack has ownership of the interface up/down state.
+                    // It is unclear whether the bluetooth or USB stacks will manage their own
+                    // state.
+                    ifcg.ignoreInterfaceUpDownStatus();
                 } else {
-                    ifcg.setInterfaceDown();
+                    if (enabled) {
+                        ifcg.setInterfaceUp();
+                    } else {
+                        ifcg.setInterfaceDown();
+                    }
                 }
                 ifcg.clearFlag("running");
                 mNMService.setInterfaceConfig(mIfaceName, ifcg);
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error configuring interface " + mIfaceName, e);
+            mLog.e("Error configuring interface " + e);
             return false;
         }
 
@@ -160,16 +180,20 @@ public class TetherInterfaceStateMachine extends StateMachine {
     private void maybeLogMessage(State state, int what) {
         if (DBG) {
             Log.d(TAG, state.getName() + " got " +
-                    sMagicDecoderRing.get(what, Integer.toString(what)));
+                    sMagicDecoderRing.get(what, Integer.toString(what)) + ", Iface = " +
+                    mIfaceName);
         }
+    }
+
+    private void sendInterfaceState(int newInterfaceState) {
+        mTetherController.notifyInterfaceStateChange(
+                mIfaceName, TetherInterfaceStateMachine.this, newInterfaceState, mLastError);
     }
 
     class InitialState extends State {
         @Override
         public void enter() {
-            mTetherController.notifyInterfaceStateChange(
-                    mIfaceName, TetherInterfaceStateMachine.this,
-                    IControlsTethering.STATE_AVAILABLE, mLastError);
+            sendInterfaceState(IControlsTethering.STATE_AVAILABLE);
         }
 
         @Override
@@ -179,7 +203,16 @@ public class TetherInterfaceStateMachine extends StateMachine {
             switch (message.what) {
                 case CMD_TETHER_REQUESTED:
                     mLastError = ConnectivityManager.TETHER_ERROR_NO_ERROR;
-                    transitionTo(mTetheredState);
+                    switch (message.arg1) {
+                        case IControlsTethering.STATE_LOCAL_ONLY:
+                            transitionTo(mLocalHotspotState);
+                            break;
+                        case IControlsTethering.STATE_TETHERED:
+                            transitionTo(mTetheredState);
+                            break;
+                        default:
+                            mLog.e("Invalid tethering interface serving state specified.");
+                    }
                     break;
                 case CMD_INTERFACE_DOWN:
                     transitionTo(mUnavailableState);
@@ -196,32 +229,27 @@ public class TetherInterfaceStateMachine extends StateMachine {
         }
     }
 
-    class TetheredState extends State {
+    class BaseServingState extends State {
         @Override
         public void enter() {
             if (!configureIfaceIp(true)) {
                 mLastError = ConnectivityManager.TETHER_ERROR_IFACE_CFG_ERROR;
-                transitionTo(mInitialState);
                 return;
             }
 
             try {
                 mNMService.tetherInterface(mIfaceName);
             } catch (Exception e) {
-                Log.e(TAG, "Error Tethering: " + e.toString());
+                mLog.e("Error Tethering: " + e);
                 mLastError = ConnectivityManager.TETHER_ERROR_TETHER_IFACE_ERROR;
-                transitionTo(mInitialState);
                 return;
             }
 
             if (!mIPv6TetherSvc.start()) {
-                Log.e(TAG, "Failed to start IPv6TetheringInterfaceServices");
+                mLog.e("Failed to start IPv6TetheringInterfaceServices");
+                // TODO: Make this a fatal error once Bluetooth IPv6 is sorted.
+                return;
             }
-
-            if (DBG) Log.d(TAG, "Tethered " + mIfaceName);
-            mTetherController.notifyInterfaceStateChange(
-                    mIfaceName, TetherInterfaceStateMachine.this,
-                    IControlsTethering.STATE_TETHERED, mLastError);
         }
 
         @Override
@@ -230,50 +258,20 @@ public class TetherInterfaceStateMachine extends StateMachine {
             // of these operations, but it doesn't really change that we have to try them
             // all in sequence.
             mIPv6TetherSvc.stop();
-            cleanupUpstream();
 
             try {
                 mNMService.untetherInterface(mIfaceName);
-            } catch (Exception ee) {
+            } catch (Exception e) {
                 mLastError = ConnectivityManager.TETHER_ERROR_UNTETHER_IFACE_ERROR;
-                Log.e(TAG, "Failed to untether interface: " + ee.toString());
+                mLog.e("Failed to untether interface: " + e);
             }
 
             configureIfaceIp(false);
         }
 
-        private void cleanupUpstream() {
-            if (mMyUpstreamIfaceName != null) {
-                // note that we don't care about errors here.
-                // sometimes interfaces are gone before we get
-                // to remove their rules, which generates errors.
-                // just do the best we can.
-                try {
-                    // about to tear down NAT; gather remaining statistics
-                    mStatsService.forceUpdate();
-                } catch (Exception e) {
-                    if (VDBG) Log.e(TAG, "Exception in forceUpdate: " + e.toString());
-                }
-                try {
-                    mNMService.stopInterfaceForwarding(mIfaceName, mMyUpstreamIfaceName);
-                } catch (Exception e) {
-                    if (VDBG) Log.e(
-                            TAG, "Exception in removeInterfaceForward: " + e.toString());
-                }
-                try {
-                    mNMService.disableNat(mIfaceName, mMyUpstreamIfaceName);
-                } catch (Exception e) {
-                    if (VDBG) Log.e(TAG, "Exception in disableNat: " + e.toString());
-                }
-                mMyUpstreamIfaceName = null;
-            }
-            return;
-        }
-
         @Override
         public boolean processMessage(Message message) {
             maybeLogMessage(this, message.what);
-            boolean retValue = true;
             switch (message.what) {
                 case CMD_TETHER_UNREQUESTED:
                     transitionTo(mInitialState);
@@ -282,6 +280,124 @@ public class TetherInterfaceStateMachine extends StateMachine {
                 case CMD_INTERFACE_DOWN:
                     transitionTo(mUnavailableState);
                     if (DBG) Log.d(TAG, "Untethered (ifdown)" + mIfaceName);
+                    break;
+                case CMD_IPV6_TETHER_UPDATE:
+                    mIPv6TetherSvc.updateUpstreamIPv6LinkProperties(
+                            (LinkProperties) message.obj);
+                    break;
+                case CMD_IP_FORWARDING_ENABLE_ERROR:
+                case CMD_IP_FORWARDING_DISABLE_ERROR:
+                case CMD_START_TETHERING_ERROR:
+                case CMD_STOP_TETHERING_ERROR:
+                case CMD_SET_DNS_FORWARDERS_ERROR:
+                    mLastError = ConnectivityManager.TETHER_ERROR_MASTER_ERROR;
+                    transitionTo(mInitialState);
+                    break;
+                default:
+                    return false;
+            }
+            return true;
+        }
+    }
+
+    // Handling errors in BaseServingState.enter() by transitioning is
+    // problematic because transitioning during a multi-state jump yields
+    // a Log.wtf(). Ultimately, there should be only one ServingState,
+    // and forwarding and NAT rules should be handled by a coordinating
+    // functional element outside of TetherInterfaceStateMachine.
+    class LocalHotspotState extends BaseServingState {
+        @Override
+        public void enter() {
+            super.enter();
+            if (mLastError != ConnectivityManager.TETHER_ERROR_NO_ERROR) {
+                transitionTo(mInitialState);
+            }
+
+            if (DBG) Log.d(TAG, "Local hotspot " + mIfaceName);
+            sendInterfaceState(IControlsTethering.STATE_LOCAL_ONLY);
+        }
+
+        @Override
+        public boolean processMessage(Message message) {
+            if (super.processMessage(message)) return true;
+
+            maybeLogMessage(this, message.what);
+            switch (message.what) {
+                case CMD_TETHER_REQUESTED:
+                    mLog.e("CMD_TETHER_REQUESTED while in local-only hotspot mode.");
+                    break;
+                case CMD_TETHER_CONNECTION_CHANGED:
+                    // Ignored in local hotspot state.
+                    break;
+                default:
+                    return false;
+            }
+            return true;
+        }
+    }
+
+    // Handling errors in BaseServingState.enter() by transitioning is
+    // problematic because transitioning during a multi-state jump yields
+    // a Log.wtf(). Ultimately, there should be only one ServingState,
+    // and forwarding and NAT rules should be handled by a coordinating
+    // functional element outside of TetherInterfaceStateMachine.
+    class TetheredState extends BaseServingState {
+        @Override
+        public void enter() {
+            super.enter();
+            if (mLastError != ConnectivityManager.TETHER_ERROR_NO_ERROR) {
+                transitionTo(mInitialState);
+            }
+
+            if (DBG) Log.d(TAG, "Tethered " + mIfaceName);
+            sendInterfaceState(IControlsTethering.STATE_TETHERED);
+        }
+
+        @Override
+        public void exit() {
+            cleanupUpstream();
+            super.exit();
+        }
+
+        private void cleanupUpstream() {
+            if (mMyUpstreamIfaceName == null) return;
+
+            cleanupUpstreamInterface(mMyUpstreamIfaceName);
+            mMyUpstreamIfaceName = null;
+        }
+
+        private void cleanupUpstreamInterface(String upstreamIface) {
+            // Note that we don't care about errors here.
+            // Sometimes interfaces are gone before we get
+            // to remove their rules, which generates errors.
+            // Just do the best we can.
+            try {
+                // About to tear down NAT; gather remaining statistics.
+                mStatsService.forceUpdate();
+            } catch (Exception e) {
+                if (VDBG) Log.e(TAG, "Exception in forceUpdate: " + e.toString());
+            }
+            try {
+                mNMService.stopInterfaceForwarding(mIfaceName, upstreamIface);
+            } catch (Exception e) {
+                if (VDBG) Log.e(TAG, "Exception in removeInterfaceForward: " + e.toString());
+            }
+            try {
+                mNMService.disableNat(mIfaceName, upstreamIface);
+            } catch (Exception e) {
+                if (VDBG) Log.e(TAG, "Exception in disableNat: " + e.toString());
+            }
+        }
+
+        @Override
+        public boolean processMessage(Message message) {
+            if (super.processMessage(message)) return true;
+
+            maybeLogMessage(this, message.what);
+            boolean retValue = true;
+            switch (message.what) {
+                case CMD_TETHER_REQUESTED:
+                    mLog.e("CMD_TETHER_REQUESTED while already tethering.");
                     break;
                 case CMD_TETHER_CONNECTION_CHANGED:
                     String newUpstreamIfaceName = (String)(message.obj);
@@ -298,25 +414,14 @@ public class TetherInterfaceStateMachine extends StateMachine {
                             mNMService.startInterfaceForwarding(mIfaceName,
                                     newUpstreamIfaceName);
                         } catch (Exception e) {
-                            Log.e(TAG, "Exception enabling Nat: " + e.toString());
+                            mLog.e("Exception enabling NAT: " + e);
+                            cleanupUpstreamInterface(newUpstreamIfaceName);
                             mLastError = ConnectivityManager.TETHER_ERROR_ENABLE_NAT_ERROR;
                             transitionTo(mInitialState);
                             return true;
                         }
                     }
                     mMyUpstreamIfaceName = newUpstreamIfaceName;
-                    break;
-                case CMD_IPV6_TETHER_UPDATE:
-                    mIPv6TetherSvc.updateUpstreamIPv6LinkProperties(
-                            (LinkProperties) message.obj);
-                    break;
-                case CMD_IP_FORWARDING_ENABLE_ERROR:
-                case CMD_IP_FORWARDING_DISABLE_ERROR:
-                case CMD_START_TETHERING_ERROR:
-                case CMD_STOP_TETHERING_ERROR:
-                case CMD_SET_DNS_FORWARDERS_ERROR:
-                    mLastError = ConnectivityManager.TETHER_ERROR_MASTER_ERROR;
-                    transitionTo(mInitialState);
                     break;
                 default:
                     retValue = false;
@@ -337,9 +442,7 @@ public class TetherInterfaceStateMachine extends StateMachine {
         @Override
         public void enter() {
             mLastError = ConnectivityManager.TETHER_ERROR_NO_ERROR;
-            mTetherController.notifyInterfaceStateChange(
-                    mIfaceName, TetherInterfaceStateMachine.this,
-                    IControlsTethering.STATE_UNAVAILABLE, mLastError);
+            sendInterfaceState(IControlsTethering.STATE_UNAVAILABLE);
         }
     }
 }

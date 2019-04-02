@@ -16,20 +16,6 @@
 
 package com.android.internal.telephony.dataconnection;
 
-import com.android.internal.telephony.CallTracker;
-import com.android.internal.telephony.CarrierSignalAgent;
-import com.android.internal.telephony.CommandException;
-import com.android.internal.telephony.DctConstants;
-import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.PhoneConstants;
-import com.android.internal.telephony.RILConstants;
-import com.android.internal.telephony.RetryManager;
-import com.android.internal.telephony.ServiceStateTracker;
-import com.android.internal.util.AsyncChannel;
-import com.android.internal.util.Protocol;
-import com.android.internal.util.State;
-import com.android.internal.util.StateMachine;
-
 import android.app.PendingIntent;
 import android.content.Context;
 import android.net.ConnectivityManager;
@@ -39,6 +25,7 @@ import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.net.NetworkMisc;
 import android.net.ProxyInfo;
+import android.net.StringNetworkSpecifier;
 import android.os.AsyncResult;
 import android.os.Looper;
 import android.os.Message;
@@ -52,15 +39,30 @@ import android.util.Pair;
 import android.util.Patterns;
 import android.util.TimeUtils;
 
+import com.android.internal.telephony.CallTracker;
+import com.android.internal.telephony.CarrierSignalAgent;
+import com.android.internal.telephony.CommandException;
+import com.android.internal.telephony.DctConstants;
+import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneConstants;
+import com.android.internal.telephony.RILConstants;
+import com.android.internal.telephony.RetryManager;
+import com.android.internal.telephony.ServiceStateTracker;
+import com.android.internal.telephony.TelephonyIntents;
+import com.android.internal.util.AsyncChannel;
+import com.android.internal.util.Protocol;
+import com.android.internal.util.State;
+import com.android.internal.util.StateMachine;
+
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.util.ArrayList;
-import java.util.Locale;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.net.InetAddress;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * {@hide}
@@ -102,14 +104,17 @@ public class DataConnection extends StateMachine {
         ApnContext mApnContext;
         int mProfileId;
         int mRilRat;
+        final boolean mUnmeteredUseOnly;
         Message mOnCompletedMsg;
         final int mConnectionGeneration;
 
-        ConnectionParams(ApnContext apnContext, int profileId,
-                int rilRadioTechnology, Message onCompletedMsg, int connectionGeneration) {
+        ConnectionParams(ApnContext apnContext, int profileId, int rilRadioTechnology,
+                         boolean unmeteredUseOnly,  Message onCompletedMsg,
+                         int connectionGeneration) {
             mApnContext = apnContext;
             mProfileId = profileId;
             mRilRat = rilRadioTechnology;
+            mUnmeteredUseOnly = unmeteredUseOnly;
             mOnCompletedMsg = onCompletedMsg;
             mConnectionGeneration = connectionGeneration;
         }
@@ -119,6 +124,7 @@ public class DataConnection extends StateMachine {
             return "{mTag=" + mTag + " mApnContext=" + mApnContext
                     + " mProfileId=" + mProfileId
                     + " mRat=" + mRilRat
+                    + " mUnmeteredUseOnly=" + mUnmeteredUseOnly
                     + " mOnCompletedMsg=" + msgToString(mOnCompletedMsg) + "}";
         }
     }
@@ -252,10 +258,6 @@ public class DataConnection extends StateMachine {
     }
 
     /* Getter functions */
-
-    NetworkCapabilities getCopyNetworkCapabilities() {
-        return makeNetworkCapabilities();
-    }
 
     LinkProperties getCopyLinkProperties() {
         return new LinkProperties(mLinkProperties);
@@ -439,20 +441,10 @@ public class DataConnection extends StateMachine {
 
         // Check if we should fake an error.
         if (mDcTesterFailBringUpAll.getDcFailBringUp().mCounter  > 0) {
-            DataCallResponse response = new DataCallResponse();
-            response.version = mPhone.mCi.getRilVersion();
-            response.status = mDcTesterFailBringUpAll.getDcFailBringUp().mFailCause.getErrorCode();
-            response.cid = 0;
-            response.active = 0;
-            response.type = "";
-            response.ifname = "";
-            response.addresses = new String[0];
-            response.dnses = new String[0];
-            response.gateways = new String[0];
-            response.suggestedRetryTime =
-                    mDcTesterFailBringUpAll.getDcFailBringUp().mSuggestedRetryTime;
-            response.pcscf = new String[0];
-            response.mtu = PhoneConstants.UNSET_MTU;
+            DataCallResponse response = new DataCallResponse(
+                    mDcTesterFailBringUpAll.getDcFailBringUp().mFailCause.getErrorCode(),
+                    mDcTesterFailBringUpAll.getDcFailBringUp().mSuggestedRetryTime, 0, 0, "", "",
+                    "", "", "", "", PhoneConstants.UNSET_MTU);
 
             Message msg = obtainMessage(EVENT_SETUP_DATA_CONNECTION_DONE, cp);
             AsyncResult.forMessage(msg, response, null);
@@ -473,25 +465,11 @@ public class DataConnection extends StateMachine {
         Message msg = obtainMessage(EVENT_SETUP_DATA_CONNECTION_DONE, cp);
         msg.obj = cp;
 
-        int authType = mApnSetting.authType;
-        if (authType == -1) {
-            authType = TextUtils.isEmpty(mApnSetting.user) ? RILConstants.SETUP_DATA_AUTH_NONE
-                    : RILConstants.SETUP_DATA_AUTH_PAP_CHAP;
-        }
+        DataProfile dp = new DataProfile(mApnSetting, cp.mProfileId);
 
-        String protocol;
-        if (mPhone.getServiceState().getDataRoamingFromRegistration()) {
-            protocol = mApnSetting.roamingProtocol;
-        } else {
-            protocol = mApnSetting.protocol;
-        }
-
-        mPhone.mCi.setupDataCall(
-                cp.mRilRat,
-                cp.mProfileId,
-                mApnSetting.apn, mApnSetting.user, mApnSetting.password,
-                authType,
-                protocol, msg);
+        mPhone.mCi.setupDataCall(cp.mRilRat, dp,
+                mPhone.getServiceState().getDataRoamingFromRegistration(),
+                mPhone.getDataRoamingEnabled(), msg);
     }
 
     /**
@@ -708,8 +686,6 @@ public class DataConnection extends StateMachine {
                     == CommandException.Error.RADIO_NOT_AVAILABLE) {
                 result = DataCallResponse.SetupResult.ERR_BadCommand;
                 result.mFailCause = DcFailCause.RADIO_NOT_AVAILABLE;
-            } else if ((response == null) || (response.version < 4)) {
-                result = DataCallResponse.SetupResult.ERR_GetLastErrorFromRil;
             } else {
                 result = DataCallResponse.SetupResult.ERR_RilError;
                 result.mFailCause = DcFailCause.fromInt(response.status);
@@ -841,7 +817,7 @@ public class DataConnection extends StateMachine {
      *
      * This gets set once per connection setup and is based on conditions at that time.
      * We could theoretically have dynamic capabilities but now is not a good time to
-     * experiement with that.
+     * experiment with that.
      *
      * This flag overrides the APN-based restriction capability, restricting the network
      * based on both having a NetworkRequest with restricted AND needing a restricted
@@ -882,15 +858,23 @@ public class DataConnection extends StateMachine {
         }
 
         // Is data disabled?
-        mRestrictedNetworkOverride = (mDct.isDataEnabled(true) == false);
+        mRestrictedNetworkOverride = !mDct.isDataEnabled();
     }
 
-    private NetworkCapabilities makeNetworkCapabilities() {
+    NetworkCapabilities getNetworkCapabilities() {
         NetworkCapabilities result = new NetworkCapabilities();
         result.addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR);
 
         if (mApnSetting != null) {
             for (String type : mApnSetting.types) {
+                if (!mRestrictedNetworkOverride
+                        && (mConnectionParams != null && mConnectionParams.mUnmeteredUseOnly)
+                        && ApnSetting.isMeteredApnType(type,
+                        mPhone.getContext(), mPhone.getSubId(),
+                        mPhone.getServiceState().getDataRoaming())) {
+                    log("Dropped the metered " + type + " for the unmetered data call.");
+                    continue;
+                }
                 switch (type) {
                     case PhoneConstants.APN_TYPE_ALL: {
                         result.addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
@@ -945,9 +929,12 @@ public class DataConnection extends StateMachine {
                 }
             }
 
-            // If none of the APN types associated with this APN setting is metered,
-            // then we apply NOT_METERED capability to the network.
-            if (!mApnSetting.isMetered(mPhone.getContext(), mPhone.getSubId(),
+            // Mark NOT_METERED in the following cases,
+            // 1. All APNs in APN settings are unmetered.
+            // 2. The non-restricted data and is intended for unmetered use only.
+            if (((mConnectionParams != null && mConnectionParams.mUnmeteredUseOnly)
+                    && !mRestrictedNetworkOverride)
+                    || !mApnSetting.isMetered(mPhone.getContext(), mPhone.getSubId(),
                     mPhone.getServiceState().getDataRoaming())) {
                 result.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
                 mNetworkInfo.setMetered(false);
@@ -988,7 +975,7 @@ public class DataConnection extends StateMachine {
         result.setLinkUpstreamBandwidthKbps(up);
         result.setLinkDownstreamBandwidthKbps(down);
 
-        result.setNetworkSpecifier(Integer.toString(mPhone.getSubId()));
+        result.setNetworkSpecifier(new StringNetworkSpecifier(Integer.toString(mPhone.getSubId())));
 
         return result;
     }
@@ -1167,7 +1154,7 @@ public class DataConnection extends StateMachine {
                     break;
                 }
                 case DcAsyncChannel.REQ_GET_NETWORK_CAPABILITIES: {
-                    NetworkCapabilities nc = getCopyNetworkCapabilities();
+                    NetworkCapabilities nc = getNetworkCapabilities();
                     if (VDBG) log("REQ_GET_NETWORK_CAPABILITIES networkCapabilities" + nc);
                     mAc.replyToMessage(msg, DcAsyncChannel.RSP_GET_NETWORK_CAPABILITIES, nc);
                     break;
@@ -1229,7 +1216,7 @@ public class DataConnection extends StateMachine {
                             TelephonyManager.getNetworkTypeName(networkType));
                     if (mNetworkAgent != null) {
                         updateNetworkInfoSuspendState();
-                        mNetworkAgent.sendNetworkCapabilities(makeNetworkCapabilities());
+                        mNetworkAgent.sendNetworkCapabilities(getNetworkCapabilities());
                         mNetworkAgent.sendNetworkInfo(mNetworkInfo);
                         mNetworkAgent.sendLinkProperties(mLinkProperties);
                     }
@@ -1457,11 +1444,6 @@ public class DataConnection extends StateMachine {
                             tearDownData(cp);
                             transitionTo(mDisconnectingErrorCreatingConnection);
                             break;
-                        case ERR_GetLastErrorFromRil:
-                            // Request failed and this is an old RIL
-                            mPhone.mCi.getLastDataCallFailCause(
-                                    obtainMessage(EVENT_GET_LAST_FAIL_DONE, cp));
-                            break;
                         case ERR_RilError:
 
                             // Retrieve the suggested retry delay from the modem and save it.
@@ -1475,9 +1457,10 @@ public class DataConnection extends StateMachine {
                                     + " delay=" + delay
                                     + " result=" + result
                                     + " result.isRestartRadioFail=" +
-                                    result.mFailCause.isRestartRadioFail()
-                                    + " result.isPermanentFail=" +
-                                    mDct.isPermanentFail(result.mFailCause);
+                                    result.mFailCause.isRestartRadioFail(mPhone.getContext(),
+                                            mPhone.getSubId())
+                                    + " isPermanentFailure=" +
+                                    mDct.isPermanentFailure(result.mFailCause);
                             if (DBG) log(str);
                             if (cp.mApnContext != null) cp.mApnContext.requestLog(str);
 
@@ -1603,7 +1586,8 @@ public class DataConnection extends StateMachine {
 
             final NetworkMisc misc = new NetworkMisc();
             final CarrierSignalAgent carrierSignalAgent = mPhone.getCarrierSignalAgent();
-            if(carrierSignalAgent.hasRegisteredCarrierSignalReceivers()) {
+            if (carrierSignalAgent.hasRegisteredReceivers(TelephonyIntents
+                    .ACTION_CARRIER_SIGNAL_REDIRECTED)) {
                 // carrierSignal Receivers will place the carrier-specific provisioning notification
                 misc.provisioningNotificationDisabled = true;
             }
@@ -1612,7 +1596,7 @@ public class DataConnection extends StateMachine {
             if (createNetworkAgent) {
                 setNetworkRestriction();
                 mNetworkAgent = new DcNetworkAgent(getHandler().getLooper(), mPhone.getContext(),
-                        "DcNetworkAgent", mNetworkInfo, makeNetworkCapabilities(), mLinkProperties,
+                        "DcNetworkAgent", mNetworkInfo, getNetworkCapabilities(), mLinkProperties,
                         50, misc);
             }
         }
@@ -1734,7 +1718,7 @@ public class DataConnection extends StateMachine {
                     } else {
                         final ArrayList<Integer> capInfo = (ArrayList<Integer>)ar.result;
                         final int lceBwDownKbps = capInfo.get(0);
-                        NetworkCapabilities nc = makeNetworkCapabilities();
+                        NetworkCapabilities nc = getNetworkCapabilities();
                         if (mPhone.getLceStatus() == RILConstants.LCE_ACTIVE) {
                             nc.setLinkDownstreamBandwidthKbps(lceBwDownKbps);
                             if (mNetworkAgent != null) {
@@ -2087,7 +2071,7 @@ public class DataConnection extends StateMachine {
                 + " mLastFailCause=" + mLastFailCause
                 + " mTag=" + mTag
                 + " mLinkProperties=" + mLinkProperties
-                + " linkCapabilities=" + makeNetworkCapabilities()
+                + " linkCapabilities=" + getNetworkCapabilities()
                 + " mRestrictedNetworkOverride=" + mRestrictedNetworkOverride;
     }
 
@@ -2137,7 +2121,7 @@ public class DataConnection extends StateMachine {
         pw.flush();
         pw.println(" mDataRegState=" + mDataRegState);
         pw.println(" mRilRat=" + mRilRat);
-        pw.println(" mNetworkCapabilities=" + makeNetworkCapabilities());
+        pw.println(" mNetworkCapabilities=" + getNetworkCapabilities());
         pw.println(" mCreateTime=" + TimeUtils.logTimeOfDay(mCreateTime));
         pw.println(" mLastFailTime=" + TimeUtils.logTimeOfDay(mLastFailTime));
         pw.println(" mLastFailCause=" + mLastFailCause);

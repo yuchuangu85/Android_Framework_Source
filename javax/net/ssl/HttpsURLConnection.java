@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,7 +30,6 @@ import java.net.URL;
 import java.net.HttpURLConnection;
 import java.security.Principal;
 import java.security.cert.X509Certificate;
-import javax.security.auth.x500.X500Principal;
 
 /**
  * <code>HttpsURLConnection</code> extends <code>HttpURLConnection</code>
@@ -145,8 +144,7 @@ class HttpsURLConnection extends HttpURLConnection
             throws SSLPeerUnverifiedException {
 
         java.security.cert.Certificate[] certs = getServerCertificates();
-        return ((X500Principal)
-                ((X509Certificate)certs[0]).getSubjectX500Principal());
+        return ((X509Certificate)certs[0]).getSubjectX500Principal();
     }
 
     /**
@@ -174,8 +172,7 @@ class HttpsURLConnection extends HttpURLConnection
 
         java.security.cert.Certificate[] certs = getLocalCertificates();
         if (certs != null) {
-            return ((X500Principal)
-                ((X509Certificate)certs[0]).getSubjectX500Principal());
+            return ((X509Certificate)certs[0]).getSubjectX500Principal();
         } else {
             return null;
         }

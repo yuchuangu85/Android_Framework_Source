@@ -16,30 +16,18 @@
 
 package com.android.internal.telephony;
 
-import android.content.Context;
-import android.net.LinkProperties;
-import android.net.NetworkCapabilities;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.telephony.CellInfo;
+import android.os.WorkSource;
+import android.os.ResultReceiver;
 import android.telephony.CellLocation;
 import android.telephony.CarrierConfigManager;
-import android.telephony.PhoneStateListener;
 import android.telephony.ServiceState;
-import android.telephony.SignalStrength;
-
-import com.android.internal.telephony.imsphone.ImsPhone;
-import com.android.internal.telephony.RadioCapability;
-import com.android.internal.telephony.test.SimulatedRadioControl;
-import com.android.internal.telephony.uicc.IsimRecords;
-import com.android.internal.telephony.uicc.UiccCard;
-import com.android.internal.telephony.uicc.UsimServiceTable;
 
 import com.android.internal.telephony.PhoneConstants.*; // ????
 
 import java.util.List;
-import java.util.Locale;
 
 /**
  * Internal interface used to control the phone; SDK developers cannot
@@ -219,8 +207,9 @@ public interface PhoneInternalInterface {
 
     /**
      * Get the current CellLocation.
+     * @param workSource calling WorkSource
      */
-    CellLocation getCellLocation();
+    CellLocation getCellLocation(WorkSource workSource);
 
     /**
      * Get the current DataState. No change notification exists at this
@@ -448,6 +437,15 @@ public interface PhoneInternalInterface {
     boolean handlePinMmi(String dialString);
 
     /**
+     * Handles USSD commands
+     *
+     * @param ussdRequest the USSD command to be executed.
+     * @param wrappedCallback receives the callback result.
+     */
+    boolean handleUssdRequest(String ussdRequest, ResultReceiver wrappedCallback)
+            throws CallStateException;
+
+    /**
      * Handles in-call MMI commands. While in a call, or while receiving a
      * call, use this to execute MMI commands.
      * see 3GPP 20.030, section 6.5.5.1 for specs on the allowed MMI commands.
@@ -655,8 +653,9 @@ public interface PhoneInternalInterface {
      *
      * @param response callback message that is dispatched when the query
      * completes.
+     * @param workSource calling WorkSource
      */
-    void getNeighboringCids(Message response);
+    default void getNeighboringCids(Message response, WorkSource workSource){}
 
     /**
      * Mutes or unmutes the microphone for the active call. The microphone

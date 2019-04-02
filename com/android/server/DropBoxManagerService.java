@@ -40,6 +40,7 @@ import android.util.Slog;
 import libcore.io.IoUtils;
 
 import com.android.internal.os.IDropBoxManagerService;
+import com.android.internal.util.DumpUtils;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -179,20 +180,6 @@ public final class DropBoxManagerService extends SystemService {
 
     @Override
     public void onStart() {
-        // Set up intent receivers
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(Intent.ACTION_DEVICE_STORAGE_LOW);
-        getContext().registerReceiver(mReceiver, filter);
-
-        mContentResolver.registerContentObserver(
-            Settings.Global.CONTENT_URI, true,
-            new ContentObserver(new Handler()) {
-                @Override
-                public void onChange(boolean selfChange) {
-                    mReceiver.onReceive(getContext(), (Intent) null);
-                }
-            });
-
         publishBinderService(Context.DROPBOX_SERVICE, mStub);
 
         // The real work gets done lazily in init() -- that way service creation always
@@ -202,6 +189,21 @@ public final class DropBoxManagerService extends SystemService {
     @Override
     public void onBootPhase(int phase) {
         switch (phase) {
+            case PHASE_SYSTEM_SERVICES_READY:
+                IntentFilter filter = new IntentFilter();
+                filter.addAction(Intent.ACTION_DEVICE_STORAGE_LOW);
+                getContext().registerReceiver(mReceiver, filter);
+
+                mContentResolver.registerContentObserver(
+                    Settings.Global.CONTENT_URI, true,
+                    new ContentObserver(new Handler()) {
+                        @Override
+                        public void onChange(boolean selfChange) {
+                            mReceiver.onReceive(getContext(), (Intent) null);
+                        }
+                    });
+                break;
+
             case PHASE_BOOT_COMPLETED:
                 mBooted = true;
                 break;
@@ -349,11 +351,7 @@ public final class DropBoxManagerService extends SystemService {
     }
 
     public synchronized void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        if (getContext().checkCallingOrSelfPermission(android.Manifest.permission.DUMP)
-                != PackageManager.PERMISSION_GRANTED) {
-            pw.println("Permission Denial: Can't dump DropBoxManagerService");
-            return;
-        }
+        if (!DumpUtils.checkDumpAndUsageStatsPermission(getContext(), TAG, pw)) return;
 
         try {
             init();
@@ -373,6 +371,14 @@ public final class DropBoxManagerService extends SystemService {
                 doPrint = true;
             } else if (args[i].equals("-f") || args[i].equals("--file")) {
                 doFile = true;
+            } else if (args[i].equals("-h") || args[i].equals("--help")) {
+                pw.println("Dropbox (dropbox) dump options:");
+                pw.println("  [-h|--help] [-p|--print] [-f|--file] [timestamp]");
+                pw.println("    -h|--help: print this help");
+                pw.println("    -p|--print: print full contents of each entry");
+                pw.println("    -f|--file: print path of each entry's file");
+                pw.println("  [timestamp] optionally filters to only those entries.");
+                return;
             } else if (args[i].startsWith("-")) {
                 out.append("Unknown argument: ").append(args[i]).append("\n");
             } else {
@@ -607,7 +613,7 @@ public final class DropBoxManagerService extends SystemService {
             this.flags = flags;
 
             long millis;
-            try { millis = Long.valueOf(name); } catch (NumberFormatException e) { millis = 0; }
+            try { millis = Long.parseLong(name); } catch (NumberFormatException e) { millis = 0; }
             this.timestampMillis = millis;
         }
 
@@ -736,7 +742,7 @@ public final class DropBoxManagerService extends SystemService {
      * Trims the files on disk to make sure they aren't using too much space.
      * @return the overall quota for storage (in bytes)
      */
-    private synchronized long trimToFit() {
+    private synchronized long trimToFit() throws IOException {
         // Expunge aged items (including tombstones marking deleted data).
 
         int ageSeconds = Settings.Global.getInt(mContentResolver,
@@ -768,7 +774,12 @@ public final class DropBoxManagerService extends SystemService {
             int quotaKb = Settings.Global.getInt(mContentResolver,
                     Settings.Global.DROPBOX_QUOTA_KB, DEFAULT_QUOTA_KB);
 
-            mStatFs.restat(mDropBoxDir.getPath());
+            String dirPath = mDropBoxDir.getPath();
+            try {
+                mStatFs.restat(dirPath);
+            } catch (IllegalArgumentException e) {  // restat throws this on error
+                throw new IOException("Can't restat: " + mDropBoxDir);
+            }
             int available = mStatFs.getAvailableBlocks();
             int nonreserved = available - mStatFs.getBlockCount() * reservePercent / 100;
             int maximum = quotaKb * 1024 / mBlockSize;

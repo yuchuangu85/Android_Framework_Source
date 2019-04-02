@@ -18,6 +18,7 @@ package android.databinding.testlibrary;
 
 import android.databinding.Bindable;
 import android.databinding.BaseObservable;
+import android.view.View;
 
 public class TestLibObject extends BaseObservable {
     @Bindable
@@ -30,5 +31,9 @@ public class TestLibObject extends BaseObservable {
     public void setField(String field) {
         this.mField = field;
         notifyPropertyChanged(BR.field);
+    }
+
+    public void clickHandler(View view) {
+
     }
 }

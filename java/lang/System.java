@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1994, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,19 +25,26 @@
  */
 package java.lang;
 
-import dalvik.system.VMRuntime;
-import dalvik.system.VMStack;
+import dalvik.annotation.optimization.FastNative;
+import android.system.ErrnoException;
 import android.system.StructPasswd;
 import android.system.StructUtsname;
-import android.system.ErrnoException;
+import dalvik.system.VMRuntime;
+import dalvik.system.VMStack;
 import java.io.*;
-import java.util.Locale;
-import java.util.Properties;
+import java.lang.annotation.Annotation;
 import java.nio.channels.Channel;
 import java.nio.channels.spi.SelectorProvider;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Properties;
+import java.util.PropertyPermission;
 import libcore.icu.ICU;
 import libcore.io.Libcore;
+import libcore.util.TimeZoneDataFiles;
 
+import sun.reflect.CallerSensitive;
+import sun.security.util.SecurityConstants;
 /**
  * The <code>System</code> class contains several useful class fields
  * and methods. It cannot be instantiated.
@@ -191,8 +198,7 @@ public final class System {
         setErr0(err);
     }
 
-    private static Console cons = null;
-
+    private static volatile Console cons = null;
     /**
      * Returns the unique {@link java.io.Console Console} object associated
      * with the current Java virtual machine, if any.
@@ -202,13 +208,15 @@ public final class System {
      * @since   1.6
      */
      public static Console console() {
-         synchronized (System.class) {
-             if (cons == null) {
-                 cons = Console.console();
+         // Android-changed: Added proper double checked locking for cons access
+         if (cons == null) {
+             synchronized (System.class) {
+                 if (cons == null) {
+                     cons = Console.console();
+                 }
              }
-
-             return cons;
          }
+         return cons;
      }
 
     /**
@@ -252,15 +260,15 @@ public final class System {
      * cannot be safely isolated within a single VM on Android, so this method
      * <i>always</i> throws a {@code SecurityException} when passed a non-null SecurityManager
      *
-     * @param sm a security manager
+     * @param s a security manager
      * @throws SecurityException always, unless {@code sm == null}
      */
-    public static void setSecurityManager(SecurityManager sm) {
-        if (sm != null) {
+    public static
+    void setSecurityManager(final SecurityManager s) {
+        if (s != null) {
             throw new SecurityException();
         }
     }
-
 
     /**
      * Always returns {@code null} in Android
@@ -338,11 +346,11 @@ public final class System {
 
     /**
      * Copies an array from the specified source array, beginning at the
-     * specified position, to the specified position of the destination(目的地) array.
-     * A subsequence（子序列） of array components are copied from the source
-     * array referenced（引用） by <code>src</code> to the destination array
+     * specified position, to the specified position of the destination array.
+     * A subsequence of array components are copied from the source
+     * array referenced by <code>src</code> to the destination array
      * referenced by <code>dest</code>. The number of components copied is
-     * equal to the <code>length</code> argument（内容）. The components at
+     * equal to the <code>length</code> argument. The components at
      * positions <code>srcPos</code> through
      * <code>srcPos+length-1</code> in the source array are copied into
      * positions <code>destPos</code> through
@@ -352,7 +360,7 @@ public final class System {
      * If the <code>src</code> and <code>dest</code> arguments refer to the
      * same array object, then the copying is performed as if the
      * components at positions <code>srcPos</code> through
-     * <code>srcPos+length-1</code> were first copied to a temporary（临时的）
+     * <code>srcPos+length-1</code> were first copied to a temporary
      * array with <code>length</code> components and then the contents of
      * the temporary array were copied into positions
      * <code>destPos</code> through <code>destPos+length-1</code> of the
@@ -415,11 +423,11 @@ public final class System {
      * paragraph effectively applies only to the situation where both
      * arrays have component types that are reference types.)
      *
-     * @param      src      the source array.（来源数组）
-     * @param      srcPos   starting position in the source array.（来源数组的起始位置）
-     * @param      dest     the destination array.（目标数组）
-     * @param      destPos  starting position in the destination data.（目标数组的插入起始位置）
-     * @param      length   the number of array elements to be copied.（需要拷贝的数组长度）
+     * @param      src      the source array.
+     * @param      srcPos   starting position in the source array.
+     * @param      dest     the destination array.
+     * @param      destPos  starting position in the destination data.
+     * @param      length   the number of array elements to be copied.
      * @exception  IndexOutOfBoundsException  if copying would cause
      *               access of data outside array bounds.
      * @exception  ArrayStoreException  if an element in the <code>src</code>
@@ -428,12 +436,13 @@ public final class System {
      * @exception  NullPointerException if either <code>src</code> or
      *               <code>dest</code> is <code>null</code>.
      */
+    @FastNative
     public static native void arraycopy(Object src,  int  srcPos,
                                         Object dest, int destPos,
                                         int length);
 
 
-    // ----- BEGIN android -----
+    // BEGIN Android-changed
     /**
      * The char array length threshold below which to use a Java
      * (non-native) version of arraycopy() instead of the native
@@ -484,6 +493,7 @@ public final class System {
      * The char[] specialized, unchecked, native version of
      * arraycopy(). This assumes error checking has been done.
      */
+    @FastNative
     private static native void arraycopyCharUnchecked(char[] src, int srcPos,
         char[] dst, int dstPos, int length);
 
@@ -537,6 +547,7 @@ public final class System {
      * The byte[] specialized, unchecked, native version of
      * arraycopy(). This assumes error checking has been done.
      */
+    @FastNative
     private static native void arraycopyByteUnchecked(byte[] src, int srcPos,
         byte[] dst, int dstPos, int length);
 
@@ -590,6 +601,7 @@ public final class System {
      * The short[] specialized, unchecked, native version of
      * arraycopy(). This assumes error checking has been done.
      */
+    @FastNative
     private static native void arraycopyShortUnchecked(short[] src, int srcPos,
         short[] dst, int dstPos, int length);
 
@@ -643,6 +655,7 @@ public final class System {
      * The int[] specialized, unchecked, native version of
      * arraycopy(). This assumes error checking has been done.
      */
+    @FastNative
     private static native void arraycopyIntUnchecked(int[] src, int srcPos,
         int[] dst, int dstPos, int length);
 
@@ -696,6 +709,7 @@ public final class System {
      * The long[] specialized, unchecked, native version of
      * arraycopy(). This assumes error checking has been done.
      */
+    @FastNative
     private static native void arraycopyLongUnchecked(long[] src, int srcPos,
         long[] dst, int dstPos, int length);
 
@@ -749,6 +763,7 @@ public final class System {
      * The float[] specialized, unchecked, native version of
      * arraycopy(). This assumes error checking has been done.
      */
+    @FastNative
     private static native void arraycopyFloatUnchecked(float[] src, int srcPos,
         float[] dst, int dstPos, int length);
 
@@ -802,6 +817,7 @@ public final class System {
      * The double[] specialized, unchecked, native version of
      * arraycopy(). This assumes error checking has been done.
      */
+    @FastNative
     private static native void arraycopyDoubleUnchecked(double[] src, int srcPos,
         double[] dst, int dstPos, int length);
 
@@ -855,9 +871,10 @@ public final class System {
      * The boolean[] specialized, unchecked, native version of
      * arraycopy(). This assumes error checking has been done.
      */
+    @FastNative
     private static native void arraycopyBooleanUnchecked(boolean[] src, int srcPos,
         boolean[] dst, int dstPos, int length);
-    // ----- END android -----
+    // END Android-changed
 
     /**
      * Returns the same hash code for the given object as
@@ -870,7 +887,12 @@ public final class System {
      * @return  the hashCode
      * @since   JDK1.1
      */
-    public static native int identityHashCode(Object x);
+    public static int identityHashCode(Object x) {
+        if (x == null) {
+            return 0;
+        }
+        return Object.identityHashCode(x);
+    }
 
     /**
      * System properties. The following properties are guaranteed to be defined:
@@ -976,7 +998,8 @@ public final class System {
         // is prioritized over the properties in ICUConfig.properties. The issue with using
         // that is that it doesn't play well with jarjar and it needs complicated build rules
         // to change its default value.
-        p.put("android.icu.impl.ICUBinary.dataPath", getenv("ANDROID_ROOT") + "/usr/icu");
+        String icuDataPath = TimeZoneDataFiles.generateIcuDataPath();
+        p.put("android.icu.impl.ICUBinary.dataPath", icuDataPath);
 
         parsePropertyAssignments(p, specialProperties());
 
@@ -1117,12 +1140,26 @@ public final class System {
      * <p>
      * Multiple paths in a system property value are separated by the path
      * separator character of the platform.
+     * <p>
+     * Note that even if the security manager does not permit the
+     * <code>getProperties</code> operation, it may choose to permit the
+     * {@link #getProperty(String)} operation.
      *
      * @return     the system properties
+     * @exception  SecurityException  if a security manager exists and its
+     *             <code>checkPropertiesAccess</code> method doesn't allow access
+     *              to the system properties.
      * @see        #setProperties
+     * @see        java.lang.SecurityException
+     * @see        java.lang.SecurityManager#checkPropertiesAccess()
      * @see        java.util.Properties
      */
     public static Properties getProperties() {
+        SecurityManager sm = getSecurityManager();
+        if (sm != null) {
+            sm.checkPropertiesAccess();
+        }
+
         return props;
     }
 
@@ -1133,6 +1170,9 @@ public final class System {
      *
      * <p>On UNIX systems, it returns {@code "\n"}; on Microsoft
      * Windows systems it returns {@code "\r\n"}.
+     *
+     * @return the system-dependent line separator string
+     * @since 1.7
      */
     public static String lineSeparator() {
         return lineSeparator;
@@ -1160,7 +1200,11 @@ public final class System {
 
     /**
      * Gets the system property indicated by the specified key.
-     *
+     * <p>
+     * First, if there is a security manager, its
+     * <code>checkPropertyAccess</code> method is called with the key as
+     * its argument. This may result in a SecurityException.
+     * <p>
      * If there is no current set of system properties, a set of system
      * properties is first created and initialized in the same manner as
      * for the <code>getProperties</code> method.
@@ -1169,14 +1213,23 @@ public final class System {
      * @return     the string value of the system property,
      *             or <code>null</code> if there is no property with that key.
      *
+     * @exception  SecurityException  if a security manager exists and its
+     *             <code>checkPropertyAccess</code> method doesn't allow
+     *              access to the specified system property.
      * @exception  NullPointerException if <code>key</code> is
      *             <code>null</code>.
      * @exception  IllegalArgumentException if <code>key</code> is empty.
      * @see        #setProperty
+     * @see        java.lang.SecurityException
+     * @see        java.lang.SecurityManager#checkPropertyAccess(java.lang.String)
      * @see        java.lang.System#getProperties()
      */
     public static String getProperty(String key) {
         checkKey(key);
+        SecurityManager sm = getSecurityManager();
+        if (sm != null) {
+            sm.checkPropertyAccess(key);
+        }
 
         return props.getProperty(key);
     }
@@ -1197,57 +1250,99 @@ public final class System {
      * @return     the string value of the system property,
      *             or the default value if there is no property with that key.
      *
+     * @exception  SecurityException  if a security manager exists and its
+     *             <code>checkPropertyAccess</code> method doesn't allow
+     *             access to the specified system property.
      * @exception  NullPointerException if <code>key</code> is
      *             <code>null</code>.
      * @exception  IllegalArgumentException if <code>key</code> is empty.
      * @see        #setProperty
+     * @see        java.lang.SecurityManager#checkPropertyAccess(java.lang.String)
      * @see        java.lang.System#getProperties()
      */
     public static String getProperty(String key, String def) {
         checkKey(key);
+        SecurityManager sm = getSecurityManager();
+        if (sm != null) {
+            sm.checkPropertyAccess(key);
+        }
 
         return props.getProperty(key, def);
     }
 
     /**
      * Sets the system property indicated by the specified key.
+     * <p>
+     * First, if a security manager exists, its
+     * <code>SecurityManager.checkPermission</code> method
+     * is called with a <code>PropertyPermission(key, "write")</code>
+     * permission. This may result in a SecurityException being thrown.
+     * If no exception is thrown, the specified property is set to the given
+     * value.
+     * <p>
      *
      * @param      key   the name of the system property.
      * @param      value the value of the system property.
      * @return     the previous value of the system property,
      *             or <code>null</code> if it did not have one.
      *
+     * @exception  SecurityException  if a security manager exists and its
+     *             <code>checkPermission</code> method doesn't allow
+     *             setting of the specified property.
      * @exception  NullPointerException if <code>key</code> or
      *             <code>value</code> is <code>null</code>.
      * @exception  IllegalArgumentException if <code>key</code> is empty.
      * @see        #getProperty
      * @see        java.lang.System#getProperty(java.lang.String)
      * @see        java.lang.System#getProperty(java.lang.String, java.lang.String)
+     * @see        java.util.PropertyPermission
+     * @see        SecurityManager#checkPermission
      * @since      1.2
      */
     public static String setProperty(String key, String value) {
         checkKey(key);
+        SecurityManager sm = getSecurityManager();
+        if (sm != null) {
+            sm.checkPermission(new PropertyPermission(key,
+                SecurityConstants.PROPERTY_WRITE_ACTION));
+        }
 
         return (String) props.setProperty(key, value);
     }
 
     /**
      * Removes the system property indicated by the specified key.
+     * <p>
+     * First, if a security manager exists, its
+     * <code>SecurityManager.checkPermission</code> method
+     * is called with a <code>PropertyPermission(key, "write")</code>
+     * permission. This may result in a SecurityException being thrown.
+     * If no exception is thrown, the specified property is removed.
+     * <p>
      *
      * @param      key   the name of the system property to be removed.
      * @return     the previous string value of the system property,
      *             or <code>null</code> if there was no property with that key.
      *
+     * @exception  SecurityException  if a security manager exists and its
+     *             <code>checkPropertyAccess</code> method doesn't allow
+     *              access to the specified system property.
      * @exception  NullPointerException if <code>key</code> is
      *             <code>null</code>.
      * @exception  IllegalArgumentException if <code>key</code> is empty.
      * @see        #getProperty
      * @see        #setProperty
      * @see        java.util.Properties
+     * @see        java.lang.SecurityException
+     * @see        java.lang.SecurityManager#checkPropertiesAccess()
      * @since 1.5
      */
     public static String clearProperty(String key) {
         checkKey(key);
+        SecurityManager sm = getSecurityManager();
+        if (sm != null) {
+            sm.checkPermission(new PropertyPermission(key, "write"));
+        }
 
         return (String) props.remove(key);
     }
@@ -1357,6 +1452,11 @@ public final class System {
      * @since  1.5
      */
     public static java.util.Map<String,String> getenv() {
+        SecurityManager sm = getSecurityManager();
+        if (sm != null) {
+            sm.checkPermission(new RuntimePermission("getenv.*"));
+        }
+
         return ProcessEnvironment.getenv();
     }
 
@@ -1477,13 +1577,25 @@ public final class System {
      */
     @Deprecated
     public static void runFinalizersOnExit(boolean value) {
-        Runtime.getRuntime().runFinalizersOnExit(value);
+        Runtime.runFinalizersOnExit(value);
     }
 
     /**
-     * Loads a code file with the specified filename from the local file
-     * system as a dynamic library. The filename
-     * argument must be a complete path name.
+     * Loads the native library specified by the filename argument.  The filename
+     * argument must be an absolute path name.
+     *
+     * If the filename argument, when stripped of any platform-specific library
+     * prefix, path, and file extension, indicates a library whose name is,
+     * for example, L, and a native library called L is statically linked
+     * with the VM, then the JNI_OnLoad_L function exported by the library
+     * is invoked rather than attempting to load a dynamic library.
+     * A filename matching the argument does not have to exist in the
+     * file system.
+     * See the JNI Specification for more details.
+     *
+     * Otherwise, the filename argument is mapped to a native library image in
+     * an implementation-dependent manner.
+     *
      * <p>
      * The call <code>System.load(name)</code> is effectively equivalent
      * to the call:
@@ -1495,20 +1607,31 @@ public final class System {
      * @exception  SecurityException  if a security manager exists and its
      *             <code>checkLink</code> method doesn't allow
      *             loading of the specified dynamic library
-     * @exception  UnsatisfiedLinkError  if the file does not exist.
+     * @exception  UnsatisfiedLinkError  if either the filename is not an
+     *             absolute path name, the native library is not statically
+     *             linked with the VM, or the library cannot be mapped to
+     *             a native library image by the host system.
      * @exception  NullPointerException if <code>filename</code> is
      *             <code>null</code>
      * @see        java.lang.Runtime#load(java.lang.String)
      * @see        java.lang.SecurityManager#checkLink(java.lang.String)
      */
+    @CallerSensitive
     public static void load(String filename) {
         Runtime.getRuntime().load0(VMStack.getStackClass1(), filename);
     }
 
     /**
-     * Loads the system library specified by the <code>libname</code>
-     * argument. The manner in which a library name is mapped to the
-     * actual system library is system dependent.
+     * Loads the native library specified by the <code>libname</code>
+     * argument.  The <code>libname</code> argument must not contain any platform
+     * specific prefix, file extension or path. If a native library
+     * called <code>libname</code> is statically linked with the VM, then the
+     * JNI_OnLoad_<code>libname</code> function exported by the library is invoked.
+     * See the JNI Specification for more details.
+     *
+     * Otherwise, the libname argument is loaded from a system library
+     * location and mapped to a native library image in an implementation-
+     * dependent manner.
      * <p>
      * The call <code>System.loadLibrary(name)</code> is effectively
      * equivalent to the call
@@ -1520,12 +1643,16 @@ public final class System {
      * @exception  SecurityException  if a security manager exists and its
      *             <code>checkLink</code> method doesn't allow
      *             loading of the specified dynamic library
-     * @exception  UnsatisfiedLinkError  if the library does not exist.
+     * @exception  UnsatisfiedLinkError if either the libname argument
+     *             contains a file path, the native library is not statically
+     *             linked with the VM,  or the library cannot be mapped to a
+     *             native library image by the host system.
      * @exception  NullPointerException if <code>libname</code> is
      *             <code>null</code>
      * @see        java.lang.Runtime#loadLibrary(java.lang.String)
      * @see        java.lang.SecurityManager#checkLink(java.lang.String)
      */
+    @CallerSensitive
     public static void loadLibrary(String libname) {
         Runtime.getRuntime().loadLibrary0(VMStack.getCallingClassLoader(), libname);
     }
@@ -1545,6 +1672,19 @@ public final class System {
     public static native String mapLibraryName(String libname);
 
     /**
+     * Create PrintStream for stdout/err based on encoding.
+     */
+    private static PrintStream newPrintStream(FileOutputStream fos, String enc) {
+       if (enc != null) {
+            try {
+                return new PrintStream(new BufferedOutputStream(fos, 128), true, enc);
+            } catch (UnsupportedEncodingException uee) {}
+        }
+        return new PrintStream(new BufferedOutputStream(fos, 128), true);
+    }
+
+
+    /**
      * Initialize the system class.  Called after thread initialization.
      */
     static {
@@ -1561,10 +1701,12 @@ public final class System {
         FileInputStream fdIn = new FileInputStream(FileDescriptor.in);
         FileOutputStream fdOut = new FileOutputStream(FileDescriptor.out);
         FileOutputStream fdErr = new FileOutputStream(FileDescriptor.err);
-
-        in = new BufferedInputStream(fdIn);
-        out = new PrintStream(fdOut);
-        err = new PrintStream(fdErr);
+        // BEGIN Android-changed: lower buffer size.
+        // in = new BufferedInputStream(fdIn);
+        in = new BufferedInputStream(fdIn, 128);
+        // END Android-changed: lower buffer size.
+        out = newPrintStream(fdOut, props.getProperty("sun.stdout.encoding"));
+        err = newPrintStream(fdErr, props.getProperty("sun.stderr.encoding"));
 
         // Initialize any miscellenous operating system settings that need to be
         // set for the class libraries. Currently this is no-op everywhere except

@@ -44,7 +44,7 @@ public class JUnitTestCaseAdapter extends TestCase implements DOMTestFramework {
     test.setFramework(this);
     this.test = test;
   }
-//BEGIN android-added
+//BEGIN Android-added
   public JUnitTestCaseAdapter() {
       
   }
@@ -150,9 +150,9 @@ public class JUnitTestCaseAdapter extends TestCase implements DOMTestFramework {
             }
         }
     }
-//END android-added
+//END Android-added
   protected void runTest() throws Throwable {
-      //BEGIN android-added
+      //BEGIN Android-added
       if (failed) {
           if (errorMessage != null) {
               fail(errorMessage);
@@ -160,7 +160,7 @@ public class JUnitTestCaseAdapter extends TestCase implements DOMTestFramework {
               fail("init failed");
           }
       }
-      //END android-added
+      //END Android-added
     test.runTest();
     int mutationCount = test.getMutationCount();
     if (mutationCount != 0) {

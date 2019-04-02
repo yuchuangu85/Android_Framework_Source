@@ -101,6 +101,8 @@ public class UiccController extends Handler {
 
     protected RegistrantList mIccChangedRegistrants = new RegistrantList();
 
+    private UiccStateChangedLauncher mLauncher;
+
     // Logging for dumpsys. Useful in cases when the cards run into errors.
     private static final int MAX_PROACTIVE_COMMANDS_TO_LOG = 20;
     private LinkedList<String> mCardLogs = new LinkedList<String>();
@@ -136,6 +138,8 @@ public class UiccController extends Handler {
             mCis[i].registerForNotAvailable(this, EVENT_RADIO_UNAVAILABLE, index);
             mCis[i].registerForIccRefresh(this, EVENT_SIM_REFRESH, index);
         }
+
+        mLauncher = new UiccStateChangedLauncher(c, this);
     }
 
     public static UiccController getInstance() {

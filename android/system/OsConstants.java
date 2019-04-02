@@ -24,6 +24,20 @@ public final class OsConstants {
     }
 
     /**
+     * Returns the index of the element in the cap_user_data array that this capability is stored
+     * in.
+     * @hide
+     */
+    public static int CAP_TO_INDEX(int x) { return x >>> 5; }
+
+    /**
+     * Returns the mask for the given capability. This is relative to the capability's cap_user_data
+     * element, the index of which can be retrieved with CAP_TO_INDEX.
+     * @hide
+     */
+    public static int CAP_TO_MASK(int x) { return 1 << (x & 31); }
+
+    /**
      * Tests whether the given mode is a block device.
      */
     public static boolean S_ISBLK(int mode) { return (mode & S_IFMT) == S_IFBLK; }
@@ -264,6 +278,10 @@ public final class OsConstants {
     public static final int F_SETOWN = placeholder();
     public static final int F_UNLCK = placeholder();
     public static final int F_WRLCK = placeholder();
+    /** @hide */ public static final int ICMP_ECHO = placeholder();
+    /** @hide */ public static final int ICMP_ECHOREPLY = placeholder();
+    /** @hide */ public static final int ICMP6_ECHO_REQUEST = placeholder();
+    /** @hide */ public static final int ICMP6_ECHO_REPLY = placeholder();
     public static final int IFA_F_DADFAILED = placeholder();
     public static final int IFA_F_DEPRECATED = placeholder();
     public static final int IFA_F_HOMEADDRESS = placeholder();
@@ -309,12 +327,14 @@ public final class OsConstants {
     public static final int IPV6_TCLASS = placeholder();
     public static final int IPV6_UNICAST_HOPS = placeholder();
     public static final int IPV6_V6ONLY = placeholder();
+    /** @hide */ public static final int IP_MULTICAST_ALL = placeholder();
     public static final int IP_MULTICAST_IF = placeholder();
     public static final int IP_MULTICAST_LOOP = placeholder();
     public static final int IP_MULTICAST_TTL = placeholder();
     /** @hide */ public static final int IP_RECVTOS = placeholder();
     public static final int IP_TOS = placeholder();
     public static final int IP_TTL = placeholder();
+    /** @hide */ public static final int _LINUX_CAPABILITY_VERSION_3 = placeholder();
     public static final int MAP_FIXED = placeholder();
     /** @hide */ public static final int MAP_POPULATE = placeholder();
     public static final int MAP_PRIVATE = placeholder();
@@ -367,6 +387,8 @@ public final class OsConstants {
     public static final int POLLRDNORM = placeholder();
     public static final int POLLWRBAND = placeholder();
     public static final int POLLWRNORM = placeholder();
+    /** @hide */ public static final int PR_CAP_AMBIENT = placeholder();
+    /** @hide */ public static final int PR_CAP_AMBIENT_RAISE = placeholder();
     public static final int PR_GET_DUMPABLE = placeholder();
     public static final int PR_SET_DUMPABLE = placeholder();
     public static final int PR_SET_NO_NEW_PRIVS = placeholder();
@@ -444,6 +466,7 @@ public final class OsConstants {
     public static final int SO_BINDTODEVICE = placeholder();
     public static final int SO_BROADCAST = placeholder();
     public static final int SO_DEBUG = placeholder();
+    /** @hide */ public static final int SO_DOMAIN = placeholder();
     public static final int SO_DONTROUTE = placeholder();
     public static final int SO_ERROR = placeholder();
     public static final int SO_KEEPALIVE = placeholder();
@@ -451,6 +474,7 @@ public final class OsConstants {
     public static final int SO_OOBINLINE = placeholder();
     public static final int SO_PASSCRED = placeholder();
     public static final int SO_PEERCRED = placeholder();
+    /** @hide */ public static final int SO_PROTOCOL = placeholder();
     public static final int SO_RCVBUF = placeholder();
     public static final int SO_RCVLOWAT = placeholder();
     public static final int SO_RCVTIMEO = placeholder();
@@ -495,7 +519,11 @@ public final class OsConstants {
     public static final int S_IXOTH = placeholder();
     public static final int S_IXUSR = placeholder();
     public static final int TCP_NODELAY = placeholder();
+    public static final int TCP_USER_TIMEOUT = placeholder();
     /** @hide */ public static final int TIOCOUTQ = placeholder();
+    /** @hide */ public static final int UDP_ENCAP = placeholder();
+    /** @hide */ public static final int UDP_ENCAP_ESPINUDP_NON_IKE = placeholder();
+    /** @hide */ public static final int UDP_ENCAP_ESPINUDP = placeholder();
     /** @hide */ public static final int UNIX_PATH_MAX = placeholder();
     public static final int WCONTINUED = placeholder();
     public static final int WEXITED = placeholder();

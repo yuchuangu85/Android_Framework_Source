@@ -1,8 +1,37 @@
+/*
+ * Copyright (C) 2016 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.android.server.wifi;
 
-import java.io.IOException;
+import android.text.TextUtils;
 
+/**
+ * Class for storing an IMSI (International Mobile Subscriber Identity) parameter.  The IMSI
+ * contains number (up to 15) of numerical digits.  When an IMSI ends with a '*', the specified
+ * IMSI is a prefix.
+ */
 public class IMSIParameter {
+    private static final int MAX_IMSI_LENGTH = 15;
+
+    /**
+     * MCC (Mobile Country Code) is a 3 digit number and MNC (Mobile Network Code) is also a 3
+     * digit number.
+     */
+    private static final int MCC_MNC_LENGTH = 6;
+
     private final String mImsi;
     private final boolean mPrefix;
 
@@ -11,11 +40,22 @@ public class IMSIParameter {
         mPrefix = prefix;
     }
 
-    public IMSIParameter(String imsi) throws IOException {
-        if (imsi == null || imsi.length() == 0) {
-            throw new IOException("Bad IMSI: '" + imsi + "'");
+    /**
+     * Build an IMSIParameter object from the given string.  A null will be returned for a
+     * malformed string.
+     *
+     * @param imsi The IMSI string
+     * @return {@link IMSIParameter}
+     */
+    public static IMSIParameter build(String imsi) {
+        if (TextUtils.isEmpty(imsi)) {
+            return null;
+        }
+        if (imsi.length() > MAX_IMSI_LENGTH) {
+            return null;
         }
 
+        // Detect the first non-digit character.
         int nonDigit;
         char stopChar = '\0';
         for (nonDigit = 0; nonDigit < imsi.length(); nonDigit++) {
@@ -26,48 +66,55 @@ public class IMSIParameter {
         }
 
         if (nonDigit == imsi.length()) {
-            mImsi = imsi;
-            mPrefix = false;
+            // Full IMSI.
+            return new IMSIParameter(imsi, false);
         }
         else if (nonDigit == imsi.length()-1 && stopChar == '*') {
-            mImsi = imsi.substring(0, nonDigit);
-            mPrefix = true;
+            // IMSI prefix.
+            return new IMSIParameter(imsi.substring(0, nonDigit), true);
         }
-        else {
-            throw new IOException("Bad IMSI: '" + imsi + "'");
-        }
+        return null;
     }
 
-    public boolean matches(String fullIMSI) {
-        if (mPrefix) {
-            return mImsi.regionMatches(false, 0, fullIMSI, 0, mImsi.length());
+    /**
+     * Perform matching against the given full IMSI.
+     *
+     * @param fullIMSI The full IMSI to match against
+     * @return true if matched
+     */
+    public boolean matchesImsi(String fullIMSI) {
+        if (fullIMSI == null) {
+            return false;
         }
-        else {
+
+        if (mPrefix) {
+            // Prefix matching.
+            return mImsi.regionMatches(false, 0, fullIMSI, 0, mImsi.length());
+        } else {
+            // Exact matching.
             return mImsi.equals(fullIMSI);
         }
     }
 
+    /**
+     * Perform matching against the given MCC-MNC (Mobile Country Code and Mobile Network
+     * Code) combination.
+     *
+     * @param mccMnc The MCC-MNC to match against
+     * @return true if matched
+     */
     public boolean matchesMccMnc(String mccMnc) {
-        if (mPrefix) {
-            // For a prefix match, the entire prefix must match the mcc+mnc
-            return mImsi.regionMatches(false, 0, mccMnc, 0, mImsi.length());
+        if (mccMnc == null) {
+            return false;
         }
-        else {
-            // For regular match, the entire length of mcc+mnc must match this IMSI
-            return mImsi.regionMatches(false, 0, mccMnc, 0, mccMnc.length());
+        if (mccMnc.length() != MCC_MNC_LENGTH) {
+            return false;
         }
-    }
-
-    public boolean isPrefix() {
-        return mPrefix;
-    }
-
-    public String getImsi() {
-        return mImsi;
-    }
-
-    public int prefixLength() {
-        return mImsi.length();
+        int checkLength = MCC_MNC_LENGTH;
+        if (mPrefix && mImsi.length() < MCC_MNC_LENGTH) {
+            checkLength = mImsi.length();
+        }
+        return mImsi.regionMatches(false, 0, mccMnc, 0, checkLength);
     }
 
     @Override
@@ -75,12 +122,12 @@ public class IMSIParameter {
         if (this == thatObject) {
             return true;
         }
-        else if (thatObject == null || getClass() != thatObject.getClass()) {
+        if (!(thatObject instanceof IMSIParameter)) {
             return false;
         }
 
         IMSIParameter that = (IMSIParameter) thatObject;
-        return mPrefix == that.mPrefix && mImsi.equals(that.mImsi);
+        return mPrefix == that.mPrefix && TextUtils.equals(mImsi, that.mImsi);
     }
 
     @Override

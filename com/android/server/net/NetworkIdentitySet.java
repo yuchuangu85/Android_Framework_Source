@@ -17,6 +17,8 @@
 package com.android.server.net;
 
 import android.net.NetworkIdentity;
+import android.service.NetworkIdentitySetProto;
+import android.util.proto.ProtoOutputStream;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -91,6 +93,19 @@ public class NetworkIdentitySet extends HashSet<NetworkIdentity> implements
         }
     }
 
+    /** @return whether any {@link NetworkIdentity} in this set is considered metered. */
+    public boolean isAnyMemberMetered() {
+        if (isEmpty()) {
+            return false;
+        }
+        for (NetworkIdentity ident : this) {
+            if (ident.getMetered()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** @return whether any {@link NetworkIdentity} in this set is considered roaming. */
     public boolean isAnyMemberRoaming() {
         if (isEmpty()) {
@@ -129,5 +144,15 @@ public class NetworkIdentitySet extends HashSet<NetworkIdentity> implements
         final NetworkIdentity ident = iterator().next();
         final NetworkIdentity anotherIdent = another.iterator().next();
         return ident.compareTo(anotherIdent);
+    }
+
+    public void writeToProto(ProtoOutputStream proto, long tag) {
+        final long start = proto.start(tag);
+
+        for (NetworkIdentity ident : this) {
+            ident.writeToProto(proto, NetworkIdentitySetProto.IDENTITIES);
+        }
+
+        proto.end(start);
     }
 }

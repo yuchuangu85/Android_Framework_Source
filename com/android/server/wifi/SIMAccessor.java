@@ -23,7 +23,7 @@ public class SIMAccessor {
         List<String> imsis = new ArrayList<>();
         for (int subId : mSubscriptionManager.getActiveSubscriptionIdList()) {
             String imsi = mTelephonyManager.getSubscriberId(subId);
-            if (mccMnc.matches(imsi)) {
+            if (imsi != null && mccMnc.matchesImsi(imsi)) {
                 imsis.add(imsi);
             }
         }

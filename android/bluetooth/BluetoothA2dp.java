@@ -25,6 +25,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.media.AudioManager;
+import android.os.Binder;
 import android.os.IBinder;
 import android.os.ParcelUuid;
 import android.os.RemoteException;
@@ -102,6 +103,26 @@ public final class BluetoothA2dp implements BluetoothProfile {
         "android.bluetooth.a2dp.profile.action.AVRCP_CONNECTION_STATE_CHANGED";
 
     /**
+     * Intent used to broadcast the change in the Audio Codec state of the
+     * A2DP Source profile.
+     *
+     * <p>This intent will have 2 extras:
+     * <ul>
+     *   <li> {@link BluetoothCodecStatus#EXTRA_CODEC_STATUS} - The codec status. </li>
+     *   <li> {@link BluetoothDevice#EXTRA_DEVICE} - The remote device if the device is currently
+     *   connected, otherwise it is not included.</li>
+     * </ul>
+     *
+     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission to
+     * receive.
+     *
+     * @hide
+     */
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+    public static final String ACTION_CODEC_CONFIG_CHANGED =
+        "android.bluetooth.a2dp.profile.action.CODEC_CONFIG_CHANGED";
+
+    /**
      * A2DP sink device is streaming music. This state can be one of
      * {@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} of
      * {@link #ACTION_PLAYING_STATE_CHANGED} intent.
@@ -114,6 +135,38 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * {@link #ACTION_PLAYING_STATE_CHANGED} intent.
      */
     public static final int STATE_NOT_PLAYING   =  11;
+
+    /**
+     * We don't have a stored preference for whether or not the given A2DP sink device supports
+     * optional codecs.
+     * @hide */
+    public static final int OPTIONAL_CODECS_SUPPORT_UNKNOWN = -1;
+
+    /**
+     * The given A2DP sink device does not support optional codecs.
+     * @hide */
+    public static final int OPTIONAL_CODECS_NOT_SUPPORTED = 0;
+
+    /**
+     * The given A2DP sink device does support optional codecs.
+     * @hide */
+    public static final int OPTIONAL_CODECS_SUPPORTED = 1;
+
+    /**
+     * We don't have a stored preference for whether optional codecs should be enabled or disabled
+     * for the given A2DP device.
+     * @hide */
+    public static final int OPTIONAL_CODECS_PREF_UNKNOWN = -1;
+
+    /**
+     * Optional codecs should be disabled for the given A2DP device.
+     * @hide */
+    public static final int OPTIONAL_CODECS_PREF_DISABLED = 0;
+
+    /**
+     *  Optional codecs should be enabled for the given A2DP device.
+     *  @hide */
+    public static final int OPTIONAL_CODECS_PREF_ENABLED = 1;
 
     private Context mContext;
     private ServiceListener mServiceListener;
@@ -401,8 +454,6 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * {@link #PRIORITY_AUTO_CONNECT}, {@link #PRIORITY_OFF},
      * {@link #PRIORITY_ON}, {@link #PRIORITY_UNDEFINED}
      *
-     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
-     *
      * @param device Bluetooth device
      * @return priority of the device
      * @hide
@@ -543,6 +594,181 @@ public final class BluetoothA2dp implements BluetoothProfile {
     }
 
     /**
+     * Gets the current codec status (configuration and capability).
+     *
+     * @return the current codec status
+     * @hide
+     */
+    public BluetoothCodecStatus getCodecStatus() {
+        if (DBG) Log.d(TAG, "getCodecStatus");
+        try {
+            mServiceLock.readLock().lock();
+            if (mService != null && isEnabled()) {
+                return mService.getCodecStatus();
+            }
+            if (mService == null) {
+                Log.w(TAG, "Proxy not attached to service");
+            }
+            return null;
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error talking to BT service in getCodecStatus()", e);
+            return null;
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Sets the codec configuration preference.
+     *
+     * @param codecConfig the codec configuration preference
+     * @hide
+     */
+    public void setCodecConfigPreference(BluetoothCodecConfig codecConfig) {
+        if (DBG) Log.d(TAG, "setCodecConfigPreference");
+        try {
+            mServiceLock.readLock().lock();
+            if (mService != null && isEnabled()) {
+                mService.setCodecConfigPreference(codecConfig);
+            }
+            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            return;
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error talking to BT service in setCodecConfigPreference()", e);
+            return;
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Enables the optional codecs.
+     *
+     * @hide
+     */
+    public void enableOptionalCodecs() {
+        if (DBG) Log.d(TAG, "enableOptionalCodecs");
+        enableDisableOptionalCodecs(true);
+    }
+
+    /**
+     * Disables the optional codecs.
+     *
+     * @hide
+     */
+    public void disableOptionalCodecs() {
+        if (DBG) Log.d(TAG, "disableOptionalCodecs");
+        enableDisableOptionalCodecs(false);
+    }
+
+    /**
+     * Enables or disables the optional codecs.
+     *
+     * @param enable if true, enable the optional codecs, other disable them
+     */
+    private void enableDisableOptionalCodecs(boolean enable) {
+        try {
+            mServiceLock.readLock().lock();
+            if (mService != null && isEnabled()) {
+                if (enable) {
+                    mService.enableOptionalCodecs();
+                } else {
+                    mService.disableOptionalCodecs();
+                }
+            }
+            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            return;
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error talking to BT service in enableDisableOptionalCodecs()", e);
+            return;
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Returns whether this device supports optional codecs.
+     *
+     * @param device The device to check
+     * @return one of OPTIONAL_CODECS_SUPPORT_UNKNOWN, OPTIONAL_CODECS_NOT_SUPPORTED, or
+     *         OPTIONAL_CODECS_SUPPORTED.
+     *
+     * @hide
+     */
+    public int supportsOptionalCodecs(BluetoothDevice device) {
+        try {
+            mServiceLock.readLock().lock();
+            if (mService != null && isEnabled() && isValidDevice(device)) {
+                return mService.supportsOptionalCodecs(device);
+            }
+            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            return OPTIONAL_CODECS_SUPPORT_UNKNOWN;
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error talking to BT service in getSupportsOptionalCodecs()", e);
+            return OPTIONAL_CODECS_SUPPORT_UNKNOWN;
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Returns whether this device should have optional codecs enabled.
+     *
+     * @param device The device in question.
+     * @return one of OPTIONAL_CODECS_PREF_UNKNOWN, OPTIONAL_CODECS_PREF_ENABLED, or
+     *         OPTIONAL_CODECS_PREF_DISABLED.
+     *
+     * @hide
+     */
+    public int getOptionalCodecsEnabled(BluetoothDevice device) {
+        try {
+            mServiceLock.readLock().lock();
+            if (mService != null && isEnabled() && isValidDevice(device)) {
+                return mService.getOptionalCodecsEnabled(device);
+            }
+            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            return OPTIONAL_CODECS_PREF_UNKNOWN;
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error talking to BT service in getSupportsOptionalCodecs()", e);
+            return OPTIONAL_CODECS_PREF_UNKNOWN;
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Sets a persistent preference for whether a given device should have optional codecs enabled.
+     *
+     * @param device The device to set this preference for.
+     * @param value Whether the optional codecs should be enabled for this device.  This should be
+     *              one of OPTIONAL_CODECS_PREF_UNKNOWN, OPTIONAL_CODECS_PREF_ENABLED, or
+     *              OPTIONAL_CODECS_PREF_DISABLED.
+     * @hide
+     */
+    public void setOptionalCodecsEnabled(BluetoothDevice device, int value) {
+        try {
+            if (value != BluetoothA2dp.OPTIONAL_CODECS_PREF_UNKNOWN &&
+                    value != BluetoothA2dp.OPTIONAL_CODECS_PREF_DISABLED &&
+                    value != BluetoothA2dp.OPTIONAL_CODECS_PREF_ENABLED) {
+                Log.e(TAG, "Invalid value passed to setOptionalCodecsEnabled: " + value);
+                return;
+            }
+            mServiceLock.readLock().lock();
+            if (mService != null && isEnabled()
+                    && isValidDevice(device)) {
+                mService.setOptionalCodecsEnabled(device, value);
+            }
+            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            return;
+        } catch (RemoteException e) {
+            Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
+            return;
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+    }
+
+    /**
      * Helper for converting a state to a string.
      *
      * For debug use only - strings are not internationalized.
@@ -572,7 +798,7 @@ public final class BluetoothA2dp implements BluetoothProfile {
             if (DBG) Log.d(TAG, "Proxy object connected");
             try {
                 mServiceLock.writeLock().lock();
-                mService = IBluetoothA2dp.Stub.asInterface(service);
+                mService = IBluetoothA2dp.Stub.asInterface(Binder.allowBlocking(service));
             } finally {
                 mServiceLock.writeLock().unlock();
             }

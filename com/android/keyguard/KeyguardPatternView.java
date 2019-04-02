@@ -15,6 +15,9 @@
  */
 package com.android.keyguard;
 
+import static com.android.keyguard.LatencyTracker.ACTION_CHECK_CREDENTIAL;
+import static com.android.keyguard.LatencyTracker.ACTION_CHECK_CREDENTIAL_UNLOCKED;
+
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.AsyncTask;
@@ -137,7 +140,7 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
         mLockPatternUtils = mLockPatternUtils == null
                 ? new LockPatternUtils(mContext) : mLockPatternUtils;
 
-        mLockPatternView = (LockPatternView) findViewById(R.id.lockPatternView);
+        mLockPatternView = findViewById(R.id.lockPatternView);
         mLockPatternView.setSaveEnabled(false);
         mLockPatternView.setOnPatternListener(new UnlockPatternListener());
 
@@ -147,9 +150,9 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
         mSecurityMessageDisplay =
                 (KeyguardMessageArea) KeyguardMessageArea.findSecurityMessageDisplay(this);
         mEcaView = findViewById(R.id.keyguard_selector_fade_container);
-        mContainer = (ViewGroup) findViewById(R.id.container);
+        mContainer = findViewById(R.id.container);
 
-        EmergencyButton button = (EmergencyButton) findViewById(R.id.emergency_call_button);
+        EmergencyButton button = findViewById(R.id.emergency_call_button);
         if (button != null) {
             button.setCallback(this);
         }
@@ -197,7 +200,7 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
     }
 
     private void displayDefaultSecurityMessage() {
-        mSecurityMessageDisplay.setMessage(R.string.kg_pattern_instructions, false);
+        mSecurityMessageDisplay.setMessage("");
     }
 
     @Override
@@ -216,7 +219,7 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
         @Override
         public void onPatternStart() {
             mLockPatternView.removeCallbacks(mCancelPatternRunnable);
-            mSecurityMessageDisplay.setMessage("", false);
+            mSecurityMessageDisplay.setMessage("");
         }
 
         @Override
@@ -242,6 +245,10 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
                 return;
             }
 
+            if (LatencyTracker.isEnabled(mContext)) {
+                LatencyTracker.getInstance(mContext).onActionStart(ACTION_CHECK_CREDENTIAL);
+                LatencyTracker.getInstance(mContext).onActionStart(ACTION_CHECK_CREDENTIAL_UNLOCKED);
+            }
             mPendingLockCheck = LockPatternChecker.checkPattern(
                     mLockPatternUtils,
                     pattern,
@@ -250,17 +257,35 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
 
                         @Override
                         public void onEarlyMatched() {
+                            if (LatencyTracker.isEnabled(mContext)) {
+                                LatencyTracker.getInstance(mContext).onActionEnd(
+                                        ACTION_CHECK_CREDENTIAL);
+                            }
                             onPatternChecked(userId, true /* matched */, 0 /* timeoutMs */,
                                     true /* isValidPattern */);
                         }
 
                         @Override
                         public void onChecked(boolean matched, int timeoutMs) {
+                            if (LatencyTracker.isEnabled(mContext)) {
+                                LatencyTracker.getInstance(mContext).onActionEnd(
+                                        ACTION_CHECK_CREDENTIAL_UNLOCKED);
+                            }
                             mLockPatternView.enableInput();
                             mPendingLockCheck = null;
                             if (!matched) {
                                 onPatternChecked(userId, false /* matched */, timeoutMs,
                                         true /* isValidPattern */);
+                            }
+                        }
+
+                        @Override
+                        public void onCancelled() {
+                            // We already got dismissed with the early matched callback, so we
+                            // cancelled the check. However, we still need to note down the latency.
+                            if (LatencyTracker.isEnabled(mContext)) {
+                                LatencyTracker.getInstance(mContext).onActionEnd(
+                                        ACTION_CHECK_CREDENTIAL_UNLOCKED);
                             }
                         }
                     });
@@ -276,7 +301,7 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
                 mCallback.reportUnlockAttempt(userId, true, 0);
                 if (dismissKeyguard) {
                     mLockPatternView.setDisplayMode(LockPatternView.DisplayMode.Correct);
-                    mCallback.dismiss(true);
+                    mCallback.dismiss(true, userId);
                 }
             } else {
                 mLockPatternView.setDisplayMode(LockPatternView.DisplayMode.Wrong);
@@ -289,7 +314,7 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
                     }
                 }
                 if (timeoutMs == 0) {
-                    mSecurityMessageDisplay.setMessage(R.string.kg_wrong_pattern, true);
+                    mSecurityMessageDisplay.setMessage(R.string.kg_wrong_pattern);
                     mLockPatternView.postDelayed(mCancelPatternRunnable, PATTERN_CLEAR_TIMEOUT_MS);
                 }
             }
@@ -300,14 +325,15 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
         mLockPatternView.clearPattern();
         mLockPatternView.setEnabled(false);
         final long elapsedRealtime = SystemClock.elapsedRealtime();
-
-        mCountdownTimer = new CountDownTimer(elapsedRealtimeDeadline - elapsedRealtime, 1000) {
+        final long secondsInFuture = (long) Math.ceil(
+                (elapsedRealtimeDeadline - elapsedRealtime) / 1000.0);
+        mCountdownTimer = new CountDownTimer(secondsInFuture * 1000, 1000) {
 
             @Override
             public void onTick(long millisUntilFinished) {
-                final int secondsRemaining = (int) (millisUntilFinished / 1000);
-                mSecurityMessageDisplay.setMessage(
-                        R.string.kg_too_many_failed_attempts_countdown, true, secondsRemaining);
+                final int secondsRemaining = (int) Math.round(millisUntilFinished / 1000.0);
+                mSecurityMessageDisplay.formatMessage(
+                        R.string.kg_too_many_failed_attempts_countdown, secondsRemaining);
             }
 
             @Override
@@ -350,26 +376,21 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
     public void showPromptReason(int reason) {
         switch (reason) {
             case PROMPT_REASON_RESTART:
-                mSecurityMessageDisplay.setMessage(R.string.kg_prompt_reason_restart_pattern,
-                        true /* important */);
+                mSecurityMessageDisplay.setMessage(R.string.kg_prompt_reason_restart_pattern);
                 break;
             case PROMPT_REASON_TIMEOUT:
-                mSecurityMessageDisplay.setMessage(R.string.kg_prompt_reason_timeout_pattern,
-                        true /* important */);
+                mSecurityMessageDisplay.setMessage(R.string.kg_prompt_reason_timeout_pattern);
                 break;
             case PROMPT_REASON_DEVICE_ADMIN:
-                mSecurityMessageDisplay.setMessage(R.string.kg_prompt_reason_device_admin,
-                        true /* important */);
+                mSecurityMessageDisplay.setMessage(R.string.kg_prompt_reason_device_admin);
                 break;
             case PROMPT_REASON_USER_REQUEST:
-                mSecurityMessageDisplay.setMessage(R.string.kg_prompt_reason_user_request,
-                        true /* important */);
+                mSecurityMessageDisplay.setMessage(R.string.kg_prompt_reason_user_request);
                 break;
             case PROMPT_REASON_NONE:
                 break;
             default:
-                mSecurityMessageDisplay.setMessage(R.string.kg_prompt_reason_timeout_pattern,
-                        true /* important */);
+                mSecurityMessageDisplay.setMessage(R.string.kg_prompt_reason_timeout_pattern);
                 break;
         }
     }
@@ -377,7 +398,7 @@ public class KeyguardPatternView extends LinearLayout implements KeyguardSecurit
     @Override
     public void showMessage(String message, int color) {
         mSecurityMessageDisplay.setNextMessageColor(color);
-        mSecurityMessageDisplay.setMessage(message, true /* important */);
+        mSecurityMessageDisplay.setMessage(message);
     }
 
     @Override

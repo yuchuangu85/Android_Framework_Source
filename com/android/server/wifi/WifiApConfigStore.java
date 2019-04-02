@@ -32,6 +32,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Random;
 import java.util.UUID;
 
 /**
@@ -45,6 +46,9 @@ public class WifiApConfigStore {
             Environment.getDataDirectory() + "/misc/wifi/softap.conf";
 
     private static final int AP_CONFIG_FILE_VERSION = 2;
+
+    private static final int RAND_SSID_INT_MIN = 1000;
+    private static final int RAND_SSID_INT_MAX = 9999;
 
     private WifiConfiguration mWifiApConfig = null;
 
@@ -191,10 +195,32 @@ public class WifiApConfigStore {
     private WifiConfiguration getDefaultApConfiguration() {
         WifiConfiguration config = new WifiConfiguration();
         config.SSID = mContext.getResources().getString(
-                R.string.wifi_tether_configure_ssid_default);
+                R.string.wifi_tether_configure_ssid_default) + "_" + getRandomIntForDefaultSsid();
         config.allowedKeyManagement.set(KeyMgmt.WPA2_PSK);
         String randomUUID = UUID.randomUUID().toString();
         //first 12 chars from xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+        config.preSharedKey = randomUUID.substring(0, 8) + randomUUID.substring(9, 13);
+        return config;
+    }
+
+    private static int getRandomIntForDefaultSsid() {
+        Random random = new Random();
+        return random.nextInt((RAND_SSID_INT_MAX - RAND_SSID_INT_MIN) + 1) + RAND_SSID_INT_MIN;
+    }
+
+    /**
+     * Generate a temporary WPA2 based configuration for use by the local only hotspot.
+     * This config is not persisted and will not be stored by the WifiApConfigStore.
+     */
+    public static WifiConfiguration generateLocalOnlyHotspotConfig(Context context) {
+        WifiConfiguration config = new WifiConfiguration();
+        config.SSID = context.getResources().getString(
+              R.string.wifi_localhotspot_configure_ssid_default) + "_"
+                      + getRandomIntForDefaultSsid();
+        config.allowedKeyManagement.set(KeyMgmt.WPA2_PSK);
+        config.networkId = WifiConfiguration.LOCAL_ONLY_NETWORK_ID;
+        String randomUUID = UUID.randomUUID().toString();
+        // first 12 chars from xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
         config.preSharedKey = randomUUID.substring(0, 8) + randomUUID.substring(9, 13);
         return config;
     }

@@ -16,41 +16,52 @@
 
 package com.android.setupwizardlib.test;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.os.Build;
-import android.test.InstrumentationTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.ArrayAdapter;
-import android.widget.HeaderViewListAdapter;
 import android.widget.ListAdapter;
 import android.widget.ListView;
 import android.widget.TextView;
 
 import com.android.setupwizardlib.GlifListLayout;
 
-public class GlifListLayoutTest extends InstrumentationTestCase {
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+@RunWith(AndroidJUnit4.class)
+@SmallTest
+public class GlifListLayoutTest {
 
     private Context mContext;
 
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
-        mContext = new ContextThemeWrapper(getInstrumentation().getContext(),
+    @Before
+    public void setUp() throws Exception {
+        mContext = new ContextThemeWrapper(InstrumentationRegistry.getContext(),
                 R.style.SuwThemeGlif_Light);
     }
 
-    @SmallTest
+    @Test
     public void testDefaultTemplate() {
         GlifListLayout layout = new GlifListLayout(mContext);
         assertListTemplateInflated(layout);
     }
 
-    @SmallTest
+    @Test
     public void testAddView() {
         GlifListLayout layout = new GlifListLayout(mContext);
         TextView tv = new TextView(mContext);
@@ -62,7 +73,7 @@ public class GlifListLayoutTest extends InstrumentationTestCase {
         }
     }
 
-    @SmallTest
+    @Test
     public void testInflateFromXml() {
         LayoutInflater inflater = LayoutInflater.from(mContext);
         GlifListLayout layout = (GlifListLayout)
@@ -70,14 +81,14 @@ public class GlifListLayoutTest extends InstrumentationTestCase {
         assertListTemplateInflated(layout);
     }
 
-    @SmallTest
+    @Test
     public void testGetListView() {
         GlifListLayout layout = new GlifListLayout(mContext);
         assertListTemplateInflated(layout);
         assertNotNull("getListView should not be null", layout.getListView());
     }
 
-    @SmallTest
+    @Test
     public void testAdapter() {
         GlifListLayout layout = new GlifListLayout(mContext);
         assertListTemplateInflated(layout);
@@ -93,7 +104,7 @@ public class GlifListLayoutTest extends InstrumentationTestCase {
                 adapter, gotAdapter);
     }
 
-    @SmallTest
+    @Test
     public void testDividerInset() {
         GlifListLayout layout = new GlifListLayout(mContext);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {

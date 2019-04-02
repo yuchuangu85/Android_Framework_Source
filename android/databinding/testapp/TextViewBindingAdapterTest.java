@@ -31,6 +31,7 @@ import android.text.method.DialerKeyListener;
 import android.text.method.DigitsKeyListener;
 import android.text.method.KeyListener;
 import android.text.method.TextKeyListener;
+import android.widget.EditText;
 import android.widget.TextView;
 
 public class TextViewBindingAdapterTest
@@ -314,5 +315,15 @@ public class TextViewBindingAdapterTest
         int expectedColor = mBinder.getRoot().getResources().getColor(
                 android.R.color.holo_blue_bright);
         assertEquals(expectedColor, textView.getCurrentTextColor());
+    }
+
+    @UiThreadTest
+    public void testTwoWayText() throws Throwable {
+        EditText view = mBinder.twoWayText;
+        mBindingObject.setText("Hello");
+        mBinder.executePendingBindings();
+        assertEquals("Hello", view.getText().toString());
+        view.setText("World");
+        assertEquals("World", mBindingObject.getText());
     }
 }

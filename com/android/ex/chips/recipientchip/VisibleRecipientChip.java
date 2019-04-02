@@ -28,6 +28,7 @@ import com.android.ex.chips.RecipientEntry;
  */
 public class VisibleRecipientChip extends ReplacementDrawableSpan implements DrawableRecipientChip {
     private final SimpleRecipientChip mDelegate;
+    private Rect mWarningIconBounds = new Rect(0, 0, 0, 0);
 
     public VisibleRecipientChip(final Drawable drawable, final RecipientEntry entry) {
         super(drawable);
@@ -102,5 +103,14 @@ public class VisibleRecipientChip extends ReplacementDrawableSpan implements Dra
     @Override
     public String toString() {
         return mDelegate.toString();
+    }
+
+    @Override
+    public Rect getWarningIconBounds() {
+        return mWarningIconBounds;
+    }
+
+    public void setWarningIconBounds(Rect warningIconBounds) {
+        mWarningIconBounds = warningIconBounds;
     }
 }

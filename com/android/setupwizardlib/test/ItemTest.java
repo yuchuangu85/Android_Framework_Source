@@ -16,10 +16,21 @@
 
 package com.android.setupwizardlib.test;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.verify;
+
+import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.ShapeDrawable;
-import android.test.AndroidTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -28,15 +39,33 @@ import android.widget.TextView;
 
 import com.android.setupwizardlib.R;
 import com.android.setupwizardlib.items.Item;
+import com.android.setupwizardlib.items.ItemHierarchy.Observer;
 
-public class ItemTest extends AndroidTestCase {
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.InOrder;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+
+@RunWith(AndroidJUnit4.class)
+@SmallTest
+public class ItemTest {
 
     private TextView mTitleView;
     private TextView mSummaryView;
     private ImageView mIconView;
     private FrameLayout mIconContainer;
 
-    @SmallTest
+    @Mock
+    private Observer mObserver;
+
+    @Before
+    public void setUp() {
+        MockitoAnnotations.initMocks(this);
+    }
+
+    @Test
     public void testOnBindView() {
         Item item = new Item();
         item.setTitle("TestTitle");
@@ -60,7 +89,7 @@ public class ItemTest extends AndroidTestCase {
         assertEquals("Icon should be level 4", 4, icon.getLevel());
     }
 
-    @SmallTest
+    @Test
     public void testSingleLineItem() {
         Item item = new Item();
         item.setTitle("TestTitle");
@@ -73,16 +102,29 @@ public class ItemTest extends AndroidTestCase {
         assertEquals("IconContainer should be gone", View.GONE, mIconContainer.getVisibility());
     }
 
-    @SmallTest
+    @Test
     public void testProperties() {
         Item item = new Item();
+        item.registerObserver(mObserver);
+        final InOrder inOrder = inOrder(mObserver);
+
         item.setTitle("TestTitle");
+        inOrder.verify(mObserver).onItemRangeChanged(eq(item), eq(0), eq(1));
+
         item.setSummary("TestSummary");
+        inOrder.verify(mObserver).onItemRangeChanged(eq(item), eq(0), eq(1));
+
         item.setEnabled(false);
+        inOrder.verify(mObserver).onItemRangeChanged(eq(item), eq(0), eq(1));
+
         ShapeDrawable icon = new ShapeDrawable();
         item.setIcon(icon);
+        inOrder.verify(mObserver).onItemRangeChanged(eq(item), eq(0), eq(1));
+
         item.setId(12345);
+
         item.setLayoutResource(56789);
+        inOrder.verify(mObserver).onItemRangeChanged(eq(item), eq(0), eq(1));
 
         assertEquals("Title should be \"TestTitle\"", "TestTitle", item.getTitle());
         assertEquals("Summary should be \"TestSummary\"", "TestSummary", item.getSummary());
@@ -92,7 +134,7 @@ public class ItemTest extends AndroidTestCase {
         assertEquals("Layout resource should be 56789", 56789, item.getLayoutResource());
     }
 
-    @SmallTest
+    @Test
     public void testDefaultValues() {
         Item item = new Item();
 
@@ -106,7 +148,7 @@ public class ItemTest extends AndroidTestCase {
         assertTrue("Default visible should be true", item.isVisible());
     }
 
-    @SmallTest
+    @Test
     public void testHierarchyImplementation() {
         Item item = new Item();
         item.setId(12345);
@@ -118,31 +160,38 @@ public class ItemTest extends AndroidTestCase {
         assertNull("findItemById with different ID should return null", item.findItemById(34567));
     }
 
-    @SmallTest
+    @Test
     public void testVisible() {
         Item item = new Item();
+        item.registerObserver(mObserver);
         item.setVisible(false);
 
         assertFalse("Item should not be visible", item.isVisible());
         assertEquals("Item count should be 0 when not visible", 0, item.getCount());
+
+        verify(mObserver).onItemRangeRemoved(eq(item), eq(0), eq(1));
+
+        item.setVisible(true);
+        verify(mObserver).onItemRangeInserted(eq(item), eq(0), eq(1));
     }
 
     private ViewGroup createLayout() {
-        ViewGroup root = new FrameLayout(mContext);
+        Context context = InstrumentationRegistry.getContext();
+        ViewGroup root = new FrameLayout(context);
 
-        mTitleView = new TextView(mContext);
+        mTitleView = new TextView(context);
         mTitleView.setId(R.id.suw_items_title);
         root.addView(mTitleView);
 
-        mSummaryView = new TextView(mContext);
+        mSummaryView = new TextView(context);
         mSummaryView.setId(R.id.suw_items_summary);
         root.addView(mSummaryView);
 
-        mIconContainer = new FrameLayout(mContext);
+        mIconContainer = new FrameLayout(context);
         mIconContainer.setId(R.id.suw_items_icon_container);
         root.addView(mIconContainer);
 
-        mIconView = new ImageView(mContext);
+        mIconView = new ImageView(context);
         mIconView.setId(R.id.suw_items_icon);
         mIconContainer.addView(mIconView);
 

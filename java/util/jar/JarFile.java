@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,19 +28,17 @@ package java.util.jar;
 
 import java.io.*;
 import java.lang.ref.SoftReference;
-import java.net.URL;
 import java.util.*;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 import java.util.zip.*;
 import java.security.CodeSigner;
 import java.security.cert.Certificate;
 import java.security.AccessController;
-import java.security.CodeSource;
 import sun.misc.IOUtils;
 import sun.security.action.GetPropertyAction;
 import sun.security.util.ManifestEntryVerifier;
-/* ----- BEGIN android -----
-import sun.misc.SharedSecrets;
------ END android ----- */
+import sun.security.util.SignatureFileVerifier;
 
 /**
  * The <code>JarFile</code> class is used to read the contents of a jar file
@@ -54,6 +52,13 @@ import sun.misc.SharedSecrets;
  * or method in this class will cause a {@link NullPointerException} to be
  * thrown.
  *
+ * If the verify flag is on when opening a signed jar file, the content of the
+ * file is verified against its signature embedded inside the file. Please note
+ * that the verification process does not include validating the signer's
+ * certificate. A caller should inspect the return value of
+ * {@link JarEntry#getCodeSigners()} to further determine if the signature
+ * can be trusted.
+ *
  * @author  David Connelly
  * @see     Manifest
  * @see     java.util.zip.ZipFile
@@ -62,23 +67,17 @@ import sun.misc.SharedSecrets;
  */
 public
 class JarFile extends ZipFile {
-    // ----- BEGIN android -----
     static final String META_DIR = "META-INF/";
-    // ----- END android -----
-    private SoftReference<Manifest> manRef;
+    private Manifest manifest;
     private JarEntry manEntry;
     private JarVerifier jv;
     private boolean jvInitialized;
     private boolean verify;
-    private boolean computedHasClassPathAttribute;
-    private boolean hasClassPathAttribute;
 
-    // Set up JavaUtilJarAccess in SharedSecrets
-    /* ----- BEGIN android -----
-    static {
-        SharedSecrets.setJavaUtilJarAccess(new JavaUtilJarAccessImpl());
-    }
-    ----- END android ----- */
+    // indicates if Class-Path attribute present (only valid if hasCheckedSpecialAttributes true)
+    private boolean hasClassPathAttribute;
+    // true if manifest checked for special attributes
+    private volatile boolean hasCheckedSpecialAttributes;
 
     /**
      * The JAR manifest file name.
@@ -169,15 +168,14 @@ class JarFile extends ZipFile {
      *
      * @throws IllegalStateException
      *         may be thrown if the jar file has been closed
+     * @throws IOException  if an I/O error has occurred
      */
     public Manifest getManifest() throws IOException {
         return getManifestFromReference();
     }
 
     private synchronized Manifest getManifestFromReference() throws IOException {
-        Manifest man = manRef != null ? manRef.get() : null;
-
-        if (man == null) {
+        if (manifest == null) {
 
             JarEntry manEntry = getManEntry();
 
@@ -185,17 +183,16 @@ class JarFile extends ZipFile {
             if (manEntry != null) {
                 if (verify) {
                     byte[] b = getBytes(manEntry);
-                    man = new Manifest(new ByteArrayInputStream(b));
+                    manifest = new Manifest(new ByteArrayInputStream(b));
                     if (!jvInitialized) {
                         jv = new JarVerifier(b);
                     }
                 } else {
-                    man = new Manifest(super.getInputStream(manEntry));
+                    manifest = new Manifest(super.getInputStream(manEntry));
                 }
-                manRef = new SoftReference(man);
             }
         }
-        return man;
+        return manifest;
     }
 
     private native String[] getMetaInfEntryNames();
@@ -238,20 +235,42 @@ class JarFile extends ZipFile {
         return null;
     }
 
+    private class JarEntryIterator implements Enumeration<JarEntry>,
+            Iterator<JarEntry>
+    {
+        final Enumeration<? extends ZipEntry> e = JarFile.super.entries();
+
+        public boolean hasNext() {
+            return e.hasMoreElements();
+        }
+
+        public JarEntry next() {
+            ZipEntry ze = e.nextElement();
+            return new JarFileEntry(ze);
+        }
+
+        public boolean hasMoreElements() {
+            return hasNext();
+        }
+
+        public JarEntry nextElement() {
+            return next();
+        }
+    }
+
     /**
      * Returns an enumeration of the zip file entries.
      */
     public Enumeration<JarEntry> entries() {
-        final Enumeration enum_ = super.entries();
-        return new Enumeration<JarEntry>() {
-            public boolean hasMoreElements() {
-                return enum_.hasMoreElements();
-            }
-            public JarFileEntry nextElement() {
-                ZipEntry ze = (ZipEntry)enum_.nextElement();
-                return new JarFileEntry(ze);
-            }
-        };
+        return new JarEntryIterator();
+    }
+
+    @Override
+    public Stream<JarEntry> stream() {
+        return StreamSupport.stream(Spliterators.spliterator(
+                new JarEntryIterator(), size(),
+                Spliterator.ORDERED | Spliterator.DISTINCT |
+                        Spliterator.IMMUTABLE | Spliterator.NONNULL), false);
     }
 
     private class JarFileEntry extends JarEntry {
@@ -337,11 +356,13 @@ class JarFile extends ZipFile {
             String[] names = getMetaInfEntryNames();
             if (names != null) {
                 for (int i = 0; i < names.length; i++) {
-                    JarEntry e = getJarEntry(names[i]);
-                    if (e == null) {
-                        throw new JarException("corrupted jar file");
-                    }
-                    if (!e.isDirectory()) {
+                    String uname = names[i].toUpperCase(Locale.ENGLISH);
+                    if (MANIFEST_NAME.equals(uname)
+                            || SignatureFileVerifier.isBlockOrSF(uname)) {
+                        JarEntry e = getJarEntry(names[i]);
+                        if (e == null) {
+                            throw new JarException("corrupted jar file");
+                        }
                         if (mev == null) {
                             mev = new ManifestEntryVerifier
                                 (getManifestFromReference());
@@ -435,27 +456,27 @@ class JarFile extends ZipFile {
             jv);
     }
 
-    // Statics for hand-coded Boyer-Moore search in hasClassPathAttribute()
+    // Statics for hand-coded Boyer-Moore search
+    private static final char[] CLASSPATH_CHARS = {'c','l','a','s','s','-','p','a','t','h'};
     // The bad character shift for "class-path"
-    private static int[] lastOcc;
+    private static final int[] CLASSPATH_LASTOCC;
     // The good suffix shift for "class-path"
-    private static int[] optoSft;
-    // Initialize the shift arrays to search for "class-path"
-    private static char[] src = {'c','l','a','s','s','-','p','a','t','h'};
+    private static final int[] CLASSPATH_OPTOSFT;
+
     static {
-        lastOcc = new int[128];
-        optoSft = new int[10];
-        lastOcc[(int)'c']=1;
-        lastOcc[(int)'l']=2;
-        lastOcc[(int)'s']=5;
-        lastOcc[(int)'-']=6;
-        lastOcc[(int)'p']=7;
-        lastOcc[(int)'a']=8;
-        lastOcc[(int)'t']=9;
-        lastOcc[(int)'h']=10;
+        CLASSPATH_LASTOCC = new int[128];
+        CLASSPATH_OPTOSFT = new int[10];
+        CLASSPATH_LASTOCC[(int)'c'] = 1;
+        CLASSPATH_LASTOCC[(int)'l'] = 2;
+        CLASSPATH_LASTOCC[(int)'s'] = 5;
+        CLASSPATH_LASTOCC[(int)'-'] = 6;
+        CLASSPATH_LASTOCC[(int)'p'] = 7;
+        CLASSPATH_LASTOCC[(int)'a'] = 8;
+        CLASSPATH_LASTOCC[(int)'t'] = 9;
+        CLASSPATH_LASTOCC[(int)'h'] = 10;
         for (int i=0; i<9; i++)
-            optoSft[i]=10;
-        optoSft[9]=1;
+            CLASSPATH_OPTOSFT[i] = 10;
+        CLASSPATH_OPTOSFT[9]=1;
     }
 
     private synchronized JarEntry getManEntry() {
@@ -480,47 +501,64 @@ class JarFile extends ZipFile {
         return manEntry;
     }
 
-    // Returns true iff this jar file has a manifest with a class path
-    // attribute. Returns false if there is no manifest or the manifest
-    // does not contain a "Class-Path" attribute. Currently exported to
-    // core libraries via sun.misc.SharedSecrets.
     /**
+     * Returns {@code true} iff this JAR file has a manifest with the
+     * Class-Path attribute
      * @hide
      */
     public boolean hasClassPathAttribute() throws IOException {
-        if (computedHasClassPathAttribute) {
-            return hasClassPathAttribute;
-        }
-
-        hasClassPathAttribute = false;
-        if (!isKnownToNotHaveClassPathAttribute()) {
-            JarEntry manEntry = getManEntry();
-            if (manEntry != null) {
-                byte[] b = getBytes(manEntry);
-                int last = b.length - src.length;
-                int i = 0;
-                next:
-                while (i<=last) {
-                    for (int j=9; j>=0; j--) {
-                        char c = (char) b[i+j];
-                        c = (((c-'A')|('Z'-c)) >= 0) ? (char)(c + 32) : c;
-                        if (c != src[j]) {
-                            i += Math.max(j + 1 - lastOcc[c&0x7F], optoSft[j]);
-                            continue next;
-                        }
-                    }
-                    hasClassPathAttribute = true;
-                    break;
-                }
-            }
-        }
-        computedHasClassPathAttribute = true;
+        checkForSpecialAttributes();
         return hasClassPathAttribute;
     }
 
-    private static String javaHome;
-    private static String[] jarNames;
-    private boolean isKnownToNotHaveClassPathAttribute() {
+    /**
+     * Returns true if the pattern {@code src} is found in {@code b}.
+     * The {@code lastOcc} and {@code optoSft} arrays are the precomputed
+     * bad character and good suffix shifts.
+     */
+    private boolean match(char[] src, byte[] b, int[] lastOcc, int[] optoSft) {
+        int len = src.length;
+        int last = b.length - len;
+        int i = 0;
+        next:
+        while (i<=last) {
+            for (int j=(len-1); j>=0; j--) {
+                char c = (char) b[i+j];
+                c = (((c-'A')|('Z'-c)) >= 0) ? (char)(c + 32) : c;
+                if (c != src[j]) {
+                    i += Math.max(j + 1 - lastOcc[c&0x7F], optoSft[j]);
+                    continue next;
+                 }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * On first invocation, check if the JAR file has the Class-Path
+     * attribute. A no-op on subsequent calls.
+     */
+    private void checkForSpecialAttributes() throws IOException {
+        if (hasCheckedSpecialAttributes) return;
+        // Android-changed: Doesn't make sense on android:
+        //if (!isKnownNotToHaveSpecialAttributes()) {
+        {
+            JarEntry manEntry = getManEntry();
+            if (manEntry != null) {
+                byte[] b = getBytes(manEntry);
+                if (match(CLASSPATH_CHARS, b, CLASSPATH_LASTOCC, CLASSPATH_OPTOSFT))
+                    hasClassPathAttribute = true;
+            }
+        }
+        hasCheckedSpecialAttributes = true;
+    }
+
+
+    // Android-changed: Doesn't make sense on android:
+    /*private static String javaHome;
+    private static volatile String[] jarNames;
+    private boolean isKnownNotToHaveSpecialAttributes() {
         // Optimize away even scanning of manifest for jar files we
         // deliver which don't have a class-path attribute. If one of
         // these jars is changed to include such an attribute this code
@@ -530,19 +568,20 @@ class JarFile extends ZipFile {
                 new GetPropertyAction("java.home"));
         }
         if (jarNames == null) {
-            String[] names = new String[10];
+            String[] names = new String[11];
             String fileSep = File.separator;
             int i = 0;
             names[i++] = fileSep + "rt.jar";
-            names[i++] = fileSep + "sunrsasign.jar";
             names[i++] = fileSep + "jsse.jar";
             names[i++] = fileSep + "jce.jar";
             names[i++] = fileSep + "charsets.jar";
             names[i++] = fileSep + "dnsns.jar";
-            names[i++] = fileSep + "ldapsec.jar";
+            names[i++] = fileSep + "zipfs.jar";
             names[i++] = fileSep + "localedata.jar";
+            names[i++] = fileSep = "cldrdata.jar";
             names[i++] = fileSep + "sunjce_provider.jar";
             names[i++] = fileSep + "sunpkcs11.jar";
+            names[i++] = fileSep + "sunec.jar";
             jarNames = names;
         }
 
@@ -557,59 +596,9 @@ class JarFile extends ZipFile {
             }
         }
         return false;
-    }
-
-    private synchronized void ensureInitialization() {
-        try {
-            maybeInstantiateVerifier();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        if (jv != null && !jvInitialized) {
-            initializeVerifier();
-            jvInitialized = true;
-        }
-    }
+    }*/
 
     JarEntry newEntry(ZipEntry ze) {
         return new JarFileEntry(ze);
-    }
-
-    private Enumeration<String> unsignedEntryNames() {
-        final Enumeration entries = entries();
-        return new Enumeration<String>() {
-
-            String name;
-
-            /*
-             * Grab entries from ZIP directory but screen out
-             * metadata.
-             */
-            public boolean hasMoreElements() {
-                if (name != null) {
-                    return true;
-                }
-                while (entries.hasMoreElements()) {
-                    String value;
-                    ZipEntry e = (ZipEntry) entries.nextElement();
-                    value = e.getName();
-                    if (e.isDirectory() || JarVerifier.isSigningRelated(value)) {
-                        continue;
-                    }
-                    name = value;
-                    return true;
-                }
-                return false;
-            }
-
-            public String nextElement() {
-                if (hasMoreElements()) {
-                    String value = name;
-                    name = null;
-                    return value;
-                }
-                throw new NoSuchElementException();
-            }
-        };
     }
 }

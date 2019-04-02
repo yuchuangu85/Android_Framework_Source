@@ -48,6 +48,7 @@ final class BroadcastRecord extends Binder {
     final String callerPackage; // who sent this
     final int callingPid;   // the pid of who sent this
     final int callingUid;   // the uid of who sent this
+    final boolean callerInstantApp; // caller is an Instant App?
     final boolean ordered;  // serialize the send to receivers?
     final boolean sticky;   // originated from existing sticky data?
     final boolean initialSticky; // initial broadcast from register to sticky?
@@ -82,10 +83,10 @@ final class BroadcastRecord extends Binder {
     static final int CALL_DONE_RECEIVE = 3;
     static final int WAITING_SERVICES = 4;
 
-    static final int DELIVERY_PENDING = 0;      // 等待
-    static final int DELIVERY_DELIVERED = 1;    // 已发送
-    static final int DELIVERY_SKIPPED = 2;      // 跳过
-    static final int DELIVERY_TIMEOUT = 3;      // 超时
+    static final int DELIVERY_PENDING = 0;
+    static final int DELIVERY_DELIVERED = 1;
+    static final int DELIVERY_SKIPPED = 2;
+    static final int DELIVERY_TIMEOUT = 3;
 
     // The following are set when we are calling a receiver (one that
     // was found in our list of registered receivers).
@@ -214,11 +215,10 @@ final class BroadcastRecord extends Binder {
 
     BroadcastRecord(BroadcastQueue _queue,
             Intent _intent, ProcessRecord _callerApp, String _callerPackage,
-            int _callingPid, int _callingUid, String _resolvedType, String[] _requiredPermissions,
-            int _appOp, BroadcastOptions _options, List _receivers, IIntentReceiver _resultTo,
-            int _resultCode, String _resultData, Bundle _resultExtras, boolean _serialized,
-            boolean _sticky, boolean _initialSticky,
-            int _userId) {
+            int _callingPid, int _callingUid, boolean _callerInstantApp, String _resolvedType,
+            String[] _requiredPermissions, int _appOp, BroadcastOptions _options, List _receivers,
+            IIntentReceiver _resultTo, int _resultCode, String _resultData, Bundle _resultExtras,
+            boolean _serialized, boolean _sticky, boolean _initialSticky, int _userId) {
         if (_intent == null) {
             throw new NullPointerException("Can't construct with a null intent");
         }
@@ -229,6 +229,7 @@ final class BroadcastRecord extends Binder {
         callerPackage = _callerPackage;
         callingPid = _callingPid;
         callingUid = _callingUid;
+        callerInstantApp = _callerInstantApp;
         resolvedType = _resolvedType;
         requiredPermissions = _requiredPermissions;
         appOp = _appOp;

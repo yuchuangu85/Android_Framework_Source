@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony;
 
+import android.os.ResultReceiver;
+
 /**
  * {@hide}
  */
@@ -75,4 +77,13 @@ public interface MmiCode
      */
     void processCode() throws CallStateException;
 
+    /**
+     * @return the Receiver for the Ussd Callback.
+     */
+    public ResultReceiver getUssdCallbackReceiver();
+
+    /**
+     * @return the dialString.
+     */
+    public String getDialString();
 }

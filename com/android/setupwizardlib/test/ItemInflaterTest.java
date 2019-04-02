@@ -16,26 +16,35 @@
 
 package com.android.setupwizardlib.test;
 
-import android.test.InstrumentationTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 
 import com.android.setupwizardlib.items.Item;
 import com.android.setupwizardlib.items.ItemGroup;
 import com.android.setupwizardlib.items.ItemHierarchy;
 import com.android.setupwizardlib.items.ItemInflater;
 
-public class ItemInflaterTest extends InstrumentationTestCase {
+import org.junit.Test;
+import org.junit.runner.RunWith;
 
-    @SmallTest
+@RunWith(AndroidJUnit4.class)
+@SmallTest
+public class ItemInflaterTest {
+
+    @Test
     public void testDefaultPackage() {
-        ItemInflater inflater = new ItemInflater(getInstrumentation().getContext());
+        ItemInflater inflater = new ItemInflater(InstrumentationRegistry.getContext());
         assertEquals("Default package should be the one containing Item class",
                 "com.android.setupwizardlib.items.", inflater.getDefaultPackage());
     }
 
-    @SmallTest
+    @Test
     public void testInflate() {
-        ItemInflater inflater = new ItemInflater(getInstrumentation().getContext());
+        ItemInflater inflater = new ItemInflater(InstrumentationRegistry.getContext());
         ItemHierarchy item = inflater.inflate(R.xml.test_items);
         assertTrue("Inflated item should be ItemGroup", item instanceof ItemGroup);
         ItemGroup itemGroup = (ItemGroup) item;

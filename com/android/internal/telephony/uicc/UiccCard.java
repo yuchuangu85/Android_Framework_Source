@@ -44,18 +44,16 @@ import android.text.TextUtils;
 import android.util.LocalLog;
 import android.view.WindowManager;
 
+import com.android.internal.R;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.CommandsInterface.RadioState;
+import com.android.internal.telephony.cat.CatService;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppType;
 import com.android.internal.telephony.uicc.IccCardStatus.CardState;
 import com.android.internal.telephony.uicc.IccCardStatus.PinState;
-import com.android.internal.telephony.cat.CatService;
-
-import com.android.internal.R;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -562,8 +560,8 @@ public class UiccCard {
         synchronized (mLock) {
             boolean changed = false;
             for (int i = 0; i < mUiccApplications.length; i++) {
-                if (mUiccApplications[i] != null &&
-                    (aid == null || aid.equals(mUiccApplications[i].getAid()))) {
+                if (mUiccApplications[i] != null
+                        && (TextUtils.isEmpty(aid) || aid.equals(mUiccApplications[i].getAid()))) {
                     // Delete removed applications
                     mUiccApplications[i].dispose();
                     mUiccApplications[i] = null;
@@ -579,10 +577,10 @@ public class UiccCard {
     /**
      * Exposes {@link CommandsInterface.iccOpenLogicalChannel}
      */
-    public void iccOpenLogicalChannel(String AID, Message response) {
-        loglocal("Open Logical Channel: " + AID + " by pid:" + Binder.getCallingPid()
+    public void iccOpenLogicalChannel(String AID, int p2, Message response) {
+        loglocal("Open Logical Channel: " + AID + " , " + p2 + " by pid:" + Binder.getCallingPid()
                 + " uid:" + Binder.getCallingUid());
-        mCi.iccOpenLogicalChannel(AID,
+        mCi.iccOpenLogicalChannel(AID, p2,
                 mHandler.obtainMessage(EVENT_OPEN_LOGICAL_CHANNEL_DONE, response));
     }
 

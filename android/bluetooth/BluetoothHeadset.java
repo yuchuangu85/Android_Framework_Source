@@ -20,6 +20,7 @@ import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.content.ComponentName;
 import android.content.Context;
+import android.os.Binder;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -1010,6 +1011,18 @@ public final class BluetoothHeadset implements BluetoothProfile {
     }
 
     /**
+     * check if in-band ringing is supported for this platform.
+     *
+     * @return true if in-band ringing is supported
+     *         false if in-band ringing is not supported
+     * @hide
+     */
+    public static boolean isInbandRingingSupported(Context context) {
+        return context.getResources().getBoolean(
+                com.android.internal.R.bool.config_bluetooth_hfp_inband_ringing_support);
+    }
+
+    /**
      * Send Headset the BIND response from AG to report change in the status of the
      * HF indicators to the headset
      *
@@ -1037,7 +1050,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
         @Override
         public void onServiceConnected(ComponentName className, IBinder service) {
             if (DBG) Log.d(TAG, "Proxy object connected");
-            mService = IBluetoothHeadset.Stub.asInterface(service);
+            mService = IBluetoothHeadset.Stub.asInterface(Binder.allowBlocking(service));
             mHandler.sendMessage(mHandler.obtainMessage(
                     MESSAGE_HEADSET_SERVICE_CONNECTED));
         }

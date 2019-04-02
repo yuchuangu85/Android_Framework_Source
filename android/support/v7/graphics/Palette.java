@@ -24,7 +24,6 @@ import android.support.annotation.ColorInt;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.graphics.ColorUtils;
-import android.support.v4.os.AsyncTaskCompat;
 import android.support.v4.util.ArrayMap;
 import android.util.Log;
 import android.util.SparseBooleanArray;
@@ -84,7 +83,7 @@ public final class Palette {
         void onGenerated(Palette palette);
     }
 
-    static final int DEFAULT_RESIZE_BITMAP_AREA = 160 * 160;
+    static final int DEFAULT_RESIZE_BITMAP_AREA = 112 * 112;
     static final int DEFAULT_CALCULATE_NUMBER_COLORS = 16;
 
     static final float MIN_CONTRAST_TITLE_TEXT = 3.0f;
@@ -541,7 +540,7 @@ public final class Palette {
                 final int darkTitleAlpha = ColorUtils.calculateMinimumAlpha(
                         Color.BLACK, mRgb, MIN_CONTRAST_TITLE_TEXT);
 
-                if (darkBodyAlpha != -1 && darkBodyAlpha != -1) {
+                if (darkBodyAlpha != -1 && darkTitleAlpha != -1) {
                     // If we found valid dark values, use them and return
                     mBodyTextColor = ColorUtils.setAlphaComponent(Color.BLACK, darkBodyAlpha);
                     mTitleTextColor = ColorUtils.setAlphaComponent(Color.BLACK, darkTitleAlpha);
@@ -658,7 +657,7 @@ public final class Palette {
         /**
          * Set the resize value when using a {@link android.graphics.Bitmap} as the source.
          * If the bitmap's largest dimension is greater than the value specified, then the bitmap
-         * will be resized so that it's largest dimension matches {@code maxDimension}. If the
+         * will be resized so that its largest dimension matches {@code maxDimension}. If the
          * bitmap is smaller or equal, the original is used as-is.
          *
          * @deprecated Using {@link #resizeBitmapArea(int)} is preferred since it can handle
@@ -678,7 +677,7 @@ public final class Palette {
         /**
          * Set the resize value when using a {@link android.graphics.Bitmap} as the source.
          * If the bitmap's area is greater than the value specified, then the bitmap
-         * will be resized so that it's area matches {@code area}. If the
+         * will be resized so that its area matches {@code area}. If the
          * bitmap is smaller or equal, the original is used as-is.
          * <p>
          * This value has a large effect on the processing time. The larger the resized image is,
@@ -856,23 +855,22 @@ public final class Palette {
                 throw new IllegalArgumentException("listener can not be null");
             }
 
-            return AsyncTaskCompat.executeParallel(
-                    new AsyncTask<Bitmap, Void, Palette>() {
-                        @Override
-                        protected Palette doInBackground(Bitmap... params) {
-                            try {
-                                return generate();
-                            } catch (Exception e) {
-                                Log.e(LOG_TAG, "Exception thrown during async generate", e);
-                                return null;
-                            }
-                        }
+            return new AsyncTask<Bitmap, Void, Palette>() {
+                @Override
+                protected Palette doInBackground(Bitmap... params) {
+                    try {
+                        return generate();
+                    } catch (Exception e) {
+                        Log.e(LOG_TAG, "Exception thrown during async generate", e);
+                        return null;
+                    }
+                }
 
-                        @Override
-                        protected void onPostExecute(Palette colorExtractor) {
-                            listener.onGenerated(colorExtractor);
-                        }
-                    }, mBitmap);
+                @Override
+                protected void onPostExecute(Palette colorExtractor) {
+                    listener.onGenerated(colorExtractor);
+                }
+            }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, mBitmap);
         }
 
         private int[] getPixelsFromBitmap(Bitmap bitmap) {
@@ -909,7 +907,7 @@ public final class Palette {
             if (mResizeArea > 0) {
                 final int bitmapArea = bitmap.getWidth() * bitmap.getHeight();
                 if (bitmapArea > mResizeArea) {
-                    scaleRatio = mResizeArea / (double) bitmapArea;
+                    scaleRatio = Math.sqrt(mResizeArea / (double) bitmapArea);
                 }
             } else if (mResizeMaxDimension > 0) {
                 final int maxDimension = Math.max(bitmap.getWidth(), bitmap.getHeight());

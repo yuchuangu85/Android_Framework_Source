@@ -22,8 +22,11 @@ import android.view.View;
 
 /**
  * Used with {@code LayoutInflaterCompat.setFactory()}. Offers the same API as
- * {@code LayoutInflater.Factory2}.
+ * {@link android.view.LayoutInflater.Factory2}.
+ *
+ * @deprecated Use {@link android.view.LayoutInflater.Factory2} directly.
  */
+@Deprecated
 public interface LayoutInflaterFactory {
 
     /**
@@ -40,6 +43,6 @@ public interface LayoutInflaterFactory {
      * @return View Newly created view. Return null for the default
      *         behavior.
      */
-    public View onCreateView(View parent, String name, Context context, AttributeSet attrs);
+    View onCreateView(View parent, String name, Context context, AttributeSet attrs);
 
 }

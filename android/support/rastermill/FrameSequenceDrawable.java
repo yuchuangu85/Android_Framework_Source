@@ -31,8 +31,10 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Process;
 import android.os.SystemClock;
+import android.util.Log;
 
 public class FrameSequenceDrawable extends Drawable implements Animatable, Runnable {
+    private static final String TAG = "FrameSequence";
     /**
      * These constants are chosen to imitate common browser behavior for WebP/GIF.
      * If other decoders are added, this behavior should be moved into the WebP/GIF decoders.
@@ -101,9 +103,9 @@ public class FrameSequenceDrawable extends Drawable implements Animatable, Runna
     }
 
     /**
-     * Loop only once.
+     * Loop a finite number of times, which can be set using setLoopCount. Default to loop once.
      */
-    public static final int LOOP_ONCE = 1;
+    public static final int LOOP_FINITE = 1;
 
     /**
      * Loop continuously. The OnFinishedListener will never be called.
@@ -116,12 +118,27 @@ public class FrameSequenceDrawable extends Drawable implements Animatable, Runna
     public static final int LOOP_DEFAULT = 3;
 
     /**
+     * Loop only once.
+     *
+     * @deprecated Use LOOP_FINITE instead.
+     */
+    @Deprecated
+    public static final int LOOP_ONCE = LOOP_FINITE;
+
+    /**
      * Define looping behavior of frame sequence.
      *
-     * Must be one of LOOP_ONCE, LOOP_INF, or LOOP_DEFAULT
+     * Must be one of LOOP_ONCE, LOOP_INF, LOOP_DEFAULT, or LOOP_FINITE.
      */
     public void setLoopBehavior(int loopBehavior) {
         mLoopBehavior = loopBehavior;
+    }
+
+    /**
+     * Set the number of loops in LOOP_FINITE mode. The number must be a postive integer.
+     */
+    public void setLoopCount(int loopCount) {
+        mLoopCount = loopCount;
     }
 
     private final FrameSequence mFrameSequence;
@@ -130,7 +147,7 @@ public class FrameSequenceDrawable extends Drawable implements Animatable, Runna
     private final Paint mPaint;
     private BitmapShader mFrontBitmapShader;
     private BitmapShader mBackBitmapShader;
-     private final Rect mSrcRect;
+    private final Rect mSrcRect;
     private boolean mCircleMaskEnabled;
 
     //Protects the fields below
@@ -149,11 +166,14 @@ public class FrameSequenceDrawable extends Drawable implements Animatable, Runna
     private int mState;
     private int mCurrentLoop;
     private int mLoopBehavior = LOOP_DEFAULT;
+    private int mLoopCount = 1;
 
     private long mLastSwap;
     private long mNextSwap;
     private int mNextFrameToDecode;
     private OnFinishedListener mOnFinishedListener;
+
+    private RectF mTempRectF = new RectF();
 
     /**
      * Runs on decoding thread, only modifies mBackBitmap's pixels
@@ -174,7 +194,15 @@ public class FrameSequenceDrawable extends Drawable implements Animatable, Runna
                 mState = STATE_DECODING;
             }
             int lastFrame = nextFrame - 2;
-            long invalidateTimeMs = mFrameSequenceState.getFrame(nextFrame, bitmap, lastFrame);
+            boolean exceptionDuringDecode = false;
+            long invalidateTimeMs = 0;
+            try {
+                invalidateTimeMs = mFrameSequenceState.getFrame(nextFrame, bitmap, lastFrame);
+            } catch(Exception e) {
+                // Exception during decode: continue, but delay next frame indefinitely.
+                Log.e(TAG, "exception during decode: " + e);
+                exceptionDuringDecode = true;
+            }
 
             if (invalidateTimeMs < MIN_DELAY_MS) {
                 invalidateTimeMs = DEFAULT_DELAY_MS;
@@ -188,7 +216,7 @@ public class FrameSequenceDrawable extends Drawable implements Animatable, Runna
                     mBackBitmap = null;
                 } else if (mNextFrameToDecode >= 0 && mState == STATE_DECODING) {
                     schedule = true;
-                    mNextSwap = invalidateTimeMs + mLastSwap;
+                    mNextSwap = exceptionDuringDecode ? Long.MAX_VALUE : invalidateTimeMs + mLastSwap;
                     mState = STATE_WAITING_TO_SWAP;
                 }
             }
@@ -203,9 +231,13 @@ public class FrameSequenceDrawable extends Drawable implements Animatable, Runna
         }
     };
 
-    private Runnable mCallbackRunnable = new Runnable() {
+    private Runnable mFinishedCallbackRunnable = new Runnable() {
         @Override
         public void run() {
+            synchronized (mLock) {
+                mNextFrameToDecode = -1;
+                mState = 0;
+            }
             if (mOnFinishedListener != null) {
                 mOnFinishedListener.onFinished(FrameSequenceDrawable.this);
             }
@@ -263,9 +295,16 @@ public class FrameSequenceDrawable extends Drawable implements Animatable, Runna
      * Masking is done with BitmapShader, incurring minimal additional draw cost.
      */
     public final void setCircleMaskEnabled(boolean circleMaskEnabled) {
-        mCircleMaskEnabled = circleMaskEnabled;
-        // Anti alias only necessary when using circular mask
-        mPaint.setAntiAlias(circleMaskEnabled);
+        if (mCircleMaskEnabled != circleMaskEnabled) {
+            mCircleMaskEnabled = circleMaskEnabled;
+            // Anti alias only necessary when using circular mask
+            mPaint.setAntiAlias(circleMaskEnabled);
+            invalidateSelf();
+        }
+    }
+
+    public final boolean getCircleMaskEnabled() {
+        return mCircleMaskEnabled;
     }
 
     private void checkDestroyedLocked() {
@@ -351,7 +390,7 @@ public class FrameSequenceDrawable extends Drawable implements Animatable, Runna
                 boolean continueLooping = true;
                 if (mNextFrameToDecode == mFrameSequence.getFrameCount() - 1) {
                     mCurrentLoop++;
-                    if ((mLoopBehavior == LOOP_ONCE && mCurrentLoop == 1) ||
+                    if ((mLoopBehavior == LOOP_FINITE && mCurrentLoop == mLoopCount) ||
                             (mLoopBehavior == LOOP_DEFAULT && mCurrentLoop == mFrameSequence.getDefaultLoopCount())) {
                         continueLooping = false;
                     }
@@ -360,18 +399,37 @@ public class FrameSequenceDrawable extends Drawable implements Animatable, Runna
                 if (continueLooping) {
                     scheduleDecodeLocked();
                 } else {
-                    scheduleSelf(mCallbackRunnable, 0);
+                    scheduleSelf(mFinishedCallbackRunnable, 0);
                 }
             }
         }
 
         if (mCircleMaskEnabled) {
-            Rect bounds = getBounds();
+            final Rect bounds = getBounds();
+            final int bitmapWidth = getIntrinsicWidth();
+            final int bitmapHeight = getIntrinsicHeight();
+            final float scaleX = 1.0f * bounds.width() / bitmapWidth;
+            final float scaleY = 1.0f * bounds.height() / bitmapHeight;
+
+            canvas.save();
+            // scale and translate to account for bounds, so we can operate in intrinsic
+            // width/height (so it's valid to use an unscaled bitmap shader)
+            canvas.translate(bounds.left, bounds.top);
+            canvas.scale(scaleX, scaleY);
+
+            final float unscaledCircleDiameter = Math.min(bounds.width(), bounds.height());
+            final float scaledDiameterX = unscaledCircleDiameter / scaleX;
+            final float scaledDiameterY = unscaledCircleDiameter / scaleY;
+
+            // Want to draw a circle, but we have to compensate for canvas scale
+            mTempRectF.set(
+                    (bitmapWidth - scaledDiameterX) / 2.0f,
+                    (bitmapHeight - scaledDiameterY) / 2.0f,
+                    (bitmapWidth + scaledDiameterX) / 2.0f,
+                    (bitmapHeight + scaledDiameterY) / 2.0f);
             mPaint.setShader(mFrontBitmapShader);
-            float width = bounds.width();
-            float height = bounds.height();
-            float circleRadius = (Math.min(width, height)) / 2f;
-            canvas.drawCircle(width / 2f, height / 2f, circleRadius, mPaint);
+            canvas.drawOval(mTempRectF, mPaint);
+            canvas.restore();
         } else {
             mPaint.setShader(null);
             canvas.drawBitmap(mFrontBitmap, mSrcRect, getBounds(), mPaint);

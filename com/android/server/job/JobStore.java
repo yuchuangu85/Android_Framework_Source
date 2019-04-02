@@ -16,6 +16,8 @@
 
 package com.android.server.job;
 
+import android.app.ActivityManager;
+import android.app.IActivityManager;
 import android.content.ComponentName;
 import android.app.job.JobInfo;
 import android.content.Context;
@@ -33,6 +35,7 @@ import android.util.SparseArray;
 import android.util.Xml;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.FastXmlSerializer;
 import com.android.server.IoThread;
 import com.android.server.job.controllers.JobStatus;
@@ -63,7 +66,7 @@ import org.xmlpull.v1.XmlSerializer;
  *      and {@link com.android.server.job.JobStore.ReadJobMapFromDiskRunnable} lock on that
  *      object.
  */
-public class JobStore {
+public final class JobStore {
     private static final String TAG = "JobStore";
     private static final boolean DEBUG = JobSchedulerService.DEBUG;
 
@@ -169,6 +172,14 @@ public class JobStore {
         return removed;
     }
 
+    /**
+     * Remove the jobs of users not specified in the whitelist.
+     * @param whitelist Array of User IDs whose jobs are not to be removed.
+     */
+    public void removeJobsOfNonUsers(int[] whitelist) {
+        mJobSet.removeJobsOfNonUsers(whitelist);
+    }
+
     @VisibleForTesting
     public void clear() {
         mJobSet.clear();
@@ -252,7 +263,7 @@ public class JobStore {
      * Runnable that writes {@link #mJobSet} out to xml.
      * NOTE: This Runnable locks on mLock
      */
-    private class WriteJobsMapToDiskRunnable implements Runnable {
+    private final class WriteJobsMapToDiskRunnable implements Runnable {
         @Override
         public void run() {
             final long startElapsed = SystemClock.elapsedRealtime();
@@ -294,7 +305,7 @@ public class JobStore {
                     addAttributesToJobTag(out, jobStatus);
                     writeConstraintsToXml(out, jobStatus);
                     writeExecutionCriteriaToXml(out, jobStatus);
-                    writeBundleToXml(jobStatus.getExtras(), out);
+                    writeBundleToXml(jobStatus.getJob().getExtras(), out);
                     out.endTag(null, "job");
                 }
                 out.endTag(null, "job-info");
@@ -366,13 +377,16 @@ public class JobStore {
          */
         private void writeConstraintsToXml(XmlSerializer out, JobStatus jobStatus) throws IOException {
             out.startTag(null, XML_TAG_PARAMS_CONSTRAINTS);
-            if (jobStatus.hasConnectivityConstraint()) {
+            if (jobStatus.needsAnyConnectivity()) {
                 out.attribute(null, "connectivity", Boolean.toString(true));
             }
-            if (jobStatus.hasUnmeteredConstraint()) {
+            if (jobStatus.needsMeteredConnectivity()) {
+                out.attribute(null, "metered", Boolean.toString(true));
+            }
+            if (jobStatus.needsUnmeteredConnectivity()) {
                 out.attribute(null, "unmetered", Boolean.toString(true));
             }
-            if (jobStatus.hasNotRoamingConstraint()) {
+            if (jobStatus.needsNonRoamingConnectivity()) {
                 out.attribute(null, "not-roaming", Boolean.toString(true));
             }
             if (jobStatus.hasIdleConstraint()) {
@@ -380,6 +394,9 @@ public class JobStore {
             }
             if (jobStatus.hasChargingConstraint()) {
                 out.attribute(null, "charging", Boolean.toString(true));
+            }
+            if (jobStatus.hasBatteryNotLowConstraint()) {
+                out.attribute(null, "battery-not-low", Boolean.toString(true));
             }
             out.endTag(null, XML_TAG_PARAMS_CONSTRAINTS);
         }
@@ -427,7 +444,7 @@ public class JobStore {
      * Runnable that reads list of persisted job from xml. This is run once at start up, so doesn't
      * need to go through {@link JobStore#add(com.android.server.job.controllers.JobStatus)}.
      */
-    private class ReadJobMapFromDiskRunnable implements Runnable {
+    private final class ReadJobMapFromDiskRunnable implements Runnable {
         private final JobSet jobSet;
 
         /**
@@ -446,8 +463,13 @@ public class JobStore {
                 synchronized (mLock) {
                     jobs = readJobMapImpl(fis);
                     if (jobs != null) {
+                        long now = SystemClock.elapsedRealtime();
+                        IActivityManager am = ActivityManager.getService();
                         for (int i=0; i<jobs.size(); i++) {
-                            this.jobSet.add(jobs.get(i));
+                            JobStatus js = jobs.get(i);
+                            js.prepareLocked(am);
+                            js.enqueueTime = now;
+                            this.jobSet.add(js);
                         }
                     }
                 }
@@ -601,7 +623,7 @@ public class JobStore {
             if (XML_TAG_PERIODIC.equals(parser.getName())) {
                 try {
                     String val = parser.getAttributeValue(null, "period");
-                    final long periodMillis = Long.valueOf(val);
+                    final long periodMillis = Long.parseLong(val);
                     val = parser.getAttributeValue(null, "flex");
                     final long flexMillis = (val != null) ? Long.valueOf(val) : periodMillis;
                     jobBuilder.setPeriodic(periodMillis, flexMillis);
@@ -705,6 +727,10 @@ public class JobStore {
             if (val != null) {
                 jobBuilder.setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY);
             }
+            val = parser.getAttributeValue(null, "metered");
+            if (val != null) {
+                jobBuilder.setRequiredNetworkType(JobInfo.NETWORK_TYPE_METERED);
+            }
             val = parser.getAttributeValue(null, "unmetered");
             if (val != null) {
                 jobBuilder.setRequiredNetworkType(JobInfo.NETWORK_TYPE_UNMETERED);
@@ -730,7 +756,7 @@ public class JobStore {
         private void maybeBuildBackoffPolicyFromXml(JobInfo.Builder jobBuilder, XmlPullParser parser) {
             String val = parser.getAttributeValue(null, "initial-backoff");
             if (val != null) {
-                long initialBackoff = Long.valueOf(val);
+                long initialBackoff = Long.parseLong(val);
                 val = parser.getAttributeValue(null, "backoff-policy");
                 int backoffPolicy = Integer.parseInt(val);  // Will throw NFE which we catch higher up.
                 jobBuilder.setBackoffCriteria(initialBackoff, backoffPolicy);
@@ -753,14 +779,14 @@ public class JobStore {
             long latestRunTimeElapsed = JobStatus.NO_LATEST_RUNTIME;
             String val = parser.getAttributeValue(null, "deadline");
             if (val != null) {
-                long latestRuntimeWallclock = Long.valueOf(val);
+                long latestRuntimeWallclock = Long.parseLong(val);
                 long maxDelayElapsed =
                         Math.max(latestRuntimeWallclock - nowWallclock, 0);
                 latestRunTimeElapsed = nowElapsed + maxDelayElapsed;
             }
             val = parser.getAttributeValue(null, "delay");
             if (val != null) {
-                long earliestRuntimeWallclock = Long.valueOf(val);
+                long earliestRuntimeWallclock = Long.parseLong(val);
                 long minDelayElapsed =
                         Math.max(earliestRuntimeWallclock - nowWallclock, 0);
                 earliestRunTimeElapsed = nowElapsed + minDelayElapsed;
@@ -770,7 +796,7 @@ public class JobStore {
         }
     }
 
-    static class JobSet {
+    static final class JobSet {
         // Key is the getUid() originator of the jobs in each sheaf
         private SparseArray<ArraySet<JobStatus>> mJobs;
 
@@ -792,7 +818,7 @@ public class JobStore {
             ArrayList<JobStatus> result = new ArrayList<JobStatus>();
             for (int i = mJobs.size() - 1; i >= 0; i--) {
                 if (UserHandle.getUserId(mJobs.keyAt(i)) == userId) {
-                    ArraySet<JobStatus> jobs = mJobs.get(i);
+                    ArraySet<JobStatus> jobs = mJobs.valueAt(i);
                     if (jobs != null) {
                         result.addAll(jobs);
                     }
@@ -820,6 +846,17 @@ public class JobStore {
                 mJobs.remove(uid);
             }
             return didRemove;
+        }
+
+        // Remove the jobs all users not specified by the whitelist of user ids
+        public void removeJobsOfNonUsers(int[] whitelist) {
+            for (int jobIndex = mJobs.size() - 1; jobIndex >= 0; jobIndex--) {
+                int jobUserId = UserHandle.getUserId(mJobs.keyAt(jobIndex));
+                // check if job's user id is not in the whitelist
+                if (!ArrayUtils.contains(whitelist, jobUserId)) {
+                    mJobs.removeAt(jobIndex);
+                }
+            }
         }
 
         public boolean contains(JobStatus job) {

@@ -17,6 +17,9 @@
 package com.android.setupwizardlib.view;
 
 import android.content.Context;
+import android.graphics.drawable.Drawable;
+import android.os.Build.VERSION;
+import android.os.Build.VERSION_CODES;
 import android.support.v4.view.ViewCompat;
 import android.text.Annotation;
 import android.text.SpannableString;
@@ -142,5 +145,23 @@ public class RichTextView extends TextView {
             return true;
         }
         return super.dispatchHoverEvent(event);
+    }
+
+    @Override
+    protected void drawableStateChanged() {
+        super.drawableStateChanged();
+
+        if (VERSION.SDK_INT >= VERSION_CODES.JELLY_BEAN_MR1) {
+            // b/26765507 causes drawableStart and drawableEnd to not get the right state on M. As a
+            // workaround, set the state on those drawables directly.
+            final int[] state = getDrawableState();
+            for (Drawable drawable : getCompoundDrawablesRelative()) {
+                if (drawable != null) {
+                    if (drawable.setState(state)) {
+                        invalidateDrawable(drawable);
+                    }
+                }
+            }
+        }
     }
 }

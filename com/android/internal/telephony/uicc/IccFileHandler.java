@@ -17,6 +17,7 @@
 package com.android.internal.telephony.uicc;
 
 import android.os.*;
+
 import com.android.internal.telephony.CommandsInterface;
 
 import java.util.ArrayList;
@@ -25,6 +26,7 @@ import java.util.ArrayList;
  * {@hide}
  */
 public abstract class IccFileHandler extends Handler implements IccConstants {
+    private static final boolean VDBG = false;
 
     //from TS 11.11 9.1 or elsewhere
     static protected final int COMMAND_READ_BINARY = 0xb0;
@@ -516,6 +518,11 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
 
                 fileid = msg.arg1;
 
+                if (VDBG) {
+                    logd(String.format("Contents of the Select Response for command %x: ", fileid)
+                            + IccUtils.bytesToHexString(data));
+                }
+
                 if (TYPE_EF != data[RESPONSE_DATA_FILE_TYPE]) {
                     throw new IccFileTypeMismatch();
                 }
@@ -628,7 +635,6 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
 
     protected abstract String getEFPath(int efid);
     protected abstract void logd(String s);
-
     protected abstract void loge(String s);
 
 }

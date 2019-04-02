@@ -34,11 +34,12 @@ import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
 import android.print.PageRange;
 import android.print.PrintAttributes;
+import android.print.PrintAttributes.MediaSize;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintDocumentInfo;
 import android.print.PrintManager;
-import android.print.PrintAttributes.MediaSize;
 import android.print.pdf.PrintedPdfDocument;
+import android.support.annotation.RequiresApi;
 import android.util.Log;
 
 import java.io.FileNotFoundException;
@@ -49,6 +50,7 @@ import java.io.InputStream;
 /**
  * Kitkat specific PrintManager API implementation.
  */
+@RequiresApi(19)
 class PrintHelperKitkat {
     private static final String LOG_TAG = "PrintHelperKitkat";
     // will be <= 300 dpi on A4 (8.3×11.7) paper (worst case of 150 dpi)

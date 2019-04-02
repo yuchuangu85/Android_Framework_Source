@@ -16,7 +16,7 @@
 
 package com.android.server.webkit;
 
-import android.app.ActivityManagerNative;
+import android.app.ActivityManager;
 import android.app.AppGlobals;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
@@ -26,6 +26,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.UserInfo;
 import android.content.res.XmlResourceParser;
+import android.database.ContentObserver;
 import android.os.Build;
 import android.os.RemoteException;
 import android.os.UserHandle;
@@ -34,8 +35,10 @@ import android.provider.Settings.Global;
 import android.provider.Settings;
 import android.util.AndroidRuntimeException;
 import android.util.Log;
+import android.webkit.UserPackage;
 import android.webkit.WebViewFactory;
 import android.webkit.WebViewProviderInfo;
+import android.webkit.WebViewZygote;
 
 import com.android.internal.util.XmlUtils;
 
@@ -198,7 +201,7 @@ public class SystemImpl implements SystemInterface {
     @Override
     public void killPackageDependents(String packageName) {
         try {
-            ActivityManagerNative.getDefault().killPackageDependents(packageName,
+            ActivityManager.getService().killPackageDependents(packageName,
                     UserHandle.USER_ALL);
         } catch (RemoteException e) {
         }
@@ -268,8 +271,36 @@ public class SystemImpl implements SystemInterface {
         return pm.getPackageInfo(configInfo.packageName, PACKAGE_FLAGS);
     }
 
+    @Override
+    public List<UserPackage> getPackageInfoForProviderAllUsers(Context context,
+            WebViewProviderInfo configInfo) {
+        return UserPackage.getPackageInfosAllUsers(context, configInfo.packageName, PACKAGE_FLAGS);
+    }
+
+    @Override
+    public int getMultiProcessSetting(Context context) {
+        return Settings.Global.getInt(context.getContentResolver(),
+                                      Settings.Global.WEBVIEW_MULTIPROCESS, 0);
+    }
+
+    @Override
+    public void setMultiProcessSetting(Context context, int value) {
+        Settings.Global.putInt(context.getContentResolver(),
+                               Settings.Global.WEBVIEW_MULTIPROCESS, value);
+    }
+
+    @Override
+    public void notifyZygote(boolean enableMultiProcess) {
+        WebViewZygote.setMultiprocessEnabled(enableMultiProcess);
+    }
+
+    @Override
+    public boolean isMultiProcessDefaultEnabled() {
+        return true;
+    }
+
     // flags declaring we want extra info from the package manager for webview providers
     private final static int PACKAGE_FLAGS = PackageManager.GET_META_DATA
             | PackageManager.GET_SIGNATURES | PackageManager.MATCH_DEBUG_TRIAGED_MISSING
-            | PackageManager.MATCH_UNINSTALLED_PACKAGES;
+            | PackageManager.MATCH_ANY_USER;
 }

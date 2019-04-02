@@ -16,6 +16,9 @@
 
 package com.android.server.am;
 
+import static com.android.server.am.ActivityManagerDebugConfig.TAG_AM;
+import static com.android.server.am.ActivityManagerDebugConfig.TAG_WITH_CLASS_NAME;
+
 import android.annotation.Nullable;
 import android.content.pm.ActivityInfo;
 import android.graphics.Point;
@@ -25,9 +28,6 @@ import android.view.Display;
 import android.view.Gravity;
 
 import java.util.ArrayList;
-
-import static com.android.server.am.ActivityManagerDebugConfig.TAG_AM;
-import static com.android.server.am.ActivityManagerDebugConfig.TAG_WITH_CLASS_NAME;
 
 /**
  * Determines where a launching task should be positioned and sized on the display.
@@ -103,9 +103,9 @@ class LaunchingTaskPositioner {
     }
 
     /**
-     * Tries to set task's bound in a way that it won't collide（冲突） with any other task. By colliding
+     * Tries to set task's bound in a way that it won't collide with any other task. By colliding
      * we mean that two tasks have left-top corner very close to each other, so one might get
-     * obfuscated（混乱） by the other one.
+     * obfuscated by the other one.
      *
      * @param task Task for which we want to find bounds that won't collide with other.
      * @param tasks Existing tasks with which we don't want to collide.

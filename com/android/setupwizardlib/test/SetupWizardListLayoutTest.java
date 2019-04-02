@@ -16,9 +16,14 @@
 
 package com.android.setupwizardlib.test;
 
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
 import android.content.Context;
-import android.test.InstrumentationTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -30,24 +35,29 @@ import com.android.setupwizardlib.SetupWizardLayout;
 import com.android.setupwizardlib.SetupWizardListLayout;
 import com.android.setupwizardlib.view.NavigationBar;
 
-public class SetupWizardListLayoutTest extends InstrumentationTestCase {
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+@RunWith(AndroidJUnit4.class)
+@SmallTest
+public class SetupWizardListLayoutTest {
 
     private Context mContext;
 
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
-        mContext = new ContextThemeWrapper(getInstrumentation().getContext(),
+    @Before
+    public void setUp() throws Exception {
+        mContext = new ContextThemeWrapper(InstrumentationRegistry.getContext(),
                 R.style.SuwThemeMaterial_Light);
     }
 
-    @SmallTest
+    @Test
     public void testDefaultTemplate() {
         SetupWizardListLayout layout = new SetupWizardListLayout(mContext);
         assertListTemplateInflated(layout);
     }
 
-    @SmallTest
+    @Test
     public void testAddView() {
         SetupWizardListLayout layout = new SetupWizardListLayout(mContext);
         TextView tv = new TextView(mContext);
@@ -59,7 +69,7 @@ public class SetupWizardListLayoutTest extends InstrumentationTestCase {
         }
     }
 
-    @SmallTest
+    @Test
     public void testInflateFromXml() {
         LayoutInflater inflater = LayoutInflater.from(mContext);
         SetupWizardListLayout layout = (SetupWizardListLayout)
@@ -67,7 +77,7 @@ public class SetupWizardListLayoutTest extends InstrumentationTestCase {
         assertListTemplateInflated(layout);
     }
 
-    @SmallTest
+    @Test
     public void testShowProgressBar() {
         final SetupWizardListLayout layout = new SetupWizardListLayout(mContext);
         layout.showProgressBar();

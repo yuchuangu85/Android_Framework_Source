@@ -262,9 +262,9 @@ public class ClusterManager {
             mSemanticClusters.clear();
             for (Map<String, String> map : allData) {
                 String semanticId = map.get(SEMANTIC_ID);
-                double longitude = Double.valueOf(map.get(SEMANTIC_LONGITUDE));
-                double latitude = Double.valueOf(map.get(SEMANTIC_LATITUDE));
-                long duration = Long.valueOf(map.get(SEMANTIC_DURATION));
+                double longitude = Double.parseDouble(map.get(SEMANTIC_LONGITUDE));
+                double latitude = Double.parseDouble(map.get(SEMANTIC_LATITUDE));
+                long duration = Long.parseLong(map.get(SEMANTIC_DURATION));
                 BaseCluster cluster =
                     new BaseCluster(semanticId, longitude, latitude, duration);
 

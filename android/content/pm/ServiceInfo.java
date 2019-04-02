@@ -21,7 +21,7 @@ import android.os.Parcelable;
 import android.util.Printer;
 
 /**
- * Information you can retrieve（检索） about a particular application
+ * Information you can retrieve about a particular application
  * service. This corresponds to information collected from the
  * AndroidManifest.xml's &lt;service&gt; tags.
  */
@@ -54,6 +54,12 @@ public class ServiceInfo extends ComponentInfo
      * declared.  Set from {@link android.R.attr#externalService} attribute.
      */
     public static final int FLAG_EXTERNAL_SERVICE = 0x0004;
+
+    /**
+     * Bit in {@link #flags} indicating if the service is visible to ephemeral applications.
+     * @hide
+     */
+    public static final int FLAG_VISIBLE_TO_INSTANT_APP = 0x100000;
 
     /**
      * Bit in {@link #flags}: If set, a single instance of the service will

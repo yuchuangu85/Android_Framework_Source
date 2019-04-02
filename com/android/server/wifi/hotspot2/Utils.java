@@ -1,6 +1,6 @@
 package com.android.server.wifi.hotspot2;
 
-import com.android.server.wifi.anqp.Constants;
+import com.android.server.wifi.hotspot2.anqp.Constants;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -10,8 +10,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.TimeZone;
 
-import static com.android.server.wifi.anqp.Constants.BYTE_MASK;
-import static com.android.server.wifi.anqp.Constants.NIBBLE_MASK;
+import static com.android.server.wifi.hotspot2.anqp.Constants.BYTE_MASK;
+import static com.android.server.wifi.hotspot2.anqp.Constants.NIBBLE_MASK;
 
 public abstract class Utils {
 

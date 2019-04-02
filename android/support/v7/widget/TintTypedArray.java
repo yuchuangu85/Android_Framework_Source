@@ -16,27 +16,34 @@
 
 package android.support.v7.widget;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
+import android.support.annotation.RequiresApi;
 import android.support.annotation.RestrictTo;
+import android.support.annotation.StyleableRes;
+import android.support.v4.content.res.ResourcesCompat;
+import android.support.v4.os.BuildCompat;
 import android.support.v7.content.res.AppCompatResources;
 import android.util.AttributeSet;
 import android.util.TypedValue;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
+import android.widget.TextView;
 
 /**
  * A class that wraps a {@link android.content.res.TypedArray} and provides the same public API
- * surface. The purpose of this class is so that we can intercept the {@link #getDrawable(int)}
- * call and tint the result.
+ * surface. The purpose of this class is so that we can intercept calls to new APIs.
  *
  * @hide
  */
-@RestrictTo(GROUP_ID)
+@RestrictTo(LIBRARY_GROUP)
 public class TintTypedArray {
 
     private final Context mContext;
@@ -82,6 +89,38 @@ public class TintTypedArray {
             }
         }
         return null;
+    }
+
+    /**
+     * Retrieve the Typeface for the attribute at <var>index</var>.
+     * <p>
+     * This method will throw an exception if the attribute is defined but is
+     * not a font.
+     *
+     * @param index Index of attribute to retrieve.
+     * @param style A style value used for selecting best match font from the list of family. Note
+     * that this value will be ignored if the platform supports font family(API 24 or later).
+     * @param targetView A text view to be applied this font. If async loading is specified in XML,
+     * this view will be refreshed with result typeface.
+     *
+     * @return Typeface for the attribute, or {@code null} if not defined.
+     * @throws RuntimeException if the TypedArray has already been recycled.
+     * @throws UnsupportedOperationException if the attribute is defined but is
+     *         not a font resource.
+     */
+    @Nullable
+    public Typeface getFont(@StyleableRes int index, int style, @NonNull TextView targetView) {
+        if (BuildCompat.isAtLeastO()) {
+            return mWrapped.getFont(index);
+        }
+        final int resourceId = mWrapped.getResourceId(index, 0);
+        if (resourceId == 0) {
+            return null;
+        }
+        if (mTypedValue == null) {
+            mTypedValue = new TypedValue();
+        }
+        return ResourcesCompat.getFont(mContext, resourceId, mTypedValue, style, targetView);
     }
 
     public int length() {
@@ -210,6 +249,7 @@ public class TintTypedArray {
         mWrapped.recycle();
     }
 
+    @RequiresApi(21)
     public int getChangingConfigurations() {
         return mWrapped.getChangingConfigurations();
     }

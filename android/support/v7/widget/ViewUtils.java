@@ -16,6 +16,8 @@
 
 package android.support.v7.widget;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.graphics.Rect;
 import android.os.Build;
 import android.support.annotation.RestrictTo;
@@ -26,12 +28,10 @@ import android.view.View;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
-
 /**
  * @hide
  */
-@RestrictTo(GROUP_ID)
+@RestrictTo(LIBRARY_GROUP)
 public class ViewUtils {
     private static final String TAG = "ViewUtils";
 
@@ -58,15 +58,18 @@ public class ViewUtils {
     }
 
     /**
-     * Merge two states as returned by {@link ViewCompat#getMeasuredState(android.view.View)} ()}.
+     * Merge two states as returned by {@link View#getMeasuredState()} ()}.
      * @param curState The current state as returned from a view or the result
      * of combining multiple views.
      * @param newState The new view state to combine.
      * @return Returns a new integer reflecting the combination of the two
      * states.
+     *
+     * @deprecated Use {@link View#combineMeasuredStates(int, int)} directly.
      */
+    @Deprecated
     public static int combineMeasuredStates(int curState, int newState) {
-        return curState | newState;
+        return View.combineMeasuredStates(curState, newState);
     }
 
     /**

@@ -18,7 +18,9 @@ package android.support.v4.provider;
 
 import android.content.Context;
 import android.net.Uri;
+import android.support.annotation.RequiresApi;
 
+@RequiresApi(21)
 class TreeDocumentFile extends DocumentFile {
     private Context mContext;
     private Uri mUri;
@@ -64,6 +66,11 @@ class TreeDocumentFile extends DocumentFile {
     @Override
     public boolean isFile() {
         return DocumentsContractApi19.isFile(mContext, mUri);
+    }
+
+    @Override
+    public boolean isVirtual() {
+        return DocumentsContractApi19.isVirtual(mContext, mUri);
     }
 
     @Override

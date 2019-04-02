@@ -18,10 +18,12 @@ package android.support.transition;
 
 import android.animation.TypeEvaluator;
 import android.graphics.Rect;
+import android.support.annotation.RequiresApi;
 
 /**
  * This evaluator can be used to perform type interpolation between <code>Rect</code> values.
  */
+@RequiresApi(14)
 class RectEvaluator implements TypeEvaluator<Rect> {
 
     /**
@@ -36,7 +38,7 @@ class RectEvaluator implements TypeEvaluator<Rect> {
      * {@link RectEvaluator#RectEvaluator(android.graphics.Rect)} should be used
      * whenever possible.
      */
-    public RectEvaluator() {
+    RectEvaluator() {
     }
 
     /**
@@ -49,7 +51,7 @@ class RectEvaluator implements TypeEvaluator<Rect> {
      *
      * @param reuseRect A Rect to be modified and returned by evaluate.
      */
-    public RectEvaluator(Rect reuseRect) {
+    RectEvaluator(Rect reuseRect) {
         mRect = reuseRect;
     }
 

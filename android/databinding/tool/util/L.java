@@ -16,7 +16,9 @@
 
 package android.databinding.tool.util;
 
+import android.databinding.tool.processing.ScopedErrorReport;
 import android.databinding.tool.processing.ScopedException;
+import android.databinding.tool.processing.scopes.LocationScopeProvider;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -113,6 +115,14 @@ public class L {
     }
 
     private static void printMessage(Element element, Diagnostic.Kind kind, String message) {
+        if (kind == Kind.WARNING) {
+            // try to convert it to a scoped message
+            ScopedException ex = new ScopedException(message);
+            if (ex.isValid()) {
+                sClient.printMessage(kind, ex.createHumanReadableMessage(), element);
+                return;
+            }
+        }
         sClient.printMessage(kind, message, element);
         if (kind == Diagnostic.Kind.ERROR) {
             throw new RuntimeException("failure, see logs for details.\n" + message);

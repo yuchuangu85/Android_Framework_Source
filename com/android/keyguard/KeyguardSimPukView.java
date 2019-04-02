@@ -108,7 +108,7 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
             }
             resetPasswordText(true /* animate */, true /* announce */);
             if (msg != 0) {
-                mSecurityMessageDisplay.setMessage(msg, true);
+                mSecurityMessageDisplay.setMessage(msg);
             }
         }
 
@@ -133,7 +133,7 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
                         color = info.getIconTint();
                     }
                 }
-                mSecurityMessageDisplay.setMessage(msg, true);
+                mSecurityMessageDisplay.setMessage(msg);
                 mSimImageView.setImageTintList(ColorStateList.valueOf(color));
             }
             mPasswordEntry.requestFocus();
@@ -184,11 +184,10 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
     protected void onFinishInflate() {
         super.onFinishInflate();
 
-        mSecurityMessageDisplay.setTimeout(0); // don't show ownerinfo/charging status by default
         if (mEcaView instanceof EmergencyCarrierArea) {
             ((EmergencyCarrierArea) mEcaView).setCarrierTextVisible(true);
         }
-        mSimImageView = (ImageView) findViewById(R.id.keyguard_sim);
+        mSimImageView = findViewById(R.id.keyguard_sim);
     }
 
     @Override
@@ -332,7 +331,7 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
                             if (result == PhoneConstants.PIN_RESULT_SUCCESS) {
                                 KeyguardUpdateMonitor.getInstance(getContext())
                                         .reportSimUnlocked(mSubId);
-                                mCallback.dismiss(true);
+                                mCallback.dismiss(true, KeyguardUpdateMonitor.getCurrentUser());
                             } else {
                                 if (result == PhoneConstants.PIN_PASSWORD_INCORRECT) {
                                     if (attemptsRemaining <= 2) {
@@ -341,11 +340,11 @@ public class KeyguardSimPukView extends KeyguardPinBasedInputView {
                                     } else {
                                         // show message
                                         mSecurityMessageDisplay.setMessage(
-                                                getPukPasswordErrorMessage(attemptsRemaining), true);
+                                                getPukPasswordErrorMessage(attemptsRemaining));
                                     }
                                 } else {
                                     mSecurityMessageDisplay.setMessage(getContext().getString(
-                                            R.string.kg_password_puk_failed), true);
+                                            R.string.kg_password_puk_failed));
                                 }
                                 if (DEBUG) Log.d(LOG_TAG, "verifyPasswordAndUnlock "
                                         + " UpdateSim.onSimCheckResponse: "

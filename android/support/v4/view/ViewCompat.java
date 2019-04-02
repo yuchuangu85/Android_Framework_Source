@@ -16,18 +16,25 @@
 
 package android.support.v4.view;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
+import android.animation.ValueAnimator;
+import android.content.ClipData;
+import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.FloatRange;
 import android.support.annotation.IdRes;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.annotation.RequiresApi;
 import android.support.annotation.RestrictTo;
 import android.support.v4.os.BuildCompat;
 import android.support.v4.view.accessibility.AccessibilityNodeInfoCompat;
@@ -35,21 +42,24 @@ import android.support.v4.view.accessibility.AccessibilityNodeProviderCompat;
 import android.util.Log;
 import android.view.Display;
 import android.view.MotionEvent;
+import android.view.PointerIcon;
 import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.ViewParent;
+import android.view.WindowInsets;
+import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeProvider;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Collection;
 import java.util.WeakHashMap;
-
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
 
 /**
  * Helper for accessing features in {@link View} introduced after API
@@ -59,20 +69,20 @@ public class ViewCompat {
     private static final String TAG = "ViewCompat";
 
     /** @hide */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     @IntDef({View.FOCUS_LEFT, View.FOCUS_UP, View.FOCUS_RIGHT, View.FOCUS_DOWN,
             View.FOCUS_FORWARD, View.FOCUS_BACKWARD})
     @Retention(RetentionPolicy.SOURCE)
     public @interface FocusDirection {}
 
     /** @hide */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     @IntDef({View.FOCUS_LEFT, View.FOCUS_UP, View.FOCUS_RIGHT, View.FOCUS_DOWN})
     @Retention(RetentionPolicy.SOURCE)
     public @interface FocusRealDirection {}
 
     /** @hide */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     @IntDef({View.FOCUS_FORWARD, View.FOCUS_BACKWARD})
     @Retention(RetentionPolicy.SOURCE)
     public @interface FocusRelativeDirection {}
@@ -106,8 +116,6 @@ public class ViewCompat {
      */
     @Deprecated
     public static final int OVER_SCROLL_NEVER = 2;
-
-    private static final long FAKE_FRAME_TIME = 10;
 
     @IntDef({
             IMPORTANT_FOR_ACCESSIBILITY_AUTO,
@@ -172,13 +180,16 @@ public class ViewCompat {
      */
     public static final int ACCESSIBILITY_LIVE_REGION_ASSERTIVE = 0x00000002;
 
-    @IntDef({LAYER_TYPE_NONE, LAYER_TYPE_SOFTWARE, LAYER_TYPE_HARDWARE})
+    @IntDef({View.LAYER_TYPE_NONE, View.LAYER_TYPE_SOFTWARE, View.LAYER_TYPE_HARDWARE})
     @Retention(RetentionPolicy.SOURCE)
     private @interface LayerType {}
 
     /**
      * Indicates that the view does not have a layer.
+     *
+     * @deprecated Use {@link View#LAYER_TYPE_NONE} directly.
      */
+    @Deprecated
     public static final int LAYER_TYPE_NONE = 0;
 
     /**
@@ -201,7 +212,10 @@ public class ViewCompat {
      * potentially be slow (particularly when hardware acceleration is turned on
      * since the layer will have to be uploaded into a hardware texture after every
      * update.)</p>
+     *
+     * @deprecated Use {@link View#LAYER_TYPE_SOFTWARE} directly.
      */
+    @Deprecated
     public static final int LAYER_TYPE_SOFTWARE = 1;
 
     /**
@@ -210,7 +224,7 @@ public class ViewCompat {
      * OpenGL hardware) and causes the view to be rendered using Android's hardware
      * rendering pipeline, but only if hardware acceleration is turned on for the
      * view hierarchy. When hardware acceleration is turned off, hardware layers
-     * behave exactly as {@link #LAYER_TYPE_SOFTWARE software layers}.</p>
+     * behave exactly as {@link View#LAYER_TYPE_SOFTWARE software layers}.</p>
      *
      * <p>A hardware layer is useful to apply a specific color filter and/or
      * blending mode and/or translucency to a view and all its children.</p>
@@ -221,7 +235,10 @@ public class ViewCompat {
      * <p>A hardware layer can also be used to increase the rendering quality when
      * rotation transformations are applied on a view. It can also be used to
      * prevent potential clipping issues when applying 3D transforms on a view.</p>
+     *
+     * @deprecated Use {@link View#LAYER_TYPE_HARDWARE} directly.
      */
+    @Deprecated
     public static final int LAYER_TYPE_HARDWARE = 2;
 
     @IntDef({
@@ -264,13 +281,19 @@ public class ViewCompat {
     /**
      * Bits of {@link #getMeasuredWidthAndState} and
      * {@link #getMeasuredWidthAndState} that provide the actual measured size.
+     *
+     * @deprecated Use {@link View#MEASURED_SIZE_MASK} directly.
      */
+    @Deprecated
     public static final int MEASURED_SIZE_MASK = 0x00ffffff;
 
     /**
      * Bits of {@link #getMeasuredWidthAndState} and
      * {@link #getMeasuredWidthAndState} that provide the additional state bits.
+     *
+     * @deprecated Use {@link View#MEASURED_STATE_MASK} directly.
      */
+    @Deprecated
     public static final int MEASURED_STATE_MASK = 0xff000000;
 
     /**
@@ -278,15 +301,29 @@ public class ViewCompat {
      * for functions that combine both width and height into a single int,
      * such as {@link #getMeasuredState} and the childState argument of
      * {@link #resolveSizeAndState(int, int, int)}.
+     *
+     * @deprecated Use {@link View#MEASURED_HEIGHT_STATE_SHIFT} directly.
      */
+    @Deprecated
     public static final int MEASURED_HEIGHT_STATE_SHIFT = 16;
 
     /**
      * Bit of {@link #getMeasuredWidthAndState} and
      * {@link #getMeasuredWidthAndState} that indicates the measured size
      * is smaller that the space the view would like to have.
+     *
+     * @deprecated Use {@link View#MEASURED_STATE_TOO_SMALL} directly.
      */
+    @Deprecated
     public static final int MEASURED_STATE_TOO_SMALL = 0x01000000;
+
+    /**
+     * @hide
+     */
+    @IntDef(value = {SCROLL_AXIS_NONE, SCROLL_AXIS_HORIZONTAL, SCROLL_AXIS_VERTICAL}, flag = true)
+    @Retention(RetentionPolicy.SOURCE)
+    @RestrictTo(LIBRARY_GROUP)
+    public @interface ScrollAxis {}
 
     /**
      * Indicates no axis of view scrolling.
@@ -303,7 +340,27 @@ public class ViewCompat {
      */
     public static final int SCROLL_AXIS_VERTICAL = 1 << 1;
 
+    /**
+     * @hide
+     */
+    @IntDef({TYPE_TOUCH, TYPE_NON_TOUCH})
+    @Retention(RetentionPolicy.SOURCE)
+    @RestrictTo(LIBRARY_GROUP)
+    public @interface NestedScrollType {}
+
+    /**
+     * Indicates that the input type for the gesture is from a user touching the screen.
+     */
+    public static final int TYPE_TOUCH = 0;
+
+    /**
+     * Indicates that the input type for the gesture is caused by something which is not a user
+     * touching a screen. This is usually from a fling which is settling.
+     */
+    public static final int TYPE_NON_TOUCH = 1;
+
     /** @hide */
+    @RestrictTo(LIBRARY_GROUP)
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(flag = true,
             value = {
@@ -370,300 +427,160 @@ public class ViewCompat {
      */
     public static final int SCROLL_INDICATOR_END = 0x20;
 
-    interface ViewCompatImpl {
-        boolean canScrollHorizontally(View v, int direction);
-        boolean canScrollVertically(View v, int direction);
-        void onInitializeAccessibilityEvent(View v, AccessibilityEvent event);
-        void onPopulateAccessibilityEvent(View v, AccessibilityEvent event);
-        void onInitializeAccessibilityNodeInfo(View v, AccessibilityNodeInfoCompat info);
-        void setAccessibilityDelegate(View v, @Nullable AccessibilityDelegateCompat delegate);
-        boolean hasAccessibilityDelegate(View v);
-        boolean hasTransientState(View view);
-        void setHasTransientState(View view, boolean hasTransientState);
-        void postInvalidateOnAnimation(View view);
-        void postInvalidateOnAnimation(View view, int left, int top, int right, int bottom);
-        void postOnAnimation(View view, Runnable action);
-        void postOnAnimationDelayed(View view, Runnable action, long delayMillis);
-        int getImportantForAccessibility(View view);
-        void setImportantForAccessibility(View view, int mode);
-        boolean isImportantForAccessibility(View view);
-        boolean performAccessibilityAction(View view, int action, Bundle arguments);
-        AccessibilityNodeProviderCompat getAccessibilityNodeProvider(View view);
-        float getAlpha(View view);
-        void setLayerType(View view, int layerType, Paint paint);
-        int getLayerType(View view);
-        int getLabelFor(View view);
-        void setLabelFor(View view, int id);
-        void setLayerPaint(View view, Paint paint);
-        int getLayoutDirection(View view);
-        void setLayoutDirection(View view, int layoutDirection);
-        ViewParent getParentForAccessibility(View view);
-        int resolveSizeAndState(int size, int measureSpec, int childMeasuredState);
-        int getMeasuredWidthAndState(View view);
-        int getMeasuredHeightAndState(View view);
-        int getMeasuredState(View view);
-        int getAccessibilityLiveRegion(View view);
-        void setAccessibilityLiveRegion(View view, int mode);
-        int getPaddingStart(View view);
-        int getPaddingEnd(View view);
-        void setPaddingRelative(View view, int start, int top, int end, int bottom);
-        void dispatchStartTemporaryDetach(View view);
-        void dispatchFinishTemporaryDetach(View view);
-        float getX(View view);
-        float getY(View view);
-        float getRotation(View view);
-        float getRotationX(View view);
-        float getRotationY(View view);
-        float getScaleX(View view);
-        float getScaleY(View view);
-        float getTranslationX(View view);
-        float getTranslationY(View view);
-        @Nullable Matrix getMatrix(View view);
-        int getMinimumWidth(View view);
-        int getMinimumHeight(View view);
-        ViewPropertyAnimatorCompat animate(View view);
-        void setRotation(View view, float value);
-        void setRotationX(View view, float value);
-        void setRotationY(View view, float value);
-        void setScaleX(View view, float value);
-        void setScaleY(View view, float value);
-        void setTranslationX(View view, float value);
-        void setTranslationY(View view, float value);
-        void setX(View view, float value);
-        void setY(View view, float value);
-        void setAlpha(View view, float value);
-        void setPivotX(View view, float value);
-        void setPivotY(View view, float value);
-        float getPivotX(View view);
-        float getPivotY(View view);
-        void setElevation(View view, float elevation);
-        float getElevation(View view);
-        void setTranslationZ(View view, float translationZ);
-        float getTranslationZ(View view);
-        void setClipBounds(View view, Rect clipBounds);
-        Rect getClipBounds(View view);
-        void setTransitionName(View view, String transitionName);
-        String getTransitionName(View view);
-        int getWindowSystemUiVisibility(View view);
-        void requestApplyInsets(View view);
-        void setChildrenDrawingOrderEnabled(ViewGroup viewGroup, boolean enabled);
-        boolean getFitsSystemWindows(View view);
-        boolean hasOverlappingRendering(View view);
-        void setFitsSystemWindows(View view, boolean fitSystemWindows);
-        void jumpDrawablesToCurrentState(View v);
-        void setOnApplyWindowInsetsListener(View view, OnApplyWindowInsetsListener listener);
-        WindowInsetsCompat onApplyWindowInsets(View v, WindowInsetsCompat insets);
-        WindowInsetsCompat dispatchApplyWindowInsets(View v, WindowInsetsCompat insets);
-        void setSaveFromParentEnabled(View view, boolean enabled);
-        void setActivated(View view, boolean activated);
-        boolean isPaddingRelative(View view);
-        void setBackground(View view, Drawable background);
-        ColorStateList getBackgroundTintList(View view);
-        void setBackgroundTintList(View view, ColorStateList tintList);
-        PorterDuff.Mode getBackgroundTintMode(View view);
-        void setBackgroundTintMode(View view, PorterDuff.Mode mode);
-        void setNestedScrollingEnabled(View view, boolean enabled);
-        boolean isNestedScrollingEnabled(View view);
-        boolean startNestedScroll(View view, int axes);
-        void stopNestedScroll(View view);
-        boolean hasNestedScrollingParent(View view);
-        boolean dispatchNestedScroll(View view, int dxConsumed, int dyConsumed, int dxUnconsumed,
-                int dyUnconsumed, int[] offsetInWindow);
-        boolean dispatchNestedPreScroll(View view, int dx, int dy, int[] consumed,
-                int[] offsetInWindow);
-        boolean dispatchNestedFling(View view, float velocityX, float velocityY, boolean consumed);
-        boolean dispatchNestedPreFling(View view, float velocityX, float velocityY);
-        boolean isInLayout(View view);
-        boolean isLaidOut(View view);
-        boolean isLayoutDirectionResolved(View view);
-        int combineMeasuredStates(int curState, int newState);
-        float getZ(View view);
-        void setZ(View view, float z);
-        boolean isAttachedToWindow(View view);
-        boolean hasOnClickListeners(View view);
-        void setScrollIndicators(View view, int indicators);
-        void setScrollIndicators(View view, int indicators, int mask);
-        int getScrollIndicators(View view);
-        void offsetTopAndBottom(View view, int offset);
-        void offsetLeftAndRight(View view, int offset);
-        void setPointerIcon(View view, PointerIconCompat pointerIcon);
-        Display getDisplay(View view);
-    }
-
-    static class BaseViewCompatImpl implements ViewCompatImpl {
+    static class ViewCompatBaseImpl {
+        private static Field sMinWidthField;
+        private static boolean sMinWidthFieldFetched;
+        private static Field sMinHeightField;
+        private static boolean sMinHeightFieldFetched;
+        private static WeakHashMap<View, String> sTransitionNameMap;
         private Method mDispatchStartTemporaryDetach;
         private Method mDispatchFinishTemporaryDetach;
         private boolean mTempDetachBound;
         WeakHashMap<View, ViewPropertyAnimatorCompat> mViewPropertyAnimatorCompatMap = null;
         private static Method sChildrenDrawingOrderMethod;
+        static Field sAccessibilityDelegateField;
+        static boolean sAccessibilityDelegateCheckFailed = false;
 
-        @Override
-        public boolean canScrollHorizontally(View v, int direction) {
-            return (v instanceof ScrollingView) &&
-                canScrollingViewScrollHorizontally((ScrollingView) v, direction);
-        }
-        @Override
-        public boolean canScrollVertically(View v, int direction) {
-            return (v instanceof ScrollingView) &&
-                    canScrollingViewScrollVertically((ScrollingView) v, direction);
+        public void setAccessibilityDelegate(View v,
+                @Nullable AccessibilityDelegateCompat delegate) {
+            v.setAccessibilityDelegate(delegate == null ? null : delegate.getBridge());
         }
 
-        @Override
-        public void setAccessibilityDelegate(View v, AccessibilityDelegateCompat delegate) {
-            // Do nothing; API doesn't exist
-        }
-
-        @Override
         public boolean hasAccessibilityDelegate(View v) {
-            return false;
+            if (sAccessibilityDelegateCheckFailed) {
+                return false; // View implementation might have changed.
+            }
+            if (sAccessibilityDelegateField == null) {
+                try {
+                    sAccessibilityDelegateField = View.class
+                            .getDeclaredField("mAccessibilityDelegate");
+                    sAccessibilityDelegateField.setAccessible(true);
+                } catch (Throwable t) {
+                    sAccessibilityDelegateCheckFailed = true;
+                    return false;
+                }
+            }
+            try {
+                return sAccessibilityDelegateField.get(v) != null;
+            } catch (Throwable t) {
+                sAccessibilityDelegateCheckFailed = true;
+                return false;
+            }
         }
 
-        @Override
-        public void onPopulateAccessibilityEvent(View v, AccessibilityEvent event) {
-            // Do nothing; API doesn't exist
-        }
-        @Override
-        public void onInitializeAccessibilityEvent(View v, AccessibilityEvent event) {
-         // Do nothing; API doesn't exist
-        }
-        @Override
         public void onInitializeAccessibilityNodeInfo(View v, AccessibilityNodeInfoCompat info) {
-            // Do nothing; API doesn't exist
+            v.onInitializeAccessibilityNodeInfo(info.unwrap());
         }
-        @Override
+
+        @SuppressWarnings("deprecation")
+        public boolean startDragAndDrop(View v, ClipData data, View.DragShadowBuilder shadowBuilder,
+                Object localState, int flags) {
+            return v.startDrag(data, shadowBuilder, localState, flags);
+        }
+
+        public void cancelDragAndDrop(View v) {
+            // no-op
+        }
+
+        public void updateDragShadow(View v, View.DragShadowBuilder shadowBuilder) {
+            // no-op
+        }
+
         public boolean hasTransientState(View view) {
             // A view can't have transient state if transient state wasn't supported.
             return false;
         }
-        @Override
+
         public void setHasTransientState(View view, boolean hasTransientState) {
             // Do nothing; API doesn't exist
         }
-        @Override
+
         public void postInvalidateOnAnimation(View view) {
-            view.invalidate();
+            view.postInvalidate();
         }
-        @Override
+
         public void postInvalidateOnAnimation(View view, int left, int top, int right, int bottom) {
-            view.invalidate(left, top, right, bottom);
+            view.postInvalidate(left, top, right, bottom);
         }
-        @Override
+
         public void postOnAnimation(View view, Runnable action) {
             view.postDelayed(action, getFrameTime());
         }
-        @Override
+
         public void postOnAnimationDelayed(View view, Runnable action, long delayMillis) {
             view.postDelayed(action, getFrameTime() + delayMillis);
         }
+
         long getFrameTime() {
-            return FAKE_FRAME_TIME;
+            return ValueAnimator.getFrameDelay();
         }
-        @Override
+
         public int getImportantForAccessibility(View view) {
             return 0;
         }
-        @Override
-        public void setImportantForAccessibility(View view, int mode) {
 
+        public void setImportantForAccessibility(View view, int mode) {
         }
-        @Override
+
         public boolean isImportantForAccessibility(View view) {
             return true;
         }
-        @Override
+
         public boolean performAccessibilityAction(View view, int action, Bundle arguments) {
             return false;
         }
-        @Override
+
         public AccessibilityNodeProviderCompat getAccessibilityNodeProvider(View view) {
             return null;
         }
-        @Override
-        public float getAlpha(View view) {
-            return 1.0f;
-        }
-        @Override
-        public void setLayerType(View view, int layerType, Paint paint) {
-            // No-op until layers became available (HC)
-        }
-        @Override
-        public int getLayerType(View view) {
-            return LAYER_TYPE_NONE;
-        }
-        @Override
+
         public int getLabelFor(View view) {
             return 0;
         }
-        @Override
+
         public void setLabelFor(View view, int id) {
-
-        }
-        @Override
-        public void setLayerPaint(View view, Paint p) {
-            // No-op until layers became available (HC)
         }
 
-        @Override
+        public void setLayerPaint(View view, Paint paint) {
+            // Make sure the paint is correct; this will be cheap if it's the same
+            // instance as was used to call setLayerType earlier.
+            view.setLayerType(view.getLayerType(), paint);
+            // This is expensive, but the only way to accomplish this before JB-MR1.
+            view.invalidate();
+        }
+
         public int getLayoutDirection(View view) {
             return LAYOUT_DIRECTION_LTR;
         }
 
-        @Override
         public void setLayoutDirection(View view, int layoutDirection) {
             // No-op
         }
 
-        @Override
         public ViewParent getParentForAccessibility(View view) {
             return view.getParent();
         }
 
-        @Override
-        public int resolveSizeAndState(int size, int measureSpec, int childMeasuredState) {
-            return View.resolveSize(size, measureSpec);
-        }
-
-        @Override
-        public int getMeasuredWidthAndState(View view) {
-            return view.getMeasuredWidth();
-        }
-
-        @Override
-        public int getMeasuredHeightAndState(View view) {
-            return view.getMeasuredHeight();
-        }
-
-        @Override
-        public int getMeasuredState(View view) {
-            return 0;
-        }
-
-        @Override
         public int getAccessibilityLiveRegion(View view) {
             return ACCESSIBILITY_LIVE_REGION_NONE;
         }
 
-        @Override
         public void setAccessibilityLiveRegion(View view, int mode) {
             // No-op
         }
 
-        @Override
         public int getPaddingStart(View view) {
             return view.getPaddingLeft();
         }
 
-        @Override
         public int getPaddingEnd(View view) {
             return view.getPaddingRight();
         }
 
-        @Override
         public void setPaddingRelative(View view, int start, int top, int end, int bottom) {
             view.setPadding(start, top, end, bottom);
         }
 
-        @Override
         public void dispatchStartTemporaryDetach(View view) {
             if (!mTempDetachBound) {
                 bindTempDetach();
@@ -680,7 +597,6 @@ public class ViewCompat {
             }
         }
 
-        @Override
         public void dispatchFinishTemporaryDetach(View view) {
             if (!mTempDetachBound) {
                 bindTempDetach();
@@ -697,7 +613,6 @@ public class ViewCompat {
             }
         }
 
-        @Override
         public boolean hasOverlappingRendering(View view) {
             return true;
         }
@@ -714,187 +629,106 @@ public class ViewCompat {
             mTempDetachBound = true;
         }
 
-        @Override
-        public float getTranslationX(View view) {
-            return 0;
-        }
-
-        @Override
-        public float getTranslationY(View view) {
-            return 0;
-        }
-
-        @Override
-        public float getX(View view) {
-            return view.getLeft();
-        }
-
-        @Override
-        public float getY(View view) {
-            return view.getTop();
-        }
-
-        @Override
-        public float getRotation(View view) {
-            return 0;
-        }
-
-        @Override
-        public float getRotationX(View view) {
-            return 0;
-        }
-
-        @Override
-        public float getRotationY(View view) {
-            return 0;
-        }
-
-        @Override
-        public float getScaleX(View view) {
-            return 0;
-        }
-
-        @Override
-        public float getScaleY(View view) {
-            return 0;
-        }
-
-        @Override
-        public Matrix getMatrix(View view) {
-            return null;
-        }
-
-        @Override
         public int getMinimumWidth(View view) {
-            return ViewCompatBase.getMinimumWidth(view);
+            if (!sMinWidthFieldFetched) {
+                try {
+                    sMinWidthField = View.class.getDeclaredField("mMinWidth");
+                    sMinWidthField.setAccessible(true);
+                } catch (NoSuchFieldException e) {
+                    // Couldn't find the field. Abort!
+                }
+                sMinWidthFieldFetched = true;
+            }
+
+            if (sMinWidthField != null) {
+                try {
+                    return (int) sMinWidthField.get(view);
+                } catch (Exception e) {
+                    // Field get failed. Oh well...
+                }
+            }
+
+            // We failed, return 0
+            return 0;
         }
 
-        @Override
         public int getMinimumHeight(View view) {
-            return ViewCompatBase.getMinimumHeight(view);
+            if (!sMinHeightFieldFetched) {
+                try {
+                    sMinHeightField = View.class.getDeclaredField("mMinHeight");
+                    sMinHeightField.setAccessible(true);
+                } catch (NoSuchFieldException e) {
+                    // Couldn't find the field. Abort!
+                }
+                sMinHeightFieldFetched = true;
+            }
+
+            if (sMinHeightField != null) {
+                try {
+                    return (int) sMinHeightField.get(view);
+                } catch (Exception e) {
+                    // Field get failed. Oh well...
+                }
+            }
+
+            // We failed, return 0
+            return 0;
         }
 
-        @Override
         public ViewPropertyAnimatorCompat animate(View view) {
-            return new ViewPropertyAnimatorCompat(view);
+            if (mViewPropertyAnimatorCompatMap == null) {
+                mViewPropertyAnimatorCompatMap = new WeakHashMap<>();
+            }
+            ViewPropertyAnimatorCompat vpa = mViewPropertyAnimatorCompatMap.get(view);
+            if (vpa == null) {
+                vpa = new ViewPropertyAnimatorCompat(view);
+                mViewPropertyAnimatorCompatMap.put(view, vpa);
+            }
+            return vpa;
         }
 
-        @Override
-        public void setRotation(View view, float value) {
-            // noop
-        }
-
-        @Override
-        public void setTranslationX(View view, float value) {
-            // noop
-        }
-
-        @Override
-        public void setTranslationY(View view, float value) {
-            // noop
-        }
-
-        @Override
-        public void setAlpha(View view, float value) {
-            // noop
-        }
-
-        @Override
-        public void setRotationX(View view, float value) {
-            // noop
-        }
-
-        @Override
-        public void setRotationY(View view, float value) {
-            // noop
-        }
-
-        @Override
-        public void setScaleX(View view, float value) {
-            // noop
-        }
-
-        @Override
-        public void setScaleY(View view, float value) {
-            // noop
-        }
-
-        @Override
-        public void setX(View view, float value) {
-            // noop
-        }
-
-        @Override
-        public void setY(View view, float value) {
-            // noop
-        }
-
-        @Override
-        public void setPivotX(View view, float value) {
-            // noop
-        }
-
-        @Override
-        public void setPivotY(View view, float value) {
-            // noop
-        }
-
-        @Override
-        public float getPivotX(View view) {
-            return 0;
-        }
-
-        @Override
-        public float getPivotY(View view) {
-            return 0;
-        }
-
-        @Override
         public void setTransitionName(View view, String transitionName) {
+            if (sTransitionNameMap == null) {
+                sTransitionNameMap = new WeakHashMap<>();
+            }
+            sTransitionNameMap.put(view, transitionName);
         }
 
-        @Override
         public String getTransitionName(View view) {
-            return null;
+            if (sTransitionNameMap == null) {
+                return null;
+            }
+            return sTransitionNameMap.get(view);
         }
 
-        @Override
         public int getWindowSystemUiVisibility(View view) {
             return 0;
         }
 
-        @Override
         public void requestApplyInsets(View view) {
         }
 
-        @Override
         public void setElevation(View view, float elevation) {
         }
 
-        @Override
         public float getElevation(View view) {
             return 0f;
         }
 
-        @Override
         public void setTranslationZ(View view, float translationZ) {
         }
 
-        @Override
         public float getTranslationZ(View view) {
             return 0f;
         }
 
-        @Override
         public void setClipBounds(View view, Rect clipBounds) {
         }
 
-        @Override
         public Rect getClipBounds(View view) {
             return null;
         }
 
-        @Override
         public void setChildrenDrawingOrderEnabled(ViewGroup viewGroup, boolean enabled) {
             if (sChildrenDrawingOrderMethod == null) {
                 try {
@@ -916,60 +750,33 @@ public class ViewCompat {
             }
         }
 
-        @Override
         public boolean getFitsSystemWindows(View view) {
             return false;
         }
 
-        @Override
-        public void setFitsSystemWindows(View view, boolean fitSystemWindows) {
-            // noop
-        }
-
-        @Override
-        public void jumpDrawablesToCurrentState(View view) {
-            // Do nothing; API didn't exist.
-        }
-
-        @Override
         public void setOnApplyWindowInsetsListener(View view,
                 OnApplyWindowInsetsListener listener) {
             // noop
         }
 
-        @Override
         public WindowInsetsCompat onApplyWindowInsets(View v, WindowInsetsCompat insets) {
             return insets;
         }
 
-        @Override
         public WindowInsetsCompat dispatchApplyWindowInsets(View v, WindowInsetsCompat insets) {
             return insets;
         }
 
-        @Override
-        public void setSaveFromParentEnabled(View v, boolean enabled) {
-            // noop
-        }
-
-        @Override
-        public void setActivated(View view, boolean activated) {
-            // noop
-        }
-
-        @Override
         public boolean isPaddingRelative(View view) {
             return false;
         }
 
-        @Override
         public void setNestedScrollingEnabled(View view, boolean enabled) {
             if (view instanceof NestedScrollingChild) {
                 ((NestedScrollingChild) view).setNestedScrollingEnabled(enabled);
             }
         }
 
-        @Override
         public boolean isNestedScrollingEnabled(View view) {
             if (view instanceof NestedScrollingChild) {
                 return ((NestedScrollingChild) view).isNestedScrollingEnabled();
@@ -977,56 +784,34 @@ public class ViewCompat {
             return false;
         }
 
-        @Override
         public void setBackground(View view, Drawable background) {
             view.setBackgroundDrawable(background);
         }
 
-        @Override
         public ColorStateList getBackgroundTintList(View view) {
-            return ViewCompatBase.getBackgroundTintList(view);
+            return (view instanceof TintableBackgroundView)
+                    ? ((TintableBackgroundView) view).getSupportBackgroundTintList()
+                    : null;
         }
 
-        @Override
         public void setBackgroundTintList(View view, ColorStateList tintList) {
-            ViewCompatBase.setBackgroundTintList(view, tintList);
+            if (view instanceof TintableBackgroundView) {
+                ((TintableBackgroundView) view).setSupportBackgroundTintList(tintList);
+            }
         }
 
-        @Override
         public void setBackgroundTintMode(View view, PorterDuff.Mode mode) {
-            ViewCompatBase.setBackgroundTintMode(view, mode);
+            if (view instanceof TintableBackgroundView) {
+                ((TintableBackgroundView) view).setSupportBackgroundTintMode(mode);
+            }
         }
 
-        @Override
         public PorterDuff.Mode getBackgroundTintMode(View view) {
-            return ViewCompatBase.getBackgroundTintMode(view);
+            return (view instanceof TintableBackgroundView)
+                    ? ((TintableBackgroundView) view).getSupportBackgroundTintMode()
+                    : null;
         }
 
-        private boolean canScrollingViewScrollHorizontally(ScrollingView view, int direction) {
-            final int offset = view.computeHorizontalScrollOffset();
-            final int range = view.computeHorizontalScrollRange() -
-                    view.computeHorizontalScrollExtent();
-            if (range == 0) return false;
-            if (direction < 0) {
-                return offset > 0;
-            } else {
-                return offset < range - 1;
-            }
-        }
-
-        private boolean canScrollingViewScrollVertically(ScrollingView view, int direction) {
-            final int offset = view.computeVerticalScrollOffset();
-            final int range = view.computeVerticalScrollRange() -
-                    view.computeVerticalScrollExtent();
-            if (range == 0) return false;
-            if (direction < 0) {
-                return offset > 0;
-            } else {
-                return offset < range - 1;
-            }
-        }
-
-        @Override
         public boolean startNestedScroll(View view, int axes) {
             if (view instanceof NestedScrollingChild) {
                 return ((NestedScrollingChild) view).startNestedScroll(axes);
@@ -1034,14 +819,12 @@ public class ViewCompat {
             return false;
         }
 
-        @Override
         public void stopNestedScroll(View view) {
             if (view instanceof NestedScrollingChild) {
                 ((NestedScrollingChild) view).stopNestedScroll();
             }
         }
 
-        @Override
         public boolean hasNestedScrollingParent(View view) {
             if (view instanceof NestedScrollingChild) {
                 return ((NestedScrollingChild) view).hasNestedScrollingParent();
@@ -1049,7 +832,6 @@ public class ViewCompat {
             return false;
         }
 
-        @Override
         public boolean dispatchNestedScroll(View view, int dxConsumed, int dyConsumed,
                 int dxUnconsumed, int dyUnconsumed, int[] offsetInWindow) {
             if (view instanceof NestedScrollingChild) {
@@ -1059,7 +841,6 @@ public class ViewCompat {
             return false;
         }
 
-        @Override
         public boolean dispatchNestedPreScroll(View view, int dx, int dy,
                 int[] consumed, int[] offsetInWindow) {
             if (view instanceof NestedScrollingChild) {
@@ -1069,7 +850,6 @@ public class ViewCompat {
             return false;
         }
 
-        @Override
         public boolean dispatchNestedFling(View view, float velocityX, float velocityY,
                 boolean consumed) {
             if (view instanceof NestedScrollingChild) {
@@ -1079,7 +859,6 @@ public class ViewCompat {
             return false;
         }
 
-        @Override
         public boolean dispatchNestedPreFling(View view, float velocityX, float velocityY) {
             if (view instanceof NestedScrollingChild) {
                 return ((NestedScrollingChild) view).dispatchNestedPreFling(velocityX, velocityY);
@@ -1087,366 +866,168 @@ public class ViewCompat {
             return false;
         }
 
-        @Override
         public boolean isInLayout(View view) {
             return false;
         }
 
-        @Override
         public boolean isLaidOut(View view) {
-            return ViewCompatBase.isLaidOut(view);
+            return view.getWidth() > 0 && view.getHeight() > 0;
         }
 
-        @Override
         public boolean isLayoutDirectionResolved(View view) {
             return false;
         }
 
-        @Override
-        public int combineMeasuredStates(int curState, int newState) {
-            return curState | newState;
-        }
-
-        @Override
         public float getZ(View view) {
             return getTranslationZ(view) + getElevation(view);
         }
 
-        @Override
         public void setZ(View view, float z) {
             // no-op
         }
 
-        @Override
         public boolean isAttachedToWindow(View view) {
-            return ViewCompatBase.isAttachedToWindow(view);
+            return view.getWindowToken() != null;
         }
 
-        @Override
         public boolean hasOnClickListeners(View view) {
             return false;
         }
 
-        @Override
         public int getScrollIndicators(View view) {
             return 0;
         }
 
-        @Override
         public void setScrollIndicators(View view, int indicators) {
             // no-op
         }
 
-        @Override
         public void setScrollIndicators(View view, int indicators, int mask) {
             // no-op
         }
 
-        @Override
         public void offsetLeftAndRight(View view, int offset) {
-            ViewCompatBase.offsetLeftAndRight(view, offset);
+            view.offsetLeftAndRight(offset);
+            if (view.getVisibility() == View.VISIBLE) {
+                tickleInvalidationFlag(view);
+
+                ViewParent parent = view.getParent();
+                if (parent instanceof View) {
+                    tickleInvalidationFlag((View) parent);
+                }
+            }
         }
 
-        @Override
         public void offsetTopAndBottom(View view, int offset) {
-            ViewCompatBase.offsetTopAndBottom(view, offset);
+            view.offsetTopAndBottom(offset);
+            if (view.getVisibility() == View.VISIBLE) {
+                tickleInvalidationFlag(view);
+
+                ViewParent parent = view.getParent();
+                if (parent instanceof View) {
+                    tickleInvalidationFlag((View) parent);
+                }
+            }
         }
 
-        @Override
+        private static void tickleInvalidationFlag(View view) {
+            final float y = view.getTranslationY();
+            view.setTranslationY(y + 1);
+            view.setTranslationY(y);
+        }
+
         public void setPointerIcon(View view, PointerIconCompat pointerIcon) {
             // no-op
         }
 
-        @Override
         public Display getDisplay(View view) {
-            return ViewCompatBase.getDisplay(view);
+            if (isAttachedToWindow(view)) {
+                final WindowManager wm = (WindowManager) view.getContext().getSystemService(
+                        Context.WINDOW_SERVICE);
+                return wm.getDefaultDisplay();
+            }
+            return null;
+        }
+
+        public void setTooltipText(View view, CharSequence tooltipText) {
+        }
+
+        public int getNextClusterForwardId(@NonNull View view) {
+            return View.NO_ID;
+        }
+
+        public void setNextClusterForwardId(@NonNull View view, int nextClusterForwardId) {
+            // no-op
+        }
+
+        public boolean isKeyboardNavigationCluster(@NonNull View view) {
+            return false;
+        }
+
+        public void setKeyboardNavigationCluster(@NonNull View view, boolean isCluster) {
+            // no-op
+        }
+
+        public boolean isFocusedByDefault(@NonNull View view) {
+            return false;
+        }
+
+        public void setFocusedByDefault(@NonNull View view, boolean isFocusedByDefault) {
+            // no-op
+        }
+
+        public View keyboardNavigationClusterSearch(@NonNull View view, View currentCluster,
+                @FocusDirection int direction) {
+            return null;
+        }
+
+        public void addKeyboardNavigationClusters(@NonNull View view,
+                @NonNull Collection<View> views, int direction) {
+            // no-op
+        }
+
+        public boolean restoreDefaultFocus(@NonNull View view) {
+            return view.requestFocus();
         }
     }
 
-    static class HCViewCompatImpl extends BaseViewCompatImpl {
-        @Override
-        long getFrameTime() {
-            return ViewCompatHC.getFrameTime();
-        }
-        @Override
-        public float getAlpha(View view) {
-            return ViewCompatHC.getAlpha(view);
-        }
-        @Override
-        public void setLayerType(View view, int layerType, Paint paint) {
-            ViewCompatHC.setLayerType(view, layerType, paint);
-        }
-        @Override
-        public int getLayerType(View view)  {
-            return ViewCompatHC.getLayerType(view);
-        }
-        @Override
-        public void setLayerPaint(View view, Paint paint) {
-            // Make sure the paint is correct; this will be cheap if it's the same
-            // instance as was used to call setLayerType earlier.
-            setLayerType(view, getLayerType(view), paint);
-            // This is expensive, but the only way to accomplish this before JB-MR1.
-            view.invalidate();
-        }
-        @Override
-        public int resolveSizeAndState(int size, int measureSpec, int childMeasuredState) {
-            return ViewCompatHC.resolveSizeAndState(size, measureSpec, childMeasuredState);
-        }
-        @Override
-        public int getMeasuredWidthAndState(View view) {
-            return ViewCompatHC.getMeasuredWidthAndState(view);
-        }
-        @Override
-        public int getMeasuredHeightAndState(View view) {
-            return ViewCompatHC.getMeasuredHeightAndState(view);
-        }
-        @Override
-        public int getMeasuredState(View view) {
-            return ViewCompatHC.getMeasuredState(view);
-        }
-        @Override
-        public float getTranslationX(View view) {
-            return ViewCompatHC.getTranslationX(view);
-        }
-        @Override
-        public float getTranslationY(View view) {
-            return ViewCompatHC.getTranslationY(view);
-        }
-
-        @Override
-        public Matrix getMatrix(View view) {
-            return ViewCompatHC.getMatrix(view);
-        }
-
-        @Override
-        public void setTranslationX(View view, float value) {
-            ViewCompatHC.setTranslationX(view, value);
-        }
-        @Override
-        public void setTranslationY(View view, float value) {
-            ViewCompatHC.setTranslationY(view, value);
-        }
-        @Override
-        public void setAlpha(View view, float value) {
-            ViewCompatHC.setAlpha(view, value);
-        }
-        @Override
-        public void setX(View view, float value) {
-            ViewCompatHC.setX(view, value);
-        }
-        @Override
-        public void setY(View view, float value) {
-            ViewCompatHC.setY(view, value);
-        }
-        @Override
-        public void setRotation(View view, float value) {
-            ViewCompatHC.setRotation(view, value);
-        }
-        @Override
-        public void setRotationX(View view, float value) {
-            ViewCompatHC.setRotationX(view, value);
-        }
-        @Override
-        public void setRotationY(View view, float value) {
-            ViewCompatHC.setRotationY(view, value);
-        }
-        @Override
-        public void setScaleX(View view, float value) {
-            ViewCompatHC.setScaleX(view, value);
-        }
-        @Override
-        public void setScaleY(View view, float value) {
-            ViewCompatHC.setScaleY(view, value);
-        }
-        @Override
-        public void setPivotX(View view, float value) {
-            ViewCompatHC.setPivotX(view, value);
-        }
-        @Override
-        public void setPivotY(View view, float value) {
-            ViewCompatHC.setPivotY(view, value);
-        }
-        @Override
-        public float getX(View view) {
-            return ViewCompatHC.getX(view);
-        }
-
-        @Override
-        public float getY(View view) {
-            return ViewCompatHC.getY(view);
-        }
-
-        @Override
-        public float getRotation(View view) {
-            return ViewCompatHC.getRotation(view);
-        }
-
-        @Override
-        public float getRotationX(View view) {
-            return ViewCompatHC.getRotationX(view);
-        }
-
-        @Override
-        public float getRotationY(View view) {
-            return ViewCompatHC.getRotationY(view);
-        }
-
-        @Override
-        public float getScaleX(View view) {
-            return ViewCompatHC.getScaleX(view);
-        }
-
-        @Override
-        public float getScaleY(View view) {
-            return ViewCompatHC.getScaleY(view);
-        }
-
-        @Override
-        public float getPivotX(View view) {
-            return ViewCompatHC.getPivotX(view);
-        }
-        @Override
-        public float getPivotY(View view) {
-            return ViewCompatHC.getPivotY(view);
-        }
-        @Override
-        public void jumpDrawablesToCurrentState(View view) {
-            ViewCompatHC.jumpDrawablesToCurrentState(view);
-        }
-
-        @Override
-        public void setSaveFromParentEnabled(View view, boolean enabled) {
-            ViewCompatHC.setSaveFromParentEnabled(view, enabled);
-        }
-
-        @Override
-        public void setActivated(View view, boolean activated) {
-            ViewCompatHC.setActivated(view, activated);
-        }
-
-        @Override
-        public int combineMeasuredStates(int curState, int newState) {
-            return ViewCompatHC.combineMeasuredStates(curState, newState);
-        }
-
-        @Override
-        public void offsetLeftAndRight(View view, int offset) {
-            ViewCompatHC.offsetLeftAndRight(view, offset);
-        }
-
-        @Override
-        public void offsetTopAndBottom(View view, int offset) {
-            ViewCompatHC.offsetTopAndBottom(view, offset);
-        }
-    }
-
-    static class ICSViewCompatImpl extends HCViewCompatImpl {
-        static Field mAccessibilityDelegateField;
-        static boolean accessibilityDelegateCheckFailed = false;
-        @Override
-        public boolean canScrollHorizontally(View v, int direction) {
-            return ViewCompatICS.canScrollHorizontally(v, direction);
-        }
-        @Override
-        public boolean canScrollVertically(View v, int direction) {
-            return ViewCompatICS.canScrollVertically(v, direction);
-        }
-        @Override
-        public void onPopulateAccessibilityEvent(View v, AccessibilityEvent event) {
-            ViewCompatICS.onPopulateAccessibilityEvent(v, event);
-        }
-        @Override
-        public void onInitializeAccessibilityEvent(View v, AccessibilityEvent event) {
-            ViewCompatICS.onInitializeAccessibilityEvent(v, event);
-        }
-        @Override
-        public void onInitializeAccessibilityNodeInfo(View v, AccessibilityNodeInfoCompat info) {
-            ViewCompatICS.onInitializeAccessibilityNodeInfo(v, info.getInfo());
-        }
-        @Override
-        public void setAccessibilityDelegate(View v,
-                @Nullable AccessibilityDelegateCompat delegate) {
-            ViewCompatICS.setAccessibilityDelegate(v,
-                    delegate == null ? null : delegate.getBridge());
-        }
-
-        @Override
-        public boolean hasAccessibilityDelegate(View v) {
-            if (accessibilityDelegateCheckFailed) {
-                return false; // View implementation might have changed.
-            }
-            if (mAccessibilityDelegateField == null) {
-                try {
-                    mAccessibilityDelegateField = View.class
-                            .getDeclaredField("mAccessibilityDelegate");
-                    mAccessibilityDelegateField.setAccessible(true);
-                } catch (Throwable t) {
-                    accessibilityDelegateCheckFailed = true;
-                    return false;
-                }
-            }
-            try {
-                return mAccessibilityDelegateField.get(v) != null;
-            } catch (Throwable t) {
-                accessibilityDelegateCheckFailed = true;
-                return false;
-            }
-        }
-
-        @Override
-        public ViewPropertyAnimatorCompat animate(View view) {
-            if (mViewPropertyAnimatorCompatMap == null) {
-                mViewPropertyAnimatorCompatMap = new WeakHashMap<>();
-            }
-            ViewPropertyAnimatorCompat vpa = mViewPropertyAnimatorCompatMap.get(view);
-            if (vpa == null) {
-                vpa = new ViewPropertyAnimatorCompat(view);
-                mViewPropertyAnimatorCompatMap.put(view, vpa);
-            }
-            return vpa;
-        }
-
-        @Override
-        public void setFitsSystemWindows(View view, boolean fitSystemWindows) {
-            ViewCompatICS.setFitsSystemWindows(view, fitSystemWindows);
-        }
-    }
-
-    static class ICSMr1ViewCompatImpl extends ICSViewCompatImpl {
+    @RequiresApi(15)
+    static class ViewCompatApi15Impl extends ViewCompatBaseImpl {
         @Override
         public boolean hasOnClickListeners(View view) {
-            return ViewCompatICSMr1.hasOnClickListeners(view);
+            return view.hasOnClickListeners();
         }
     }
 
-    static class JBViewCompatImpl extends ICSMr1ViewCompatImpl {
+    @RequiresApi(16)
+    static class ViewCompatApi16Impl extends ViewCompatApi15Impl {
         @Override
         public boolean hasTransientState(View view) {
-            return ViewCompatJB.hasTransientState(view);
+            return view.hasTransientState();
         }
         @Override
         public void setHasTransientState(View view, boolean hasTransientState) {
-            ViewCompatJB.setHasTransientState(view, hasTransientState);
+            view.setHasTransientState(hasTransientState);
         }
         @Override
         public void postInvalidateOnAnimation(View view) {
-            ViewCompatJB.postInvalidateOnAnimation(view);
+            view.postInvalidateOnAnimation();
         }
         @Override
         public void postInvalidateOnAnimation(View view, int left, int top, int right, int bottom) {
-            ViewCompatJB.postInvalidateOnAnimation(view, left, top, right, bottom);
+            view.postInvalidateOnAnimation(left, top, right, bottom);
         }
         @Override
         public void postOnAnimation(View view, Runnable action) {
-            ViewCompatJB.postOnAnimation(view, action);
+            view.postOnAnimation(action);
         }
         @Override
         public void postOnAnimationDelayed(View view, Runnable action, long delayMillis) {
-            ViewCompatJB.postOnAnimationDelayed(view, action, delayMillis);
+            view.postOnAnimationDelayed(action, delayMillis);
         }
         @Override
         public int getImportantForAccessibility(View view) {
-            return ViewCompatJB.getImportantForAccessibility(view);
+            return view.getImportantForAccessibility();
         }
         @Override
         public void setImportantForAccessibility(View view, int mode) {
@@ -1456,412 +1037,594 @@ public class ViewCompat {
             if (mode == IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS) {
                 mode = IMPORTANT_FOR_ACCESSIBILITY_NO;
             }
-            ViewCompatJB.setImportantForAccessibility(view, mode);
+            //noinspection WrongConstant
+            view.setImportantForAccessibility(mode);
         }
         @Override
         public boolean performAccessibilityAction(View view, int action, Bundle arguments) {
-            return ViewCompatJB.performAccessibilityAction(view, action, arguments);
+            return view.performAccessibilityAction(action, arguments);
         }
         @Override
         public AccessibilityNodeProviderCompat getAccessibilityNodeProvider(View view) {
-            Object compat = ViewCompatJB.getAccessibilityNodeProvider(view);
-            if (compat != null) {
-                return new AccessibilityNodeProviderCompat(compat);
+            AccessibilityNodeProvider provider = view.getAccessibilityNodeProvider();
+            if (provider != null) {
+                return new AccessibilityNodeProviderCompat(provider);
             }
             return null;
         }
 
         @Override
         public ViewParent getParentForAccessibility(View view) {
-            return ViewCompatJB.getParentForAccessibility(view);
+            return view.getParentForAccessibility();
         }
 
         @Override
         public int getMinimumWidth(View view) {
-            return ViewCompatJB.getMinimumWidth(view);
+            return view.getMinimumWidth();
         }
 
         @Override
         public int getMinimumHeight(View view) {
-            return ViewCompatJB.getMinimumHeight(view);
+            return view.getMinimumHeight();
         }
 
+        @SuppressWarnings("deprecation")
         @Override
         public void requestApplyInsets(View view) {
-            ViewCompatJB.requestApplyInsets(view);
+            view.requestFitSystemWindows();
         }
 
         @Override
         public boolean getFitsSystemWindows(View view) {
-            return ViewCompatJB.getFitsSystemWindows(view);
+            return view.getFitsSystemWindows();
         }
 
         @Override
         public boolean hasOverlappingRendering(View view) {
-            return ViewCompatJB.hasOverlappingRendering(view);
+            return view.hasOverlappingRendering();
         }
 
         @Override
         public void setBackground(View view, Drawable background) {
-            ViewCompatJB.setBackground(view, background);
+            view.setBackground(background);
         }
     }
 
-    static class JbMr1ViewCompatImpl extends JBViewCompatImpl {
+    @RequiresApi(17)
+    static class ViewCompatApi17Impl extends ViewCompatApi16Impl {
 
         @Override
         public int getLabelFor(View view) {
-            return ViewCompatJellybeanMr1.getLabelFor(view);
+            return view.getLabelFor();
         }
 
         @Override
         public void setLabelFor(View view, int id) {
-            ViewCompatJellybeanMr1.setLabelFor(view, id);
+            view.setLabelFor(id);
         }
 
         @Override
         public void setLayerPaint(View view, Paint paint) {
-            ViewCompatJellybeanMr1.setLayerPaint(view, paint);
+            view.setLayerPaint(paint);
         }
 
         @Override
         public int getLayoutDirection(View view) {
-            return ViewCompatJellybeanMr1.getLayoutDirection(view);
+            return view.getLayoutDirection();
         }
 
         @Override
         public void setLayoutDirection(View view, int layoutDirection) {
-            ViewCompatJellybeanMr1.setLayoutDirection(view, layoutDirection);
+            view.setLayoutDirection(layoutDirection);
         }
 
         @Override
         public int getPaddingStart(View view) {
-            return ViewCompatJellybeanMr1.getPaddingStart(view);
+            return view.getPaddingStart();
         }
 
         @Override
         public int getPaddingEnd(View view) {
-            return ViewCompatJellybeanMr1.getPaddingEnd(view);
+            return view.getPaddingEnd();
         }
 
         @Override
         public void setPaddingRelative(View view, int start, int top, int end, int bottom) {
-            ViewCompatJellybeanMr1.setPaddingRelative(view, start, top, end, bottom);
+            view.setPaddingRelative(start, top, end, bottom);
         }
 
         @Override
         public int getWindowSystemUiVisibility(View view) {
-            return ViewCompatJellybeanMr1.getWindowSystemUiVisibility(view);
+            return view.getWindowSystemUiVisibility();
         }
 
         @Override
         public boolean isPaddingRelative(View view) {
-            return ViewCompatJellybeanMr1.isPaddingRelative(view);
+            return view.isPaddingRelative();
         }
 
         @Override
         public Display getDisplay(View view) {
-            return ViewCompatJellybeanMr1.getDisplay(view);
+            return view.getDisplay();
         }
     }
 
-    static class JbMr2ViewCompatImpl extends JbMr1ViewCompatImpl {
+    @RequiresApi(18)
+    static class ViewCompatApi18Impl extends ViewCompatApi17Impl {
         @Override
         public void setClipBounds(View view, Rect clipBounds) {
-            ViewCompatJellybeanMr2.setClipBounds(view, clipBounds);
+            view.setClipBounds(clipBounds);
         }
 
         @Override
         public Rect getClipBounds(View view) {
-            return ViewCompatJellybeanMr2.getClipBounds(view);
+            return view.getClipBounds();
         }
 
         @Override
         public boolean isInLayout(View view) {
-            return ViewCompatJellybeanMr2.isInLayout(view);
+            return view.isInLayout();
         }
     }
 
-    static class KitKatViewCompatImpl extends JbMr2ViewCompatImpl {
+    @RequiresApi(19)
+    static class ViewCompatApi19Impl extends ViewCompatApi18Impl {
         @Override
         public int getAccessibilityLiveRegion(View view) {
-            return ViewCompatKitKat.getAccessibilityLiveRegion(view);
+            return view.getAccessibilityLiveRegion();
         }
 
         @Override
         public void setAccessibilityLiveRegion(View view, int mode) {
-            ViewCompatKitKat.setAccessibilityLiveRegion(view, mode);
+            view.setAccessibilityLiveRegion(mode);
         }
 
         @Override
         public void setImportantForAccessibility(View view, int mode) {
-            ViewCompatJB.setImportantForAccessibility(view, mode);
+            view.setImportantForAccessibility(mode);
         }
 
         @Override
         public boolean isLaidOut(View view) {
-            return ViewCompatKitKat.isLaidOut(view);
+            return view.isLaidOut();
         }
 
         @Override
         public boolean isLayoutDirectionResolved(View view) {
-            return ViewCompatKitKat.isLayoutDirectionResolved(view);
+            return view.isLayoutDirectionResolved();
         }
 
         @Override
         public boolean isAttachedToWindow(View view) {
-            return ViewCompatKitKat.isAttachedToWindow(view);
+            return view.isAttachedToWindow();
         }
     }
 
-    static class LollipopViewCompatImpl extends KitKatViewCompatImpl {
+    @RequiresApi(21)
+    static class ViewCompatApi21Impl extends ViewCompatApi19Impl {
+        private static ThreadLocal<Rect> sThreadLocalRect;
+
         @Override
         public void setTransitionName(View view, String transitionName) {
-            ViewCompatLollipop.setTransitionName(view, transitionName);
+            view.setTransitionName(transitionName);
         }
 
         @Override
         public String getTransitionName(View view) {
-            return ViewCompatLollipop.getTransitionName(view);
+            return view.getTransitionName();
         }
 
         @Override
         public void requestApplyInsets(View view) {
-            ViewCompatLollipop.requestApplyInsets(view);
+            view.requestApplyInsets();
         }
 
         @Override
         public void setElevation(View view, float elevation) {
-            ViewCompatLollipop.setElevation(view, elevation);
+            view.setElevation(elevation);
         }
 
         @Override
         public float getElevation(View view) {
-            return ViewCompatLollipop.getElevation(view);
+            return view.getElevation();
         }
 
         @Override
         public void setTranslationZ(View view, float translationZ) {
-            ViewCompatLollipop.setTranslationZ(view, translationZ);
+            view.setTranslationZ(translationZ);
         }
 
         @Override
         public float getTranslationZ(View view) {
-            return ViewCompatLollipop.getTranslationZ(view);
+            return view.getTranslationZ();
         }
 
         @Override
         public void setOnApplyWindowInsetsListener(View view,
                 final OnApplyWindowInsetsListener listener) {
             if (listener == null) {
-                ViewCompatLollipop.setOnApplyWindowInsetsListener(view, null);
+                view.setOnApplyWindowInsetsListener(null);
                 return;
             }
 
-            ViewCompatLollipop.OnApplyWindowInsetsListenerBridge bridge =
-                    new ViewCompatLollipop.OnApplyWindowInsetsListenerBridge() {
-                        @Override
-                        public Object onApplyWindowInsets(View v, Object insets) {
-                            WindowInsetsCompat compatInsets = WindowInsetsCompat.wrap(insets);
-                            compatInsets = listener.onApplyWindowInsets(v, compatInsets);
-                            return WindowInsetsCompat.unwrap(compatInsets);
-                        }
-                    };
-            ViewCompatLollipop.setOnApplyWindowInsetsListener(view, bridge);
+            view.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+                @Override
+                public WindowInsets onApplyWindowInsets(View view, WindowInsets insets) {
+                    WindowInsetsCompat compatInsets = WindowInsetsCompat.wrap(insets);
+                    compatInsets = listener.onApplyWindowInsets(view, compatInsets);
+                    return (WindowInsets) WindowInsetsCompat.unwrap(compatInsets);
+                }
+            });
         }
 
         @Override
         public void setNestedScrollingEnabled(View view, boolean enabled) {
-            ViewCompatLollipop.setNestedScrollingEnabled(view, enabled);
+            view.setNestedScrollingEnabled(enabled);
         }
 
         @Override
         public boolean isNestedScrollingEnabled(View view) {
-            return ViewCompatLollipop.isNestedScrollingEnabled(view);
+            return view.isNestedScrollingEnabled();
         }
 
         @Override
         public boolean startNestedScroll(View view, int axes) {
-            return ViewCompatLollipop.startNestedScroll(view, axes);
+            return view.startNestedScroll(axes);
         }
 
         @Override
         public void stopNestedScroll(View view) {
-            ViewCompatLollipop.stopNestedScroll(view);
+            view.stopNestedScroll();
         }
 
         @Override
         public boolean hasNestedScrollingParent(View view) {
-            return ViewCompatLollipop.hasNestedScrollingParent(view);
+            return view.hasNestedScrollingParent();
         }
 
         @Override
         public boolean dispatchNestedScroll(View view, int dxConsumed, int dyConsumed,
                 int dxUnconsumed, int dyUnconsumed, int[] offsetInWindow) {
-            return ViewCompatLollipop.dispatchNestedScroll(view, dxConsumed, dyConsumed,
-                    dxUnconsumed, dyUnconsumed, offsetInWindow);
+            return view.dispatchNestedScroll(dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed,
+                    offsetInWindow);
         }
 
         @Override
         public boolean dispatchNestedPreScroll(View view, int dx, int dy,
                 int[] consumed, int[] offsetInWindow) {
-            return ViewCompatLollipop.dispatchNestedPreScroll(view, dx, dy, consumed,
-                    offsetInWindow);
+            return view.dispatchNestedPreScroll(dx, dy, consumed, offsetInWindow);
         }
 
         @Override
         public boolean dispatchNestedFling(View view, float velocityX, float velocityY,
                 boolean consumed) {
-            return ViewCompatLollipop.dispatchNestedFling(view, velocityX, velocityY, consumed);
+            return view.dispatchNestedFling(velocityX, velocityY, consumed);
         }
 
         @Override
         public boolean dispatchNestedPreFling(View view, float velocityX, float velocityY) {
-            return ViewCompatLollipop.dispatchNestedPreFling(view, velocityX, velocityY);
+            return view.dispatchNestedPreFling(velocityX, velocityY);
         }
 
         @Override
         public boolean isImportantForAccessibility(View view) {
-            return ViewCompatLollipop.isImportantForAccessibility(view);
+            return view.isImportantForAccessibility();
         }
 
         @Override
         public ColorStateList getBackgroundTintList(View view) {
-            return ViewCompatLollipop.getBackgroundTintList(view);
+            return view.getBackgroundTintList();
         }
 
         @Override
         public void setBackgroundTintList(View view, ColorStateList tintList) {
-            ViewCompatLollipop.setBackgroundTintList(view, tintList);
+            view.setBackgroundTintList(tintList);
+
+            if (Build.VERSION.SDK_INT == 21) {
+                // Work around a bug in L that did not update the state of the background
+                // after applying the tint
+                Drawable background = view.getBackground();
+                boolean hasTint = (view.getBackgroundTintList() != null)
+                        && (view.getBackgroundTintMode() != null);
+                if ((background != null) && hasTint) {
+                    if (background.isStateful()) {
+                        background.setState(view.getDrawableState());
+                    }
+                    view.setBackground(background);
+                }
+            }
         }
 
         @Override
         public void setBackgroundTintMode(View view, PorterDuff.Mode mode) {
-            ViewCompatLollipop.setBackgroundTintMode(view, mode);
+            view.setBackgroundTintMode(mode);
+
+            if (Build.VERSION.SDK_INT == 21) {
+                // Work around a bug in L that did not update the state of the background
+                // after applying the tint
+                Drawable background = view.getBackground();
+                boolean hasTint = (view.getBackgroundTintList() != null)
+                        && (view.getBackgroundTintMode() != null);
+                if ((background != null) && hasTint) {
+                    if (background.isStateful()) {
+                        background.setState(view.getDrawableState());
+                    }
+                    view.setBackground(background);
+                }
+            }
         }
 
         @Override
         public PorterDuff.Mode getBackgroundTintMode(View view) {
-            return ViewCompatLollipop.getBackgroundTintMode(view);
+            return view.getBackgroundTintMode();
         }
 
         @Override
         public WindowInsetsCompat onApplyWindowInsets(View v, WindowInsetsCompat insets) {
-            return WindowInsetsCompat.wrap(
-                    ViewCompatLollipop.onApplyWindowInsets(v, WindowInsetsCompat.unwrap(insets)));
+            WindowInsets unwrapped = (WindowInsets)  WindowInsetsCompat.unwrap(insets);
+            WindowInsets result = v.onApplyWindowInsets(unwrapped);
+            if (result != unwrapped) {
+                unwrapped = new WindowInsets(result);
+            }
+            return WindowInsetsCompat.wrap(unwrapped);
         }
 
         @Override
         public WindowInsetsCompat dispatchApplyWindowInsets(View v, WindowInsetsCompat insets) {
-            return WindowInsetsCompat.wrap(
-                    ViewCompatLollipop.dispatchApplyWindowInsets(
-                            v, WindowInsetsCompat.unwrap(insets)));
+            WindowInsets unwrapped = (WindowInsets) WindowInsetsCompat.unwrap(insets);
+            WindowInsets result = v.dispatchApplyWindowInsets(unwrapped);
+            if (result != unwrapped) {
+                unwrapped = new WindowInsets(result);
+            }
+            return WindowInsetsCompat.wrap(unwrapped);
         }
 
         @Override
         public float getZ(View view) {
-            return ViewCompatLollipop.getZ(view);
+            return view.getZ();
         }
 
         @Override
         public void setZ(View view, float z) {
-            ViewCompatLollipop.setZ(view, z);
+            view.setZ(z);
         }
 
         @Override
         public void offsetLeftAndRight(View view, int offset) {
-            ViewCompatLollipop.offsetLeftAndRight(view, offset);
+            final Rect parentRect = getEmptyTempRect();
+            boolean needInvalidateWorkaround = false;
+
+            final ViewParent parent = view.getParent();
+            if (parent instanceof View) {
+                final View p = (View) parent;
+                parentRect.set(p.getLeft(), p.getTop(), p.getRight(), p.getBottom());
+                // If the view currently does not currently intersect the parent (and is therefore
+                // not displayed) we may need need to invalidate
+                needInvalidateWorkaround = !parentRect.intersects(view.getLeft(), view.getTop(),
+                        view.getRight(), view.getBottom());
+            }
+
+            // Now offset, invoking the API 11+ implementation (which contains its own workarounds)
+            super.offsetLeftAndRight(view, offset);
+
+            // The view has now been offset, so let's intersect the Rect and invalidate where
+            // the View is now displayed
+            if (needInvalidateWorkaround && parentRect.intersect(view.getLeft(), view.getTop(),
+                    view.getRight(), view.getBottom())) {
+                ((View) parent).invalidate(parentRect);
+            }
         }
 
         @Override
         public void offsetTopAndBottom(View view, int offset) {
-            ViewCompatLollipop.offsetTopAndBottom(view, offset);
+            final Rect parentRect = getEmptyTempRect();
+            boolean needInvalidateWorkaround = false;
+
+            final ViewParent parent = view.getParent();
+            if (parent instanceof View) {
+                final View p = (View) parent;
+                parentRect.set(p.getLeft(), p.getTop(), p.getRight(), p.getBottom());
+                // If the view currently does not currently intersect the parent (and is therefore
+                // not displayed) we may need need to invalidate
+                needInvalidateWorkaround = !parentRect.intersects(view.getLeft(), view.getTop(),
+                        view.getRight(), view.getBottom());
+            }
+
+            // Now offset, invoking the API 11+ implementation (which contains its own workarounds)
+            super.offsetTopAndBottom(view, offset);
+
+            // The view has now been offset, so let's intersect the Rect and invalidate where
+            // the View is now displayed
+            if (needInvalidateWorkaround && parentRect.intersect(view.getLeft(), view.getTop(),
+                    view.getRight(), view.getBottom())) {
+                ((View) parent).invalidate(parentRect);
+            }
+        }
+
+        private static Rect getEmptyTempRect() {
+            if (sThreadLocalRect == null) {
+                sThreadLocalRect = new ThreadLocal<>();
+            }
+            Rect rect = sThreadLocalRect.get();
+            if (rect == null) {
+                rect = new Rect();
+                sThreadLocalRect.set(rect);
+            }
+            rect.setEmpty();
+            return rect;
         }
     }
 
-    static class MarshmallowViewCompatImpl extends LollipopViewCompatImpl {
+    @RequiresApi(23)
+    static class ViewCompatApi23Impl extends ViewCompatApi21Impl {
         @Override
         public void setScrollIndicators(View view, int indicators) {
-            ViewCompatMarshmallow.setScrollIndicators(view, indicators);
+            view.setScrollIndicators(indicators);
         }
 
         @Override
         public void setScrollIndicators(View view, int indicators, int mask) {
-            ViewCompatMarshmallow.setScrollIndicators(view, indicators, mask);
+            view.setScrollIndicators(indicators, mask);
         }
 
         @Override
         public int getScrollIndicators(View view) {
-            return ViewCompatMarshmallow.getScrollIndicators(view);
+            return view.getScrollIndicators();
         }
 
 
         @Override
         public void offsetLeftAndRight(View view, int offset) {
-            ViewCompatMarshmallow.offsetLeftAndRight(view, offset);
+            view.offsetLeftAndRight(offset);
         }
 
         @Override
         public void offsetTopAndBottom(View view, int offset) {
-            ViewCompatMarshmallow.offsetTopAndBottom(view, offset);
+            view.offsetTopAndBottom(offset);
         }
     }
 
-    static class Api24ViewCompatImpl extends MarshmallowViewCompatImpl {
+    @RequiresApi(24)
+    static class ViewCompatApi24Impl extends ViewCompatApi23Impl {
+        @Override
+        public void dispatchStartTemporaryDetach(View view) {
+            view.dispatchStartTemporaryDetach();
+        }
+
+        @Override
+        public void dispatchFinishTemporaryDetach(View view) {
+            view.dispatchFinishTemporaryDetach();
+        }
+
         @Override
         public void setPointerIcon(View view, PointerIconCompat pointerIconCompat) {
-            ViewCompatApi24.setPointerIcon(view, pointerIconCompat.getPointerIcon());
+            view.setPointerIcon((PointerIcon) (pointerIconCompat != null
+                    ? pointerIconCompat.getPointerIcon() : null));
+        }
+
+        @Override
+        public boolean startDragAndDrop(View view, ClipData data,
+                View.DragShadowBuilder shadowBuilder, Object localState, int flags) {
+            return view.startDragAndDrop(data, shadowBuilder, localState, flags);
+        }
+
+        @Override
+        public void cancelDragAndDrop(View view) {
+            view.cancelDragAndDrop();
+        }
+
+        @Override
+        public void updateDragShadow(View view, View.DragShadowBuilder shadowBuilder) {
+            view.updateDragShadow(shadowBuilder);
         }
     }
 
-    static final ViewCompatImpl IMPL;
+    @RequiresApi(26)
+    static class ViewCompatApi26Impl extends ViewCompatApi24Impl {
+        @Override
+        public void setTooltipText(View view, CharSequence tooltipText) {
+            view.setTooltipText(tooltipText);
+        }
+
+        @Override
+        public int getNextClusterForwardId(@NonNull View view) {
+            return view.getNextClusterForwardId();
+        }
+
+        @Override
+        public void setNextClusterForwardId(@NonNull View view, int nextClusterForwardId) {
+            view.setNextClusterForwardId(nextClusterForwardId);
+        }
+
+        @Override
+        public boolean isKeyboardNavigationCluster(@NonNull View view) {
+            return view.isKeyboardNavigationCluster();
+        }
+
+        @Override
+        public void setKeyboardNavigationCluster(@NonNull View view, boolean isCluster) {
+            view.setKeyboardNavigationCluster(isCluster);
+        }
+
+        @Override
+        public boolean isFocusedByDefault(@NonNull View view) {
+            return view.isFocusedByDefault();
+        }
+
+        @Override
+        public void setFocusedByDefault(@NonNull View view, boolean isFocusedByDefault) {
+            view.setFocusedByDefault(isFocusedByDefault);
+        }
+
+        @Override
+        public View keyboardNavigationClusterSearch(@NonNull View view, View currentCluster,
+                @FocusDirection int direction) {
+            return view.keyboardNavigationClusterSearch(currentCluster, direction);
+        }
+
+        @Override
+        public void addKeyboardNavigationClusters(@NonNull View view,
+                @NonNull Collection<View> views, int direction) {
+            view.addKeyboardNavigationClusters(views, direction);
+        }
+
+        @Override
+        public boolean restoreDefaultFocus(@NonNull View view) {
+            return view.restoreDefaultFocus();
+        }
+    }
+
+    static final ViewCompatBaseImpl IMPL;
     static {
-        final int version = android.os.Build.VERSION.SDK_INT;
-        if (BuildCompat.isAtLeastN()) {
-            IMPL = new Api24ViewCompatImpl();
-        } else if (version >= 23) {
-            IMPL = new MarshmallowViewCompatImpl();
-        } else if (version >= 21) {
-            IMPL = new LollipopViewCompatImpl();
-        } else if (version >= 19) {
-            IMPL = new KitKatViewCompatImpl();
-        } else if (version >= 18) {
-            IMPL = new JbMr2ViewCompatImpl();
-        } else if (version >= 17) {
-            IMPL = new JbMr1ViewCompatImpl();
-        } else if (version >= 16) {
-            IMPL = new JBViewCompatImpl();
-        } else if (version >= 15) {
-            IMPL = new ICSMr1ViewCompatImpl();
-        } else if (version >= 14) {
-            IMPL = new ICSViewCompatImpl();
-        } else if (version >= 11) {
-            IMPL = new HCViewCompatImpl();
+        if (BuildCompat.isAtLeastO()) {
+            IMPL = new ViewCompatApi26Impl();
+        } else if (Build.VERSION.SDK_INT >= 24) {
+            IMPL = new ViewCompatApi24Impl();
+        } else if (Build.VERSION.SDK_INT >= 23) {
+            IMPL = new ViewCompatApi23Impl();
+        } else if (Build.VERSION.SDK_INT >= 21) {
+            IMPL = new ViewCompatApi21Impl();
+        } else if (Build.VERSION.SDK_INT >= 19) {
+            IMPL = new ViewCompatApi19Impl();
+        } else if (Build.VERSION.SDK_INT >= 18) {
+            IMPL = new ViewCompatApi18Impl();
+        } else if (Build.VERSION.SDK_INT >= 17) {
+            IMPL = new ViewCompatApi17Impl();
+        } else if (Build.VERSION.SDK_INT >= 16) {
+            IMPL = new ViewCompatApi16Impl();
+        } else if (Build.VERSION.SDK_INT >= 15) {
+            IMPL = new ViewCompatApi15Impl();
         } else {
-            IMPL = new BaseViewCompatImpl();
+            IMPL = new ViewCompatBaseImpl();
         }
     }
 
     /**
      * Check if this view can be scrolled horizontally in a certain direction.
      *
-     * @param v The View against which to invoke the method.
+     * @param view The View against which to invoke the method.
      * @param direction Negative to check scrolling left, positive to check scrolling right.
      * @return true if this view can be scrolled in the specified direction, false otherwise.
+     *
+     * @deprecated Use {@link View#canScrollHorizontally(int)} directly.
      */
-    public static boolean canScrollHorizontally(View v, int direction) {
-        return IMPL.canScrollHorizontally(v, direction);
+    @Deprecated
+    public static boolean canScrollHorizontally(View view, int direction) {
+        return view.canScrollHorizontally(direction);
     }
 
     /**
      * Check if this view can be scrolled vertically in a certain direction.
      *
-     * @param v The View against which to invoke the method.
+     * @param view The View against which to invoke the method.
      * @param direction Negative to check scrolling up, positive to check scrolling down.
      * @return true if this view can be scrolled in the specified direction, false otherwise.
+     *
+     * @deprecated Use {@link View#canScrollVertically(int)} directly.
      */
-    public static boolean canScrollVertically(View v, int direction) {
-        return IMPL.canScrollVertically(v, direction);
+    @Deprecated
+    public static boolean canScrollVertically(View view, int direction) {
+        return view.canScrollVertically(direction);
     }
 
     /**
@@ -1932,9 +1695,13 @@ public class ViewCompat {
      *
      * @see View#sendAccessibilityEvent(int)
      * @see View#dispatchPopulateAccessibilityEvent(AccessibilityEvent)
+     *
+     * @deprecated Call {@link View#onPopulateAccessibilityEvent(AccessibilityEvent)} directly.
+     * This method will be removed in a future release.
      */
+    @Deprecated
     public static void onPopulateAccessibilityEvent(View v, AccessibilityEvent event) {
-        IMPL.onPopulateAccessibilityEvent(v, event);
+        v.onPopulateAccessibilityEvent(event);
     }
 
     /**
@@ -1960,9 +1727,13 @@ public class ViewCompat {
      *
      * @see View#sendAccessibilityEvent(int)
      * @see View#dispatchPopulateAccessibilityEvent(AccessibilityEvent)
+     *
+     * @deprecated Call {@link View#onInitializeAccessibilityEvent(AccessibilityEvent)} directly.
+     * This method will be removed in a future release.
      */
+    @Deprecated
     public static void onInitializeAccessibilityEvent(View v, AccessibilityEvent event) {
-        IMPL.onInitializeAccessibilityEvent(v, event);
+        v.onInitializeAccessibilityEvent(event);
     }
 
     /**
@@ -1999,8 +1770,6 @@ public class ViewCompat {
      * Sets a delegate for implementing accessibility support via composition
      * (as opposed to inheritance). For more details, see
      * {@link AccessibilityDelegateCompat}.
-     * <p>
-     * On platform versions prior to API 14, this method is a no-op.
      * <p>
      * <strong>Note:</strong> On platform versions prior to
      * {@link android.os.Build.VERSION_CODES#M API 23}, delegate methods on
@@ -2249,17 +2018,20 @@ public class ViewCompat {
      * The opacity of the view. This is a value from 0 to 1, where 0 means the view is
      * completely transparent and 1 means the view is completely opaque.
      *
-     * <p>By default this is 1.0f. Prior to API 11, the returned value is always 1.0f.
+     * <p>By default this is 1.0f.
      * @return The opacity of the view.
+     *
+     * @deprecated Use {@link View#getAlpha()} directly.
      */
+    @Deprecated
     public static float getAlpha(View view) {
-        return IMPL.getAlpha(view);
+        return view.getAlpha();
     }
 
     /**
      * <p>Specifies the type of layer backing this view. The layer can be
-     * {@link #LAYER_TYPE_NONE disabled}, {@link #LAYER_TYPE_SOFTWARE software} or
-     * {@link #LAYER_TYPE_HARDWARE hardware}.</p>
+     * {@link View#LAYER_TYPE_NONE disabled}, {@link View#LAYER_TYPE_SOFTWARE software} or
+     * {@link View#LAYER_TYPE_HARDWARE hardware}.</p>
      *
      * <p>A layer is associated with an optional {@link android.graphics.Paint}
      * instance that controls how the layer is composed on screen. The following
@@ -2276,42 +2048,48 @@ public class ViewCompat {
      * equivalent to setting a hardware layer on this view and providing a paint with
      * the desired alpha value.<p>
      *
-     * <p>Refer to the documentation of {@link #LAYER_TYPE_NONE disabled},
-     * {@link #LAYER_TYPE_SOFTWARE software} and {@link #LAYER_TYPE_HARDWARE hardware}
+     * <p>Refer to the documentation of {@link View#LAYER_TYPE_NONE disabled},
+     * {@link View#LAYER_TYPE_SOFTWARE software} and {@link View#LAYER_TYPE_HARDWARE hardware}
      * for more information on when and how to use layers.</p>
      *
      * @param view View to set the layer type for
      * @param layerType The type of layer to use with this view, must be one of
-     *        {@link #LAYER_TYPE_NONE}, {@link #LAYER_TYPE_SOFTWARE} or
-     *        {@link #LAYER_TYPE_HARDWARE}
+     *        {@link View#LAYER_TYPE_NONE}, {@link View#LAYER_TYPE_SOFTWARE} or
+     *        {@link View#LAYER_TYPE_HARDWARE}
      * @param paint The paint used to compose the layer. This argument is optional
      *        and can be null. It is ignored when the layer type is
-     *        {@link #LAYER_TYPE_NONE}
+     *        {@link View#LAYER_TYPE_NONE}
+     *
+     * @deprecated Use {@link View#setLayerType(int, Paint)} directly.
      */
+    @Deprecated
     public static void setLayerType(View view, @LayerType int layerType, Paint paint) {
-        IMPL.setLayerType(view, layerType, paint);
+        view.setLayerType(layerType, paint);
     }
 
     /**
      * Indicates what type of layer is currently associated with this view. By default
-     * a view does not have a layer, and the layer type is {@link #LAYER_TYPE_NONE}.
+     * a view does not have a layer, and the layer type is {@link View#LAYER_TYPE_NONE}.
      * Refer to the documentation of
      * {@link #setLayerType(android.view.View, int, android.graphics.Paint)}
      * for more information on the different types of layers.
      *
      * @param view The view to fetch the layer type from
-     * @return {@link #LAYER_TYPE_NONE}, {@link #LAYER_TYPE_SOFTWARE} or
-     *         {@link #LAYER_TYPE_HARDWARE}
+     * @return {@link View#LAYER_TYPE_NONE}, {@link View#LAYER_TYPE_SOFTWARE} or
+     *         {@link View#LAYER_TYPE_HARDWARE}
      *
      * @see #setLayerType(android.view.View, int, android.graphics.Paint)
-     * @see #LAYER_TYPE_NONE
-     * @see #LAYER_TYPE_SOFTWARE
-     * @see #LAYER_TYPE_HARDWARE
+     * @see View#LAYER_TYPE_NONE
+     * @see View#LAYER_TYPE_SOFTWARE
+     * @see View#LAYER_TYPE_HARDWARE
+     *
+     * @deprecated Use {@link View#getLayerType()} directly.
      */
+    @Deprecated
     @LayerType
     public static int getLayerType(View view) {
         //noinspection ResourceType
-        return IMPL.getLayerType(view);
+        return view.getLayerType();
     }
 
     /**
@@ -2338,7 +2116,7 @@ public class ViewCompat {
 
     /**
      * Updates the {@link Paint} object used with the current layer (used only if the current
-     * layer type is not set to {@link #LAYER_TYPE_NONE}). Changed properties of the Paint
+     * layer type is not set to {@link View#LAYER_TYPE_NONE}). Changed properties of the Paint
      * provided to {@link #setLayerType(android.view.View, int, android.graphics.Paint)}
      * will be used the next time the View is redrawn, but
      * {@link #setLayerPaint(android.view.View, android.graphics.Paint)}
@@ -2362,7 +2140,7 @@ public class ViewCompat {
      * @param view View to set a layer paint for
      * @param paint The paint used to compose the layer. This argument is optional
      *        and can be null. It is ignored when the layer type is
-     *        {@link #LAYER_TYPE_NONE}
+     *        {@link View#LAYER_TYPE_NONE}
      *
      * @see #setLayerType(View, int, android.graphics.Paint)
      */
@@ -2443,9 +2221,12 @@ public class ViewCompat {
      * @param measureSpec Constraints imposed by the parent
      * @return Size information bit mask as defined by
      * {@link #MEASURED_SIZE_MASK} and {@link #MEASURED_STATE_TOO_SMALL}.
+     *
+     * @deprecated Use {@link View#resolveSizeAndState(int, int, int)} directly.
      */
+    @Deprecated
     public static int resolveSizeAndState(int size, int measureSpec, int childMeasuredState) {
-        return IMPL.resolveSizeAndState(size, measureSpec, childMeasuredState);
+        return View.resolveSizeAndState(size, measureSpec, childMeasuredState);
     }
 
     /**
@@ -2457,9 +2238,12 @@ public class ViewCompat {
      * {@link android.view.View#getWidth()} to see how wide a view is after layout.
      *
      * @return The measured width of this view as a bit mask.
+     *
+     * @deprecated Use {@link View#getMeasuredWidth()} directly.
      */
+    @Deprecated
     public static int getMeasuredWidthAndState(View view) {
-        return IMPL.getMeasuredWidthAndState(view);
+        return view.getMeasuredWidthAndState();
     }
 
     /**
@@ -2471,9 +2255,12 @@ public class ViewCompat {
      * {@link android.view.View#getHeight()} to see how wide a view is after layout.
      *
      * @return The measured width of this view as a bit mask.
+     *
+     * @deprecated Use {@link View#getMeasuredHeightAndState()} directly.
      */
+    @Deprecated
     public static int getMeasuredHeightAndState(View view) {
-        return IMPL.getMeasuredHeightAndState(view);
+        return view.getMeasuredHeightAndState();
     }
 
     /**
@@ -2482,9 +2269,12 @@ public class ViewCompat {
      * The width component is in the regular bits {@link #MEASURED_STATE_MASK}
      * and the height component is at the shifted bits
      * {@link #MEASURED_HEIGHT_STATE_SHIFT}>>{@link #MEASURED_STATE_MASK}.
+     *
+     * @deprecated Use {@link View#getMeasuredState()} directly.
      */
+    @Deprecated
     public static int getMeasuredState(View view) {
-        return IMPL.getMeasuredState(view);
+        return view.getMeasuredState();
     }
 
     /**
@@ -2494,9 +2284,12 @@ public class ViewCompat {
      * @param newState The new view state to combine.
      * @return Returns a new integer reflecting the combination of the two
      * states.
+     *
+     * @deprecated Use {@link View#combineMeasuredStates(int, int)} directly.
      */
+    @Deprecated
     public static int combineMeasuredStates(int curState, int newState) {
-        return IMPL.combineMeasuredStates(curState, newState);
+        return View.combineMeasuredStates(curState, newState);
     }
 
     /**
@@ -2605,12 +2398,13 @@ public class ViewCompat {
      * This position is post-layout, in addition to wherever the object's
      * layout placed it.
      *
-     * <p>Prior to API 11 this will return 0.</p>
-     *
      * @return The horizontal position of this view relative to its left position, in pixels.
+     *
+     * @deprecated Use {@link View#getTranslationX()} directly.
      */
+    @Deprecated
     public static float getTranslationX(View view) {
-        return IMPL.getTranslationX(view);
+        return view.getTranslationX();
     }
 
     /**
@@ -2618,19 +2412,19 @@ public class ViewCompat {
      * This position is post-layout, in addition to wherever the object's
      * layout placed it.
      *
-     * <p>Prior to API 11 this will return 0.</p>
-     *
      * @return The vertical position of this view relative to its top position, in pixels.
+     *
+     * @deprecated Use {@link View#getTranslationY()} directly.
      */
+    @Deprecated
     public static float getTranslationY(View view) {
-        return IMPL.getTranslationY(view);
+        return view.getTranslationY();
     }
 
     /**
      * The transform matrix of this view, which is calculated based on the current
      * rotation, scale, and pivot properties.
      * <p>
-     * Prior to 11, this method will return {@code null}.
      *
      * @param view The view whose Matrix will be returned
      * @return The current transform matrix for the view
@@ -2640,16 +2434,19 @@ public class ViewCompat {
      * @see #getScaleY(View)
      * @see #getPivotX(View)
      * @see #getPivotY(View)
+     *
+     * @deprecated Use {@link View#getMatrix()} directly.
      */
+    @Deprecated
     @Nullable
     public static Matrix getMatrix(View view) {
-        return IMPL.getMatrix(view);
+        return view.getMatrix();
     }
 
     /**
      * Returns the minimum width of the view.
      *
-     * <p>Prior to API 16 this will return 0.</p>
+     * <p>Prior to API 16, this method may return 0 on some platforms.</p>
      *
      * @return the minimum width the view will try to be.
      */
@@ -2660,7 +2457,7 @@ public class ViewCompat {
     /**
      * Returns the minimum height of the view.
      *
-     * <p>Prior to API 16 this will return 0.</p>
+     * <p>Prior to API 16, this method may return 0 on some platforms.</p>
      *
      * @return the minimum height the view will try to be.
      */
@@ -2671,8 +2468,6 @@ public class ViewCompat {
     /**
      * This method returns a ViewPropertyAnimator object, which can be used to animate
      * specific properties on this View.
-     *
-     * <p>Prior to API 14, this method will do nothing.</p>
      *
      * @return ViewPropertyAnimator The ViewPropertyAnimator associated with this View.
      */
@@ -2685,13 +2480,14 @@ public class ViewCompat {
      * This effectively positions the object post-layout, in addition to wherever the object's
      * layout placed it.
      *
-     * <p>Prior to API 11 this will have no effect.</p>
-     *
      * @param value The horizontal position of this view relative to its left position,
      * in pixels.
+     *
+     * @deprecated Use {@link View#setTranslationX(float)} directly.
      */
+    @Deprecated
     public static void setTranslationX(View view, float value) {
-        IMPL.setTranslationX(view, value);
+        view.setTranslationX(value);
     }
 
     /**
@@ -2699,15 +2495,16 @@ public class ViewCompat {
      * This effectively positions the object post-layout, in addition to wherever the object's
      * layout placed it.
      *
-     * <p>Prior to API 11 this will have no effect.</p>
-     *
      * @param value The vertical position of this view relative to its top position,
      * in pixels.
      *
      * @attr name android:translationY
+     *
+     * @deprecated Use {@link View#setTranslationY(float)} directly.
      */
+    @Deprecated
     public static void setTranslationY(View view, float value) {
-        IMPL.setTranslationY(view, value);
+        view.setTranslationY(value);
     }
 
     /**
@@ -2718,12 +2515,13 @@ public class ViewCompat {
      * performance implications, especially for large views. It is best to use the alpha property
      * sparingly and transiently, as in the case of fading animations.</p>
      *
-     * <p>Prior to API 11 this will have no effect.</p>
-     *
      * @param value The opacity of the view.
+     *
+     * @deprecated Use {@link View#setAlpha(float)} directly.
      */
+    @Deprecated
     public static void setAlpha(View view, @FloatRange(from=0.0, to=1.0) float value) {
-        IMPL.setAlpha(view, value);
+        view.setAlpha(value);
     }
 
     /**
@@ -2732,12 +2530,13 @@ public class ViewCompat {
      * the x value passed in and the current left property of the view as determined
      * by the layout bounds.
      *
-     * <p>Prior to API 11 this will have no effect.</p>
-     *
      * @param value The visual x position of this view, in pixels.
+     *
+     * @deprecated Use {@link View#setX(float)} directly.
      */
+    @Deprecated
     public static void setX(View view, float value) {
-        IMPL.setX(view, value);
+        view.setX(value);
     }
 
     /**
@@ -2746,24 +2545,26 @@ public class ViewCompat {
      * the y value passed in and the current top property of the view as determined by the
      * layout bounds.
      *
-     * <p>Prior to API 11 this will have no effect.</p>
-     *
      * @param value The visual y position of this view, in pixels.
+     *
+     * @deprecated Use {@link View#setY(float)} directly.
      */
+    @Deprecated
     public static void setY(View view, float value) {
-        IMPL.setY(view, value);
+        view.setY(value);
     }
 
     /**
      * Sets the degrees that the view is rotated around the pivot point. Increasing values
      * result in clockwise rotation.
      *
-     * <p>Prior to API 11 this will have no effect.</p>
-     *
      * @param value The degrees of rotation.
+     *
+     * @deprecated Use {@link View#setRotation(float)} directly.
      */
+    @Deprecated
     public static void setRotation(View view, float value) {
-        IMPL.setRotation(view, value);
+        view.setRotation(value);
     }
 
     /**
@@ -2771,12 +2572,13 @@ public class ViewCompat {
      * Increasing values result in clockwise rotation from the viewpoint of looking down the
      * x axis.
      *
-     * <p>Prior to API 11 this will have no effect.</p>
-     *
      * @param value The degrees of X rotation.
+     *
+     * @deprecated Use {@link View#setRotationX(float)} directly.
      */
+    @Deprecated
     public static void setRotationX(View view, float value) {
-        IMPL.setRotationX(view, value);
+        view.setRotationX(value);
     }
 
     /**
@@ -2784,47 +2586,50 @@ public class ViewCompat {
      * Increasing values result in counter-clockwise rotation from the viewpoint of looking
      * down the y axis.
      *
-     * <p>Prior to API 11 this will have no effect.</p>
-     *
      * @param value The degrees of Y rotation.
+     *
+     * @deprecated Use {@link View#setRotationY(float)} directly.
      */
+    @Deprecated
     public static void setRotationY(View view, float value) {
-        IMPL.setRotationY(view, value);
+        view.setRotationY(value);
     }
 
     /**
      * Sets the amount that the view is scaled in x around the pivot point, as a proportion of
      * the view's unscaled width. A value of 1 means that no scaling is applied.
      *
-     * <p>Prior to API 11 this will have no effect.</p>
-     *
      * @param value The scaling factor.
+     *
+     * @deprecated Use {@link View#setScaleX(float)} directly.
      */
+    @Deprecated
     public static void setScaleX(View view, float value) {
-        IMPL.setScaleX(view, value);
+        view.setScaleX(value);
     }
 
     /**
      * Sets the amount that the view is scaled in Y around the pivot point, as a proportion of
      * the view's unscaled width. A value of 1 means that no scaling is applied.
      *
-     * <p>Prior to API 11 this will have no effect.</p>
-     *
      * @param value The scaling factor.
+     *
+     * @deprecated Use {@link View#setScaleY(float)} directly.
      */
+    @Deprecated
     public static void setScaleY(View view, float value) {
-        IMPL.setScaleY(view, value);
+        view.setScaleY(value);
     }
 
     /**
      * The x location of the point around which the view is
      * {@link #setRotation(View, float) rotated} and {@link #setScaleX(View, float) scaled}.
      *
-     * <p>Prior to API 11 this will have no effect.</p>
-     *
+     * @deprecated Use {@link View#getPivotX()} directly.
      */
+    @Deprecated
     public static float getPivotX(View view) {
-        return IMPL.getPivotX(view);
+        return view.getPivotX();
     }
 
     /**
@@ -2834,24 +2639,26 @@ public class ViewCompat {
      * Setting this property disables this behavior and causes the view to use only the
      * explicitly set pivotX and pivotY values.
      *
-     * <p>Prior to API 11 this will have no effect.</p>
-     *
      * @param value The x location of the pivot point.
+     *
+     * @deprecated Use {@link View#setPivotX(float)} directly.
      */
+    @Deprecated
     public static void setPivotX(View view, float value) {
-        IMPL.setPivotX(view, value);
+        view.setPivotX(value);
     }
 
     /**
      * The y location of the point around which the view is {@link #setRotation(View,
      * float) rotated} and {@link #setScaleY(View, float) scaled}.
      *
-     * <p>Prior to API 11 this will return 0.</p>
-     *
      * @return The y location of the pivot point.
+     *
+     * @deprecated Use {@link View#getPivotY()} directly.
      */
+    @Deprecated
     public static float getPivotY(View view) {
-        return IMPL.getPivotY(view);
+        return view.getPivotY();
     }
 
     /**
@@ -2861,40 +2668,69 @@ public class ViewCompat {
      * Setting this property disables this behavior and causes the view to use only the
      * explicitly set pivotX and pivotY values.
      *
-     * <p>Prior to API 11 this will have no effect.</p>
-     *
      * @param value The y location of the pivot point.
+     *
+     * @deprecated Use {@link View#setPivotX(float)} directly.
      */
+    @Deprecated
     public static void setPivotY(View view, float value) {
-        IMPL.setPivotY(view, value);
+        view.setPivotY(value);
     }
 
+    /**
+     * @deprecated Use {@link View#getRotation()} directly.
+     */
+    @Deprecated
     public static float getRotation(View view) {
-        return IMPL.getRotation(view);
+        return view.getRotation();
     }
 
+    /**
+     * @deprecated Use {@link View#getRotationX()} directly.
+     */
+    @Deprecated
     public static float getRotationX(View view) {
-        return IMPL.getRotationX(view);
+        return view.getRotationX();
     }
 
+    /**
+     * @deprecated Use {@link View#getRotationY()} directly.
+     */
+    @Deprecated
     public static float getRotationY(View view) {
-        return IMPL.getRotationY(view);
+        return view.getRotationY();
     }
 
+    /**
+     * @deprecated Use {@link View#getScaleX()} directly.
+     */
+    @Deprecated
     public static float getScaleX(View view) {
-        return IMPL.getScaleX(view);
+        return view.getScaleX();
     }
 
+    /**
+     * @deprecated Use {@link View#getScaleY()} directly.
+     */
+    @Deprecated
     public static float getScaleY(View view) {
-        return IMPL.getScaleY(view);
+        return view.getScaleY();
     }
 
+    /**
+     * @deprecated Use {@link View#getX()} directly.
+     */
+    @Deprecated
     public static float getX(View view) {
-        return IMPL.getX(view);
+        return view.getX();
     }
 
+    /**
+     * @deprecated Use {@link View#getY()} directly.
+     */
+    @Deprecated
     public static float getY(View view) {
-        return IMPL.getY(view);
+        return view.getY();
     }
 
     /**
@@ -2995,9 +2831,12 @@ public class ViewCompat {
      * such as the status bar and inset its content; that is, controlling whether
      * the default implementation of {@link View#fitSystemWindows(Rect)} will be
      * executed. See that method for more details.
+     *
+     * @deprecated Use {@link View#setFitsSystemWindows(boolean)} directly.
      */
+    @Deprecated
     public static void setFitsSystemWindows(View view, boolean fitSystemWindows) {
-        IMPL.setFitsSystemWindows(view, fitSystemWindows);
+        view.setFitsSystemWindows(fitSystemWindows);
     }
 
     /**
@@ -3006,9 +2845,12 @@ public class ViewCompat {
      * <p>
      * On API 21 and above, also calls <code>StateListAnimator#jumpToCurrentState()</code>
      * if there is a StateListAnimator attached to this view.
+     *
+     * @deprecated Use {@link View#jumpDrawablesToCurrentState()} directly.
      */
+    @Deprecated
     public static void jumpDrawablesToCurrentState(View v) {
-        IMPL.jumpDrawablesToCurrentState(v);
+        v.jumpDrawablesToCurrentState();
     }
 
     /**
@@ -3059,9 +2901,12 @@ public class ViewCompat {
      *
      * @param enabled Set to false to <em>disable</em> state saving, or true
      * (the default) to allow it.
+     *
+     * @deprecated Use {@link View#setSaveFromParentEnabled(boolean)} directly.
      */
+    @Deprecated
     public static void setSaveFromParentEnabled(View v, boolean enabled) {
-        IMPL.setSaveFromParentEnabled(v, enabled);
+        v.setSaveFromParentEnabled(enabled);
     }
 
     /**
@@ -3072,9 +2917,12 @@ public class ViewCompat {
      * user can move views in and out of.
      *
      * @param activated true if the view must be activated, false otherwise
+     *
+     * @deprecated Use {@link View#setActivated(boolean)} directly.
      */
+    @Deprecated
     public static void setActivated(View view, boolean activated) {
-        IMPL.setActivated(view, activated);
+        view.setActivated(activated);
     }
 
     /**
@@ -3129,7 +2977,7 @@ public class ViewCompat {
      * Applies a tint to the background drawable.
      * <p>
      * This will always take effect when running on API v21 or newer. When running on platforms
-     * previous to API v21, it will only take effect if {@code view} implement the
+     * previous to API v21, it will only take effect if {@code view} implements the
      * {@code TintableBackgroundView} interface.
      */
     public static void setBackgroundTintList(View view, ColorStateList tintList) {
@@ -3159,6 +3007,7 @@ public class ViewCompat {
     public static void setBackgroundTintMode(View view, PorterDuff.Mode mode) {
         IMPL.setBackgroundTintMode(view, mode);
     }
+
     // TODO: getters for various view properties (rotation, etc)
 
     /**
@@ -3174,7 +3023,7 @@ public class ViewCompat {
      *
      * @see #isNestedScrollingEnabled(View)
      */
-    public static void setNestedScrollingEnabled(View view, boolean enabled) {
+    public static void setNestedScrollingEnabled(@NonNull View view, boolean enabled) {
         IMPL.setNestedScrollingEnabled(view, enabled);
     }
 
@@ -3190,8 +3039,92 @@ public class ViewCompat {
      *
      * @see #setNestedScrollingEnabled(View, boolean)
      */
-    public static boolean isNestedScrollingEnabled(View view) {
+    public static boolean isNestedScrollingEnabled(@NonNull View view) {
         return IMPL.isNestedScrollingEnabled(view);
+    }
+
+    /**
+     * Begin a nestable scroll operation along the given axes.
+     *
+     * <p>This version of the method just calls {@link #startNestedScroll(View, int, int)} using
+     * the touch input type.</p>
+     *
+     * @param axes Flags consisting of a combination of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL}
+     *             and/or {@link ViewCompat#SCROLL_AXIS_VERTICAL}.
+     * @return true if a cooperative parent was found and nested scrolling has been enabled for
+     *         the current gesture.
+     */
+    public static boolean startNestedScroll(@NonNull View view, @ScrollAxis int axes) {
+        return IMPL.startNestedScroll(view, axes);
+    }
+
+    /**
+     * Stop a nested scroll in progress.
+     *
+     * <p>This version of the method just calls {@link #stopNestedScroll(View, int)} using the
+     * touch input type.</p>
+     *
+     * @see #startNestedScroll(View, int)
+     */
+    public static void stopNestedScroll(@NonNull View view) {
+        IMPL.stopNestedScroll(view);
+    }
+
+    /**
+     * Returns true if this view has a nested scrolling parent.
+     *
+     * <p>This version of the method just calls {@link #hasNestedScrollingParent(View, int)}
+     * using the touch input type.</p>
+     *
+     * @return whether this view has a nested scrolling parent
+     */
+    public static boolean hasNestedScrollingParent(@NonNull View view) {
+        return IMPL.hasNestedScrollingParent(view);
+    }
+
+    /**
+     * Dispatch one step of a nested scroll in progress.
+     *
+     * <p>This version of the method just calls
+     * {@link #dispatchNestedScroll(View, int, int, int, int, int[], int)} using the touch input
+     * type.</p>
+     *
+     * @param dxConsumed Horizontal distance in pixels consumed by this view during this scroll step
+     * @param dyConsumed Vertical distance in pixels consumed by this view during this scroll step
+     * @param dxUnconsumed Horizontal scroll distance in pixels not consumed by this view
+     * @param dyUnconsumed Horizontal scroll distance in pixels not consumed by this view
+     * @param offsetInWindow Optional. If not null, on return this will contain the offset
+     *                       in local view coordinates of this view from before this operation
+     *                       to after it completes. View implementations may use this to adjust
+     *                       expected input coordinate tracking.
+     * @return true if the event was dispatched, false if it could not be dispatched.
+     */
+    public static boolean dispatchNestedScroll(@NonNull View view, int dxConsumed, int dyConsumed,
+            int dxUnconsumed, int dyUnconsumed, @Nullable int[] offsetInWindow) {
+        return IMPL.dispatchNestedScroll(view, dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed,
+                offsetInWindow);
+    }
+
+    /**
+     * Dispatch one step of a nested scroll in progress before this view consumes any portion of it.
+     *
+     * <p>This version of the method just calls
+     * {@link #dispatchNestedPreScroll(View, int, int, int[], int[], int)} using the touch input
+     * type.</p>
+     *
+     * @param dx Horizontal scroll distance in pixels
+     * @param dy Vertical scroll distance in pixels
+     * @param consumed Output. If not null, consumed[0] will contain the consumed component of dx
+     *                 and consumed[1] the consumed dy.
+     * @param offsetInWindow Optional. If not null, on return this will contain the offset
+     *                       in local view coordinates of this view from before this operation
+     *                       to after it completes. View implementations may use this to adjust
+     *                       expected input coordinate tracking.
+     * @return true if the parent consumed some or all of the scroll delta
+     */
+    public static boolean dispatchNestedPreScroll(@NonNull View view, int dx, int dy,
+            @Nullable int[] consumed, @Nullable int[] offsetInWindow) {
+        return IMPL.dispatchNestedPreScroll(view, dx, dy, consumed, offsetInWindow);
     }
 
     /**
@@ -3225,6 +3158,7 @@ public class ViewCompat {
      *
      * @param axes Flags consisting of a combination of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL}
      *             and/or {@link ViewCompat#SCROLL_AXIS_VERTICAL}.
+     * @param type the type of input which cause this scroll event
      * @return true if a cooperative parent was found and nested scrolling has been enabled for
      *         the current gesture.
      *
@@ -3232,8 +3166,14 @@ public class ViewCompat {
      * @see #dispatchNestedPreScroll(View, int, int, int[], int[])
      * @see #dispatchNestedScroll(View, int, int, int, int, int[])
      */
-    public static boolean startNestedScroll(View view, int axes) {
-        return IMPL.startNestedScroll(view, axes);
+    public static boolean startNestedScroll(@NonNull View view, @ScrollAxis int axes,
+            @NestedScrollType int type) {
+        if (view instanceof NestedScrollingChild2) {
+            return ((NestedScrollingChild2) view).startNestedScroll(axes, type);
+        } else if (type == ViewCompat.TYPE_TOUCH) {
+            return IMPL.startNestedScroll(view, axes);
+        }
+        return false;
     }
 
     /**
@@ -3241,10 +3181,15 @@ public class ViewCompat {
      *
      * <p>Calling this method when a nested scroll is not currently in progress is harmless.</p>
      *
+     * @param type the type of input which cause this scroll event
      * @see #startNestedScroll(View, int)
      */
-    public static void stopNestedScroll(View view) {
-        IMPL.stopNestedScroll(view);
+    public static void stopNestedScroll(@NonNull View view, @NestedScrollType int type) {
+        if (view instanceof NestedScrollingChild2) {
+            ((NestedScrollingChild2) view).stopNestedScroll(type);
+        } else if (type == ViewCompat.TYPE_TOUCH) {
+            IMPL.stopNestedScroll(view);
+        }
     }
 
     /**
@@ -3253,10 +3198,16 @@ public class ViewCompat {
      * <p>The presence of a nested scrolling parent indicates that this view has initiated
      * a nested scroll and it was accepted by an ancestor view further up the view hierarchy.</p>
      *
+     * @param type the type of input which cause this scroll event
      * @return whether this view has a nested scrolling parent
      */
-    public static boolean hasNestedScrollingParent(View view) {
-        return IMPL.hasNestedScrollingParent(view);
+    public static boolean hasNestedScrollingParent(@NonNull View view, @NestedScrollType int type) {
+        if (view instanceof NestedScrollingChild2) {
+            ((NestedScrollingChild2) view).hasNestedScrollingParent(type);
+        } else if (type == ViewCompat.TYPE_TOUCH) {
+            return IMPL.hasNestedScrollingParent(view);
+        }
+        return false;
     }
 
     /**
@@ -3279,13 +3230,21 @@ public class ViewCompat {
      *                       in local view coordinates of this view from before this operation
      *                       to after it completes. View implementations may use this to adjust
      *                       expected input coordinate tracking.
+     * @param type the type of input which cause this scroll event
      * @return true if the event was dispatched, false if it could not be dispatched.
      * @see #dispatchNestedPreScroll(View, int, int, int[], int[])
      */
-    public static boolean dispatchNestedScroll(View view, int dxConsumed, int dyConsumed,
-            int dxUnconsumed, int dyUnconsumed, int[] offsetInWindow) {
-        return IMPL.dispatchNestedScroll(view, dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed,
-                offsetInWindow);
+    public static boolean dispatchNestedScroll(@NonNull View view, int dxConsumed, int dyConsumed,
+            int dxUnconsumed, int dyUnconsumed, @Nullable int[] offsetInWindow,
+            @NestedScrollType int type) {
+        if (view instanceof NestedScrollingChild2) {
+            return ((NestedScrollingChild2) view).dispatchNestedScroll(dxConsumed, dyConsumed,
+                    dxUnconsumed, dyUnconsumed, offsetInWindow, type);
+        } else if (type == ViewCompat.TYPE_TOUCH) {
+            return IMPL.dispatchNestedScroll(view, dxConsumed, dyConsumed, dxUnconsumed,
+                    dyUnconsumed, offsetInWindow);
+        }
+        return false;
     }
 
     /**
@@ -3304,12 +3263,19 @@ public class ViewCompat {
      *                       in local view coordinates of this view from before this operation
      *                       to after it completes. View implementations may use this to adjust
      *                       expected input coordinate tracking.
+     * @param type the type of input which cause this scroll event
      * @return true if the parent consumed some or all of the scroll delta
      * @see #dispatchNestedScroll(View, int, int, int, int, int[])
      */
-    public static boolean dispatchNestedPreScroll(View view, int dx, int dy, int[] consumed,
-            int[] offsetInWindow) {
-        return IMPL.dispatchNestedPreScroll(view, dx, dy, consumed, offsetInWindow);
+    public static boolean dispatchNestedPreScroll(@NonNull View view, int dx, int dy,
+            @Nullable int[] consumed, @Nullable int[] offsetInWindow, @NestedScrollType int type) {
+        if (view instanceof NestedScrollingChild2) {
+            return ((NestedScrollingChild2) view).dispatchNestedPreScroll(dx, dy, consumed,
+                    offsetInWindow, type);
+        } else if (type == ViewCompat.TYPE_TOUCH) {
+            return IMPL.dispatchNestedPreScroll(view, dx, dy, consumed, offsetInWindow);
+        }
+        return false;
     }
 
     /**
@@ -3330,7 +3296,7 @@ public class ViewCompat {
      * @param consumed true if the child consumed the fling, false otherwise
      * @return true if the nested scrolling parent consumed or otherwise reacted to the fling
      */
-    public static boolean dispatchNestedFling(View view, float velocityX, float velocityY,
+    public static boolean dispatchNestedFling(@NonNull View view, float velocityX, float velocityY,
             boolean consumed) {
         return IMPL.dispatchNestedFling(view, velocityX, velocityY, consumed);
     }
@@ -3365,7 +3331,8 @@ public class ViewCompat {
      * @param velocityY Vertical fling velocity in pixels per second
      * @return true if a nested scrolling parent consumed the fling
      */
-    public static boolean dispatchNestedPreFling(View view, float velocityX, float velocityY) {
+    public static boolean dispatchNestedPreFling(@NonNull View view, float velocityX,
+            float velocityY) {
         return IMPL.dispatchNestedPreFling(view, velocityX, velocityY);
     }
 
@@ -3578,6 +3545,152 @@ public class ViewCompat {
      */
     public static Display getDisplay(@NonNull View view) {
         return IMPL.getDisplay(view);
+    }
+
+    /**
+     * Sets the tooltip for the view.
+     *
+     * <p>Prior to API 26 this does nothing. Use TooltipCompat class from v7 appcompat library
+     * for a compatible tooltip implementation.</p>
+     *
+     * @param tooltipText the tooltip text
+     */
+    public static void setTooltipText(@NonNull View view, @Nullable CharSequence tooltipText) {
+        IMPL.setTooltipText(view, tooltipText);
+    }
+
+    /**
+     * Start the drag and drop operation.
+     */
+    public static boolean startDragAndDrop(View v, ClipData data,
+            View.DragShadowBuilder shadowBuilder, Object localState, int flags) {
+        return IMPL.startDragAndDrop(v, data, shadowBuilder, localState, flags);
+    }
+
+    /**
+     * Cancel the drag and drop operation.
+     */
+    public static void cancelDragAndDrop(View v) {
+        IMPL.cancelDragAndDrop(v);
+    }
+
+    /**
+     * Update the drag shadow while drag and drop is in progress.
+     */
+    public static void updateDragShadow(View v, View.DragShadowBuilder shadowBuilder) {
+        IMPL.updateDragShadow(v, shadowBuilder);
+    }
+
+    /**
+     * Gets the ID of the next keyboard navigation cluster root.
+     *
+     * @return the next keyboard navigation cluster ID, or {@link View#NO_ID} if the framework
+     *         should decide automatically or API < 26.
+     */
+    public static int getNextClusterForwardId(@NonNull View view) {
+        return IMPL.getNextClusterForwardId(view);
+    }
+
+    /**
+     * Sets the ID of the next keyboard navigation cluster root view. Does nothing if {@code view}
+     * is not a keyboard navigation cluster or if API < 26.
+     *
+     * @param nextClusterForwardId next cluster ID, or {@link View#NO_ID} if the framework
+     *                             should decide automatically.
+     */
+    public static void setNextClusterForwardId(@NonNull View view, int nextClusterForwardId) {
+        IMPL.setNextClusterForwardId(view, nextClusterForwardId);
+    }
+
+    /**
+     * Returns whether {@code view} is a root of a keyboard navigation cluster. Always returns
+     * {@code false} on API < 26.
+     *
+     * @return {@code true} if this view is a root of a cluster, or {@code false} otherwise.
+     */
+    public static boolean isKeyboardNavigationCluster(@NonNull View view) {
+        return IMPL.isKeyboardNavigationCluster(view);
+    }
+
+    /**
+     * Set whether {@code view} is a root of a keyboard navigation cluster. Does nothing if
+     * API < 26.
+     *
+     * @param isCluster {@code true} to mark {@code view} as the root of a cluster, {@code false}
+     *                  to unmark.
+     */
+    public static void setKeyboardNavigationCluster(@NonNull View view, boolean isCluster) {
+        IMPL.setKeyboardNavigationCluster(view, isCluster);
+    }
+
+    /**
+     * Returns whether {@code view} should receive focus when the focus is restored for the view
+     * hierarchy containing it. Returns {@code false} on API < 26.
+     * <p>
+     * Focus gets restored for a view hierarchy when the root of the hierarchy gets added to a
+     * window or serves as a target of cluster navigation.
+     *
+     * @return {@code true} if {@code view} is the default-focus view, {@code false} otherwise.
+     */
+    public static boolean isFocusedByDefault(@NonNull View view) {
+        return IMPL.isFocusedByDefault(view);
+    }
+
+    /**
+     * Sets whether {@code view} should receive focus when the focus is restored for the view
+     * hierarchy containing it.
+     * <p>
+     * Focus gets restored for a view hierarchy when the root of the hierarchy gets added to a
+     * window or serves as a target of cluster navigation.
+     * <p>
+     * Does nothing on API < 26.
+     *
+     * @param isFocusedByDefault {@code true} to set {@code view} as the default-focus view,
+     *                           {@code false} otherwise.
+     */
+    public static void setFocusedByDefault(@NonNull View view, boolean isFocusedByDefault) {
+        IMPL.setFocusedByDefault(view, isFocusedByDefault);
+    }
+
+    /**
+     * Find the nearest keyboard navigation cluster in the specified direction.
+     * This does not actually give focus to that cluster.
+     *
+     * @param currentCluster The starting point of the search. {@code null} means the current
+     *                       cluster is not found yet.
+     * @param direction Direction to look.
+     *
+     * @return the nearest keyboard navigation cluster in the specified direction, or {@code null}
+     *         if one can't be found or if API < 26.
+     */
+    public static View keyboardNavigationClusterSearch(@NonNull View view, View currentCluster,
+            @FocusDirection int direction) {
+        return IMPL.keyboardNavigationClusterSearch(view, currentCluster, direction);
+    }
+
+    /**
+     * Adds any keyboard navigation cluster roots that are descendants of {@code view} (
+     * including {@code view} if it is a cluster root itself) to {@code views}. Does nothing
+     * on API < 26.
+     *
+     * @param views collection of keyboard navigation cluster roots found so far.
+     * @param direction direction to look.
+     */
+    public static void addKeyboardNavigationClusters(@NonNull View view,
+            @NonNull Collection<View> views, int direction) {
+        IMPL.addKeyboardNavigationClusters(view, views, direction);
+    }
+
+    /**
+     * Gives focus to the default-focus view in the view hierarchy rooted at {@code view}.
+     * If the default-focus view cannot be found or if API < 26, this falls back to calling
+     * {@link View#requestFocus(int)}.
+     *
+     * @return {@code true} if {@code view} or one of its descendants took focus, {@code false}
+     *         otherwise.
+     */
+    public static boolean restoreDefaultFocus(@NonNull View view) {
+        return IMPL.restoreDefaultFocus(view);
     }
 
     protected ViewCompat() {}

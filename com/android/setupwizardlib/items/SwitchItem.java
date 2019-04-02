@@ -26,7 +26,10 @@ import android.widget.CompoundButton;
 import com.android.setupwizardlib.R;
 
 /**
- * An Item with a switch, which the user can
+ * An item that is displayed with a switch, with methods to manipulate and listen to the checked
+ * state of the switch. Note that by default, only click on the switch will change the on-off state.
+ * To change the switch state when tapping on the text, use the click handlers of list view or
+ * RecyclerItemAdapter with {@link #toggle(View)}.
  */
 public class SwitchItem extends Item implements CompoundButton.OnCheckedChangeListener {
 
@@ -51,7 +54,7 @@ public class SwitchItem extends Item implements CompoundButton.OnCheckedChangeLi
     public void setChecked(boolean checked) {
         if (mChecked != checked) {
             mChecked = checked;
-            notifyChanged();
+            notifyItemChanged();
             if (mListener != null) {
                 mListener.onCheckedChange(this, checked);
             }

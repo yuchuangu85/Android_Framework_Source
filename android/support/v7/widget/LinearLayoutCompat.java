@@ -16,6 +16,8 @@
 
 package android.support.v7.widget;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
@@ -36,8 +38,6 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
-
 
 /**
  * A Layout that arranges its children in a single column or a single row. The direction of
@@ -56,7 +56,7 @@ import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
  */
 public class LinearLayoutCompat extends ViewGroup {
     /** @hide */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     @IntDef({HORIZONTAL, VERTICAL})
     @Retention(RetentionPolicy.SOURCE)
     public @interface OrientationMode {}
@@ -65,7 +65,7 @@ public class LinearLayoutCompat extends ViewGroup {
     public static final int VERTICAL = 1;
 
     /** @hide */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     @IntDef(flag = true,
             value = {
                     SHOW_DIVIDER_NONE,
@@ -273,7 +273,7 @@ public class LinearLayoutCompat extends ViewGroup {
      *
      * @hide Used internally by framework.
      */
-    @RestrictTo(GROUP_ID)
+    @RestrictTo(LIBRARY_GROUP)
     public int getDividerWidth() {
         return mDividerWidth;
     }
@@ -706,8 +706,8 @@ public class LinearLayoutCompat extends ViewGroup {
             final int margin = lp.leftMargin + lp.rightMargin;
             final int measuredWidth = child.getMeasuredWidth() + margin;
             maxWidth = Math.max(maxWidth, measuredWidth);
-            childState = ViewUtils.combineMeasuredStates(childState,
-                    ViewCompat.getMeasuredState(child));
+            childState = View.combineMeasuredStates(childState,
+                    child.getMeasuredState());
 
             allFillParent = allFillParent && lp.width == LayoutParams.MATCH_PARENT;
             if (lp.weight > 0) {
@@ -764,14 +764,14 @@ public class LinearLayoutCompat extends ViewGroup {
         heightSize = Math.max(heightSize, getSuggestedMinimumHeight());
 
         // Reconcile our calculated size with the heightMeasureSpec
-        int heightSizeAndState = ViewCompat.resolveSizeAndState(heightSize, heightMeasureSpec, 0);
-        heightSize = heightSizeAndState & ViewCompat.MEASURED_SIZE_MASK;
+        int heightSizeAndState = View.resolveSizeAndState(heightSize, heightMeasureSpec, 0);
+        heightSize = heightSizeAndState & View.MEASURED_SIZE_MASK;
 
         // Either expand children with weight to take up available space or
         // shrink them if they extend beyond our current bounds. If we skipped
         // measurement on any children, we need to measure them now.
         int delta = heightSize - mTotalLength;
-        if (skippedMeasure || delta != 0 && totalWeight > 0.0f) {
+        if (skippedMeasure || (delta != 0 && totalWeight > 0.0f)) {
             float weightSum = mWeightSum > 0.0f ? mWeightSum : totalWeight;
 
             mTotalLength = 0;
@@ -817,9 +817,9 @@ public class LinearLayoutCompat extends ViewGroup {
                     }
 
                     // Child may now not fit in vertical dimension.
-                    childState = ViewUtils.combineMeasuredStates(childState,
-                            ViewCompat.getMeasuredState(child) & (ViewCompat.MEASURED_STATE_MASK
-                                    >> ViewCompat.MEASURED_HEIGHT_STATE_SHIFT));
+                    childState = View.combineMeasuredStates(childState,
+                            child.getMeasuredState() & (View.MEASURED_STATE_MASK
+                                    >> View.MEASURED_HEIGHT_STATE_SHIFT));
                 }
 
                 final int margin =  lp.leftMargin + lp.rightMargin;
@@ -881,7 +881,7 @@ public class LinearLayoutCompat extends ViewGroup {
         // Check against our minimum width
         maxWidth = Math.max(maxWidth, getSuggestedMinimumWidth());
 
-        setMeasuredDimension(ViewCompat.resolveSizeAndState(maxWidth, widthMeasureSpec, childState),
+        setMeasuredDimension(View.resolveSizeAndState(maxWidth, widthMeasureSpec, childState),
                 heightSizeAndState);
 
         if (matchWidth) {
@@ -1055,7 +1055,7 @@ public class LinearLayoutCompat extends ViewGroup {
             final int margin = lp.topMargin + lp.bottomMargin;
             final int childHeight = child.getMeasuredHeight() + margin;
             childState = ViewUtils.combineMeasuredStates(childState,
-                    ViewCompat.getMeasuredState(child));
+                    child.getMeasuredState());
 
             if (baselineAligned) {
                 final int childBaseline = child.getBaseline();
@@ -1148,14 +1148,14 @@ public class LinearLayoutCompat extends ViewGroup {
         widthSize = Math.max(widthSize, getSuggestedMinimumWidth());
 
         // Reconcile our calculated size with the widthMeasureSpec
-        int widthSizeAndState = ViewCompat.resolveSizeAndState(widthSize, widthMeasureSpec, 0);
-        widthSize = widthSizeAndState & ViewCompat.MEASURED_SIZE_MASK;
+        int widthSizeAndState = View.resolveSizeAndState(widthSize, widthMeasureSpec, 0);
+        widthSize = widthSizeAndState & View.MEASURED_SIZE_MASK;
 
         // Either expand children with weight to take up available space or
         // shrink them if they extend beyond our current bounds. If we skipped
         // measurement on any children, we need to measure them now.
         int delta = widthSize - mTotalLength;
-        if (skippedMeasure || delta != 0 && totalWeight > 0.0f) {
+        if (skippedMeasure || (delta != 0 && totalWeight > 0.0f)) {
             float weightSum = mWeightSum > 0.0f ? mWeightSum : totalWeight;
 
             maxAscent[0] = maxAscent[1] = maxAscent[2] = maxAscent[3] = -1;
@@ -1207,8 +1207,8 @@ public class LinearLayoutCompat extends ViewGroup {
                     }
 
                     // Child may now not fit in horizontal dimension.
-                    childState = ViewUtils.combineMeasuredStates(childState,
-                            ViewCompat.getMeasuredState(child) & ViewCompat.MEASURED_STATE_MASK);
+                    childState = View.combineMeasuredStates(childState,
+                            child.getMeasuredState() & View.MEASURED_STATE_MASK);
                 }
 
                 if (isExactly) {
@@ -1301,9 +1301,9 @@ public class LinearLayoutCompat extends ViewGroup {
         // Check against our minimum height
         maxHeight = Math.max(maxHeight, getSuggestedMinimumHeight());
 
-        setMeasuredDimension(widthSizeAndState | (childState&ViewCompat.MEASURED_STATE_MASK),
-                ViewCompat.resolveSizeAndState(maxHeight, heightMeasureSpec,
-                        (childState<<ViewCompat.MEASURED_HEIGHT_STATE_SHIFT)));
+        setMeasuredDimension(widthSizeAndState | (childState & View.MEASURED_STATE_MASK),
+                View.resolveSizeAndState(maxHeight, heightMeasureSpec,
+                        (childState << View.MEASURED_HEIGHT_STATE_SHIFT)));
 
         if (matchHeight) {
             forceUniformHeight(count, widthMeasureSpec);
@@ -1690,6 +1690,16 @@ public class LinearLayoutCompat extends ViewGroup {
         }
     }
 
+    /**
+     * Returns the current gravity. See {@link android.view.Gravity}
+     *
+     * @return the current gravity.
+     * @see #setGravity
+     */
+    public int getGravity() {
+        return mGravity;
+    }
+
     public void setHorizontalGravity(int horizontalGravity) {
         final int gravity = horizontalGravity & GravityCompat.RELATIVE_HORIZONTAL_GRAVITY_MASK;
         if ((mGravity & GravityCompat.RELATIVE_HORIZONTAL_GRAVITY_MASK) != gravity) {
@@ -1741,6 +1751,7 @@ public class LinearLayoutCompat extends ViewGroup {
         return p instanceof LinearLayoutCompat.LayoutParams;
     }
 
+    @Override
     public void onInitializeAccessibilityEvent(AccessibilityEvent event) {
         if (Build.VERSION.SDK_INT >= 14) {
             super.onInitializeAccessibilityEvent(event);
@@ -1748,6 +1759,7 @@ public class LinearLayoutCompat extends ViewGroup {
         }
     }
 
+    @Override
     public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
         if (Build.VERSION.SDK_INT >= 14) {
             super.onInitializeAccessibilityNodeInfo(info);

@@ -127,6 +127,11 @@ class AnnotationMethod extends ModelMethod {
     }
 
     @Override
+    public boolean isProtected() {
+        return mExecutableElement.getModifiers().contains(Modifier.PROTECTED);
+    }
+
+    @Override
     public boolean isStatic() {
         return mExecutableElement.getModifiers().contains(Modifier.STATIC);
     }

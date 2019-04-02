@@ -147,7 +147,7 @@ public class Predictor extends IPredictor.Stub
             }
         } else if (key.equals(USE_HISTORY)) {
             mUseHistory = true;
-            mHistorySpan = Long.valueOf(value);
+            mHistorySpan = Long.parseLong(value);
         } else {
             Log.e(TAG,"Setting parameter " + key + " with " + value + " is not valid");
         }

@@ -1,4 +1,33 @@
 /*
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
+ */
+
+/*
+ * This file is available under and governed by the GNU General Public
+ * License version 2 only, as published by the Free Software Foundation.
+ * However, the following notice accompanied the original version of this
+ * file:
+ *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -57,9 +86,6 @@ public class Executors {
      * prior to shutdown, a new one will take its place if needed to
      * execute subsequent tasks.  The threads in the pool will exist
      * until it is explicitly {@link ExecutorService#shutdown shutdown}.
-     *
-     * 固定线程池：
-     * 创建一个固定线程数量的线程池，并行执行的线程数量不变，线程当前任务完成后，可以被重用执行另一个任务
      *
      * @param nThreads the number of threads in the pool
      * @return the newly created thread pool
@@ -146,9 +172,6 @@ public class Executors {
      * {@code newFixedThreadPool(1)} the returned executor is
      * guaranteed not to be reconfigurable to use additional threads.
      *
-     * 单线程执行器：
-     * 线程池中只有一个线程，依次执行任务
-     *
      * @return the newly created single-threaded Executor
      */
     public static ExecutorService newSingleThreadExecutor() {
@@ -165,9 +188,6 @@ public class Executors {
      * equivalent {@code newFixedThreadPool(1, threadFactory)} the
      * returned executor is guaranteed not to be reconfigurable to use
      * additional threads.
-     *
-     * 单线程执行器：
-     * 线程池中只有一个线程，依次执行任务
      *
      * @param threadFactory the factory to use when creating new
      * threads
@@ -196,9 +216,6 @@ public class Executors {
      * not consume any resources. Note that pools with similar
      * properties but different details (for example, timeout parameters)
      * may be created using {@link ThreadPoolExecutor} constructors.
-     *
-     * 可缓存线程池：
-     * 创建一个线程池，按需创建新线程，就是有任务时才创建，空闲线程保存60s，当前面创建的线程可用时，则重用它们
      *
      * @return the newly created thread pool
      */
@@ -235,9 +252,6 @@ public class Executors {
      * given time. Unlike the otherwise equivalent
      * {@code newScheduledThreadPool(1)} the returned executor is
      * guaranteed not to be reconfigurable to use additional threads.
-     *
-     * 线程池中只有一个线程，它按规定时间来执行任务
-     *
      * @return the newly created scheduled executor
      */
     public static ScheduledExecutorService newSingleThreadScheduledExecutor() {
@@ -269,9 +283,6 @@ public class Executors {
     /**
      * Creates a thread pool that can schedule commands to run after a
      * given delay, or to execute periodically.
-     *
-     * 线程池按时间计划来执行任务，允许用户设定执行任务的时间
-     *
      * @param corePoolSize the number of threads to keep in the pool,
      * even if they are idle
      * @return a newly created scheduled thread pool
@@ -485,7 +496,7 @@ public class Executors {
         final ClassLoader ccl;
 
         PrivilegedCallableUsingCurrentClassLoader(Callable<T> task) {
-            // BEGIN android-removed
+            // BEGIN Android-removed
             // SecurityManager sm = System.getSecurityManager();
             // if (sm != null) {
             //     // Calls to getContextClassLoader from this class
@@ -497,7 +508,7 @@ public class Executors {
             //     // or not, we fail fast if permission is not available.
             //     sm.checkPermission(new RuntimePermission("setContextClassLoader"));
             // }
-            // END android-removed
+            // END Android-removed
             this.task = task;
             this.acc = AccessController.getContext();
             this.ccl = Thread.currentThread().getContextClassLoader();
@@ -567,7 +578,7 @@ public class Executors {
 
         PrivilegedThreadFactory() {
             super();
-            // BEGIN android-removed
+            // BEGIN Android-removed
             // SecurityManager sm = System.getSecurityManager();
             // if (sm != null) {
             //     // Calls to getContextClassLoader from this class
@@ -578,7 +589,7 @@ public class Executors {
             //     // Fail fast
             //     sm.checkPermission(new RuntimePermission("setContextClassLoader"));
             // }
-            // END android-removed
+            // END Android-removed
             this.acc = AccessController.getContext();
             this.ccl = Thread.currentThread().getContextClassLoader();
         }

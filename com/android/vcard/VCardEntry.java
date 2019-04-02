@@ -1789,7 +1789,7 @@ public class VCardEntry {
                 } else if (ch == 'w' || ch == 'W') {
                     builder.append(PhoneNumberUtils.WAIT);
                     hasPauseOrWait = true;
-                } else if (('0' <= ch && ch <= '9') || (i == 0 && ch == '+')) {
+                } else if (PhoneNumberUtils.is12Key(ch) || (i == 0 && ch == '+')) {
                     builder.append(ch);
                 }
             }

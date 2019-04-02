@@ -43,7 +43,7 @@ import java.util.ArrayList;
  * operations that are not associated with any particular context.
  *
  * This class is only used internally to implement global functions where
- * the caller already knows the display and relevant（有关） compatibility（兼容性的） information
+ * the caller already knows the display and relevant compatibility information
  * for the operation.  For most purposes, you should use {@link WindowManager} instead
  * since it is bound to a context.
  *
@@ -54,7 +54,7 @@ public final class WindowManagerGlobal {
     private static final String TAG = "WindowManager";
 
     /**
-     * The user is navigating（导航） with keys (not the touch screen), so
+     * The user is navigating with keys (not the touch screen), so
      * navigational focus should be shown.
      */
     public static final int RELAYOUT_RES_IN_TOUCH_MODE = 0x1;
@@ -167,8 +167,10 @@ public final class WindowManagerGlobal {
                 sWindowManagerService = IWindowManager.Stub.asInterface(
                         ServiceManager.getService("window"));
                 try {
-                    sWindowManagerService = getWindowManagerService();
-                    ValueAnimator.setDurationScale(sWindowManagerService.getCurrentAnimatorScale());
+                    if (sWindowManagerService != null) {
+                        ValueAnimator.setDurationScale(
+                                sWindowManagerService.getCurrentAnimatorScale());
+                    }
                 } catch (RemoteException e) {
                     throw e.rethrowFromSystemServer();
                 }
@@ -247,6 +249,19 @@ public final class WindowManagerGlobal {
             }
         }
         return views;
+    }
+
+    public View getWindowView(IBinder windowToken) {
+        synchronized (mLock) {
+            final int numViews = mViews.size();
+            for (int i = 0; i < numViews; ++i) {
+                final View view = mViews.get(i);
+                if (view.getWindowToken() == windowToken) {
+                    return view;
+                }
+            }
+        }
+        return null;
     }
 
     public View getRootView(String name) {
@@ -335,20 +350,17 @@ public final class WindowManagerGlobal {
             mViews.add(view);
             mRoots.add(root);
             mParams.add(wparams);
-        }
 
-        // do this last because it fires off messages to start doing things
-        try {
-            root.setView(view, wparams, panelParentView);
-        } catch (RuntimeException e) {
-            // BadTokenException or InvalidDisplayException, clean up.
-            synchronized (mLock) {
-                final int index = findViewLocked(view, false);
+            // do this last because it fires off messages to start doing things
+            try {
+                root.setView(view, wparams, panelParentView);
+            } catch (RuntimeException e) {
+                // BadTokenException or InvalidDisplayException, clean up.
                 if (index >= 0) {
                     removeViewLocked(index, true);
                 }
+                throw e;
             }
-            throw e;
         }
     }
 
@@ -523,7 +535,7 @@ public final class WindowManagerGlobal {
             for (int i = mRoots.size() - 1; i >= 0; --i) {
                 final ViewRootImpl root = mRoots.get(i);
                 if (root.mView != null && root.getHostVisibility() == View.VISIBLE
-                        && root.mAttachInfo.mHardwareRenderer != null) {
+                        && root.mAttachInfo.mThreadedRenderer != null) {
                     hasVisibleWindows = true;
                 } else {
                     root.destroyHardwareResources();
@@ -551,7 +563,7 @@ public final class WindowManagerGlobal {
                     pw.printf("\n\t%s (visibility=%d)", name, root.getHostVisibility());
 
                     ThreadedRenderer renderer =
-                            root.getView().mAttachInfo.mHardwareRenderer;
+                            root.getView().mAttachInfo.mThreadedRenderer;
                     if (renderer != null) {
                         renderer.dumpGfxInfo(pw, fd, args);
                     }

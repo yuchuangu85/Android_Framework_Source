@@ -13,16 +13,16 @@
 
 package android.databinding.tool.reflection.java;
 
-import com.google.common.base.Splitter;
-import com.google.common.base.Strings;
-
-import org.apache.commons.io.FileUtils;
-
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
 import android.databinding.tool.reflection.SdkUtil;
 import android.databinding.tool.reflection.TypeUtil;
 import android.databinding.tool.util.L;
+
+import com.google.common.base.Splitter;
+import com.google.common.base.Strings;
+
+import org.apache.commons.io.FileUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -66,13 +66,17 @@ public class JavaAnalyzer extends ModelAnalyzer {
         }
     }
 
+    public ClassLoader getClassLoader() {
+        return mClassLoader;
+    }
+
     @Override
     protected ModelClass[] getObservableFieldTypes() {
         return new ModelClass[0];
     }
 
     @Override
-    public ModelClass findClass(String className, Map<String, String> imports) {
+    public ModelClass findClassInternal(String className, Map<String, String> imports) {
         // TODO handle imports
         JavaClass loaded = mClassCache.get(className);
         if (loaded != null) {

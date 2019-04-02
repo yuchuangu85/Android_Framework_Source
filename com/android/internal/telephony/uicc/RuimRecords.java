@@ -18,30 +18,30 @@ package com.android.internal.telephony.uicc;
 
 import static com.android.internal.telephony.TelephonyProperties.PROPERTY_TEST_CSIM;
 
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Locale;
 import android.content.Context;
+import android.content.res.Resources;
 import android.os.AsyncResult;
 import android.os.Message;
 import android.os.SystemProperties;
+import android.telephony.Rlog;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
-import android.telephony.Rlog;
 import android.text.TextUtils;
 import android.util.Log;
-import android.content.res.Resources;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.GsmAlphabet;
 import com.android.internal.telephony.MccTable;
 import com.android.internal.telephony.SubscriptionController;
-
 import com.android.internal.telephony.cdma.sms.UserData;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppType;
 import com.android.internal.util.BitwiseInputStream;
+
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Locale;
 
 /**
  * {@hide}
@@ -796,9 +796,9 @@ public class RuimRecords extends IccRecords {
         // TODO: The below is hacky since the SubscriptionController may not be ready at this time.
         if (!TextUtils.isEmpty(mMdn)) {
             int phoneId = mParentApp.getUiccCard().getPhoneId();
-            int[] subIds = SubscriptionController.getInstance().getSubId(phoneId);
-            if (subIds != null) {
-                SubscriptionManager.from(mContext).setDisplayNumber(mMdn, subIds[0]);
+            int subId = SubscriptionController.getInstance().getSubIdUsingPhoneId(phoneId);
+            if (SubscriptionManager.isValidSubscriptionId(subId)) {
+                SubscriptionManager.from(mContext).setDisplayNumber(mMdn, subId);
             } else {
                 log("Cannot call setDisplayNumber: invalid subId");
             }
@@ -918,8 +918,8 @@ public class RuimRecords extends IccRecords {
             return;
         }
 
-        if (refreshResponse.aid != null &&
-                !refreshResponse.aid.equals(mParentApp.getAid())) {
+        if (!TextUtils.isEmpty(refreshResponse.aid)
+                && !refreshResponse.aid.equals(mParentApp.getAid())) {
             // This is for different app. Ignore.
             return;
         }

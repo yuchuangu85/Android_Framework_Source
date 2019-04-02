@@ -20,17 +20,14 @@ import android.content.Context;
 import android.database.Cursor;
 import android.os.Handler;
 import android.os.IDeviceIdleController;
-import android.os.PowerManager;
 import android.os.ServiceManager;
 
-import com.android.ims.ImsManager;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.cdma.EriManager;
 import com.android.internal.telephony.dataconnection.DcTracker;
 import com.android.internal.telephony.imsphone.ImsExternalCallTracker;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneCallTracker;
-import com.android.internal.telephony.imsphone.ImsPullCall;
 import com.android.internal.telephony.uicc.IccCardProxy;
 
 /**
@@ -64,8 +61,20 @@ public class TelephonyComponentFactory {
         return new ServiceStateTracker(phone, ci);
     }
 
+    public SimActivationTracker makeSimActivationTracker(Phone phone) {
+        return new SimActivationTracker(phone);
+    }
+
     public DcTracker makeDcTracker(Phone phone) {
         return new DcTracker(phone);
+    }
+
+    public CarrierSignalAgent makeCarrierSignalAgent(Phone phone) {
+        return new CarrierSignalAgent(phone);
+    }
+
+    public CarrierActionAgent makeCarrierActionAgent(Phone phone) {
+        return new CarrierActionAgent(phone);
     }
 
     public IccPhoneBookInterfaceManager makeIccPhoneBookInterfaceManager(Phone phone) {
@@ -92,19 +101,20 @@ public class TelephonyComponentFactory {
      * Create a tracker for a single-part SMS.
      */
     public InboundSmsTracker makeInboundSmsTracker(byte[] pdu, long timestamp, int destPort,
-            boolean is3gpp2, boolean is3gpp2WapPdu, String address, String messageBody) {
+            boolean is3gpp2, boolean is3gpp2WapPdu, String address, String displayAddr,
+            String messageBody) {
         return new InboundSmsTracker(pdu, timestamp, destPort, is3gpp2, is3gpp2WapPdu, address,
-                messageBody);
+                displayAddr, messageBody);
     }
 
     /**
      * Create a tracker for a multi-part SMS.
      */
     public InboundSmsTracker makeInboundSmsTracker(byte[] pdu, long timestamp, int destPort,
-            boolean is3gpp2, String address, int referenceNumber, int sequenceNumber,
+            boolean is3gpp2, String address, String displayAddr, int referenceNumber, int sequenceNumber,
             int messageCount, boolean is3gpp2WapPdu, String messageBody) {
-        return new InboundSmsTracker(pdu, timestamp, destPort, is3gpp2, address, referenceNumber,
-                sequenceNumber, messageCount, is3gpp2WapPdu, messageBody);
+        return new InboundSmsTracker(pdu, timestamp, destPort, is3gpp2, address, displayAddr,
+                referenceNumber, sequenceNumber, messageCount, is3gpp2WapPdu, messageBody);
     }
 
     /**
@@ -121,6 +131,17 @@ public class TelephonyComponentFactory {
     public ImsExternalCallTracker makeImsExternalCallTracker(ImsPhone imsPhone) {
 
         return new ImsExternalCallTracker(imsPhone);
+    }
+
+    /**
+     * Create an AppSmsManager for per-app SMS message.
+     */
+    public AppSmsManager makeAppSmsManager(Context context) {
+        return new AppSmsManager(context);
+    }
+
+    public DeviceStateMonitor makeDeviceStateMonitor(Phone phone) {
+        return new DeviceStateMonitor(phone);
     }
 
     public CdmaSubscriptionSourceManager

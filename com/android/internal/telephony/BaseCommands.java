@@ -18,15 +18,12 @@
 package com.android.internal.telephony;
 
 import android.content.Context;
-import android.os.Message;
-import android.os.RegistrantList;
-import android.os.Registrant;
-import android.os.Handler;
 import android.os.AsyncResult;
-import android.telephony.RadioAccessFamily;
+import android.os.Handler;
+import android.os.Message;
+import android.os.Registrant;
+import android.os.RegistrantList;
 import android.telephony.TelephonyManager;
-
-import com.android.internal.telephony.RadioCapability;
 
 /**
  * {@hide}
@@ -43,8 +40,8 @@ public abstract class BaseCommands implements CommandsInterface {
     protected RegistrantList mOffOrNotAvailRegistrants = new RegistrantList();
     protected RegistrantList mNotAvailRegistrants = new RegistrantList();
     protected RegistrantList mCallStateRegistrants = new RegistrantList();
-    protected RegistrantList mVoiceNetworkStateRegistrants = new RegistrantList();
-    protected RegistrantList mDataNetworkStateRegistrants = new RegistrantList();
+    protected RegistrantList mNetworkStateRegistrants = new RegistrantList();
+    protected RegistrantList mDataCallListChangedRegistrants = new RegistrantList();
     protected RegistrantList mVoiceRadioTechChangedRegistrants = new RegistrantList();
     protected RegistrantList mImsNetworkStateChangedRegistrants = new RegistrantList();
     protected RegistrantList mIccStatusChangedRegistrants = new RegistrantList();
@@ -237,27 +234,27 @@ public abstract class BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void registerForVoiceNetworkStateChanged(Handler h, int what, Object obj) {
+    public void registerForNetworkStateChanged(Handler h, int what, Object obj) {
         Registrant r = new Registrant (h, what, obj);
 
-        mVoiceNetworkStateRegistrants.add(r);
+        mNetworkStateRegistrants.add(r);
     }
 
     @Override
-    public void unregisterForVoiceNetworkStateChanged(Handler h) {
-        mVoiceNetworkStateRegistrants.remove(h);
+    public void unregisterForNetworkStateChanged(Handler h) {
+        mNetworkStateRegistrants.remove(h);
     }
 
     @Override
-    public void registerForDataNetworkStateChanged(Handler h, int what, Object obj) {
+    public void registerForDataCallListChanged(Handler h, int what, Object obj) {
         Registrant r = new Registrant (h, what, obj);
 
-        mDataNetworkStateRegistrants.add(r);
+        mDataCallListChangedRegistrants.add(r);
     }
 
     @Override
-    public void unregisterForDataNetworkStateChanged(Handler h) {
-        mDataNetworkStateRegistrants.remove(h);
+    public void unregisterForDataCallListChanged(Handler h) {
+        mDataCallListChangedRegistrants.remove(h);
     }
 
     @Override
@@ -785,7 +782,6 @@ public abstract class BaseCommands implements CommandsInterface {
 
             if (mState.isAvailable() && !oldState.isAvailable()) {
                 mAvailRegistrants.notifyRegistrants();
-                onRadioAvailable();
             }
 
             if (!mState.isAvailable() && oldState.isAvailable()) {
@@ -802,9 +798,6 @@ public abstract class BaseCommands implements CommandsInterface {
                 mOffOrNotAvailRegistrants.notifyRegistrants();
             }
         }
-    }
-
-    protected void onRadioAvailable() {
     }
 
     /**

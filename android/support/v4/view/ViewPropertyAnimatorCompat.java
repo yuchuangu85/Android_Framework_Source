@@ -15,12 +15,14 @@
  */
 package android.support.v4.view;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
 import android.os.Build;
 import android.view.View;
 import android.view.animation.Interpolator;
 
 import java.lang.ref.WeakReference;
-import java.util.WeakHashMap;
 
 public final class ViewPropertyAnimatorCompat {
     private static final String TAG = "ViewAnimatorCompat";
@@ -36,513 +38,50 @@ public final class ViewPropertyAnimatorCompat {
         mView = new WeakReference<View>(view);
     }
 
-    interface ViewPropertyAnimatorCompatImpl {
-        public void setDuration(ViewPropertyAnimatorCompat vpa, View view, long value);
-        public long getDuration(ViewPropertyAnimatorCompat vpa, View view);
-        public void setInterpolator(ViewPropertyAnimatorCompat vpa, View view, Interpolator value);
-        public Interpolator getInterpolator(ViewPropertyAnimatorCompat vpa, View view);
-        public void setStartDelay(ViewPropertyAnimatorCompat vpa, View view, long value);
-        public long getStartDelay(ViewPropertyAnimatorCompat vpa, View view);
-        public void alpha(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void alphaBy(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void rotation(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void rotationBy(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void rotationX(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void rotationXBy(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void rotationY(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void rotationYBy(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void scaleX(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void scaleXBy(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void scaleY(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void scaleYBy(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void cancel(ViewPropertyAnimatorCompat vpa, View view);
-        public void x(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void xBy(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void y(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void yBy(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void z(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void zBy(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void translationX(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void translationXBy(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void translationY(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void translationYBy(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void translationZ(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void translationZBy(ViewPropertyAnimatorCompat vpa, View view, float value);
-        public void start(ViewPropertyAnimatorCompat vpa, View view);
-        public void withLayer(ViewPropertyAnimatorCompat vpa, View view);
-        public void withStartAction(ViewPropertyAnimatorCompat vpa, View view, Runnable runnable);
-        public void withEndAction(ViewPropertyAnimatorCompat vpa, View view, Runnable runnable);
-        public void setListener(ViewPropertyAnimatorCompat vpa, View view,
-                ViewPropertyAnimatorListener listener);
-        public void setUpdateListener(ViewPropertyAnimatorCompat vpa, View view,
-                ViewPropertyAnimatorUpdateListener listener);
-    };
+    static class ViewPropertyAnimatorListenerApi14 implements ViewPropertyAnimatorListener {
+        ViewPropertyAnimatorCompat mVpa;
+        boolean mAnimEndCalled;
 
-    static class BaseViewPropertyAnimatorCompatImpl implements ViewPropertyAnimatorCompatImpl {
-        WeakHashMap<View, Runnable> mStarterMap = null;
-
-        @Override
-        public void setDuration(ViewPropertyAnimatorCompat vpa, View view, long value) {
-            // noop on versions prior to ICS
+        ViewPropertyAnimatorListenerApi14(ViewPropertyAnimatorCompat vpa) {
+            mVpa = vpa;
         }
 
         @Override
-        public void alpha(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
+        public void onAnimationStart(View view) {
+            // Reset our end called flag, since this is a new animation...
+            mAnimEndCalled = false;
 
-        @Override
-        public void translationX(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void translationY(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void withEndAction(ViewPropertyAnimatorCompat vpa, View view, Runnable runnable) {
-            vpa.mEndAction = runnable;
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public long getDuration(ViewPropertyAnimatorCompat vpa, View view) {
-            return 0;
-        }
-
-        @Override
-        public void setInterpolator(ViewPropertyAnimatorCompat vpa, View view, Interpolator value) {
-            // noop on versions prior to ICS
-        }
-
-        @Override
-        public Interpolator getInterpolator(ViewPropertyAnimatorCompat vpa, View view) {
-            return null;
-        }
-
-        @Override
-        public void setStartDelay(ViewPropertyAnimatorCompat vpa, View view, long value) {
-            // noop on versions prior to ICS
-        }
-
-        @Override
-        public long getStartDelay(ViewPropertyAnimatorCompat vpa, View view) {
-            return 0;
-        }
-
-        @Override
-        public void alphaBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void rotation(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void rotationBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void rotationX(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void rotationXBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void rotationY(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void rotationYBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void scaleX(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void scaleXBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void scaleY(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void scaleYBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void cancel(ViewPropertyAnimatorCompat vpa, View view) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void x(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void xBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void y(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void yBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void z(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to Lollipop
-        }
-
-        @Override
-        public void zBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to Lollipop
-        }
-
-        @Override
-        public void translationXBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void translationYBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to ICS
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void translationZ(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to Lollipop
-        }
-
-        @Override
-        public void translationZBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            // noop on versions prior to Lollipop
-        }
-
-        @Override
-        public void start(ViewPropertyAnimatorCompat vpa, View view) {
-            removeStartMessage(view);
-            startAnimation(vpa, view);
-        }
-
-        @Override
-        public void withLayer(ViewPropertyAnimatorCompat vpa, View view) {
-            // noop on versions prior to ICS
-        }
-
-        @Override
-        public void withStartAction(ViewPropertyAnimatorCompat vpa, View view, Runnable runnable) {
-            vpa.mStartAction = runnable;
-            postStartMessage(vpa, view);
-        }
-
-        @Override
-        public void setListener(ViewPropertyAnimatorCompat vpa, View view, ViewPropertyAnimatorListener listener) {
-            view.setTag(LISTENER_TAG_ID, listener);
-        }
-
-        @Override
-        public void setUpdateListener(ViewPropertyAnimatorCompat vpa, View view, ViewPropertyAnimatorUpdateListener listener) {
-            // noop
-        }
-
-        void startAnimation(ViewPropertyAnimatorCompat vpa, View view) {
+            if (mVpa.mOldLayerType > -1) {
+                view.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+            }
+            if (mVpa.mStartAction != null) {
+                Runnable startAction = mVpa.mStartAction;
+                mVpa.mStartAction = null;
+                startAction.run();
+            }
             Object listenerTag = view.getTag(LISTENER_TAG_ID);
             ViewPropertyAnimatorListener listener = null;
             if (listenerTag instanceof ViewPropertyAnimatorListener) {
                 listener = (ViewPropertyAnimatorListener) listenerTag;
             }
-            Runnable startAction = vpa.mStartAction;
-            Runnable endAction = vpa.mEndAction;
-            vpa.mStartAction = null;
-            vpa.mEndAction = null;
-            if (startAction != null) {
-                startAction.run();
-            }
             if (listener != null) {
                 listener.onAnimationStart(view);
-                listener.onAnimationEnd(view);
-            }
-            if (endAction != null) {
-                endAction.run();
-            }
-            if (mStarterMap != null) {
-                mStarterMap.remove(view);
             }
         }
 
-        class Starter implements Runnable {
-            WeakReference<View> mViewRef;
-            ViewPropertyAnimatorCompat mVpa;
-
-            Starter(ViewPropertyAnimatorCompat vpa, View view) {
-                mViewRef = new WeakReference<View>(view);
-                mVpa = vpa;
+        @Override
+        public void onAnimationEnd(View view) {
+            if (mVpa.mOldLayerType > -1) {
+                view.setLayerType(mVpa.mOldLayerType, null);
+                mVpa.mOldLayerType = -1;
             }
-
-            @Override
-            public void run() {
-                final View view = mViewRef.get();
-                if (view != null) {
-                    startAnimation(mVpa, view);
-                }
-            }
-        };
-
-        private void removeStartMessage(View view) {
-            Runnable starter = null;
-            if (mStarterMap != null) {
-                starter = mStarterMap.get(view);
-                if (starter != null) {
-                    view.removeCallbacks(starter);
-                }
-            }
-        }
-
-        private void postStartMessage(ViewPropertyAnimatorCompat vpa, View view) {
-            Runnable starter = null;
-            if (mStarterMap != null) {
-                starter = mStarterMap.get(view);
-            }
-            if (starter == null) {
-                starter = new Starter(vpa, view);
-                if (mStarterMap == null) {
-                    mStarterMap = new WeakHashMap<View, Runnable>();
-                }
-                mStarterMap.put(view, starter);
-            }
-            view.removeCallbacks(starter);
-            view.post(starter);
-        }
-
-    }
-
-    static class ICSViewPropertyAnimatorCompatImpl extends BaseViewPropertyAnimatorCompatImpl {
-        WeakHashMap<View, Integer> mLayerMap = null;
-
-        @Override
-        public void setDuration(ViewPropertyAnimatorCompat vpa, View view, long value) {
-            ViewPropertyAnimatorCompatICS.setDuration(view, value);
-        }
-
-        @Override
-        public void alpha(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.alpha(view, value);
-        }
-
-        @Override
-        public void translationX(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.translationX(view, value);
-        }
-
-        @Override
-        public void translationY(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.translationY(view, value);
-        }
-
-        @Override
-        public long getDuration(ViewPropertyAnimatorCompat vpa, View view) {
-            return ViewPropertyAnimatorCompatICS.getDuration(view);
-        }
-
-        @Override
-        public void setInterpolator(ViewPropertyAnimatorCompat vpa, View view, Interpolator value) {
-            ViewPropertyAnimatorCompatICS.setInterpolator(view, value);
-        }
-
-        @Override
-        public void setStartDelay(ViewPropertyAnimatorCompat vpa, View view, long value) {
-            ViewPropertyAnimatorCompatICS.setStartDelay(view, value);
-        }
-
-        @Override
-        public long getStartDelay(ViewPropertyAnimatorCompat vpa, View view) {
-            return ViewPropertyAnimatorCompatICS.getStartDelay(view);
-        }
-
-        @Override
-        public void alphaBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.alphaBy(view, value);
-        }
-
-        @Override
-        public void rotation(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.rotation(view, value);
-        }
-
-        @Override
-        public void rotationBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.rotationBy(view, value);
-        }
-
-        @Override
-        public void rotationX(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.rotationX(view, value);
-        }
-
-        @Override
-        public void rotationXBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.rotationXBy(view, value);
-        }
-
-        @Override
-        public void rotationY(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.rotationY(view, value);
-        }
-
-        @Override
-        public void rotationYBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.rotationYBy(view, value);
-        }
-
-        @Override
-        public void scaleX(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.scaleX(view, value);
-        }
-
-        @Override
-        public void scaleXBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.scaleXBy(view, value);
-        }
-
-        @Override
-        public void scaleY(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.scaleY(view, value);
-        }
-
-        @Override
-        public void scaleYBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.scaleYBy(view, value);
-        }
-
-        @Override
-        public void cancel(ViewPropertyAnimatorCompat vpa, View view) {
-            ViewPropertyAnimatorCompatICS.cancel(view);
-        }
-
-        @Override
-        public void x(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.x(view, value);
-        }
-
-        @Override
-        public void xBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.xBy(view, value);
-        }
-
-        @Override
-        public void y(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.y(view, value);
-        }
-
-        @Override
-        public void yBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.yBy(view, value);
-        }
-
-        @Override
-        public void translationXBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.translationXBy(view, value);
-        }
-
-        @Override
-        public void translationYBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatICS.translationYBy(view, value);
-        }
-
-        @Override
-        public void start(ViewPropertyAnimatorCompat vpa, View view) {
-            ViewPropertyAnimatorCompatICS.start(view);
-        }
-
-        @Override
-        public void setListener(ViewPropertyAnimatorCompat vpa, View view, ViewPropertyAnimatorListener listener) {
-            view.setTag(LISTENER_TAG_ID, listener);
-            ViewPropertyAnimatorCompatICS.setListener(view, new MyVpaListener(vpa));
-        }
-
-        @Override
-        public void withEndAction(ViewPropertyAnimatorCompat vpa, View view, final Runnable runnable) {
-            ViewPropertyAnimatorCompatICS.setListener(view, new MyVpaListener(vpa));
-            vpa.mEndAction = runnable;
-        }
-
-        @Override
-        public void withStartAction(ViewPropertyAnimatorCompat vpa, View view, final Runnable runnable) {
-            ViewPropertyAnimatorCompatICS.setListener(view, new MyVpaListener(vpa));
-            vpa.mStartAction = runnable;
-        }
-
-        @Override
-        public void withLayer(ViewPropertyAnimatorCompat vpa, View view) {
-            vpa.mOldLayerType = ViewCompat.getLayerType(view);
-            ViewPropertyAnimatorCompatICS.setListener(view, new MyVpaListener(vpa));
-        }
-
-        static class MyVpaListener implements ViewPropertyAnimatorListener {
-            ViewPropertyAnimatorCompat mVpa;
-            boolean mAnimEndCalled;
-
-            MyVpaListener(ViewPropertyAnimatorCompat vpa) {
-                mVpa = vpa;
-            }
-
-            @Override
-            public void onAnimationStart(View view) {
-                // Reset our end called flag, since this is a new animation...
-                mAnimEndCalled = false;
-
-                if (mVpa.mOldLayerType >= 0) {
-                    ViewCompat.setLayerType(view, ViewCompat.LAYER_TYPE_HARDWARE, null);
-                }
-                if (mVpa.mStartAction != null) {
-                    Runnable startAction = mVpa.mStartAction;
-                    mVpa.mStartAction = null;
-                    startAction.run();
+            if (Build.VERSION.SDK_INT >= 16 || !mAnimEndCalled) {
+                // Pre-v16 seems to have a bug where onAnimationEnd is called
+                // twice, therefore we only dispatch on the first call
+                if (mVpa.mEndAction != null) {
+                    Runnable endAction = mVpa.mEndAction;
+                    mVpa.mEndAction = null;
+                    endAction.run();
                 }
                 Object listenerTag = view.getTag(LISTENER_TAG_ID);
                 ViewPropertyAnimatorListener listener = null;
@@ -550,125 +89,22 @@ public final class ViewPropertyAnimatorCompat {
                     listener = (ViewPropertyAnimatorListener) listenerTag;
                 }
                 if (listener != null) {
-                    listener.onAnimationStart(view);
+                    listener.onAnimationEnd(view);
                 }
+                mAnimEndCalled = true;
             }
+        }
 
-            @Override
-            public void onAnimationEnd(View view) {
-                if (mVpa.mOldLayerType >= 0) {
-                    ViewCompat.setLayerType(view, mVpa.mOldLayerType, null);
-                    mVpa.mOldLayerType = -1;
-                }
-                if (Build.VERSION.SDK_INT >= 16 || !mAnimEndCalled) {
-                    // Pre-v16 seems to have a bug where onAnimationEnd is called
-                    // twice, therefore we only dispatch on the first call
-                    if (mVpa.mEndAction != null) {
-                        Runnable endAction = mVpa.mEndAction;
-                        mVpa.mEndAction = null;
-                        endAction.run();
-                    }
-                    Object listenerTag = view.getTag(LISTENER_TAG_ID);
-                    ViewPropertyAnimatorListener listener = null;
-                    if (listenerTag instanceof ViewPropertyAnimatorListener) {
-                        listener = (ViewPropertyAnimatorListener) listenerTag;
-                    }
-                    if (listener != null) {
-                        listener.onAnimationEnd(view);
-                    }
-                    mAnimEndCalled = true;
-                }
+        @Override
+        public void onAnimationCancel(View view) {
+            Object listenerTag = view.getTag(LISTENER_TAG_ID);
+            ViewPropertyAnimatorListener listener = null;
+            if (listenerTag instanceof ViewPropertyAnimatorListener) {
+                listener = (ViewPropertyAnimatorListener) listenerTag;
             }
-
-            @Override
-            public void onAnimationCancel(View view) {
-                Object listenerTag = view.getTag(LISTENER_TAG_ID);
-                ViewPropertyAnimatorListener listener = null;
-                if (listenerTag instanceof ViewPropertyAnimatorListener) {
-                    listener = (ViewPropertyAnimatorListener) listenerTag;
-                }
-                if (listener != null) {
-                    listener.onAnimationCancel(view);
-                }
+            if (listener != null) {
+                listener.onAnimationCancel(view);
             }
-        };
-    }
-
-    static class JBViewPropertyAnimatorCompatImpl extends ICSViewPropertyAnimatorCompatImpl {
-
-        @Override
-        public void setListener(ViewPropertyAnimatorCompat vpa, View view, ViewPropertyAnimatorListener listener) {
-            ViewPropertyAnimatorCompatJB.setListener(view, listener);
-        }
-
-        @Override
-        public void withStartAction(ViewPropertyAnimatorCompat vpa, View view, Runnable runnable) {
-            ViewPropertyAnimatorCompatJB.withStartAction(view, runnable);
-        }
-
-        @Override
-        public void withEndAction(ViewPropertyAnimatorCompat vpa, View view, Runnable runnable) {
-            ViewPropertyAnimatorCompatJB.withEndAction(view, runnable);
-        }
-
-        @Override
-        public void withLayer(ViewPropertyAnimatorCompat vpa, View view) {
-            ViewPropertyAnimatorCompatJB.withLayer(view);
-        }
-    }
-
-    static class JBMr2ViewPropertyAnimatorCompatImpl extends JBViewPropertyAnimatorCompatImpl {
-
-        @Override
-        public Interpolator getInterpolator(ViewPropertyAnimatorCompat vpa, View view) {
-            return (Interpolator) ViewPropertyAnimatorCompatJellybeanMr2.getInterpolator(view);
-        }
-    }
-
-    static class KitKatViewPropertyAnimatorCompatImpl extends JBMr2ViewPropertyAnimatorCompatImpl {
-        @Override
-        public void setUpdateListener(ViewPropertyAnimatorCompat vpa, View view, ViewPropertyAnimatorUpdateListener listener) {
-            ViewPropertyAnimatorCompatKK.setUpdateListener(view, listener);
-        }
-    }
-
-    static class LollipopViewPropertyAnimatorCompatImpl extends KitKatViewPropertyAnimatorCompatImpl {
-        @Override
-        public void translationZ(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatLollipop.translationZ(view, value);
-        }
-
-        @Override
-        public void translationZBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatLollipop.translationZBy(view, value);
-        }
-
-        @Override
-        public void z(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatLollipop.z(view, value);
-        }
-
-        @Override
-        public void zBy(ViewPropertyAnimatorCompat vpa, View view, float value) {
-            ViewPropertyAnimatorCompatLollipop.zBy(view, value);
-        }
-    }
-
-    static final ViewPropertyAnimatorCompatImpl IMPL;
-    static {
-        final int version = android.os.Build.VERSION.SDK_INT;
-        if (version >= 21) {
-            IMPL = new LollipopViewPropertyAnimatorCompatImpl();
-        } else if (version >= 19) {
-            IMPL = new KitKatViewPropertyAnimatorCompatImpl();
-        } else if (version >= 18) {
-            IMPL = new JBMr2ViewPropertyAnimatorCompatImpl();
-        } else if (version >= 16) {
-            IMPL = new JBViewPropertyAnimatorCompatImpl();
-        } else if (version >= 14) {
-            IMPL = new ICSViewPropertyAnimatorCompatImpl();
-        } else {
-            IMPL = new BaseViewPropertyAnimatorCompatImpl();
         }
     }
 
@@ -677,8 +113,6 @@ public final class ViewPropertyAnimatorCompat {
      * By default, the animator uses the default value for ValueAnimator. Calling this method
      * will cause the declared value to be used instead.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The length of ensuing property animations, in milliseconds. The value
      * cannot be negative.
      * @return This object, allowing calls to methods in this class to be chained.
@@ -686,7 +120,7 @@ public final class ViewPropertyAnimatorCompat {
     public ViewPropertyAnimatorCompat setDuration(long value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.setDuration(this, view, value);
+            view.animate().setDuration(value);
         }
         return this;
     }
@@ -695,15 +129,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>alpha</code> property to be animated to the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The value to be animated to.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat alpha(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.alpha(this, view, value);
+            view.animate().alpha(value);
         }
         return this;
     }
@@ -712,15 +144,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>alpha</code> property to be animated by the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The amount to be animated by, as an offset from the current value.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat alphaBy(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.alphaBy(this, view, value);
+            view.animate().alphaBy(value);
         }
         return this;
     }
@@ -729,15 +159,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>translationX</code> property to be animated to the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The value to be animated to.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat translationX(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.translationX(this, view, value);
+            view.animate().translationX(value);
         }
         return this;
     }
@@ -746,15 +174,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>translationY</code> property to be animated to the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The value to be animated to.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat translationY(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.translationY(this, view, value);
+            view.animate().translationY(value);
         }
         return this;
     }
@@ -777,8 +203,6 @@ public final class ViewPropertyAnimatorCompat {
      *     view.animate().x(200).withEndAction(endAction);
      * </pre>
      *
-     * <p>Prior to API 14, this method will run the action immediately.</p>
-     *
      * <p>For API 14 and 15, this method will run by setting
      * a listener on the ViewPropertyAnimatorCompat object and running the action
      * in that listener's {@link ViewPropertyAnimatorListener#onAnimationEnd(View)} method.</p>
@@ -789,7 +213,12 @@ public final class ViewPropertyAnimatorCompat {
     public ViewPropertyAnimatorCompat withEndAction(Runnable runnable) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.withEndAction(this, view, runnable);
+            if (Build.VERSION.SDK_INT >= 16) {
+                view.animate().withEndAction(runnable);
+            } else {
+                setListenerInternal(view, new ViewPropertyAnimatorListenerApi14(this));
+                mEndAction = runnable;
+            }
         }
         return this;
     }
@@ -799,15 +228,13 @@ public final class ViewPropertyAnimatorCompat {
      * object, that value is returned. Otherwise, the default value of the underlying Animator
      * is returned.
      *
-     * <p>Prior to API 14, this method will return 0.</p>
-     *
      * @see #setDuration(long)
      * @return The duration of animations, in milliseconds.
      */
     public long getDuration() {
         View view;
         if ((view = mView.get()) != null) {
-            return IMPL.getDuration(this, view);
+            return view.animate().getDuration();
         } else {
             return 0;
         }
@@ -818,15 +245,13 @@ public final class ViewPropertyAnimatorCompat {
      * By default, the animator uses the default interpolator for ValueAnimator. Calling this method
      * will cause the declared object to be used instead.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The TimeInterpolator to be used for ensuing property animations.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat setInterpolator(Interpolator value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.setInterpolator(this, view, value);
+            view.animate().setInterpolator(value);
         }
         return this;
     }
@@ -834,24 +259,22 @@ public final class ViewPropertyAnimatorCompat {
     /**
      * Returns the timing interpolator that this animation uses.
      *
-     * <p>Prior to API 14, this method will return null.</p>
-     *
      * @return The timing interpolator for this animation.
      */
     public Interpolator getInterpolator() {
         View view;
         if ((view = mView.get()) != null) {
-            return IMPL.getInterpolator(this, view);
+            if (Build.VERSION.SDK_INT >= 18) {
+                return (Interpolator) view.animate().getInterpolator();
+            }
         }
-        else return null;
+        return null;
     }
 
     /**
      * Sets the startDelay for the underlying animator that animates the requested properties.
      * By default, the animator uses the default value for ValueAnimator. Calling this method
      * will cause the declared value to be used instead.
-     *
-     * <p>Prior to API 14, this method will do nothing.</p>
      *
      * @param value The delay of ensuing property animations, in milliseconds. The value
      * cannot be negative.
@@ -860,7 +283,7 @@ public final class ViewPropertyAnimatorCompat {
     public ViewPropertyAnimatorCompat setStartDelay(long value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.setStartDelay(this, view, value);
+            view.animate().setStartDelay(value);
         }
         return this;
     }
@@ -870,15 +293,13 @@ public final class ViewPropertyAnimatorCompat {
      * object, that value is returned. Otherwise, the default value of the underlying Animator
      * is returned.
      *
-     * <p>Prior to API 14, this method will return 0.</p>
-     *
      * @see #setStartDelay(long)
      * @return The startDelay of animations, in milliseconds.
      */
     public long getStartDelay() {
         View view;
         if ((view = mView.get()) != null) {
-            return IMPL.getStartDelay(this, view);
+            return view.animate().getStartDelay();
         } else {
             return 0;
         }
@@ -888,15 +309,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>rotation</code> property to be animated to the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The value to be animated to.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat rotation(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.rotation(this, view, value);
+            view.animate().rotation(value);
         }
         return this;
     }
@@ -905,15 +324,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>rotation</code> property to be animated by the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The amount to be animated by, as an offset from the current value.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat rotationBy(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.rotationBy(this, view, value);
+            view.animate().rotationBy(value);
         }
         return this;
     }
@@ -922,15 +339,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>rotationX</code> property to be animated to the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The value to be animated to.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat rotationX(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.rotationX(this, view, value);
+            view.animate().rotationX(value);
         }
         return this;
     }
@@ -939,15 +354,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>rotationX</code> property to be animated by the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The amount to be animated by, as an offset from the current value.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat rotationXBy(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.rotationXBy(this, view, value);
+            view.animate().rotationXBy(value);
         }
         return this;
     }
@@ -956,15 +369,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>rotationY</code> property to be animated to the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The value to be animated to.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat rotationY(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.rotationY(this, view, value);
+            view.animate().rotationY(value);
         }
         return this;
     }
@@ -973,15 +384,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>rotationY</code> property to be animated by the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The amount to be animated by, as an offset from the current value.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat rotationYBy(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.rotationYBy(this, view, value);
+            view.animate().rotationYBy(value);
         }
         return this;
     }
@@ -990,15 +399,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>scaleX</code> property to be animated to the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The value to be animated to.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat scaleX(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.scaleX(this, view, value);
+            view.animate().scaleX(value);
         }
         return this;
     }
@@ -1007,15 +414,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>scaleX</code> property to be animated by the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The amount to be animated by, as an offset from the current value.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat scaleXBy(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.scaleXBy(this, view, value);
+            view.animate().scaleXBy(value);
         }
         return this;
     }
@@ -1024,15 +429,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>scaleY</code> property to be animated to the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The value to be animated to.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat scaleY(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.scaleY(this, view, value);
+            view.animate().scaleY(value);
         }
         return this;
     }
@@ -1041,15 +444,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>scaleY</code> property to be animated by the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The amount to be animated by, as an offset from the current value.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat scaleYBy(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.scaleYBy(this, view, value);
+            view.animate().scaleYBy(value);
         }
         return this;
     }
@@ -1060,7 +461,7 @@ public final class ViewPropertyAnimatorCompat {
     public void cancel() {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.cancel(this, view);
+            view.animate().cancel();
         }
     }
 
@@ -1068,15 +469,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>x</code> property to be animated to the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The value to be animated to.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat x(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.x(this, view, value);
+            view.animate().x(value);
         }
         return this;
     }
@@ -1085,15 +484,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>x</code> property to be animated by the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The amount to be animated by, as an offset from the current value.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat xBy(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.xBy(this, view, value);
+            view.animate().xBy(value);
         }
         return this;
     }
@@ -1102,15 +499,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>y</code> property to be animated to the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The value to be animated to.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat y(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.y(this, view, value);
+            view.animate().y(value);
         }
         return this;
     }
@@ -1119,15 +514,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>y</code> property to be animated by the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The amount to be animated by, as an offset from the current value.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat yBy(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.yBy(this, view, value);
+            view.animate().yBy(value);
         }
         return this;
     }
@@ -1136,15 +529,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>translationX</code> property to be animated by the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The amount to be animated by, as an offset from the current value.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat translationXBy(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.translationXBy(this, view, value);
+            view.animate().translationXBy(value);
         }
         return this;
     }
@@ -1153,15 +544,13 @@ public final class ViewPropertyAnimatorCompat {
      * This method will cause the View's <code>translationY</code> property to be animated by the
      * specified value. Animations already running on the property will be canceled.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param value The amount to be animated by, as an offset from the current value.
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat translationYBy(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.translationYBy(this, view, value);
+            view.animate().translationYBy(value);
         }
         return this;
     }
@@ -1178,7 +567,9 @@ public final class ViewPropertyAnimatorCompat {
     public ViewPropertyAnimatorCompat translationZBy(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.translationZBy(this, view, value);
+            if (Build.VERSION.SDK_INT >= 21) {
+                view.animate().translationZBy(value);
+            }
         }
         return this;
     }
@@ -1195,7 +586,9 @@ public final class ViewPropertyAnimatorCompat {
     public ViewPropertyAnimatorCompat translationZ(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.translationZ(this, view, value);
+            if (Build.VERSION.SDK_INT >= 21) {
+                view.animate().translationZ(value);
+            }
         }
         return this;
     }
@@ -1212,7 +605,9 @@ public final class ViewPropertyAnimatorCompat {
     public ViewPropertyAnimatorCompat z(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.z(this, view, value);
+            if (Build.VERSION.SDK_INT >= 21) {
+                view.animate().z(value);
+            }
         }
         return this;
     }
@@ -1229,7 +624,9 @@ public final class ViewPropertyAnimatorCompat {
     public ViewPropertyAnimatorCompat zBy(float value) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.zBy(this, view, value);
+            if (Build.VERSION.SDK_INT >= 21) {
+                view.animate().zBy(value);
+            }
         }
         return this;
     }
@@ -1240,36 +637,32 @@ public final class ViewPropertyAnimatorCompat {
      * if the animations are needed to start immediately and synchronously (not at the time when
      * the next event is processed by the hierarchy, which is when the animations would begin
      * otherwise), then this method can be used.
-     *
-     * <p>Prior to API 14, this method will do nothing.</p>
      */
     public void start() {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.start(this, view);
+            view.animate().start();
         }
     }
 
     /**
      * The View associated with this ViewPropertyAnimator will have its
-     * {@link ViewCompat#setLayerType(View, int, android.graphics.Paint) layer type} set to
-     * {@link ViewCompat#LAYER_TYPE_HARDWARE} for the duration of the next animation.
-     * As stated in the documentation for {@link ViewCompat#LAYER_TYPE_HARDWARE},
+     * {@link View#setLayerType(int, android.graphics.Paint) layer type} set to
+     * {@link View#LAYER_TYPE_HARDWARE} for the duration of the next animation.
+     * As stated in the documentation for {@link View#LAYER_TYPE_HARDWARE},
      * the actual type of layer used internally depends on the runtime situation of the
      * view. If the activity and this view are hardware-accelerated, then the layer will be
      * accelerated as well. If the activity or the view is not accelerated, then the layer will
-     * effectively be the same as {@link ViewCompat#LAYER_TYPE_SOFTWARE}.
+     * effectively be the same as {@link View#LAYER_TYPE_SOFTWARE}.
      *
      * <p>This state is not persistent, either on the View or on this ViewPropertyAnimator: the
      * layer type of the View will be restored when the animation ends to what it was when this
      * method was called, and this setting on ViewPropertyAnimator is only valid for the next
      * animation. Note that calling this method and then independently setting the layer type of
      * the View (by a direct call to
-     * {@link ViewCompat#setLayerType(View, int, android.graphics.Paint)}) will result in some
+     * {@link View#setLayerType(int, android.graphics.Paint)}) will result in some
      * inconsistency, including having the layer type restored to its pre-withLayer()
      * value when the animation ends.</p>
-     *
-     * <p>Prior to API 14, this method will do nothing.</p>
      *
      * <p>For API 14 and 15, this method will run by setting
      * a listener on the ViewPropertyAnimatorCompat object, setting a hardware layer in
@@ -1283,7 +676,12 @@ public final class ViewPropertyAnimatorCompat {
     public ViewPropertyAnimatorCompat withLayer() {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.withLayer(this, view);
+            if (Build.VERSION.SDK_INT >= 16) {
+                view.animate().withLayer();
+            } else {
+                mOldLayerType = view.getLayerType();
+                setListenerInternal(view, new ViewPropertyAnimatorListenerApi14(this));
+            }
         }
         return this;
     }
@@ -1296,8 +694,6 @@ public final class ViewPropertyAnimatorCompat {
      * choreographing ViewPropertyAnimator animations with other animations or actions
      * in the application.
      *
-     * <p>Prior to API 14, this method will run the action immediately.</p>
-     *
      * <p>For API 14 and 15, this method will run by setting
      * a listener on the ViewPropertyAnimatorCompat object and running the action
      * in that listener's {@link ViewPropertyAnimatorListener#onAnimationStart(View)} method.</p>
@@ -1308,7 +704,12 @@ public final class ViewPropertyAnimatorCompat {
     public ViewPropertyAnimatorCompat withStartAction(Runnable runnable) {
         View view;
         if ((view = mView.get()) != null) {
-            IMPL.withStartAction(this, view, runnable);
+            if (Build.VERSION.SDK_INT >= 16) {
+                view.animate().withStartAction(runnable);
+            } else {
+                setListenerInternal(view, new ViewPropertyAnimatorListenerApi14(this));
+                mStartAction = runnable;
+            }
         }
         return this;
     }
@@ -1317,18 +718,44 @@ public final class ViewPropertyAnimatorCompat {
      * Sets a listener for events in the underlying Animators that run the property
      * animations.
      *
-     * <p>Prior to API 14, this method will do nothing.</p>
-     *
      * @param listener The listener to be called with AnimatorListener events. A value of
      * <code>null</code> removes any existing listener.
      * @return This object, allowing calls to methods in this class to be chained.
      */
-    public ViewPropertyAnimatorCompat setListener(ViewPropertyAnimatorListener listener) {
-        View view;
+    public ViewPropertyAnimatorCompat setListener(final ViewPropertyAnimatorListener listener) {
+        final View view;
         if ((view = mView.get()) != null) {
-            IMPL.setListener(this, view, listener);
+            if (Build.VERSION.SDK_INT >= 16) {
+                setListenerInternal(view, listener);
+            } else {
+                view.setTag(LISTENER_TAG_ID, listener);
+                setListenerInternal(view, new ViewPropertyAnimatorListenerApi14(this));
+            }
         }
         return this;
+    }
+
+    private void setListenerInternal(final View view, final ViewPropertyAnimatorListener listener) {
+        if (listener != null) {
+            view.animate().setListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationCancel(Animator animation) {
+                    listener.onAnimationCancel(view);
+                }
+
+                @Override
+                public void onAnimationEnd(Animator animation) {
+                    listener.onAnimationEnd(view);
+                }
+
+                @Override
+                public void onAnimationStart(Animator animation) {
+                    listener.onAnimationStart(view);
+                }
+            });
+        } else {
+            view.animate().setListener(null);
+        }
     }
 
     /**
@@ -1342,10 +769,21 @@ public final class ViewPropertyAnimatorCompat {
      * @return This object, allowing calls to methods in this class to be chained.
      */
     public ViewPropertyAnimatorCompat setUpdateListener(
-            ViewPropertyAnimatorUpdateListener listener) {
-        View view;
+            final ViewPropertyAnimatorUpdateListener listener) {
+        final View view;
         if ((view = mView.get()) != null) {
-            IMPL.setUpdateListener(this, view, listener);
+            if (Build.VERSION.SDK_INT >= 19) {
+                ValueAnimator.AnimatorUpdateListener wrapped = null;
+                if (listener != null) {
+                    wrapped = new ValueAnimator.AnimatorUpdateListener() {
+                        @Override
+                        public void onAnimationUpdate(ValueAnimator valueAnimator) {
+                            listener.onAnimationUpdate(view);
+                        }
+                    };
+                }
+                view.animate().setUpdateListener(wrapped);
+            }
         }
         return this;
     }

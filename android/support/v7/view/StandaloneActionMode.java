@@ -15,9 +15,10 @@
  */
 package android.support.v7.view;
 
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
 import android.content.Context;
 import android.support.annotation.RestrictTo;
-import android.support.v4.view.MenuItemCompat;
 import android.support.v7.view.menu.MenuBuilder;
 import android.support.v7.view.menu.MenuPopupHelper;
 import android.support.v7.view.menu.SubMenuBuilder;
@@ -30,12 +31,10 @@ import android.view.accessibility.AccessibilityEvent;
 
 import java.lang.ref.WeakReference;
 
-import static android.support.annotation.RestrictTo.Scope.GROUP_ID;
-
 /**
  * @hide
  */
-@RestrictTo(GROUP_ID)
+@RestrictTo(LIBRARY_GROUP)
 public class StandaloneActionMode extends ActionMode implements MenuBuilder.Callback {
     private Context mContext;
     private ActionBarContextView mContextView;
@@ -53,7 +52,7 @@ public class StandaloneActionMode extends ActionMode implements MenuBuilder.Call
         mCallback = callback;
 
         mMenu = new MenuBuilder(view.getContext()).setDefaultShowAsAction(
-                MenuItemCompat.SHOW_AS_ACTION_IF_ROOM);
+                MenuItem.SHOW_AS_ACTION_IF_ROOM);
         mMenu.setCallback(this);
         mFocusable = isFocusable;
     }
@@ -136,6 +135,7 @@ public class StandaloneActionMode extends ActionMode implements MenuBuilder.Call
         return new SupportMenuInflater(mContextView.getContext());
     }
 
+    @Override
     public boolean onMenuItemSelected(MenuBuilder menu, MenuItem item) {
         return mCallback.onActionItemClicked(this, item);
     }
@@ -155,11 +155,13 @@ public class StandaloneActionMode extends ActionMode implements MenuBuilder.Call
     public void onCloseSubMenu(SubMenuBuilder menu) {
     }
 
+    @Override
     public void onMenuModeChange(MenuBuilder menu) {
         invalidate();
         mContextView.showOverflowMenu();
     }
 
+    @Override
     public boolean isUiFocusable() {
         return mFocusable;
     }

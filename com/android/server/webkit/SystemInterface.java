@@ -19,7 +19,11 @@ package com.android.server.webkit;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager.NameNotFoundException;
+import android.database.ContentObserver;
+import android.webkit.UserPackage;
 import android.webkit.WebViewProviderInfo;
+
+import java.util.List;
 
 /**
  * System interface for the WebViewUpdateService.
@@ -48,4 +52,17 @@ public interface SystemInterface {
     public boolean systemIsDebuggable();
     public PackageInfo getPackageInfoForProvider(WebViewProviderInfo configInfo)
             throws NameNotFoundException;
+    /**
+     * Get the PackageInfos of all users for the package represented by {@param configInfo}.
+     * @return an array of UserPackages for a certain package, each UserPackage being belonging to a
+     *         certain user. The returned array can contain null PackageInfos if the given package
+     *         is uninstalled for some user.
+     */
+    public List<UserPackage> getPackageInfoForProviderAllUsers(Context context,
+            WebViewProviderInfo configInfo);
+
+    public int getMultiProcessSetting(Context context);
+    public void setMultiProcessSetting(Context context, int value);
+    public void notifyZygote(boolean enableMultiProcess);
+    public boolean isMultiProcessDefaultEnabled();
 }

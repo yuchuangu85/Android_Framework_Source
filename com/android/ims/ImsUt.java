@@ -149,7 +149,7 @@ public class ImsUt implements ImsUtInterface {
     public void queryCallForward(int condition, String number, Message result) {
         if (DBG) {
             log("queryCallForward :: Ut=" + miUt + ", condition=" + condition
-                    + ", number=" + number);
+                    + ", number=" + Rlog.pii(TAG, number));
         }
 
         synchronized(mLockObj) {
@@ -349,8 +349,8 @@ public class ImsUt implements ImsUtInterface {
             int serviceClass, int timeSeconds, Message result) {
         if (DBG) {
             log("updateCallForward :: Ut=" + miUt + ", action=" + action
-                    + ", condition=" + condition + ", number=" + number
-                    +  ", serviceClass=" + serviceClass + ", timeSeconds=" + timeSeconds);
+                    + ", condition=" + condition + ", number=" + Rlog.pii(TAG, number)
+                    + ", serviceClass=" + serviceClass + ", timeSeconds=" + timeSeconds);
         }
 
         synchronized(mLockObj) {

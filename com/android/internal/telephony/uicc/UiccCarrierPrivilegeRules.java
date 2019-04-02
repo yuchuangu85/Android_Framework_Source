@@ -31,20 +31,11 @@ import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 
 import com.android.internal.telephony.CommandException;
-import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.uicc.IccUtils;
 
-import java.io.ByteArrayInputStream;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.lang.IllegalArgumentException;
-import java.lang.IndexOutOfBoundsException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateException;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -226,7 +217,8 @@ public class UiccCarrierPrivilegeRules extends Handler {
 
     private void openChannel() {
         // Send open logical channel request.
-        mUiccCard.iccOpenLogicalChannel(AID,
+        int p2 = 0x00;
+        mUiccCard.iccOpenLogicalChannel(AID, p2, /* supported p2 value */
             obtainMessage(EVENT_OPEN_LOGICAL_CHANNEL_DONE, null));
     }
 
@@ -421,88 +413,90 @@ public class UiccCarrierPrivilegeRules extends Handler {
 
         switch (msg.what) {
 
-          case EVENT_OPEN_LOGICAL_CHANNEL_DONE:
-              log("EVENT_OPEN_LOGICAL_CHANNEL_DONE");
-              ar = (AsyncResult) msg.obj;
-              if (ar.exception == null && ar.result != null) {
-                  mChannelId = ((int[]) ar.result)[0];
-                  mUiccCard.iccTransmitApduLogicalChannel(mChannelId, CLA, COMMAND, P1, P2, P3, DATA,
-                      obtainMessage(EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE, new Integer(mChannelId)));
-              } else {
-                  // MISSING_RESOURCE could be due to logical channels temporarily unavailable,
-                  // so we retry up to MAX_RETRY times, with an interval of RETRY_INTERVAL_MS.
-                  if (ar.exception instanceof CommandException && mRetryCount < MAX_RETRY &&
-                      ((CommandException) (ar.exception)).getCommandError() ==
-                              CommandException.Error.MISSING_RESOURCE) {
-                      mRetryCount++;
-                      removeCallbacks(mRetryRunnable);
-                      postDelayed(mRetryRunnable, RETRY_INTERVAL_MS);
-                  } else {
-                      // if rules cannot be read from ARA applet,
-                      // fallback to PKCS15-based ARF.
-                      log("No ARA, try ARF next.");
-                      mUiccPkcs15 = new UiccPkcs15(mUiccCard,
-                              obtainMessage(EVENT_PKCS15_READ_DONE));
-                  }
-              }
-              break;
+            case EVENT_OPEN_LOGICAL_CHANNEL_DONE:
+                log("EVENT_OPEN_LOGICAL_CHANNEL_DONE");
+                ar = (AsyncResult) msg.obj;
+                if (ar.exception == null && ar.result != null) {
+                    mChannelId = ((int[]) ar.result)[0];
+                    mUiccCard.iccTransmitApduLogicalChannel(mChannelId, CLA, COMMAND, P1, P2, P3,
+                            DATA, obtainMessage(EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE,
+                                    mChannelId));
+                } else {
+                    // MISSING_RESOURCE could be due to logical channels temporarily unavailable,
+                    // so we retry up to MAX_RETRY times, with an interval of RETRY_INTERVAL_MS.
+                    if (ar.exception instanceof CommandException && mRetryCount < MAX_RETRY
+                            && ((CommandException) (ar.exception)).getCommandError()
+                                    == CommandException.Error.MISSING_RESOURCE) {
+                        mRetryCount++;
+                        removeCallbacks(mRetryRunnable);
+                        postDelayed(mRetryRunnable, RETRY_INTERVAL_MS);
+                    } else {
+                        // if rules cannot be read from ARA applet,
+                        // fallback to PKCS15-based ARF.
+                        log("No ARA, try ARF next.");
+                        mUiccPkcs15 = new UiccPkcs15(mUiccCard,
+                                obtainMessage(EVENT_PKCS15_READ_DONE));
+                    }
+                }
+                break;
 
-          case EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE:
-              log("EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE");
-              ar = (AsyncResult) msg.obj;
-              if (ar.exception == null && ar.result != null) {
-                  IccIoResult response = (IccIoResult) ar.result;
-                  if (response.sw1 == 0x90 && response.sw2 == 0x00 &&
-                      response.payload != null && response.payload.length > 0) {
-                      try {
-                          mRules += IccUtils.bytesToHexString(response.payload).toUpperCase(Locale.US);
-                          if (isDataComplete()) {
-                              mAccessRules = parseRules(mRules);
-                              updateState(STATE_LOADED, "Success!");
-                          } else {
-                              mUiccCard.iccTransmitApduLogicalChannel(mChannelId, CLA, COMMAND, P1, P2_EXTENDED_DATA, P3, DATA,
-                                  obtainMessage(EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE, new Integer(mChannelId)));
-                              break;
-                          }
-                      } catch (IllegalArgumentException ex) {
-                          updateState(STATE_ERROR, "Error parsing rules: " + ex);
-                      } catch (IndexOutOfBoundsException ex) {
-                          updateState(STATE_ERROR, "Error parsing rules: " + ex);
-                      }
-                   } else {
-                      String errorMsg = "Invalid response: payload=" + response.payload +
-                              " sw1=" + response.sw1 + " sw2=" + response.sw2;
-                      updateState(STATE_ERROR, errorMsg);
-                   }
-              } else {
-                  updateState(STATE_ERROR, "Error reading value from SIM.");
-              }
+            case EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE:
+                log("EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE");
+                ar = (AsyncResult) msg.obj;
+                if (ar.exception == null && ar.result != null) {
+                    IccIoResult response = (IccIoResult) ar.result;
+                    if (response.sw1 == 0x90 && response.sw2 == 0x00
+                            && response.payload != null && response.payload.length > 0) {
+                        try {
+                            mRules += IccUtils.bytesToHexString(response.payload)
+                                    .toUpperCase(Locale.US);
+                            if (isDataComplete()) {
+                                mAccessRules = parseRules(mRules);
+                                updateState(STATE_LOADED, "Success!");
+                            } else {
+                                mUiccCard.iccTransmitApduLogicalChannel(mChannelId, CLA, COMMAND,
+                                        P1, P2_EXTENDED_DATA, P3, DATA,
+                                        obtainMessage(EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE,
+                                                mChannelId));
+                                break;
+                            }
+                        } catch (IllegalArgumentException | IndexOutOfBoundsException ex) {
+                            updateState(STATE_ERROR, "Error parsing rules: " + ex);
+                        }
+                    } else {
+                        String errorMsg = "Invalid response: payload=" + response.payload
+                                + " sw1=" + response.sw1 + " sw2=" + response.sw2;
+                        updateState(STATE_ERROR, errorMsg);
+                    }
+                } else {
+                    updateState(STATE_ERROR, "Error reading value from SIM.");
+                }
 
-              mUiccCard.iccCloseLogicalChannel(mChannelId, obtainMessage(
-                      EVENT_CLOSE_LOGICAL_CHANNEL_DONE));
-              mChannelId = -1;
-              break;
+                mUiccCard.iccCloseLogicalChannel(mChannelId, obtainMessage(
+                        EVENT_CLOSE_LOGICAL_CHANNEL_DONE));
+                mChannelId = -1;
+                break;
 
-          case EVENT_CLOSE_LOGICAL_CHANNEL_DONE:
-              log("EVENT_CLOSE_LOGICAL_CHANNEL_DONE");
-              break;
+            case EVENT_CLOSE_LOGICAL_CHANNEL_DONE:
+                log("EVENT_CLOSE_LOGICAL_CHANNEL_DONE");
+                break;
 
-          case EVENT_PKCS15_READ_DONE:
-              log("EVENT_PKCS15_READ_DONE");
-              if (mUiccPkcs15 == null || mUiccPkcs15.getRules() == null) {
-                  updateState(STATE_ERROR, "No ARA or ARF.");
-              } else {
-                  for (String cert : mUiccPkcs15.getRules()) {
-                      AccessRule accessRule = new AccessRule(
-                              IccUtils.hexStringToBytes(cert), "", 0x00);
-                      mAccessRules.add(accessRule);
-                  }
-                  updateState(STATE_LOADED, "Success!");
-              }
-              break;
+            case EVENT_PKCS15_READ_DONE:
+                log("EVENT_PKCS15_READ_DONE");
+                if (mUiccPkcs15 == null || mUiccPkcs15.getRules() == null) {
+                    updateState(STATE_ERROR, "No ARA or ARF.");
+                } else {
+                    for (String cert : mUiccPkcs15.getRules()) {
+                        AccessRule accessRule = new AccessRule(
+                                IccUtils.hexStringToBytes(cert), "", 0x00);
+                        mAccessRules.add(accessRule);
+                    }
+                    updateState(STATE_LOADED, "Success!");
+                }
+                break;
 
-          default:
-              Rlog.e(LOG_TAG, "Unknown event " + msg.what);
+            default:
+                Rlog.e(LOG_TAG, "Unknown event " + msg.what);
         }
     }
 

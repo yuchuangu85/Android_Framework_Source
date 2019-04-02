@@ -26,7 +26,7 @@ import java.io.Serializable;
  * <p>
  * Observable field classes may be used instead of creating an Observable object:
  * <pre><code>public class MyDataObject {
- *     public final ObservableParcelable&lt;String> name = new ObservableParcelable&lt;String>();
+ *     public final ObservableParcelable&lt;String&gt; name = new ObservableParcelable&lt;String&gt;();
  *     public final ObservableInt age = new ObservableInt();
  * }</code></pre>
  * Fields of this type should be declared final because bindings only detect changes in the

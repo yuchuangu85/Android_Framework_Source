@@ -16,6 +16,10 @@
 
 package com.android.setupwizardlib.test;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
+
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Color;
@@ -24,19 +28,26 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.os.Build;
-import android.test.AndroidTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import android.view.View;
 
 import com.android.setupwizardlib.util.DrawableLayoutDirectionHelper;
 
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
 import java.util.Locale;
 
-public class DrawableLayoutDirectionHelperTest extends AndroidTestCase {
+@RunWith(AndroidJUnit4.class)
+@SmallTest
+public class DrawableLayoutDirectionHelperTest {
 
-    @SmallTest
+    @Test
     public void testCreateRelativeInsetDrawableLtr() {
         final Drawable drawable = new ColorDrawable(Color.RED);
+        @SuppressLint("InlinedApi") // Testing with inlined constant is OK here
         final InsetDrawable insetDrawable =
                 DrawableLayoutDirectionHelper.createRelativeInsetDrawable(drawable,
                         1 /* start */, 2 /* top */, 3 /* end */, 4 /* bottom */,
@@ -51,9 +62,10 @@ public class DrawableLayoutDirectionHelperTest extends AndroidTestCase {
                 outRect);
     }
 
-    @SmallTest
+    @Test
     public void testCreateRelativeInsetDrawableRtl() {
         final Drawable drawable = new ColorDrawable(Color.RED);
+        @SuppressLint("InlinedApi") // Testing with inlined constant is OK here
         final InsetDrawable insetDrawable =
                 DrawableLayoutDirectionHelper.createRelativeInsetDrawable(drawable,
                         1 /* start */, 2 /* top */, 3 /* end */, 4 /* bottom */,
@@ -68,10 +80,10 @@ public class DrawableLayoutDirectionHelperTest extends AndroidTestCase {
                 outRect);
     }
 
-    @SmallTest
+    @Test
     public void testCreateRelativeInsetDrawableViewRtl() {
         final Drawable drawable = new ColorDrawable(Color.RED);
-        final View view = new ForceRtlView(getContext());
+        final View view = new ForceRtlView(InstrumentationRegistry.getContext());
         final InsetDrawable insetDrawable =
                 DrawableLayoutDirectionHelper.createRelativeInsetDrawable(drawable,
                         1 /* start */, 2 /* top */, 3 /* end */, 4 /* bottom */, view);
@@ -90,14 +102,14 @@ public class DrawableLayoutDirectionHelperTest extends AndroidTestCase {
         }
     }
 
-    @SmallTest
+    @Test
     public void testCreateRelativeInsetDrawableContextRtl() {
+        Context context =  InstrumentationRegistry.getContext();
         final Drawable drawable = new ColorDrawable(Color.RED);
-        Context context = getContext();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
             final Configuration config = new Configuration();
             config.setLayoutDirection(new Locale("fa", "IR"));
-            context = getContext().createConfigurationContext(config);
+            context = context.createConfigurationContext(config);
         }
         final InsetDrawable insetDrawable =
                 DrawableLayoutDirectionHelper.createRelativeInsetDrawable(drawable,
@@ -119,11 +131,12 @@ public class DrawableLayoutDirectionHelperTest extends AndroidTestCase {
 
     private static class ForceRtlView extends View {
 
-        public ForceRtlView(Context context) {
+        ForceRtlView(Context context) {
             super(context);
         }
 
         @Override
+        @SuppressLint("InlinedApi") // Testing with inlined constant is OK here
         public int getLayoutDirection() {
             return View.LAYOUT_DIRECTION_RTL;
         }

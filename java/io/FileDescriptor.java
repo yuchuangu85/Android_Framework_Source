@@ -46,6 +46,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @see     java.io.FileOutputStream
  * @since   JDK1.0
  */
+// Android-changed: Removed parent reference counting. Creator is responsible for closing
+// the file descriptor.
 public final class FileDescriptor {
 
     private int descriptor;
@@ -167,5 +169,28 @@ public final class FileDescriptor {
     }
 
     private static native boolean isSocket(int descriptor);
+    // Set up JavaIOFileDescriptorAccess in SharedSecrets
+    static {
+        sun.misc.SharedSecrets.setJavaIOFileDescriptorAccess(
+                new sun.misc.JavaIOFileDescriptorAccess() {
+                    public void set(FileDescriptor obj, int fd) {
+                        obj.descriptor = fd;
+                    }
+
+                    public int get(FileDescriptor obj) {
+                        return obj.descriptor;
+                    }
+
+                    public void setHandle(FileDescriptor obj, long handle) {
+                        throw new UnsupportedOperationException();
+                    }
+
+                    public long getHandle(FileDescriptor obj) {
+                        throw new UnsupportedOperationException();
+                    }
+                }
+        );
+    }
+
 
 }

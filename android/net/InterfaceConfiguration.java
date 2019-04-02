@@ -80,6 +80,14 @@ public class InterfaceConfiguration implements Parcelable {
         mFlags.add(FLAG_DOWN);
     }
 
+    /**
+     * Set flags so that no changes will be made to the up/down status.
+     */
+    public void ignoreInterfaceUpDownStatus() {
+        mFlags.remove(FLAG_UP);
+        mFlags.remove(FLAG_DOWN);
+    }
+
     public LinkAddress getLinkAddress() {
         return mAddr;
     }
@@ -105,7 +113,7 @@ public class InterfaceConfiguration implements Parcelable {
      */
     public boolean isActive() {
         try {
-            if (hasFlag(FLAG_UP)) {
+            if (isUp()) {
                 for (byte b : mAddr.getAddress().getAddress()) {
                     if (b != 0) return true;
                 }
@@ -114,6 +122,10 @@ public class InterfaceConfiguration implements Parcelable {
             return false;
         }
         return false;
+    }
+
+    public boolean isUp() {
+        return hasFlag(FLAG_UP);
     }
 
     /** {@inheritDoc} */

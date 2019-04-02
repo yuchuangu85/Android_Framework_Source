@@ -16,6 +16,13 @@
 
 package android.support.v4.app;
 
+import static android.support.v4.app.NotificationCompat.DEFAULT_SOUND;
+import static android.support.v4.app.NotificationCompat.DEFAULT_VIBRATE;
+import static android.support.v4.app.NotificationCompat.FLAG_GROUP_SUMMARY;
+import static android.support.v4.app.NotificationCompat.GROUP_ALERT_ALL;
+import static android.support.v4.app.NotificationCompat.GROUP_ALERT_CHILDREN;
+import static android.support.v4.app.NotificationCompat.GROUP_ALERT_SUMMARY;
+
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.RemoteInput;
@@ -23,31 +30,19 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
+import android.support.annotation.RequiresApi;
 import android.widget.RemoteViews;
 
 import java.util.ArrayList;
 import java.util.List;
 
+@RequiresApi(24)
 class NotificationCompatApi24 {
-
-    public static final String CATEGORY_CALL = Notification.CATEGORY_CALL;
-    public static final String CATEGORY_MESSAGE = Notification.CATEGORY_MESSAGE;
-    public static final String CATEGORY_EMAIL = Notification.CATEGORY_EMAIL;
-    public static final String CATEGORY_EVENT = Notification.CATEGORY_EVENT;
-    public static final String CATEGORY_PROMO = Notification.CATEGORY_PROMO;
-    public static final String CATEGORY_ALARM = Notification.CATEGORY_ALARM;
-    public static final String CATEGORY_PROGRESS = Notification.CATEGORY_PROGRESS;
-    public static final String CATEGORY_SOCIAL = Notification.CATEGORY_SOCIAL;
-    public static final String CATEGORY_ERROR = Notification.CATEGORY_ERROR;
-    public static final String CATEGORY_TRANSPORT = Notification.CATEGORY_TRANSPORT;
-    public static final String CATEGORY_SYSTEM = Notification.CATEGORY_SYSTEM;
-    public static final String CATEGORY_SERVICE = Notification.CATEGORY_SERVICE;
-    public static final String CATEGORY_RECOMMENDATION = Notification.CATEGORY_RECOMMENDATION;
-    public static final String CATEGORY_STATUS = Notification.CATEGORY_STATUS;
 
     public static class Builder implements NotificationBuilderWithBuilderAccessor,
             NotificationBuilderWithActions {
         private Notification.Builder b;
+        private int mGroupAlertBehavior;
 
         public Builder(Context context, Notification n,
                 CharSequence contentTitle, CharSequence contentText, CharSequence contentInfo,
@@ -58,7 +53,8 @@ class NotificationCompatApi24 {
                 String category, ArrayList<String> people, Bundle extras, int color,
                 int visibility, Notification publicVersion, String groupKey, boolean groupSummary,
                 String sortKey, CharSequence[] remoteInputHistory, RemoteViews contentView,
-                RemoteViews bigContentView, RemoteViews headsUpContentView) {
+                RemoteViews bigContentView, RemoteViews headsUpContentView,
+                int groupAlertBehavior) {
             b = new Notification.Builder(context)
                     .setWhen(n.when)
                     .setShowWhen(showWhen)
@@ -107,29 +103,13 @@ class NotificationCompatApi24 {
             for (String person: people) {
                 b.addPerson(person);
             }
+
+            mGroupAlertBehavior = groupAlertBehavior;
         }
 
         @Override
         public void addAction(NotificationCompatBase.Action action) {
-            Notification.Action.Builder actionBuilder = new Notification.Action.Builder(
-                    action.getIcon(), action.getTitle(), action.getActionIntent());
-            if (action.getRemoteInputs() != null) {
-                for (RemoteInput remoteInput : RemoteInputCompatApi20.fromCompat(
-                        action.getRemoteInputs())) {
-                    actionBuilder.addRemoteInput(remoteInput);
-                }
-            }
-            Bundle actionExtras;
-            if (action.getExtras() != null) {
-                actionExtras = new Bundle(action.getExtras());
-            } else {
-                actionExtras = new Bundle();
-            }
-            actionExtras.putBoolean(NotificationCompatJellybean.EXTRA_ALLOW_GENERATED_REPLIES,
-                    action.getAllowGeneratedReplies());
-            actionBuilder.addExtras(actionExtras);
-            actionBuilder.setAllowGeneratedReplies(action.getAllowGeneratedReplies());
-            b.addAction(actionBuilder.build());
+            NotificationCompatApi24.addAction(b, action);
         }
 
         @Override
@@ -139,7 +119,31 @@ class NotificationCompatApi24 {
 
         @Override
         public Notification build() {
-            return b.build();
+            Notification notification =  b.build();
+
+            if (mGroupAlertBehavior != GROUP_ALERT_ALL) {
+                // if is summary and only children should alert
+                if (notification.getGroup() != null
+                        && (notification.flags & FLAG_GROUP_SUMMARY) != 0
+                        && mGroupAlertBehavior == GROUP_ALERT_CHILDREN) {
+                    removeSoundAndVibration(notification);
+                }
+                // if is group child and only summary should alert
+                if (notification.getGroup() != null
+                        && (notification.flags & FLAG_GROUP_SUMMARY) == 0
+                        && mGroupAlertBehavior == GROUP_ALERT_SUMMARY) {
+                    removeSoundAndVibration(notification);
+                }
+            }
+
+            return notification;
+        }
+
+        private void removeSoundAndVibration(Notification notification) {
+            notification.sound = null;
+            notification.vibrate = null;
+            notification.defaults &= ~DEFAULT_SOUND;
+            notification.defaults &= ~DEFAULT_VIBRATE;
         }
     }
 
@@ -158,5 +162,27 @@ class NotificationCompatApi24 {
             style.addMessage(message);
         }
         style.setBuilder(b.getBuilder());
+    }
+
+    public static void addAction(Notification.Builder b, NotificationCompatBase.Action action) {
+        Notification.Action.Builder actionBuilder = new Notification.Action.Builder(
+                action.getIcon(), action.getTitle(), action.getActionIntent());
+        if (action.getRemoteInputs() != null) {
+            for (RemoteInput remoteInput : RemoteInputCompatApi20.fromCompat(
+                    action.getRemoteInputs())) {
+                actionBuilder.addRemoteInput(remoteInput);
+            }
+        }
+        Bundle actionExtras;
+        if (action.getExtras() != null) {
+            actionExtras = new Bundle(action.getExtras());
+        } else {
+            actionExtras = new Bundle();
+        }
+        actionExtras.putBoolean(NotificationCompatJellybean.EXTRA_ALLOW_GENERATED_REPLIES,
+                action.getAllowGeneratedReplies());
+        actionBuilder.addExtras(actionExtras);
+        actionBuilder.setAllowGeneratedReplies(action.getAllowGeneratedReplies());
+        b.addAction(actionBuilder.build());
     }
 }

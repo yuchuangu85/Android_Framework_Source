@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2002, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -59,6 +59,8 @@ public final class StringCharacterIterator implements CharacterIterator
 
     /**
      * Constructs an iterator with an initial index of 0.
+     *
+     * @param text the {@code String} to be iterated over
      */
     public StringCharacterIterator(String text)
     {
@@ -272,7 +274,7 @@ public final class StringCharacterIterator implements CharacterIterator
             return other;
         }
         catch (CloneNotSupportedException e) {
-            throw new InternalError();
+            throw new InternalError(e);
         }
     }
 

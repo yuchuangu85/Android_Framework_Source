@@ -27,7 +27,6 @@ import android.os.Environment;
 import android.os.Process;
 import android.text.TextUtils;
 
-import android.util.LocalLog;
 import android.util.Log;
 
 import com.android.server.net.DelayedDiskWrite;
@@ -110,17 +109,15 @@ public class WifiNetworkHistory {
 
     protected final DelayedDiskWrite mWriter;
     Context mContext;
-    private final LocalLog mLocalLog;
     /*
      * Lost config list, whenever we read a config from networkHistory.txt that was not in
      * wpa_supplicant.conf
      */
     HashSet<String> mLostConfigsDbg = new HashSet<String>();
 
-    public WifiNetworkHistory(Context c, LocalLog localLog, DelayedDiskWrite writer) {
+    public WifiNetworkHistory(Context c, DelayedDiskWrite writer) {
         mContext = c;
         mWriter = writer;
-        mLocalLog = localLog;
     }
 
     /**
@@ -323,9 +320,8 @@ public class WifiNetworkHistory {
      *         information read from wpa_supplicant.conf
      */
     public void readNetworkHistory(Map<String, WifiConfiguration> configs,
-            ConcurrentHashMap<Integer, ScanDetailCache> scanDetailCaches,
+            Map<Integer, ScanDetailCache> scanDetailCaches,
             Set<String> deletedEphemeralSSIDs) {
-        localLog("readNetworkHistory() path:" + NETWORK_HISTORY_CONFIG_FILE);
 
         try (DataInputStream in =
                      new DataInputStream(new BufferedInputStream(
@@ -360,7 +356,7 @@ public class WifiNetworkHistory {
                     // skip reading that configuration data
                     // since we don't have a corresponding network ID
                     if (config == null) {
-                        localLog("readNetworkHistory didnt find netid for hash="
+                        Log.e(TAG, "readNetworkHistory didnt find netid for hash="
                                 + Integer.toString(value.hashCode())
                                 + " key: " + value);
                         mLostConfigsDbg.add(value);
@@ -622,18 +618,15 @@ public class WifiNetworkHistory {
         }
     }
 
-    private void localLog(String s) {
-        if (mLocalLog != null) {
-            mLocalLog.log(s);
-        }
-    }
-
     private ScanDetailCache getScanDetailCache(WifiConfiguration config,
-            ConcurrentHashMap<Integer, ScanDetailCache> scanDetailCaches) {
+            Map<Integer, ScanDetailCache> scanDetailCaches) {
         if (config == null || scanDetailCaches == null) return null;
         ScanDetailCache cache = scanDetailCaches.get(config.networkId);
         if (cache == null && config.networkId != WifiConfiguration.INVALID_NETWORK_ID) {
-            cache = new ScanDetailCache(config);
+            cache =
+                    new ScanDetailCache(
+                            config, WifiConfigManager.SCAN_CACHE_ENTRIES_MAX_SIZE,
+                            WifiConfigManager.SCAN_CACHE_ENTRIES_TRIM_SIZE);
             scanDetailCaches.put(config.networkId, cache);
         }
         return cache;

@@ -25,7 +25,6 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.View.OnAttachStateChangeListener;
 import android.view.View.OnKeyListener;
 import android.view.ViewTreeObserver;
 import android.view.ViewTreeObserver.OnGlobalLayoutListener;
@@ -70,6 +69,22 @@ final class StandardMenuPopup extends MenuPopup implements OnDismissListener, On
                     mPopup.show();
                 }
             }
+        }
+    };
+
+    private final View.OnAttachStateChangeListener mAttachStateChangeListener =
+            new View.OnAttachStateChangeListener() {
+        @Override
+        public void onViewAttachedToWindow(View v) {
+        }
+
+        @Override
+        public void onViewDetachedFromWindow(View v) {
+            if (mTreeObserver != null) {
+                if (!mTreeObserver.isAlive()) mTreeObserver = v.getViewTreeObserver();
+                mTreeObserver.removeGlobalOnLayoutListener(mGlobalLayoutListener);
+            }
+            v.removeOnAttachStateChangeListener(this);
         }
     };
 
@@ -146,6 +161,7 @@ final class StandardMenuPopup extends MenuPopup implements OnDismissListener, On
         if (addGlobalListener) {
             mTreeObserver.addOnGlobalLayoutListener(mGlobalLayoutListener);
         }
+        anchor.addOnAttachStateChangeListener(mAttachStateChangeListener);
         mPopup.setAnchorView(anchor);
         mPopup.setDropDownGravity(mDropDownGravity);
 
@@ -216,6 +232,8 @@ final class StandardMenuPopup extends MenuPopup implements OnDismissListener, On
             mTreeObserver.removeGlobalOnLayoutListener(mGlobalLayoutListener);
             mTreeObserver = null;
         }
+        mShownAnchorView.removeOnAttachStateChangeListener(mAttachStateChangeListener);
+
         if (mOnDismissListener != null) {
             mOnDismissListener.onDismiss();
         }
@@ -242,6 +260,7 @@ final class StandardMenuPopup extends MenuPopup implements OnDismissListener, On
                     mShownAnchorView, mOverflowOnly, mPopupStyleAttr, mPopupStyleRes);
             subPopup.setPresenterCallback(mPresenterCallback);
             subPopup.setForceShowIcon(MenuPopup.shouldPreserveIconSpacing(subMenu));
+            subPopup.setGravity(mDropDownGravity);
 
             // Pass responsibility for handling onDismiss to the submenu.
             subPopup.setOnDismissListener(mOnDismissListener);

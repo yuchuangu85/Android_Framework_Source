@@ -29,11 +29,15 @@ import android.util.Log;
 import android.util.Slog;
 import android.util.TypedValue;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.GridLayout;
 import android.widget.TextClock;
 import android.widget.TextView;
 
+import com.android.internal.util.ArrayUtils;
 import com.android.internal.widget.LockPatternUtils;
+import com.android.systemui.ChargingView;
+import com.android.systemui.statusbar.policy.DateView;
 
 import java.util.Locale;
 
@@ -45,9 +49,15 @@ public class KeyguardStatusView extends GridLayout {
     private final AlarmManager mAlarmManager;
 
     private TextView mAlarmStatusView;
-    private TextClock mDateView;
+    private DateView mDateView;
     private TextClock mClockView;
     private TextView mOwnerInfo;
+    private ViewGroup mClockContainer;
+    private ChargingView mBatteryDoze;
+
+    private View[] mVisibleInDoze;
+    private boolean mPulsing;
+    private boolean mDark;
 
     private KeyguardUpdateMonitorCallback mInfoCallback = new KeyguardUpdateMonitorCallback() {
 
@@ -105,12 +115,15 @@ public class KeyguardStatusView extends GridLayout {
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
-        mAlarmStatusView = (TextView) findViewById(R.id.alarm_status);
-        mDateView = (TextClock) findViewById(R.id.date_view);
-        mClockView = (TextClock) findViewById(R.id.clock_view);
-        mDateView.setShowCurrentUserTime(true);
+        mClockContainer = findViewById(R.id.keyguard_clock_container);
+        mAlarmStatusView = findViewById(R.id.alarm_status);
+        mDateView = findViewById(R.id.date_view);
+        mClockView = findViewById(R.id.clock_view);
         mClockView.setShowCurrentUserTime(true);
-        mOwnerInfo = (TextView) findViewById(R.id.owner_info);
+        mClockView.setAccessibilityDelegate(new KeyguardClockAccessibilityDelegate(mContext));
+        mOwnerInfo = findViewById(R.id.owner_info);
+        mBatteryDoze = findViewById(R.id.battery_doze);
+        mVisibleInDoze = new View[]{mBatteryDoze, mClockView};
 
         boolean shouldMarquee = KeyguardUpdateMonitor.getInstance(mContext).isDeviceInteractive();
         setEnableMarquee(shouldMarquee);
@@ -134,13 +147,14 @@ public class KeyguardStatusView extends GridLayout {
         mClockView.setLayoutParams(layoutParams);
         mDateView.setTextSize(TypedValue.COMPLEX_UNIT_PX,
                 getResources().getDimensionPixelSize(R.dimen.widget_label_font_size));
-        mOwnerInfo.setTextSize(TypedValue.COMPLEX_UNIT_PX,
-                getResources().getDimensionPixelSize(R.dimen.widget_label_font_size));
+        if (mOwnerInfo != null) {
+            mOwnerInfo.setTextSize(TypedValue.COMPLEX_UNIT_PX,
+                    getResources().getDimensionPixelSize(R.dimen.widget_label_font_size));
+        }
     }
 
     public void refreshTime() {
-        mDateView.setFormat24Hour(Patterns.dateView);
-        mDateView.setFormat12Hour(Patterns.dateView);
+        mDateView.setDatePattern(Patterns.dateViewSkel);
 
         mClockView.setFormat12Hour(Patterns.clockView12);
         mClockView.setFormat24Hour(Patterns.clockView24);
@@ -165,6 +179,11 @@ public class KeyguardStatusView extends GridLayout {
         } else {
             mAlarmStatusView.setVisibility(View.GONE);
         }
+    }
+
+    public int getClockBottom() {
+        return mClockView.getBottom() +
+                ((MarginLayoutParams) mClockView.getLayoutParams()).bottomMargin;
     }
 
     public static String formatNextAlarm(Context context, AlarmManager.AlarmClockInfo info) {
@@ -226,7 +245,7 @@ public class KeyguardStatusView extends GridLayout {
     // DateFormat.getBestDateTimePattern is extremely expensive, and refresh is called often.
     // This is an optimization to ensure we only recompute the patterns when the inputs change.
     private static final class Patterns {
-        static String dateView;
+        static String dateViewSkel;
         static String clockView12;
         static String clockView24;
         static String cacheKey;
@@ -234,15 +253,13 @@ public class KeyguardStatusView extends GridLayout {
         static void update(Context context, boolean hasAlarm) {
             final Locale locale = Locale.getDefault();
             final Resources res = context.getResources();
-            final String dateViewSkel = res.getString(hasAlarm
+            dateViewSkel = res.getString(hasAlarm
                     ? R.string.abbrev_wday_month_day_no_year_alarm
                     : R.string.abbrev_wday_month_day_no_year);
             final String clockView12Skel = res.getString(R.string.clock_12hr_format);
             final String clockView24Skel = res.getString(R.string.clock_24hr_format);
             final String key = locale.toString() + dateViewSkel + clockView12Skel + clockView24Skel;
             if (key.equals(cacheKey)) return;
-
-            dateView = DateFormat.getBestDateTimePattern(locale, dateViewSkel);
 
             clockView12 = DateFormat.getBestDateTimePattern(locale, clockView12Skel);
             // CLDR insists on adding an AM/PM indicator even though it wasn't in the skeleton
@@ -258,6 +275,35 @@ public class KeyguardStatusView extends GridLayout {
             clockView12 = clockView12.replace(':', '\uee01');
 
             cacheKey = key;
+        }
+    }
+
+    public void setDark(boolean dark) {
+        if (mDark == dark) {
+            return;
+        }
+        mDark = dark;
+
+        final int N = mClockContainer.getChildCount();
+        for (int i = 0; i < N; i++) {
+            View child = mClockContainer.getChildAt(i);
+            if (ArrayUtils.contains(mVisibleInDoze, child)) {
+                continue;
+            }
+            child.setAlpha(dark ? 0 : 1);
+        }
+        updateDozeVisibleViews();
+        mBatteryDoze.setDark(dark);
+    }
+
+    public void setPulsing(boolean pulsing) {
+        mPulsing = pulsing;
+        updateDozeVisibleViews();
+    }
+
+    private void updateDozeVisibleViews() {
+        for (View child : mVisibleInDoze) {
+            child.setAlpha(mDark && mPulsing ? 0.8f : 1);
         }
     }
 }

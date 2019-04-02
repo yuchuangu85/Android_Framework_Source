@@ -104,6 +104,8 @@ import android.os.SystemClock;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.provider.Settings.Global;
+import android.service.NetworkInterfaceProto;
+import android.service.NetworkStatsServiceDumpProto;
 import android.telephony.TelephonyManager;
 import android.text.format.DateUtils;
 import android.util.ArrayMap;
@@ -115,10 +117,12 @@ import android.util.NtpTrustedTime;
 import android.util.Slog;
 import android.util.SparseIntArray;
 import android.util.TrustedTime;
+import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.net.VpnInfo;
 import com.android.internal.util.ArrayUtils;
+import com.android.internal.util.DumpUtils;
 import com.android.internal.util.FileRotator;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.EventLogTags;
@@ -381,6 +385,7 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
         mContext.unregisterReceiver(mTetherReceiver);
         mContext.unregisterReceiver(mPollReceiver);
         mContext.unregisterReceiver(mRemovedReceiver);
+        mContext.unregisterReceiver(mUserReceiver);
         mContext.unregisterReceiver(mShutdownReceiver);
 
         final long currentTime = mTime.hasCache() ? mTime.currentTimeMillis()
@@ -553,15 +558,21 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
             @Override
             public NetworkStats getSummaryForAllUid(
                     NetworkTemplate template, long start, long end, boolean includeTags) {
-                @NetworkStatsAccess.Level int accessLevel = checkAccessLevel(mCallingPackage);
-                final NetworkStats stats =
-                        getUidComplete().getSummary(template, start, end, accessLevel);
-                if (includeTags) {
-                    final NetworkStats tagStats = getUidTagComplete()
-                            .getSummary(template, start, end, accessLevel);
-                    stats.combineAllValues(tagStats);
+                try {
+                    @NetworkStatsAccess.Level int accessLevel = checkAccessLevel(mCallingPackage);
+                    final NetworkStats stats =
+                            getUidComplete().getSummary(template, start, end, accessLevel);
+                    if (includeTags) {
+                        final NetworkStats tagStats = getUidTagComplete()
+                                .getSummary(template, start, end, accessLevel);
+                        stats.combineAllValues(tagStats);
+                    }
+                    return stats;
+                } catch (NullPointerException e) {
+                    // TODO: Track down and fix the cause of this crash and remove this catch block.
+                    Slog.wtf(TAG, "NullPointerException in getSummaryForAllUid", e);
+                    throw e;
                 }
-                return stats;
             }
 
             @Override
@@ -1212,7 +1223,8 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
         // Build list of UIDs that we should clean up
         int[] uids = new int[0];
         final List<ApplicationInfo> apps = mContext.getPackageManager().getInstalledApplications(
-                PackageManager.GET_UNINSTALLED_PACKAGES | PackageManager.GET_DISABLED_COMPONENTS);
+                PackageManager.MATCH_ANY_USER
+                | PackageManager.MATCH_DISABLED_COMPONENTS);
         for (ApplicationInfo app : apps) {
             final int uid = UserHandle.getUid(userId, app.uid);
             uids = ArrayUtils.appendInt(uids, uid);
@@ -1223,7 +1235,7 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
 
     @Override
     protected void dump(FileDescriptor fd, PrintWriter rawWriter, String[] args) {
-        mContext.enforceCallingOrSelfPermission(DUMP, TAG);
+        if (!DumpUtils.checkDumpPermission(mContext, TAG, rawWriter)) return;
 
         long duration = DateUtils.DAY_IN_MILLIS;
         final HashSet<String> argSet = new HashSet<String>();
@@ -1248,6 +1260,12 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
         final IndentingPrintWriter pw = new IndentingPrintWriter(rawWriter, "  ");
 
         synchronized (mStatsLock) {
+            if (args.length > 0 && "--proto".equals(args[0])) {
+                // In this case ignore all other arguments.
+                dumpProto(fd);
+                return;
+            }
+
             if (poll) {
                 performPollLocked(FLAG_PERSIST_ALL | FLAG_PERSIST_FORCE);
                 pw.println("Forced poll");
@@ -1317,6 +1335,33 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
                 mUidTagRecorder.dumpLocked(pw, fullHistory);
                 pw.decreaseIndent();
             }
+        }
+    }
+
+    private void dumpProto(FileDescriptor fd) {
+        final ProtoOutputStream proto = new ProtoOutputStream(fd);
+
+        // TODO Right now it writes all history.  Should it limit to the "since-boot" log?
+
+        dumpInterfaces(proto, NetworkStatsServiceDumpProto.ACTIVE_INTERFACES, mActiveIfaces);
+        dumpInterfaces(proto, NetworkStatsServiceDumpProto.ACTIVE_UID_INTERFACES, mActiveUidIfaces);
+        mDevRecorder.writeToProtoLocked(proto, NetworkStatsServiceDumpProto.DEV_STATS);
+        mXtRecorder.writeToProtoLocked(proto, NetworkStatsServiceDumpProto.XT_STATS);
+        mUidRecorder.writeToProtoLocked(proto, NetworkStatsServiceDumpProto.UID_STATS);
+        mUidTagRecorder.writeToProtoLocked(proto, NetworkStatsServiceDumpProto.UID_TAG_STATS);
+
+        proto.flush();
+    }
+
+    private static void dumpInterfaces(ProtoOutputStream proto, long tag,
+            ArrayMap<String, NetworkIdentitySet> ifaces) {
+        for (int i = 0; i < ifaces.size(); i++) {
+            final long start = proto.start(tag);
+
+            proto.write(NetworkInterfaceProto.INTERFACE, ifaces.keyAt(i));
+            ifaces.valueAt(i).writeToProto(proto, NetworkInterfaceProto.IDENTITIES);
+
+            proto.end(start);
         }
     }
 

@@ -1,7 +1,10 @@
 package android.net.wifi;
 
 import android.annotation.NonNull;
+import android.annotation.RequiresPermission;
+import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
+import android.annotation.SystemService;
 import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
@@ -20,6 +23,7 @@ import com.android.internal.util.Protocol;
 
 /** @hide */
 @SystemApi
+@SystemService(Context.WIFI_RTT_SERVICE)
 public class RttManager {
 
     private static final boolean DBG = false;
@@ -167,6 +171,7 @@ public class RttManager {
 
     /** @deprecated Use the new {@link android.net.wifi.RttManager#getRttCapabilities()} API.*/
     @Deprecated
+    @SuppressLint("Doclava125")
     public Capabilities getCapabilities() {
         return new Capabilities();
     }
@@ -472,6 +477,34 @@ public class RttManager {
             preamble = PREAMBLE_HT;
             bandwidth = RTT_BW_20_SUPPORT;
         }
+
+        /**
+         * {@hide}
+         */
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("deviceType=" + deviceType);
+            sb.append(", requestType=" + requestType);
+            sb.append(", secure=" + secure);
+            sb.append(", bssid=" + bssid);
+            sb.append(", frequency=" + frequency);
+            sb.append(", channelWidth=" + channelWidth);
+            sb.append(", centerFreq0=" + centerFreq0);
+            sb.append(", centerFreq1=" + centerFreq1);
+            sb.append(", num_samples=" + num_samples);
+            sb.append(", num_retries=" + num_retries);
+            sb.append(", numberBurst=" + numberBurst);
+            sb.append(", interval=" + interval);
+            sb.append(", numSamplesPerBurst=" + numSamplesPerBurst);
+            sb.append(", numRetriesPerMeasurementFrame=" + numRetriesPerMeasurementFrame);
+            sb.append(", numRetriesPerFTMR=" + numRetriesPerFTMR);
+            sb.append(", LCIRequest=" + LCIRequest);
+            sb.append(", LCRRequest=" + LCRRequest);
+            sb.append(", burstTimeout=" + burstTimeout);
+            sb.append(", preamble=" + preamble);
+            sb.append(", bandwidth=" + bandwidth);
+            return sb.toString();
+        }
     }
 
     /** pseudo-private class used to parcel arguments */
@@ -632,10 +665,10 @@ public class RttManager {
         @Deprecated
         public int tx_rate;
 
-        /** average transmit rate. Unit (100kbps). */
+        /** average transmit rate. Unit (kbps). */
         public int txRate;
 
-        /** average receiving rate Unit (100kbps). */
+        /** average receiving rate Unit (kbps). */
         public int rxRate;
 
        /**
@@ -645,7 +678,7 @@ public class RttManager {
         @Deprecated
         public long rtt_ns;
 
-        /** average round trip time in 0.1 nano second. */
+        /** average round trip time in picoseconds. */
         public long rtt;
 
         /**
@@ -655,7 +688,7 @@ public class RttManager {
         @Deprecated
         public long rtt_sd_ns;
 
-        /** standard deviation of RTT in 0.1 ns. */
+        /** standard deviation of RTT in picoseconds. */
         public long rttStandardDeviation;
 
         /**
@@ -665,7 +698,7 @@ public class RttManager {
         @Deprecated
         public long rtt_spread_ns;
 
-        /** spread (i.e. max - min) RTT in 0.1 ns. */
+        /** spread (i.e. max - min) RTT in picoseconds. */
         public long rttSpread;
 
         /**
@@ -725,6 +758,51 @@ public class RttManager {
 
         public ParcelableRttResults(RttResult[] results) {
             mResults = results;
+        }
+
+        /**
+         * {@hide}
+         */
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < mResults.length; ++i) {
+                sb.append("[" + i + "]: ");
+                sb.append("bssid=" + mResults[i].bssid);
+                sb.append(", burstNumber=" + mResults[i].burstNumber);
+                sb.append(", measurementFrameNumber=" + mResults[i].measurementFrameNumber);
+                sb.append(", successMeasurementFrameNumber="
+                        + mResults[i].successMeasurementFrameNumber);
+                sb.append(", frameNumberPerBurstPeer=" + mResults[i].frameNumberPerBurstPeer);
+                sb.append(", status=" + mResults[i].status);
+                sb.append(", requestType=" + mResults[i].requestType);
+                sb.append(", measurementType=" + mResults[i].measurementType);
+                sb.append(", retryAfterDuration=" + mResults[i].retryAfterDuration);
+                sb.append(", ts=" + mResults[i].ts);
+                sb.append(", rssi=" + mResults[i].rssi);
+                sb.append(", rssi_spread=" + mResults[i].rssi_spread);
+                sb.append(", rssiSpread=" + mResults[i].rssiSpread);
+                sb.append(", tx_rate=" + mResults[i].tx_rate);
+                sb.append(", txRate=" + mResults[i].txRate);
+                sb.append(", rxRate=" + mResults[i].rxRate);
+                sb.append(", rtt_ns=" + mResults[i].rtt_ns);
+                sb.append(", rtt=" + mResults[i].rtt);
+                sb.append(", rtt_sd_ns=" + mResults[i].rtt_sd_ns);
+                sb.append(", rttStandardDeviation=" + mResults[i].rttStandardDeviation);
+                sb.append(", rtt_spread_ns=" + mResults[i].rtt_spread_ns);
+                sb.append(", rttSpread=" + mResults[i].rttSpread);
+                sb.append(", distance_cm=" + mResults[i].distance_cm);
+                sb.append(", distance=" + mResults[i].distance);
+                sb.append(", distance_sd_cm=" + mResults[i].distance_sd_cm);
+                sb.append(", distanceStandardDeviation=" + mResults[i].distanceStandardDeviation);
+                sb.append(", distance_spread_cm=" + mResults[i].distance_spread_cm);
+                sb.append(", distanceSpread=" + mResults[i].distanceSpread);
+                sb.append(", burstDuration=" + mResults[i].burstDuration);
+                sb.append(", negotiatedBurstNum=" + mResults[i].negotiatedBurstNum);
+                sb.append(", LCI=" + mResults[i].LCI);
+                sb.append(", LCR=" + mResults[i].LCR);
+                sb.append(", secure=" + mResults[i].secure);
+            }
+            return sb.toString();
         }
 
         /** Implement the Parcelable interface {@hide} */
@@ -917,7 +995,7 @@ public class RttManager {
      * @exception throw IllegalArgumentException when params are illegal
      *            throw IllegalStateException when RttCapabilities do not exist
      */
-
+    @RequiresPermission(android.Manifest.permission.LOCATION_HARDWARE)
     public void startRanging(RttParams[] params, RttListener listener) {
         int index  = 0;
         for(RttParams rttParam : params) {
@@ -933,6 +1011,7 @@ public class RttManager {
                 0, putListener(listener), parcelableParams);
     }
 
+    @RequiresPermission(android.Manifest.permission.LOCATION_HARDWARE)
     public void stopRanging(RttListener listener) {
         validateChannel();
         mAsyncChannel.sendMessage(CMD_OP_STOP_RANGING, 0, removeListener(listener));
@@ -966,6 +1045,7 @@ public class RttManager {
      * @param callback Callback for responder enabling/disabling result.
      * @throws IllegalArgumentException If {@code callback} is null.
      */
+    @RequiresPermission(android.Manifest.permission.LOCATION_HARDWARE)
     public void enableResponder(ResponderCallback callback) {
         if (callback == null) {
             throw new IllegalArgumentException("callback cannot be null");
@@ -985,6 +1065,7 @@ public class RttManager {
      * @param callback The same callback used for enabling responder.
      * @throws IllegalArgumentException If {@code callback} is null.
      */
+    @RequiresPermission(android.Manifest.permission.LOCATION_HARDWARE)
     public void disableResponder(ResponderCallback callback) {
         if (callback == null) {
             throw new IllegalArgumentException("callback cannot be null");

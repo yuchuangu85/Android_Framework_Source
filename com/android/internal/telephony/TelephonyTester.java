@@ -22,6 +22,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.BadParcelableException;
 import android.os.Build;
 import android.preference.PreferenceManager;
 import android.telephony.Rlog;
@@ -92,24 +93,29 @@ public class TelephonyTester {
             @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
-            if (DBG) log("sIntentReceiver.onReceive: action=" + action);
-            if (action.equals(mPhone.getActionDetached())) {
-                log("simulate detaching");
-                mPhone.getServiceStateTracker().mDetachedRegistrants.notifyRegistrants();
-            } else if (action.equals(mPhone.getActionAttached())) {
-                log("simulate attaching");
-                mPhone.getServiceStateTracker().mAttachedRegistrants.notifyRegistrants();
-            } else if (action.equals(ACTION_TEST_CONFERENCE_EVENT_PACKAGE)) {
-                log("inject simulated conference event package");
-                handleTestConferenceEventPackage(context, intent.getStringExtra(EXTRA_FILENAME));
-            } else if (action.equals(ACTION_TEST_DIALOG_EVENT_PACKAGE)) {
-                log("handle test dialog event package intent");
-                handleTestDialogEventPackageIntent(intent);
-            } else if (action.equals(ACTION_TEST_HANDOVER_FAIL)) {
-                log("handle handover fail test intent");
-                handleHandoverFailedIntent();
-            } else {
-                if (DBG) log("onReceive: unknown action=" + action);
+            try {
+                if (DBG) log("sIntentReceiver.onReceive: action=" + action);
+                if (action.equals(mPhone.getActionDetached())) {
+                    log("simulate detaching");
+                    mPhone.getServiceStateTracker().mDetachedRegistrants.notifyRegistrants();
+                } else if (action.equals(mPhone.getActionAttached())) {
+                    log("simulate attaching");
+                    mPhone.getServiceStateTracker().mAttachedRegistrants.notifyRegistrants();
+                } else if (action.equals(ACTION_TEST_CONFERENCE_EVENT_PACKAGE)) {
+                    log("inject simulated conference event package");
+                    handleTestConferenceEventPackage(context,
+                            intent.getStringExtra(EXTRA_FILENAME));
+                } else if (action.equals(ACTION_TEST_DIALOG_EVENT_PACKAGE)) {
+                    log("handle test dialog event package intent");
+                    handleTestDialogEventPackageIntent(intent);
+                } else if (action.equals(ACTION_TEST_HANDOVER_FAIL)) {
+                    log("handle handover fail test intent");
+                    handleHandoverFailedIntent();
+                } else {
+                    if (DBG) log("onReceive: unknown action=" + action);
+                }
+            } catch (BadParcelableException e) {
+                Rlog.w(LOG_TAG, e);
             }
         }
     };

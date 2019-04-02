@@ -19,8 +19,6 @@ package android.support.multidex;
 import android.app.Application;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
-import android.content.pm.PackageManager.NameNotFoundException;
 import android.os.Build;
 import android.util.Log;
 
@@ -157,21 +155,9 @@ public final class MultiDex {
                 }
 
                 File dexDir = getDexDir(context, applicationInfo);
-                List<File> files = MultiDexExtractor.load(context, applicationInfo, dexDir, false);
-                if (checkValidZipFiles(files)) {
-                    installSecondaryDexes(loader, dexDir, files);
-                } else {
-                    Log.w(TAG, "Files were not valid zip files.  Forcing a reload.");
-                    // Try again, but this time force a reload of the zip file.
-                    files = MultiDexExtractor.load(context, applicationInfo, dexDir, true);
-
-                    if (checkValidZipFiles(files)) {
-                        installSecondaryDexes(loader, dexDir, files);
-                    } else {
-                        // Second time didn't work, give up
-                        throw new RuntimeException("Zip files were not valid.");
-                    }
-                }
+                List<? extends File> files =
+                    MultiDexExtractor.load(context, applicationInfo, dexDir, false);
+                installSecondaryDexes(loader, dexDir, files);
             }
 
         } catch (Exception e) {
@@ -181,13 +167,17 @@ public final class MultiDex {
         Log.i(TAG, "install done");
     }
 
-    private static ApplicationInfo getApplicationInfo(Context context)
-            throws NameNotFoundException {
-        PackageManager pm;
-        String packageName;
+    private static ApplicationInfo getApplicationInfo(Context context) {
         try {
-            pm = context.getPackageManager();
-            packageName = context.getPackageName();
+            /* Due to package install races it is possible for a process to be started from an old
+             * apk even though that apk has been replaced. Querying for ApplicationInfo by package
+             * name may return information for the new apk, leading to a runtime with the old main
+             * dex file and new secondary dex files. This leads to various problems like
+             * ClassNotFoundExceptions. Using context.getApplicationInfo() should result in the
+             * process having a consistent view of the world (even if it is of the old world). The
+             * package install races are eventually resolved and old processes are killed.
+             */
+            return context.getApplicationInfo();
         } catch (RuntimeException e) {
             /* Ignore those exceptions so that we don't break tests relying on Context like
              * a android.test.mock.MockContext or a android.content.ContextWrapper with a null
@@ -197,13 +187,6 @@ public final class MultiDex {
                     "Must be running in test mode. Skip patching.", e);
             return null;
         }
-        if (pm == null || packageName == null) {
-            // This is most likely a mock context, so just return without patching.
-            return null;
-        }
-        ApplicationInfo applicationInfo =
-                pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA);
-        return applicationInfo;
     }
 
     /**
@@ -235,7 +218,8 @@ public final class MultiDex {
         return isMultidexCapable;
     }
 
-    private static void installSecondaryDexes(ClassLoader loader, File dexDir, List<File> files)
+    private static void installSecondaryDexes(ClassLoader loader, File dexDir,
+        List<? extends File> files)
             throws IllegalArgumentException, IllegalAccessException, NoSuchFieldException,
             InvocationTargetException, NoSuchMethodException, IOException {
         if (!files.isEmpty()) {
@@ -247,19 +231,6 @@ public final class MultiDex {
                 V4.install(loader, files);
             }
         }
-    }
-
-    /**
-     * Returns whether all files in the list are valid zip files.  If {@code files} is empty, then
-     * returns true.
-     */
-    private static boolean checkValidZipFiles(List<File> files) {
-        for (File file : files) {
-            if (!MultiDexExtractor.verifyZipFile(file)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /**
@@ -405,7 +376,8 @@ public final class MultiDex {
      */
     private static final class V19 {
 
-        private static void install(ClassLoader loader, List<File> additionalClassPathEntries,
+        private static void install(ClassLoader loader,
+                List<? extends File> additionalClassPathEntries,
                 File optimizedDirectory)
                         throws IllegalArgumentException, IllegalAccessException,
                         NoSuchFieldException, InvocationTargetException, NoSuchMethodException {
@@ -470,7 +442,8 @@ public final class MultiDex {
      */
     private static final class V14 {
 
-        private static void install(ClassLoader loader, List<File> additionalClassPathEntries,
+        private static void install(ClassLoader loader,
+                List<? extends File> additionalClassPathEntries,
                 File optimizedDirectory)
                         throws IllegalArgumentException, IllegalAccessException,
                         NoSuchFieldException, InvocationTargetException, NoSuchMethodException {
@@ -504,7 +477,8 @@ public final class MultiDex {
      * Installer for platform versions 4 to 13.
      */
     private static final class V4 {
-        private static void install(ClassLoader loader, List<File> additionalClassPathEntries)
+        private static void install(ClassLoader loader,
+                List<? extends File> additionalClassPathEntries)
                         throws IllegalArgumentException, IllegalAccessException,
                         NoSuchFieldException, IOException {
             /* The patched class loader is expected to be a descendant of
@@ -521,7 +495,7 @@ public final class MultiDex {
             File[] extraFiles = new File[extraSize];
             ZipFile[] extraZips = new ZipFile[extraSize];
             DexFile[] extraDexs = new DexFile[extraSize];
-            for (ListIterator<File> iterator = additionalClassPathEntries.listIterator();
+            for (ListIterator<? extends File> iterator = additionalClassPathEntries.listIterator();
                     iterator.hasNext();) {
                 File additionalEntry = iterator.next();
                 String entryPath = additionalEntry.getAbsolutePath();

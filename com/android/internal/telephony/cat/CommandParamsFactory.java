@@ -230,7 +230,9 @@ class CommandParamsFactory extends Handler {
     public void handleMessage(Message msg) {
         switch (msg.what) {
         case MSG_ID_LOAD_ICON_DONE:
-            sendCmdParams(setIcons(msg.obj));
+            if (mIconLoader != null) {
+                sendCmdParams(setIcons(msg.obj));
+            }
             break;
         }
     }
@@ -454,6 +456,7 @@ class CommandParamsFactory extends Handler {
         ctlv = searchForTag(ComprehensionTlvTag.ICON_ID, ctlvs);
         if (ctlv != null) {
             iconId = ValueParser.retrieveIconId(ctlv);
+            input.iconSelfExplanatory = iconId.selfExplanatory;
         }
 
         // parse duration
@@ -531,6 +534,7 @@ class CommandParamsFactory extends Handler {
         ctlv = searchForTag(ComprehensionTlvTag.ICON_ID, ctlvs);
         if (ctlv != null) {
             iconId = ValueParser.retrieveIconId(ctlv);
+            input.iconSelfExplanatory = iconId.selfExplanatory;
         }
 
         input.digitOnly = (cmdDet.commandQualifier & 0x01) == 0;

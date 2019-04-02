@@ -16,15 +16,9 @@ import java.util.Set;
 
 public class ConfigurationMap {
     private final Map<Integer, WifiConfiguration> mPerID = new HashMap<>();
-    private final Map<Integer, WifiConfiguration> mPerConfigKey = new HashMap<>();
 
     private final Map<Integer, WifiConfiguration> mPerIDForCurrentUser = new HashMap<>();
     private final Map<String, WifiConfiguration> mPerFQDNForCurrentUser = new HashMap<>();
-    /**
-     * List of all hidden networks in the current user's configuration.
-     * Use this list as a param for directed scanning .
-     */
-    private final Set<Integer> mHiddenNetworkIdsForCurrentUser = new HashSet<>();
 
     private final UserManager mUserManager;
 
@@ -37,15 +31,11 @@ public class ConfigurationMap {
     // RW methods:
     public WifiConfiguration put(WifiConfiguration config) {
         final WifiConfiguration current = mPerID.put(config.networkId, config);
-        mPerConfigKey.put(config.configKey().hashCode(), config);   // This is ridiculous...
         if (WifiConfigurationUtil.isVisibleToAnyProfile(config,
                 mUserManager.getProfiles(mCurrentUserId))) {
             mPerIDForCurrentUser.put(config.networkId, config);
             if (config.FQDN != null && config.FQDN.length() > 0) {
                 mPerFQDNForCurrentUser.put(config.FQDN, config);
-            }
-            if (config.hiddenSSID) {
-                mHiddenNetworkIdsForCurrentUser.add(config.networkId);
             }
         }
         return current;
@@ -56,7 +46,6 @@ public class ConfigurationMap {
         if (config == null) {
             return null;
         }
-        mPerConfigKey.remove(config.configKey().hashCode());
 
         mPerIDForCurrentUser.remove(netID);
         Iterator<Map.Entry<String, WifiConfiguration>> entries =
@@ -67,52 +56,22 @@ public class ConfigurationMap {
                 break;
             }
         }
-        mHiddenNetworkIdsForCurrentUser.remove(netID);
         return config;
     }
 
     public void clear() {
         mPerID.clear();
-        mPerConfigKey.clear();
         mPerIDForCurrentUser.clear();
         mPerFQDNForCurrentUser.clear();
-        mHiddenNetworkIdsForCurrentUser.clear();
     }
 
     /**
-     * Handles the switch to a different foreground user:
-     * - Hides private network configurations belonging to the previous foreground user
-     * - Reveals private network configurations belonging to the new foreground user
+     * Sets the new foreground user ID.
      *
      * @param userId the id of the new foreground user
-     * @return a list of {@link WifiConfiguration}s that became hidden because of the user switch
      */
-    public List<WifiConfiguration> handleUserSwitch(int userId) {
-        mPerIDForCurrentUser.clear();
-        mPerFQDNForCurrentUser.clear();
-        mHiddenNetworkIdsForCurrentUser.clear();
-
-        final List<UserInfo> previousUserProfiles = mUserManager.getProfiles(mCurrentUserId);
+    public void setNewUser(int userId) {
         mCurrentUserId = userId;
-        final List<UserInfo> currentUserProfiles = mUserManager.getProfiles(mCurrentUserId);
-
-        final List<WifiConfiguration> hiddenConfigurations = new ArrayList<>();
-        for (Map.Entry<Integer, WifiConfiguration> entry : mPerID.entrySet()) {
-            final WifiConfiguration config = entry.getValue();
-            if (WifiConfigurationUtil.isVisibleToAnyProfile(config, currentUserProfiles)) {
-                mPerIDForCurrentUser.put(entry.getKey(), config);
-                if (config.FQDN != null && config.FQDN.length() > 0) {
-                    mPerFQDNForCurrentUser.put(config.FQDN, config);
-                }
-                if (config.hiddenSSID) {
-                    mHiddenNetworkIdsForCurrentUser.add(config.networkId);
-                }
-            } else if (WifiConfigurationUtil.isVisibleToAnyProfile(config, previousUserProfiles)) {
-                hiddenConfigurations.add(config);
-            }
-        }
-
-        return hiddenConfigurations;
     }
 
     // RO methods:
@@ -148,10 +107,6 @@ public class ConfigurationMap {
         return null;
     }
 
-    public WifiConfiguration getByConfigKeyIDForAllUsers(int id) {
-        return mPerConfigKey.get(id);
-    }
-
     public Collection<WifiConfiguration> getEnabledNetworksForCurrentUser() {
         List<WifiConfiguration> list = new ArrayList<>();
         for (WifiConfiguration config : mPerIDForCurrentUser.values()) {
@@ -177,9 +132,5 @@ public class ConfigurationMap {
 
     public Collection<WifiConfiguration> valuesForCurrentUser() {
         return mPerIDForCurrentUser.values();
-    }
-
-    public Set<Integer> getHiddenNetworkIdsForCurrentUser() {
-        return mHiddenNetworkIdsForCurrentUser;
     }
 }

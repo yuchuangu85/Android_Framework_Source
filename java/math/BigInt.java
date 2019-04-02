@@ -334,11 +334,11 @@ final class BigInt {
 
     static BigInt generatePrimeDefault(int bitLength) {
         BigInt r = newBigInt();
-        NativeBN.BN_generate_prime_ex(r.bignum, bitLength, false, 0, 0, 0);
+        NativeBN.BN_generate_prime_ex(r.bignum, bitLength, false, 0, 0);
         return r;
     }
 
     boolean isPrime(int certainty) {
-        return NativeBN.BN_is_prime_ex(bignum, certainty, 0);
+        return NativeBN.BN_primality_test(bignum, certainty, false);
     }
 }

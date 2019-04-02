@@ -26,12 +26,12 @@ import android.os.RemoteException;
 import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.provider.Settings;
 import android.service.persistentdata.IPersistentDataBlockService;
 import android.service.persistentdata.PersistentDataBlockManager;
 import android.util.Slog;
 
 import com.android.internal.R;
+import com.android.internal.annotations.GuardedBy;
 
 import libcore.io.IoUtils;
 
@@ -47,21 +47,22 @@ import java.nio.channels.FileChannel;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Service for reading and writing blocks to a persistent partition.
  * This data will live across factory resets not initiated via the Settings UI.
  * When a device is factory reset through Settings this data is wiped.
  *
- * Allows writing one block at a time. Namely, each time
- * {@link android.service.persistentdata.IPersistentDataBlockService}.write(byte[] data)
- * is called, it will overwite the data that was previously written on the block.
+ * Allows writing one block at a time. Namely, each time {@link IPersistentDataBlockService#write}
+ * is called, it will overwrite the data that was previously written on the block.
  *
  * Clients can query the size of the currently written block via
- * {@link android.service.persistentdata.IPersistentDataBlockService}.getTotalDataSize().
+ * {@link IPersistentDataBlockService#getDataBlockSize}
  *
- * Clients can any number of bytes from the currently written block up to its total size by invoking
- * {@link android.service.persistentdata.IPersistentDataBlockService}.read(byte[] data)
+ * Clients can read any number of bytes from the currently written block up to its total size by
+ * invoking {@link IPersistentDataBlockService#read}
  */
 public class PersistentDataBlockService extends SystemService {
     private static final String TAG = PersistentDataBlockService.class.getSimpleName();
@@ -81,16 +82,19 @@ public class PersistentDataBlockService extends SystemService {
     private final Context mContext;
     private final String mDataBlockFile;
     private final Object mLock = new Object();
+    private final CountDownLatch mInitDoneSignal = new CountDownLatch(1);
 
     private int mAllowedUid = -1;
     private long mBlockDeviceSize;
+
+    @GuardedBy("mLock")
+    private boolean mIsWritable = true;
 
     public PersistentDataBlockService(Context context) {
         super(context);
         mContext = context;
         mDataBlockFile = SystemProperties.get(PERSISTENT_DATA_BLOCK_PROP);
         mBlockDeviceSize = -1; // Load lazily
-        mAllowedUid = getAllowedUid(UserHandle.USER_SYSTEM);
     }
 
     private int getAllowedUid(int userHandle) {
@@ -110,9 +114,30 @@ public class PersistentDataBlockService extends SystemService {
 
     @Override
     public void onStart() {
-        enforceChecksumValidity();
-        formatIfOemUnlockEnabled();
-        publishBinderService(Context.PERSISTENT_DATA_BLOCK_SERVICE, mService);
+        // Do init on a separate thread, will join in PHASE_ACTIVITY_MANAGER_READY
+        SystemServerInitThreadPool.get().submit(() -> {
+            mAllowedUid = getAllowedUid(UserHandle.USER_SYSTEM);
+            enforceChecksumValidity();
+            formatIfOemUnlockEnabled();
+            publishBinderService(Context.PERSISTENT_DATA_BLOCK_SERVICE, mService);
+            mInitDoneSignal.countDown();
+        }, TAG + ".onStart");
+    }
+
+    @Override
+    public void onBootPhase(int phase) {
+        // Wait for initialization in onStart to finish
+        if (phase == PHASE_SYSTEM_SERVICES_READY) {
+            try {
+                if (!mInitDoneSignal.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Service " + TAG + " init timeout");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Service " + TAG + " init interrupted", e);
+            }
+        }
+        super.onBootPhase(phase);
     }
 
     private void formatIfOemUnlockEnabled() {
@@ -377,6 +402,11 @@ public class PersistentDataBlockService extends SystemService {
             headerAndData.put(data);
 
             synchronized (mLock) {
+                if (!mIsWritable) {
+                    IoUtils.closeQuietly(outputStream);
+                    return -1;
+                }
+
                 try {
                     byte[] checksum = new byte[DIGEST_SIZE_BYTES];
                     outputStream.write(checksum, 0, DIGEST_SIZE_BYTES);
@@ -451,6 +481,9 @@ public class PersistentDataBlockService extends SystemService {
 
                 if (ret < 0) {
                     Slog.e(TAG, "failed to wipe persistent partition");
+                } else {
+                    mIsWritable = false;
+                    Slog.i(TAG, "persistent partition now wiped and unwritable");
                 }
             }
         }

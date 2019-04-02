@@ -15,7 +15,17 @@
  */
 
 package com.android.internal.telephony;
+
+import static android.Manifest.permission.SEND_SMS_NO_CONFIRMATION;
+import static android.telephony.SmsManager.RESULT_ERROR_FDN_CHECK_FAILURE;
+import static android.telephony.SmsManager.RESULT_ERROR_GENERIC_FAILURE;
+import static android.telephony.SmsManager.RESULT_ERROR_LIMIT_EXCEEDED;
+import static android.telephony.SmsManager.RESULT_ERROR_NO_SERVICE;
+import static android.telephony.SmsManager.RESULT_ERROR_NULL_PDU;
+import static android.telephony.SmsManager.RESULT_ERROR_RADIO_OFF;
+
 import android.annotation.Nullable;
+import android.annotation.UserIdInt;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.PendingIntent;
@@ -74,14 +84,6 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static android.Manifest.permission.SEND_SMS_NO_CONFIRMATION;
-import static android.telephony.SmsManager.RESULT_ERROR_FDN_CHECK_FAILURE;
-import static android.telephony.SmsManager.RESULT_ERROR_GENERIC_FAILURE;
-import static android.telephony.SmsManager.RESULT_ERROR_LIMIT_EXCEEDED;
-import static android.telephony.SmsManager.RESULT_ERROR_NO_SERVICE;
-import static android.telephony.SmsManager.RESULT_ERROR_NULL_PDU;
-import static android.telephony.SmsManager.RESULT_ERROR_RADIO_OFF;
 
 public abstract class SMSDispatcher extends Handler {
     static final String TAG = "SMSDispatcher";    // accessed from inner class
@@ -979,7 +981,8 @@ public abstract class SMSDispatcher extends Handler {
         PackageInfo appInfo;
         try {
             // XXX this is lossy- apps can share a UID
-            appInfo = pm.getPackageInfo(packageNames[0], PackageManager.GET_SIGNATURES);
+            appInfo = pm.getPackageInfoAsUser(
+                    packageNames[0], PackageManager.GET_SIGNATURES, tracker.mUserId);
         } catch (PackageManager.NameNotFoundException e) {
             Rlog.e(TAG, "Can't get calling app package info: refusing to send SMS");
             tracker.onFailed(mContext, RESULT_ERROR_GENERIC_FAILURE, 0/*errorCode*/);
@@ -1104,10 +1107,10 @@ public abstract class SMSDispatcher extends Handler {
      * @param appPackage the package name of the app requesting to send an SMS
      * @return the label for the specified app, or the package name if getApplicationInfo() fails
      */
-    private CharSequence getAppLabel(String appPackage) {
+    private CharSequence getAppLabel(String appPackage, @UserIdInt int userId) {
         PackageManager pm = mContext.getPackageManager();
         try {
-            ApplicationInfo appInfo = pm.getApplicationInfo(appPackage, 0);
+            ApplicationInfo appInfo = pm.getApplicationInfoAsUser(appPackage, 0, userId);
             return appInfo.loadSafeLabel(pm);
         } catch (PackageManager.NameNotFoundException e) {
             Rlog.e(TAG, "PackageManager Name Not Found for package " + appPackage);
@@ -1124,7 +1127,7 @@ public abstract class SMSDispatcher extends Handler {
             return;     // queue limit reached; error was returned to caller
         }
 
-        CharSequence appLabel = getAppLabel(tracker.mAppInfo.packageName);
+        CharSequence appLabel = getAppLabel(tracker.mAppInfo.packageName, tracker.mUserId);
         Resources r = Resources.getSystem();
         Spanned messageText = Html.fromHtml(r.getString(R.string.sms_control_message, appLabel));
 
@@ -1160,7 +1163,7 @@ public abstract class SMSDispatcher extends Handler {
             detailsId = R.string.sms_short_code_details;
         }
 
-        CharSequence appLabel = getAppLabel(tracker.mAppInfo.packageName);
+        CharSequence appLabel = getAppLabel(tracker.mAppInfo.packageName, tracker.mUserId);
         Resources r = Resources.getSystem();
         Spanned messageText = Html.fromHtml(r.getString(R.string.sms_short_code_confirm_message,
                 appLabel, tracker.mDestAddress));
@@ -1329,11 +1332,14 @@ public abstract class SMSDispatcher extends Handler {
 
         private boolean mPersistMessage;
 
+        // User who sends the SMS.
+        private final @UserIdInt int mUserId;
+
         private SmsTracker(HashMap<String, Object> data, PendingIntent sentIntent,
                 PendingIntent deliveryIntent, PackageInfo appInfo, String destAddr, String format,
                 AtomicInteger unsentPartCount, AtomicBoolean anyPartFailed, Uri messageUri,
                 SmsHeader smsHeader, boolean isExpectMore, String fullMessageText, int subId,
-                boolean isText, boolean persistMessage) {
+                boolean isText, boolean persistMessage, int userId) {
             mData = data;
             mSentIntent = sentIntent;
             mDeliveryIntent = deliveryIntent;
@@ -1352,6 +1358,7 @@ public abstract class SMSDispatcher extends Handler {
             mSubId = subId;
             mIsText = isText;
             mPersistMessage = persistMessage;
+            mUserId = userId;
         }
 
         /**
@@ -1565,11 +1572,13 @@ public abstract class SMSDispatcher extends Handler {
         String[] packageNames = pm.getPackagesForUid(Binder.getCallingUid());
 
         // Get package info via packagemanager
+        final int userId = UserHandle.getCallingUserId();
         PackageInfo appInfo = null;
         if (packageNames != null && packageNames.length > 0) {
             try {
                 // XXX this is lossy- apps can share a UID
-                appInfo = pm.getPackageInfo(packageNames[0], PackageManager.GET_SIGNATURES);
+                appInfo = pm.getPackageInfoAsUser(
+                        packageNames[0], PackageManager.GET_SIGNATURES, userId);
             } catch (PackageManager.NameNotFoundException e) {
                 // error will be logged in sendRawPdu
             }
@@ -1579,7 +1588,7 @@ public abstract class SMSDispatcher extends Handler {
         String destAddr = PhoneNumberUtils.extractNetworkPortion((String) data.get("destAddr"));
         return new SmsTracker(data, sentIntent, deliveryIntent, appInfo, destAddr, format,
                 unsentPartCount, anyPartFailed, messageUri, smsHeader, isExpectMore,
-                fullMessageText, getSubId(), isText, persistMessage);
+                fullMessageText, getSubId(), isText, persistMessage, userId);
     }
 
     protected SmsTracker getSmsTracker(HashMap<String, Object> data, PendingIntent sentIntent,
@@ -1734,8 +1743,13 @@ public abstract class SMSDispatcher extends Handler {
 
         List<String> carrierPackages = card.getCarrierPackageNamesForIntent(
             mContext.getPackageManager(), new Intent(CarrierMessagingService.SERVICE_INTERFACE));
-        return (carrierPackages != null && carrierPackages.size() == 1) ?
-                carrierPackages.get(0) : null;
+        if (carrierPackages != null && carrierPackages.size() == 1) {
+            return carrierPackages.get(0);
+        }
+        // If there is no carrier package which implements CarrierMessagingService, then lookup if
+        // for a carrierImsPackage that implements CarrierMessagingService.
+        return CarrierSmsUtils.getCarrierImsPackageForIntent(mContext, mPhone,
+                new Intent(CarrierMessagingService.SERVICE_INTERFACE));
     }
 
     protected int getSubId() {

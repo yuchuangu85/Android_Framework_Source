@@ -34,7 +34,6 @@ import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import java.util.stream.StreamSupport;
 
-
 /**
  * A generator of uniform pseudorandom values applicable for use in
  * (among other contexts) isolated parallel computations that may

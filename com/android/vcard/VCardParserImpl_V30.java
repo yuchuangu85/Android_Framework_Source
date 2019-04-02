@@ -60,6 +60,16 @@ import java.util.Set;
     }
 
     @Override
+    protected String peekLine() throws IOException {
+        if (mPreviousLine != null) {
+            String ret = mPreviousLine;
+            return ret;
+        } else {
+            return mReader.peekLine();
+        }
+    }
+
+    @Override
     protected String getLine() throws IOException {
         if (mPreviousLine != null) {
             String ret = mPreviousLine;

@@ -13,39 +13,40 @@
  */
 package android.support.v17.leanback.app;
 
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
 import android.animation.Animator;
 import android.animation.AnimatorInflater;
 import android.animation.TimeInterpolator;
 import android.animation.ValueAnimator;
-import android.support.v17.leanback.widget.Action;
-import android.support.v17.leanback.widget.PlaybackControlsRow;
-import android.view.InputEvent;
-import android.view.animation.AccelerateInterpolator;
 import android.animation.ValueAnimator.AnimatorUpdateListener;
 import android.content.Context;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.support.v7.widget.RecyclerView;
 import android.support.v17.leanback.R;
 import android.support.v17.leanback.animation.LogAccelerateInterpolator;
 import android.support.v17.leanback.animation.LogDecelerateInterpolator;
+import android.support.v17.leanback.media.PlaybackGlueHost;
+import android.support.v17.leanback.widget.ItemAlignmentFacet;
 import android.support.v17.leanback.widget.ItemBridgeAdapter;
 import android.support.v17.leanback.widget.ObjectAdapter;
 import android.support.v17.leanback.widget.ObjectAdapter.DataObserver;
 import android.support.v17.leanback.widget.PlaybackControlsRowPresenter;
+import android.support.v17.leanback.widget.PlaybackRowPresenter;
 import android.support.v17.leanback.widget.Presenter;
 import android.support.v17.leanback.widget.PresenterSelector;
 import android.support.v17.leanback.widget.RowPresenter;
 import android.support.v17.leanback.widget.VerticalGridView;
+import android.support.v7.widget.RecyclerView;
 import android.util.Log;
+import android.view.InputEvent;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.AccelerateInterpolator;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -61,7 +62,12 @@ import java.util.ArrayList;
  * An instance of {@link android.support.v17.leanback.widget.PlaybackControlsRow} is expected to be
  * at position 0 in the adapter.
  * </p>
+ * <p>
+ *  This class is now deprecated, please us
+ * </p>
+ * @deprecated Use {@link PlaybackFragment}.
  */
+@Deprecated
 public class PlaybackOverlayFragment extends DetailsFragment {
 
     /**
@@ -90,19 +96,6 @@ public class PlaybackOverlayFragment extends DetailsFragment {
         }
     }
 
-    /**
-     * Interface allowing the application to handle input events.
-     */
-    public interface InputEventHandler {
-        /**
-         * Called when an {@link InputEvent} is received.
-         *
-         * @return If the event should be consumed, return true. To allow the event to
-         * continue on to the next handler, return false.
-         */
-        public boolean handleInputEvent(InputEvent event);
-    }
-
     static final String TAG = "PlaybackOverlayFragment";
     static final boolean DEBUG = false;
     private static final int ANIMATION_MULTIPLIER = 1;
@@ -114,7 +107,7 @@ public class PlaybackOverlayFragment extends DetailsFragment {
     private static final int IN = 1;
     static final int OUT = 2;
 
-    private int mPaddingTop;
+    private int mOtherRowsCenterToBottom;
     private int mPaddingBottom;
     private View mRootView;
     private int mBackgroundType = BG_DARK;
@@ -124,7 +117,7 @@ public class PlaybackOverlayFragment extends DetailsFragment {
     private int mMajorFadeTranslateY, mMinorFadeTranslateY;
     int mAnimationTranslateY;
     OnFadeCompleteListener mFadeCompleteListener;
-    private InputEventHandler mInputEventHandler;
+    private PlaybackControlGlue.InputEventHandler mInputEventHandler;
     boolean mFadingEnabled = true;
     int mFadingStatus = IDLE;
     int mBgAlpha;
@@ -133,6 +126,7 @@ public class PlaybackOverlayFragment extends DetailsFragment {
     private ValueAnimator mDescriptionFadeInAnimator, mDescriptionFadeOutAnimator;
     private ValueAnimator mOtherRowFadeInAnimator, mOtherRowFadeOutAnimator;
     boolean mResetControlsToPrimaryActionsPending;
+    PlaybackGlueHost.HostCallback mHostCallback;
 
     private final Animator.AnimatorListener mFadeListener =
             new Animator.AnimatorListener() {
@@ -182,7 +176,7 @@ public class PlaybackOverlayFragment extends DetailsFragment {
         }
     }
 
-    final static Handler sHandler = new FadeHandler();
+    static final Handler sHandler = new FadeHandler();
 
     final WeakReference<PlaybackOverlayFragment> mFragmentReference =  new WeakReference(this);
 
@@ -273,9 +267,14 @@ public class PlaybackOverlayFragment extends DetailsFragment {
         return mFadeCompleteListener;
     }
 
+    @Deprecated
+    public interface InputEventHandler extends PlaybackControlGlue.InputEventHandler {
+    }
+
     /**
      * Sets the input event handler.
      */
+    @Deprecated
     public final void setInputEventHandler(InputEventHandler handler) {
         mInputEventHandler = handler;
     }
@@ -283,7 +282,22 @@ public class PlaybackOverlayFragment extends DetailsFragment {
     /**
      * Returns the input event handler.
      */
+    @Deprecated
     public final InputEventHandler getInputEventHandler() {
+        return (InputEventHandler)mInputEventHandler;
+    }
+
+    /**
+     * Sets the input event handler.
+     */
+    public final void setEventHandler(PlaybackControlGlue.InputEventHandler handler) {
+        mInputEventHandler = handler;
+    }
+
+    /**
+     * Returns the input event handler.
+     */
+    public final PlaybackControlGlue.InputEventHandler getEventHandler() {
         return mInputEventHandler;
     }
 
@@ -311,6 +325,30 @@ public class PlaybackOverlayFragment extends DetailsFragment {
     public void fadeOut() {
         sHandler.removeMessages(START_FADE_OUT, mFragmentReference);
         fade(false);
+    }
+
+    /**
+     * Sets the {@link PlaybackGlueHost.HostCallback}. Implementor of this interface will
+     * take appropriate actions to take action when the hosting fragment starts/stops processing.
+     */
+    void setHostCallback(PlaybackGlueHost.HostCallback hostCallback) {
+        this.mHostCallback = hostCallback;
+    }
+
+    @Override
+    public void onStop() {
+        if (mHostCallback != null) {
+            mHostCallback.onHostStop();
+        }
+        super.onStop();
+    }
+
+    @Override
+    public void onPause() {
+        if (mHostCallback != null) {
+            mHostCallback.onHostPause();
+        }
+        super.onPause();
     }
 
     private boolean areControlsHidden() {
@@ -372,6 +410,9 @@ public class PlaybackOverlayFragment extends DetailsFragment {
         }
         getVerticalGridView().setOnTouchInterceptListener(mOnTouchInterceptListener);
         getVerticalGridView().setOnKeyInterceptListener(mOnKeyInterceptListener);
+        if (mHostCallback != null) {
+            mHostCallback.onHostResume();
+        }
     }
 
     void startFadeTimer() {
@@ -394,11 +435,12 @@ public class PlaybackOverlayFragment extends DetailsFragment {
             }
         };
 
-        mBgFadeInAnimator = loadAnimator(getActivity(), R.animator.lb_playback_bg_fade_in);
+        Context context = FragmentUtil.getContext(this);
+        mBgFadeInAnimator = loadAnimator(context, R.animator.lb_playback_bg_fade_in);
         mBgFadeInAnimator.addUpdateListener(listener);
         mBgFadeInAnimator.addListener(mFadeListener);
 
-        mBgFadeOutAnimator = loadAnimator(getActivity(), R.animator.lb_playback_bg_fade_out);
+        mBgFadeOutAnimator = loadAnimator(context, R.animator.lb_playback_bg_fade_out);
         mBgFadeOutAnimator.addUpdateListener(listener);
         mBgFadeOutAnimator.addListener(mFadeListener);
     }
@@ -440,14 +482,14 @@ public class PlaybackOverlayFragment extends DetailsFragment {
             }
         };
 
-        mControlRowFadeInAnimator = loadAnimator(
-                getActivity(), R.animator.lb_playback_controls_fade_in);
+        Context context = FragmentUtil.getContext(this);
+        mControlRowFadeInAnimator = loadAnimator(context, R.animator.lb_playback_controls_fade_in);
         mControlRowFadeInAnimator.addUpdateListener(updateListener);
         mControlRowFadeInAnimator.addListener(listener);
         mControlRowFadeInAnimator.setInterpolator(mLogDecelerateInterpolator);
 
-        mControlRowFadeOutAnimator = loadAnimator(
-                getActivity(), R.animator.lb_playback_controls_fade_out);
+        mControlRowFadeOutAnimator = loadAnimator(context,
+                R.animator.lb_playback_controls_fade_out);
         mControlRowFadeOutAnimator.addUpdateListener(updateListener);
         mControlRowFadeOutAnimator.addListener(listener);
         mControlRowFadeOutAnimator.setInterpolator(mLogAccelerateInterpolator);
@@ -485,14 +527,13 @@ public class PlaybackOverlayFragment extends DetailsFragment {
             }
         };
 
-        mOtherRowFadeInAnimator = loadAnimator(
-                getActivity(), R.animator.lb_playback_controls_fade_in);
+        Context context = FragmentUtil.getContext(this);
+        mOtherRowFadeInAnimator = loadAnimator(context, R.animator.lb_playback_controls_fade_in);
         mOtherRowFadeInAnimator.addListener(listener);
         mOtherRowFadeInAnimator.addUpdateListener(updateListener);
         mOtherRowFadeInAnimator.setInterpolator(mLogDecelerateInterpolator);
 
-        mOtherRowFadeOutAnimator = loadAnimator(
-                getActivity(), R.animator.lb_playback_controls_fade_out);
+        mOtherRowFadeOutAnimator = loadAnimator(context, R.animator.lb_playback_controls_fade_out);
         mOtherRowFadeOutAnimator.addListener(listener);
         mOtherRowFadeOutAnimator.addUpdateListener(updateListener);
         mOtherRowFadeOutAnimator.setInterpolator(new AccelerateInterpolator());
@@ -518,13 +559,14 @@ public class PlaybackOverlayFragment extends DetailsFragment {
             }
         };
 
-        mDescriptionFadeInAnimator = loadAnimator(
-                getActivity(), R.animator.lb_playback_description_fade_in);
+        Context context = FragmentUtil.getContext(this);
+        mDescriptionFadeInAnimator = loadAnimator(context,
+                R.animator.lb_playback_description_fade_in);
         mDescriptionFadeInAnimator.addUpdateListener(listener);
         mDescriptionFadeInAnimator.setInterpolator(mLogDecelerateInterpolator);
 
-        mDescriptionFadeOutAnimator = loadAnimator(
-                getActivity(), R.animator.lb_playback_description_fade_out);
+        mDescriptionFadeOutAnimator = loadAnimator(context,
+                R.animator.lb_playback_description_fade_out);
         mDescriptionFadeOutAnimator.addUpdateListener(listener);
     }
 
@@ -542,8 +584,8 @@ public class PlaybackOverlayFragment extends DetailsFragment {
             return;
         }
 
-        mAnimationTranslateY = getVerticalGridView().getSelectedPosition() == 0 ?
-                mMajorFadeTranslateY : mMinorFadeTranslateY;
+        mAnimationTranslateY = getVerticalGridView().getSelectedPosition() == 0
+                ? mMajorFadeTranslateY : mMinorFadeTranslateY;
 
         if (mFadingStatus == IDLE) {
             if (fadeIn) {
@@ -570,6 +612,8 @@ public class PlaybackOverlayFragment extends DetailsFragment {
                 mDescriptionFadeInAnimator.reverse();
             }
         }
+        getView().announceForAccessibility(getString(fadeIn ? R.string.lb_playback_controls_shown
+                : R.string.lb_playback_controls_hidden));
 
         // If fading in while control row is focused, set initial translationY so
         // views slide in from below.
@@ -598,35 +642,52 @@ public class PlaybackOverlayFragment extends DetailsFragment {
     }
 
     @Override
+    protected void setupPresenter(Presenter rowPresenter) {
+        if (rowPresenter instanceof PlaybackRowPresenter) {
+            if (rowPresenter.getFacet(ItemAlignmentFacet.class) == null) {
+                ItemAlignmentFacet itemAlignment = new ItemAlignmentFacet();
+                ItemAlignmentFacet.ItemAlignmentDef def =
+                        new ItemAlignmentFacet.ItemAlignmentDef();
+                def.setItemAlignmentOffset(0);
+                def.setItemAlignmentOffsetPercent(100);
+                itemAlignment.setAlignmentDefs(new ItemAlignmentFacet.ItemAlignmentDef[]
+                        {def});
+                rowPresenter.setFacet(ItemAlignmentFacet.class, itemAlignment);
+            }
+        } else {
+            super.setupPresenter(rowPresenter);
+        }
+    }
+
+    @Override
     void setVerticalGridViewLayout(VerticalGridView listview) {
         if (listview == null) {
             return;
         }
-        // Padding affects alignment when last row is focused
-        // (last is first when there's only one row).
-        setPadding(listview, mPaddingTop, mPaddingBottom);
 
-        // Item alignment affects focused row that isn't the last.
-        listview.setItemAlignmentOffset(0);
+        // we set the base line of alignment to -paddingBottom
+        listview.setWindowAlignmentOffset(-mPaddingBottom);
+        listview.setWindowAlignmentOffsetPercent(
+                VerticalGridView.WINDOW_ALIGN_OFFSET_PERCENT_DISABLED);
+
+        // align other rows that arent the last to center of screen, since our baseline is
+        // -mPaddingBottom, we need subtract that from mOtherRowsCenterToBottom.
+        listview.setItemAlignmentOffset(mOtherRowsCenterToBottom - mPaddingBottom);
         listview.setItemAlignmentOffsetPercent(50);
 
-        // Push rows to the bottom.
-        listview.setWindowAlignmentOffset(0);
-        listview.setWindowAlignmentOffsetPercent(50);
-        listview.setWindowAlignment(VerticalGridView.WINDOW_ALIGN_BOTH_EDGE);
-    }
-
-    private static void setPadding(View view, int paddingTop, int paddingBottom) {
-        view.setPadding(view.getPaddingLeft(), paddingTop,
-                view.getPaddingRight(), paddingBottom);
+        // Push last row to the bottom padding
+        // Padding affects alignment when last row is focused
+        listview.setPadding(listview.getPaddingLeft(), listview.getPaddingTop(),
+                listview.getPaddingRight(), mPaddingBottom);
+        listview.setWindowAlignment(VerticalGridView.WINDOW_ALIGN_HIGH_EDGE);
     }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        mPaddingTop =
-                getResources().getDimensionPixelSize(R.dimen.lb_playback_controls_padding_top);
+        mOtherRowsCenterToBottom = getResources()
+                .getDimensionPixelSize(R.dimen.lb_playback_other_rows_center_to_bottom);
         mPaddingBottom =
                 getResources().getDimensionPixelSize(R.dimen.lb_playback_controls_padding_bottom);
         mBgDarkColor =
@@ -747,6 +808,9 @@ public class PlaybackOverlayFragment extends DetailsFragment {
     @Override
     public void onDestroyView() {
         mRootView = null;
+        if (mHostCallback != null) {
+            mHostCallback.onHostDestroy();
+        }
         super.onDestroyView();
     }
 
@@ -755,6 +819,9 @@ public class PlaybackOverlayFragment extends DetailsFragment {
         super.onStart();
         // Workaround problem VideoView forcing itself to focused, let controls take focus.
         getRowsFragment().getView().requestFocus();
+        if (mHostCallback != null) {
+            mHostCallback.onHostStart();
+        }
     }
 
     private final DataObserver mObserver = new DataObserver() {

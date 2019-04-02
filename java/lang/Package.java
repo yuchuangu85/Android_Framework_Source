@@ -51,6 +51,7 @@ import java.util.Iterator;
 
 import sun.net.www.ParseUtil;
 import sun.reflect.CallerSensitive;
+import dalvik.system.VMRuntime;
 import dalvik.system.VMStack;
 
 import java.lang.annotation.Annotation;
@@ -78,18 +79,18 @@ import java.lang.annotation.Annotation;
  * by the following formal grammar:
  * <blockquote>
  * <dl>
- * <dt><i>SpecificationVersion:
- * <dd>Digits RefinedVersion<sub>opt</sub></i>
+ * <dt><i>SpecificationVersion:</i>
+ * <dd><i>Digits RefinedVersion<sub>opt</sub></i>
 
- * <p><dt><i>RefinedVersion:</i>
+ * <dt><i>RefinedVersion:</i>
  * <dd>{@code .} <i>Digits</i>
  * <dd>{@code .} <i>Digits RefinedVersion</i>
  *
- * <p><dt><i>Digits:
- * <dd>Digit
- * <dd>Digits</i>
+ * <dt><i>Digits:</i>
+ * <dd><i>Digit</i>
+ * <dd><i>Digits</i>
  *
- * <p><dt><i>Digit:</i>
+ * <dt><i>Digit:</i>
  * <dd>any character for which {@link Character#isDigit} returns {@code true},
  * e.g. 0, 1, 2, ...
  * </dl>
@@ -322,7 +323,7 @@ public class Package implements java.lang.reflect.AnnotatedElement {
      * attributes are defined in the manifests that accompany
      * the classes.
      *
-     * @param class the class to get the package of.
+     * @param c the class to get the package of.
      * @return the package of the class. It may be null if no package
      *          information is available from the archive or codebase.  */
     static Package getPackage(Class<?> c) {
@@ -357,25 +358,28 @@ public class Package implements java.lang.reflect.AnnotatedElement {
      * @return the string representation of the package.
      */
     public String toString() {
-        // Android changed: Several apps try to parse the output of toString(). This is a really
+        // Android-changed start
+        // Several apps try to parse the output of toString(). This is a really
         // bad idea - especially when there's a Package.getName() function as well as a
         // Class.getName() function that can be used instead.
-        //
-        // *** THIS CHANGE WILL BE REVERTED IN A FUTURE ANDROID RELEASE ***
-        //
-        // String spec = specTitle;
-        // String ver =  specVersion;
-        // if (spec != null && spec.length() > 0)
-        //     spec = ", " + spec;
-        // else
-        //     spec = "";
-        // if (ver != null && ver.length() > 0)
-        //     ver = ", version " + ver;
-        // else
-        //     ver = "";
-        // return "package " + pkgName + spec + ver;
+        // Starting from the API level 25 the proper output is generated.
+        final int targetSdkVersion = VMRuntime.getRuntime().getTargetSdkVersion();
+        if (targetSdkVersion > 0 && targetSdkVersion <= 24) {
+            return "package " + pkgName;
+        }
+        // Android-changed end
 
-        return "package " + pkgName;
+        String spec = specTitle;
+        String ver =  specVersion;
+        if (spec != null && spec.length() > 0)
+            spec = ", " + spec;
+        else
+            spec = "";
+        if (ver != null && ver.length() > 0)
+            ver = ", version " + ver;
+        else
+            ver = "";
+        return "package " + pkgName + spec + ver;
     }
 
     private Class<?> getPackageInfo() {
@@ -397,6 +401,16 @@ public class Package implements java.lang.reflect.AnnotatedElement {
      */
     public <A extends Annotation> A getAnnotation(Class<A> annotationClass) {
         return getPackageInfo().getAnnotation(annotationClass);
+    }
+
+    /**
+     * {@inheritDoc}
+     * @throws NullPointerException {@inheritDoc}
+     * @since 1.5
+     */
+    @Override
+    public boolean isAnnotationPresent(Class<? extends Annotation> annotationClass) {
+        return AnnotatedElement.super.isAnnotationPresent(annotationClass);
     }
 
     /**
@@ -443,14 +457,13 @@ public class Package implements java.lang.reflect.AnnotatedElement {
     /**
      * Construct a package instance with the specified version
      * information.
-     * @param pkgName the name of the package
+     * @param name the name of the package
      * @param spectitle the title of the specification
      * @param specversion the version of the specification
      * @param specvendor the organization that maintains the specification
      * @param impltitle the title of the implementation
      * @param implversion the version of the implementation
      * @param implvendor the organization that maintains the implementation
-     * @return a new package for containing the specified information.
      */
     Package(String name,
             String spectitle, String specversion, String specvendor,
@@ -640,5 +653,5 @@ public class Package implements java.lang.reflect.AnnotatedElement {
     private final String implVendor;
     private final URL sealBase;
     private transient final ClassLoader loader;
-    private transient Class packageInfo;
+    private transient Class<?> packageInfo;
 }
