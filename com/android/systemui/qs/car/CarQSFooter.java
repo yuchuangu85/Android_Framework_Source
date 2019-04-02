@@ -29,6 +29,7 @@ import com.android.systemui.R;
 import com.android.systemui.plugins.ActivityStarter;
 import com.android.systemui.qs.QSFooter;
 import com.android.systemui.qs.QSPanel;
+import com.android.systemui.statusbar.car.UserGridView;
 import com.android.systemui.statusbar.phone.MultiUserSwitch;
 import com.android.systemui.statusbar.policy.DeviceProvisionedController;
 import com.android.systemui.statusbar.policy.UserInfoController;
@@ -46,7 +47,7 @@ public class CarQSFooter extends RelativeLayout implements QSFooter,
     private MultiUserSwitch mMultiUserSwitch;
     private TextView mUserName;
     private ImageView mMultiUserAvatar;
-    private CarQSFragment.UserSwitchCallback mUserSwitchCallback;
+    private UserGridView mUserGridView;
 
     public CarQSFooter(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -62,15 +63,15 @@ public class CarQSFooter extends RelativeLayout implements QSFooter,
         mUserInfoController = Dependency.get(UserInfoController.class);
 
         mMultiUserSwitch.setOnClickListener(v -> {
-            if (mUserSwitchCallback == null) {
+            if (mUserGridView == null) {
                 Log.e(TAG, "CarQSFooter not properly set up; cannot display user switcher.");
                 return;
             }
 
-            if (!mUserSwitchCallback.isShowing()) {
-                mUserSwitchCallback.show();
+            if (!mUserGridView.isShowing()) {
+                mUserGridView.show();
             } else {
-                mUserSwitchCallback.hide();
+                mUserGridView.hide();
             }
         });
 
@@ -101,8 +102,8 @@ public class CarQSFooter extends RelativeLayout implements QSFooter,
         }
     }
 
-    public void setUserSwitchCallback(CarQSFragment.UserSwitchCallback callback) {
-        mUserSwitchCallback = callback;
+    public void setUserGridView(UserGridView view) {
+        mUserGridView = view;
     }
 
     @Override
@@ -114,9 +115,11 @@ public class CarQSFooter extends RelativeLayout implements QSFooter,
         }
     }
 
+    @Nullable
     @Override
-    public void setExpandClickListener(OnClickListener onClickListener) {
+    public View getExpandView() {
         // No view that should expand/collapse the quick settings.
+        return null;
     }
 
     @Override

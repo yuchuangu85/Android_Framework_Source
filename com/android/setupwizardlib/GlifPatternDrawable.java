@@ -23,6 +23,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
@@ -95,6 +96,7 @@ public class GlifPatternDrawable extends Drawable {
 
     private int mColor;
     private Paint mTempPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private ColorFilter mColorFilter;
 
     public GlifPatternDrawable(int color) {
         setColor(color);
@@ -138,10 +140,17 @@ public class GlifPatternDrawable extends Drawable {
         canvas.clipRect(bounds);
 
         scaleCanvasToBounds(canvas, bitmap, bounds);
-        canvas.drawColor(Color.BLACK);
-        mTempPaint.setColor(Color.WHITE);
-        canvas.drawBitmap(bitmap, 0, 0, mTempPaint);
-        canvas.drawColor(mColor);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB
+                && canvas.isHardwareAccelerated()) {
+            mTempPaint.setColorFilter(mColorFilter);
+            canvas.drawBitmap(bitmap, 0, 0, mTempPaint);
+        } else {
+            // Software renderer doesn't work properly with ColorMatrix filter on ALPHA_8 bitmaps.
+            canvas.drawColor(Color.BLACK);
+            mTempPaint.setColor(Color.WHITE);
+            canvas.drawBitmap(bitmap, 0, 0, mTempPaint);
+            canvas.drawColor(mColor);
+        }
 
         canvas.restore();
     }
@@ -290,6 +299,12 @@ public class GlifPatternDrawable extends Drawable {
         final int g = Color.green(color);
         final int b = Color.blue(color);
         mColor = Color.argb(COLOR_ALPHA_INT, r, g, b);
+        mColorFilter = new ColorMatrixColorFilter(new float[] {
+                0, 0, 0, 1 - COLOR_ALPHA, r * COLOR_ALPHA,
+                0, 0, 0, 1 - COLOR_ALPHA, g * COLOR_ALPHA,
+                0, 0, 0, 1 - COLOR_ALPHA, b * COLOR_ALPHA,
+                0, 0, 0,               0,             255
+        });
         invalidateSelf();
     }
 

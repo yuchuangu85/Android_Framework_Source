@@ -46,7 +46,6 @@ public class InterfaceAddress {
     InterfaceAddress() {
     }
 
-    // BEGIN Android-added: Rewrote NetworkInterface on top of Libcore.io.
     InterfaceAddress(InetAddress address, Inet4Address broadcast, InetAddress netmask) {
         this.address = address;
         this.broadcast = broadcast;
@@ -66,7 +65,6 @@ public class InterfaceAddress {
         }
         return count;
     }
-    // END Android-added: Rewrote NetworkInterface on top of Libcore.io.
 
     /**
      * Returns an {@code InetAddress} for this address.

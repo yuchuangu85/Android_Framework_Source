@@ -17,7 +17,6 @@
 package com.android.server.accessibility;
 
 import android.accessibilityservice.FingerprintGestureController;
-import android.content.res.Resources;
 import android.hardware.fingerprint.IFingerprintClientActiveCallback;
 import android.hardware.fingerprint.IFingerprintService;
 import android.os.Binder;
@@ -43,7 +42,6 @@ public class FingerprintGestureDispatcher extends IFingerprintClientActiveCallba
     private final Object mLock;
     private final IFingerprintService mFingerprintService;
     private final Handler mHandler;
-    private final boolean mHardwareSupportsGestures;
 
     // This field is ground truth for whether or not we are registered. Only write to it in handler.
     private boolean mRegisteredReadOnlyExceptInHandler;
@@ -52,11 +50,8 @@ public class FingerprintGestureDispatcher extends IFingerprintClientActiveCallba
      * @param fingerprintService The system's fingerprint service
      * @param lock A lock to use when managing internal state
      */
-    public FingerprintGestureDispatcher(IFingerprintService fingerprintService,
-            Resources resources, Object lock) {
+    public FingerprintGestureDispatcher(IFingerprintService fingerprintService, Object lock) {
         mFingerprintService = fingerprintService;
-        mHardwareSupportsGestures = resources.getBoolean(
-                com.android.internal.R.bool.config_fingerprintSupportsGestures);
         mLock = lock;
         mHandler = new Handler(this);
     }
@@ -66,11 +61,9 @@ public class FingerprintGestureDispatcher extends IFingerprintClientActiveCallba
      * @param lock A lock to use when managing internal state
      * @param handler A handler to use internally. Used for testing.
      */
-    public FingerprintGestureDispatcher(IFingerprintService fingerprintService,
-            Resources resources, Object lock, Handler handler) {
+    public FingerprintGestureDispatcher(IFingerprintService fingerprintService, Object lock,
+            Handler handler) {
         mFingerprintService = fingerprintService;
-        mHardwareSupportsGestures = resources.getBoolean(
-                com.android.internal.R.bool.config_fingerprintSupportsGestures);
         mLock = lock;
         mHandler = handler;
     }
@@ -81,8 +74,6 @@ public class FingerprintGestureDispatcher extends IFingerprintClientActiveCallba
      * @param clientList The list of potential clients.
      */
     public void updateClientList(List<? extends FingerprintGestureClient> clientList) {
-        if (!mHardwareSupportsGestures) return;
-
         synchronized (mLock) {
             mCapturingClients.clear();
             for (int i = 0; i < clientList.size(); i++) {
@@ -105,8 +96,6 @@ public class FingerprintGestureDispatcher extends IFingerprintClientActiveCallba
 
     @Override
     public void onClientActiveChanged(boolean nonGestureFingerprintClientActive) {
-        if (!mHardwareSupportsGestures) return;
-
         synchronized (mLock) {
             for (int i = 0; i < mCapturingClients.size(); i++) {
                 mCapturingClients.get(i).onFingerprintGestureDetectionActiveChanged(
@@ -116,8 +105,6 @@ public class FingerprintGestureDispatcher extends IFingerprintClientActiveCallba
     }
 
     public boolean isFingerprintGestureDetectionAvailable() {
-        if (!mHardwareSupportsGestures) return false;
-
         long identity = Binder.clearCallingIdentity();
         try {
             return !mFingerprintService.isClientActive();

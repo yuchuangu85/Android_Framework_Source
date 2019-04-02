@@ -18,11 +18,11 @@ package com.android.ims.internal;
 
 import android.telecom.Log;
 import android.telecom.VideoProfile;
-import android.telephony.ims.ImsVideoCallProvider;
 import android.util.ArraySet;
 
 import java.util.Collection;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.stream.Collectors;
 
 /**
@@ -71,7 +71,7 @@ public class VideoPauseTracker {
      *
      * @param source The source of the pause request.
      * @return {@code true} if a pause should be issued to the
-     *      {@link ImsVideoCallProvider}, {@code false} otherwise.
+     *      {@link com.android.ims.internal.ImsVideoCallProvider}, {@code false} otherwise.
      */
     public boolean shouldPauseVideoFor(int source) {
         synchronized (mPauseRequestsLock) {
@@ -102,7 +102,7 @@ public class VideoPauseTracker {
      *
      * @param source The source of the resume request.
      * @return {@code true} if a resume should be issued to the
-     *      {@link ImsVideoCallProvider}, {@code false} otherwise.
+     *      {@link com.android.ims.internal.ImsVideoCallProvider}, {@code false} otherwise.
      */
     public boolean shouldResumeVideoFor(int source) {
         synchronized (mPauseRequestsLock) {

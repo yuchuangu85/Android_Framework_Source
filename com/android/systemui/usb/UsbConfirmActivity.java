@@ -68,14 +68,13 @@ public class UsbConfirmActivity extends AlertActivity
         String appName = mResolveInfo.loadLabel(packageManager).toString();
 
         final AlertController.AlertParams ap = mAlertParams;
+        ap.mIcon = mResolveInfo.loadIcon(packageManager);
         ap.mTitle = appName;
         if (mDevice == null) {
-            ap.mMessage = getString(R.string.usb_accessory_confirm_prompt, appName,
-                    mAccessory.getDescription());
+            ap.mMessage = getString(R.string.usb_accessory_confirm_prompt, appName);
             mDisconnectedReceiver = new UsbDisconnectedReceiver(this, mAccessory);
         } else {
-            ap.mMessage = getString(R.string.usb_device_confirm_prompt, appName,
-                    mDevice.getProductName());
+            ap.mMessage = getString(R.string.usb_device_confirm_prompt, appName);
             mDisconnectedReceiver = new UsbDisconnectedReceiver(this, mDevice);
         }
         ap.mPositiveButtonText = getString(android.R.string.ok);
@@ -89,11 +88,9 @@ public class UsbConfirmActivity extends AlertActivity
         ap.mView = inflater.inflate(com.android.internal.R.layout.always_use_checkbox, null);
         mAlwaysUse = (CheckBox)ap.mView.findViewById(com.android.internal.R.id.alwaysUse);
         if (mDevice == null) {
-            mAlwaysUse.setText(getString(R.string.always_use_accessory, appName,
-                    mAccessory.getDescription()));
+            mAlwaysUse.setText(R.string.always_use_accessory);
         } else {
-            mAlwaysUse.setText(getString(R.string.always_use_device, appName,
-                    mDevice.getProductName()));
+            mAlwaysUse.setText(R.string.always_use_device);
         }
         mAlwaysUse.setOnCheckedChangeListener(this);
         mClearDefaultHint = (TextView)ap.mView.findViewById(

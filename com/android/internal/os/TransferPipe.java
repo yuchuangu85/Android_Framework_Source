@@ -16,8 +16,12 @@
 
 package com.android.internal.os;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
+import java.io.Closeable;
+import java.io.FileDescriptor;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.IInterface;
@@ -26,20 +30,10 @@ import android.os.RemoteException;
 import android.os.SystemClock;
 import android.util.Slog;
 
-import libcore.io.IoUtils;
-
-import java.io.ByteArrayOutputStream;
-import java.io.Closeable;
-import java.io.FileDescriptor;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-
 /**
  * Helper for transferring data through a pipe from a client app.
  */
-public class TransferPipe implements Runnable, Closeable {
+public final class TransferPipe implements Runnable, Closeable {
     static final String TAG = "TransferPipe";
     static final boolean DEBUG = false;
 
@@ -65,11 +59,7 @@ public class TransferPipe implements Runnable, Closeable {
     }
 
     public TransferPipe(String bufferPrefix) throws IOException {
-        this(bufferPrefix, "TransferPipe");
-    }
-
-    protected TransferPipe(String bufferPrefix, String threadName) throws IOException {
-        mThread = new Thread(this, threadName);
+        mThread = new Thread(this, "TransferPipe");
         mFds = ParcelFileDescriptor.createPipe();
         mBufferPrefix = bufferPrefix;
     }
@@ -89,45 +79,6 @@ public class TransferPipe implements Runnable, Closeable {
     public static void dumpAsync(IBinder binder, FileDescriptor out, String[] args)
             throws IOException, RemoteException {
         goDump(binder, out, args);
-    }
-
-    /**
-     * Read raw bytes from a service's dump function.
-     *
-     * <p>This can be used for dumping {@link android.util.proto.ProtoOutputStream protos}.
-     *
-     * @param binder The service providing the data
-     * @param args The arguments passed to the dump function of the service
-     */
-    public static byte[] dumpAsync(@NonNull IBinder binder, @Nullable String... args)
-            throws IOException, RemoteException {
-        ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
-        try {
-            TransferPipe.dumpAsync(binder, pipe[1].getFileDescriptor(), args);
-
-            // Data is written completely when dumpAsync is done
-            pipe[1].close();
-            pipe[1] = null;
-
-            byte[] buffer = new byte[4096];
-            try (ByteArrayOutputStream combinedBuffer = new ByteArrayOutputStream()) {
-                try (FileInputStream is = new FileInputStream(pipe[0].getFileDescriptor())) {
-                    while (true) {
-                        int numRead = is.read(buffer);
-                        if (numRead == -1) {
-                            break;
-                        }
-
-                        combinedBuffer.write(buffer, 0, numRead);
-                    }
-                }
-
-                return combinedBuffer.toByteArray();
-            }
-        } finally {
-            pipe[0].close();
-            IoUtils.closeQuietly(pipe[1]);
-        }
     }
 
     static void go(Caller caller, IInterface iface, FileDescriptor out,
@@ -239,15 +190,11 @@ public class TransferPipe implements Runnable, Closeable {
         }
     }
 
-    protected OutputStream getNewOutputStream() {
-          return new FileOutputStream(mOutFd);
-    }
-
     @Override
     public void run() {
         final byte[] buffer = new byte[1024];
         final FileInputStream fis;
-        final OutputStream fos;
+        final FileOutputStream fos;
 
         synchronized (this) {
             ParcelFileDescriptor readFd = getReadFd();
@@ -256,7 +203,7 @@ public class TransferPipe implements Runnable, Closeable {
                 return;
             }
             fis = new FileInputStream(readFd.getFileDescriptor());
-            fos = getNewOutputStream();
+            fos = new FileOutputStream(mOutFd);
         }
 
         if (DEBUG) Slog.i(TAG, "Ready to read pipe...");

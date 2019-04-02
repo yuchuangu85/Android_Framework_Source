@@ -19,34 +19,30 @@ package com.android.server.backup.params;
 import android.app.backup.IBackupManagerMonitor;
 import android.app.backup.IBackupObserver;
 
-import com.android.server.backup.internal.OnTaskFinishedListener;
-import com.android.server.backup.transport.TransportClient;
+import com.android.internal.backup.IBackupTransport;
 
 import java.util.ArrayList;
 
 public class BackupParams {
 
-    public TransportClient transportClient;
+    public IBackupTransport transport;
     public String dirName;
     public ArrayList<String> kvPackages;
     public ArrayList<String> fullPackages;
     public IBackupObserver observer;
     public IBackupManagerMonitor monitor;
-    public OnTaskFinishedListener listener;
     public boolean userInitiated;
     public boolean nonIncrementalBackup;
 
-    public BackupParams(TransportClient transportClient, String dirName,
-            ArrayList<String> kvPackages, ArrayList<String> fullPackages, IBackupObserver observer,
-            IBackupManagerMonitor monitor, OnTaskFinishedListener listener, boolean userInitiated,
-            boolean nonIncrementalBackup) {
-        this.transportClient = transportClient;
+    public BackupParams(IBackupTransport transport, String dirName, ArrayList<String> kvPackages,
+            ArrayList<String> fullPackages, IBackupObserver observer,
+            IBackupManagerMonitor monitor, boolean userInitiated, boolean nonIncrementalBackup) {
+        this.transport = transport;
         this.dirName = dirName;
         this.kvPackages = kvPackages;
         this.fullPackages = fullPackages;
         this.observer = observer;
         this.monitor = monitor;
-        this.listener = listener;
         this.userInitiated = userInitiated;
         this.nonIncrementalBackup = nonIncrementalBackup;
     }

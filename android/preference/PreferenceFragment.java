@@ -23,6 +23,7 @@ import android.app.Fragment;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.TypedArray;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -104,10 +105,7 @@ import android.widget.TextView;
  *
  * @see Preference
  * @see PreferenceScreen
- *
- * @deprecated Use {@link android.support.v7.preference.PreferenceFragmentCompat}
  */
-@Deprecated
 public abstract class PreferenceFragment extends Fragment implements
         PreferenceManager.OnPreferenceTreeClickListener {
 
@@ -148,11 +146,7 @@ public abstract class PreferenceFragment extends Fragment implements
      * Interface that PreferenceFragment's containing activity should
      * implement to be able to process preference items that wish to
      * switch to a new fragment.
-     *
-     * @deprecated Use {@link
-     * android.support.v7.preference.PreferenceFragmentCompat.OnPreferenceStartFragmentCallback}
      */
-    @Deprecated
     public interface OnPreferenceStartFragmentCallback {
         /**
          * Called when the user has clicked on a Preference that has

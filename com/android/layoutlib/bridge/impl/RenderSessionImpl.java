@@ -724,7 +724,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         DesignLibUtil.setTitle(collapsingToolbar, title);
     }
 
-    private View findChildView(View view, String[] className) {
+    private View findChildView(View view, String className) {
         if (!(view instanceof ViewGroup)) {
             return null;
         }

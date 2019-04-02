@@ -156,10 +156,9 @@ public class SystemImpl implements SystemInterface {
         return mWebViewProviderPackages;
     }
 
-    public long getFactoryPackageVersion(String packageName) throws NameNotFoundException {
+    public int getFactoryPackageVersion(String packageName) throws NameNotFoundException {
         PackageManager pm = AppGlobals.getInitialApplication().getPackageManager();
-        return pm.getPackageInfo(packageName, PackageManager.MATCH_FACTORY_ONLY)
-                .getLongVersionCode();
+        return pm.getPackageInfo(packageName, PackageManager.MATCH_FACTORY_ONLY).versionCode;
     }
 
     /**
@@ -305,6 +304,6 @@ public class SystemImpl implements SystemInterface {
 
     // flags declaring we want extra info from the package manager for webview providers
     private final static int PACKAGE_FLAGS = PackageManager.GET_META_DATA
-            | PackageManager.GET_SIGNATURES | PackageManager.GET_SHARED_LIBRARY_FILES
-            | PackageManager.MATCH_DEBUG_TRIAGED_MISSING | PackageManager.MATCH_ANY_USER;
+            | PackageManager.GET_SIGNATURES | PackageManager.MATCH_DEBUG_TRIAGED_MISSING
+            | PackageManager.MATCH_ANY_USER;
 }

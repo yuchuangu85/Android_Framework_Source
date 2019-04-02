@@ -31,7 +31,6 @@ import android.os.Parcelable;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.MathUtils;
-import android.view.AbsSavedState;
 import android.view.FocusFinder;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -1199,12 +1198,16 @@ public class ViewPager extends ViewGroup {
      * state, in which case it should implement a subclass of this which
      * contains that state.
      */
-    public static class SavedState extends AbsSavedState {
+    public static class SavedState extends BaseSavedState {
         int position;
         Parcelable adapterState;
         ClassLoader loader;
 
-        public SavedState(@NonNull Parcelable superState) {
+        public SavedState(Parcel source) {
+            super(source);
+        }
+
+        public SavedState(Parcelable superState) {
             super(superState);
         }
 
@@ -1222,15 +1225,10 @@ public class ViewPager extends ViewGroup {
                     + " position=" + position + "}";
         }
 
-        public static final Creator<SavedState> CREATOR = new ClassLoaderCreator<SavedState>() {
-            @Override
-            public SavedState createFromParcel(Parcel in, ClassLoader loader) {
-                return new SavedState(in, loader);
-            }
-
+        public static final Creator<SavedState> CREATOR = new Creator<SavedState>() {
             @Override
             public SavedState createFromParcel(Parcel in) {
-                return new SavedState(in, null);
+                return new SavedState(in);
             }
             @Override
             public SavedState[] newArray(int size) {
@@ -1239,7 +1237,7 @@ public class ViewPager extends ViewGroup {
         };
 
         SavedState(Parcel in, ClassLoader loader) {
-            super(in, loader);
+            super(in);
             if (loader == null) {
                 loader = getClass().getClassLoader();
             }

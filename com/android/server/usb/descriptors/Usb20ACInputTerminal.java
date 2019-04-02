@@ -39,7 +39,7 @@ public final class Usb20ACInputTerminal extends UsbACTerminal {
     private byte mTerminalName; // 16:1 - Index of a string descriptor, describing the
                                 // Input Terminal.
 
-    public Usb20ACInputTerminal(int length, byte type, byte subtype, int subclass) {
+    public Usb20ACInputTerminal(int length, byte type, byte subtype, byte subclass) {
         super(length, type, subtype, subclass);
     }
 

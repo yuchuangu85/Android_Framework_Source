@@ -26,21 +26,18 @@ import android.hardware.wifi.V1_0.NanEnableRequest;
 import android.hardware.wifi.V1_0.NanInitiateDataPathRequest;
 import android.hardware.wifi.V1_0.NanMatchAlg;
 import android.hardware.wifi.V1_0.NanPublishRequest;
-import android.hardware.wifi.V1_0.NanRangingIndication;
 import android.hardware.wifi.V1_0.NanRespondToDataPathIndicationRequest;
 import android.hardware.wifi.V1_0.NanSubscribeRequest;
 import android.hardware.wifi.V1_0.NanTransmitFollowupRequest;
 import android.hardware.wifi.V1_0.NanTxType;
 import android.hardware.wifi.V1_0.WifiStatus;
 import android.hardware.wifi.V1_0.WifiStatusCode;
-import android.hardware.wifi.V1_2.NanConfigRequestSupplemental;
 import android.net.wifi.aware.ConfigRequest;
 import android.net.wifi.aware.PublishConfig;
 import android.net.wifi.aware.SubscribeConfig;
 import android.os.RemoteException;
 import android.os.ShellCommand;
 import android.util.Log;
-import android.util.SparseIntArray;
 
 import libcore.util.HexEncoding;
 
@@ -58,84 +55,38 @@ import java.util.Map;
  */
 public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellCommand {
     private static final String TAG = "WifiAwareNativeApi";
+    private static final boolean DBG = false;
     private static final boolean VDBG = false; // STOPSHIP if true
-    /* package */ boolean mDbg = false;
 
     private static final String SERVICE_NAME_FOR_OOB_DATA_PATH = "Wi-Fi Aware Data Path";
 
     private final WifiAwareNativeManager mHal;
-    private SparseIntArray mTransactionIds; // VDBG only!
 
     public WifiAwareNativeApi(WifiAwareNativeManager wifiAwareNativeManager) {
         mHal = wifiAwareNativeManager;
         onReset();
-        if (VDBG) {
-            mTransactionIds = new SparseIntArray();
-        }
-    }
-
-    private void recordTransactionId(int transactionId) {
-        if (!VDBG) return;
-
-        if (transactionId == 0) {
-            return; // tid == 0 is used as a dummy transaction ID in several commands - acceptable
-        }
-
-        int count = mTransactionIds.get(transactionId);
-        if (count != 0) {
-            Log.wtf(TAG, "Repeated transaction ID == " + transactionId);
-        }
-        mTransactionIds.append(transactionId, count + 1);
-    }
-
-    /**
-     * (HIDL) Cast the input to a 1.2 NAN interface (possibly resulting in a null).
-     *
-     * Separate function so can be mocked in unit tests.
-     */
-    public android.hardware.wifi.V1_2.IWifiNanIface mockableCastTo_1_2(IWifiNanIface iface) {
-        return android.hardware.wifi.V1_2.IWifiNanIface.castFrom(iface);
     }
 
     /*
      * Parameters settable through the shell command.
-     * see wifi/1.0/types.hal NanBandSpecificConfig.discoveryWindowIntervalVal and
-     * wifi/1.2/types.hal NanConfigRequestSupplemental_1_2 for description
+     * see wifi/1.0/types.hal NanBandSpecificConfig.discoveryWindowIntervalVal for description
      */
-    /* package */ static final String POWER_PARAM_DEFAULT_KEY = "default";
-    /* package */ static final String POWER_PARAM_INACTIVE_KEY = "inactive";
-    /* package */ static final String POWER_PARAM_IDLE_KEY = "idle";
+    public static final String PARAM_DW_DEFAULT_24GHZ = "dw_default_24ghz";
+    public static final int PARAM_DW_DEFAULT_24GHZ_DEFAULT = -1; // Firmware default
+    public static final String PARAM_DW_DEFAULT_5GHZ = "dw_default_5ghz";
+    public static final int PARAM_DW_DEFAULT_5GHZ_DEFAULT = -1; // Firmware default
+    public static final String PARAM_DW_ON_INACTIVE_24GHZ = "dw_on_inactive_24ghz";
+    public static final int PARAM_DW_ON_INACTIVE_24GHZ_DEFAULT = 4; // 4 -> DW=8, latency=4s
+    public static final String PARAM_DW_ON_INACTIVE_5GHZ = "dw_on_inactive_5ghz";
+    public static final int PARAM_DW_ON_INACTIVE_5GHZ_DEFAULT = 0; // 0 = disabled
+    public static final String PARAM_DW_ON_IDLE_24GHZ = "dw_on_idle_24ghz";
+    public static final int PARAM_DW_ON_IDLE_24GHZ_DEFAULT = -1; // NOP (but disabling on IDLE)
+    public static final String PARAM_DW_ON_IDLE_5GHZ = "dw_on_idle_5ghz";
+    public static final int PARAM_DW_ON_IDLE_5GHZ_DEFAULT = -1; // NOP (but disabling on IDLE)
 
-    /* package */ static final String PARAM_DW_24GHZ = "dw_24ghz";
-    private static final int PARAM_DW_24GHZ_DEFAULT = -1; // Firmware default
-    private static final int PARAM_DW_24GHZ_INACTIVE = 4; // 4 -> DW=8, latency=4s
-    private static final int PARAM_DW_24GHZ_IDLE = 4; // == inactive
+    public static final String PARAM_MAC_RANDOM_INTERVAL_SEC = "mac_random_interval_sec";
+    public static final int PARAM_MAC_RANDOM_INTERVAL_SEC_DEFAULT = 1800; // 30 minutes
 
-    /* package */ static final String PARAM_DW_5GHZ = "dw_5ghz";
-    private static final int PARAM_DW_5GHZ_DEFAULT = -1; // Firmware default
-    private static final int PARAM_DW_5GHZ_INACTIVE = 0; // 0 = disabled
-    private static final int PARAM_DW_5GHZ_IDLE = 0; // == inactive
-
-    /* package */ static final String PARAM_DISCOVERY_BEACON_INTERVAL_MS =
-            "disc_beacon_interval_ms";
-    private static final int PARAM_DISCOVERY_BEACON_INTERVAL_MS_DEFAULT = 0; // Firmware defaults
-    private static final int PARAM_DISCOVERY_BEACON_INTERVAL_MS_INACTIVE = 0; // Firmware defaults
-    private static final int PARAM_DISCOVERY_BEACON_INTERVAL_MS_IDLE = 0; // Firmware defaults
-
-    /* package */ static final String PARAM_NUM_SS_IN_DISCOVERY = "num_ss_in_discovery";
-    private static final int PARAM_NUM_SS_IN_DISCOVERY_DEFAULT = 0; // Firmware defaults
-    private static final int PARAM_NUM_SS_IN_DISCOVERY_INACTIVE = 0; // Firmware defaults
-    private static final int PARAM_NUM_SS_IN_DISCOVERY_IDLE = 0; // Firmware defaults
-
-    /* package */ static final String PARAM_ENABLE_DW_EARLY_TERM = "enable_dw_early_term";
-    private static final int PARAM_ENABLE_DW_EARLY_TERM_DEFAULT = 0; // boolean: 0 = false
-    private static final int PARAM_ENABLE_DW_EARLY_TERM_INACTIVE = 0; // boolean: 0 = false
-    private static final int PARAM_ENABLE_DW_EARLY_TERM_IDLE = 0; // boolean: 0 = false
-
-    /* package */ static final String PARAM_MAC_RANDOM_INTERVAL_SEC = "mac_random_interval_sec";
-    private static final int PARAM_MAC_RANDOM_INTERVAL_SEC_DEFAULT = 1800; // 30 minutes
-
-    private Map<String, Map<String, Integer>> mSettablePowerParameters = new HashMap<>();
     private Map<String, Integer> mSettableParameters = new HashMap<>();
 
     /**
@@ -170,35 +121,6 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
                 mSettableParameters.put(name, value);
                 return 0;
             }
-            case "set-power": {
-                String mode = parentShell.getNextArgRequired();
-                String name = parentShell.getNextArgRequired();
-                String valueStr = parentShell.getNextArgRequired();
-
-                if (VDBG) {
-                    Log.v(TAG, "onCommand: mode='" + mode + "', name='" + name + "'" + ", value='"
-                            + valueStr + "'");
-                }
-
-                if (!mSettablePowerParameters.containsKey(mode)) {
-                    pw.println("Unknown mode name -- '" + mode + "'");
-                    return -1;
-                }
-                if (!mSettablePowerParameters.get(mode).containsKey(name)) {
-                    pw.println("Unknown parameter name '" + name + "' in mode '" + mode + "'");
-                    return -1;
-                }
-
-                int value;
-                try {
-                    value = Integer.valueOf(valueStr);
-                } catch (NumberFormatException e) {
-                    pw.println("Can't convert value to integer -- '" + valueStr + "'");
-                    return -1;
-                }
-                mSettablePowerParameters.get(mode).put(name, value);
-                return 0;
-            }
             case "get": {
                 String name = parentShell.getNextArgRequired();
                 if (VDBG) Log.v(TAG, "onCommand: name='" + name + "'");
@@ -210,23 +132,6 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
                 parentShell.getOutPrintWriter().println((int) mSettableParameters.get(name));
                 return 0;
             }
-            case "get-power": {
-                String mode = parentShell.getNextArgRequired();
-                String name = parentShell.getNextArgRequired();
-                if (VDBG) Log.v(TAG, "onCommand: mode='" + mode + "', name='" + name + "'");
-                if (!mSettablePowerParameters.containsKey(mode)) {
-                    pw.println("Unknown mode -- '" + mode + "'");
-                    return -1;
-                }
-                if (!mSettablePowerParameters.get(mode).containsKey(name)) {
-                    pw.println("Unknown parameter name -- '" + name + "' in mode '" + mode + "'");
-                    return -1;
-                }
-
-                parentShell.getOutPrintWriter().println(
-                        (int) mSettablePowerParameters.get(mode).get(name));
-                return 0;
-            }
             default:
                 pw.println("Unknown 'wifiaware native_api <cmd>'");
         }
@@ -236,33 +141,12 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
 
     @Override
     public void onReset() {
-        Map<String, Integer> defaultMap = new HashMap<>();
-        defaultMap.put(PARAM_DW_24GHZ, PARAM_DW_24GHZ_DEFAULT);
-        defaultMap.put(PARAM_DW_5GHZ, PARAM_DW_5GHZ_DEFAULT);
-        defaultMap.put(PARAM_DISCOVERY_BEACON_INTERVAL_MS,
-                PARAM_DISCOVERY_BEACON_INTERVAL_MS_DEFAULT);
-        defaultMap.put(PARAM_NUM_SS_IN_DISCOVERY, PARAM_NUM_SS_IN_DISCOVERY_DEFAULT);
-        defaultMap.put(PARAM_ENABLE_DW_EARLY_TERM, PARAM_ENABLE_DW_EARLY_TERM_DEFAULT);
-
-        Map<String, Integer> inactiveMap = new HashMap<>();
-        inactiveMap.put(PARAM_DW_24GHZ, PARAM_DW_24GHZ_INACTIVE);
-        inactiveMap.put(PARAM_DW_5GHZ, PARAM_DW_5GHZ_INACTIVE);
-        inactiveMap.put(PARAM_DISCOVERY_BEACON_INTERVAL_MS,
-                PARAM_DISCOVERY_BEACON_INTERVAL_MS_INACTIVE);
-        inactiveMap.put(PARAM_NUM_SS_IN_DISCOVERY, PARAM_NUM_SS_IN_DISCOVERY_INACTIVE);
-        inactiveMap.put(PARAM_ENABLE_DW_EARLY_TERM, PARAM_ENABLE_DW_EARLY_TERM_INACTIVE);
-
-        Map<String, Integer> idleMap = new HashMap<>();
-        idleMap.put(PARAM_DW_24GHZ, PARAM_DW_24GHZ_IDLE);
-        idleMap.put(PARAM_DW_5GHZ, PARAM_DW_5GHZ_IDLE);
-        idleMap.put(PARAM_DISCOVERY_BEACON_INTERVAL_MS,
-                PARAM_DISCOVERY_BEACON_INTERVAL_MS_IDLE);
-        idleMap.put(PARAM_NUM_SS_IN_DISCOVERY, PARAM_NUM_SS_IN_DISCOVERY_IDLE);
-        idleMap.put(PARAM_ENABLE_DW_EARLY_TERM, PARAM_ENABLE_DW_EARLY_TERM_IDLE);
-
-        mSettablePowerParameters.put(POWER_PARAM_DEFAULT_KEY, defaultMap);
-        mSettablePowerParameters.put(POWER_PARAM_INACTIVE_KEY, inactiveMap);
-        mSettablePowerParameters.put(POWER_PARAM_IDLE_KEY, idleMap);
+        mSettableParameters.put(PARAM_DW_DEFAULT_24GHZ, PARAM_DW_DEFAULT_24GHZ_DEFAULT);
+        mSettableParameters.put(PARAM_DW_DEFAULT_5GHZ, PARAM_DW_DEFAULT_5GHZ_DEFAULT);
+        mSettableParameters.put(PARAM_DW_ON_INACTIVE_24GHZ, PARAM_DW_ON_INACTIVE_24GHZ_DEFAULT);
+        mSettableParameters.put(PARAM_DW_ON_INACTIVE_5GHZ, PARAM_DW_ON_INACTIVE_5GHZ_DEFAULT);
+        mSettableParameters.put(PARAM_DW_ON_IDLE_24GHZ, PARAM_DW_ON_IDLE_24GHZ_DEFAULT);
+        mSettableParameters.put(PARAM_DW_ON_IDLE_5GHZ, PARAM_DW_ON_IDLE_5GHZ_DEFAULT);
 
         mSettableParameters.put(PARAM_MAC_RANDOM_INTERVAL_SEC,
                 PARAM_MAC_RANDOM_INTERVAL_SEC_DEFAULT);
@@ -275,14 +159,8 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
         pw.println("  " + command);
         pw.println("    set <name> <value>: sets named parameter to value. Names: "
                 + mSettableParameters.keySet());
-        pw.println("    set-power <mode> <name> <value>: sets named power parameter to value."
-                + " Modes: " + mSettablePowerParameters.keySet()
-                + ", Names: " + mSettablePowerParameters.get(POWER_PARAM_DEFAULT_KEY).keySet());
         pw.println("    get <name>: gets named parameter value. Names: "
                 + mSettableParameters.keySet());
-        pw.println("    get-power <mode> <name>: gets named parameter value."
-                + " Modes: " + mSettablePowerParameters.keySet()
-                + ", Names: " + mSettablePowerParameters.get(POWER_PARAM_DEFAULT_KEY).keySet());
     }
 
     /**
@@ -292,8 +170,7 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
      *                      match with the original request.
      */
     public boolean getCapabilities(short transactionId) {
-        if (mDbg) Log.v(TAG, "getCapabilities: transactionId=" + transactionId);
-        recordTransactionId(transactionId);
+        if (VDBG) Log.v(TAG, "getCapabilities: transactionId=" + transactionId);
 
         IWifiNanIface iface = mHal.getWifiNanIface();
         if (iface == null) {
@@ -330,27 +207,17 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
     public boolean enableAndConfigure(short transactionId, ConfigRequest configRequest,
             boolean notifyIdentityChange, boolean initialConfiguration, boolean isInteractive,
             boolean isIdle) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "enableAndConfigure: transactionId=" + transactionId + ", configRequest="
                     + configRequest + ", notifyIdentityChange=" + notifyIdentityChange
                     + ", initialConfiguration=" + initialConfiguration
                     + ", isInteractive=" + isInteractive + ", isIdle=" + isIdle);
         }
-        recordTransactionId(transactionId);
 
         IWifiNanIface iface = mHal.getWifiNanIface();
         if (iface == null) {
             Log.e(TAG, "enableAndConfigure: null interface");
             return false;
-        }
-        android.hardware.wifi.V1_2.IWifiNanIface iface12 = mockableCastTo_1_2(iface);
-        NanConfigRequestSupplemental configSupplemental12 = new NanConfigRequestSupplemental();
-        if (iface12 != null) {
-            if (VDBG) Log.v(TAG, "HAL 1.2 detected");
-            configSupplemental12.discoveryBeaconIntervalMs = 0;
-            configSupplemental12.numberOfSpatialStreamsInDiscovery = 0;
-            configSupplemental12.enableDiscoveryWindowEarlyTermination = false;
-            configSupplemental12.enableRanging = true;
         }
 
         try {
@@ -428,14 +295,9 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
                 req.debugConfigs.useSdfInBandVal[NanBandIndex.NAN_BAND_24GHZ] = true;
                 req.debugConfigs.useSdfInBandVal[NanBandIndex.NAN_BAND_5GHZ] = true;
 
-                updateConfigForPowerSettings(req.configParams, configSupplemental12, isInteractive,
-                        isIdle);
+                updateConfigForPowerSettings(req.configParams, isInteractive, isIdle);
 
-                if (iface12 != null) {
-                    status = iface12.enableRequest_1_2(transactionId, req, configSupplemental12);
-                } else {
-                    status = iface.enableRequest(transactionId, req);
-                }
+                status = iface.enableRequest(transactionId, req);
             } else {
                 NanConfigRequest req = new NanConfigRequest();
                 req.masterPref = (byte) configRequest.mMasterPreference;
@@ -484,13 +346,9 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
                 }
                 req.bandSpecificConfig[NanBandIndex.NAN_BAND_5GHZ] = config5;
 
-                updateConfigForPowerSettings(req, configSupplemental12, isInteractive, isIdle);
+                updateConfigForPowerSettings(req, isInteractive, isIdle);
 
-                if (iface12 != null) {
-                    status = iface12.configRequest_1_2(transactionId, req, configSupplemental12);
-                } else {
-                    status = iface.configRequest(transactionId, req);
-                }
+                status = iface.configRequest(transactionId, req);
             }
             if (status.code == WifiStatusCode.SUCCESS) {
                 return true;
@@ -511,8 +369,7 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
      *            used in the async callback to match with the original request.
      */
     public boolean disable(short transactionId) {
-        if (mDbg) Log.d(TAG, "disable");
-        recordTransactionId(transactionId);
+        if (VDBG) Log.d(TAG, "disable");
 
         IWifiNanIface iface = mHal.getWifiNanIface();
         if (iface == null) {
@@ -544,11 +401,10 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
      * @param publishConfig Configuration of the discovery session.
      */
     public boolean publish(short transactionId, byte publishId, PublishConfig publishConfig) {
-        if (mDbg) {
+        if (VDBG) {
             Log.d(TAG, "publish: transactionId=" + transactionId + ", publishId=" + publishId
                     + ", config=" + publishConfig);
         }
-        recordTransactionId(transactionId);
 
         IWifiNanIface iface = mHal.getWifiNanIface();
         if (iface == null) {
@@ -574,12 +430,10 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
         req.baseConfigs.disableMatchExpirationIndication = true;
         req.baseConfigs.disableFollowupReceivedIndication = false;
 
-        req.autoAcceptDataPathRequests = false;
-
-        req.baseConfigs.rangingRequired = publishConfig.mEnableRanging;
-
-        // TODO: configure security
+        // TODO: configure ranging and security
         req.baseConfigs.securityConfig.securityType = NanDataPathSecurityType.OPEN;
+        req.baseConfigs.rangingRequired = false;
+        req.autoAcceptDataPathRequests = false;
 
         req.publishType = publishConfig.mPublishType;
         req.txType = NanTxType.BROADCAST;
@@ -609,11 +463,10 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
      */
     public boolean subscribe(short transactionId, byte subscribeId,
             SubscribeConfig subscribeConfig) {
-        if (mDbg) {
+        if (VDBG) {
             Log.d(TAG, "subscribe: transactionId=" + transactionId + ", subscribeId=" + subscribeId
                     + ", config=" + subscribeConfig);
         }
-        recordTransactionId(transactionId);
 
         IWifiNanIface iface = mHal.getWifiNanIface();
         if (iface == null) {
@@ -640,23 +493,9 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
         req.baseConfigs.disableMatchExpirationIndication = true;
         req.baseConfigs.disableFollowupReceivedIndication = false;
 
-        req.baseConfigs.rangingRequired =
-                subscribeConfig.mMinDistanceMmSet || subscribeConfig.mMaxDistanceMmSet;
-        req.baseConfigs.configRangingIndications = 0;
-        // TODO: b/69428593 remove correction factors once HAL converted from CM to MM
-        if (subscribeConfig.mMinDistanceMmSet) {
-            req.baseConfigs.distanceEgressCm = (short) Math.min(
-                    subscribeConfig.mMinDistanceMm / 10, Short.MAX_VALUE);
-            req.baseConfigs.configRangingIndications |= NanRangingIndication.EGRESS_MET_MASK;
-        }
-        if (subscribeConfig.mMaxDistanceMmSet) {
-            req.baseConfigs.distanceIngressCm = (short) Math.min(
-                    subscribeConfig.mMaxDistanceMm / 10, Short.MAX_VALUE);
-            req.baseConfigs.configRangingIndications |= NanRangingIndication.INGRESS_MET_MASK;
-        }
-
-        // TODO: configure security
+        // TODO: configure ranging and security
         req.baseConfigs.securityConfig.securityType = NanDataPathSecurityType.OPEN;
+        req.baseConfigs.rangingRequired = false;
 
         req.subscribeType = subscribeConfig.mSubscribeType;
 
@@ -690,7 +529,7 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
      */
     public boolean sendMessage(short transactionId, byte pubSubId, int requestorInstanceId,
             byte[] dest, byte[] message, int messageId) {
-        if (mDbg) {
+        if (VDBG) {
             Log.d(TAG,
                     "sendMessage: transactionId=" + transactionId + ", pubSubId=" + pubSubId
                             + ", requestorInstanceId=" + requestorInstanceId + ", dest="
@@ -699,7 +538,6 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
                             : HexEncoding.encode(message)) + ", message.length=" + (message == null
                             ? 0 : message.length));
         }
-        recordTransactionId(transactionId);
 
         IWifiNanIface iface = mHal.getWifiNanIface();
         if (iface == null) {
@@ -739,10 +577,9 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
      *            creating a session.
      */
     public boolean stopPublish(short transactionId, byte pubSubId) {
-        if (mDbg) {
+        if (VDBG) {
             Log.d(TAG, "stopPublish: transactionId=" + transactionId + ", pubSubId=" + pubSubId);
         }
-        recordTransactionId(transactionId);
 
         IWifiNanIface iface = mHal.getWifiNanIface();
         if (iface == null) {
@@ -773,10 +610,9 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
      *            creating a session.
      */
     public boolean stopSubscribe(short transactionId, byte pubSubId) {
-        if (mDbg) {
+        if (VDBG) {
             Log.d(TAG, "stopSubscribe: transactionId=" + transactionId + ", pubSubId=" + pubSubId);
         }
-        recordTransactionId(transactionId);
 
         IWifiNanIface iface = mHal.getWifiNanIface();
         if (iface == null) {
@@ -807,11 +643,10 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
      * @param interfaceName The name of the interface, e.g. "aware0".
      */
     public boolean createAwareNetworkInterface(short transactionId, String interfaceName) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "createAwareNetworkInterface: transactionId=" + transactionId + ", "
                     + "interfaceName=" + interfaceName);
         }
-        recordTransactionId(transactionId);
 
         IWifiNanIface iface = mHal.getWifiNanIface();
         if (iface == null) {
@@ -841,11 +676,10 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
      * @param interfaceName The name of the interface, e.g. "aware0".
      */
     public boolean deleteAwareNetworkInterface(short transactionId, String interfaceName) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "deleteAwareNetworkInterface: transactionId=" + transactionId + ", "
                     + "interfaceName=" + interfaceName);
         }
-        recordTransactionId(transactionId);
 
         IWifiNanIface iface = mHal.getWifiNanIface();
         if (iface == null) {
@@ -888,13 +722,12 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
     public boolean initiateDataPath(short transactionId, int peerId, int channelRequestType,
             int channel, byte[] peer, String interfaceName, byte[] pmk, String passphrase,
             boolean isOutOfBand, Capabilities capabilities) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "initiateDataPath: transactionId=" + transactionId + ", peerId=" + peerId
                     + ", channelRequestType=" + channelRequestType + ", channel=" + channel
                     + ", peer=" + String.valueOf(HexEncoding.encode(peer)) + ", interfaceName="
                     + interfaceName);
         }
-        recordTransactionId(transactionId);
 
         IWifiNanIface iface = mHal.getWifiNanIface();
         if (iface == null) {
@@ -966,11 +799,10 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
     public boolean respondToDataPathRequest(short transactionId, boolean accept, int ndpId,
             String interfaceName, byte[] pmk, String passphrase, boolean isOutOfBand,
             Capabilities capabilities) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "respondToDataPathRequest: transactionId=" + transactionId + ", accept="
                     + accept + ", int ndpId=" + ndpId + ", interfaceName=" + interfaceName);
         }
-        recordTransactionId(transactionId);
 
         IWifiNanIface iface = mHal.getWifiNanIface();
         if (iface == null) {
@@ -1029,10 +861,9 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
      * @param ndpId The NDP (Aware data path) ID to be terminated.
      */
     public boolean endDataPath(short transactionId, int ndpId) {
-        if (mDbg) {
+        if (VDBG) {
             Log.v(TAG, "endDataPath: transactionId=" + transactionId + ", ndpId=" + ndpId);
         }
-        recordTransactionId(transactionId);
 
         IWifiNanIface iface = mHal.getWifiNanIface();
         if (iface == null) {
@@ -1060,27 +891,26 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
     /**
      * Update the NAN configuration to reflect the current power settings.
      */
-    private void updateConfigForPowerSettings(NanConfigRequest req,
-            NanConfigRequestSupplemental configSupplemental12, boolean isInteractive,
+    private void updateConfigForPowerSettings(NanConfigRequest req, boolean isInteractive,
             boolean isIdle) {
-        String key = POWER_PARAM_DEFAULT_KEY;
-        if (isIdle) {
-            key = POWER_PARAM_IDLE_KEY;
-        } else if (!isInteractive) {
-            key = POWER_PARAM_INACTIVE_KEY;
+        if (isIdle) { // lowest power state: doze
+            updateSingleConfigForPowerSettings(req.bandSpecificConfig[NanBandIndex.NAN_BAND_5GHZ],
+                    mSettableParameters.get(PARAM_DW_ON_IDLE_5GHZ));
+            updateSingleConfigForPowerSettings(req.bandSpecificConfig[NanBandIndex.NAN_BAND_24GHZ],
+                    mSettableParameters.get(PARAM_DW_ON_IDLE_24GHZ));
+        } else if (!isInteractive) { // intermediate power state: inactive
+            updateSingleConfigForPowerSettings(req.bandSpecificConfig[NanBandIndex.NAN_BAND_5GHZ],
+                    mSettableParameters.get(PARAM_DW_ON_INACTIVE_5GHZ));
+            updateSingleConfigForPowerSettings(req.bandSpecificConfig[NanBandIndex.NAN_BAND_24GHZ],
+                    mSettableParameters.get(PARAM_DW_ON_INACTIVE_24GHZ));
+        } else { // the default state
+            updateSingleConfigForPowerSettings(req.bandSpecificConfig[NanBandIndex.NAN_BAND_5GHZ],
+                    mSettableParameters.get(PARAM_DW_DEFAULT_5GHZ));
+            updateSingleConfigForPowerSettings(req.bandSpecificConfig[NanBandIndex.NAN_BAND_24GHZ],
+                    mSettableParameters.get(PARAM_DW_DEFAULT_24GHZ));
         }
 
-        updateSingleConfigForPowerSettings(req.bandSpecificConfig[NanBandIndex.NAN_BAND_5GHZ],
-                mSettablePowerParameters.get(key).get(PARAM_DW_5GHZ));
-        updateSingleConfigForPowerSettings(req.bandSpecificConfig[NanBandIndex.NAN_BAND_24GHZ],
-                mSettablePowerParameters.get(key).get(PARAM_DW_24GHZ));
-
-        configSupplemental12.discoveryBeaconIntervalMs = mSettablePowerParameters.get(key).get(
-                PARAM_DISCOVERY_BEACON_INTERVAL_MS);
-        configSupplemental12.numberOfSpatialStreamsInDiscovery = mSettablePowerParameters.get(
-                key).get(PARAM_NUM_SS_IN_DISCOVERY);
-        configSupplemental12.enableDiscoveryWindowEarlyTermination = mSettablePowerParameters.get(
-                key).get(PARAM_ENABLE_DW_EARLY_TERM) != 0;
+        // else do nothing - normal power state
     }
 
     private void updateSingleConfigForPowerSettings(NanBandSpecificConfig cfg, int override) {

@@ -17,8 +17,7 @@
 package com.android.support.lifecycle.testapp;
 
 import android.os.Bundle;
-
-import androidx.annotation.Nullable;
+import android.support.annotation.Nullable;
 
 import com.android.support.lifecycle.LifecycleActivity;
 import com.android.support.lifecycle.LifecycleFragment;

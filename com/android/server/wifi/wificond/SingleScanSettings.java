@@ -16,7 +16,6 @@
 
 package com.android.server.wifi.wificond;
 
-import android.net.wifi.IWifiScannerImpl;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
@@ -32,7 +31,6 @@ import java.util.Objects;
 public class SingleScanSettings implements Parcelable {
     private static final String TAG = "SingleScanSettings";
 
-    public int scanType;
     public ArrayList<ChannelSettings> channelSettings;
     public ArrayList<HiddenNetwork> hiddenNetworks;
 
@@ -50,15 +48,14 @@ public class SingleScanSettings implements Parcelable {
         if (settings == null) {
             return false;
         }
-        return scanType == settings.scanType
-                && channelSettings.equals(settings.channelSettings)
+        return channelSettings.equals(settings.channelSettings)
                 && hiddenNetworks.equals(settings.hiddenNetworks);
     }
 
     /** override hash code */
     @Override
     public int hashCode() {
-        return Objects.hash(scanType, channelSettings, hiddenNetworks);
+        return Objects.hash(channelSettings, hiddenNetworks);
     }
 
 
@@ -68,22 +65,12 @@ public class SingleScanSettings implements Parcelable {
         return 0;
     }
 
-    private static boolean isValidScanType(int scanType) {
-        return scanType == IWifiScannerImpl.SCAN_TYPE_LOW_SPAN
-                || scanType == IWifiScannerImpl.SCAN_TYPE_LOW_POWER
-                || scanType == IWifiScannerImpl.SCAN_TYPE_HIGH_ACCURACY;
-    }
-
     /**
      * implement Parcelable interface
      * |flags| is ignored.
      */
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        if (!isValidScanType(scanType)) {
-            Log.wtf(TAG, "Invalid scan type " + scanType);
-        }
-        out.writeInt(scanType);
         out.writeTypedList(channelSettings);
         out.writeTypedList(hiddenNetworks);
     }
@@ -97,10 +84,6 @@ public class SingleScanSettings implements Parcelable {
         @Override
         public SingleScanSettings createFromParcel(Parcel in) {
             SingleScanSettings result = new SingleScanSettings();
-            result.scanType = in.readInt();
-            if (!isValidScanType(result.scanType)) {
-                Log.wtf(TAG, "Invalid scan type " + result.scanType);
-            }
             result.channelSettings = new ArrayList<ChannelSettings>();
             in.readTypedList(result.channelSettings, ChannelSettings.CREATOR);
             result.hiddenNetworks = new ArrayList<HiddenNetwork>();
@@ -108,6 +91,7 @@ public class SingleScanSettings implements Parcelable {
             if (in.dataAvail() != 0) {
                 Log.e(TAG, "Found trailing data after parcel parsing.");
             }
+
             return result;
         }
 

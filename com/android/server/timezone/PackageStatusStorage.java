@@ -76,22 +76,18 @@ final class PackageStatusStorage {
      */
     private static final String ATTRIBUTE_DATA_APP_VERSION = "dataAppPackageVersion";
 
-    private static final long UNKNOWN_PACKAGE_VERSION = -1;
+    private static final int UNKNOWN_PACKAGE_VERSION = -1;
 
     private final AtomicFile mPackageStatusFile;
 
     PackageStatusStorage(File storageDir) {
-        mPackageStatusFile = new AtomicFile(new File(storageDir, "package-status.xml"), "timezone-status");
-    }
-
-    /**
-     * Initialize any storage, as needed.
-     *
-     * @throws IOException if the storage could not be initialized
-     */
-    void initialize() throws IOException {
+        mPackageStatusFile = new AtomicFile(new File(storageDir, "package-status.xml"));
         if (!mPackageStatusFile.getBaseFile().exists()) {
-            insertInitialPackageStatus();
+            try {
+                insertInitialPackageStatus();
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
         }
     }
 
@@ -324,14 +320,14 @@ final class PackageStatusStorage {
             serializer.attribute(namespace, ATTRIBUTE_CHECK_STATUS, statusAttributeValue);
             serializer.attribute(namespace, ATTRIBUTE_OPTIMISTIC_LOCK_ID,
                     Integer.toString(optimisticLockId));
-            long updateAppVersion = status == null
+            int updateAppVersion = status == null
                     ? UNKNOWN_PACKAGE_VERSION : packageVersions.mUpdateAppVersion;
             serializer.attribute(namespace, ATTRIBUTE_UPDATE_APP_VERSION,
-                    Long.toString(updateAppVersion));
-            long dataAppVersion = status == null
+                    Integer.toString(updateAppVersion));
+            int dataAppVersion = status == null
                     ? UNKNOWN_PACKAGE_VERSION : packageVersions.mDataAppVersion;
             serializer.attribute(namespace, ATTRIBUTE_DATA_APP_VERSION,
-                    Long.toString(dataAppVersion));
+                    Integer.toString(dataAppVersion));
             serializer.endTag(namespace, TAG_PACKAGE_STATUS);
             serializer.endDocument();
             serializer.flush();
@@ -346,13 +342,13 @@ final class PackageStatusStorage {
     }
 
     /** Only used during tests to force a known table state. */
-    public void forceCheckStateForTests(int checkStatus, PackageVersions packageVersions)
-            throws IOException {
+    public void forceCheckStateForTests(int checkStatus, PackageVersions packageVersions) {
         synchronized (this) {
             try {
-                final int initialOptimisticLockId = (int) System.currentTimeMillis();
-                writePackageStatusLocked(checkStatus, initialOptimisticLockId, packageVersions);
-            } catch (IOException e) {
+                int optimisticLockId = getCurrentOptimisticLockId();
+                writePackageStatusWithOptimisticLockCheck(optimisticLockId, optimisticLockId,
+                        checkStatus, packageVersions);
+            } catch (IOException | ParseException e) {
                 throw new IllegalStateException(e);
             }
         }

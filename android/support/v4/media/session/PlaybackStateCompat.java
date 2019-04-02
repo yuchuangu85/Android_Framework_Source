@@ -15,20 +15,19 @@
  */
 package android.support.v4.media.session;
 
-import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
+
+import static android.support.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.SystemClock;
+import android.support.annotation.IntDef;
+import android.support.annotation.Nullable;
+import android.support.annotation.RestrictTo;
 import android.text.TextUtils;
 import android.view.KeyEvent;
-
-import androidx.annotation.IntDef;
-import androidx.annotation.LongDef;
-import androidx.annotation.Nullable;
-import androidx.annotation.RestrictTo;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -46,7 +45,7 @@ public final class PlaybackStateCompat implements Parcelable {
      * @hide
      */
     @RestrictTo(LIBRARY_GROUP)
-    @LongDef(flag=true, value={ACTION_STOP, ACTION_PAUSE, ACTION_PLAY, ACTION_REWIND,
+    @IntDef(flag=true, value={ACTION_STOP, ACTION_PAUSE, ACTION_PLAY, ACTION_REWIND,
             ACTION_SKIP_TO_PREVIOUS, ACTION_SKIP_TO_NEXT, ACTION_FAST_FORWARD, ACTION_SET_RATING,
             ACTION_SEEK_TO, ACTION_PLAY_PAUSE, ACTION_PLAY_FROM_MEDIA_ID, ACTION_PLAY_FROM_SEARCH,
             ACTION_SKIP_TO_QUEUE_ITEM, ACTION_PLAY_FROM_URI, ACTION_PREPARE,
@@ -59,7 +58,7 @@ public final class PlaybackStateCompat implements Parcelable {
      * @hide
      */
     @RestrictTo(LIBRARY_GROUP)
-    @LongDef({ACTION_STOP, ACTION_PAUSE, ACTION_PLAY, ACTION_REWIND, ACTION_SKIP_TO_PREVIOUS,
+    @IntDef({ACTION_STOP, ACTION_PAUSE, ACTION_PLAY, ACTION_REWIND, ACTION_SKIP_TO_PREVIOUS,
             ACTION_SKIP_TO_NEXT, ACTION_FAST_FORWARD, ACTION_PLAY_PAUSE})
     @Retention(RetentionPolicy.SOURCE)
     public @interface MediaKeyAction {}
@@ -203,7 +202,6 @@ public final class PlaybackStateCompat implements Parcelable {
      * @see Builder#setActions(long)
      * @deprecated Use {@link #ACTION_SET_SHUFFLE_MODE} instead.
      */
-    @Deprecated
     public static final long ACTION_SET_SHUFFLE_MODE_ENABLED = 1 << 19;
 
     /**

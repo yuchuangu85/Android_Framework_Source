@@ -19,6 +19,7 @@ package android.view;
 import android.animation.Animator;
 import android.animation.TimeInterpolator;
 import android.animation.ValueAnimator;
+import android.graphics.Canvas;
 import android.graphics.CanvasProperty;
 import android.graphics.Paint;
 import android.util.SparseIntArray;
@@ -158,7 +159,7 @@ public class RenderNodeAnimator extends Animator {
     }
 
     private void applyInterpolator() {
-        if (mInterpolator == null || mNativePtr == null) return;
+        if (mInterpolator == null) return;
 
         long ni;
         if (isNativeInterpolator(mInterpolator)) {
@@ -280,9 +281,12 @@ public class RenderNodeAnimator extends Animator {
         setTarget(mViewTarget.mRenderNode);
     }
 
-    /** Sets the animation target to the owning view of the DisplayListCanvas */
-    public void setTarget(DisplayListCanvas canvas) {
-        setTarget(canvas.mNode);
+    public void setTarget(Canvas canvas) {
+        if (!(canvas instanceof DisplayListCanvas)) {
+            throw new IllegalArgumentException("Not a GLES20RecordingCanvas");
+        }
+        final DisplayListCanvas recordingCanvas = (DisplayListCanvas) canvas;
+        setTarget(recordingCanvas.mNode);
     }
 
     private void setTarget(RenderNode node) {

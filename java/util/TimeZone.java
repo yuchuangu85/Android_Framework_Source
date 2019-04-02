@@ -743,7 +743,7 @@ abstract public class TimeZone implements Serializable, Cloneable {
         }
         defaultTimeZone = timeZone != null ? (TimeZone) timeZone.clone() : null;
         // Android-changed: notify ICU4J of changed default TimeZone.
-        android.icu.util.TimeZone.setICUDefault(null);
+        android.icu.util.TimeZone.clearCachedDefault();
     }
 
     /**

@@ -41,9 +41,6 @@ import libcore.reflect.AnnotatedElements;
  * @since 1.8
  */
 public final class Parameter implements AnnotatedElement {
-    // Android-changed: Extensive modifications made throughout the class for ART.
-    // Android-removed: Type annotations runtime code. Not supported on Android.
-    // Android-removed: Annotation retrieval is implemented natively in ART.
 
     private final String name;
     private final int modifiers;
@@ -98,7 +95,7 @@ public final class Parameter implements AnnotatedElement {
         return executable.hashCode() ^ index;
     }
 
-    // Android-changed: Removed references in javadoc to the class file format.
+    // Android-changed: Removed references to the class file format.
     /**
      * Returns true if the parameter has a name; returns false otherwise.
      * Whether a parameter has a name is determined by compiler options
@@ -274,10 +271,9 @@ public final class Parameter implements AnnotatedElement {
      */
     public <T extends Annotation> T getAnnotation(Class<T> annotationClass) {
         Objects.requireNonNull(annotationClass);
-        // Android-changed: getAnnotation(Class) Uses native code to obtain annotation information.
+        // Android-changed: Uses native code to obtain annotation information.
         return getAnnotationNative(executable, index, annotationClass);
     }
-    // Android-added: getAnnotation(Class) Uses native code to obtain annotation information.
     @FastNative
     private static native <A extends Annotation> A getAnnotationNative(
             Executable executable, int parameterIndex, Class<A> annotationType);
@@ -288,7 +284,7 @@ public final class Parameter implements AnnotatedElement {
      */
     @Override
     public <T extends Annotation> T[] getAnnotationsByType(Class<T> annotationClass) {
-        // Android-changed: getAnnotationsByType(Class), Android uses AnnotatedElements instead.
+        // Android-changed: Uses AnnotatedElements instead.
         return AnnotatedElements.getDirectOrIndirectAnnotationsByType(this, annotationClass);
     }
 
@@ -326,5 +322,4 @@ public final class Parameter implements AnnotatedElement {
     public Annotation[] getAnnotations() {
         return getDeclaredAnnotations();
     }
-
 }

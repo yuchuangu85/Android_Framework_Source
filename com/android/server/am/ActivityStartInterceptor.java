@@ -17,12 +17,9 @@
 package com.android.server.am;
 
 import static android.app.ActivityManager.INTENT_SENDER_ACTIVITY;
-import static android.app.ActivityOptions.ANIM_OPEN_CROSS_PROFILE_APPS;
 import static android.app.PendingIntent.FLAG_CANCEL_CURRENT;
 import static android.app.PendingIntent.FLAG_IMMUTABLE;
 import static android.app.PendingIntent.FLAG_ONE_SHOT;
-import static android.app.admin.DevicePolicyManager.EXTRA_RESTRICTION;
-import static android.app.admin.DevicePolicyManager.POLICY_SUSPEND_PACKAGES;
 import static android.content.Context.KEYGUARD_SERVICE;
 import static android.content.Intent.EXTRA_INTENT;
 import static android.content.Intent.EXTRA_PACKAGE_NAME;
@@ -32,47 +29,32 @@ import static android.content.Intent.FLAG_ACTIVITY_NEW_TASK;
 import static android.content.Intent.FLAG_ACTIVITY_TASK_ON_HOME;
 import static android.content.pm.ApplicationInfo.FLAG_SUSPENDED;
 
-import static com.android.server.pm.PackageManagerService.PLATFORM_PACKAGE_NAME;
-
+import android.app.ActivityManager;
 import android.app.ActivityOptions;
 import android.app.KeyguardManager;
 import android.app.admin.DevicePolicyManagerInternal;
-import android.content.Context;
 import android.content.IIntentSender;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.content.pm.ActivityInfo;
-import android.content.pm.PackageManagerInternal;
 import android.content.pm.ResolveInfo;
 import android.content.pm.UserInfo;
 import android.os.Binder;
-import android.os.Bundle;
-import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
 
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.app.HarmfulAppWarningActivity;
-import com.android.internal.app.SuspendedAppActivity;
 import com.android.internal.app.UnlaunchableAppActivity;
 import com.android.server.LocalServices;
 
 /**
  * A class that contains activity intercepting logic for {@link ActivityStarter#startActivityLocked}
- * It's initialized via setStates and interception occurs via the intercept method.
- *
- * Note that this class is instantiated when {@link ActivityManagerService} gets created so there
- * is no guarantee that other system services are already present.
+ * It's initialized
  */
 class ActivityStartInterceptor {
 
     private final ActivityManagerService mService;
-    private final ActivityStackSupervisor mSupervisor;
-    private final Context mServiceContext;
-    private final UserController mUserController;
-
-    // UserManager cannot be final as it's not ready when this class is instantiated during boot
     private UserManager mUserManager;
+    private final ActivityStackSupervisor mSupervisor;
 
     /*
      * Per-intent states loaded from ActivityStarter than shouldn't be changed by any
@@ -87,8 +69,7 @@ class ActivityStartInterceptor {
     /*
      * Per-intent states that were load from ActivityStarter and are subject to modifications
      * by the interception routines. After calling {@link #intercept} the caller should assign
-     * these values back to {@link ActivityStarter#startActivityLocked}'s local variables if
-     * {@link #intercept} returns true.
+     * these values back to {@link ActivityStarter#startActivityLocked}'s local variables.
      */
     Intent mIntent;
     int mCallingPid;
@@ -100,22 +81,10 @@ class ActivityStartInterceptor {
     ActivityOptions mActivityOptions;
 
     ActivityStartInterceptor(ActivityManagerService service, ActivityStackSupervisor supervisor) {
-        this(service, supervisor, service.mContext, service.mUserController);
-    }
-
-    @VisibleForTesting
-    ActivityStartInterceptor(ActivityManagerService service, ActivityStackSupervisor supervisor,
-            Context context, UserController userController) {
         mService = service;
         mSupervisor = supervisor;
-        mServiceContext = context;
-        mUserController = userController;
     }
 
-    /**
-     * Effectively initialize the class before intercepting the start intent. The values set in this
-     * method should not be changed during intercept.
-     */
     void setStates(int userId, int realCallingPid, int realCallingUid, int startFlags,
             String callingPackage) {
         mRealCallingPid = realCallingPid;
@@ -125,26 +94,9 @@ class ActivityStartInterceptor {
         mCallingPackage = callingPackage;
     }
 
-    private IntentSender createIntentSenderForOriginalIntent(int callingUid, int flags) {
-        Bundle activityOptions = deferCrossProfileAppsAnimationIfNecessary();
-        final IIntentSender target = mService.getIntentSenderLocked(
-                INTENT_SENDER_ACTIVITY, mCallingPackage, callingUid, mUserId, null /*token*/,
-                null /*resultCode*/, 0 /*requestCode*/,
-                new Intent[] { mIntent }, new String[] { mResolvedType },
-                flags, activityOptions);
-        return new IntentSender(target);
-    }
-
-    /**
-     * Intercept the launch intent based on various signals. If an interception happened the
-     * internal variables get assigned and need to be read explicitly by the caller.
-     *
-     * @return true if an interception occurred
-     */
-    boolean intercept(Intent intent, ResolveInfo rInfo, ActivityInfo aInfo, String resolvedType,
+    void intercept(Intent intent, ResolveInfo rInfo, ActivityInfo aInfo, String resolvedType,
             TaskRecord inTask, int callingPid, int callingUid, ActivityOptions activityOptions) {
-        mUserManager = UserManager.get(mServiceContext);
-
+        mUserManager = UserManager.get(mService.mContext);
         mIntent = intent;
         mCallingPid = callingPid;
         mCallingUid = callingUid;
@@ -153,38 +105,17 @@ class ActivityStartInterceptor {
         mResolvedType = resolvedType;
         mInTask = inTask;
         mActivityOptions = activityOptions;
-
-        if (interceptSuspendedPackageIfNeeded()) {
+        if (interceptSuspendPackageIfNeed()) {
             // Skip the rest of interceptions as the package is suspended by device admin so
             // no user action can undo this.
-            return true;
+            return;
         }
         if (interceptQuietProfileIfNeeded()) {
             // If work profile is turned off, skip the work challenge since the profile can only
             // be unlocked when profile's user is running.
-            return true;
+            return;
         }
-        if (interceptHarmfulAppIfNeeded()) {
-            // If the app has a "harmful app" warning associated with it, we should ask to uninstall
-            // before issuing the work challenge.
-            return true;
-        }
-        return interceptWorkProfileChallengeIfNeeded();
-    }
-
-    /**
-     * If the activity option is the {@link ActivityOptions#ANIM_OPEN_CROSS_PROFILE_APPS} one,
-     * defer the animation until the original intent is started.
-     *
-     * @return the activity option used to start the original intent.
-     */
-    private Bundle deferCrossProfileAppsAnimationIfNecessary() {
-        if (mActivityOptions != null
-                && mActivityOptions.getAnimationType() == ANIM_OPEN_CROSS_PROFILE_APPS) {
-            mActivityOptions = null;
-            return ActivityOptions.makeOpenCrossProfileAppsAnimation().toBundle();
-        }
-        return null;
+        interceptWorkProfileChallengeIfNeeded();
     }
 
     private boolean interceptQuietProfileIfNeeded() {
@@ -192,74 +123,52 @@ class ActivityStartInterceptor {
         if (!mUserManager.isQuietModeEnabled(UserHandle.of(mUserId))) {
             return false;
         }
+        IIntentSender target = mService.getIntentSenderLocked(
+                INTENT_SENDER_ACTIVITY, mCallingPackage, mCallingUid, mUserId, null, null, 0,
+                new Intent[] {mIntent}, new String[] {mResolvedType},
+                FLAG_CANCEL_CURRENT | FLAG_ONE_SHOT, null);
 
-        IntentSender target = createIntentSenderForOriginalIntent(mCallingUid,
-                FLAG_CANCEL_CURRENT | FLAG_ONE_SHOT);
-
-        mIntent = UnlaunchableAppActivity.createInQuietModeDialogIntent(mUserId, target);
+        mIntent = UnlaunchableAppActivity.createInQuietModeDialogIntent(mUserId,
+                new IntentSender(target));
         mCallingPid = mRealCallingPid;
         mCallingUid = mRealCallingUid;
         mResolvedType = null;
 
         final UserInfo parent = mUserManager.getProfileParent(mUserId);
-        mRInfo = mSupervisor.resolveIntent(mIntent, mResolvedType, parent.id, 0, mRealCallingUid);
+        mRInfo = mSupervisor.resolveIntent(mIntent, mResolvedType, parent.id);
         mAInfo = mSupervisor.resolveActivity(mIntent, mRInfo, mStartFlags, null /*profilerInfo*/);
         return true;
     }
 
-    private boolean interceptSuspendedByAdminPackage() {
-        DevicePolicyManagerInternal devicePolicyManager = LocalServices
-                .getService(DevicePolicyManagerInternal.class);
+    private boolean interceptSuspendPackageIfNeed() {
+        // Do not intercept if the admin did not suspend the package
+        if (mAInfo == null || mAInfo.applicationInfo == null ||
+                (mAInfo.applicationInfo.flags & FLAG_SUSPENDED) == 0) {
+            return false;
+        }
+        DevicePolicyManagerInternal devicePolicyManager = LocalServices.getService(
+                DevicePolicyManagerInternal.class);
         if (devicePolicyManager == null) {
             return false;
         }
         mIntent = devicePolicyManager.createShowAdminSupportIntent(mUserId, true);
-        mIntent.putExtra(EXTRA_RESTRICTION, POLICY_SUSPEND_PACKAGES);
-
         mCallingPid = mRealCallingPid;
         mCallingUid = mRealCallingUid;
         mResolvedType = null;
 
         final UserInfo parent = mUserManager.getProfileParent(mUserId);
         if (parent != null) {
-            mRInfo = mSupervisor.resolveIntent(mIntent, mResolvedType, parent.id, 0,
-                    mRealCallingUid);
+            mRInfo = mSupervisor.resolveIntent(mIntent, mResolvedType, parent.id);
         } else {
-            mRInfo = mSupervisor.resolveIntent(mIntent, mResolvedType, mUserId, 0,
-                    mRealCallingUid);
+            mRInfo = mSupervisor.resolveIntent(mIntent, mResolvedType, mUserId);
         }
-        mAInfo = mSupervisor.resolveActivity(mIntent, mRInfo, mStartFlags, null /*profilerInfo*/);
-        return true;
-    }
-
-    private boolean interceptSuspendedPackageIfNeeded() {
-        // Do not intercept if the package is not suspended
-        if (mAInfo == null || mAInfo.applicationInfo == null ||
-                (mAInfo.applicationInfo.flags & FLAG_SUSPENDED) == 0) {
-            return false;
-        }
-        final PackageManagerInternal pmi = mService.getPackageManagerInternalLocked();
-        if (pmi == null) {
-            return false;
-        }
-        final String suspendedPackage = mAInfo.applicationInfo.packageName;
-        final String suspendingPackage = pmi.getSuspendingPackage(suspendedPackage, mUserId);
-        if (PLATFORM_PACKAGE_NAME.equals(suspendingPackage)) {
-            return interceptSuspendedByAdminPackage();
-        }
-        final String dialogMessage = pmi.getSuspendedDialogMessage(suspendedPackage, mUserId);
-        mIntent = SuspendedAppActivity.createSuspendedAppInterceptIntent(suspendedPackage,
-                suspendingPackage, dialogMessage, mUserId);
-        mCallingPid = mRealCallingPid;
-        mCallingUid = mRealCallingUid;
-        mResolvedType = null;
-        mRInfo = mSupervisor.resolveIntent(mIntent, mResolvedType, mUserId, 0, mRealCallingUid);
         mAInfo = mSupervisor.resolveActivity(mIntent, mRInfo, mStartFlags, null /*profilerInfo*/);
         return true;
     }
 
     private boolean interceptWorkProfileChallengeIfNeeded() {
-        final Intent interceptingIntent = interceptWithConfirmCredentialsIfNeeded(mAInfo, mUserId);
+        final Intent interceptingIntent = interceptWithConfirmCredentialsIfNeeded(mIntent,
+                mResolvedType, mAInfo, mCallingPackage, mUserId);
         if (interceptingIntent == null) {
             return false;
         }
@@ -286,7 +195,7 @@ class ActivityStartInterceptor {
         }
 
         final UserInfo parent = mUserManager.getProfileParent(mUserId);
-        mRInfo = mSupervisor.resolveIntent(mIntent, mResolvedType, parent.id, 0, mRealCallingUid);
+        mRInfo = mSupervisor.resolveIntent(mIntent, mResolvedType, parent.id);
         mAInfo = mSupervisor.resolveActivity(mIntent, mRInfo, mStartFlags, null /*profilerInfo*/);
         return true;
     }
@@ -296,14 +205,18 @@ class ActivityStartInterceptor {
      *
      * @return The intercepting intent if needed.
      */
-    private Intent interceptWithConfirmCredentialsIfNeeded(ActivityInfo aInfo, int userId) {
-        if (!mUserController.shouldConfirmCredentials(userId)) {
+    private Intent interceptWithConfirmCredentialsIfNeeded(Intent intent, String resolvedType,
+            ActivityInfo aInfo, String callingPackage, int userId) {
+        if (!mService.mUserController.shouldConfirmCredentials(userId)) {
             return null;
         }
         // TODO(b/28935539): should allow certain activities to bypass work challenge
-        final IntentSender target = createIntentSenderForOriginalIntent(Binder.getCallingUid(),
-                FLAG_CANCEL_CURRENT | FLAG_ONE_SHOT | FLAG_IMMUTABLE);
-        final KeyguardManager km = (KeyguardManager) mServiceContext
+        final IIntentSender target = mService.getIntentSenderLocked(
+                INTENT_SENDER_ACTIVITY, callingPackage,
+                Binder.getCallingUid(), userId, null, null, 0, new Intent[]{ intent },
+                new String[]{ resolvedType },
+                FLAG_CANCEL_CURRENT | FLAG_ONE_SHOT | FLAG_IMMUTABLE, null);
+        final KeyguardManager km = (KeyguardManager) mService.mContext
                 .getSystemService(KEYGUARD_SERVICE);
         final Intent newIntent = km.createConfirmDeviceCredentialIntent(null, null, userId);
         if (newIntent == null) {
@@ -312,35 +225,8 @@ class ActivityStartInterceptor {
         newIntent.setFlags(FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS |
                 FLAG_ACTIVITY_TASK_ON_HOME);
         newIntent.putExtra(EXTRA_PACKAGE_NAME, aInfo.packageName);
-        newIntent.putExtra(EXTRA_INTENT, target);
+        newIntent.putExtra(EXTRA_INTENT, new IntentSender(target));
         return newIntent;
     }
 
-    private boolean interceptHarmfulAppIfNeeded() {
-        CharSequence harmfulAppWarning;
-        try {
-            harmfulAppWarning = mService.getPackageManager()
-                    .getHarmfulAppWarning(mAInfo.packageName, mUserId);
-        } catch (RemoteException ex) {
-            return false;
-        }
-
-        if (harmfulAppWarning == null) {
-            return false;
-        }
-
-        final IntentSender target = createIntentSenderForOriginalIntent(mCallingUid,
-                FLAG_CANCEL_CURRENT | FLAG_ONE_SHOT | FLAG_IMMUTABLE);
-
-        mIntent = HarmfulAppWarningActivity.createHarmfulAppWarningIntent(mServiceContext,
-                mAInfo.packageName, target, harmfulAppWarning);
-
-        mCallingPid = mRealCallingPid;
-        mCallingUid = mRealCallingUid;
-        mResolvedType = null;
-
-        mRInfo = mSupervisor.resolveIntent(mIntent, mResolvedType, mUserId, 0, mRealCallingUid);
-        mAInfo = mSupervisor.resolveActivity(mIntent, mRInfo, mStartFlags, null /*profilerInfo*/);
-        return true;
-    }
 }

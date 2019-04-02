@@ -16,36 +16,26 @@
 
 package com.android.server.backup.utils;
 
-import static com.android.server.backup.BackupManagerService.DEBUG;
-import static com.android.server.backup.BackupManagerService.TAG;
+import static com.android.server.backup.RefactoredBackupManagerService.DEBUG;
+import static com.android.server.backup.RefactoredBackupManagerService.TAG;
 
-import android.content.Context;
-import android.content.IIntentReceiver;
-import android.content.IIntentSender;
-import android.content.Intent;
-import android.content.IntentSender;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
-import android.content.pm.PackageInstaller;
-import android.content.pm.PackageInstaller.Session;
-import android.content.pm.PackageInstaller.SessionParams;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageManagerInternal;
 import android.content.pm.Signature;
-import android.os.Bundle;
-import android.os.IBinder;
+import android.net.Uri;
 import android.os.Process;
 import android.util.Slog;
 
-import com.android.internal.annotations.GuardedBy;
-import com.android.server.LocalServices;
 import com.android.server.backup.FileMetadata;
 import com.android.server.backup.restore.RestoreDeleteObserver;
+import com.android.server.backup.restore.RestoreInstallObserver;
 import com.android.server.backup.restore.RestorePolicy;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.HashMap;
 
 /**
@@ -57,73 +47,62 @@ public class RestoreUtils {
      * Reads apk contents from input stream and installs the apk.
      *
      * @param instream - input stream to read apk data from.
-     * @param context - installing context
+     * @param packageManager - {@link PackageManager} instance.
+     * @param installObserver - {@link RestoreInstallObserver} instance.
      * @param deleteObserver - {@link RestoreDeleteObserver} instance.
      * @param manifestSignatures - manifest signatures.
      * @param packagePolicies - package policies.
      * @param info - backup file info.
-     * @param installerPackageName - package name of installer.
+     * @param installerPackage - installer package.
      * @param bytesReadListener - listener to be called for counting bytes read.
+     * @param dataDir - directory where to create apk file.
      * @return true if apk was successfully read and installed and false otherwise.
      */
     // TODO: Refactor to get rid of unneeded params.
-    public static boolean installApk(InputStream instream, Context context,
-            RestoreDeleteObserver deleteObserver,
+    public static boolean installApk(InputStream instream, PackageManager packageManager,
+            RestoreInstallObserver installObserver, RestoreDeleteObserver deleteObserver,
             HashMap<String, Signature[]> manifestSignatures,
             HashMap<String, RestorePolicy> packagePolicies,
             FileMetadata info,
-            String installerPackageName, BytesReadListener bytesReadListener) {
+            String installerPackage, BytesReadListener bytesReadListener,
+            File dataDir) {
         boolean okay = true;
 
         if (DEBUG) {
             Slog.d(TAG, "Installing from backup: " + info.packageName);
         }
 
+        // The file content is an .apk file.  Copy it out to a staging location and
+        // attempt to install it.
+        File apkFile = new File(dataDir, info.packageName);
         try {
-            LocalIntentReceiver receiver = new LocalIntentReceiver();
-            PackageManager packageManager = context.getPackageManager();
-            PackageInstaller installer = packageManager.getPackageInstaller();
-
-            SessionParams params = new SessionParams(SessionParams.MODE_FULL_INSTALL);
-            params.setInstallerPackageName(installerPackageName);
-            int sessionId = installer.createSession(params);
-            try {
-                try (Session session = installer.openSession(sessionId)) {
-                    try (OutputStream apkStream = session.openWrite(info.packageName, 0,
-                            info.size)) {
-                        byte[] buffer = new byte[32 * 1024];
-                        long size = info.size;
-                        while (size > 0) {
-                            long toRead = (buffer.length < size) ? buffer.length : size;
-                            int didRead = instream.read(buffer, 0, (int) toRead);
-                            if (didRead >= 0) {
-                                bytesReadListener.onBytesRead(didRead);
-                            }
-                            apkStream.write(buffer, 0, didRead);
-                            size -= didRead;
-                        }
-                    }
-
-                    // Installation is current disabled
-                    session.abandon();
-                    // session.commit(receiver.getIntentSender());
+            FileOutputStream apkStream = new FileOutputStream(apkFile);
+            byte[] buffer = new byte[32 * 1024];
+            long size = info.size;
+            while (size > 0) {
+                long toRead = (buffer.length < size) ? buffer.length : size;
+                int didRead = instream.read(buffer, 0, (int) toRead);
+                if (didRead >= 0) {
+                    bytesReadListener.onBytesRead(didRead);
                 }
-            } catch (Exception t) {
-                installer.abandonSession(sessionId);
-
-                throw t;
+                apkStream.write(buffer, 0, didRead);
+                size -= didRead;
             }
+            apkStream.close();
 
-            // Installation is current disabled
-            Intent result = null;
-            // Intent result = receiver.getResult();
+            // make sure the installer can read it
+            apkFile.setReadable(true, false);
 
-            // Installation is current disabled
-            int status = PackageInstaller.STATUS_FAILURE;
-            // int status = result.getIntExtra(PackageInstaller.EXTRA_STATUS,
-            //        PackageInstaller.STATUS_FAILURE);
+            // Now install it
+            Uri packageUri = Uri.fromFile(apkFile);
+            installObserver.reset();
+            // TODO: PackageManager.installPackage() is deprecated, refactor.
+            packageManager.installPackage(packageUri, installObserver,
+                    PackageManager.INSTALL_REPLACE_EXISTING | PackageManager.INSTALL_FROM_ADB,
+                    installerPackage);
+            installObserver.waitForCompletion();
 
-            if (status != PackageInstaller.STATUS_SUCCESS) {
+            if (installObserver.getResult() != PackageManager.INSTALL_SUCCEEDED) {
                 // The only time we continue to accept install of data even if the
                 // apk install failed is if we had already determined that we could
                 // accept the data regardless.
@@ -133,19 +112,18 @@ public class RestoreUtils {
             } else {
                 // Okay, the install succeeded.  Make sure it was the right app.
                 boolean uninstall = false;
-                final String installedPackageName = result.getStringExtra(
-                        PackageInstaller.EXTRA_PACKAGE_NAME);
-                if (!installedPackageName.equals(info.packageName)) {
+                if (!installObserver.getPackageName().equals(info.packageName)) {
                     Slog.w(TAG, "Restore stream claimed to include apk for "
                             + info.packageName + " but apk was really "
-                            + installedPackageName);
+                            + installObserver.getPackageName());
                     // delete the package we just put in place; it might be fraudulent
                     okay = false;
                     uninstall = true;
                 } else {
                     try {
-                        PackageInfo pkg = packageManager.getPackageInfo(info.packageName,
-                                PackageManager.GET_SIGNING_CERTIFICATES);
+                        PackageInfo pkg = packageManager.getPackageInfo(
+                                info.packageName,
+                                PackageManager.GET_SIGNATURES);
                         if ((pkg.applicationInfo.flags & ApplicationInfo.FLAG_ALLOW_BACKUP)
                                 == 0) {
                             Slog.w(TAG, "Restore stream contains apk of package "
@@ -155,9 +133,7 @@ public class RestoreUtils {
                         } else {
                             // So far so good -- do the signatures match the manifest?
                             Signature[] sigs = manifestSignatures.get(info.packageName);
-                            PackageManagerInternal pmi = LocalServices.getService(
-                                    PackageManagerInternal.class);
-                            if (AppBackupUtils.signaturesMatch(sigs, pkg, pmi)) {
+                            if (AppBackupUtils.signaturesMatch(sigs, pkg)) {
                                 // If this is a system-uid app without a declared backup agent,
                                 // don't restore any of the file data.
                                 if ((pkg.applicationInfo.uid < Process.FIRST_APPLICATION_UID)
@@ -185,7 +161,7 @@ public class RestoreUtils {
                 if (uninstall) {
                     deleteObserver.reset();
                     packageManager.deletePackage(
-                            installedPackageName,
+                            installObserver.getPackageName(),
                             deleteObserver, 0);
                     deleteObserver.waitForCompletion();
                 }
@@ -193,44 +169,10 @@ public class RestoreUtils {
         } catch (IOException e) {
             Slog.e(TAG, "Unable to transcribe restored apk for install");
             okay = false;
+        } finally {
+            apkFile.delete();
         }
 
         return okay;
-    }
-
-    private static class LocalIntentReceiver {
-        private final Object mLock = new Object();
-
-        @GuardedBy("mLock")
-        private Intent mResult = null;
-
-        private IIntentSender.Stub mLocalSender = new IIntentSender.Stub() {
-            @Override
-            public void send(int code, Intent intent, String resolvedType, IBinder whitelistToken,
-                    IIntentReceiver finishedReceiver, String requiredPermission, Bundle options) {
-                synchronized (mLock) {
-                    mResult = intent;
-                    mLock.notifyAll();
-                }
-            }
-        };
-
-        public IntentSender getIntentSender() {
-            return new IntentSender((IIntentSender) mLocalSender);
-        }
-
-        public Intent getResult() {
-            synchronized (mLock) {
-                while (mResult == null) {
-                    try {
-                        mLock.wait();
-                    } catch (InterruptedException e) {
-                        // ignored
-                    }
-                }
-
-                return mResult;
-            }
-        }
     }
 }

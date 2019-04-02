@@ -30,7 +30,7 @@ import java.util.List;
 public abstract class InternalEnumerateClient extends EnumerateClient {
 
     private List<Fingerprint> mEnrolledList;
-    private List<Fingerprint> mUnknownFingerprints = new ArrayList<>(); // list of fp to delete
+    private List<Fingerprint> mEnumeratedList = new ArrayList<>(); // list of fp to delete
 
     public InternalEnumerateClient(Context context, long halDeviceId, IBinder token,
             IFingerprintServiceReceiver receiver, int groupId, int userId,
@@ -47,6 +47,7 @@ public abstract class InternalEnumerateClient extends EnumerateClient {
             if (mEnrolledList.get(i).getFingerId() == fingerId) {
                 mEnrolledList.remove(i);
                 matched = true;
+                Slog.e(TAG, "Matched fingerprint fid=" + fingerId);
                 break;
             }
         }
@@ -54,7 +55,7 @@ public abstract class InternalEnumerateClient extends EnumerateClient {
         // fingerId 0 means no fingerprints are in hardware
         if (!matched && fingerId != 0) {
             Fingerprint fingerprint = new Fingerprint("", groupId, fingerId, getHalDeviceId());
-            mUnknownFingerprints.add(fingerprint);
+            mEnumeratedList.add(fingerprint);
         }
     }
 
@@ -75,8 +76,8 @@ public abstract class InternalEnumerateClient extends EnumerateClient {
         mEnrolledList.clear();
     }
 
-    public List<Fingerprint> getUnknownFingerprints() {
-        return mUnknownFingerprints;
+    public List<Fingerprint> getEnumeratedList() {
+        return mEnumeratedList;
     }
 
     @Override

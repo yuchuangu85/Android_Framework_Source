@@ -36,8 +36,20 @@ import com.android.systemui.statusbar.policy.RotationLockController.RotationLock
 
 /** Quick settings tile: Rotation **/
 public class RotationLockTile extends QSTileImpl<BooleanState> {
+    private final AnimationIcon mPortraitToAuto
+            = new AnimationIcon(R.drawable.ic_portrait_to_auto_rotate_animation,
+            R.drawable.ic_portrait_from_auto_rotate);
+    private final AnimationIcon mAutoToPortrait
+            = new AnimationIcon(R.drawable.ic_portrait_from_auto_rotate_animation,
+            R.drawable.ic_portrait_to_auto_rotate);
 
-    private final Icon mIcon = ResourceIcon.get(R.drawable.ic_qs_auto_rotate);
+    private final AnimationIcon mLandscapeToAuto
+            = new AnimationIcon(R.drawable.ic_landscape_to_auto_rotate_animation,
+            R.drawable.ic_landscape_from_auto_rotate);
+    private final AnimationIcon mAutoToLandscape
+            = new AnimationIcon(R.drawable.ic_landscape_from_auto_rotate_animation,
+            R.drawable.ic_landscape_to_auto_rotate);
+
     private final RotationLockController mController;
 
     public RotationLockTile(QSHost host) {
@@ -51,6 +63,7 @@ public class RotationLockTile extends QSTileImpl<BooleanState> {
     }
 
     public void handleSetListening(boolean listening) {
+        if (mController == null) return;
         if (listening) {
             mController.addCallback(mCallback);
         } else {
@@ -65,6 +78,7 @@ public class RotationLockTile extends QSTileImpl<BooleanState> {
 
     @Override
     protected void handleClick() {
+        if (mController == null) return;
         final boolean newState = !mState.value;
         mController.setRotationLocked(!newState);
         refreshState(newState);
@@ -77,11 +91,21 @@ public class RotationLockTile extends QSTileImpl<BooleanState> {
 
     @Override
     protected void handleUpdateState(BooleanState state, Object arg) {
+        if (mController == null) return;
         final boolean rotationLocked = mController.isRotationLocked();
+        // TODO: Handle accessibility rotation lock and whatnot.
 
         state.value = !rotationLocked;
-        state.label = mContext.getString(R.string.quick_settings_rotation_unlocked_label);
-        state.icon = mIcon;
+        final boolean portrait = isCurrentOrientationLockPortrait(mController, mContext);
+        if (rotationLocked) {
+            final int label = portrait ? R.string.quick_settings_rotation_locked_portrait_label
+                    : R.string.quick_settings_rotation_locked_landscape_label;
+            state.label = mContext.getString(label);
+            state.icon = portrait ? mAutoToPortrait : mAutoToLandscape;
+        } else {
+            state.label = mContext.getString(R.string.quick_settings_rotation_unlocked_label);
+            state.icon = portrait ? mPortraitToAuto : mLandscapeToAuto;
+        }
         state.contentDescription = getAccessibilityString(rotationLocked);
         state.expandedAccessibilityClassName = Switch.class.getName();
         state.state = state.value ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE;
@@ -110,7 +134,18 @@ public class RotationLockTile extends QSTileImpl<BooleanState> {
      * @param locked Whether or not rotation is locked.
      */
     private String getAccessibilityString(boolean locked) {
-        return mContext.getString(R.string.accessibility_quick_settings_rotation);
+        if (locked) {
+            return mContext.getString(R.string.accessibility_quick_settings_rotation_value,
+                    isCurrentOrientationLockPortrait(mController, mContext)
+                            ? mContext.getString(
+                                    R.string.quick_settings_rotation_locked_portrait_label)
+                            : mContext.getString(
+                                    R.string.quick_settings_rotation_locked_landscape_label))
+                    + "," + mContext.getString(R.string.accessibility_quick_settings_rotation);
+
+        } else {
+            return mContext.getString(R.string.accessibility_quick_settings_rotation);
+        }
     }
 
     @Override

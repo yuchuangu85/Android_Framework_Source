@@ -20,7 +20,6 @@ import static com.android.internal.util.Preconditions.checkNotNull;
 
 import android.annotation.Nullable;
 import android.annotation.SystemService;
-import android.annotation.TestApi;
 import android.app.usage.NetworkStats.Bucket;
 import android.content.Context;
 import android.net.ConnectivityManager;
@@ -36,10 +35,7 @@ import android.os.Messenger;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.ServiceManager.ServiceNotFoundException;
-import android.util.DataUnit;
 import android.util.Log;
-
-import com.android.internal.annotations.VisibleForTesting;
 
 /**
  * Provides access to network usage history and statistics. Usage data is collected in
@@ -64,11 +60,10 @@ import com.android.internal.annotations.VisibleForTesting;
  * {@link #queryDetailsForUid} <p />
  * {@link #queryDetails} <p />
  * These queries do not aggregate over time but do aggregate over state, metered and roaming.
- * Therefore there can be multiple buckets for a particular key. However, all Buckets will have
- * {@code state} {@link NetworkStats.Bucket#STATE_ALL},
- * {@code defaultNetwork} {@link NetworkStats.Bucket#DEFAULT_NETWORK_ALL},
- * {@code metered } {@link NetworkStats.Bucket#METERED_ALL},
- * {@code roaming} {@link NetworkStats.Bucket#ROAMING_ALL}.
+ * Therefore there can be multiple buckets for a particular key but all Bucket's state is going to
+ * be {@link NetworkStats.Bucket#STATE_ALL}, all Bucket's metered is going to be
+ * {@link NetworkStats.Bucket#METERED_ALL}, and all Bucket's roaming is going to be
+ * {@link NetworkStats.Bucket#ROAMING_ALL}.
  * <p />
  * <b>NOTE:</b> Calling {@link #querySummaryForDevice} or accessing stats for apps other than the
  * calling app requires the permission {@link android.Manifest.permission#PACKAGE_USAGE_STATS},
@@ -97,24 +92,13 @@ public class NetworkStatsManager {
     /** @hide */
     public static final int CALLBACK_RELEASED = 1;
 
-    /**
-     * Minimum data usage threshold for registering usage callbacks.
-     *
-     * Requests registered with a threshold lower than this will only be triggered once this minimum
-     * is reached.
-     * @hide
-     */
-    public static final long MIN_THRESHOLD_BYTES = DataUnit.MEBIBYTES.toBytes(2);
-
     private final Context mContext;
     private final INetworkStatsService mService;
 
     /** @hide */
     public static final int FLAG_POLL_ON_OPEN = 1 << 0;
     /** @hide */
-    public static final int FLAG_POLL_FORCE = 1 << 1;
-    /** @hide */
-    public static final int FLAG_AUGMENT_WITH_SUBSCRIPTION_PLAN = 1 << 2;
+    public static final int FLAG_AUGMENT_WITH_SUBSCRIPTION_PLAN = 1 << 1;
 
     private int mFlags;
 
@@ -122,15 +106,9 @@ public class NetworkStatsManager {
      * {@hide}
      */
     public NetworkStatsManager(Context context) throws ServiceNotFoundException {
-        this(context, INetworkStatsService.Stub.asInterface(
-                ServiceManager.getServiceOrThrow(Context.NETWORK_STATS_SERVICE)));
-    }
-
-    /** @hide */
-    @VisibleForTesting
-    public NetworkStatsManager(Context context, INetworkStatsService service) {
         mContext = context;
-        mService = service;
+        mService = INetworkStatsService.Stub.asInterface(
+                ServiceManager.getServiceOrThrow(Context.NETWORK_STATS_SERVICE));
         setPollOnOpen(true);
     }
 
@@ -144,16 +122,6 @@ public class NetworkStatsManager {
     }
 
     /** @hide */
-    @TestApi
-    public void setPollForce(boolean pollForce) {
-        if (pollForce) {
-            mFlags |= FLAG_POLL_FORCE;
-        } else {
-            mFlags &= ~FLAG_POLL_FORCE;
-        }
-    }
-
-    /** @hide */
     public void setAugmentWithSubscriptionPlan(boolean augmentWithSubscriptionPlan) {
         if (augmentWithSubscriptionPlan) {
             mFlags |= FLAG_AUGMENT_WITH_SUBSCRIPTION_PLAN;
@@ -162,27 +130,13 @@ public class NetworkStatsManager {
         }
     }
 
-    /** @hide */
-    public Bucket querySummaryForDevice(NetworkTemplate template,
-            long startTime, long endTime) throws SecurityException, RemoteException {
-        Bucket bucket = null;
-        NetworkStats stats = new NetworkStats(mContext, template, mFlags, startTime, endTime,
-                mService);
-        bucket = stats.getDeviceSummaryForNetwork();
-
-        stats.close();
-        return bucket;
-    }
-
     /**
      * Query network usage statistics summaries. Result is summarised data usage for the whole
      * device. Result is a single Bucket aggregated over time, state, uid, tag, metered, and
      * roaming. This means the bucket's start and end timestamp are going to be the same as the
      * 'startTime' and 'endTime' parameters. State is going to be
      * {@link NetworkStats.Bucket#STATE_ALL}, uid {@link NetworkStats.Bucket#UID_ALL},
-     * tag {@link NetworkStats.Bucket#TAG_NONE},
-     * default network {@link NetworkStats.Bucket#DEFAULT_NETWORK_ALL},
-     * metered {@link NetworkStats.Bucket#METERED_ALL},
+     * tag {@link NetworkStats.Bucket#TAG_NONE}, metered {@link NetworkStats.Bucket#METERED_ALL},
      * and roaming {@link NetworkStats.Bucket#ROAMING_ALL}.
      *
      * @param networkType As defined in {@link ConnectivityManager}, e.g.
@@ -206,7 +160,12 @@ public class NetworkStatsManager {
             return null;
         }
 
-        return querySummaryForDevice(template, startTime, endTime);
+        Bucket bucket = null;
+        NetworkStats stats = new NetworkStats(mContext, template, mFlags, startTime, endTime);
+        bucket = stats.getDeviceSummaryForNetwork();
+
+        stats.close();
+        return bucket;
     }
 
     /**
@@ -240,7 +199,7 @@ public class NetworkStatsManager {
         }
 
         NetworkStats stats;
-        stats = new NetworkStats(mContext, template, mFlags, startTime, endTime, mService);
+        stats = new NetworkStats(mContext, template, mFlags, startTime, endTime);
         stats.startSummaryEnumeration();
 
         stats.close();
@@ -250,10 +209,10 @@ public class NetworkStatsManager {
     /**
      * Query network usage statistics summaries. Result filtered to include only uids belonging to
      * calling user. Result is aggregated over time, hence all buckets will have the same start and
-     * end timestamps. Not aggregated over state, uid, default network, metered, or roaming. This
-     * means buckets' start and end timestamps are going to be the same as the 'startTime' and
-     * 'endTime' parameters. State, uid, metered, and roaming are going to vary, and tag is going to
-     * be the same.
+     * end timestamps. Not aggregated over state, uid, metered, or roaming. This means buckets'
+     * start and end timestamps are going to be the same as the 'startTime' and 'endTime'
+     * parameters. State, uid, metered, and roaming are going to vary, and tag is going to be the
+     * same.
      *
      * @param networkType As defined in {@link ConnectivityManager}, e.g.
      *            {@link ConnectivityManager#TYPE_MOBILE}, {@link ConnectivityManager#TYPE_WIFI}
@@ -277,7 +236,7 @@ public class NetworkStatsManager {
         }
 
         NetworkStats result;
-        result = new NetworkStats(mContext, template, mFlags, startTime, endTime, mService);
+        result = new NetworkStats(mContext, template, mFlags, startTime, endTime);
         result.startSummaryEnumeration();
 
         return result;
@@ -286,34 +245,22 @@ public class NetworkStatsManager {
     /**
      * Query network usage statistics details for a given uid.
      *
-     * #see queryDetailsForUidTagState(int, String, long, long, int, int, int)
+     * #see queryDetailsForUidTag(int, String, long, long, int, int)
      */
     public NetworkStats queryDetailsForUid(int networkType, String subscriberId,
-            long startTime, long endTime, int uid) throws SecurityException {
-        return queryDetailsForUidTagState(networkType, subscriberId, startTime, endTime, uid,
-            NetworkStats.Bucket.TAG_NONE, NetworkStats.Bucket.STATE_ALL);
+            long startTime, long endTime, int uid) throws SecurityException, RemoteException {
+        return queryDetailsForUidTag(networkType, subscriberId, startTime, endTime, uid,
+            NetworkStats.Bucket.TAG_NONE);
     }
 
     /**
-     * Query network usage statistics details for a given uid and tag.
-     *
-     * #see queryDetailsForUidTagState(int, String, long, long, int, int, int)
-     */
-    public NetworkStats queryDetailsForUidTag(int networkType, String subscriberId,
-            long startTime, long endTime, int uid, int tag) throws SecurityException {
-        return queryDetailsForUidTagState(networkType, subscriberId, startTime, endTime, uid,
-            tag, NetworkStats.Bucket.STATE_ALL);
-    }
-
-    /**
-     * Query network usage statistics details for a given uid, tag, and state. Only usable for uids
-     * belonging to calling user. Result is not aggregated over time. This means buckets' start and
-     * end timestamps are going to be between 'startTime' and 'endTime' parameters. The uid is going
-     * to be the same as the 'uid' parameter, the tag the same as the 'tag' parameter, and the state
-     * the same as the 'state' parameter.
-     * defaultNetwork is going to be {@link NetworkStats.Bucket#DEFAULT_NETWORK_ALL},
-     * metered is going to be {@link NetworkStats.Bucket#METERED_ALL}, and
-     * roaming is going to be {@link NetworkStats.Bucket#ROAMING_ALL}.
+     * Query network usage statistics details for a given uid and tag. Only usable for uids
+     * belonging to calling user. Result is aggregated over state but not aggregated over time.
+     * This means buckets' start and end timestamps are going to be between 'startTime' and
+     * 'endTime' parameters. State is going to be {@link NetworkStats.Bucket#STATE_ALL}, uid the
+     * same as the 'uid' parameter and tag the same as 'tag' parameter. metered is going to be
+     * {@link NetworkStats.Bucket#METERED_ALL}, and roaming is going to be
+     * {@link NetworkStats.Bucket#ROAMING_ALL}.
      * <p>Only includes buckets that atomically occur in the inclusive time range. Doesn't
      * interpolate across partial buckets. Since bucket length is in the order of hours, this
      * method cannot be used to measure data usage on a fine grained time scale.
@@ -328,23 +275,20 @@ public class NetworkStatsManager {
      *            {@link java.lang.System#currentTimeMillis}.
      * @param uid UID of app
      * @param tag TAG of interest. Use {@link NetworkStats.Bucket#TAG_NONE} for no tags.
-     * @param state state of interest. Use {@link NetworkStats.Bucket#STATE_ALL} to aggregate
-     *            traffic from all states.
      * @return Statistics object or null if an error happened during statistics collection.
      * @throws SecurityException if permissions are insufficient to read network statistics.
      */
-    public NetworkStats queryDetailsForUidTagState(int networkType, String subscriberId,
-            long startTime, long endTime, int uid, int tag, int state) throws SecurityException {
+    public NetworkStats queryDetailsForUidTag(int networkType, String subscriberId,
+            long startTime, long endTime, int uid, int tag) throws SecurityException {
         NetworkTemplate template;
         template = createTemplate(networkType, subscriberId);
 
         NetworkStats result;
         try {
-            result = new NetworkStats(mContext, template, mFlags, startTime, endTime, mService);
-            result.startHistoryEnumeration(uid, tag, state);
+            result = new NetworkStats(mContext, template, mFlags, startTime, endTime);
+            result.startHistoryEnumeration(uid, tag);
         } catch (RemoteException e) {
-            Log.e(TAG, "Error while querying stats for uid=" + uid + " tag=" + tag
-                    + " state=" + state, e);
+            Log.e(TAG, "Error while querying stats for uid=" + uid + " tag=" + tag, e);
             return null;
         }
 
@@ -357,10 +301,9 @@ public class NetworkStatsManager {
      * metered, nor roaming. This means buckets' start and end timestamps are going to be between
      * 'startTime' and 'endTime' parameters. State is going to be
      * {@link NetworkStats.Bucket#STATE_ALL}, uid will vary,
-     * tag {@link NetworkStats.Bucket#TAG_NONE},
-     * default network is going to be {@link NetworkStats.Bucket#DEFAULT_NETWORK_ALL},
-     * metered is going to be {@link NetworkStats.Bucket#METERED_ALL},
-     * and roaming is going to be {@link NetworkStats.Bucket#ROAMING_ALL}.
+     * tag {@link NetworkStats.Bucket#TAG_NONE}, metered is going to be
+     * {@link NetworkStats.Bucket#METERED_ALL}, and roaming is going to be
+     * {@link NetworkStats.Bucket#ROAMING_ALL}.
      * <p>Only includes buckets that atomically occur in the inclusive time range. Doesn't
      * interpolate across partial buckets. Since bucket length is in the order of hours, this
      * method cannot be used to measure data usage on a fine grained time scale.
@@ -387,40 +330,9 @@ public class NetworkStatsManager {
         }
 
         NetworkStats result;
-        result = new NetworkStats(mContext, template, mFlags, startTime, endTime, mService);
+        result = new NetworkStats(mContext, template, mFlags, startTime, endTime);
         result.startUserUidEnumeration();
         return result;
-    }
-
-    /** @hide */
-    public void registerUsageCallback(NetworkTemplate template, int networkType,
-            long thresholdBytes, UsageCallback callback, @Nullable Handler handler) {
-        checkNotNull(callback, "UsageCallback cannot be null");
-
-        final Looper looper;
-        if (handler == null) {
-            looper = Looper.myLooper();
-        } else {
-            looper = handler.getLooper();
-        }
-
-        DataUsageRequest request = new DataUsageRequest(DataUsageRequest.REQUEST_ID_UNSET,
-                template, thresholdBytes);
-        try {
-            CallbackHandler callbackHandler = new CallbackHandler(looper, networkType,
-                    template.getSubscriberId(), callback);
-            callback.request = mService.registerUsageCallback(
-                    mContext.getOpPackageName(), request, new Messenger(callbackHandler),
-                    new Binder());
-            if (DBG) Log.d(TAG, "registerUsageCallback returned " + callback.request);
-
-            if (callback.request == null) {
-                Log.e(TAG, "Request from callback is null; should not happen");
-            }
-        } catch (RemoteException e) {
-            if (DBG) Log.d(TAG, "Remote exception when registering callback");
-            throw e.rethrowFromSystemServer();
-        }
     }
 
     /**
@@ -451,7 +363,15 @@ public class NetworkStatsManager {
      */
     public void registerUsageCallback(int networkType, String subscriberId, long thresholdBytes,
             UsageCallback callback, @Nullable Handler handler) {
-        NetworkTemplate template = createTemplate(networkType, subscriberId);
+        checkNotNull(callback, "UsageCallback cannot be null");
+
+        final Looper looper;
+        if (handler == null) {
+            looper = Looper.myLooper();
+        } else {
+            looper = handler.getLooper();
+        }
+
         if (DBG) {
             Log.d(TAG, "registerUsageCallback called with: {"
                 + " networkType=" + networkType
@@ -459,7 +379,25 @@ public class NetworkStatsManager {
                 + " thresholdBytes=" + thresholdBytes
                 + " }");
         }
-        registerUsageCallback(template, networkType, thresholdBytes, callback, handler);
+
+        NetworkTemplate template = createTemplate(networkType, subscriberId);
+        DataUsageRequest request = new DataUsageRequest(DataUsageRequest.REQUEST_ID_UNSET,
+                template, thresholdBytes);
+        try {
+            CallbackHandler callbackHandler = new CallbackHandler(looper, networkType,
+                    subscriberId, callback);
+            callback.request = mService.registerUsageCallback(
+                    mContext.getOpPackageName(), request, new Messenger(callbackHandler),
+                    new Binder());
+            if (DBG) Log.d(TAG, "registerUsageCallback returned " + callback.request);
+
+            if (callback.request == null) {
+                Log.e(TAG, "Request from callback is null; should not happen");
+            }
+        } catch (RemoteException e) {
+            if (DBG) Log.d(TAG, "Remote exception when registering callback");
+            throw e.rethrowFromSystemServer();
+        }
     }
 
     /**
@@ -497,20 +435,19 @@ public class NetworkStatsManager {
     }
 
     private static NetworkTemplate createTemplate(int networkType, String subscriberId) {
-        final NetworkTemplate template;
+        NetworkTemplate template = null;
         switch (networkType) {
-            case ConnectivityManager.TYPE_MOBILE:
-                template = subscriberId == null
-                        ? NetworkTemplate.buildTemplateMobileWildcard()
-                        : NetworkTemplate.buildTemplateMobileAll(subscriberId);
-                break;
-            case ConnectivityManager.TYPE_WIFI:
+            case ConnectivityManager.TYPE_MOBILE: {
+                template = NetworkTemplate.buildTemplateMobileAll(subscriberId);
+                } break;
+            case ConnectivityManager.TYPE_WIFI: {
                 template = NetworkTemplate.buildTemplateWifiWildcard();
-                break;
-            default:
+                } break;
+            default: {
                 throw new IllegalArgumentException("Cannot create template for network type "
                         + networkType + ", subscriberId '"
                         + NetworkIdentity.scrubSubscriberId(subscriberId) + "'.");
+            }
         }
         return template;
     }

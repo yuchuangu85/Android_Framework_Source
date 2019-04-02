@@ -323,10 +323,8 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
         StrictMode.setThreadPolicy(policy);
 
         try {
-            synchronized(this) {
-                if (offset != mCurrentOffset) {
-                    seekTo(offset);
-                }
+            if (offset != mCurrentOffset) {
+                seekTo(offset);
             }
 
             int n = mInputStream.read(data, 0, size);
@@ -368,7 +366,7 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
     }
 
     @Override
-    public synchronized long getSize() {
+    public long getSize() {
         if (mConnection == null) {
             try {
                 seekTo(0);
@@ -381,7 +379,7 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
     }
 
     @Override
-    public synchronized String getMIMEType() {
+    public String getMIMEType() {
         if (mConnection == null) {
             try {
                 seekTo(0);

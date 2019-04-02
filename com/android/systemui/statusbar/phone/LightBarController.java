@@ -66,12 +66,9 @@ public class LightBarController implements BatteryController.BatteryStateChangeC
      * scrim alpha yet.
      */
     private boolean mHasLightNavigationBar;
-
-    /**
-     * {@code true} if {@link #mHasLightNavigationBar} should be ignored and forcefully make
-     * {@link #mNavigationLight} {@code false}.
-     */
-    private boolean mForceDarkForScrim;
+    private boolean mScrimAlphaBelowThreshold;
+    private boolean mInvertLightNavBarWithScrim;
+    private float mScrimAlpha;
 
     private final Rect mLastFullscreenBounds = new Rect();
     private final Rect mLastDockedBounds = new Rect();
@@ -132,7 +129,9 @@ public class LightBarController implements BatteryController.BatteryStateChangeC
             boolean last = mNavigationLight;
             mHasLightNavigationBar = isLight(vis, navigationBarMode,
                     View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
-            mNavigationLight = mHasLightNavigationBar && !mForceDarkForScrim && !mQsCustomizing;
+            mNavigationLight = mHasLightNavigationBar
+                    && (mScrimAlphaBelowThreshold || !mInvertLightNavBarWithScrim)
+                    && !mQsCustomizing;
             if (mNavigationLight != last) {
                 updateNavigation();
             }
@@ -155,17 +154,20 @@ public class LightBarController implements BatteryController.BatteryStateChangeC
         reevaluate();
     }
 
-    public void setScrimState(ScrimState scrimState, float scrimBehindAlpha,
-            GradientColors scrimInFrontColor) {
-        boolean forceDarkForScrimLast = mForceDarkForScrim;
-        // For BOUNCER/BOUNCER_SCRIMMED cases, we assume that alpha is always below threshold.
-        // This enables IMEs to control the navigation bar color.
-        // For other cases, scrim should be able to veto the light navigation bar.
-        mForceDarkForScrim = scrimState != ScrimState.BOUNCER
-                && scrimState != ScrimState.BOUNCER_SCRIMMED
-                && scrimBehindAlpha >= NAV_BAR_INVERSION_SCRIM_ALPHA_THRESHOLD
-                && !scrimInFrontColor.supportsDarkText();
-        if (mHasLightNavigationBar && (mForceDarkForScrim != forceDarkForScrimLast)) {
+    public void setScrimAlpha(float alpha) {
+        mScrimAlpha = alpha;
+        boolean belowThresholdBefore = mScrimAlphaBelowThreshold;
+        mScrimAlphaBelowThreshold = mScrimAlpha < NAV_BAR_INVERSION_SCRIM_ALPHA_THRESHOLD;
+        if (mHasLightNavigationBar && belowThresholdBefore != mScrimAlphaBelowThreshold) {
+            reevaluate();
+        }
+    }
+
+    public void setScrimColor(GradientColors colors) {
+        boolean invertLightNavBarWithScrimBefore = mInvertLightNavBarWithScrim;
+        mInvertLightNavBarWithScrim = !colors.supportsDarkText();
+        if (mHasLightNavigationBar
+                && invertLightNavBarWithScrimBefore != mInvertLightNavBarWithScrim) {
             reevaluate();
         }
     }
@@ -173,8 +175,9 @@ public class LightBarController implements BatteryController.BatteryStateChangeC
     private boolean isLight(int vis, int barMode, int flag) {
         boolean isTransparentBar = (barMode == MODE_TRANSPARENT
                 || barMode == MODE_LIGHTS_OUT_TRANSPARENT);
+        boolean allowLight = isTransparentBar && !mBatteryController.isPowerSave();
         boolean light = (vis & flag) != 0;
-        return isTransparentBar && light;
+        return allowLight && light;
     }
 
     private boolean animateChange() {
@@ -255,23 +258,14 @@ public class LightBarController implements BatteryController.BatteryStateChangeC
         pw.print(" mLastStatusBarMode="); pw.print(mLastStatusBarMode);
         pw.print(" mLastNavigationBarMode="); pw.println(mLastNavigationBarMode);
 
-        pw.print(" mForceDarkForScrim="); pw.print(mForceDarkForScrim);
-        pw.print(" mQsCustomizing="); pw.println(mQsCustomizing);
-
+        pw.print(" mScrimAlpha="); pw.print(mScrimAlpha);
+        pw.print(" mScrimAlphaBelowThreshold="); pw.println(mScrimAlphaBelowThreshold);
         pw.println();
-
-        LightBarTransitionsController transitionsController =
-                mStatusBarIconController.getTransitionsController();
-        if (transitionsController != null) {
-            pw.println(" StatusBarTransitionsController:");
-            transitionsController.dump(fd, pw, args);
-            pw.println();
-        }
-
-        if (mNavigationBarController != null) {
-            pw.println(" NavigationBarTransitionsController:");
-            mNavigationBarController.dump(fd, pw, args);
-            pw.println();
-        }
+        pw.println(" StatusBarTransitionsController:");
+        mStatusBarIconController.getTransitionsController().dump(fd, pw, args);
+        pw.println();
+        pw.println(" NavigationBarTransitionsController:");
+        mNavigationBarController.dump(fd, pw, args);
+        pw.println();
     }
 }

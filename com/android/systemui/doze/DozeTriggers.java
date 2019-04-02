@@ -85,7 +85,7 @@ public class DozeTriggers implements DozeMachine.Part {
         mAllowPulseTriggers = allowPulseTriggers;
         mDozeSensors = new DozeSensors(context, alarmManager, mSensorManager, dozeParameters,
                 config, wakeLock, this::onSensor, this::onProximityFar,
-                dozeParameters.getPolicy());
+                new AlwaysOnDisplayPolicy(context));
         mUiModeManager = mContext.getSystemService(UiModeManager.class);
     }
 

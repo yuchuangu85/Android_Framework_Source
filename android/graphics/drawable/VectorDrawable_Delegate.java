@@ -35,9 +35,7 @@ import android.graphics.Path;
 import android.graphics.PathMeasure;
 import android.graphics.Path_Delegate;
 import android.graphics.Rect;
-import android.graphics.Region;
 import android.graphics.Region.Op;
-import android.graphics.Shader_Delegate;
 import android.util.ArrayMap;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -135,12 +133,6 @@ public class VectorDrawable_Delegate {
     }
 
     @LayoutlibDelegate
-    static void nSetAntiAlias(long rendererPtr, boolean aa) {
-        VPathRenderer_Delegate nativePathRenderer = VNativeObject.getDelegate(rendererPtr);
-        nativePathRenderer.setAntiAlias(aa);
-    }
-
-    @LayoutlibDelegate
     static void nSetAllowCaching(long rendererPtr, boolean allowCaching) {
         // ignored
     }
@@ -151,9 +143,6 @@ public class VectorDrawable_Delegate {
         VPathRenderer_Delegate nativePathRenderer = VNativeObject.getDelegate(rendererPtr);
 
         Canvas_Delegate.nSave(canvasWrapperPtr, MATRIX_SAVE_FLAG | CLIP_SAVE_FLAG);
-        Canvas_Delegate.nClipRect(canvasWrapperPtr,
-                bounds.left, bounds.top, bounds.right, bounds.bottom,
-                Region.Op.INTERSECT.nativeInt);
         Canvas_Delegate.nTranslate(canvasWrapperPtr, bounds.left, bounds.top);
 
         if (needsMirroring) {
@@ -1066,7 +1055,6 @@ public class VectorDrawable_Delegate {
         private Paint mStrokePaint;
         private Paint mFillPaint;
         private PathMeasure mPathMeasure;
-        private boolean mAntiAlias = true;
 
         private VPathRenderer_Delegate(long rootGroupPtr) {
             mRootGroupPtr = rootGroupPtr;
@@ -1176,7 +1164,7 @@ public class VectorDrawable_Delegate {
                     if (mFillPaint == null) {
                         mFillPaint = new Paint();
                         mFillPaint.setStyle(Style.FILL);
-                        mFillPaint.setAntiAlias(mAntiAlias);
+                        mFillPaint.setAntiAlias(true);
                     }
 
                     final Paint fillPaint = mFillPaint;
@@ -1187,30 +1175,17 @@ public class VectorDrawable_Delegate {
                     // mFillPaint can not be null at this point so we will have a delegate
                     assert fillPaintDelegate != null;
                     fillPaintDelegate.setColorFilter(filterPtr);
-
-                    Shader_Delegate shaderDelegate =
-                            Shader_Delegate.getDelegate(fullPath.mFillGradient);
-                    if (shaderDelegate != null) {
-                        // If there is a shader, apply the local transformation to make sure
-                        // the gradient is transformed to match the viewport
-                        shaderDelegate.setLocalMatrix(mFinalPathMatrix.native_instance);
-                    }
-
                     fillPaintDelegate.setShader(fullPath.mFillGradient);
                     Path_Delegate.nSetFillType(mRenderPath.mNativePath, fullPath.mFillType);
                     BaseCanvas_Delegate.nDrawPath(canvasPtr, mRenderPath.mNativePath, fillPaint
                             .getNativeInstance());
-                    if (shaderDelegate != null) {
-                        // Remove the local matrix
-                        shaderDelegate.setLocalMatrix(0);
-                    }
                 }
 
                 if (fullPath.mStrokeColor != Color.TRANSPARENT) {
                     if (mStrokePaint == null) {
                         mStrokePaint = new Paint();
                         mStrokePaint.setStyle(Style.STROKE);
-                        mStrokePaint.setAntiAlias(mAntiAlias);
+                        mStrokePaint.setAntiAlias(true);
                     }
 
                     final Paint strokePaint = mStrokePaint;
@@ -1266,10 +1241,6 @@ public class VectorDrawable_Delegate {
                 Log.d(LOGTAG, "Scale x " + scaleX + " y " + scaleY + " final " + matrixScale);
             }
             return matrixScale;
-        }
-
-        private void setAntiAlias(boolean aa) {
-            mAntiAlias = aa;
         }
 
         @Override

@@ -19,10 +19,8 @@ package android.view;
 import com.android.layoutlib.bridge.impl.GcSnapshot;
 import com.android.layoutlib.bridge.impl.ResourceHelper;
 
-import android.graphics.BaseCanvas_Delegate;
 import android.graphics.Canvas;
 import android.graphics.Canvas_Delegate;
-import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Outline;
 import android.graphics.Paint;
@@ -48,8 +46,7 @@ public class RectShadowPainter {
     private static final int END_COLOR = ResourceHelper.getColor("#03000000");
     private static final float PERPENDICULAR_ANGLE = 90f;
 
-    public static void paintShadow(Outline viewOutline, float elevation, Canvas canvas,
-            float alpha) {
+    public static void paintShadow(Outline viewOutline, float elevation, Canvas canvas) {
         Rect outline = new Rect();
         if (!viewOutline.getRect(outline)) {
             assert false : "Outline is not a rect shadow";
@@ -77,16 +74,9 @@ public class RectShadowPainter {
             edgePaint.setAntiAlias(false);
             float outerArcRadius = radius + shadowSize;
             int[] colors = {START_COLOR, START_COLOR, END_COLOR};
-            if (alpha != 1f) {
-                // Correct colors using the given component alpha
-                for (int i = 0; i < colors.length; i++) {
-                    colors[i] = Color.argb((int) (Color.alpha(colors[i]) * alpha), Color.red(colors[i]),
-                            Color.green(colors[i]), Color.blue(colors[i]));
-                }
-            }
             cornerPaint.setShader(new RadialGradient(0, 0, outerArcRadius, colors,
                     new float[]{0f, radius / outerArcRadius, 1f}, TileMode.CLAMP));
-            edgePaint.setShader(new LinearGradient(0, 0, -shadowSize, 0, colors[0], colors[2],
+            edgePaint.setShader(new LinearGradient(0, 0, -shadowSize, 0, START_COLOR, END_COLOR,
                     TileMode.CLAMP));
             Path path = new Path();
             path.setFillType(FillType.EVEN_ODD);
@@ -194,8 +184,7 @@ public class RectShadowPainter {
     /**
      * Differs from {@link RectF#isEmpty()} as this first converts the rect to int and then checks.
      * <p/>
-     * This is required because {@link BaseCanvas_Delegate#native_drawRect(long, float, float,
-     * float,
+     * This is required because {@link Canvas_Delegate#native_drawRect(long, float, float, float,
      * float, long)} casts the co-ordinates to int and we want to ensure that it doesn't end up
      * drawing empty rectangles, which results in IllegalArgumentException.
      */

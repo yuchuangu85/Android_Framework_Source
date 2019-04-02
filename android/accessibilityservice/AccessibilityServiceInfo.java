@@ -16,9 +16,6 @@
 
 package android.accessibilityservice;
 
-import static android.content.pm.PackageManager.FEATURE_FINGERPRINT;
-
-import android.annotation.IntDef;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -46,11 +43,11 @@ import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+
+import static android.content.pm.PackageManager.FEATURE_FINGERPRINT;
 
 /**
  * This class describes an {@link AccessibilityService}. The system notifies an
@@ -302,16 +299,7 @@ public class AccessibilityServiceInfo implements Parcelable {
 
     /**
      * This flag requests that all fingerprint gestures be sent to the accessibility service.
-     * <p>
-     * Services that want to set this flag have to declare the capability
-     * to retrieve window content in their meta-data by setting the attribute
-     * {@link android.R.attr#canRequestFingerprintGestures} to
-     * true, otherwise this flag will be ignored. For how to declare the meta-data
-     * of a service refer to {@value AccessibilityService#SERVICE_META_DATA}.
-     * </p>
-     *
-     * @see android.R.styleable#AccessibilityService_canRequestFingerprintGestures
-     * @see AccessibilityService#getFingerprintGestureController()
+     * It is handled in {@link FingerprintGestureController}
      */
     public static final int FLAG_REQUEST_FINGERPRINT_GESTURES = 0x00000200;
 
@@ -358,19 +346,6 @@ public class AccessibilityServiceInfo implements Parcelable {
      */
     public String[] packageNames;
 
-
-    /** @hide */
-    @IntDef(flag = true, prefix = { "FEEDBACK_" }, value = {
-            FEEDBACK_AUDIBLE,
-            FEEDBACK_GENERIC,
-            FEEDBACK_HAPTIC,
-            FEEDBACK_SPOKEN,
-            FEEDBACK_VISUAL,
-            FEEDBACK_BRAILLE
-    })
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface FeedbackType {}
-
     /**
      * The feedback type an {@link AccessibilityService} provides.
      * <p>
@@ -383,7 +358,6 @@ public class AccessibilityServiceInfo implements Parcelable {
      * @see #FEEDBACK_VISUAL
      * @see #FEEDBACK_BRAILLE
      */
-    @FeedbackType
     public int feedbackType;
 
     /**
@@ -417,15 +391,6 @@ public class AccessibilityServiceInfo implements Parcelable {
      * @see #FLAG_REQUEST_ACCESSIBILITY_BUTTON
      */
     public int flags;
-
-    /**
-     * Whether or not the service has crashed and is awaiting restart. Only valid from {@link
-     * android.view.accessibility.AccessibilityManager#getEnabledAccessibilityServiceList(int)},
-     * because that is populated from the internal list of running services.
-     *
-     * @hide
-     */
-    public boolean crashed;
 
     /**
      * The component name the accessibility service.
@@ -775,7 +740,6 @@ public class AccessibilityServiceInfo implements Parcelable {
         parcel.writeInt(feedbackType);
         parcel.writeLong(notificationTimeout);
         parcel.writeInt(flags);
-        parcel.writeInt(crashed ? 1 : 0);
         parcel.writeParcelable(mComponentName, flagz);
         parcel.writeParcelable(mResolveInfo, 0);
         parcel.writeString(mSettingsActivityName);
@@ -792,7 +756,6 @@ public class AccessibilityServiceInfo implements Parcelable {
         feedbackType = parcel.readInt();
         notificationTimeout = parcel.readLong();
         flags = parcel.readInt();
-        crashed = parcel.readInt() != 0;
         mComponentName = parcel.readParcelable(this.getClass().getClassLoader());
         mResolveInfo = parcel.readParcelable(null);
         mSettingsActivityName = parcel.readString();
@@ -855,8 +818,7 @@ public class AccessibilityServiceInfo implements Parcelable {
         return stringBuilder.toString();
     }
 
-    private static void appendFeedbackTypes(StringBuilder stringBuilder,
-            @FeedbackType int feedbackTypes) {
+    private static void appendFeedbackTypes(StringBuilder stringBuilder, int feedbackTypes) {
         stringBuilder.append("feedbackTypes:");
         stringBuilder.append("[");
         while (feedbackTypes != 0) {

@@ -703,37 +703,37 @@ public final class TvContract {
     }
 
     /**
-     * @return {@code true} if {@code uri} is a channel URI.
+     * Returns {@code true}, if {@code uri} is a channel URI.
      */
-    public static boolean isChannelUri(@NonNull Uri uri) {
+    public static boolean isChannelUri(Uri uri) {
         return isChannelUriForTunerInput(uri) || isChannelUriForPassthroughInput(uri);
     }
 
     /**
-     * @return {@code true} if {@code uri} is a channel URI for a tuner input.
+     * Returns {@code true}, if {@code uri} is a channel URI for a tuner input.
      */
-    public static boolean isChannelUriForTunerInput(@NonNull Uri uri) {
+    public static boolean isChannelUriForTunerInput(Uri uri) {
         return isTvUri(uri) && isTwoSegmentUriStartingWith(uri, PATH_CHANNEL);
     }
 
     /**
-     * @return {@code true} if {@code uri} is a channel URI for a pass-through input.
+     * Returns {@code true}, if {@code uri} is a channel URI for a pass-through input.
      */
-    public static boolean isChannelUriForPassthroughInput(@NonNull Uri uri) {
+    public static boolean isChannelUriForPassthroughInput(Uri uri) {
         return isTvUri(uri) && isTwoSegmentUriStartingWith(uri, PATH_PASSTHROUGH);
     }
 
     /**
-     * @return {@code true} if {@code uri} is a program URI.
+     * Returns {@code true}, if {@code uri} is a program URI.
      */
-    public static boolean isProgramUri(@NonNull Uri uri) {
+    public static boolean isProgramUri(Uri uri) {
         return isTvUri(uri) && isTwoSegmentUriStartingWith(uri, PATH_PROGRAM);
     }
 
     /**
-     * @return {@code true} if {@code uri} is a recorded program URI.
+     * Returns {@code true}, if {@code uri} is a recorded program URI.
      */
-    public static boolean isRecordedProgramUri(@NonNull Uri uri) {
+    public static boolean isRecordedProgramUri(Uri uri) {
         return isTvUri(uri) && isTwoSegmentUriStartingWith(uri, PATH_RECORDED_PROGRAM);
     }
 
@@ -1650,7 +1650,7 @@ public final class TvContract {
         public static final String CONTENT_ITEM_TYPE = "vnd.android.cursor.item/channel";
 
         /** @hide */
-        @StringDef(prefix = { "TYPE_" }, value = {
+        @StringDef({
                 TYPE_OTHER,
                 TYPE_NTSC,
                 TYPE_PAL,
@@ -1863,7 +1863,7 @@ public final class TvContract {
         public static final String TYPE_PREVIEW = "TYPE_PREVIEW";
 
         /** @hide */
-        @StringDef(prefix = { "SERVICE_TYPE_" }, value = {
+        @StringDef({
                 SERVICE_TYPE_OTHER,
                 SERVICE_TYPE_AUDIO_VIDEO,
                 SERVICE_TYPE_AUDIO,
@@ -1881,7 +1881,7 @@ public final class TvContract {
         public static final String SERVICE_TYPE_AUDIO = "SERVICE_TYPE_AUDIO";
 
         /** @hide */
-        @StringDef(prefix = { "VIDEO_FORMAT_" }, value = {
+        @StringDef({
                 VIDEO_FORMAT_240P,
                 VIDEO_FORMAT_360P,
                 VIDEO_FORMAT_480I,
@@ -1930,7 +1930,7 @@ public final class TvContract {
         public static final String VIDEO_FORMAT_4320P = "VIDEO_FORMAT_4320P";
 
         /** @hide */
-        @StringDef(prefix = { "VIDEO_RESOLUTION_" }, value = {
+        @StringDef({
                 VIDEO_RESOLUTION_SD,
                 VIDEO_RESOLUTION_ED,
                 VIDEO_RESOLUTION_HD,

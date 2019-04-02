@@ -207,7 +207,6 @@ public abstract class BaseTestRunner implements TestListener {
 	 *
 	 * @deprecated not present in JUnit4.10
 	 */
-        @Deprecated
 	public TestSuiteLoader getLoader() {
 		return new StandardTestSuiteLoader();
 	}
@@ -280,7 +279,6 @@ public abstract class BaseTestRunner implements TestListener {
 
 	// BEGIN android-changed - add back this method for API compatibility
 	/** @deprecated not present in JUnit4.10 */
-        @Deprecated
 	public static boolean inVAJava() {
 		return false;
 	}

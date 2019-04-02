@@ -35,8 +35,7 @@ import java.util.Stack;
 /**
  * A view that can be transformed to and from.
  */
-public class ViewTransformationHelper implements TransformableView,
-        TransformState.TransformInfo {
+public class ViewTransformationHelper implements TransformableView {
 
     private static final int TAG_CONTAINS_TRANSFORMED_VIEW = R.id.contains_transformed_view;
 
@@ -60,7 +59,7 @@ public class ViewTransformationHelper implements TransformableView,
     public TransformState getCurrentState(int fadingView) {
         View view = mTransformedViews.get(fadingView);
         if (view != null && view.getVisibility() != View.GONE) {
-            return TransformState.createFrom(view, this);
+            return TransformState.createFrom(view);
         }
         return null;
     }
@@ -89,7 +88,6 @@ public class ViewTransformationHelper implements TransformableView,
                         endRunnable.run();
                     }
                     setVisible(false);
-                    mViewTransformationAnimation = null;
                 } else {
                     abortTransformations();
                 }
@@ -247,7 +245,7 @@ public class ViewTransformationHelper implements TransformableView,
     }
 
     public void resetTransformedView(View view) {
-        TransformState state = TransformState.createFrom(view, this);
+        TransformState state = TransformState.createFrom(view);
         state.setVisible(true /* visible */, true /* force */);
         state.recycle();
     }
@@ -257,11 +255,6 @@ public class ViewTransformationHelper implements TransformableView,
      */
     public ArraySet<View> getAllTransformingViews() {
         return new ArraySet<>(mTransformedViews.values());
-    }
-
-    @Override
-    public boolean isAnimating() {
-        return mViewTransformationAnimation != null && mViewTransformationAnimation.isRunning();
     }
 
     public static abstract class CustomTransformation {

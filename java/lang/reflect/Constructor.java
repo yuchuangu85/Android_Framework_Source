@@ -29,7 +29,6 @@ package java.lang.reflect;
 import dalvik.annotation.optimization.FastNative;
 import libcore.util.EmptyArray;
 
-import sun.reflect.CallerSensitive;
 import java.lang.annotation.Annotation;
 import java.util.Comparator;
 
@@ -54,11 +53,6 @@ import java.util.Comparator;
  * @author      Nakul Saraiya
  */
 public final class Constructor<T> extends Executable {
-    // Android-changed: Extensive modifications made throughout the class for ART.
-    // Android-changed: Many fields and methods removed / modified.
-    // Android-removed: Type annotations runtime code. Not supported on Android.
-    // Android-removed: Declared vs actual parameter annotation indexes handling.
-
     private static final Comparator<Method> ORDER_BY_SIGNATURE = null; // Unused; must match Method.
 
     private final Class<?> serializationClass;
@@ -83,7 +77,7 @@ public final class Constructor<T> extends Executable {
 
     @Override
     boolean hasGenericInformation() {
-        // Android-changed: hasGenericInformation() implemented using Executable.
+        // Android-changed: Signature retrieval is handled in Executable.
         return super.hasGenericInformationInternal();
     }
 
@@ -91,9 +85,9 @@ public final class Constructor<T> extends Executable {
      * {@inheritDoc}
      */
     @Override
-    // Android-changed: getDeclaringClass() implemented using Executable.
     @SuppressWarnings({"rawtypes", "unchecked"})
     public Class<T> getDeclaringClass() {
+        // Android-changed: This is handled by Executable.
         return (Class<T>) super.getDeclaringClassInternal();
     }
 
@@ -111,7 +105,7 @@ public final class Constructor<T> extends Executable {
      */
     @Override
     public int getModifiers() {
-        // Android-changed: getModifiers() implemented using Executable.
+        // Android-changed: This is handled by Executable.
         return super.getModifiersInternal();
     }
 
@@ -123,7 +117,7 @@ public final class Constructor<T> extends Executable {
     @Override
     @SuppressWarnings({"rawtypes", "unchecked"})
     public TypeVariable<Constructor<T>>[] getTypeParameters() {
-        // Android-changed: getTypeParameters() partly implemented using Executable.
+        // Android-changed: This is mostly handled by Executable.
         GenericInfo info = getMethodOrConstructorGenericInfoInternal();
         return (TypeVariable<Constructor<T>>[]) info.formalTypeParameters.clone();
     }
@@ -134,7 +128,7 @@ public final class Constructor<T> extends Executable {
      */
     @Override
     public Class<?>[] getParameterTypes() {
-        // Android-changed: getParameterTypes() partly implemented using Executable.
+        // Android-changed: This is handled by Executable.
         Class<?>[] paramTypes = super.getParameterTypesInternal();
         if (paramTypes == null) {
             return EmptyArray.CLASS;
@@ -148,7 +142,7 @@ public final class Constructor<T> extends Executable {
      * @since 1.8
      */
     public int getParameterCount() {
-        // Android-changed: getParameterCount() implemented using Executable.
+        // Android-changed: This is handled by Executable.
         return super.getParameterCountInternal();
     }
 
@@ -168,7 +162,6 @@ public final class Constructor<T> extends Executable {
      * {@inheritDoc}
      */
     @Override
-    // Android-changed: getExceptionTypes() implemented in native code.
     @FastNative
     public native Class<?>[] getExceptionTypes();
 
@@ -194,7 +187,7 @@ public final class Constructor<T> extends Executable {
         if (obj != null && obj instanceof Constructor) {
             Constructor<?> other = (Constructor<?>)obj;
             if (getDeclaringClass() == other.getDeclaringClass()) {
-                // Android-changed: Use getParameterTypes() instead of deleted parameterTypes field
+                // Android-changed: Use getParameterTypes.
                 return equalParamTypes(getParameterTypes(), other.getParameterTypes());
             }
         }
@@ -229,7 +222,7 @@ public final class Constructor<T> extends Executable {
      * @jls 8.8.3. Constructor Modifiers
      */
     public String toString() {
-        // Android-changed: Use getParameterTypes() / getExceptionTypes() instead of deleted fields
+        // Android-changed: Use getParameterTypes().
         return sharedToString(Modifier.constructorModifiers(),
                               false,
                               getParameterTypes(),
@@ -333,8 +326,6 @@ public final class Constructor<T> extends Executable {
      * @exception ExceptionInInitializerError if the initialization provoked
      *              by this method fails.
      */
-    // BEGIN Android-changed: newInstance(Object...) implemented differently.
-    @CallerSensitive
     public T newInstance(Object ... initargs)
         throws InstantiationException, IllegalAccessException,
                IllegalArgumentException, InvocationTargetException
@@ -353,7 +344,6 @@ public final class Constructor<T> extends Executable {
     @FastNative
     private native T newInstance0(Object... args) throws InstantiationException,
             IllegalAccessException, IllegalArgumentException, InvocationTargetException;
-    // END Android-changed: newInstance(Object...) implemented differently.
 
     /**
      * {@inheritDoc}
@@ -397,7 +387,7 @@ public final class Constructor<T> extends Executable {
      */
     @Override
     public Annotation[][] getParameterAnnotations() {
-        // Android-changed: getParameterAnnotations() implemented using Executable.
+        // Android-changed: This is handled by Executable.
         return super.getParameterAnnotationsInternal();
     }
 }

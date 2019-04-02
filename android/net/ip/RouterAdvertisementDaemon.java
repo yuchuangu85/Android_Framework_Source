@@ -25,7 +25,6 @@ import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.NetworkUtils;
 import android.net.TrafficStats;
-import android.net.util.InterfaceParams;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.StructGroupReq;
@@ -97,7 +96,9 @@ public class RouterAdvertisementDaemon {
             (byte) 0xff, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     };
 
-    private final InterfaceParams mInterface;
+    private final String mIfName;
+    private final int mIfIndex;
+    private final byte[] mHwAddr;
     private final InetSocketAddress mAllNodes;
 
     // This lock is to protect the RA from being updated while being
@@ -222,9 +223,11 @@ public class RouterAdvertisementDaemon {
     }
 
 
-    public RouterAdvertisementDaemon(InterfaceParams ifParams) {
-        mInterface = ifParams;
-        mAllNodes = new InetSocketAddress(getAllNodesForScopeId(mInterface.index), 0);
+    public RouterAdvertisementDaemon(String ifname, int ifindex, byte[] hwaddr) {
+        mIfName = ifname;
+        mIfIndex = ifindex;
+        mHwAddr = hwaddr;
+        mAllNodes = new InetSocketAddress(getAllNodesForScopeId(mIfIndex), 0);
         mDeprecatedInfoTracker = new DeprecatedInfoTracker();
     }
 
@@ -268,7 +271,6 @@ public class RouterAdvertisementDaemon {
         mUnicastResponder = null;
     }
 
-    @GuardedBy("mLock")
     private void assembleRaLocked() {
         final ByteBuffer ra = ByteBuffer.wrap(mRA);
         ra.order(ByteOrder.BIG_ENDIAN);
@@ -277,7 +279,7 @@ public class RouterAdvertisementDaemon {
 
         try {
             putHeader(ra, mRaParams != null && mRaParams.hasDefaultRoute);
-            putSlla(ra, mInterface.macAddr.toByteArray());
+            putSlla(ra, mHwAddr);
             mRaLength = ra.position();
 
             // https://tools.ietf.org/html/rfc5175#section-4 says:
@@ -577,9 +579,9 @@ public class RouterAdvertisementDaemon {
             // Setting SNDTIMEO is purely for defensive purposes.
             Os.setsockoptTimeval(
                     mSocket, SOL_SOCKET, SO_SNDTIMEO, StructTimeval.fromMillis(SEND_TIMEOUT_MS));
-            Os.setsockoptIfreq(mSocket, SOL_SOCKET, SO_BINDTODEVICE, mInterface.name);
+            Os.setsockoptIfreq(mSocket, SOL_SOCKET, SO_BINDTODEVICE, mIfName);
             NetworkUtils.protectFromVpn(mSocket);
-            NetworkUtils.setupRaSocket(mSocket, mInterface.index);
+            NetworkUtils.setupRaSocket(mSocket, mIfIndex);
         } catch (ErrnoException | IOException e) {
             Log.e(TAG, "Failed to create RA daemon socket: " + e);
             return false;
@@ -612,7 +614,7 @@ public class RouterAdvertisementDaemon {
         final InetAddress destip = dest.getAddress();
         return (destip instanceof Inet6Address) &&
                 destip.isLinkLocalAddress() &&
-               (((Inet6Address) destip).getScopeId() == mInterface.index);
+               (((Inet6Address) destip).getScopeId() == mIfIndex);
     }
 
     private void maybeSendRA(InetSocketAddress dest) {

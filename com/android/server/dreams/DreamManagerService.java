@@ -58,7 +58,8 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
+
+import libcore.util.Objects;
 
 /**
  * Service api for managing dreams.
@@ -348,7 +349,7 @@ public final class DreamManagerService extends SystemService {
 
     private void startDreamLocked(final ComponentName name,
             final boolean isTest, final boolean canDoze, final int userId) {
-        if (Objects.equals(mCurrentDreamName, name)
+        if (Objects.equal(mCurrentDreamName, name)
                 && mCurrentDreamIsTest == isTest
                 && mCurrentDreamCanDoze == canDoze
                 && mCurrentDreamUserId == userId) {

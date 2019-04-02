@@ -17,7 +17,6 @@
 package android.os;
 
 import android.util.Slog;
-
 import com.android.internal.util.FastPrintWriter;
 
 import java.io.BufferedInputStream;
@@ -91,13 +90,7 @@ public abstract class ShellCommand {
         mCmd = cmd;
         mResultReceiver = resultReceiver;
 
-        if (DEBUG) {
-            RuntimeException here = new RuntimeException("here");
-            here.fillInStackTrace();
-            Slog.d(TAG, "Starting command " + mCmd + " on " + mTarget, here);
-            Slog.d(TAG, "Calling uid=" + Binder.getCallingUid()
-                    + " pid=" + Binder.getCallingPid() + " ShellCallback=" + getShellCallback());
-        }
+        if (DEBUG) Slog.d(TAG, "Starting command " + mCmd + " on " + mTarget);
         int res = -1;
         try {
             res = onCommand(mCmd);
@@ -125,30 +118,10 @@ public abstract class ShellCommand {
                 mErrPrintWriter.flush();
             }
             if (DEBUG) Slog.d(TAG, "Sending command result on " + mTarget);
-            if (mResultReceiver != null) {
-                mResultReceiver.send(res, null);
-            }
+            mResultReceiver.send(res, null);
         }
         if (DEBUG) Slog.d(TAG, "Finished command " + mCmd + " on " + mTarget);
         return res;
-    }
-
-    /**
-     * Adopt the ResultReceiver that was given to this shell command from it, taking
-     * it over.  Primarily used to dispatch to another shell command.  Once called,
-     * this shell command will no longer return its own result when done.
-     */
-    public ResultReceiver adoptResultReceiver() {
-        ResultReceiver rr = mResultReceiver;
-        mResultReceiver = null;
-        return rr;
-    }
-
-    /**
-     * Return the raw FileDescriptor for the output stream.
-     */
-    public FileDescriptor getOutFileDescriptor() {
-        return mOut;
     }
 
     /**
@@ -169,13 +142,6 @@ public abstract class ShellCommand {
             mOutPrintWriter = new FastPrintWriter(getRawOutputStream());
         }
         return mOutPrintWriter;
-    }
-
-    /**
-     * Return the raw FileDescriptor for the error stream.
-     */
-    public FileDescriptor getErrFileDescriptor() {
-        return mErr;
     }
 
     /**
@@ -202,13 +168,6 @@ public abstract class ShellCommand {
     }
 
     /**
-     * Return the raw FileDescriptor for the input stream.
-     */
-    public FileDescriptor getInFileDescriptor() {
-        return mIn;
-    }
-
-    /**
      * Return direct raw access (not buffered) to the command's input data stream.
      */
     public InputStream getRawInputStream() {
@@ -232,20 +191,16 @@ public abstract class ShellCommand {
      * Helper for just system services to ask the shell to open an output file.
      * @hide
      */
-    public ParcelFileDescriptor openFileForSystem(String path, String mode) {
-        if (DEBUG) Slog.d(TAG, "openFileForSystem: " + path + " mode=" + mode);
+    public ParcelFileDescriptor openOutputFileForSystem(String path) {
         try {
-            ParcelFileDescriptor pfd = getShellCallback().openFile(path,
-                    "u:r:system_server:s0", mode);
+            ParcelFileDescriptor pfd = getShellCallback().openOutputFile(path,
+                    "u:r:system_server:s0");
             if (pfd != null) {
-                if (DEBUG) Slog.d(TAG, "Got file: " + pfd);
                 return pfd;
             }
         } catch (RuntimeException e) {
-            if (DEBUG) Slog.d(TAG, "Failure opening file: " + e.getMessage());
             getErrPrintWriter().println("Failure opening file: " + e.getMessage());
         }
-        if (DEBUG) Slog.d(TAG, "Error: Unable to open file: " + path);
         getErrPrintWriter().println("Error: Unable to open file: " + path);
         getErrPrintWriter().println("Consider using a file under /data/local/tmp/");
         return null;

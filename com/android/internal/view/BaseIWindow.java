@@ -22,7 +22,6 @@ import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.util.MergedConfiguration;
-import android.view.DisplayCutout;
 import android.view.DragEvent;
 import android.view.IWindow;
 import android.view.IWindowSession;
@@ -42,8 +41,7 @@ public class BaseIWindow extends IWindow.Stub {
     public void resized(Rect frame, Rect overscanInsets, Rect contentInsets, Rect visibleInsets,
             Rect stableInsets, Rect outsets, boolean reportDraw,
             MergedConfiguration mergedConfiguration, Rect backDropFrame, boolean forceLayout,
-            boolean alwaysConsumeNavBar, int displayId,
-            DisplayCutout.ParcelableWrapper displayCutout) {
+            boolean alwaysConsumeNavBar, int displayId) {
         if (reportDraw) {
             try {
                 mSession.finishDrawing(this);

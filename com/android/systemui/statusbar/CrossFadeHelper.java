@@ -28,17 +28,11 @@ public class CrossFadeHelper {
     public static final long ANIMATION_DURATION_LENGTH = 210;
 
     public static void fadeOut(final View view, final Runnable endRunnable) {
-        fadeOut(view, ANIMATION_DURATION_LENGTH, 0, endRunnable);
-    }
-
-    public static void fadeOut(final View view, long duration, int delay,
-            final Runnable endRunnable) {
         view.animate().cancel();
         view.animate()
                 .alpha(0f)
-                .setDuration(duration)
+                .setDuration(ANIMATION_DURATION_LENGTH)
                 .setInterpolator(Interpolators.ALPHA_OUT)
-                .setStartDelay(delay)
                 .withEndAction(new Runnable() {
                     @Override
                     public void run() {
@@ -99,10 +93,6 @@ public class CrossFadeHelper {
     }
 
     public static void fadeIn(final View view) {
-        fadeIn(view, ANIMATION_DURATION_LENGTH, 0);
-    }
-
-    public static void fadeIn(final View view, long duration, int delay) {
         view.animate().cancel();
         if (view.getVisibility() == View.INVISIBLE) {
             view.setAlpha(0.0f);
@@ -110,8 +100,7 @@ public class CrossFadeHelper {
         }
         view.animate()
                 .alpha(1f)
-                .setDuration(duration)
-                .setStartDelay(delay)
+                .setDuration(ANIMATION_DURATION_LENGTH)
                 .setInterpolator(Interpolators.ALPHA_IN)
                 .withEndAction(null);
         if (view.hasOverlappingRendering()) {

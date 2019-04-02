@@ -448,7 +448,6 @@ class DateTimeTextProvider {
         return "";  // null marker for map
     }
 
-    // Android-added: extractQuarters to extract Map of quarter names from ICU resource bundle.
     private static Map<Long, String> extractQuarters(ICUResourceBundle rb, String key) {
         String[] names = rb.getWithFallback(key).getStringArray();
         Map<Long, String> map = new HashMap<>();
@@ -469,7 +468,7 @@ class DateTimeTextProvider {
         return new SimpleImmutableEntry<>(text, field);
     }
 
-    // Android-removed: unused helper method getLocalizedResource.
+    // Android-changed: removed getLocalizedResource.
 
     /**
      * Stores the text for a single locale.

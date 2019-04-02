@@ -30,7 +30,6 @@ import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.settingslib.R;
-import com.android.settingslib.wrapper.BluetoothA2dpWrapper;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -43,6 +42,7 @@ public class A2dpProfile implements LocalBluetoothProfile {
     private Context mContext;
 
     private BluetoothA2dp mService;
+    BluetoothA2dpWrapper.Factory mWrapperFactory;
     private BluetoothA2dpWrapper mServiceWrapper;
     private boolean mIsProfileReady;
 
@@ -67,7 +67,7 @@ public class A2dpProfile implements LocalBluetoothProfile {
         public void onServiceConnected(int profile, BluetoothProfile proxy) {
             if (V) Log.d(TAG,"Bluetooth service connected");
             mService = (BluetoothA2dp) proxy;
-            mServiceWrapper = new BluetoothA2dpWrapper(mService);
+            mServiceWrapper = mWrapperFactory.getInstance(mService);
             // We just bound to the service, so refresh the UI for any connected A2DP devices.
             List<BluetoothDevice> deviceList = mService.getConnectedDevices();
             while (!deviceList.isEmpty()) {
@@ -94,11 +94,6 @@ public class A2dpProfile implements LocalBluetoothProfile {
         return mIsProfileReady;
     }
 
-    @Override
-    public int getProfileId() {
-        return BluetoothProfile.A2DP;
-    }
-
     A2dpProfile(Context context, LocalBluetoothAdapter adapter,
             CachedBluetoothDeviceManager deviceManager,
             LocalBluetoothProfileManager profileManager) {
@@ -106,13 +101,14 @@ public class A2dpProfile implements LocalBluetoothProfile {
         mLocalAdapter = adapter;
         mDeviceManager = deviceManager;
         mProfileManager = profileManager;
+        mWrapperFactory = new BluetoothA2dpWrapperImpl.Factory();
         mLocalAdapter.getProfileProxy(context, new A2dpServiceListener(),
                 BluetoothProfile.A2DP);
     }
 
     @VisibleForTesting
-    void setBluetoothA2dpWrapper(BluetoothA2dpWrapper wrapper) {
-        mServiceWrapper = wrapper;
+    void setWrapperFactory(BluetoothA2dpWrapper.Factory factory) {
+        mWrapperFactory = factory;
     }
 
     public boolean isConnectable() {
@@ -133,18 +129,14 @@ public class A2dpProfile implements LocalBluetoothProfile {
 
     public boolean connect(BluetoothDevice device) {
         if (mService == null) return false;
-        int max_connected_devices = mLocalAdapter.getMaxConnectedAudioDevices();
-        if (max_connected_devices == 1) {
-            // Original behavior: disconnect currently connected device
-            List<BluetoothDevice> sinks = getConnectedDevices();
-            if (sinks != null) {
-                for (BluetoothDevice sink : sinks) {
-                    if (sink.equals(device)) {
-                        Log.w(TAG, "Connecting to device " + device + " : disconnect skipped");
-                        continue;
-                    }
-                    mService.disconnect(sink);
+        List<BluetoothDevice> sinks = getConnectedDevices();
+        if (sinks != null) {
+            for (BluetoothDevice sink : sinks) {
+                if (sink.equals(device)) {
+                    Log.w(TAG, "Connecting to device " + device + " : disconnect skipped");
+                    continue;
                 }
+                mService.disconnect(sink);
             }
         }
         return mService.connect(device);
@@ -164,16 +156,6 @@ public class A2dpProfile implements LocalBluetoothProfile {
             return BluetoothProfile.STATE_DISCONNECTED;
         }
         return mService.getConnectionState(device);
-    }
-
-    public boolean setActiveDevice(BluetoothDevice device) {
-        if (mService == null) return false;
-        return mService.setActiveDevice(device);
-    }
-
-    public BluetoothDevice getActiveDevice() {
-        if (mService == null) return null;
-        return mService.getActiveDevice();
     }
 
     public boolean isPreferred(BluetoothDevice device) {
@@ -199,8 +181,8 @@ public class A2dpProfile implements LocalBluetoothProfile {
     boolean isA2dpPlaying() {
         if (mService == null) return false;
         List<BluetoothDevice> sinks = mService.getConnectedDevices();
-        for (BluetoothDevice device : sinks) {
-            if (mService.isA2dpPlaying(device)) {
+        if (!sinks.isEmpty()) {
+            if (mService.isA2dpPlaying(sinks.get(0))) {
                 return true;
             }
         }
@@ -224,8 +206,8 @@ public class A2dpProfile implements LocalBluetoothProfile {
             return true;
         }
         BluetoothCodecConfig codecConfig = null;
-        if (mServiceWrapper.getCodecStatus(device) != null) {
-            codecConfig = mServiceWrapper.getCodecStatus(device).getCodecConfig();
+        if (mServiceWrapper.getCodecStatus() != null) {
+            codecConfig = mServiceWrapper.getCodecStatus().getCodecConfig();
         }
         if (codecConfig != null)  {
             return !codecConfig.isMandatoryCodec();
@@ -243,9 +225,9 @@ public class A2dpProfile implements LocalBluetoothProfile {
             return;
         }
         if (enabled) {
-            mService.enableOptionalCodecs(device);
+            mService.enableOptionalCodecs();
         } else {
-            mService.disableOptionalCodecs(device);
+            mService.disableOptionalCodecs();
         }
     }
 
@@ -258,8 +240,8 @@ public class A2dpProfile implements LocalBluetoothProfile {
         // We want to get the highest priority codec, since that's the one that will be used with
         // this device, and see if it is high-quality (ie non-mandatory).
         BluetoothCodecConfig[] selectable = null;
-        if (mServiceWrapper.getCodecStatus(device) != null) {
-            selectable = mServiceWrapper.getCodecStatus(device).getCodecsSelectableCapabilities();
+        if (mServiceWrapper.getCodecStatus() != null) {
+            selectable = mServiceWrapper.getCodecStatus().getCodecsSelectableCapabilities();
             // To get the highest priority, we sort in reverse.
             Arrays.sort(selectable,
                     (a, b) -> {

@@ -17,10 +17,10 @@
 package android.webkit;
 
 import android.annotation.SystemApi;
-import android.content.pm.Signature;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.util.Base64;
+
+import java.util.Arrays;
 
 /**
  * @hide
@@ -34,14 +34,7 @@ public final class WebViewProviderInfo implements Parcelable {
         this.description = description;
         this.availableByDefault = availableByDefault;
         this.isFallback = isFallback;
-        if (signatures == null) {
-            this.signatures = new Signature[0];
-        } else {
-            this.signatures = new Signature[signatures.length];
-            for (int n = 0; n < signatures.length; n++) {
-                this.signatures[n] = new Signature(Base64.decode(signatures[n], Base64.DEFAULT));
-            }
-        }
+        this.signatures = signatures;
     }
 
     // aidl stuff
@@ -61,7 +54,7 @@ public final class WebViewProviderInfo implements Parcelable {
         description = in.readString();
         availableByDefault = (in.readInt() > 0);
         isFallback = (in.readInt() > 0);
-        signatures = in.createTypedArray(Signature.CREATOR);
+        signatures = in.createStringArray();
     }
 
     @Override
@@ -75,7 +68,7 @@ public final class WebViewProviderInfo implements Parcelable {
         out.writeString(description);
         out.writeInt(availableByDefault ? 1 : 0);
         out.writeInt(isFallback ? 1 : 0);
-        out.writeTypedArray(signatures, 0);
+        out.writeStringArray(signatures);
     }
 
     // fields read from framework resource
@@ -83,5 +76,5 @@ public final class WebViewProviderInfo implements Parcelable {
     public final String description;
     public final boolean availableByDefault;
     public final boolean isFallback;
-    public final Signature[] signatures;
+    public final String[] signatures;
 }

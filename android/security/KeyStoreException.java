@@ -16,15 +16,12 @@
 
 package android.security;
 
-import android.annotation.TestApi;
-
 /**
  * KeyStore/keymaster exception with positive error codes coming from the KeyStore and negative
  * ones from keymaster.
  *
  * @hide
  */
-@TestApi
 public class KeyStoreException extends Exception {
 
     private final int mErrorCode;

@@ -18,8 +18,7 @@ package com.android.server.wm;
 
 import android.content.res.CompatibilityInfo;
 import android.content.res.Configuration;
-
-import com.android.server.policy.WindowManagerPolicy.StartingSurface;
+import android.view.WindowManagerPolicy.StartingSurface;
 
 /**
  * Represents starting data for splash screens, i.e. "traditional" starting windows.

@@ -16,13 +16,10 @@
 
 package android.view;
 
-import com.android.ide.common.rendering.api.LayoutLog;
-import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
 import android.content.Context;
-import android.graphics.Canvas;
 import android.os.IBinder;
 
 /**
@@ -46,51 +43,5 @@ public class View_Delegate {
             return ((BridgeContext) baseContext).getBinder();
         }
         return null;
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static void draw(View thisView, Canvas canvas) {
-        try {
-            // This code is run within a catch to prevent misbehaving components from breaking
-            // all the layout.
-            thisView.draw_Original(canvas);
-        } catch (Throwable t) {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN, "View draw failed", t, null);
-        }
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static boolean draw(
-            View thisView, Canvas canvas, ViewGroup parent, long drawingTime) {
-        try {
-            // This code is run within a catch to prevent misbehaving components from breaking
-            // all the layout.
-            return thisView.draw_Original(canvas, parent, drawingTime);
-        } catch (Throwable t) {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN, "View draw failed", t, null);
-        }
-        return false;
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static void measure(View thisView, int widthMeasureSpec, int heightMeasureSpec) {
-        try {
-            // This code is run within a catch to prevent misbehaving components from breaking
-            // all the layout.
-            thisView.measure_Original(widthMeasureSpec, heightMeasureSpec);
-        } catch (Throwable t) {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN, "View measure failed", t, null);
-        }
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static void layout(View thisView, int l, int t, int r, int b) {
-        try {
-            // This code is run within a catch to prevent misbehaving components from breaking
-            // all the layout.
-            thisView.layout_Original(l, t, r, b);
-        } catch (Throwable th) {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN, "View layout failed", th, null);
-        }
     }
 }

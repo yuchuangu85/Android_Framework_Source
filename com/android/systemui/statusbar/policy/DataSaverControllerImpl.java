@@ -74,15 +74,27 @@ public class DataSaverControllerImpl implements DataSaverController {
         }
     }
 
-    private final INetworkPolicyListener mPolicyListener = new NetworkPolicyManager.Listener() {
+    private final INetworkPolicyListener mPolicyListener = new INetworkPolicyListener.Stub() {
         @Override
-        public void onRestrictBackgroundChanged(final boolean isDataSaving) {
+        public void onUidRulesChanged(int uid, int uidRules) throws RemoteException {
+        }
+
+        @Override
+        public void onMeteredIfacesChanged(String[] strings) throws RemoteException {
+        }
+
+        @Override
+        public void onRestrictBackgroundChanged(final boolean isDataSaving) throws RemoteException {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
                     handleRestrictBackgroundChanged(isDataSaving);
                 }
             });
+        }
+
+        @Override
+        public void onUidPoliciesChanged(int uid, int uidPolicies) throws RemoteException {
         }
     };
 

@@ -23,8 +23,8 @@ import android.app.backup.IBackupManager;
 import android.app.backup.IBackupObserver;
 import android.app.backup.IRestoreObserver;
 import android.app.backup.IRestoreSession;
-import android.app.backup.ISelectBackupTransportCallback;
 import android.app.backup.RestoreSet;
+import android.app.backup.ISelectBackupTransportCallback;
 import android.content.ComponentName;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageInfo;
@@ -37,7 +37,6 @@ import android.util.ArraySet;
 import com.android.internal.annotations.GuardedBy;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -297,10 +296,6 @@ public final class Bmgr {
             super.backupFinished(status);
             System.out.println("Backup finished with result: "
                     + convertBackupStatusToString(status));
-            if (status == BackupManager.ERROR_BACKUP_CANCELLED) {
-                System.out.println("Backups can be cancelled if a backup is already running, check "
-                                + "backup dumpsys");
-            }
         }
     }
 
@@ -322,7 +317,7 @@ public final class Bmgr {
             case BackupManager.ERROR_TRANSPORT_QUOTA_EXCEEDED:
                 return "Size quota exceeded";
             case BackupManager.ERROR_BACKUP_CANCELLED:
-                return "Backup cancelled";
+                return "Backup Cancelled";
             default:
                 return "Unknown error";
         }
@@ -344,16 +339,18 @@ public final class Bmgr {
             System.err.println(PM_NOT_RUNNING_ERR);
         }
         if (installedPackages != null) {
-            String[] packages =
-                    installedPackages.stream().map(p -> p.packageName).toArray(String[]::new);
-            String[] filteredPackages = {};
-            try {
-                filteredPackages = mBmgr.filterAppsEligibleForBackup(packages);
-            } catch (RemoteException e) {
-                System.err.println(e.toString());
-                System.err.println(BMGR_NOT_RUNNING_ERR);
+            List<String> packages = new ArrayList<>();
+            for (PackageInfo pi : installedPackages) {
+                try {
+                    if (mBmgr.isAppEligibleForBackup(pi.packageName)) {
+                        packages.add(pi.packageName);
+                    }
+                } catch (RemoteException e) {
+                    System.err.println(e.toString());
+                    System.err.println(BMGR_NOT_RUNNING_ERR);
+                }
             }
-            backupNowPackages(Arrays.asList(filteredPackages), nonIncrementalBackup);
+            backupNowPackages(packages, nonIncrementalBackup);
         }
     }
 

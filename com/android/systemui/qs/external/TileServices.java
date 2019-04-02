@@ -102,9 +102,7 @@ public class TileServices extends IQSService.Stub {
             mTokenMap.remove(service.getToken());
             mTiles.remove(tile.getComponent());
             final String slot = tile.getComponent().getClassName();
-            // TileServices doesn't know how to add more than 1 icon per slot, so remove all
-            mMainHandler.post(() -> mHost.getIconController()
-                    .removeAllIconsForSlot(slot));
+            mMainHandler.post(() -> mHost.getIconController().removeIcon(slot));
         }
     }
 

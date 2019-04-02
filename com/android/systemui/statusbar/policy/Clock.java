@@ -16,6 +16,9 @@
 
 package com.android.systemui.statusbar.policy;
 
+import libcore.icu.LocaleData;
+
+import android.app.ActivityManager;
 import android.app.StatusBarManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -37,21 +40,17 @@ import android.view.Display;
 import android.view.View;
 import android.widget.TextView;
 
-import com.android.settingslib.Utils;
 import com.android.systemui.DemoMode;
 import com.android.systemui.Dependency;
 import com.android.systemui.FontSizeUtils;
 import com.android.systemui.R;
 import com.android.systemui.SysUiServiceProvider;
-import com.android.systemui.settings.CurrentUserTracker;
 import com.android.systemui.statusbar.CommandQueue;
 import com.android.systemui.statusbar.phone.StatusBarIconController;
 import com.android.systemui.statusbar.policy.ConfigurationController.ConfigurationListener;
 import com.android.systemui.statusbar.policy.DarkIconDispatcher.DarkReceiver;
 import com.android.systemui.tuner.TunerService;
 import com.android.systemui.tuner.TunerService.Tunable;
-
-import libcore.icu.LocaleData;
 
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
@@ -65,9 +64,6 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
         DarkReceiver, ConfigurationListener {
 
     public static final String CLOCK_SECONDS = "clock_seconds";
-
-    private final CurrentUserTracker mCurrentUserTracker;
-    private int mCurrentUserId;
 
     private boolean mClockVisibleByPolicy = true;
     private boolean mClockVisibleByUser = true;
@@ -88,17 +84,6 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
     private boolean mShowSeconds;
     private Handler mSecondsHandler;
 
-    /**
-     * Whether we should use colors that adapt based on wallpaper/the scrim behind quick settings
-     * for text.
-     */
-    private boolean mUseWallpaperTextColor;
-
-    /**
-     * Color to be set on this {@link TextView}, when wallpaperTextColor is <b>not</b> utilized.
-     */
-    private int mNonAdaptedColor;
-
     public Clock(Context context) {
         this(context, null);
     }
@@ -116,16 +101,9 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
         try {
             mAmPmStyle = a.getInt(R.styleable.Clock_amPmStyle, AM_PM_STYLE_GONE);
             mShowDark = a.getBoolean(R.styleable.Clock_showDark, true);
-            mNonAdaptedColor = getCurrentTextColor();
         } finally {
             a.recycle();
         }
-        mCurrentUserTracker = new CurrentUserTracker(context) {
-            @Override
-            public void onUserSwitched(int newUserId) {
-                mCurrentUserId = newUserId;
-            }
-        };
     }
 
     @Override
@@ -150,8 +128,6 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
             if (mShowDark) {
                 Dependency.get(DarkIconDispatcher.class).addDarkReceiver(this);
             }
-            mCurrentUserTracker.startTracking();
-            mCurrentUserId = mCurrentUserTracker.getCurrentUserId();
         }
 
         // NOTE: It's safe to do these after registering the receiver since the receiver always runs
@@ -177,7 +153,6 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
             if (mShowDark) {
                 Dependency.get(DarkIconDispatcher.class).removeDarkReceiver(this);
             }
-            mCurrentUserTracker.stopTracking();
         }
     }
 
@@ -252,10 +227,7 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
 
     @Override
     public void onDarkChanged(Rect area, float darkIntensity, int tint) {
-        mNonAdaptedColor = DarkIconDispatcher.getTint(area, this, tint);
-        if (!mUseWallpaperTextColor) {
-            setTextColor(mNonAdaptedColor);
-        }
+        setTextColor(DarkIconDispatcher.getTint(area, this, tint));
     }
 
     @Override
@@ -268,25 +240,6 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
                 mContext.getResources().getDimensionPixelSize(
                         R.dimen.status_bar_clock_end_padding),
                 0);
-    }
-
-    /**
-     * Sets whether the clock uses the wallpaperTextColor. If we're not using it, we'll revert back
-     * to dark-mode-based/tinted colors.
-     *
-     * @param shouldUseWallpaperTextColor whether we should use wallpaperTextColor for text color
-     */
-    public void useWallpaperTextColor(boolean shouldUseWallpaperTextColor) {
-        if (shouldUseWallpaperTextColor == mUseWallpaperTextColor) {
-            return;
-        }
-        mUseWallpaperTextColor = shouldUseWallpaperTextColor;
-
-        if (mUseWallpaperTextColor) {
-            setTextColor(Utils.getColorAttr(mContext, R.attr.wallpaperTextColor));
-        } else {
-            setTextColor(mNonAdaptedColor);
-        }
     }
 
     private void updateShowSeconds() {
@@ -314,7 +267,7 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
 
     private final CharSequence getSmallTime() {
         Context context = getContext();
-        boolean is24 = DateFormat.is24HourFormat(context, mCurrentUserId);
+        boolean is24 = DateFormat.is24HourFormat(context, ActivityManager.getCurrentUser());
         LocaleData d = LocaleData.get(context.getResources().getConfiguration().locale);
 
         final char MAGIC1 = '\uEF00';
@@ -404,7 +357,8 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
             } else if (hhmm != null && hhmm.length() == 4) {
                 int hh = Integer.parseInt(hhmm.substring(0, 2));
                 int mm = Integer.parseInt(hhmm.substring(2));
-                boolean is24 = DateFormat.is24HourFormat(getContext(), mCurrentUserId);
+                boolean is24 = DateFormat.is24HourFormat(
+                        getContext(), ActivityManager.getCurrentUser());
                 if (is24) {
                     mCalendar.set(Calendar.HOUR_OF_DAY, hh);
                 } else {

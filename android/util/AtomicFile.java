@@ -17,7 +17,6 @@
 package android.util;
 
 import android.os.FileUtils;
-import android.os.SystemClock;
 
 import libcore.io.IoUtils;
 
@@ -48,25 +47,14 @@ import java.util.function.Consumer;
 public class AtomicFile {
     private final File mBaseName;
     private final File mBackupName;
-    private final String mCommitTag;
-    private long mStartTime;
 
     /**
      * Create a new AtomicFile for a file located at the given File path.
      * The secondary backup file will be the same file path with ".bak" appended.
      */
     public AtomicFile(File baseName) {
-        this(baseName, null);
-    }
-
-    /**
-     * @hide Internal constructor that also allows you to have the class
-     * automatically log commit events.
-     */
-    public AtomicFile(File baseName, String commitTag) {
         mBaseName = baseName;
         mBackupName = new File(baseName.getPath() + ".bak");
-        mCommitTag = commitTag;
     }
 
     /**
@@ -100,18 +88,6 @@ public class AtomicFile {
      * access to AtomicFile.
      */
     public FileOutputStream startWrite() throws IOException {
-        return startWrite(mCommitTag != null ? SystemClock.uptimeMillis() : 0);
-    }
-
-    /**
-     * @hide Internal version of {@link #startWrite()} that allows you to specify an earlier
-     * start time of the operation to adjust how the commit is logged.
-     * @param startTime The effective start time of the operation, in the time
-     * base of {@link SystemClock#uptimeMillis()}.
-     */
-    public FileOutputStream startWrite(long startTime) throws IOException {
-        mStartTime = startTime;
-
         // Rename the current file so it may be used as a backup during the next read
         if (mBaseName.exists()) {
             if (!mBackupName.exists()) {
@@ -158,10 +134,6 @@ public class AtomicFile {
                 mBackupName.delete();
             } catch (IOException e) {
                 Log.w("AtomicFile", "finishWrite: Got exception:", e);
-            }
-            if (mCommitTag != null) {
-                com.android.internal.logging.EventLogTags.writeCommitSysConfigFile(
-                        mCommitTag, SystemClock.uptimeMillis() - mStartTime);
             }
         }
     }

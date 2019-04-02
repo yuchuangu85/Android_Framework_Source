@@ -63,11 +63,6 @@ public class StructNdMsg {
         return ((nudState & (NUD_PERMANENT|NUD_NOARP|NUD_REACHABLE)) != 0);
     }
 
-    public static boolean isNudStateValid(short nudState) {
-        return (isNudStateConnected(nudState) ||
-                ((nudState & (NUD_PROBE|NUD_STALE|NUD_DELAY)) != 0));
-    }
-
     // Neighbor Cache Entry Flags
     public static byte NTF_USE       = (byte) 0x01;
     public static byte NTF_SELF      = (byte) 0x02;
@@ -148,7 +143,7 @@ public class StructNdMsg {
     }
 
     public boolean nudValid() {
-        return isNudStateValid(ndm_state);
+        return (nudConnected() || ((ndm_state & (NUD_PROBE|NUD_STALE|NUD_DELAY)) != 0));
     }
 
     @Override

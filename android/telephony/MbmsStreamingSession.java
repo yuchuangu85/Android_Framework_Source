@@ -16,20 +16,19 @@
 
 package android.telephony;
 
-import static android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID;
-
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SdkConstant;
 import android.annotation.SystemApi;
-import android.annotation.TestApi;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.ServiceConnection;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.RemoteException;
-import android.telephony.mbms.InternalStreamingServiceCallback;
 import android.telephony.mbms.InternalStreamingSessionCallback;
+import android.telephony.mbms.InternalStreamingServiceCallback;
 import android.telephony.mbms.MbmsErrors;
 import android.telephony.mbms.MbmsStreamingSessionCallback;
 import android.telephony.mbms.MbmsUtils;
@@ -42,12 +41,14 @@ import android.util.Log;
 
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+
 /**
  * This class provides functionality for streaming media over MBMS.
+ * @hide
  */
 public class MbmsStreamingSession implements AutoCloseable {
     private static final String LOG_TAG = "MbmsStreamingSession";
@@ -61,14 +62,6 @@ public class MbmsStreamingSession implements AutoCloseable {
     @SdkConstant(SdkConstant.SdkConstantType.SERVICE_ACTION)
     public static final String MBMS_STREAMING_SERVICE_ACTION =
             "android.telephony.action.EmbmsStreaming";
-
-    /**
-     * Metadata key that specifies the component name of the service to bind to for file-download.
-     * @hide
-     */
-    @TestApi
-    public static final String MBMS_STREAMING_SERVICE_OVERRIDE_METADATA =
-            "mbms-streaming-service-override";
 
     private static AtomicBoolean sIsInitialized = new AtomicBoolean(false);
 
@@ -88,11 +81,14 @@ public class MbmsStreamingSession implements AutoCloseable {
     private int mSubscriptionId = INVALID_SUBSCRIPTION_ID;
 
     /** @hide */
-    private MbmsStreamingSession(Context context, Executor executor, int subscriptionId,
-            MbmsStreamingSessionCallback callback) {
+    private MbmsStreamingSession(Context context, MbmsStreamingSessionCallback callback,
+                    int subscriptionId, Handler handler) {
         mContext = context;
         mSubscriptionId = subscriptionId;
-        mInternalCallback = new InternalStreamingSessionCallback(callback, executor);
+        if (handler == null) {
+            handler = new Handler(Looper.getMainLooper());
+        }
+        mInternalCallback = new InternalStreamingSessionCallback(callback, handler);
     }
 
     /**
@@ -113,25 +109,25 @@ public class MbmsStreamingSession implements AutoCloseable {
      * {@link MbmsStreamingSession} that you received before calling this method again.
      *
      * @param context The {@link Context} to use.
-     * @param executor The executor on which you wish to execute callbacks.
-     * @param subscriptionId The subscription ID to use.
      * @param callback A callback object on which you wish to receive results of asynchronous
      *                 operations.
+     * @param subscriptionId The subscription ID to use.
+     * @param handler The handler you wish to receive callbacks on.
      * @return An instance of {@link MbmsStreamingSession}, or null if an error occurred.
      */
     public static @Nullable MbmsStreamingSession create(@NonNull Context context,
-            @NonNull Executor executor, int subscriptionId,
-            final @NonNull MbmsStreamingSessionCallback callback) {
+            final @NonNull MbmsStreamingSessionCallback callback, int subscriptionId,
+            @NonNull Handler handler) {
         if (!sIsInitialized.compareAndSet(false, true)) {
             throw new IllegalStateException("Cannot create two instances of MbmsStreamingSession");
         }
-        MbmsStreamingSession session = new MbmsStreamingSession(context, executor,
-                subscriptionId, callback);
+        MbmsStreamingSession session = new MbmsStreamingSession(context, callback,
+                subscriptionId, handler);
 
         final int result = session.bindAndInitialize();
         if (result != MbmsErrors.SUCCESS) {
             sIsInitialized.set(false);
-            executor.execute(new Runnable() {
+            handler.post(new Runnable() {
                 @Override
                 public void run() {
                     callback.onError(result, null);
@@ -144,22 +140,22 @@ public class MbmsStreamingSession implements AutoCloseable {
 
     /**
      * Create a new {@link MbmsStreamingSession} using the system default data subscription ID.
-     * See {@link #create(Context, Executor, int, MbmsStreamingSessionCallback)}.
+     * See {@link #create(Context, MbmsStreamingSessionCallback, int, Handler)}.
      */
     public static MbmsStreamingSession create(@NonNull Context context,
-            @NonNull Executor executor, @NonNull MbmsStreamingSessionCallback callback) {
-        return create(context, executor, SubscriptionManager.getDefaultSubscriptionId(), callback);
+            @NonNull MbmsStreamingSessionCallback callback, @NonNull Handler handler) {
+        return create(context, callback, SubscriptionManager.getDefaultSubscriptionId(), handler);
     }
 
     /**
      * Terminates this instance. Also terminates
      * any streaming services spawned from this instance as if
-     * {@link StreamingService#close()} had been called on them. After this method returns,
+     * {@link StreamingService#stopStreaming()} had been called on them. After this method returns,
      * no further callbacks originating from the middleware will be enqueued on the provided
      * instance of {@link MbmsStreamingSessionCallback}, but callbacks that have already been
      * enqueued will still be delivered.
      *
-     * It is safe to call {@link #create(Context, Executor, int, MbmsStreamingSessionCallback)} to
+     * It is safe to call {@link #create(Context, MbmsStreamingSessionCallback, int, Handler)} to
      * obtain another instance of {@link MbmsStreamingSession} immediately after this method
      * returns.
      *
@@ -208,11 +204,6 @@ public class MbmsStreamingSession implements AutoCloseable {
         try {
             int returnCode = streamingService.requestUpdateStreamingServices(
                     mSubscriptionId, serviceClassList);
-            if (returnCode == MbmsErrors.UNKNOWN) {
-                // Unbind and throw an obvious error
-                close();
-                throw new IllegalStateException("Middleware must not return an unknown error code");
-            }
             if (returnCode != MbmsErrors.SUCCESS) {
                 sendErrorToApp(returnCode, null);
             }
@@ -238,20 +229,20 @@ public class MbmsStreamingSession implements AutoCloseable {
      * {@link MbmsErrors.StreamingErrors}.
      *
      * @param serviceInfo The information about the service to stream.
-     * @param executor The executor on which you wish to execute callbacks for this stream.
      * @param callback A callback that'll be called when something about the stream changes.
+     * @param handler A handler that calls to {@code callback} should be called on.
      * @return An instance of {@link StreamingService} through which the stream can be controlled.
      *         May be {@code null} if an error occurred.
      */
     public @Nullable StreamingService startStreaming(StreamingServiceInfo serviceInfo,
-            @NonNull Executor executor, StreamingServiceCallback callback) {
+            StreamingServiceCallback callback, @NonNull Handler handler) {
         IMbmsStreamingService streamingService = mService.get();
         if (streamingService == null) {
             throw new IllegalStateException("Middleware not yet bound");
         }
 
         InternalStreamingServiceCallback serviceCallback = new InternalStreamingServiceCallback(
-                callback, executor);
+                callback, handler);
 
         StreamingService serviceForApp = new StreamingService(
                 mSubscriptionId, streamingService, this, serviceInfo, serviceCallback);
@@ -260,11 +251,6 @@ public class MbmsStreamingSession implements AutoCloseable {
         try {
             int returnCode = streamingService.startStreaming(
                     mSubscriptionId, serviceInfo.getServiceId(), serviceCallback);
-            if (returnCode == MbmsErrors.UNKNOWN) {
-                // Unbind and throw an obvious error
-                close();
-                throw new IllegalStateException("Middleware must not return an unknown error code");
-            }
             if (returnCode != MbmsErrors.SUCCESS) {
                 sendErrorToApp(returnCode, null);
                 return null;
@@ -310,12 +296,6 @@ public class MbmsStreamingSession implements AutoCloseable {
                                     e.toString());
                             sIsInitialized.set(false);
                             return;
-                        }
-                        if (result == MbmsErrors.UNKNOWN) {
-                            // Unbind and throw an obvious error
-                            close();
-                            throw new IllegalStateException("Middleware must not return"
-                                    + " an unknown error code");
                         }
                         if (result != MbmsErrors.SUCCESS) {
                             sendErrorToApp(result, "Error returned during initialization");

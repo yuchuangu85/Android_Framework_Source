@@ -34,47 +34,46 @@ import java.util.List;
 public final class DnsEvent extends NetworkEvent implements Parcelable {
 
     /** The hostname that was looked up. */
-    private final String mHostname;
+    private final String hostname;
 
     /** Contains (possibly a subset of) the IP addresses returned. */
-    private final String[] mIpAddresses;
+    private final String[] ipAddresses;
 
     /**
      * The number of IP addresses returned from the DNS lookup event. May be different from the
      * length of ipAddresses if there were too many addresses to log.
      */
-    private final int mIpAddressesCount;
+    private final int ipAddressesCount;
 
     /** @hide */
     public DnsEvent(String hostname, String[] ipAddresses, int ipAddressesCount,
             String packageName, long timestamp) {
         super(packageName, timestamp);
-        this.mHostname = hostname;
-        this.mIpAddresses = ipAddresses;
-        this.mIpAddressesCount = ipAddressesCount;
+        this.hostname = hostname;
+        this.ipAddresses = ipAddresses;
+        this.ipAddressesCount = ipAddressesCount;
     }
 
     private DnsEvent(Parcel in) {
-        this.mHostname = in.readString();
-        this.mIpAddresses = in.createStringArray();
-        this.mIpAddressesCount = in.readInt();
-        this.mPackageName = in.readString();
-        this.mTimestamp = in.readLong();
-        this.mId = in.readLong();
+        this.hostname = in.readString();
+        this.ipAddresses = in.createStringArray();
+        this.ipAddressesCount = in.readInt();
+        this.packageName = in.readString();
+        this.timestamp = in.readLong();
     }
 
     /** Returns the hostname that was looked up. */
     public String getHostname() {
-        return mHostname;
+        return hostname;
     }
 
     /** Returns (possibly a subset of) the IP addresses returned. */
     public List<InetAddress> getInetAddresses() {
-        if (mIpAddresses == null || mIpAddresses.length == 0) {
+        if (ipAddresses == null || ipAddresses.length == 0) {
             return Collections.emptyList();
         }
-        final List<InetAddress> inetAddresses = new ArrayList<>(mIpAddresses.length);
-        for (final String ipAddress : mIpAddresses) {
+        final List<InetAddress> inetAddresses = new ArrayList<>(ipAddresses.length);
+        for (final String ipAddress : ipAddresses) {
             try {
                 // ipAddress is already an address, not a host name, no DNS resolution will happen.
                 inetAddresses.add(InetAddress.getByName(ipAddress));
@@ -91,14 +90,14 @@ public final class DnsEvent extends NetworkEvent implements Parcelable {
      * addresses to log.
      */
     public int getTotalResolvedAddressCount() {
-        return mIpAddressesCount;
+        return ipAddressesCount;
     }
 
     @Override
     public String toString() {
-        return String.format("DnsEvent(%d, %s, %s, %d, %d, %s)", mId, mHostname,
-                (mIpAddresses == null) ? "NONE" : String.join(" ", mIpAddresses),
-                mIpAddressesCount, mTimestamp, mPackageName);
+        return String.format("DnsEvent(%s, %s, %d, %d, %s)", hostname,
+                (ipAddresses == null) ? "NONE" : String.join(" ", ipAddresses),
+                ipAddressesCount, timestamp, packageName);
     }
 
     public static final Parcelable.Creator<DnsEvent> CREATOR
@@ -126,11 +125,11 @@ public final class DnsEvent extends NetworkEvent implements Parcelable {
     public void writeToParcel(Parcel out, int flags) {
         // write parcel token first
         out.writeInt(PARCEL_TOKEN_DNS_EVENT);
-        out.writeString(mHostname);
-        out.writeStringArray(mIpAddresses);
-        out.writeInt(mIpAddressesCount);
-        out.writeString(mPackageName);
-        out.writeLong(mTimestamp);
-        out.writeLong(mId);
+        out.writeString(hostname);
+        out.writeStringArray(ipAddresses);
+        out.writeInt(ipAddressesCount);
+        out.writeString(packageName);
+        out.writeLong(timestamp);
     }
 }
+

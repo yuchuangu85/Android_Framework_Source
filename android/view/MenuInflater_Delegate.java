@@ -42,6 +42,7 @@ import android.util.AttributeSet;
  * ViewInfo}, we check the corresponding view key in the menu item for the view and add it
  */
 public class MenuInflater_Delegate {
+
     @LayoutlibDelegate
     /*package*/ static void registerMenu(MenuInflater thisInflater, MenuItem menuItem,
             AttributeSet attrs) {
@@ -55,18 +56,10 @@ public class MenuInflater_Delegate {
                 return;
             }
         }
-
-        String menuItemName = menuItem != null ? menuItem.getClass().getName() : null;
-        if (menuItemName == null ||
-                !menuItemName.startsWith("android.support.") ||
-                !menuItemName.startsWith("androidx.")) {
-            // This means that Bridge did not take over the instantiation of some object properly.
-            // This is most likely a bug in the LayoutLib code.
-            // We suppress this error for AppCompat menus since we do not support them in the menu
-            // editor yet.
-            Bridge.getLog().warning(LayoutLog.TAG_BROKEN,
-                    "Action Bar Menu rendering may be incorrect.", null);
-        }
+        // This means that Bridge did not take over the instantiation of some object properly.
+        // This is most likely a bug in the LayoutLib code.
+        Bridge.getLog().warning(LayoutLog.TAG_BROKEN,
+                "Action Bar Menu rendering may be incorrect.", null);
 
     }
 

@@ -39,6 +39,7 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
+import com.android.setupwizardlib.BuildConfig;
 import com.android.setupwizardlib.R;
 import com.android.setupwizardlib.items.ButtonItem.OnClickListener;
 import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
@@ -49,7 +50,9 @@ import org.junit.runner.RunWith;
 import org.robolectric.annotation.Config;
 
 @RunWith(SuwLibRobolectricTestRunner.class)
-@Config(sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
+@Config(
+        constants = BuildConfig.class,
+        sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
 public class ButtonItemTest {
 
     private ViewGroup mParent;

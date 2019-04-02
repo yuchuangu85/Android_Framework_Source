@@ -31,30 +31,19 @@ public class AnimationProperties {
     public long duration;
     public long delay;
     private ArrayMap<Property, Interpolator> mInterpolatorMap;
-    private AnimatorListenerAdapter mAnimatorListenerAdapter;
 
     /**
      * @return an animation filter for this animation.
      */
     public AnimationFilter getAnimationFilter() {
-        return new AnimationFilter() {
-            @Override
-            public boolean shouldAnimateProperty(Property property) {
-                return true;
-            }
-        };
+        return new AnimationFilter();
     }
 
     /**
      * @return a listener that should be run whenever any property finished its animation
      */
     public AnimatorListenerAdapter getAnimationFinishListener() {
-        return mAnimatorListenerAdapter;
-    }
-
-    public AnimationProperties setAnimationFinishListener(AnimatorListenerAdapter listener) {
-        mAnimatorListenerAdapter = listener;
-        return this;
+        return null;
     }
 
     public boolean wasAdded(View view) {

@@ -16,7 +16,6 @@
 package com.android.internal.os;
 
 import android.os.Process;
-import android.os.StrictMode;
 import android.os.SystemClock;
 import android.util.Slog;
 
@@ -70,7 +69,6 @@ public class KernelWakelockReader {
         boolean wakeup_sources;
         final long startTime = SystemClock.uptimeMillis();
 
-        final int oldMask = StrictMode.allowThreadDiskReadsMask();
         try {
             FileInputStream is;
             try {
@@ -92,8 +90,6 @@ public class KernelWakelockReader {
         } catch (java.io.IOException e) {
             Slog.wtf(TAG, "failed to read kernel wakelocks", e);
             return null;
-        } finally {
-            StrictMode.setThreadPolicyMask(oldMask);
         }
 
         final long readTime = SystemClock.uptimeMillis() - startTime;

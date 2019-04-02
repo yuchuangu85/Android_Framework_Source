@@ -22,7 +22,6 @@ import static android.companion.BluetoothDeviceFilterUtils.getDeviceMacAddress;
 import static com.android.internal.util.ArrayUtils.isEmpty;
 import static com.android.internal.util.CollectionUtils.emptyIfNull;
 import static com.android.internal.util.CollectionUtils.size;
-import static com.android.internal.util.function.pooled.PooledLambda.obtainMessage;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -51,7 +50,6 @@ import android.content.IntentFilter;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.net.wifi.WifiManager;
-import android.os.Handler;
 import android.os.IBinder;
 import android.os.Parcelable;
 import android.os.RemoteException;
@@ -75,8 +73,6 @@ public class DeviceDiscoveryService extends Service {
     private static final boolean DEBUG = false;
     private static final String LOG_TAG = "DeviceDiscoveryService";
 
-    private static final long SCAN_TIMEOUT = 20000;
-
     static DeviceDiscoveryService sInstance;
 
     private BluetoothAdapter mBluetoothAdapter;
@@ -97,8 +93,6 @@ public class DeviceDiscoveryService extends Service {
     IFindDeviceCallback mFindCallback;
 
     ICompanionDeviceDiscoveryServiceCallback mServiceCallback;
-    boolean mIsScanning = false;
-    @Nullable DeviceChooserActivity mActivity = null;
 
     private final ICompanionDeviceDiscoveryService mBinder =
             new ICompanionDeviceDiscoveryService.Stub() {
@@ -202,10 +196,6 @@ public class DeviceDiscoveryService extends Service {
                     new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION));
             mWifiManager.startScan();
         }
-        mIsScanning = true;
-        Handler.getMain().sendMessageDelayed(
-                obtainMessage(DeviceDiscoveryService::stopScan, this),
-                SCAN_TIMEOUT);
     }
 
     private boolean shouldScan(List<? extends DeviceFilter> mediumSpecificFilters) {
@@ -217,7 +207,7 @@ public class DeviceDiscoveryService extends Service {
         stopScan();
         mDevicesFound.clear();
         mSelectedDevice = null;
-        notifyDataSetChanged();
+        mDevicesAdapter.notifyDataSetChanged();
     }
 
     @Override
@@ -228,17 +218,6 @@ public class DeviceDiscoveryService extends Service {
 
     private void stopScan() {
         if (DEBUG) Log.i(LOG_TAG, "stopScan()");
-
-        if (!mIsScanning) return;
-        mIsScanning = false;
-
-        DeviceChooserActivity activity = mActivity;
-        if (activity != null) {
-            if (activity.mDeviceListView != null) {
-                activity.mDeviceListView.removeFooterView(activity.mLoadingIndicator);
-            }
-            mActivity = null;
-        }
 
         mBluetoothAdapter.cancelDiscovery();
         if (mBluetoothBroadcastReceiver != null) {
@@ -265,12 +244,7 @@ public class DeviceDiscoveryService extends Service {
             onReadyToShowUI();
         }
         mDevicesFound.add(device);
-        notifyDataSetChanged();
-    }
-
-    private void notifyDataSetChanged() {
-        Handler.getMain().sendMessage(obtainMessage(
-                DevicesAdapter::notifyDataSetChanged, mDevicesAdapter));
+        mDevicesAdapter.notifyDataSetChanged();
     }
 
     //TODO also, on timeout -> call onFailure
@@ -288,7 +262,7 @@ public class DeviceDiscoveryService extends Service {
 
     private void onDeviceLost(@Nullable DeviceFilterPair device) {
         mDevicesFound.remove(device);
-        notifyDataSetChanged();
+        mDevicesAdapter.notifyDataSetChanged();
         if (DEBUG) Log.i(LOG_TAG, "Lost device " + device.getDisplayName());
     }
 

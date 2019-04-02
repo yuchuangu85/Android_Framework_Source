@@ -72,7 +72,7 @@ public class MountServiceIdler extends JobService {
             synchronized (mFinishCallback) {
                 mStarted = true;
             }
-            ms.runIdleMaint(mFinishCallback);
+            ms.runIdleMaintenance(mFinishCallback);
         }
         return ms != null;
     }
@@ -82,12 +82,8 @@ public class MountServiceIdler extends JobService {
         // Once we kick off the fstrim we aren't actually interruptible; just note
         // that we don't need to call jobFinished(), and let everything happen in
         // the callback from the mount service.
-        StorageManagerService ms = StorageManagerService.sSelf;
-        if (ms != null) {
-            ms.abortIdleMaint(mFinishCallback);
-            synchronized (mFinishCallback) {
-                mStarted = false;
-            }
+        synchronized (mFinishCallback) {
+            mStarted = false;
         }
         return false;
     }

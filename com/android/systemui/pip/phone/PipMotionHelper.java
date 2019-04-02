@@ -16,8 +16,8 @@
 
 package com.android.systemui.pip.phone;
 
-import static android.app.WindowConfiguration.ACTIVITY_TYPE_UNDEFINED;
-import static android.app.WindowConfiguration.WINDOWING_MODE_PINNED;
+import static android.app.ActivityManager.StackId.PINNED_STACK_ID;
+
 import static com.android.systemui.Interpolators.FAST_OUT_LINEAR_IN;
 import static com.android.systemui.Interpolators.FAST_OUT_SLOW_IN;
 import static com.android.systemui.Interpolators.LINEAR_OUT_SLOW_IN;
@@ -69,7 +69,7 @@ public class PipMotionHelper implements Handler.Callback {
     private static final int EXPAND_STACK_TO_MENU_DURATION = 250;
     private static final int EXPAND_STACK_TO_FULLSCREEN_DURATION = 300;
     private static final int MINIMIZE_STACK_MAX_DURATION = 200;
-    private static final int SHIFT_DURATION = 300;
+    private static final int IME_SHIFT_DURATION = 300;
 
     // The fraction of the stack width that the user has to drag offscreen to minimize the PiP
     private static final float MINIMIZE_OFFSCREEN_FRACTION = 0.3f;
@@ -121,8 +121,7 @@ public class PipMotionHelper implements Handler.Callback {
     void synchronizePinnedStackBounds() {
         cancelAnimations();
         try {
-            StackInfo stackInfo =
-                    mActivityManager.getStackInfo(WINDOWING_MODE_PINNED, ACTIVITY_TYPE_UNDEFINED);
+            StackInfo stackInfo = mActivityManager.getStackInfo(PINNED_STACK_ID);
             if (stackInfo != null) {
                 mBounds.set(stackInfo.bounds);
             }
@@ -159,7 +158,13 @@ public class PipMotionHelper implements Handler.Callback {
         mMenuController.hideMenuWithoutResize();
         mHandler.post(() -> {
             try {
-                mActivityManager.dismissPip(!skipAnimation, EXPAND_STACK_TO_FULLSCREEN_DURATION);
+                if (skipAnimation) {
+                    mActivityManager.moveTasksToFullscreenStack(PINNED_STACK_ID, true /* onTop */);
+                } else {
+                    mActivityManager.resizeStack(PINNED_STACK_ID, null /* bounds */,
+                            true /* allowResizeInDockedMode */, true /* preserveWindows */,
+                            true /* animate */, EXPAND_STACK_TO_FULLSCREEN_DURATION);
+                }
             } catch (RemoteException e) {
                 Log.e(TAG, "Error expanding PiP activity", e);
             }
@@ -177,7 +182,7 @@ public class PipMotionHelper implements Handler.Callback {
         mMenuController.hideMenuWithoutResize();
         mHandler.post(() -> {
             try {
-                mActivityManager.removeStacksInWindowingModes(new int[]{ WINDOWING_MODE_PINNED });
+                mActivityManager.removeStack(PINNED_STACK_ID);
             } catch (RemoteException e) {
                 Log.e(TAG, "Failed to remove PiP", e);
             }
@@ -225,10 +230,9 @@ public class PipMotionHelper implements Handler.Callback {
      */
     boolean shouldDismissPip() {
         Point displaySize = new Point();
-        mContext.getDisplay().getRealSize(displaySize);
-        final int y = displaySize.y - mStableInsets.bottom;
-        if (mBounds.bottom > y) {
-            float offscreenFraction = (float) (mBounds.bottom - y) / mBounds.height();
+        mContext.getDisplay().getSize(displaySize);
+        if (mBounds.bottom > displaySize.y) {
+            float offscreenFraction = (float) (mBounds.bottom - displaySize.y) / mBounds.height();
             return offscreenFraction >= DISMISS_OFFSCREEN_FRACTION;
         }
         return false;
@@ -353,11 +357,11 @@ public class PipMotionHelper implements Handler.Callback {
     }
 
     /**
-     * Animates the PiP to offset it from the IME or shelf.
+     * Animates the PiP to offset it from the IME.
      */
-    void animateToOffset(Rect toBounds) {
+    void animateToIMEOffset(Rect toBounds) {
         cancelAnimations();
-        resizeAndAnimatePipUnchecked(toBounds, SHIFT_DURATION);
+        resizeAndAnimatePipUnchecked(toBounds, IME_SHIFT_DURATION);
     }
 
     /**
@@ -525,15 +529,14 @@ public class PipMotionHelper implements Handler.Callback {
                 Rect toBounds = (Rect) args.arg1;
                 int duration = args.argi1;
                 try {
-                    StackInfo stackInfo = mActivityManager.getStackInfo(
-                            WINDOWING_MODE_PINNED, ACTIVITY_TYPE_UNDEFINED);
+                    StackInfo stackInfo = mActivityManager.getStackInfo(PINNED_STACK_ID);
                     if (stackInfo == null) {
                         // In the case where we've already re-expanded or dismissed the PiP, then
                         // just skip the resize
                         return true;
                     }
 
-                    mActivityManager.resizeStack(stackInfo.stackId, toBounds,
+                    mActivityManager.resizeStack(PINNED_STACK_ID, toBounds,
                             false /* allowResizeInDockedMode */, true /* preserveWindows */,
                             true /* animate */, duration);
                     mBounds.set(toBounds);

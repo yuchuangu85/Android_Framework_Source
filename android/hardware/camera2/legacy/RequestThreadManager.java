@@ -193,11 +193,6 @@ public class RequestThreadManager {
                     mDeviceState.setError(
                             CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DISCONNECTED);
                 } break;
-                case Camera.CAMERA_ERROR_DISABLED: {
-                    flush();
-                    mDeviceState.setError(
-                            CameraDeviceImpl.CameraDeviceCallbacks.ERROR_CAMERA_DISABLED);
-                } break;
                 default:  {
                     Log.e(TAG, "Received error " + i + " from the Camera1 ErrorCallback");
                     mDeviceState.setError(
@@ -1010,7 +1005,7 @@ public class RequestThreadManager {
         mFaceDetectMapper = new LegacyFaceDetectMapper(mCamera, mCharacteristics);
         mCaptureCollector = new CaptureCollector(MAX_IN_FLIGHT_REQUESTS, mDeviceState);
         mRequestThread = new RequestHandlerThread(name, mRequestHandlerCb);
-        mCamera.setDetailedErrorCallback(mErrorCallback);
+        mCamera.setErrorCallback(mErrorCallback);
     }
 
     /**

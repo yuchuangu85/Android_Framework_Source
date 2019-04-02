@@ -27,8 +27,6 @@ import java.io.PrintWriter;
  * Representation of a user on the device.
  */
 public final class UserHandle implements Parcelable {
-    // NOTE: keep logic in sync with system/core/libcutils/multiuser.c
-
     /**
      * @hide Range of uids allocated for a user.
      */
@@ -82,7 +80,6 @@ public final class UserHandle implements Parcelable {
     public static final int USER_SERIAL_SYSTEM = 0;
 
     /** @hide A user handle to indicate the "system" user of the device */
-    @TestApi
     public static final UserHandle SYSTEM = new UserHandle(USER_SYSTEM);
 
     /**
@@ -90,19 +87,6 @@ public final class UserHandle implements Parcelable {
      * there are problems with single user use-cases.
      */
     public static final boolean MU_ENABLED = true;
-
-    /** @hide */
-    public static final int ERR_GID = -1;
-    /** @hide */
-    public static final int AID_ROOT = android.os.Process.ROOT_UID;
-    /** @hide */
-    public static final int AID_APP_START = android.os.Process.FIRST_APPLICATION_UID;
-    /** @hide */
-    public static final int AID_APP_END = android.os.Process.LAST_APPLICATION_UID;
-    /** @hide */
-    public static final int AID_SHARED_GID_START = android.os.Process.FIRST_SHARED_APPLICATION_GID;
-    /** @hide */
-    public static final int AID_CACHE_GID_START = android.os.Process.FIRST_APPLICATION_CACHE_GID;
 
     final int mHandle;
 
@@ -127,10 +111,7 @@ public final class UserHandle implements Parcelable {
         return getAppId(uid1) == getAppId(uid2);
     }
 
-    /**
-     * Whether a UID is an "isolated" UID.
-     * @hide
-     */
+    /** @hide */
     public static boolean isIsolated(int uid) {
         if (uid > 0) {
             final int appId = getAppId(uid);
@@ -140,28 +121,11 @@ public final class UserHandle implements Parcelable {
         }
     }
 
-    /**
-     * Whether a UID belongs to a regular app. *Note* "Not a regular app" does not mean
-     * "it's system", because of isolated UIDs. Use {@link #isCore} for that.
-     * @hide
-     */
+    /** @hide */
     public static boolean isApp(int uid) {
         if (uid > 0) {
             final int appId = getAppId(uid);
             return appId >= Process.FIRST_APPLICATION_UID && appId <= Process.LAST_APPLICATION_UID;
-        } else {
-            return false;
-        }
-    }
-
-    /**
-     * Whether a UID belongs to a system core component or not.
-     * @hide
-     */
-    public static boolean isCore(int uid) {
-        if (uid >= 0) {
-            final int appId = getAppId(uid);
-            return appId < Process.FIRST_APPLICATION_UID;
         } else {
             return false;
         }
@@ -233,20 +197,13 @@ public final class UserHandle implements Parcelable {
         return getUid(userId, Process.SHARED_USER_GID);
     }
 
-    /** @hide */
-    public static int getSharedAppGid(int uid) {
-        return getSharedAppGid(getUserId(uid), getAppId(uid));
-    }
-
-    /** @hide */
-    public static int getSharedAppGid(int userId, int appId) {
-        if (appId >= AID_APP_START && appId <= AID_APP_END) {
-            return (appId - AID_APP_START) + AID_SHARED_GID_START;
-        } else if (appId >= AID_ROOT && appId <= AID_APP_START) {
-            return appId;
-        } else {
-            return -1;
-        }
+    /**
+     * Returns the shared app gid for a given uid or appId.
+     * @hide
+     */
+    public static int getSharedAppGid(int id) {
+        return Process.FIRST_SHARED_APPLICATION_GID + (id % PER_USER_RANGE)
+                - Process.FIRST_APPLICATION_UID;
     }
 
     /**
@@ -262,18 +219,13 @@ public final class UserHandle implements Parcelable {
         return appId;
     }
 
-    /** @hide */
-    public static int getCacheAppGid(int uid) {
-        return getCacheAppGid(getUserId(uid), getAppId(uid));
-    }
-
-    /** @hide */
-    public static int getCacheAppGid(int userId, int appId) {
-        if (appId >= AID_APP_START && appId <= AID_APP_END) {
-            return getUid(userId, (appId - AID_APP_START) + AID_CACHE_GID_START);
-        } else {
-            return -1;
-        }
+    /**
+     * Returns the cache GID for a given UID or appId.
+     * @hide
+     */
+    public static int getCacheAppGid(int id) {
+        return Process.FIRST_APPLICATION_CACHE_GID + (id % PER_USER_RANGE)
+                - Process.FIRST_APPLICATION_UID;
     }
 
     /**

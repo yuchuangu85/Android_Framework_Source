@@ -138,10 +138,6 @@ public class ExpandableSwitchItem extends SwitchItem
         }
 
         tintCompoundDrawables(view);
-
-        // Expandable switch item has focusability on the expandable layout on the left, and the
-        // switch on the right, but not the item itself.
-        view.setFocusable(false);
     }
 
     @Override

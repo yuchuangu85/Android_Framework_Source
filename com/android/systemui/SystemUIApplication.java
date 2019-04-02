@@ -29,15 +29,30 @@ import android.os.SystemProperties;
 import android.os.Trace;
 import android.os.UserHandle;
 import android.util.ArraySet;
-import android.util.Log;
 import android.util.TimingsTraceLog;
+import android.util.Log;
 
+import com.android.systemui.globalactions.GlobalActionsComponent;
+import com.android.systemui.keyboard.KeyboardUI;
+import com.android.systemui.keyguard.KeyguardViewMediator;
+import com.android.systemui.media.RingtonePlayer;
+import com.android.systemui.pip.PipUI;
+import com.android.systemui.plugins.GlobalActions;
 import com.android.systemui.plugins.OverlayPlugin;
+import com.android.systemui.plugins.Plugin;
 import com.android.systemui.plugins.PluginListener;
 import com.android.systemui.plugins.PluginManager;
+import com.android.systemui.power.PowerUI;
+import com.android.systemui.recents.Recents;
+import com.android.systemui.shortcut.ShortcutKeyDispatcher;
+import com.android.systemui.stackdivider.Divider;
+import com.android.systemui.statusbar.CommandQueue;
 import com.android.systemui.statusbar.phone.StatusBar;
 import com.android.systemui.statusbar.phone.StatusBarWindowManager;
+import com.android.systemui.usb.StorageNotification;
 import com.android.systemui.util.NotificationChannels;
+import com.android.systemui.util.leak.GarbageMonitor;
+import com.android.systemui.volume.VolumeUI;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -47,13 +62,48 @@ import java.util.Map;
  */
 public class SystemUIApplication extends Application implements SysUiServiceProvider {
 
-    public static final String TAG = "SystemUIService";
+    private static final String TAG = "SystemUIService";
     private static final boolean DEBUG = false;
+
+    /**
+     * The classes of the stuff to start.
+     */
+    private final Class<?>[] SERVICES = new Class[] {
+            Dependency.class,
+            NotificationChannels.class,
+            CommandQueue.CommandQueueStart.class,
+            KeyguardViewMediator.class,
+            Recents.class,
+            VolumeUI.class,
+            Divider.class,
+            SystemBars.class,
+            StorageNotification.class,
+            PowerUI.class,
+            RingtonePlayer.class,
+            KeyboardUI.class,
+            PipUI.class,
+            ShortcutKeyDispatcher.class,
+            VendorServices.class,
+            GarbageMonitor.Service.class,
+            LatencyTester.class,
+            GlobalActionsComponent.class,
+            RoundedCorners.class,
+    };
+
+    /**
+     * The classes of the stuff to start for each user.  This is a subset of the services listed
+     * above.
+     */
+    private final Class<?>[] SERVICES_PER_USER = new Class[] {
+            Dependency.class,
+            NotificationChannels.class,
+            Recents.class
+    };
 
     /**
      * Hold a reference on the stuff we start.
      */
-    private SystemUI[] mServices;
+    private final SystemUI[] mServices = new SystemUI[SERVICES.length];
     private boolean mServicesStarted;
     private boolean mBootCompleted;
     private final Map<Class<?>, Object> mComponents = new HashMap<>();
@@ -69,8 +119,8 @@ public class SystemUIApplication extends Application implements SysUiServiceProv
         SystemUIFactory.createFromConfig(this);
 
         if (Process.myUserHandle().equals(UserHandle.SYSTEM)) {
-            IntentFilter bootCompletedFilter = new IntentFilter(Intent.ACTION_BOOT_COMPLETED);
-            bootCompletedFilter.setPriority(IntentFilter.SYSTEM_HIGH_PRIORITY);
+            IntentFilter filter = new IntentFilter(Intent.ACTION_BOOT_COMPLETED);
+            filter.setPriority(IntentFilter.SYSTEM_HIGH_PRIORITY);
             registerReceiver(new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
@@ -85,22 +135,8 @@ public class SystemUIApplication extends Application implements SysUiServiceProv
                             mServices[i].onBootCompleted();
                         }
                     }
-
-
                 }
-            }, bootCompletedFilter);
-
-            IntentFilter localeChangedFilter = new IntentFilter(Intent.ACTION_LOCALE_CHANGED);
-            registerReceiver(new BroadcastReceiver() {
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    if (Intent.ACTION_LOCALE_CHANGED.equals(intent.getAction())) {
-                        if (!mBootCompleted) return;
-                        // Update names of SystemUi notification channels
-                        NotificationChannels.createAll(context);
-                    }
-                }
-            }, localeChangedFilter);
+            }, filter);
         } else {
             // We don't need to startServices for sub-process that is doing some tasks.
             // (screenshots, sweetsweetdesserts or tuner ..)
@@ -113,7 +149,7 @@ public class SystemUIApplication extends Application implements SysUiServiceProv
             // been broadcasted on startup for the primary SystemUI process.  Instead, for
             // components which require the SystemUI component to be initialized per-user, we
             // start those components now for the current non-system user.
-            startSecondaryUserServicesIfNeeded();
+            startServicesIfNeeded(SERVICES_PER_USER);
         }
     }
 
@@ -125,8 +161,7 @@ public class SystemUIApplication extends Application implements SysUiServiceProv
      */
 
     public void startServicesIfNeeded() {
-        String[] names = getResources().getStringArray(R.array.config_systemUIServiceComponents);
-        startServicesIfNeeded(names);
+        startServicesIfNeeded(SERVICES);
     }
 
     /**
@@ -136,16 +171,13 @@ public class SystemUIApplication extends Application implements SysUiServiceProv
      * <p>This method must only be called from the main thread.</p>
      */
     void startSecondaryUserServicesIfNeeded() {
-        String[] names =
-                  getResources().getStringArray(R.array.config_systemUIServiceComponentsPerUser);
-        startServicesIfNeeded(names);
+        startServicesIfNeeded(SERVICES_PER_USER);
     }
 
-    private void startServicesIfNeeded(String[] services) {
+    private void startServicesIfNeeded(Class<?>[] services) {
         if (mServicesStarted) {
             return;
         }
-        mServices = new SystemUI[services.length];
 
         if (!mBootCompleted) {
             // check to see if maybe it was already completed long before we began
@@ -163,16 +195,14 @@ public class SystemUIApplication extends Application implements SysUiServiceProv
         log.traceBegin("StartServices");
         final int N = services.length;
         for (int i = 0; i < N; i++) {
-            String clsName = services[i];
-            if (DEBUG) Log.d(TAG, "loading: " + clsName);
-            log.traceBegin("StartServices" + clsName);
+            Class<?> cl = services[i];
+            if (DEBUG) Log.d(TAG, "loading: " + cl);
+            log.traceBegin("StartServices" + cl.getSimpleName());
             long ti = System.currentTimeMillis();
-            Class cls;
             try {
-                cls = Class.forName(clsName);
-                mServices[i] = (SystemUI) cls.newInstance();
-            } catch(ClassNotFoundException ex){
-                throw new RuntimeException(ex);
+
+                Object newService = SystemUIFactory.getInstance().createInstance(cl);
+                mServices[i] = (SystemUI) ((newService == null) ? cl.newInstance() : newService);
             } catch (IllegalAccessException ex) {
                 throw new RuntimeException(ex);
             } catch (InstantiationException ex) {
@@ -188,7 +218,7 @@ public class SystemUIApplication extends Application implements SysUiServiceProv
             // Warn if initialization of component takes too long
             ti = System.currentTimeMillis() - ti;
             if (ti > 1000) {
-                Log.w(TAG, "Initialization of " + cls.getName() + " took " + ti + " ms");
+                Log.w(TAG, "Initialization of " + cl.getName() + " took " + ti + " ms");
             }
             if (mBootCompleted) {
                 mServices[i].onBootCompleted();

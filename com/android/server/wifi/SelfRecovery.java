@@ -37,14 +37,14 @@ public class SelfRecovery {
      * Reason codes for the various recovery triggers.
      */
     public static final int REASON_LAST_RESORT_WATCHDOG = 0;
-    public static final int REASON_WIFINATIVE_FAILURE = 1;
-    public static final int REASON_STA_IFACE_DOWN = 2;
+    public static final int REASON_HAL_CRASH = 1;
+    public static final int REASON_WIFICOND_CRASH = 2;
     public static final long MAX_RESTARTS_IN_TIME_WINDOW = 2; // 2 restarts per hour
     public static final long MAX_RESTARTS_TIME_WINDOW_MILLIS = 60 * 60 * 1000; // 1 hour
-    protected static final String[] REASON_STRINGS = {
-            "Last Resort Watchdog",  // REASON_LAST_RESORT_WATCHDOG
-            "WifiNative Failure",    // REASON_WIFINATIVE_FAILURE
-            "Sta Interface Down"     // REASON_STA_IFACE_DOWN
+    private static final String[] REASON_STRINGS = {
+            "Last Resort Watchdog", // REASON_LAST_RESORT_WATCHDOG
+            "Hal Crash",            // REASON_HAL_CRASH
+            "Wificond Crash"        // REASON_WIFICOND_CRASH
     };
 
     private final WifiController mWifiController;
@@ -61,39 +61,29 @@ public class SelfRecovery {
      * Trigger recovery.
      *
      * This method does the following:
-     * 1. Checks reason code used to trigger recovery
-     * 2. Checks for sta iface down triggers and disables wifi by sending {@link
-     * WifiController#CMD_RECOVERY_DISABLE_WIFI} to {@link WifiController} to disable wifi.
-     * 3. Throttles restart calls for underlying native failures
-     * 4. Sends {@link WifiController#CMD_RECOVERY_RESTART_WIFI} to {@link WifiController} to
-     * initiate the stack restart.
+     * 1. Raises a wtf.
+     * 2. Sends {@link WifiController#CMD_RESTART_WIFI} to {@link WifiController} to initiate the
+     * stack restart.
      * @param reason One of the above |REASON_*| codes.
      */
     public void trigger(int reason) {
-        if (!(reason == REASON_LAST_RESORT_WATCHDOG || reason == REASON_WIFINATIVE_FAILURE
-                  || reason == REASON_STA_IFACE_DOWN)) {
+        if (!(reason == REASON_LAST_RESORT_WATCHDOG || reason == REASON_HAL_CRASH
+                || reason == REASON_WIFICOND_CRASH)) {
             Log.e(TAG, "Invalid trigger reason. Ignoring...");
             return;
         }
-        if (reason == REASON_STA_IFACE_DOWN) {
-            Log.e(TAG, "STA interface down, disable wifi");
-            mWifiController.sendMessage(WifiController.CMD_RECOVERY_DISABLE_WIFI);
-            return;
-        }
-
         Log.e(TAG, "Triggering recovery for reason: " + REASON_STRINGS[reason]);
-        if (reason == REASON_WIFINATIVE_FAILURE) {
+        if (reason == REASON_WIFICOND_CRASH || reason == REASON_HAL_CRASH) {
             trimPastRestartTimes();
             // Ensure there haven't been too many restarts within MAX_RESTARTS_TIME_WINDOW
             if (mPastRestartTimes.size() >= MAX_RESTARTS_IN_TIME_WINDOW) {
                 Log.e(TAG, "Already restarted wifi (" + MAX_RESTARTS_IN_TIME_WINDOW + ") times in"
-                        + " last (" + MAX_RESTARTS_TIME_WINDOW_MILLIS + "ms ). Disabling wifi");
-                mWifiController.sendMessage(WifiController.CMD_RECOVERY_DISABLE_WIFI);
+                        + " last (" + MAX_RESTARTS_TIME_WINDOW_MILLIS + "ms ). Ignoring...");
                 return;
             }
             mPastRestartTimes.add(mClock.getElapsedSinceBootMillis());
         }
-        mWifiController.sendMessage(WifiController.CMD_RECOVERY_RESTART_WIFI, reason);
+        mWifiController.sendMessage(WifiController.CMD_RESTART_WIFI);
     }
 
     /**

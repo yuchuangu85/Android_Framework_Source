@@ -258,18 +258,12 @@ final public class MediaMuxer {
          * in include/media/stagefright/MediaMuxer.h!
          */
         private OutputFormat() {}
-        /** @hide */
-        public static final int MUXER_OUTPUT_FIRST   = 0;
         /** MPEG4 media file format*/
-        public static final int MUXER_OUTPUT_MPEG_4 = MUXER_OUTPUT_FIRST;
+        public static final int MUXER_OUTPUT_MPEG_4 = 0;
         /** WEBM media file format*/
-        public static final int MUXER_OUTPUT_WEBM   = MUXER_OUTPUT_FIRST + 1;
+        public static final int MUXER_OUTPUT_WEBM   = 1;
         /** 3GPP media file format*/
-        public static final int MUXER_OUTPUT_3GPP   = MUXER_OUTPUT_FIRST + 2;
-        /** HEIF media file format*/
-        public static final int MUXER_OUTPUT_HEIF   = MUXER_OUTPUT_FIRST + 3;
-        /** @hide */
-        public static final int MUXER_OUTPUT_LAST   = MUXER_OUTPUT_HEIF;
+        public static final int MUXER_OUTPUT_3GPP   = 2;
     };
 
     /** @hide */
@@ -277,7 +271,6 @@ final public class MediaMuxer {
         OutputFormat.MUXER_OUTPUT_MPEG_4,
         OutputFormat.MUXER_OUTPUT_WEBM,
         OutputFormat.MUXER_OUTPUT_3GPP,
-        OutputFormat.MUXER_OUTPUT_HEIF,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Format {}
@@ -328,7 +321,6 @@ final public class MediaMuxer {
         RandomAccessFile file = null;
         try {
             file = new RandomAccessFile(path, "rws");
-            file.setLength(0);
             FileDescriptor fd = file.getFD();
             setUpMediaMuxer(fd, format);
         } finally {
@@ -355,7 +347,8 @@ final public class MediaMuxer {
     }
 
     private void setUpMediaMuxer(@NonNull FileDescriptor fd, @Format int format) throws IOException {
-        if (format < OutputFormat.MUXER_OUTPUT_FIRST || format > OutputFormat.MUXER_OUTPUT_LAST) {
+        if (format != OutputFormat.MUXER_OUTPUT_MPEG_4 && format != OutputFormat.MUXER_OUTPUT_WEBM
+                && format != OutputFormat.MUXER_OUTPUT_3GPP) {
             throw new IllegalArgumentException("format: " + format + " is invalid");
         }
         mNativeObject = nativeSetup(fd, format);

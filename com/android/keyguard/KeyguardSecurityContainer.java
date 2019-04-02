@@ -25,7 +25,6 @@ import android.support.annotation.VisibleForTesting;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Slog;
-import android.util.StatsLog;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -50,7 +49,6 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
     private boolean mIsVerifyUnlockOnly;
     private SecurityMode mCurrentSecuritySelection = SecurityMode.Invalid;
     private SecurityCallback mSecurityCallback;
-    private AlertDialog mAlertDialog;
 
     private final KeyguardUpdateMonitor mUpdateMonitor;
 
@@ -97,10 +95,6 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
 
     @Override
     public void onPause() {
-        if (mAlertDialog != null) {
-            mAlertDialog.dismiss();
-            mAlertDialog = null;
-        }
         if (mCurrentSecuritySelection != SecurityMode.None) {
             getSecurityView(mCurrentSecuritySelection).onPause();
         }
@@ -120,8 +114,19 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
         return false;
     }
 
-    public CharSequence getTitle() {
-        return mSecurityViewFlipper.getTitle();
+    public void announceCurrentSecurityMethod() {
+        View v = (View) getSecurityView(mCurrentSecuritySelection);
+        if (v != null) {
+            v.announceForAccessibility(v.getContentDescription());
+        }
+    }
+
+    public CharSequence getCurrentSecurityModeContentDescription() {
+        View v = (View) getSecurityView(mCurrentSecuritySelection);
+        if (v != null) {
+            return v.getContentDescription();
+        }
+        return "";
     }
 
     private KeyguardSecurityView getSecurityView(SecurityMode securityMode) {
@@ -169,20 +174,16 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
     }
 
     private void showDialog(String title, String message) {
-        if (mAlertDialog != null) {
-            mAlertDialog.dismiss();
-        }
-
-        mAlertDialog = new AlertDialog.Builder(mContext)
+        final AlertDialog dialog = new AlertDialog.Builder(mContext)
             .setTitle(title)
             .setMessage(message)
             .setCancelable(false)
             .setNeutralButton(R.string.ok, null)
             .create();
         if (!(mContext instanceof Activity)) {
-            mAlertDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG);
+            dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG);
         }
-        mAlertDialog.show();
+        dialog.show();
     }
 
     private void showTimeoutDialog(int userId, int timeoutMs) {
@@ -431,13 +432,9 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
         public void reportUnlockAttempt(int userId, boolean success, int timeoutMs) {
             KeyguardUpdateMonitor monitor = KeyguardUpdateMonitor.getInstance(mContext);
             if (success) {
-                StatsLog.write(StatsLog.KEYGUARD_BOUNCER_PASSWORD_ENTERED,
-                    StatsLog.KEYGUARD_BOUNCER_PASSWORD_ENTERED__RESULT__SUCCESS);
                 monitor.clearFailedUnlockAttempts();
                 mLockPatternUtils.reportSuccessfulPasswordAttempt(userId);
             } else {
-                StatsLog.write(StatsLog.KEYGUARD_BOUNCER_PASSWORD_ENTERED,
-                    StatsLog.KEYGUARD_BOUNCER_PASSWORD_ENTERED__RESULT__FAILURE);
                 KeyguardSecurityContainer.this.reportFailedUnlockAttempt(userId, timeoutMs);
             }
         }
@@ -537,7 +534,8 @@ public class KeyguardSecurityContainer extends FrameLayout implements KeyguardSe
         }
     }
 
-    public void showMessage(CharSequence message, int color) {
+
+    public void showMessage(String message, int color) {
         if (mCurrentSecuritySelection != SecurityMode.None) {
             getSecurityView(mCurrentSecuritySelection).showMessage(message, color);
         }

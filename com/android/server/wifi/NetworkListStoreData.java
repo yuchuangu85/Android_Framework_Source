@@ -83,10 +83,6 @@ public class NetworkListStoreData implements WifiConfigStore.StoreData {
     @Override
     public void deserializeData(XmlPullParser in, int outerTagDepth, boolean shared)
             throws XmlPullParserException, IOException {
-        // Ignore empty reads.
-        if (in == null) {
-            return;
-        }
         if (shared) {
             mSharedConfigurations = parseNetworkList(in, outerTagDepth);
         } else {
@@ -298,8 +294,7 @@ public class NetworkListStoreData implements WifiConfigStore.StoreData {
             Log.e(TAG, "Invalid creatorUid for saved network " + configuration.configKey()
                     + ", creatorUid=" + configuration.creatorUid);
             configuration.creatorUid = Process.SYSTEM_UID;
-            configuration.creatorName =
-                    mContext.getPackageManager().getNameForUid(Process.SYSTEM_UID);
+            configuration.creatorName = creatorName;
         } else if (!creatorName.equals(configuration.creatorName)) {
             Log.w(TAG, "Invalid creatorName for saved network " + configuration.configKey()
                     + ", creatorUid=" + configuration.creatorUid

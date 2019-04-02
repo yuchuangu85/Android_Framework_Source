@@ -23,11 +23,9 @@ import android.graphics.SurfaceTexture;
 import android.graphics.drawable.Animatable;
 import android.media.MediaPlayer;
 import android.os.Build.VERSION_CODES;
-import android.support.annotation.Nullable;
 import android.support.annotation.RawRes;
 import android.support.annotation.VisibleForTesting;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
@@ -53,11 +51,8 @@ public class IllustrationVideoView extends TextureView implements Animatable,
         MediaPlayer.OnSeekCompleteListener,
         MediaPlayer.OnInfoListener {
 
-    private static final String TAG = "IllustrationVideoView";
-
     protected float mAspectRatio = 1.0f; // initial guess until we know
 
-    @Nullable // Can be null when media player fails to initialize
     protected MediaPlayer mMediaPlayer;
 
     private @RawRes int mVideoResId = 0;
@@ -134,20 +129,15 @@ public class IllustrationVideoView extends TextureView implements Animatable,
 
         mMediaPlayer = MediaPlayer.create(getContext(), mVideoResId);
 
-        if (mMediaPlayer != null) {
-            mMediaPlayer.setSurface(mSurface);
-            mMediaPlayer.setOnPreparedListener(this);
-            mMediaPlayer.setOnSeekCompleteListener(this);
-            mMediaPlayer.setOnInfoListener(this);
+        mMediaPlayer.setSurface(mSurface);
+        mMediaPlayer.setOnPreparedListener(this);
+        mMediaPlayer.setOnSeekCompleteListener(this);
+        mMediaPlayer.setOnInfoListener(this);
 
-            float aspectRatio =
-                    (float) mMediaPlayer.getVideoHeight() / mMediaPlayer.getVideoWidth();
-            if (mAspectRatio != aspectRatio) {
-                mAspectRatio = aspectRatio;
-                requestLayout();
-            }
-        } else {
-            Log.wtf(TAG, "Unable to initialize media player for video view");
+        float aspectRatio = (float) mMediaPlayer.getVideoHeight() / mMediaPlayer.getVideoWidth();
+        if (mAspectRatio != aspectRatio) {
+            mAspectRatio = aspectRatio;
+            requestLayout();
         }
         if (getWindowVisibility() == View.VISIBLE) {
             start();

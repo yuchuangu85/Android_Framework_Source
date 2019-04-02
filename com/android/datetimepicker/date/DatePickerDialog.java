@@ -48,10 +48,7 @@ import java.util.Locale;
 
 /**
  * Dialog allowing users to select a date.
- *
- * @deprecated Use {@link android.app.DatePickerDialog}.
  */
-@Deprecated
 public class DatePickerDialog extends DialogFragment implements
         OnClickListener, DatePickerController {
 

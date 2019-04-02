@@ -19,20 +19,28 @@ package android.appwidget;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.LauncherApps;
+import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.CancellationSignal;
+import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.SparseArray;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Adapter;
 import android.widget.AdapterView;
@@ -51,21 +59,24 @@ import java.util.concurrent.Executor;
  * {@link RemoteViews}.
  */
 public class AppWidgetHostView extends FrameLayout {
-
     static final String TAG = "AppWidgetHostView";
-    private static final String KEY_JAILED_ARRAY = "jail";
-
     static final boolean LOGD = false;
+    static final boolean CROSSFADE = false;
 
     static final int VIEW_MODE_NOINIT = 0;
     static final int VIEW_MODE_CONTENT = 1;
     static final int VIEW_MODE_ERROR = 2;
     static final int VIEW_MODE_DEFAULT = 3;
 
+    static final int FADE_DURATION = 1000;
+
     // When we're inflating the initialLayout for a AppWidget, we only allow
     // views that are allowed in RemoteViews.
-    private static final LayoutInflater.Filter INFLATER_FILTER =
-            (clazz) -> clazz.isAnnotationPresent(RemoteViews.RemoteView.class);
+    static final LayoutInflater.Filter sInflaterFilter = new LayoutInflater.Filter() {
+        public boolean onLoadClass(Class clazz) {
+            return clazz.isAnnotationPresent(RemoteViews.RemoteView.class);
+        }
+    };
 
     Context mContext;
     Context mRemoteContext;
@@ -75,6 +86,9 @@ public class AppWidgetHostView extends FrameLayout {
     View mView;
     int mViewMode = VIEW_MODE_NOINIT;
     int mLayoutId = -1;
+    long mFadeStartTime = -1;
+    Bitmap mOld;
+    Paint mOldPaint = new Paint();
     private OnClickHandler mOnClickHandler;
 
     private Executor mAsyncExecutor;
@@ -131,19 +145,13 @@ public class AppWidgetHostView extends FrameLayout {
         mAppWidgetId = appWidgetId;
         mInfo = info;
 
-        // We add padding to the AppWidgetHostView if necessary
-        Rect padding = getDefaultPadding();
-        setPadding(padding.left, padding.top, padding.right, padding.bottom);
-
         // Sometimes the AppWidgetManager returns a null AppWidgetProviderInfo object for
         // a widget, eg. for some widgets in safe mode.
         if (info != null) {
-            String description = info.loadLabel(getContext().getPackageManager());
-            if ((info.providerInfo.applicationInfo.flags & ApplicationInfo.FLAG_SUSPENDED) != 0) {
-                description = Resources.getSystem().getString(
-                        com.android.internal.R.string.suspended_widget_accessibility, description);
-            }
-            setContentDescription(description);
+            // We add padding to the AppWidgetHostView if necessary
+            Rect padding = getDefaultPaddingForWidget(mContext, info.provider, null);
+            setPadding(padding.left, padding.top, padding.right, padding.bottom);
+            updateContentDescription(info);
         }
     }
 
@@ -165,23 +173,23 @@ public class AppWidgetHostView extends FrameLayout {
      */
     public static Rect getDefaultPaddingForWidget(Context context, ComponentName component,
             Rect padding) {
-        ApplicationInfo appInfo = null;
-        try {
-            appInfo = context.getPackageManager().getApplicationInfo(component.getPackageName(), 0);
-        } catch (NameNotFoundException e) {
-            // if we can't find the package, ignore
-        }
-        return getDefaultPaddingForWidget(context, appInfo, padding);
-    }
+        PackageManager packageManager = context.getPackageManager();
+        ApplicationInfo appInfo;
 
-    private static Rect getDefaultPaddingForWidget(Context context, ApplicationInfo appInfo,
-            Rect padding) {
         if (padding == null) {
             padding = new Rect(0, 0, 0, 0);
         } else {
             padding.set(0, 0, 0, 0);
         }
-        if (appInfo != null && appInfo.targetSdkVersion >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
+
+        try {
+            appInfo = packageManager.getApplicationInfo(component.getPackageName(), 0);
+        } catch (NameNotFoundException e) {
+            // if we can't find the package, return 0 padding
+            return padding;
+        }
+
+        if (appInfo.targetSdkVersion >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
             Resources r = context.getResources();
             padding.left = r.getDimensionPixelSize(com.android.internal.
                     R.dimen.default_app_widget_padding_left);
@@ -195,11 +203,6 @@ public class AppWidgetHostView extends FrameLayout {
         return padding;
     }
 
-    private Rect getDefaultPadding() {
-        return getDefaultPaddingForWidget(mContext,
-                mInfo == null ? null : mInfo.providerInfo.applicationInfo, null);
-    }
-
     public int getAppWidgetId() {
         return mAppWidgetId;
     }
@@ -210,12 +213,9 @@ public class AppWidgetHostView extends FrameLayout {
 
     @Override
     protected void dispatchSaveInstanceState(SparseArray<Parcelable> container) {
-        final SparseArray<Parcelable> jail = new SparseArray<>();
+        final ParcelableSparseArray jail = new ParcelableSparseArray();
         super.dispatchSaveInstanceState(jail);
-
-        Bundle bundle = new Bundle();
-        bundle.putSparseParcelableArray(KEY_JAILED_ARRAY, jail);
-        container.put(generateId(), bundle);
+        container.put(generateId(), jail);
     }
 
     private int generateId() {
@@ -227,12 +227,12 @@ public class AppWidgetHostView extends FrameLayout {
     protected void dispatchRestoreInstanceState(SparseArray<Parcelable> container) {
         final Parcelable parcelable = container.get(generateId());
 
-        SparseArray<Parcelable> jail = null;
-        if (parcelable instanceof Bundle) {
-            jail = ((Bundle) parcelable).getSparseParcelableArray(KEY_JAILED_ARRAY);
+        ParcelableSparseArray jail = null;
+        if (parcelable != null && parcelable instanceof ParcelableSparseArray) {
+            jail = (ParcelableSparseArray) parcelable;
         }
 
-        if (jail == null) jail = new SparseArray<>();
+        if (jail == null) jail = new ParcelableSparseArray();
 
         try  {
             super.dispatchRestoreInstanceState(jail);
@@ -290,7 +290,10 @@ public class AppWidgetHostView extends FrameLayout {
             newOptions = new Bundle();
         }
 
-        Rect padding = getDefaultPadding();
+        Rect padding = new Rect();
+        if (mInfo != null) {
+            padding = getDefaultPaddingForWidget(mContext, mInfo.provider, padding);
+        }
         float density = getResources().getDisplayMetrics().density;
 
         int xPaddingDips = (int) ((padding.left + padding.right) / density);
@@ -364,7 +367,7 @@ public class AppWidgetHostView extends FrameLayout {
      * initial layout.
      */
     void resetAppWidget(AppWidgetProviderInfo info) {
-        setAppWidget(mAppWidgetId, info);
+        mInfo = info;
         mViewMode = VIEW_MODE_NOINIT;
         updateAppWidget(null);
     }
@@ -381,9 +384,30 @@ public class AppWidgetHostView extends FrameLayout {
      * @hide
      */
     protected void applyRemoteViews(RemoteViews remoteViews, boolean useAsyncIfPossible) {
+        if (LOGD) Log.d(TAG, "updateAppWidget called mOld=" + mOld);
+
         boolean recycled = false;
         View content = null;
         Exception exception = null;
+
+        // Capture the old view into a bitmap so we can do the crossfade.
+        if (CROSSFADE) {
+            if (mFadeStartTime < 0) {
+                if (mView != null) {
+                    final int width = mView.getWidth();
+                    final int height = mView.getHeight();
+                    try {
+                        mOld = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                    } catch (OutOfMemoryError e) {
+                        // we just won't do the fade
+                        mOld = null;
+                    }
+                    if (mOld != null) {
+                        //mView.drawIntoBitmap(mOld);
+                    }
+                }
+            }
+        }
 
         if (mLastExecutionSignal != null) {
             mLastExecutionSignal.cancel();
@@ -436,6 +460,7 @@ public class AppWidgetHostView extends FrameLayout {
         }
 
         applyContent(content, recycled, exception);
+        updateContentDescription(mInfo);
     }
 
     private void applyContent(View content, boolean recycled, Exception exception) {
@@ -444,9 +469,7 @@ public class AppWidgetHostView extends FrameLayout {
                 // We've already done this -- nothing to do.
                 return ;
             }
-            if (exception != null) {
-                Log.w(TAG, "Error inflating RemoteViews : " + exception.toString());
-            }
+            Log.w(TAG, "updateAppWidget couldn't find any view, using error view", exception);
             content = getErrorView();
             mViewMode = VIEW_MODE_ERROR;
         }
@@ -459,6 +482,37 @@ public class AppWidgetHostView extends FrameLayout {
         if (mView != content) {
             removeView(mView);
             mView = content;
+        }
+
+        if (CROSSFADE) {
+            if (mFadeStartTime < 0) {
+                // if there is already an animation in progress, don't do anything --
+                // the new view will pop in on top of the old one during the cross fade,
+                // and that looks okay.
+                mFadeStartTime = SystemClock.uptimeMillis();
+                invalidate();
+            }
+        }
+    }
+
+    private void updateContentDescription(AppWidgetProviderInfo info) {
+        if (info != null) {
+            LauncherApps launcherApps = getContext().getSystemService(LauncherApps.class);
+            ApplicationInfo appInfo = null;
+            try {
+                appInfo = launcherApps.getApplicationInfo(
+                        info.provider.getPackageName(), 0, info.getProfile());
+            } catch (NameNotFoundException e) {
+                // ignore -- use null.
+            }
+            if (appInfo != null &&
+                    (appInfo.flags & ApplicationInfo.FLAG_SUSPENDED) != 0) {
+                setContentDescription(
+                        Resources.getSystem().getString(
+                        com.android.internal.R.string.suspended_widget_accessibility, info.label));
+            } else {
+                setContentDescription(info.label);
+            }
         }
     }
 
@@ -562,6 +616,45 @@ public class AppWidgetHostView extends FrameLayout {
         }
     }
 
+    @Override
+    protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
+        if (CROSSFADE) {
+            int alpha;
+            int l = child.getLeft();
+            int t = child.getTop();
+            if (mFadeStartTime > 0) {
+                alpha = (int)(((drawingTime-mFadeStartTime)*255)/FADE_DURATION);
+                if (alpha > 255) {
+                    alpha = 255;
+                }
+                Log.d(TAG, "drawChild alpha=" + alpha + " l=" + l + " t=" + t
+                        + " w=" + child.getWidth());
+                if (alpha != 255 && mOld != null) {
+                    mOldPaint.setAlpha(255-alpha);
+                    //canvas.drawBitmap(mOld, l, t, mOldPaint);
+                }
+            } else {
+                alpha = 255;
+            }
+            int restoreTo = canvas.saveLayerAlpha(l, t, child.getWidth(), child.getHeight(), alpha,
+                    Canvas.HAS_ALPHA_LAYER_SAVE_FLAG | Canvas.CLIP_TO_LAYER_SAVE_FLAG);
+            boolean rv = super.drawChild(canvas, child, drawingTime);
+            canvas.restoreToCount(restoreTo);
+            if (alpha < 255) {
+                invalidate();
+            } else {
+                mFadeStartTime = -1;
+                if (mOld != null) {
+                    mOld.recycle();
+                    mOld = null;
+                }
+            }
+            return rv;
+        } else {
+            return super.drawChild(canvas, child, drawingTime);
+        }
+    }
+
     /**
      * Prepare the given view to be shown. This might include adjusting
      * {@link FrameLayout.LayoutParams} before inserting.
@@ -595,7 +688,7 @@ public class AppWidgetHostView extends FrameLayout {
                 LayoutInflater inflater = (LayoutInflater)
                         theirContext.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
                 inflater = inflater.cloneInContext(theirContext);
-                inflater.setFilter(INFLATER_FILTER);
+                inflater.setFilter(sInflaterFilter);
                 AppWidgetManager manager = AppWidgetManager.getInstance(mContext);
                 Bundle options = manager.getAppWidgetOptions(mAppWidgetId);
 
@@ -645,5 +738,37 @@ public class AppWidgetHostView extends FrameLayout {
     public void onInitializeAccessibilityNodeInfoInternal(AccessibilityNodeInfo info) {
         super.onInitializeAccessibilityNodeInfoInternal(info);
         info.setClassName(AppWidgetHostView.class.getName());
+    }
+
+    private static class ParcelableSparseArray extends SparseArray<Parcelable> implements Parcelable {
+        public int describeContents() {
+            return 0;
+        }
+
+        public void writeToParcel(Parcel dest, int flags) {
+            final int count = size();
+            dest.writeInt(count);
+            for (int i = 0; i < count; i++) {
+                dest.writeInt(keyAt(i));
+                dest.writeParcelable(valueAt(i), 0);
+            }
+        }
+
+        public static final Parcelable.Creator<ParcelableSparseArray> CREATOR =
+                new Parcelable.Creator<ParcelableSparseArray>() {
+                    public ParcelableSparseArray createFromParcel(Parcel source) {
+                        final ParcelableSparseArray array = new ParcelableSparseArray();
+                        final ClassLoader loader = array.getClass().getClassLoader();
+                        final int count = source.readInt();
+                        for (int i = 0; i < count; i++) {
+                            array.put(source.readInt(), source.readParcelable(loader));
+                        }
+                        return array;
+                    }
+
+                    public ParcelableSparseArray[] newArray(int size) {
+                        return new ParcelableSparseArray[size];
+                    }
+                };
     }
 }

@@ -288,13 +288,6 @@ public abstract class URLConnection {
     */
     private static FileNameMap fileNameMap;
 
-    // BEGIN Android-removed: Android has its own mime table.
-    /*
-     * @since 1.2.2
-     *
-    private static boolean fileNameMapLoaded = false;
-    */
-    // END Android-removed: Android has its own mime table.
     /**
      * Loads filename map (a mimetable) from a data file. It will
      * first try to load the user-specific table, defined
@@ -306,7 +299,6 @@ public abstract class URLConnection {
      * @see #setFileNameMap(java.net.FileNameMap)
      */
     public static synchronized FileNameMap getFileNameMap() {
-        // Android-changed: Android has its own mime table.
         if (fileNameMap == null) {
             fileNameMap = new DefaultFileNameMap();
         }
@@ -360,7 +352,6 @@ public abstract class URLConnection {
      */
     abstract public void connect() throws IOException;
 
-    // Android-changed: Add javadoc to specify Android's timeout behavior.
     /**
      * Sets a specified timeout value, in milliseconds, to be used
      * when opening a communications link to the resource referenced
@@ -668,7 +659,7 @@ public abstract class URLConnection {
      * Returns the key for the {@code n}<sup>th</sup> header field.
      * It returns {@code null} if there are fewer than {@code n+1} fields.
      *
-     * @param   n   an index, where {@code n>=0}
+     * @param   n   an index, where n>=0
      * @return  the key for the {@code n}<sup>th</sup> header field,
      *          or {@code null} if there are fewer than {@code n+1}
      *          fields.
@@ -686,7 +677,7 @@ public abstract class URLConnection {
      * {@link #getHeaderFieldKey(int) getHeaderFieldKey} method to iterate through all
      * the headers in the message.
      *
-     * @param   n   an index, where {@code n>=0}
+     * @param   n   an index, where n>=0
      * @return  the value of the {@code n}<sup>th</sup> header field
      *          or {@code null} if there are fewer than {@code n+1} fields
      * @see     java.net.URLConnection#getHeaderFieldKey(int)
@@ -1243,7 +1234,6 @@ public abstract class URLConnection {
     {
         String contentType = stripOffParameters(getContentType());
         ContentHandler handler = null;
-        // BEGIN Android-changed: App Compat. Android guesses content type from name and stream.
         if (contentType == null) {
             if ((contentType = guessContentTypeFromName(url.getFile())) == null) {
                 contentType = guessContentTypeFromStream(getInputStream());
@@ -1253,7 +1243,6 @@ public abstract class URLConnection {
         if (contentType == null) {
             return UnknownContentHandler.INSTANCE;
         }
-        // END Android-changed: App Compat. Android guesses content type from name and stream.
         try {
             handler = handlers.get(contentType);
             if (handler != null)

@@ -23,7 +23,6 @@ import android.content.Intent;
 import android.os.IBinder;
 import android.test.mock.MockApplication;
 
-import android.test.mock.MockService;
 import java.util.Random;
 
 /**
@@ -164,8 +163,14 @@ public abstract class ServiceTestCase<T extends Service> extends AndroidTestCase
         if (getApplication() == null) {
             setApplication(new MockApplication());
         }
-        MockService.attachForTesting(
-                mService, getContext(), mServiceClass.getName(), getApplication());
+        mService.attach(
+                getContext(),
+                null,               // ActivityThread not actually used in Service
+                mServiceClass.getName(),
+                null,               // token not needed when not talking with the activity manager
+                getApplication(),
+                null                // mocked services don't talk with the activity manager
+                );
 
         assertNotNull(mService);
 

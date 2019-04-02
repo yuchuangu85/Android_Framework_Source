@@ -16,6 +16,7 @@
 
 package com.android.systemui.stackdivider;
 
+import static android.app.ActivityManager.StackId.DOCKED_STACK_ID;
 import static android.view.WindowManager.DOCKED_INVALID;
 
 import android.app.ActivityManager;
@@ -55,7 +56,7 @@ public class WindowManagerProxy {
     private final Rect mTouchableRegion = new Rect();
 
     private boolean mDimLayerVisible;
-    private int mDimLayerTargetWindowingMode;
+    private int mDimLayerTargetStack;
     private float mDimLayerAlpha;
 
     private final ExecutorService mExecutor = Executors.newSingleThreadExecutor();
@@ -87,7 +88,8 @@ public class WindowManagerProxy {
         @Override
         public void run() {
             try {
-                ActivityManager.getService().dismissSplitScreenMode(false /* onTop */);
+                ActivityManager.getService().moveTasksToFullscreenStack(
+                        DOCKED_STACK_ID, false /* onTop */);
             } catch (RemoteException e) {
                 Log.w(TAG, "Failed to remove stack: " + e);
             }
@@ -98,7 +100,8 @@ public class WindowManagerProxy {
         @Override
         public void run() {
             try {
-                ActivityManager.getService().dismissSplitScreenMode(true /* onTop */);
+                ActivityManager.getService().resizeStack(
+                        DOCKED_STACK_ID, null, true, true, false, -1);
             } catch (RemoteException e) {
                 Log.w(TAG, "Failed to resize stack: " + e);
             }
@@ -110,7 +113,18 @@ public class WindowManagerProxy {
         public void run() {
             try {
                 WindowManagerGlobal.getWindowManagerService().setResizeDimLayer(mDimLayerVisible,
-                        mDimLayerTargetWindowingMode, mDimLayerAlpha);
+                        mDimLayerTargetStack, mDimLayerAlpha);
+            } catch (RemoteException e) {
+                Log.w(TAG, "Failed to resize stack: " + e);
+            }
+        }
+    };
+
+    private final Runnable mSwapRunnable = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                ActivityManager.getService().swapDockedAndFullscreenStack();
             } catch (RemoteException e) {
                 Log.w(TAG, "Failed to resize stack: " + e);
             }
@@ -180,7 +194,7 @@ public class WindowManagerProxy {
             @Override
             public void run() {
                 try {
-                    ActivityManager.getService().setSplitScreenResizing(resizing);
+                    WindowManagerGlobal.getWindowManagerService().setDockedStackResizing(resizing);
                 } catch (RemoteException e) {
                     Log.w(TAG, "Error calling setDockedStackResizing: " + e);
                 }
@@ -197,11 +211,15 @@ public class WindowManagerProxy {
         return DOCKED_INVALID;
     }
 
-    public void setResizeDimLayer(boolean visible, int targetWindowingMode, float alpha) {
+    public void setResizeDimLayer(boolean visible, int targetStackId, float alpha) {
         mDimLayerVisible = visible;
-        mDimLayerTargetWindowingMode = targetWindowingMode;
+        mDimLayerTargetStack = targetStackId;
         mDimLayerAlpha = alpha;
         mExecutor.execute(mDimLayerRunnable);
+    }
+
+    public void swapTasks() {
+        mExecutor.execute(mSwapRunnable);
     }
 
     public void setTouchRegion(Rect region) {

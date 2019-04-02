@@ -58,10 +58,6 @@ public class CheckableLinearLayout extends LinearLayout implements Checkable {
         super(context, attrs, defStyleAttr, defStyleRes);
     }
 
-    {
-        setFocusable(true);
-    }
-
     @Override
     protected int[] onCreateDrawableState(int extraSpace) {
         if (mChecked) {

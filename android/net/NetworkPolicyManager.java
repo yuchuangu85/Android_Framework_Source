@@ -29,9 +29,9 @@ import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.os.RemoteException;
 import android.os.UserHandle;
+import android.telephony.SubscriptionPlan;
 import android.util.DebugUtils;
 import android.util.Pair;
-import android.util.Range;
 
 import com.google.android.collect.Sets;
 
@@ -108,17 +108,11 @@ public class NetworkPolicyManager {
 
     private static final boolean ALLOW_PLATFORM_APP_POLICY = true;
 
-    public static final int FOREGROUND_THRESHOLD_STATE =
-            ActivityManager.PROCESS_STATE_BOUND_FOREGROUND_SERVICE;
-
     /**
      * {@link Intent} extra that indicates which {@link NetworkTemplate} rule it
      * applies to.
      */
     public static final String EXTRA_NETWORK_TEMPLATE = "android.net.NETWORK_TEMPLATE";
-
-    public static final int OVERRIDE_UNMETERED = 1 << 0;
-    public static final int OVERRIDE_CONGESTED = 1 << 1;
 
     private final Context mContext;
     private INetworkPolicyManager mService;
@@ -259,25 +253,8 @@ public class NetworkPolicyManager {
     }
 
     /** {@hide} */
-    @Deprecated
     public static Iterator<Pair<ZonedDateTime, ZonedDateTime>> cycleIterator(NetworkPolicy policy) {
-        final Iterator<Range<ZonedDateTime>> it = policy.cycleIterator();
-        return new Iterator<Pair<ZonedDateTime, ZonedDateTime>>() {
-            @Override
-            public boolean hasNext() {
-                return it.hasNext();
-            }
-
-            @Override
-            public Pair<ZonedDateTime, ZonedDateTime> next() {
-                if (hasNext()) {
-                    final Range<ZonedDateTime> r = it.next();
-                    return Pair.create(r.getLower(), r.getUpper());
-                } else {
-                    return Pair.create(null, null);
-                }
-            }
-        };
+        return policy.cycleIterator();
     }
 
     /**
@@ -352,7 +329,7 @@ public class NetworkPolicyManager {
      * to access network when the device is idle or in battery saver mode. Otherwise, false.
      */
     public static boolean isProcStateAllowedWhileIdleOrPowerSaveMode(int procState) {
-        return procState <= FOREGROUND_THRESHOLD_STATE;
+        return procState <= ActivityManager.PROCESS_STATE_FOREGROUND_SERVICE;
     }
 
     /**
@@ -360,7 +337,7 @@ public class NetworkPolicyManager {
      * to access network when the device is in data saver mode. Otherwise, false.
      */
     public static boolean isProcStateAllowedWhileOnRestrictBackground(int procState) {
-        return procState <= FOREGROUND_THRESHOLD_STATE;
+        return procState <= ActivityManager.PROCESS_STATE_FOREGROUND_SERVICE;
     }
 
     public static String resolveNetworkId(WifiConfiguration config) {
@@ -370,14 +347,5 @@ public class NetworkPolicyManager {
 
     public static String resolveNetworkId(String ssid) {
         return WifiInfo.removeDoubleQuotes(ssid);
-    }
-
-    /** {@hide} */
-    public static class Listener extends INetworkPolicyListener.Stub {
-        @Override public void onUidRulesChanged(int uid, int uidRules) { }
-        @Override public void onMeteredIfacesChanged(String[] meteredIfaces) { }
-        @Override public void onRestrictBackgroundChanged(boolean restrictBackground) { }
-        @Override public void onUidPoliciesChanged(int uid, int uidPolicies) { }
-        @Override public void onSubscriptionOverride(int subId, int overrideMask, int overrideValue) { }
     }
 }

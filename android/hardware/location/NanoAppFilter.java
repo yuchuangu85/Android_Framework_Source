@@ -16,19 +16,17 @@
 
 package android.hardware.location;
 
+
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.Log;
 
 /**
- * @deprecated Use {@link android.hardware.location.ContextHubManager#queryNanoApps(ContextHubInfo)}
- *             to find loaded nanoapps, which doesn't require using this class as a parameter.
- *
  * @hide
  */
 @SystemApi
-@Deprecated
-public class NanoAppFilter implements Parcelable {
+public class NanoAppFilter {
 
     private static final String TAG = "NanoAppFilter";
 
@@ -130,14 +128,6 @@ public class NanoAppFilter implements Parcelable {
         return (mContextHubId == HUB_ANY || info.getContexthubId() == mContextHubId) &&
                 (mAppId == APP_ANY || info.getAppId() == mAppId) &&
                 (versionsMatch(mVersionRestrictionMask, mAppVersion, info.getAppVersion()));
-    }
-
-    @Override
-    public String toString() {
-        return "nanoAppId: 0x" + Long.toHexString(mAppId)
-                + ", nanoAppVersion: 0x" + Integer.toHexString(mAppVersion)
-                + ", versionMask: " + mVersionRestrictionMask
-                + ", vendorMask: " + mAppIdVendorMask;
     }
 
     public static final Parcelable.Creator<NanoAppFilter> CREATOR

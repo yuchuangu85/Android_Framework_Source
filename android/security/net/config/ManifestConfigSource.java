@@ -20,7 +20,6 @@ import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.util.Log;
 import android.util.Pair;
-
 import java.util.Set;
 
 /** @hide */
@@ -30,14 +29,21 @@ public class ManifestConfigSource implements ConfigSource {
 
     private final Object mLock = new Object();
     private final Context mContext;
-    private final ApplicationInfo mApplicationInfo;
+    private final int mApplicationInfoFlags;
+    private final int mTargetSdkVersion;
+    private final int mConfigResourceId;
+    private final int mTargetSandboxVesrsion;
 
     private ConfigSource mConfigSource;
 
     public ManifestConfigSource(Context context) {
         mContext = context;
-        // Cache the info because ApplicationInfo is mutable and apps do modify it :(
-        mApplicationInfo = new ApplicationInfo(context.getApplicationInfo());
+        // Cache values because ApplicationInfo is mutable and apps do modify it :(
+        ApplicationInfo info = context.getApplicationInfo();
+        mApplicationInfoFlags = info.flags;
+        mTargetSdkVersion = info.targetSdkVersion;
+        mConfigResourceId = info.networkSecurityConfigRes;
+        mTargetSandboxVesrsion = info.targetSandboxVersion;
     }
 
     @Override
@@ -55,18 +61,17 @@ public class ManifestConfigSource implements ConfigSource {
             if (mConfigSource != null) {
                 return mConfigSource;
             }
-            int configResource = mApplicationInfo.networkSecurityConfigRes;
+
             ConfigSource source;
-            if (configResource != 0) {
-                boolean debugBuild =
-                        (mApplicationInfo.flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+            if (mConfigResourceId != 0) {
+                boolean debugBuild = (mApplicationInfoFlags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
                 if (DBG) {
                     Log.d(LOG_TAG, "Using Network Security Config from resource "
-                            + mContext.getResources()
-                                .getResourceEntryName(configResource)
+                            + mContext.getResources().getResourceEntryName(mConfigResourceId)
                             + " debugBuild: " + debugBuild);
                 }
-                source = new XmlConfigSource(mContext, configResource, mApplicationInfo);
+                source = new XmlConfigSource(mContext, mConfigResourceId, debugBuild,
+                        mTargetSdkVersion, mTargetSandboxVesrsion);
             } else {
                 if (DBG) {
                     Log.d(LOG_TAG, "No Network Security Config specified, using platform default");
@@ -74,9 +79,10 @@ public class ManifestConfigSource implements ConfigSource {
                 // the legacy FLAG_USES_CLEARTEXT_TRAFFIC is not supported for Ephemeral apps, they
                 // should use the network security config.
                 boolean usesCleartextTraffic =
-                        (mApplicationInfo.flags & ApplicationInfo.FLAG_USES_CLEARTEXT_TRAFFIC) != 0
-                        && mApplicationInfo.targetSandboxVersion < 2;
-                source = new DefaultConfigSource(usesCleartextTraffic, mApplicationInfo);
+                        (mApplicationInfoFlags & ApplicationInfo.FLAG_USES_CLEARTEXT_TRAFFIC) != 0
+                        && mTargetSandboxVesrsion < 2;
+                source = new DefaultConfigSource(usesCleartextTraffic, mTargetSdkVersion,
+                        mTargetSandboxVesrsion);
             }
             mConfigSource = source;
             return mConfigSource;
@@ -87,8 +93,10 @@ public class ManifestConfigSource implements ConfigSource {
 
         private final NetworkSecurityConfig mDefaultConfig;
 
-        DefaultConfigSource(boolean usesCleartextTraffic, ApplicationInfo info) {
-            mDefaultConfig = NetworkSecurityConfig.getDefaultBuilder(info)
+        public DefaultConfigSource(boolean usesCleartextTraffic, int targetSdkVersion,
+                int targetSandboxVesrsion) {
+            mDefaultConfig = NetworkSecurityConfig.getDefaultBuilder(targetSdkVersion,
+                    targetSandboxVesrsion)
                     .setCleartextTrafficPermitted(usesCleartextTraffic)
                     .build();
         }

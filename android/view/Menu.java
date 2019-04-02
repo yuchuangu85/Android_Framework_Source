@@ -451,10 +451,5 @@ public interface Menu {
      *                 will use numeric shortcuts.
      */
     public void setQwertyMode(boolean isQwerty);
-
-    /**
-     * Enable or disable the group dividers.
-     */
-    default void setGroupDividerEnabled(boolean groupDividerEnabled) {
-    }
 }
+

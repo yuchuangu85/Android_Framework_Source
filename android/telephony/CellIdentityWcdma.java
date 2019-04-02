@@ -16,19 +16,24 @@
 
 package android.telephony;
 
-import android.annotation.Nullable;
 import android.os.Parcel;
-import android.text.TextUtils;
+import android.os.Parcelable;
+import android.telephony.Rlog;
 
 import java.util.Objects;
 
 /**
  * CellIdentity to represent a unique UMTS cell
  */
-public final class CellIdentityWcdma extends CellIdentity {
-    private static final String TAG = CellIdentityWcdma.class.getSimpleName();
+public final class CellIdentityWcdma implements Parcelable {
+
+    private static final String LOG_TAG = "CellIdentityWcdma";
     private static final boolean DBG = false;
 
+    // 3-digit Mobile Country Code, 0..999
+    private final int mMcc;
+    // 2 or 3-digit Mobile Network Code, 0..999
+    private final int mMnc;
     // 16-bit Location Area Code, 0..65535
     private final int mLac;
     // 28-bit UMTS Cell Identity described in TS 25.331, 0..268435455
@@ -42,7 +47,8 @@ public final class CellIdentityWcdma extends CellIdentity {
      * @hide
      */
     public CellIdentityWcdma() {
-        super(TAG, TYPE_TDSCDMA, null, null, null, null);
+        mMcc = Integer.MAX_VALUE;
+        mMnc = Integer.MAX_VALUE;
         mLac = Integer.MAX_VALUE;
         mCid = Integer.MAX_VALUE;
         mPsc = Integer.MAX_VALUE;
@@ -59,8 +65,7 @@ public final class CellIdentityWcdma extends CellIdentity {
      * @hide
      */
     public CellIdentityWcdma (int mcc, int mnc, int lac, int cid, int psc) {
-        this(lac, cid, psc, Integer.MAX_VALUE, String.valueOf(mcc), String.valueOf(mnc),
-                null, null);
+        this(mcc, mnc, lac, cid, psc, Integer.MAX_VALUE);
     }
 
     /**
@@ -75,25 +80,8 @@ public final class CellIdentityWcdma extends CellIdentity {
      * @hide
      */
     public CellIdentityWcdma (int mcc, int mnc, int lac, int cid, int psc, int uarfcn) {
-        this(lac, cid, psc, uarfcn, String.valueOf(mcc), String.valueOf(mnc), null, null);
-    }
-
-    /**
-     * public constructor
-     * @param lac 16-bit Location Area Code, 0..65535
-     * @param cid 28-bit UMTS Cell Identity
-     * @param psc 9-bit UMTS Primary Scrambling Code
-     * @param uarfcn 16-bit UMTS Absolute RF Channel Number
-     * @param mccStr 3-digit Mobile Country Code in string format
-     * @param mncStr 2 or 3-digit Mobile Network Code in string format
-     * @param alphal long alpha Operator Name String or Enhanced Operator Name String
-     * @param alphas short alpha Operator Name String or Enhanced Operator Name String
-     *
-     * @hide
-     */
-    public CellIdentityWcdma (int lac, int cid, int psc, int uarfcn,
-                              String mccStr, String mncStr, String alphal, String alphas) {
-        super(TAG, TYPE_WCDMA, mccStr, mncStr, alphal, alphas);
+        mMcc = mcc;
+        mMnc = mnc;
         mLac = lac;
         mCid = cid;
         mPsc = psc;
@@ -101,30 +89,30 @@ public final class CellIdentityWcdma extends CellIdentity {
     }
 
     private CellIdentityWcdma(CellIdentityWcdma cid) {
-        this(cid.mLac, cid.mCid, cid.mPsc, cid.mUarfcn, cid.mMccStr,
-                cid.mMncStr, cid.mAlphaLong, cid.mAlphaShort);
+        mMcc = cid.mMcc;
+        mMnc = cid.mMnc;
+        mLac = cid.mLac;
+        mCid = cid.mCid;
+        mPsc = cid.mPsc;
+        mUarfcn = cid.mUarfcn;
     }
 
     CellIdentityWcdma copy() {
-        return new CellIdentityWcdma(this);
+       return new CellIdentityWcdma(this);
     }
 
     /**
      * @return 3-digit Mobile Country Code, 0..999, Integer.MAX_VALUE if unknown
-     * @deprecated Use {@link #getMccString} instead.
      */
-    @Deprecated
     public int getMcc() {
-        return (mMccStr != null) ? Integer.valueOf(mMccStr) : Integer.MAX_VALUE;
+        return mMcc;
     }
 
     /**
      * @return 2 or 3-digit Mobile Network Code, 0..999, Integer.MAX_VALUE if unknown
-     * @deprecated Use {@link #getMncString} instead.
      */
-    @Deprecated
     public int getMnc() {
-        return (mMncStr != null) ? Integer.valueOf(mMncStr) : Integer.MAX_VALUE;
+        return mMnc;
     }
 
     /**
@@ -150,42 +138,15 @@ public final class CellIdentityWcdma extends CellIdentity {
         return mPsc;
     }
 
-    /**
-     * @return Mobile Country Code in string version, null if unknown
-     */
-    public String getMccString() {
-        return mMccStr;
-    }
-
-    /**
-     * @return Mobile Network Code in string version, null if unknown
-     */
-    public String getMncString() {
-        return mMncStr;
-    }
-
-    /**
-     * @return a 5 or 6 character string (MCC+MNC), null if any field is unknown
-     */
-    public String getMobileNetworkOperator() {
-        return (mMccStr == null || mMncStr == null) ? null : mMccStr + mMncStr;
-    }
-
     @Override
     public int hashCode() {
-        return Objects.hash(mLac, mCid, mPsc, super.hashCode());
+        return Objects.hash(mMcc, mMnc, mLac, mCid, mPsc);
     }
 
     /**
      * @return 16-bit UMTS Absolute RF Channel Number, Integer.MAX_VALUE if unknown
      */
     public int getUarfcn() {
-        return mUarfcn;
-    }
-
-    /** @hide */
-    @Override
-    public int getChannelNumber() {
         return mUarfcn;
     }
 
@@ -200,34 +161,40 @@ public final class CellIdentityWcdma extends CellIdentity {
         }
 
         CellIdentityWcdma o = (CellIdentityWcdma) other;
-        return mLac == o.mLac
-                && mCid == o.mCid
-                && mPsc == o.mPsc
-                && mUarfcn == o.mUarfcn
-                && TextUtils.equals(mMccStr, o.mMccStr)
-                && TextUtils.equals(mMncStr, o.mMncStr)
-                && super.equals(other);
+        return mMcc == o.mMcc &&
+                mMnc == o.mMnc &&
+                mLac == o.mLac &&
+                mCid == o.mCid &&
+                mPsc == o.mPsc &&
+                mUarfcn == o.mUarfcn;
     }
 
     @Override
     public String toString() {
-        return new StringBuilder(TAG)
-        .append(":{ mLac=").append(mLac)
-        .append(" mCid=").append(mCid)
-        .append(" mPsc=").append(mPsc)
-        .append(" mUarfcn=").append(mUarfcn)
-        .append(" mMcc=").append(mMccStr)
-        .append(" mMnc=").append(mMncStr)
-        .append(" mAlphaLong=").append(mAlphaLong)
-        .append(" mAlphaShort=").append(mAlphaShort)
-        .append("}").toString();
+        StringBuilder sb = new StringBuilder("CellIdentityWcdma:{");
+        sb.append(" mMcc=").append(mMcc);
+        sb.append(" mMnc=").append(mMnc);
+        sb.append(" mLac=").append(mLac);
+        sb.append(" mCid=").append(mCid);
+        sb.append(" mPsc=").append(mPsc);
+        sb.append(" mUarfcn=").append(mUarfcn);
+        sb.append("}");
+
+        return sb.toString();
+    }
+
+    /** Implement the Parcelable interface */
+    @Override
+    public int describeContents() {
+        return 0;
     }
 
     /** Implement the Parcelable interface */
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         if (DBG) log("writeToParcel(Parcel, int): " + toString());
-        super.writeToParcel(dest, TYPE_WCDMA);
+        dest.writeInt(mMcc);
+        dest.writeInt(mMnc);
         dest.writeInt(mLac);
         dest.writeInt(mCid);
         dest.writeInt(mPsc);
@@ -236,32 +203,34 @@ public final class CellIdentityWcdma extends CellIdentity {
 
     /** Construct from Parcel, type has already been processed */
     private CellIdentityWcdma(Parcel in) {
-        super(TAG, TYPE_WCDMA, in);
+        mMcc = in.readInt();
+        mMnc = in.readInt();
         mLac = in.readInt();
         mCid = in.readInt();
         mPsc = in.readInt();
         mUarfcn = in.readInt();
-        if (DBG) log(toString());
+        if (DBG) log("CellIdentityWcdma(Parcel): " + toString());
     }
 
     /** Implement the Parcelable interface */
     @SuppressWarnings("hiding")
     public static final Creator<CellIdentityWcdma> CREATOR =
             new Creator<CellIdentityWcdma>() {
-                @Override
-                public CellIdentityWcdma createFromParcel(Parcel in) {
-                    in.readInt();   // skip
-                    return createFromParcelBody(in);
-                }
+        @Override
+        public CellIdentityWcdma createFromParcel(Parcel in) {
+            return new CellIdentityWcdma(in);
+        }
 
-                @Override
-                public CellIdentityWcdma[] newArray(int size) {
-                    return new CellIdentityWcdma[size];
-                }
-            };
+        @Override
+        public CellIdentityWcdma[] newArray(int size) {
+            return new CellIdentityWcdma[size];
+        }
+    };
 
-    /** @hide */
-    protected static CellIdentityWcdma createFromParcelBody(Parcel in) {
-        return new CellIdentityWcdma(in);
+    /**
+     * log
+     */
+    private static void log(String s) {
+        Rlog.w(LOG_TAG, s);
     }
 }

@@ -21,8 +21,8 @@ public class SmartSelectionInstallReceiver extends ConfigUpdateInstallReceiver {
     public SmartSelectionInstallReceiver() {
         super(
             "/data/misc/textclassifier/",
-            "textclassifier.model",
-            "metadata/classification",
+            "textclassifier.smartselection.model",
+            "metadata/smartselection",
             "version");
     }
 

@@ -24,13 +24,6 @@ public interface PersistentDataBlockManagerInternal {
     /** Stores the handle to a lockscreen credential to be used for Factory Reset Protection. */
     void setFrpCredentialHandle(byte[] handle);
 
-    /**
-     * Retrieves handle to a lockscreen credential to be used for Factory Reset Protection.
-     *
-     * @throws IllegalStateException if the underlying storage is corrupt or inaccessible.
-     */
+    /** Retrieves handle to a lockscreen credential to be used for Factory Reset Protection. */
     byte[] getFrpCredentialHandle();
-
-    /** Update the OEM unlock enabled bit, bypassing user restriction checks. */
-    void forceOemUnlockEnabled(boolean enabled);
 }

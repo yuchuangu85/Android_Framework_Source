@@ -428,18 +428,6 @@ public final class GestureDescription {
         }
 
         @Override
-        public String toString() {
-            return "TouchPoint{"
-                    + "mStrokeId=" + mStrokeId
-                    + ", mContinuedStrokeId=" + mContinuedStrokeId
-                    + ", mIsStartOfPath=" + mIsStartOfPath
-                    + ", mIsEndOfPath=" + mIsEndOfPath
-                    + ", mX=" + mX
-                    + ", mY=" + mY
-                    + '}';
-        }
-
-        @Override
         public int describeContents() {
             return 0;
         }

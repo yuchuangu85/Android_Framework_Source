@@ -19,7 +19,6 @@ package android.view;
 import static android.view.DisplayEventReceiver.VSYNC_SOURCE_APP;
 import static android.view.DisplayEventReceiver.VSYNC_SOURCE_SURFACE_FLINGER;
 
-import android.annotation.TestApi;
 import android.hardware.display.DisplayManagerGlobal;
 import android.os.Handler;
 import android.os.Looper;
@@ -106,15 +105,9 @@ public final class Choreographer {
             if (looper == null) {
                 throw new IllegalStateException("The current thread must have a looper!");
             }
-            Choreographer choreographer = new Choreographer(looper, VSYNC_SOURCE_APP);
-            if (looper == Looper.getMainLooper()) {
-                mMainInstance = choreographer;
-            }
-            return choreographer;
+            return new Choreographer(looper, VSYNC_SOURCE_APP);
         }
     };
-
-    private static volatile Choreographer mMainInstance;
 
     // Thread local storage for the SF choreographer.
     private static final ThreadLocal<Choreographer> sSfThreadInstance =
@@ -170,7 +163,6 @@ public final class Choreographer {
     private long mLastFrameTimeNanos;
     private long mFrameIntervalNanos;
     private boolean mDebugPrintNextFrameTimeDelta;
-    private int mFPSDivisor = 1;
 
     /**
      * Contains information about the current frame for jank-tracking,
@@ -203,7 +195,6 @@ public final class Choreographer {
      * Callback type: Animation callback.  Runs before traversals.
      * @hide
      */
-    @TestApi
     public static final int CALLBACK_ANIMATION = 1;
 
     /**
@@ -241,8 +232,6 @@ public final class Choreographer {
         for (int i = 0; i <= CALLBACK_LAST; i++) {
             mCallbackQueues[i] = new CallbackQueue();
         }
-        // b/68769804: For low FPS experiments.
-        setFPSDivisor(SystemProperties.getInt(ThreadedRenderer.DEBUG_FPS_DIVISOR, 1));
     }
 
     private static float getRefreshRate() {
@@ -267,14 +256,6 @@ public final class Choreographer {
      */
     public static Choreographer getSfInstance() {
         return sSfThreadInstance.get();
-    }
-
-    /**
-     * @return The Choreographer of the main thread, if it exists, or {@code null} otherwise.
-     * @hide
-     */
-    public static Choreographer getMainThreadInstance() {
-        return mMainInstance;
     }
 
     /** Destroys the calling thread's choreographer
@@ -305,7 +286,6 @@ public final class Choreographer {
      * @return the requested time between frames, in milliseconds
      * @hide
      */
-    @TestApi
     public static long getFrameDelay() {
         return sFrameDelay;
     }
@@ -325,7 +305,6 @@ public final class Choreographer {
      * @param frameDelay the requested time between frames, in milliseconds
      * @hide
      */
-    @TestApi
     public static void setFrameDelay(long frameDelay) {
         sFrameDelay = frameDelay;
     }
@@ -387,7 +366,6 @@ public final class Choreographer {
      * @see #removeCallbacks
      * @hide
      */
-    @TestApi
     public void postCallback(int callbackType, Runnable action, Object token) {
         postCallbackDelayed(callbackType, action, token, 0);
     }
@@ -406,7 +384,6 @@ public final class Choreographer {
      * @see #removeCallback
      * @hide
      */
-    @TestApi
     public void postCallbackDelayed(int callbackType,
             Runnable action, Object token, long delayMillis) {
         if (action == null) {
@@ -456,7 +433,6 @@ public final class Choreographer {
      * @see #postCallbackDelayed
      * @hide
      */
-    @TestApi
     public void removeCallbacks(int callbackType, Runnable action, Object token) {
         if (callbackType < 0 || callbackType > CALLBACK_LAST) {
             throw new IllegalArgumentException("callbackType is invalid");
@@ -621,12 +597,6 @@ public final class Choreographer {
         }
     }
 
-    void setFPSDivisor(int divisor) {
-        if (divisor <= 0) divisor = 1;
-        mFPSDivisor = divisor;
-        ThreadedRenderer.setFPSDivisor(divisor);
-    }
-
     void doFrame(long frameTimeNanos, int frame) {
         final long startNanos;
         synchronized (mLock) {
@@ -667,14 +637,6 @@ public final class Choreographer {
                 }
                 scheduleVsyncLocked();
                 return;
-            }
-
-            if (mFPSDivisor > 1) {
-                long timeSinceVsync = frameTimeNanos - mLastFrameTimeNanos;
-                if (timeSinceVsync < (mFrameIntervalNanos * mFPSDivisor) && timeSinceVsync > 0) {
-                    scheduleVsyncLocked();
-                    return;
-                }
             }
 
             mFrameInfo.setVsync(intendedFrameTimeNanos, frameTimeNanos);

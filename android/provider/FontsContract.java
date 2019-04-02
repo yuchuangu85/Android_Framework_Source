@@ -283,11 +283,7 @@ public class FontsContract {
         public static final int STATUS_REJECTED = 3;
 
         /** @hide */
-        @IntDef(prefix = { "STATUS_" }, value = {
-                STATUS_OK,
-                STATUS_WRONG_CERTIFICATES,
-                STATUS_UNEXPECTED_DATA_PROVIDED
-        })
+        @IntDef({STATUS_OK, STATUS_WRONG_CERTIFICATES, STATUS_UNEXPECTED_DATA_PROVIDED})
         @Retention(RetentionPolicy.SOURCE)
         @interface FontResultStatus {}
 
@@ -442,13 +438,9 @@ public class FontsContract {
         public static final int FAIL_REASON_MALFORMED_QUERY = Columns.RESULT_CODE_MALFORMED_QUERY;
 
         /** @hide */
-        @IntDef(prefix = { "FAIL_" }, value = {
-                FAIL_REASON_PROVIDER_NOT_FOUND,
-                FAIL_REASON_FONT_LOAD_ERROR,
-                FAIL_REASON_FONT_NOT_FOUND,
-                FAIL_REASON_FONT_UNAVAILABLE,
-                FAIL_REASON_MALFORMED_QUERY
-        })
+        @IntDef({ FAIL_REASON_PROVIDER_NOT_FOUND, FAIL_REASON_FONT_LOAD_ERROR,
+                FAIL_REASON_FONT_NOT_FOUND, FAIL_REASON_FONT_UNAVAILABLE,
+                FAIL_REASON_MALFORMED_QUERY })
         @Retention(RetentionPolicy.SOURCE)
         @interface FontRequestFailReason {}
 

@@ -19,78 +19,42 @@ package android.bluetooth;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-/**
- * Represents the Quality of Service (QoS) settings for a Bluetooth HID Device application.
- *
- * <p>The BluetoothHidDevice framework will update the L2CAP QoS settings for the app during
- * registration.
- *
- * <p>{@see BluetoothHidDevice}
- */
+import java.util.Random;
+
+/** @hide */
 public final class BluetoothHidDeviceAppQosSettings implements Parcelable {
 
-    private final int mServiceType;
-    private final int mTokenRate;
-    private final int mTokenBucketSize;
-    private final int mPeakBandwidth;
-    private final int mLatency;
-    private final int mDelayVariation;
+    final public int serviceType;
+    final public int tokenRate;
+    final public int tokenBucketSize;
+    final public int peakBandwidth;
+    final public int latency;
+    final public int delayVariation;
 
-    public static final int SERVICE_NO_TRAFFIC = 0x00;
-    public static final int SERVICE_BEST_EFFORT = 0x01;
-    public static final int SERVICE_GUARANTEED = 0x02;
+    final static public int SERVICE_NO_TRAFFIC = 0x00;
+    final static public int SERVICE_BEST_EFFORT = 0x01;
+    final static public int SERVICE_GUARANTEED = 0x02;
 
-    public static final int MAX = (int) 0xffffffff;
+    final static public int MAX = (int) 0xffffffff;
 
-    /**
-     * Create a BluetoothHidDeviceAppQosSettings object for the Bluetooth L2CAP channel. The QoS
-     * Settings is optional. Please refer to Bluetooth HID Specfication v1.1.1 Section 5.2 and
-     * Appendix D for parameters.
-     *
-     * @param serviceType L2CAP service type, default = SERVICE_BEST_EFFORT
-     * @param tokenRate L2CAP token rate, default = 0
-     * @param tokenBucketSize L2CAP token bucket size, default = 0
-     * @param peakBandwidth L2CAP peak bandwidth, default = 0
-     * @param latency L2CAP latency, default = MAX
-     * @param delayVariation L2CAP delay variation, default = MAX
-     */
-    public BluetoothHidDeviceAppQosSettings(
-            int serviceType,
-            int tokenRate,
-            int tokenBucketSize,
+    public BluetoothHidDeviceAppQosSettings(int serviceType, int tokenRate, int tokenBucketSize,
             int peakBandwidth,
-            int latency,
-            int delayVariation) {
-        mServiceType = serviceType;
-        mTokenRate = tokenRate;
-        mTokenBucketSize = tokenBucketSize;
-        mPeakBandwidth = peakBandwidth;
-        mLatency = latency;
-        mDelayVariation = delayVariation;
+            int latency, int delayVariation) {
+        this.serviceType = serviceType;
+        this.tokenRate = tokenRate;
+        this.tokenBucketSize = tokenBucketSize;
+        this.peakBandwidth = peakBandwidth;
+        this.latency = latency;
+        this.delayVariation = delayVariation;
     }
 
-    public int getServiceType() {
-        return mServiceType;
-    }
-
-    public int getTokenRate() {
-        return mTokenRate;
-    }
-
-    public int getTokenBucketSize() {
-        return mTokenBucketSize;
-    }
-
-    public int getPeakBandwidth() {
-        return mPeakBandwidth;
-    }
-
-    public int getLatency() {
-        return mLatency;
-    }
-
-    public int getDelayVariation() {
-        return mDelayVariation;
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof BluetoothHidDeviceAppQosSettings) {
+            BluetoothHidDeviceAppQosSettings qos = (BluetoothHidDeviceAppQosSettings) o;
+            return false;
+        }
+        return false;
     }
 
     @Override
@@ -99,33 +63,35 @@ public final class BluetoothHidDeviceAppQosSettings implements Parcelable {
     }
 
     public static final Parcelable.Creator<BluetoothHidDeviceAppQosSettings> CREATOR =
-            new Parcelable.Creator<BluetoothHidDeviceAppQosSettings>() {
+        new Parcelable.Creator<BluetoothHidDeviceAppQosSettings>() {
 
-                @Override
-                public BluetoothHidDeviceAppQosSettings createFromParcel(Parcel in) {
+        @Override
+        public BluetoothHidDeviceAppQosSettings createFromParcel(Parcel in) {
 
-                    return new BluetoothHidDeviceAppQosSettings(
-                            in.readInt(),
-                            in.readInt(),
-                            in.readInt(),
-                            in.readInt(),
-                            in.readInt(),
-                            in.readInt());
-                }
+            return new BluetoothHidDeviceAppQosSettings(in.readInt(), in.readInt(), in.readInt(),
+                    in.readInt(),
+                    in.readInt(), in.readInt());
+        }
 
-                @Override
-                public BluetoothHidDeviceAppQosSettings[] newArray(int size) {
-                    return new BluetoothHidDeviceAppQosSettings[size];
-                }
-            };
+        @Override
+        public BluetoothHidDeviceAppQosSettings[] newArray(int size) {
+            return new BluetoothHidDeviceAppQosSettings[size];
+        }
+    };
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        out.writeInt(mServiceType);
-        out.writeInt(mTokenRate);
-        out.writeInt(mTokenBucketSize);
-        out.writeInt(mPeakBandwidth);
-        out.writeInt(mLatency);
-        out.writeInt(mDelayVariation);
+        out.writeInt(serviceType);
+        out.writeInt(tokenRate);
+        out.writeInt(tokenBucketSize);
+        out.writeInt(peakBandwidth);
+        out.writeInt(latency);
+        out.writeInt(delayVariation);
+    }
+
+    public int[] toArray() {
+        return new int[] {
+                serviceType, tokenRate, tokenBucketSize, peakBandwidth, latency, delayVariation
+        };
     }
 }

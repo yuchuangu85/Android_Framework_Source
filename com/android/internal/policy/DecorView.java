@@ -16,7 +16,6 @@
 
 package com.android.internal.policy;
 
-import android.app.WindowConfiguration;
 import android.graphics.Outline;
 import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.LayerDrawable;
@@ -41,6 +40,7 @@ import java.util.List;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
+import android.app.ActivityManager;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -54,6 +54,7 @@ import android.graphics.Region;
 import android.graphics.Shader;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.os.RemoteException;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
@@ -84,9 +85,11 @@ import android.view.animation.Interpolator;
 import android.widget.FrameLayout;
 import android.widget.PopupWindow;
 
-import static android.app.WindowConfiguration.PINNED_WINDOWING_MODE_ELEVATION_IN_DIP;
-import static android.app.WindowConfiguration.WINDOWING_MODE_FREEFORM;
-import static android.app.WindowConfiguration.WINDOWING_MODE_PINNED;
+import static android.app.ActivityManager.StackId;
+import static android.app.ActivityManager.StackId.FULLSCREEN_WORKSPACE_STACK_ID;
+import static android.app.ActivityManager.StackId.FREEFORM_WORKSPACE_STACK_ID;
+import static android.app.ActivityManager.StackId.PINNED_STACK_ID;
+import static android.app.ActivityManager.StackId.INVALID_STACK_ID;
 import static android.content.res.Configuration.ORIENTATION_PORTRAIT;
 import static android.os.Build.VERSION_CODES.M;
 import static android.os.Build.VERSION_CODES.N;
@@ -100,6 +103,7 @@ import static android.view.Window.DECOR_CAPTION_SHADE_LIGHT;
 import static android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS;
 import static android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN;
 import static android.view.WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR;
+import static android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_OVERSCAN;
 import static android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
 import static android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION;
 import static android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS;
@@ -192,6 +196,8 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
 
     // View added at runtime to draw under the status bar area
     private View mStatusGuard;
+    // View added at runtime to draw under the navigation bar area
+    private View mNavigationGuard;
 
     private final ColorViewState mStatusColorViewState =
             new ColorViewState(STATUS_BAR_COLOR_VIEW_ATTRIBUTES);
@@ -230,6 +236,10 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
     // buttons. The visibility of this decor depends on the workspace and the window type.
     // If the window type does not require such a view, this member might be null.
     DecorCaptionView mDecorCaptionView;
+
+    // Stack window is currently in. Since querying and changing the stack is expensive,
+    // this is the stack value the window is currently set up for.
+    int mStackId;
 
     private boolean mWindowResizeCallbacksAdded = false;
     private Drawable.Callback mLastBackgroundDrawableCb = null;
@@ -308,8 +318,10 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
     public void onDraw(Canvas c) {
         super.onDraw(c);
 
-        mBackgroundFallback.draw(this, mContentRoot, c, mWindow.mContentParent,
-                mStatusColorViewState.view, mNavigationColorViewState.view);
+        // When we are resizing, we need the fallback background to cover the area where we have our
+        // system bar background views as the navigation bar will be hidden during resizing.
+        mBackgroundFallback.draw(isResizing() ? this : mContentRoot, mContentRoot, c,
+                mWindow.mContentParent);
     }
 
     @Override
@@ -425,11 +437,7 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
             }
         }
 
-        if (super.dispatchKeyEvent(event)) {
-            return true;
-        }
-
-        return (getViewRootImpl() != null) && getViewRootImpl().dispatchUnhandledKeyEvent(event);
+        return super.dispatchKeyEvent(event);
     }
 
     public boolean superDispatchKeyShortcutEvent(KeyEvent event) {
@@ -983,19 +991,20 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
             if (attrs.height == WindowManager.LayoutParams.WRAP_CONTENT) {
                 mFloatingInsets.top = insets.getSystemWindowInsetTop();
                 mFloatingInsets.bottom = insets.getSystemWindowInsetBottom();
-                insets = insets.inset(0, insets.getSystemWindowInsetTop(),
-                        0, insets.getSystemWindowInsetBottom());
+                insets = insets.replaceSystemWindowInsets(insets.getSystemWindowInsetLeft(), 0,
+                        insets.getSystemWindowInsetRight(), 0);
             }
             if (mWindow.getAttributes().width == WindowManager.LayoutParams.WRAP_CONTENT) {
                 mFloatingInsets.left = insets.getSystemWindowInsetTop();
                 mFloatingInsets.right = insets.getSystemWindowInsetBottom();
-                insets = insets.inset(insets.getSystemWindowInsetLeft(), 0,
-                        insets.getSystemWindowInsetRight(), 0);
+                insets = insets.replaceSystemWindowInsets(0, insets.getSystemWindowInsetTop(),
+                        0, insets.getSystemWindowInsetBottom());
             }
         }
         mFrameOffsets.set(insets.getSystemWindowInsets());
         insets = updateColorViews(insets, true /* animate */);
         insets = updateStatusGuard(insets);
+        insets = updateNavigationGuard(insets);
         if (getForeground() != null) {
             drawableChanged();
         }
@@ -1055,10 +1064,7 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
         WindowManager.LayoutParams attrs = mWindow.getAttributes();
         int sysUiVisibility = attrs.systemUiVisibility | getWindowSystemUiVisibility();
 
-        // IME is an exceptional floating window that requires color view.
-        final boolean isImeWindow =
-                mWindow.getAttributes().type == WindowManager.LayoutParams.TYPE_INPUT_METHOD;
-        if (!mWindow.mIsFloating || isImeWindow) {
+        if (!mWindow.mIsFloating) {
             boolean disallowAnimate = !isLaidOut();
             disallowAnimate |= ((mLastWindowFlags ^ attrs.flags)
                     & FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS) != 0;
@@ -1158,7 +1164,11 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
                 }
             }
             if (insets != null) {
-                insets = insets.inset(consumedLeft, consumedTop, consumedRight, consumedBottom);
+                insets = insets.replaceSystemWindowInsets(
+                        insets.getSystemWindowInsetLeft() - consumedLeft,
+                        insets.getSystemWindowInsetTop() - consumedTop,
+                        insets.getSystemWindowInsetRight() - consumedRight,
+                        insets.getSystemWindowInsetBottom() - consumedBottom);
             }
         }
 
@@ -1355,7 +1365,7 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
                         if (mStatusGuard == null) {
                             mStatusGuard = new View(mContext);
                             mStatusGuard.setBackgroundColor(mContext.getColor(
-                                    R.color.decor_view_status_guard));
+                                    R.color.input_method_navigation_guard));
                             addView(mStatusGuard, indexOfChild(mStatusColorViewState.view),
                                     new LayoutParams(LayoutParams.MATCH_PARENT,
                                             mlp.topMargin, Gravity.START | Gravity.TOP));
@@ -1379,9 +1389,8 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
                     // screen_simple_overlay_action_mode.xml).
                     final boolean nonOverlay = (mWindow.getLocalFeaturesPrivate()
                             & (1 << Window.FEATURE_ACTION_MODE_OVERLAY)) == 0;
-                    if (nonOverlay && showStatusGuard) {
-                        insets = insets.inset(0, insets.getSystemWindowInsetTop(), 0, 0);
-                    }
+                    insets = insets.consumeSystemWindowInsets(
+                            false, nonOverlay && showStatusGuard /* top */, false, false);
                 } else {
                     // reset top margin
                     if (mlp.topMargin != 0) {
@@ -1398,6 +1407,51 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
             mStatusGuard.setVisibility(showStatusGuard ? View.VISIBLE : View.GONE);
         }
         return insets;
+    }
+
+    private WindowInsets updateNavigationGuard(WindowInsets insets) {
+        // IME windows lay out below the nav bar, but the content view must not (for back compat)
+        // Only make this adjustment if the window is not requesting layout in overscan
+        if (mWindow.getAttributes().type == WindowManager.LayoutParams.TYPE_INPUT_METHOD
+                && (mWindow.getAttributes().flags & FLAG_LAYOUT_IN_OVERSCAN) == 0) {
+            // prevent the content view from including the nav bar height
+            if (mWindow.mContentParent != null) {
+                if (mWindow.mContentParent.getLayoutParams() instanceof MarginLayoutParams) {
+                    MarginLayoutParams mlp =
+                            (MarginLayoutParams) mWindow.mContentParent.getLayoutParams();
+                    mlp.bottomMargin = insets.getSystemWindowInsetBottom();
+                    mWindow.mContentParent.setLayoutParams(mlp);
+                }
+            }
+            // position the navigation guard view, creating it if necessary
+            if (mNavigationGuard == null) {
+                mNavigationGuard = new View(mContext);
+                mNavigationGuard.setBackgroundColor(mContext.getColor(
+                        R.color.input_method_navigation_guard));
+                addView(mNavigationGuard, indexOfChild(mNavigationColorViewState.view),
+                        new LayoutParams(LayoutParams.MATCH_PARENT,
+                                insets.getSystemWindowInsetBottom(),
+                                Gravity.START | Gravity.BOTTOM));
+            } else {
+                LayoutParams lp = (LayoutParams) mNavigationGuard.getLayoutParams();
+                lp.height = insets.getSystemWindowInsetBottom();
+                mNavigationGuard.setLayoutParams(lp);
+            }
+            updateNavigationGuardColor();
+            insets = insets.consumeSystemWindowInsets(
+                    false, false, false, true /* bottom */);
+        }
+        return insets;
+    }
+
+    void updateNavigationGuardColor() {
+        if (mNavigationGuard != null) {
+            // Make navigation bar guard invisible if the transparent color is specified.
+            // Only TRANSPARENT is sufficient for hiding the navigation bar if the no software
+            // keyboard is shown by IMS.
+            mNavigationGuard.setVisibility(mWindow.getNavigationBarColor() == Color.TRANSPARENT ?
+                    View.INVISIBLE : View.VISIBLE);
+        }
     }
 
     /**
@@ -1448,8 +1502,7 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
         invalidate();
 
         int opacity = PixelFormat.OPAQUE;
-        final WindowConfiguration winConfig = getResources().getConfiguration().windowConfiguration;
-        if (winConfig.hasWindowShadow()) {
+        if (StackId.hasWindowShadow(mStackId)) {
             // If the window has a shadow, it must be translucent.
             opacity = PixelFormat.TRANSLUCENT;
         } else{
@@ -1837,42 +1890,37 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
     }
 
     @Override
-    public Resources getResources() {
-        // Make sure the Resources object is propogated from the Context since it can be updated in
-        // the Context object.
-        return getContext().getResources();
-    }
-
-    @Override
     protected void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-
-        final boolean displayWindowDecor =
-                newConfig.windowConfiguration.hasWindowDecorCaption();
-        if (mDecorCaptionView == null && displayWindowDecor) {
-            // Configuration now requires a caption.
-            final LayoutInflater inflater = mWindow.getLayoutInflater();
-            mDecorCaptionView = createDecorCaptionView(inflater);
-            if (mDecorCaptionView != null) {
-                if (mDecorCaptionView.getParent() == null) {
-                    addView(mDecorCaptionView, 0,
-                            new ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+        int workspaceId = getStackId();
+        if (mStackId != workspaceId) {
+            mStackId = workspaceId;
+            if (mDecorCaptionView == null && StackId.hasWindowDecor(mStackId)) {
+                // Configuration now requires a caption.
+                final LayoutInflater inflater = mWindow.getLayoutInflater();
+                mDecorCaptionView = createDecorCaptionView(inflater);
+                if (mDecorCaptionView != null) {
+                    if (mDecorCaptionView.getParent() == null) {
+                        addView(mDecorCaptionView, 0,
+                                new ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+                    }
+                    removeView(mContentRoot);
+                    mDecorCaptionView.addView(mContentRoot,
+                            new ViewGroup.MarginLayoutParams(MATCH_PARENT, MATCH_PARENT));
                 }
-                removeView(mContentRoot);
-                mDecorCaptionView.addView(mContentRoot,
-                        new ViewGroup.MarginLayoutParams(MATCH_PARENT, MATCH_PARENT));
+            } else if (mDecorCaptionView != null) {
+                // We might have to change the kind of surface before we do anything else.
+                mDecorCaptionView.onConfigurationChanged(StackId.hasWindowDecor(mStackId));
+                enableCaption(StackId.hasWindowDecor(workspaceId));
             }
-        } else if (mDecorCaptionView != null) {
-            // We might have to change the kind of surface before we do anything else.
-            mDecorCaptionView.onConfigurationChanged(displayWindowDecor);
-            enableCaption(displayWindowDecor);
         }
-
         updateAvailableWidth();
         initializeElevation();
     }
 
     void onResourcesLoaded(LayoutInflater inflater, int layoutResource) {
+        mStackId = getStackId();
+
         if (mBackdropFrameRenderer != null) {
             loadBackgroundDrawablesIfNeeded();
             mBackdropFrameRenderer.onResourcesLoaded(
@@ -1934,9 +1982,8 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
         final WindowManager.LayoutParams attrs = mWindow.getAttributes();
         final boolean isApplication = attrs.type == TYPE_BASE_APPLICATION ||
                 attrs.type == TYPE_APPLICATION || attrs.type == TYPE_DRAWN_APPLICATION;
-        final WindowConfiguration winConfig = getResources().getConfiguration().windowConfiguration;
         // Only a non floating application window on one of the allowed workspaces can get a caption
-        if (!mWindow.isFloating() && isApplication && winConfig.hasWindowDecorCaption()) {
+        if (!mWindow.isFloating() && isApplication && StackId.hasWindowDecor(mStackId)) {
             // Dependent on the brightness of the used title we either use the
             // dark or the light button frame.
             if (decorCaptionView == null) {
@@ -2049,6 +2096,28 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
         return drawable;
     }
 
+    /**
+     * Returns the Id of the stack which contains this window.
+     * Note that if no stack can be determined - which usually means that it was not
+     * created for an activity - the fullscreen stack ID will be returned.
+     * @return Returns the stack id which contains this window.
+     **/
+    private int getStackId() {
+        int workspaceId = INVALID_STACK_ID;
+        final Window.WindowControllerCallback callback = mWindow.getWindowControllerCallback();
+        if (callback != null) {
+            try {
+                workspaceId = callback.getWindowStackId();
+            } catch (RemoteException ex) {
+                Log.e(mLogTag, "Failed to get the workspace ID of a PhoneWindow.");
+            }
+        }
+        if (workspaceId == INVALID_STACK_ID) {
+            return FULLSCREEN_WORKSPACE_STACK_ID;
+        }
+        return workspaceId;
+    }
+
     void clearContentView() {
         if (mDecorCaptionView != null) {
             mDecorCaptionView.removeContentView();
@@ -2058,7 +2127,7 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
             for (int i = getChildCount() - 1; i >= 0; i--) {
                 View v = getChildAt(i);
                 if (v != mStatusColorViewState.view && v != mNavigationColorViewState.view
-                        && v != mStatusGuard) {
+                        && v != mStatusGuard && v != mNavigationGuard) {
                     removeViewAt(i);
                 }
             }
@@ -2201,9 +2270,7 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
         final boolean wasAdjustedForStack = mElevationAdjustedForStack;
         // Do not use a shadow when we are in resizing mode (mBackdropFrameRenderer not null)
         // since the shadow is bound to the content size and not the target size.
-        final int windowingMode =
-                getResources().getConfiguration().windowConfiguration.getWindowingMode();
-        if ((windowingMode == WINDOWING_MODE_FREEFORM) && !isResizing()) {
+        if ((mStackId == FREEFORM_WORKSPACE_STACK_ID) && !isResizing()) {
             elevation = hasWindowFocus() ?
                     DECOR_SHADOW_FOCUSED_HEIGHT_IN_DIP : DECOR_SHADOW_UNFOCUSED_HEIGHT_IN_DIP;
             // Add a maximum shadow height value to the top level view.
@@ -2216,8 +2283,8 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
             // Convert the DP elevation into physical pixels.
             elevation = dipToPx(elevation);
             mElevationAdjustedForStack = true;
-        } else if (windowingMode == WINDOWING_MODE_PINNED) {
-            elevation = dipToPx(PINNED_WINDOWING_MODE_ELEVATION_IN_DIP);
+        } else if (mStackId == PINNED_STACK_ID) {
+            elevation = dipToPx(DECOR_SHADOW_UNFOCUSED_HEIGHT_IN_DIP);
             mElevationAdjustedForStack = true;
         } else {
             mElevationAdjustedForStack = false;

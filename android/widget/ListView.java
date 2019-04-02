@@ -624,9 +624,9 @@ public class ListView extends AbsListView {
 
             for (int i = 0; i < count; i++) {
                 final View child = infos.get(i).view;
-                final ViewGroup.LayoutParams params = child.getLayoutParams();
-                if (checkLayoutParams(params)) {
-                    ((LayoutParams) params).recycledHeaderFooter = false;
+                final LayoutParams p = (LayoutParams) child.getLayoutParams();
+                if (p != null) {
+                    p.recycledHeaderFooter = false;
                 }
             }
         }

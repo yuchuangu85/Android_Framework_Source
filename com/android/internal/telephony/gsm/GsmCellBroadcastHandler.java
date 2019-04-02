@@ -78,7 +78,6 @@ public class GsmCellBroadcastHandler extends CellBroadcastHandler {
                 handleBroadcastSms(cbMessage);
                 return true;
             }
-            if (VDBG) log("Not handled GSM broadcasts.");
         }
         return super.handleSmsMessage(message);
     }
@@ -107,7 +106,6 @@ public class GsmCellBroadcastHandler extends CellBroadcastHandler {
             }
 
             SmsCbHeader header = new SmsCbHeader(receivedPdu);
-            if (VDBG) log("header=" + header);
             String plmn = TelephonyManager.from(mContext).getNetworkOperatorForPhone(
                     mPhone.getPhoneId());
             int lac = -1;
@@ -156,14 +154,12 @@ public class GsmCellBroadcastHandler extends CellBroadcastHandler {
                     mSmsCbPageMap.put(concatInfo, pdus);
                 }
 
-                if (VDBG) log("pdus size=" + pdus.length);
                 // Page parameter is one-based
                 pdus[header.getPageIndex() - 1] = receivedPdu;
 
                 for (byte[] pdu : pdus) {
                     if (pdu == null) {
                         // Still missing pages, exit
-                        log("still missing pdu");
                         return null;
                     }
                 }

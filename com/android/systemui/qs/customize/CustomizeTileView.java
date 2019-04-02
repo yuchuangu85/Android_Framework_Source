@@ -15,38 +15,42 @@
 package com.android.systemui.qs.customize;
 
 import android.content.Context;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.TextView;
-
+import com.android.systemui.R;
 import com.android.systemui.plugins.qs.QSIconView;
-import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.qs.tileimpl.QSTileView;
+import libcore.util.Objects;
 
 public class CustomizeTileView extends QSTileView {
-    private boolean mShowAppLabel;
 
+    private TextView mAppLabel;
+    private int mLabelMinLines;
     public CustomizeTileView(Context context, QSIconView icon) {
         super(context, icon);
     }
 
+    @Override
+    protected void createLabel() {
+        super.createLabel();
+        mLabelMinLines = mLabel.getMinLines();
+        mAppLabel = findViewById(R.id.app_label);
+        mAppLabel.setAlpha(.6f);
+    }
+
     public void setShowAppLabel(boolean showAppLabel) {
-        mShowAppLabel = showAppLabel;
-        mSecondLine.setVisibility(showAppLabel ? View.VISIBLE : View.GONE);
+        mAppLabel.setVisibility(showAppLabel ? View.VISIBLE : View.GONE);
         mLabel.setSingleLine(showAppLabel);
     }
 
-    @Override
-    protected void handleStateChanged(QSTile.State state) {
-        super.handleStateChanged(state);
-        mSecondLine.setVisibility(mShowAppLabel ? View.VISIBLE : View.GONE);
+    public void setAppLabel(CharSequence label) {
+        if (!Objects.equal(label, mAppLabel.getText())) {
+            mAppLabel.setText(label);
+        }
     }
 
     public TextView getAppLabel() {
-        return mSecondLine;
-    }
-
-    @Override
-    protected boolean animationsEnabled() {
-        return false;
+        return mAppLabel;
     }
 }

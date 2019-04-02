@@ -27,8 +27,6 @@ import android.view.autofill.AutofillId;
 
 import com.android.internal.util.Preconditions;
 
-import java.util.Arrays;
-
 /**
  * Validator that returns {@code true} if the number created by concatenating all given fields
  * pass a Luhn algorithm checksum. All non-digits are ignored.
@@ -88,27 +86,17 @@ public final class LuhnChecksumValidator extends InternalValidator implements Va
     public boolean isValid(@NonNull ValueFinder finder) {
         if (mIds == null || mIds.length == 0) return false;
 
-        final StringBuilder builder = new StringBuilder();
+        final StringBuilder number = new StringBuilder();
         for (AutofillId id : mIds) {
             final String partialNumber = finder.findByAutofillId(id);
             if (partialNumber == null) {
                 if (sDebug) Log.d(TAG, "No partial number for id " + id);
                 return false;
             }
-            builder.append(partialNumber);
+            number.append(partialNumber);
         }
 
-        final String number = builder.toString();
-        boolean valid = isLuhnChecksumValid(number);
-        if (sDebug) Log.d(TAG, "isValid(" + number.length() + " chars): " + valid);
-        return valid;
-    }
-
-    @Override
-    public String toString() {
-        if (!sDebug) return super.toString();
-
-        return "LuhnChecksumValidator: [ids=" + Arrays.toString(mIds) + "]";
+        return isLuhnChecksumValid(number.toString());
     }
 
     /////////////////////////////////////

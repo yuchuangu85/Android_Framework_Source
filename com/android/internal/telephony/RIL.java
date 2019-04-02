@@ -39,7 +39,6 @@ import android.hardware.radio.V1_0.HardwareConfigModem;
 import android.hardware.radio.V1_0.IRadio;
 import android.hardware.radio.V1_0.IccIo;
 import android.hardware.radio.V1_0.ImsSmsMessage;
-import android.hardware.radio.V1_0.IndicationFilter;
 import android.hardware.radio.V1_0.LceDataInfo;
 import android.hardware.radio.V1_0.MvnoType;
 import android.hardware.radio.V1_0.NvWriteItem;
@@ -49,16 +48,13 @@ import android.hardware.radio.V1_0.RadioResponseInfo;
 import android.hardware.radio.V1_0.RadioResponseType;
 import android.hardware.radio.V1_0.ResetNvType;
 import android.hardware.radio.V1_0.SelectUiccSub;
+import android.hardware.radio.V1_0.SetupDataCallResult;
 import android.hardware.radio.V1_0.SimApdu;
 import android.hardware.radio.V1_0.SmsWriteArgs;
 import android.hardware.radio.V1_0.UusInfo;
-import android.hardware.radio.V1_2.AccessNetwork;
 import android.hardware.radio.deprecated.V1_0.IOemHook;
 import android.net.ConnectivityManager;
-import android.net.KeepalivePacketData;
-import android.net.LinkProperties;
 import android.os.AsyncResult;
-import android.os.Build;
 import android.os.Handler;
 import android.os.HwBinder;
 import android.os.Message;
@@ -70,11 +66,7 @@ import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.WorkSource;
 import android.service.carrier.CarrierIdentifier;
-import android.telephony.AccessNetworkConstants.AccessNetworkType;
-import android.telephony.CellIdentity;
-import android.telephony.CellIdentityCdma;
 import android.telephony.CellInfo;
-import android.telephony.CellSignalStrengthCdma;
 import android.telephony.ClientRequestStats;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.ModemActivityInfo;
@@ -83,23 +75,20 @@ import android.telephony.NetworkScanRequest;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.RadioAccessFamily;
 import android.telephony.RadioAccessSpecifier;
+import android.telephony.RadioNetworkConstants.RadioAccessNetworks;
 import android.telephony.Rlog;
-import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
 import android.telephony.SmsManager;
 import android.telephony.TelephonyHistogram;
 import android.telephony.TelephonyManager;
-import android.telephony.data.DataProfile;
-import android.telephony.data.DataService;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.SparseArray;
 
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.telephony.cat.ComprehensionTlv;
-import com.android.internal.telephony.cat.ComprehensionTlvTag;
 import com.android.internal.telephony.cdma.CdmaInformationRecords;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
+import com.android.internal.telephony.dataconnection.DataCallResponse;
+import com.android.internal.telephony.dataconnection.DataProfile;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.nano.TelephonyProto.SmsSession;
@@ -110,23 +99,180 @@ import java.io.DataInputStream;
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.net.Inet4Address;
-import java.net.Inet6Address;
-import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * {@hide}
+ */
+
+class RILRequest {
+    static final String LOG_TAG = "RilRequest";
+
+    //***** Class Variables
+    static Random sRandom = new Random();
+    static AtomicInteger sNextSerial = new AtomicInteger(0);
+    private static Object sPoolSync = new Object();
+    private static RILRequest sPool = null;
+    private static int sPoolSize = 0;
+    private static final int MAX_POOL_SIZE = 4;
+
+    //***** Instance Variables
+    int mSerial;
+    int mRequest;
+    Message mResult;
+    RILRequest mNext;
+    int mWakeLockType;
+    WorkSource mWorkSource;
+    String mClientId;
+    // time in ms when RIL request was made
+    long mStartTimeMs;
+
+    /**
+     * Retrieves a new RILRequest instance from the pool.
+     *
+     * @param request RIL_REQUEST_*
+     * @param result sent when operation completes
+     * @return a RILRequest instance from the pool.
+     */
+    private static RILRequest obtain(int request, Message result) {
+        RILRequest rr = null;
+
+        synchronized(sPoolSync) {
+            if (sPool != null) {
+                rr = sPool;
+                sPool = rr.mNext;
+                rr.mNext = null;
+                sPoolSize--;
+            }
+        }
+
+        if (rr == null) {
+            rr = new RILRequest();
+        }
+
+        rr.mSerial = sNextSerial.getAndIncrement();
+
+        rr.mRequest = request;
+        rr.mResult = result;
+
+        rr.mWakeLockType = RIL.INVALID_WAKELOCK;
+        rr.mWorkSource = null;
+        rr.mStartTimeMs = SystemClock.elapsedRealtime();
+        if (result != null && result.getTarget() == null) {
+            throw new NullPointerException("Message target must not be null");
+        }
+
+        return rr;
+    }
+
+
+    /**
+     * Retrieves a new RILRequest instance from the pool and sets the clientId
+     *
+     * @param request RIL_REQUEST_*
+     * @param result sent when operation completes
+     * @param workSource WorkSource to track the client
+     * @return a RILRequest instance from the pool.
+     */
+    static RILRequest obtain(int request, Message result, WorkSource workSource) {
+        RILRequest rr = null;
+
+        rr = obtain(request, result);
+        if(workSource != null) {
+            rr.mWorkSource = workSource;
+            rr.mClientId = String.valueOf(workSource.get(0)) + ":" + workSource.getName(0);
+        } else {
+            Rlog.e(LOG_TAG, "null workSource " + request);
+        }
+
+        return rr;
+    }
+
+    /**
+     * Returns a RILRequest instance to the pool.
+     *
+     * Note: This should only be called once per use.
+     */
+    void release() {
+        synchronized (sPoolSync) {
+            if (sPoolSize < MAX_POOL_SIZE) {
+                mNext = sPool;
+                sPool = this;
+                sPoolSize++;
+                mResult = null;
+                if(mWakeLockType != RIL.INVALID_WAKELOCK) {
+                    //This is OK for some wakelock types and not others
+                    if(mWakeLockType == RIL.FOR_WAKELOCK) {
+                        Rlog.e(LOG_TAG, "RILRequest releasing with held wake lock: "
+                                + serialString());
+                    }
+                }
+            }
+        }
+    }
+
+    private RILRequest() {
+    }
+
+    static void
+    resetSerial() {
+        // use a random so that on recovery we probably don't mix old requests
+        // with new.
+        sNextSerial.set(sRandom.nextInt());
+    }
+
+    String
+    serialString() {
+        //Cheesy way to do %04d
+        StringBuilder sb = new StringBuilder(8);
+        String sn;
+
+        long adjustedSerial = (((long)mSerial) - Integer.MIN_VALUE)%10000;
+
+        sn = Long.toString(adjustedSerial);
+
+        //sb.append("J[");
+        sb.append('[');
+        for (int i = 0, s = sn.length() ; i < 4 - s; i++) {
+            sb.append('0');
+        }
+
+        sb.append(sn);
+        sb.append(']');
+        return sb.toString();
+    }
+
+    void
+    onError(int error, Object ret) {
+        CommandException ex;
+
+        ex = CommandException.fromRilErrno(error);
+
+        if (RIL.RILJ_LOGD) Rlog.d(LOG_TAG, serialString() + "< "
+            + RIL.requestToString(mRequest)
+            + " error: " + ex + " ret=" + RIL.retToString(mRequest, ret));
+
+        if (mResult != null) {
+            AsyncResult.forMessage(mResult, ret, ex);
+            mResult.sendToTarget();
+        }
+    }
+}
+
 
 /**
  * RIL implementation of the CommandsInterface.
  *
  * {@hide}
  */
-public class RIL extends BaseCommands implements CommandsInterface {
+public final class RIL extends BaseCommands implements CommandsInterface {
     static final String RILJ_LOG_TAG = "RILJ";
-    static final String RILJ_WAKELOCK_TAG = "*telephony-radio*";
     // Have a separate wakelock instance for Ack
     static final String RILJ_ACK_WAKELOCK_NAME = "RILJ_ACK_WL";
     static final boolean RILJ_LOGD = true;
@@ -207,9 +353,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
     static final int IRADIO_GET_SERVICE_DELAY_MILLIS = 4 * 1000;
 
-    static final String EMPTY_ALPHA_LONG = "";
-    static final String EMPTY_ALPHA_SHORT = "";
-
     public static List<TelephonyHistogram> getTelephonyRILTimingHistograms() {
         List<TelephonyHistogram> list;
         synchronized (mRilTimeHistograms) {
@@ -222,13 +365,10 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return list;
     }
 
-    /** The handler used to handle the internal event of RIL. */
-    @VisibleForTesting
-    public class RilHandler extends Handler {
-
+    class RilHandler extends Handler {
         //***** Handler implementation
-        @Override
-        public void handleMessage(Message msg) {
+        @Override public void
+        handleMessage(Message msg) {
             RILRequest rr;
 
             switch (msg.what) {
@@ -293,6 +433,11 @@ public class RIL extends BaseCommands implements CommandsInterface {
                             " mRadioProxyCookie = " + mRadioProxyCookie.get());
                     if ((long) msg.obj == mRadioProxyCookie.get()) {
                         resetProxyAndRequestList();
+
+                        // todo: rild should be back up since message was sent with a delay. this is
+                        // a hack.
+                        getRadioProxy(null);
+                        getOemHookProxy(null);
                     }
                     break;
             }
@@ -327,7 +472,11 @@ public class RIL extends BaseCommands implements CommandsInterface {
         public void serviceDied(long cookie) {
             // Deal with service going away
             riljLog("serviceDied");
-            mRilHandler.sendMessage(mRilHandler.obtainMessage(EVENT_RADIO_PROXY_DEAD, cookie));
+            // todo: temp hack to send delayed message so that rild is back up by then
+            //mRilHandler.sendMessage(mRilHandler.obtainMessage(EVENT_RADIO_PROXY_DEAD, cookie));
+            mRilHandler.sendMessageDelayed(
+                    mRilHandler.obtainMessage(EVENT_RADIO_PROXY_DEAD, cookie),
+                    IRADIO_GET_SERVICE_DELAY_MILLIS);
         }
     }
 
@@ -344,13 +493,12 @@ public class RIL extends BaseCommands implements CommandsInterface {
         // Clear request list on close
         clearRequestList(RADIO_NOT_AVAILABLE, false);
 
-        getRadioProxy(null);
-        getOemHookProxy(null);
+        // todo: need to get service right away so setResponseFunctions() can be called for
+        // unsolicited indications. getService() is not a blocking call, so it doesn't help to call
+        // it here. Current hack is to call getService() on death notification after a delay.
     }
 
-    /** Returns a {@link IRadio} instance or null if the service is not available. */
-    @VisibleForTesting
-    public IRadio getRadioProxy(Message result) {
+    private IRadio getRadioProxy(Message result) {
         if (!mIsMobileNetworkSupported) {
             if (RILJ_LOGV) riljLog("getRadioProxy: Not calling getService(): wifi-only");
             if (result != null) {
@@ -366,8 +514,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
 
         try {
-            mRadioProxy = IRadio.getService(HIDL_SERVICE_NAME[mPhoneId == null ? 0 : mPhoneId],
-                    true);
+            mRadioProxy = IRadio.getService(HIDL_SERVICE_NAME[mPhoneId == null ? 0 : mPhoneId]);
             if (mRadioProxy != null) {
                 mRadioProxy.linkToDeath(mRadioProxyDeathRecipient,
                         mRadioProxyCookie.incrementAndGet());
@@ -381,21 +528,23 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
 
         if (mRadioProxy == null) {
-            // getService() is a blocking call, so this should never happen
-            riljLoge("getRadioProxy: mRadioProxy == null");
             if (result != null) {
                 AsyncResult.forMessage(result, null,
                         CommandException.fromRilErrno(RADIO_NOT_AVAILABLE));
                 result.sendToTarget();
             }
+
+            // if service is not up, treat it like death notification to try to get service again
+            mRilHandler.sendMessageDelayed(
+                    mRilHandler.obtainMessage(EVENT_RADIO_PROXY_DEAD,
+                            mRadioProxyCookie.incrementAndGet()),
+                    IRADIO_GET_SERVICE_DELAY_MILLIS);
         }
 
         return mRadioProxy;
     }
 
-    /** Returns an {@link IOemHook} instance or null if the service is not available. */
-    @VisibleForTesting
-    public IOemHook getOemHookProxy(Message result) {
+    private IOemHook getOemHookProxy(Message result) {
         if (!mIsMobileNetworkSupported) {
             if (RILJ_LOGV) riljLog("getOemHookProxy: Not calling getService(): wifi-only");
             if (result != null) {
@@ -412,7 +561,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
         try {
             mOemHookProxy = IOemHook.getService(
-                    HIDL_SERVICE_NAME[mPhoneId == null ? 0 : mPhoneId], true);
+                    HIDL_SERVICE_NAME[mPhoneId == null ? 0 : mPhoneId]);
             if (mOemHookProxy != null) {
                 // not calling linkToDeath() as ril service runs in the same process and death
                 // notification for that should be sufficient
@@ -431,6 +580,12 @@ public class RIL extends BaseCommands implements CommandsInterface {
                         CommandException.fromRilErrno(RADIO_NOT_AVAILABLE));
                 result.sendToTarget();
             }
+
+            // if service is not up, treat it like death notification to try to get service again
+            mRilHandler.sendMessageDelayed(
+                    mRilHandler.obtainMessage(EVENT_RADIO_PROXY_DEAD,
+                            mRadioProxyCookie.incrementAndGet()),
+                    IRADIO_GET_SERVICE_DELAY_MILLIS);
         }
 
         return mOemHookProxy;
@@ -468,7 +623,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         mRadioProxyDeathRecipient = new RadioProxyDeathRecipient();
 
         PowerManager pm = (PowerManager)context.getSystemService(Context.POWER_SERVICE);
-        mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, RILJ_WAKELOCK_TAG);
+        mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, RILJ_LOG_TAG);
         mWakeLock.setReferenceCounted(false);
         mAckWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, RILJ_ACK_WAKELOCK_NAME);
         mAckWakeLock.setReferenceCounted(false);
@@ -489,8 +644,8 @@ public class RIL extends BaseCommands implements CommandsInterface {
         getOemHookProxy(null);
     }
 
-    @Override
-    public void setOnNITZTime(Handler h, int what, Object obj) {
+    @Override public void
+    setOnNITZTime(Handler h, int what, Object obj) {
         super.setOnNITZTime(h, what, obj);
 
         // Send the last NITZ time if we have it
@@ -518,6 +673,13 @@ public class RIL extends BaseCommands implements CommandsInterface {
     private void handleRadioProxyExceptionForRR(RILRequest rr, String caller, Exception e) {
         riljLoge(caller + ": " + e);
         resetProxyAndRequestList();
+
+        // service most likely died, handle exception like death notification to try to get service
+        // again
+        mRilHandler.sendMessageDelayed(
+                mRilHandler.obtainMessage(EVENT_RADIO_PROXY_DEAD,
+                        mRadioProxyCookie.incrementAndGet()),
+                IRADIO_GET_SERVICE_DELAY_MILLIS);
     }
 
     private String convertNullToEmptyString(String string) {
@@ -525,7 +687,8 @@ public class RIL extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void getIccCardStatus(Message result) {
+    public void
+    getIccCardStatus(Message result) {
         IRadio radioProxy = getRadioProxy(result);
         if (radioProxy != null) {
             RILRequest rr = obtainRequest(RIL_REQUEST_GET_SIM_STATUS, result,
@@ -541,31 +704,13 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
-    @Override
-    public void getIccSlotsStatus(Message result) {
-        if (result != null) {
-            AsyncResult.forMessage(result, null,
-                    CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
-            result.sendToTarget();
-        }
-    }
-
-    @Override
-    public void setLogicalToPhysicalSlotMapping(int[] physicalSlots, Message result) {
-        if (result != null) {
-            AsyncResult.forMessage(result, null,
-                    CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
-            result.sendToTarget();
-        }
-    }
-
-    @Override
-    public void supplyIccPin(String pin, Message result) {
+    @Override public void
+    supplyIccPin(String pin, Message result) {
         supplyIccPinForApp(pin, null, result);
     }
 
-    @Override
-    public void supplyIccPinForApp(String pin, String aid, Message result) {
+    @Override public void
+    supplyIccPinForApp(String pin, String aid, Message result) {
         IRadio radioProxy = getRadioProxy(result);
         if (radioProxy != null) {
             RILRequest rr = obtainRequest(RIL_REQUEST_ENTER_SIM_PIN, result,
@@ -614,13 +759,13 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
-    @Override
-    public void supplyIccPin2(String pin, Message result) {
+    @Override public void
+    supplyIccPin2(String pin, Message result) {
         supplyIccPin2ForApp(pin, null, result);
     }
 
-    @Override
-    public void supplyIccPin2ForApp(String pin, String aid, Message result) {
+    @Override public void
+    supplyIccPin2ForApp(String pin, String aid, Message result) {
         IRadio radioProxy = getRadioProxy(result);
         if (radioProxy != null) {
             RILRequest rr = obtainRequest(RIL_REQUEST_ENTER_SIM_PIN2, result,
@@ -641,13 +786,13 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
-    @Override
-    public void supplyIccPuk2(String puk2, String newPin2, Message result) {
+    @Override public void
+    supplyIccPuk2(String puk2, String newPin2, Message result) {
         supplyIccPuk2ForApp(puk2, newPin2, null, result);
     }
 
-    @Override
-    public void supplyIccPuk2ForApp(String puk, String newPin2, String aid, Message result) {
+    @Override public void
+    supplyIccPuk2ForApp(String puk, String newPin2, String aid, Message result) {
         IRadio radioProxy = getRadioProxy(result);
         if (radioProxy != null) {
             RILRequest rr = obtainRequest(RIL_REQUEST_ENTER_SIM_PUK2, result,
@@ -669,13 +814,13 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
-    @Override
-    public void changeIccPin(String oldPin, String newPin, Message result) {
+    @Override public void
+    changeIccPin(String oldPin, String newPin, Message result) {
         changeIccPinForApp(oldPin, newPin, null, result);
     }
 
-    @Override
-    public void changeIccPinForApp(String oldPin, String newPin, String aid, Message result) {
+    @Override public void
+    changeIccPinForApp(String oldPin, String newPin, String aid, Message result) {
         IRadio radioProxy = getRadioProxy(result);
         if (radioProxy != null) {
             RILRequest rr = obtainRequest(RIL_REQUEST_CHANGE_SIM_PIN, result,
@@ -697,13 +842,13 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
-    @Override
-    public void changeIccPin2(String oldPin2, String newPin2, Message result) {
+    @Override public void
+    changeIccPin2(String oldPin2, String newPin2, Message result) {
         changeIccPin2ForApp(oldPin2, newPin2, null, result);
     }
 
-    @Override
-    public void changeIccPin2ForApp(String oldPin2, String newPin2, String aid, Message result) {
+    @Override public void
+    changeIccPin2ForApp(String oldPin2, String newPin2, String aid, Message result) {
         IRadio radioProxy = getRadioProxy(result);
         if (radioProxy != null) {
             RILRequest rr = obtainRequest(RIL_REQUEST_CHANGE_SIM_PIN2, result,
@@ -1128,23 +1273,23 @@ public class RIL extends BaseCommands implements CommandsInterface {
     private static DataProfileInfo convertToHalDataProfile(DataProfile dp) {
         DataProfileInfo dpi = new DataProfileInfo();
 
-        dpi.profileId = dp.getProfileId();
-        dpi.apn = dp.getApn();
-        dpi.protocol = dp.getProtocol();
-        dpi.roamingProtocol = dp.getRoamingProtocol();
-        dpi.authType = dp.getAuthType();
-        dpi.user = dp.getUserName();
-        dpi.password = dp.getPassword();
-        dpi.type = dp.getType();
-        dpi.maxConnsTime = dp.getMaxConnsTime();
-        dpi.maxConns = dp.getMaxConns();
-        dpi.waitTime = dp.getWaitTime();
-        dpi.enabled = dp.isEnabled();
-        dpi.supportedApnTypesBitmap = dp.getSupportedApnTypesBitmap();
-        dpi.bearerBitmap = dp.getBearerBitmap();
-        dpi.mtu = dp.getMtu();
-        dpi.mvnoType = convertToHalMvnoType(dp.getMvnoType());
-        dpi.mvnoMatchData = dp.getMvnoMatchData();
+        dpi.profileId = dp.profileId;
+        dpi.apn = dp.apn;
+        dpi.protocol = dp.protocol;
+        dpi.roamingProtocol = dp.roamingProtocol;
+        dpi.authType = dp.authType;
+        dpi.user = dp.user;
+        dpi.password = dp.password;
+        dpi.type = dp.type;
+        dpi.maxConnsTime = dp.maxConnsTime;
+        dpi.maxConns = dp.maxConns;
+        dpi.waitTime = dp.waitTime;
+        dpi.enabled = dp.enabled;
+        dpi.supportedApnTypesBitmap = dp.supportedApnTypesBitmap;
+        dpi.bearerBitmap = dp.bearerBitmap;
+        dpi.mtu = dp.mtu;
+        dpi.mvnoType = convertToHalMvnoType(dp.mvnoType);
+        dpi.mvnoMatchData = dp.mvnoMatchData;
 
         return dpi;
     }
@@ -1169,13 +1314,31 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return -1;
     }
 
+    /**
+     * Convert SetupDataCallResult defined in types.hal into DataCallResponse
+     * @param dcResult setup data call result
+     * @return converted DataCallResponse object
+     */
+    static DataCallResponse convertDataCallResult(SetupDataCallResult dcResult) {
+        return new DataCallResponse(dcResult.status,
+                dcResult.suggestedRetryTime,
+                dcResult.cid,
+                dcResult.active,
+                dcResult.type,
+                dcResult.ifname,
+                dcResult.addresses,
+                dcResult.dnses,
+                dcResult.gateways,
+                dcResult.pcscf,
+                dcResult.mtu
+        );
+    }
+
     @Override
-    public void setupDataCall(int accessNetworkType, DataProfile dataProfile, boolean isRoaming,
-                              boolean allowRoaming, int reason, LinkProperties linkProperties,
-                              Message result) {
+    public void setupDataCall(int radioTechnology, DataProfile dataProfile, boolean isRoaming,
+                              boolean allowRoaming, Message result) {
 
         IRadio radioProxy = getRadioProxy(result);
-
         if (radioProxy != null) {
 
             RILRequest rr = obtainRequest(RIL_REQUEST_SETUP_DATA_CALL, result,
@@ -1184,56 +1347,17 @@ public class RIL extends BaseCommands implements CommandsInterface {
             // Convert to HAL data profile
             DataProfileInfo dpi = convertToHalDataProfile(dataProfile);
 
-            android.hardware.radio.V1_2.IRadio radioProxy12 =
-                    android.hardware.radio.V1_2.IRadio.castFrom(radioProxy);
+            if (RILJ_LOGD) {
+                riljLog(rr.serialString() + "> " + requestToString(rr.mRequest)
+                        + ",radioTechnology=" + radioTechnology + ",isRoaming="
+                        + isRoaming + ",allowRoaming=" + allowRoaming + "," + dataProfile);
+            }
+
             try {
-                if (radioProxy12 == null) {
-                    // IRadio V1.0
-
-                    // Getting data RAT here is just a workaround to support the older 1.0 vendor
-                    // RIL. The new data service interface passes access network type instead of
-                    // RAT for setup data request. It is impossible to convert access network
-                    // type back to RAT here, so we directly get the data RAT from phone.
-                    int dataRat = ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN;
-                    Phone phone = PhoneFactory.getPhone(mPhoneId);
-                    if (phone != null) {
-                        ServiceState ss = phone.getServiceState();
-                        if (ss != null) {
-                            dataRat = ss.getRilDataRadioTechnology();
-                        }
-                    }
-                    if (RILJ_LOGD) {
-                        riljLog(rr.serialString() + "> " + requestToString(rr.mRequest)
-                                + ",dataRat=" + dataRat + ",isRoaming=" + isRoaming
-                                + ",allowRoaming=" + allowRoaming + "," + dataProfile);
-                    }
-
-                    radioProxy.setupDataCall(rr.mSerial, dataRat, dpi,
-                            dataProfile.isModemCognitive(), allowRoaming, isRoaming);
-                } else {
-                    // IRadio V1.2
-                    ArrayList<String> addresses = new ArrayList<>();
-                    ArrayList<String> dnses = new ArrayList<>();
-                    if (linkProperties != null) {
-                        for (InetAddress address : linkProperties.getAddresses()) {
-                            addresses.add(address.getHostAddress());
-                        }
-                        for (InetAddress dns : linkProperties.getDnsServers()) {
-                            dnses.add(dns.getHostAddress());
-                        }
-                    }
-
-                    if (RILJ_LOGD) {
-                        riljLog(rr.serialString() + "> " + requestToString(rr.mRequest)
-                                + ",accessNetworkType=" + accessNetworkType + ",isRoaming="
-                                + isRoaming + ",allowRoaming=" + allowRoaming + "," + dataProfile
-                                + ",addresses=" + addresses + ",dnses=" + dnses);
-                    }
-
-                    radioProxy12.setupDataCall_1_2(rr.mSerial, accessNetworkType, dpi,
-                            dataProfile.isModemCognitive(), allowRoaming, isRoaming, reason,
-                            addresses, dnses);
-                }
+                radioProxy.setupDataCall(rr.mSerial, radioTechnology, dpi,
+                        dataProfile.modemCognitive, allowRoaming, isRoaming);
+                mMetrics.writeRilSetupDataCall(mPhoneId, rr.mSerial, radioTechnology, dpi.profileId,
+                        dpi.apn, dpi.authType, dpi.protocol);
             } catch (RemoteException | RuntimeException e) {
                 handleRadioProxyExceptionForRR(rr, "setupDataCall", e);
             }
@@ -1255,16 +1379,12 @@ public class RIL extends BaseCommands implements CommandsInterface {
                     mRILDefaultWorkSource);
 
             if (RILJ_LOGD) {
-                if (Build.IS_DEBUGGABLE) {
-                    riljLog(rr.serialString() + "> iccIO: "
-                            + requestToString(rr.mRequest) + " command = 0x"
-                            + Integer.toHexString(command) + " fileId = 0x"
-                            + Integer.toHexString(fileId) + " path = " + path + " p1 = "
-                            + p1 + " p2 = " + p2 + " p3 = " + " data = " + data
-                            + " aid = " + aid);
-                } else {
-                    riljLog(rr.serialString() + "> iccIO: " + requestToString(rr.mRequest));
-                }
+                riljLog(rr.serialString() + "> iccIO: "
+                        + requestToString(rr.mRequest) + " command = 0x"
+                        + Integer.toHexString(command) + " fileId = 0x"
+                        + Integer.toHexString(fileId) + " path = " + path + " p1 = "
+                        + p1 + " p2 = " + p2 + " p3 = " + " data = " + data
+                        + " aid = " + aid);
             }
 
             IccIo iccIo = new IccIo();
@@ -1517,17 +1637,10 @@ public class RIL extends BaseCommands implements CommandsInterface {
                         + requestToString(rr.mRequest) + " cid = " + cid + " reason = " + reason);
             }
 
-            android.hardware.radio.V1_2.IRadio radioProxy12 =
-                    android.hardware.radio.V1_2.IRadio.castFrom(radioProxy);
-
             try {
-                if (radioProxy12 == null) {
-                    radioProxy.deactivateDataCall(rr.mSerial, cid,
-                            (reason == DataService.REQUEST_REASON_SHUTDOWN));
-                } else {
-                    radioProxy12.deactivateDataCall_1_2(rr.mSerial, cid, reason);
-                }
-                mMetrics.writeRilDeactivateDataCall(mPhoneId, rr.mSerial, cid, reason);
+                radioProxy.deactivateDataCall(rr.mSerial, cid, (reason == 0) ? false : true);
+                mMetrics.writeRilDeactivateDataCall(mPhoneId, rr.mSerial,
+                        cid, reason);
             } catch (RemoteException | RuntimeException e) {
                 handleRadioProxyExceptionForRR(rr, "deactivateDataCall", e);
             }
@@ -1696,69 +1809,56 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
-    private android.hardware.radio.V1_1.RadioAccessSpecifier convertRadioAccessSpecifierToRadioHAL(
-            RadioAccessSpecifier ras) {
-        android.hardware.radio.V1_1.RadioAccessSpecifier rasInHalFormat =
-                new android.hardware.radio.V1_1.RadioAccessSpecifier();
-        rasInHalFormat.radioAccessNetwork = ras.getRadioAccessNetwork();
-        List<Integer> bands = null;
-        switch (ras.getRadioAccessNetwork()) {
-            case AccessNetworkType.GERAN:
-                bands = rasInHalFormat.geranBands;
-                break;
-            case AccessNetworkType.UTRAN:
-                bands = rasInHalFormat.utranBands;
-                break;
-            case AccessNetworkType.EUTRAN:
-                bands = rasInHalFormat.eutranBands;
-                break;
-            default:
-                Log.wtf(RILJ_LOG_TAG, "radioAccessNetwork " + ras.getRadioAccessNetwork()
-                        + " not supported!");
-                return null;
-        }
-
-        if (ras.getBands() != null) {
-            for (int band : ras.getBands()) {
-                bands.add(band);
-            }
-        }
-        if (ras.getChannels() != null) {
-            for (int channel : ras.getChannels()) {
-                rasInHalFormat.channels.add(channel);
-            }
-        }
-
-        return rasInHalFormat;
-    }
-
     @Override
     public void startNetworkScan(NetworkScanRequest nsr, Message result) {
         IRadio radioProxy = getRadioProxy(result);
         if (radioProxy != null) {
-            android.hardware.radio.V1_2.IRadio radioProxy12 =
-                    android.hardware.radio.V1_2.IRadio.castFrom(radioProxy);
-            if (radioProxy12 != null) {
-                android.hardware.radio.V1_2.NetworkScanRequest request =
-                        new android.hardware.radio.V1_2.NetworkScanRequest();
-                request.type = nsr.getScanType();
-                request.interval = nsr.getSearchPeriodicity();
-                request.maxSearchTime = nsr.getMaxSearchTime();
-                request.incrementalResultsPeriodicity = nsr.getIncrementalResultsPeriodicity();
-                request.incrementalResults = nsr.getIncrementalResults();
-
-                for (RadioAccessSpecifier ras : nsr.getSpecifiers()) {
-
-                    android.hardware.radio.V1_1.RadioAccessSpecifier rasInHalFormat =
-                            convertRadioAccessSpecifierToRadioHAL(ras);
-                    if (rasInHalFormat == null) {
-                        return;
+            android.hardware.radio.V1_1.IRadio radioProxy11 =
+                    android.hardware.radio.V1_1.IRadio.castFrom(radioProxy);
+            if (radioProxy11 == null) {
+                if (result != null) {
+                    AsyncResult.forMessage(result, null,
+                            CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
+                    result.sendToTarget();
+                }
+            } else {
+                android.hardware.radio.V1_1.NetworkScanRequest request =
+                        new android.hardware.radio.V1_1.NetworkScanRequest();
+                request.type = nsr.scanType;
+                request.interval = 60;
+                for (RadioAccessSpecifier ras : nsr.specifiers) {
+                    android.hardware.radio.V1_1.RadioAccessSpecifier s =
+                            new android.hardware.radio.V1_1.RadioAccessSpecifier();
+                    s.radioAccessNetwork = ras.radioAccessNetwork;
+                    List<Integer> bands = null;
+                    switch (ras.radioAccessNetwork) {
+                        case RadioAccessNetworks.GERAN:
+                            bands = s.geranBands;
+                            break;
+                        case RadioAccessNetworks.UTRAN:
+                            bands = s.utranBands;
+                            break;
+                        case RadioAccessNetworks.EUTRAN:
+                            bands = s.eutranBands;
+                            break;
+                        default:
+                            Log.wtf(RILJ_LOG_TAG, "radioAccessNetwork " + ras.radioAccessNetwork
+                                    + " not supported!");
+                            return;
                     }
-
-                    request.specifiers.add(rasInHalFormat);
+                    if (ras.bands != null) {
+                        for (int band : ras.bands) {
+                            bands.add(band);
+                        }
+                    }
+                    if (ras.channels != null) {
+                        for (int channel : ras.channels) {
+                            s.channels.add(channel);
+                        }
+                    }
+                    request.specifiers.add(s);
                 }
 
-                request.mccMncs.addAll(nsr.getPlmns());
                 RILRequest rr = obtainRequest(RIL_REQUEST_START_NETWORK_SCAN, result,
                         mRILDefaultWorkSource);
 
@@ -1767,46 +1867,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 }
 
                 try {
-                    radioProxy12.startNetworkScan_1_2(rr.mSerial, request);
+                    radioProxy11.startNetworkScan(rr.mSerial, request);
                 } catch (RemoteException | RuntimeException e) {
                     handleRadioProxyExceptionForRR(rr, "startNetworkScan", e);
-                }
-            } else {
-                android.hardware.radio.V1_1.IRadio radioProxy11 =
-                        android.hardware.radio.V1_1.IRadio.castFrom(radioProxy);
-                if (radioProxy11 == null) {
-                    if (result != null) {
-                        AsyncResult.forMessage(result, null,
-                                CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
-                        result.sendToTarget();
-                    }
-                } else {
-                    android.hardware.radio.V1_1.NetworkScanRequest request =
-                            new android.hardware.radio.V1_1.NetworkScanRequest();
-                    request.type = nsr.getScanType();
-                    request.interval = nsr.getSearchPeriodicity();
-                    for (RadioAccessSpecifier ras : nsr.getSpecifiers()) {
-                        android.hardware.radio.V1_1.RadioAccessSpecifier rasInHalFormat =
-                                convertRadioAccessSpecifierToRadioHAL(ras);
-                        if (rasInHalFormat == null) {
-                            return;
-                        }
-
-                        request.specifiers.add(rasInHalFormat);
-                    }
-
-                    RILRequest rr = obtainRequest(RIL_REQUEST_START_NETWORK_SCAN, result,
-                            mRILDefaultWorkSource);
-
-                    if (RILJ_LOGD) {
-                        riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
-                    }
-
-                    try {
-                        radioProxy11.startNetworkScan(rr.mSerial, request);
-                    } catch (RemoteException | RuntimeException e) {
-                        handleRadioProxyExceptionForRR(rr, "startNetworkScan", e);
-                    }
                 }
             }
         }
@@ -2008,12 +2071,8 @@ public class RIL extends BaseCommands implements CommandsInterface {
             try {
                 oemHookProxy.sendRequestRaw(rr.mSerial, primitiveArrayToArrayList(data));
             } catch (RemoteException | RuntimeException e) {
-                handleRadioProxyExceptionForRR(rr, "invokeOemRilRequestRaw", e);
+                handleRadioProxyExceptionForRR(rr, "invokeOemRilRequestStrings", e);
             }
-        } else {
-            // OEM Hook service is disabled for P and later devices.
-            // Deprecated OEM Hook APIs will perform dummy before being removed.
-            if (RILJ_LOGD) riljLog("Radio Oem Hook Service is disabled for P and later devices. ");
         }
     }
 
@@ -2039,10 +2098,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
             } catch (RemoteException | RuntimeException e) {
                 handleRadioProxyExceptionForRR(rr, "invokeOemRilRequestStrings", e);
             }
-        } else {
-            // OEM Hook service is disabled for P and later devices.
-            // Deprecated OEM Hook APIs will perform dummy before being removed.
-            if (RILJ_LOGD) riljLog("Radio Oem Hook Service is disabled for P and later devices. ");
         }
     }
 
@@ -2179,7 +2234,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
             if (RILJ_LOGD) {
                 riljLog(rr.serialString() + "> " + requestToString(rr.mRequest) + " contents = "
-                        + (Build.IS_DEBUGGABLE ? contents : censoredTerminalResponse(contents)));
+                        + contents);
             }
 
             try {
@@ -2189,33 +2244,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 handleRadioProxyExceptionForRR(rr, "sendTerminalResponse", e);
             }
         }
-    }
-
-    private String censoredTerminalResponse(String terminalResponse) {
-        try {
-            byte[] bytes = IccUtils.hexStringToBytes(terminalResponse);
-            if (bytes != null) {
-                List<ComprehensionTlv> ctlvs = ComprehensionTlv.decodeMany(bytes, 0);
-                int from = 0;
-                for (ComprehensionTlv ctlv : ctlvs) {
-                    // Find text strings which might be personal information input by user,
-                    // then replace it with "********".
-                    if (ComprehensionTlvTag.TEXT_STRING.value() == ctlv.getTag()) {
-                        byte[] target = Arrays.copyOfRange(ctlv.getRawValue(), from,
-                                ctlv.getValueIndex() + ctlv.getLength());
-                        terminalResponse = terminalResponse.toLowerCase().replace(
-                                IccUtils.bytesToHexString(target), "********");
-                    }
-                    // The text string tag and the length field should also be hidden.
-                    from = ctlv.getValueIndex() + ctlv.getLength();
-                }
-            }
-        } catch (Exception e) {
-            Rlog.e(RILJ_LOG_TAG, "Could not censor the terminal response: " + e);
-            terminalResponse = null;
-        }
-
-        return terminalResponse;
     }
 
     @Override
@@ -2927,6 +2955,26 @@ public class RIL extends BaseCommands implements CommandsInterface {
     }
 
     @Override
+    public void requestIsimAuthentication(String nonce, Message result) {
+        IRadio radioProxy = getRadioProxy(result);
+        if (radioProxy != null) {
+            RILRequest rr = obtainRequest(RIL_REQUEST_ISIM_AUTHENTICATION, result,
+                    mRILDefaultWorkSource);
+
+            if (RILJ_LOGD) {
+                riljLog(rr.serialString() + "> " + requestToString(rr.mRequest)
+                        + " nonce = " + nonce);
+            }
+
+            try {
+                radioProxy.requestIsimAuthentication(rr.mSerial, convertNullToEmptyString(nonce));
+            } catch (RemoteException | RuntimeException e) {
+                handleRadioProxyExceptionForRR(rr, "requestIsimAuthentication", e);
+            }
+        }
+    }
+
+    @Override
     public void acknowledgeIncomingGsmSmsWithPdu(boolean success, String ackPdu, Message result) {
         IRadio radioProxy = getRadioProxy(result);
         if (radioProxy != null) {
@@ -3023,7 +3071,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
             try {
                 radioProxy.setInitialAttachApn(rr.mSerial, convertToHalDataProfile(dataProfile),
-                        dataProfile.isModemCognitive(), isRoaming);
+                        dataProfile.modemCognitive, isRoaming);
             } catch (RemoteException | RuntimeException e) {
                 handleRadioProxyExceptionForRR(rr, "setInitialAttachApn", e);
             }
@@ -3062,7 +3110,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
             ImsSmsMessage msg = new ImsSmsMessage();
             msg.tech = RILConstants.GSM_PHONE;
-            msg.retry = (byte) retry >= 1 ? true : false;
+            msg.retry = (byte) retry == 1 ? true : false;
             msg.messageRef = messageRef;
 
             GsmSmsMessage gsmMsg = constructGsmSendSmsRilRequest(smscPdu, pdu);
@@ -3089,7 +3137,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
             ImsSmsMessage msg = new ImsSmsMessage();
             msg.tech = RILConstants.CDMA_PHONE;
-            msg.retry = (byte) retry >= 1 ? true : false;
+            msg.retry = (byte) retry == 1 ? true : false;
             msg.messageRef = messageRef;
 
             CdmaSmsMessage cdmaMsg = new CdmaSmsMessage();
@@ -3099,7 +3147,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
             try {
                 radioProxy.sendImsSms(rr.mSerial, msg);
                 mMetrics.writeRilSendSms(mPhoneId, rr.mSerial, SmsSession.Event.Tech.SMS_IMS,
-                        SmsSession.Event.Format.SMS_FORMAT_3GPP2);
+                        SmsSession.Event.Format.SMS_FORMAT_3GPP);
             } catch (RemoteException | RuntimeException e) {
                 handleRadioProxyExceptionForRR(rr, "sendImsCdmaSms", e);
             }
@@ -3128,13 +3176,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
                     mRILDefaultWorkSource);
 
             if (RILJ_LOGD) {
-                if (Build.IS_DEBUGGABLE) {
-                    riljLog(rr.serialString() + "> " + requestToString(rr.mRequest)
-                            + " cla = " + cla + " instruction = " + instruction
-                            + " p1 = " + p1 + " p2 = " + " p3 = " + p3 + " data = " + data);
-                } else {
-                    riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
-                }
+                riljLog(rr.serialString() + "> " + requestToString(rr.mRequest)
+                        + " cla = " + cla + " instruction = " + instruction
+                        + " p1 = " + p1 + " p2 = " + " p3 = " + p3 + " data = " + data);
             }
 
             SimApdu msg = createSimApdu(0, cla, instruction, p1, p2, p3, data);
@@ -3154,12 +3198,8 @@ public class RIL extends BaseCommands implements CommandsInterface {
                     mRILDefaultWorkSource);
 
             if (RILJ_LOGD) {
-                if (Build.IS_DEBUGGABLE) {
-                    riljLog(rr.serialString() + "> " + requestToString(rr.mRequest) + " aid = " + aid
-                            + " p2 = " + p2);
-                } else {
-                    riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
-                }
+                riljLog(rr.serialString() + "> " + requestToString(rr.mRequest) + " aid = " + aid
+                        + " p2 = " + p2);
             }
 
             try {
@@ -3205,13 +3245,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
                     mRILDefaultWorkSource);
 
             if (RILJ_LOGD) {
-                if (Build.IS_DEBUGGABLE) {
-                    riljLog(rr.serialString() + "> " + requestToString(rr.mRequest) + " channel = "
-                            + channel + " cla = " + cla + " instruction = " + instruction
-                            + " p1 = " + p1 + " p2 = " + " p3 = " + p3 + " data = " + data);
-                } else {
-                    riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
-                }
+                riljLog(rr.serialString() + "> " + requestToString(rr.mRequest) + " channel = "
+                        + channel + " cla = " + cla + " instruction = " + instruction
+                        + " p1 = " + p1 + " p2 = " + " p3 = " + p3 + " data = " + data);
             }
 
             SimApdu msg = createSimApdu(channel, cla, instruction, p1, p2, p3, data);
@@ -3363,7 +3399,8 @@ public class RIL extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void getHardwareConfig(Message result) {
+    public void
+    getHardwareConfig (Message result) {
         IRadio radioProxy = getRadioProxy(result);
         if (radioProxy != null) {
             RILRequest rr = obtainRequest(RIL_REQUEST_GET_HARDWARE_CONFIG, result,
@@ -3501,14 +3538,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
     @Override
     public void startLceService(int reportIntervalMs, boolean pullMode, Message result) {
         IRadio radioProxy = getRadioProxy(result);
-        android.hardware.radio.V1_2.IRadio radioProxy12 =
-                android.hardware.radio.V1_2.IRadio.castFrom(radioProxy);
-        if (radioProxy12 != null) {
-            // We have a 1.2 or later radio, so the LCE 1.0 LCE service control path is unused.
-            // Instead the LCE functionality is always-on and provides unsolicited indications.
-            return;
-        }
-
         if (radioProxy != null) {
             RILRequest rr = obtainRequest(RIL_REQUEST_START_LCE, result,
                     mRILDefaultWorkSource);
@@ -3529,14 +3558,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
     @Override
     public void stopLceService(Message result) {
         IRadio radioProxy = getRadioProxy(result);
-        android.hardware.radio.V1_2.IRadio radioProxy12 =
-                android.hardware.radio.V1_2.IRadio.castFrom(radioProxy);
-        if (radioProxy12 != null) {
-            // We have a 1.2 or later radio, so the LCE 1.0 LCE service control is unused.
-            // Instead the LCE functionality is always-on and provides unsolicited indications.
-            return;
-        }
-
         if (radioProxy != null) {
             RILRequest rr = obtainRequest(RIL_REQUEST_STOP_LCE, result,
                     mRILDefaultWorkSource);
@@ -3553,17 +3574,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
-    /**
-     * This will only be called if the LCE service is started in PULL mode, which is
-     * only enabled when using Radio HAL versions 1.1 and earlier.
-     *
-     * It is still possible for vendors to override this behavior and use the 1.1 version
-     * of LCE; however, this is strongly discouraged and this functionality will be removed
-     * when HAL 1.x support is dropped.
-     *
-     * @deprecated HAL 1.2 and later use an always-on LCE that relies on indications.
-     */
-    @Deprecated
     @Override
     public void pullLceData(Message response) {
         IRadio radioProxy = getRadioProxy(response);
@@ -3719,101 +3729,11 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 riljLog(rr.serialString() + "> " + requestToString(rr.mRequest) + " " + filter);
             }
 
-            android.hardware.radio.V1_2.IRadio radioProxy12 =
-                    android.hardware.radio.V1_2.IRadio.castFrom(radioProxy);
-
-            if (radioProxy12 != null) {
-                try {
-                    radioProxy12.setIndicationFilter_1_2(rr.mSerial, filter);
-                } catch (RemoteException | RuntimeException e) {
-                    handleRadioProxyExceptionForRR(rr, "setIndicationFilter_1_2", e);
-                }
-            } else {
-                try {
-                    int filter10 = filter & IndicationFilter.ALL;
-                    radioProxy.setIndicationFilter(rr.mSerial, filter10);
-                } catch (RemoteException | RuntimeException e) {
-                    handleRadioProxyExceptionForRR(rr, "setIndicationFilter", e);
-                }
-            }
-        }
-    }
-
-    @Override
-    public void setSignalStrengthReportingCriteria(int hysteresisMs, int hysteresisDb,
-            int[] thresholdsDbm, int ran, Message result) {
-        IRadio radioProxy = getRadioProxy(result);
-        if (radioProxy != null) {
-            android.hardware.radio.V1_2.IRadio radioProxy12 =
-                    android.hardware.radio.V1_2.IRadio.castFrom(radioProxy);
-            if (radioProxy12 == null) {
-                riljLoge("setSignalStrengthReportingCriteria ignored. RadioProxy 1.2 is null!");
-                return;
-            }
-
-            RILRequest rr = obtainRequest(RIL_REQUEST_SET_SIGNAL_STRENGTH_REPORTING_CRITERIA,
-                    result, mRILDefaultWorkSource);
-
-            if (RILJ_LOGD) {
-                riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
-            }
-
             try {
-                radioProxy12.setSignalStrengthReportingCriteria(rr.mSerial, hysteresisMs,
-                        hysteresisDb, primitiveArrayToArrayList(thresholdsDbm),
-                        convertRanToHalRan(ran));
+                radioProxy.setIndicationFilter(rr.mSerial, filter);
             } catch (RemoteException | RuntimeException e) {
-                handleRadioProxyExceptionForRR(rr, "setSignalStrengthReportingCriteria", e);
+                handleRadioProxyExceptionForRR(rr, "setIndicationFilter", e);
             }
-        }
-    }
-
-    @Override
-    public void setLinkCapacityReportingCriteria(int hysteresisMs, int hysteresisDlKbps,
-            int hysteresisUlKbps, int[] thresholdsDlKbps, int[] thresholdsUlKbps, int ran,
-            Message result) {
-        IRadio radioProxy = getRadioProxy(result);
-        if (radioProxy != null) {
-            android.hardware.radio.V1_2.IRadio radioProxy12 =
-                    android.hardware.radio.V1_2.IRadio.castFrom(radioProxy);
-            if (radioProxy12 == null) {
-                riljLoge("setLinkCapacityReportingCriteria ignored. RadioProxy 1.2 is null!");
-                return;
-            }
-
-            RILRequest rr = obtainRequest(RIL_REQUEST_SET_LINK_CAPACITY_REPORTING_CRITERIA,
-                    result, mRILDefaultWorkSource);
-
-            if (RILJ_LOGD) {
-                riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
-            }
-
-            try {
-                radioProxy12.setLinkCapacityReportingCriteria(rr.mSerial, hysteresisMs,
-                        hysteresisDlKbps, hysteresisUlKbps,
-                        primitiveArrayToArrayList(thresholdsDlKbps),
-                        primitiveArrayToArrayList(thresholdsUlKbps), convertRanToHalRan(ran));
-            } catch (RemoteException | RuntimeException e) {
-                handleRadioProxyExceptionForRR(rr, "setLinkCapacityReportingCriteria", e);
-            }
-        }
-    }
-
-    private static int convertRanToHalRan(int radioAccessNetwork) {
-        switch (radioAccessNetwork) {
-            case AccessNetworkType.GERAN:
-                return AccessNetwork.GERAN;
-            case AccessNetworkType.UTRAN:
-                return AccessNetwork.UTRAN;
-            case AccessNetworkType.EUTRAN:
-                return AccessNetwork.EUTRAN;
-            case AccessNetworkType.CDMA2000:
-                return AccessNetwork.CDMA2000;
-            case AccessNetworkType.IWLAN:
-                return AccessNetwork.IWLAN;
-            case AccessNetworkType.UNKNOWN:
-            default:
-                return 0;
         }
     }
 
@@ -3900,93 +3820,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
                     handleRadioProxyExceptionForRR(rr, "setCarrierInfoForImsiEncryption", e);
                 }
             }
-        }
-    }
-
-    @Override
-    public void startNattKeepalive(
-            int contextId, KeepalivePacketData packetData, int intervalMillis, Message result) {
-        checkNotNull(packetData, "KeepaliveRequest cannot be null.");
-        IRadio radioProxy = getRadioProxy(result);
-        if (radioProxy == null) {
-            riljLoge("Radio Proxy object is null!");
-            return;
-        }
-
-        android.hardware.radio.V1_1.IRadio radioProxy11 =
-                android.hardware.radio.V1_1.IRadio.castFrom(radioProxy);
-        if (radioProxy11 == null) {
-            if (result != null) {
-                AsyncResult.forMessage(result, null,
-                        CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
-                result.sendToTarget();
-            }
-            return;
-        }
-
-        RILRequest rr = obtainRequest(
-                RIL_REQUEST_START_KEEPALIVE, result, mRILDefaultWorkSource);
-
-        if (RILJ_LOGD) riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
-
-        try {
-            android.hardware.radio.V1_1.KeepaliveRequest req =
-                    new android.hardware.radio.V1_1.KeepaliveRequest();
-
-            req.cid = contextId;
-
-            if (packetData.dstAddress instanceof Inet4Address) {
-                req.type = android.hardware.radio.V1_1.KeepaliveType.NATT_IPV4;
-            } else if (packetData.dstAddress instanceof Inet6Address) {
-                req.type = android.hardware.radio.V1_1.KeepaliveType.NATT_IPV6;
-            } else {
-                AsyncResult.forMessage(result, null,
-                        CommandException.fromRilErrno(INVALID_ARGUMENTS));
-                result.sendToTarget();
-                return;
-            }
-
-            appendPrimitiveArrayToArrayList(
-                    packetData.srcAddress.getAddress(), req.sourceAddress);
-            req.sourcePort = packetData.srcPort;
-            appendPrimitiveArrayToArrayList(
-                    packetData.dstAddress.getAddress(), req.destinationAddress);
-            req.destinationPort = packetData.dstPort;
-
-            radioProxy11.startKeepalive(rr.mSerial, req);
-        } catch (RemoteException | RuntimeException e) {
-            handleRadioProxyExceptionForRR(rr, "startNattKeepalive", e);
-        }
-    }
-
-    @Override
-    public void stopNattKeepalive(int sessionHandle, Message result) {
-        IRadio radioProxy = getRadioProxy(result);
-        if (radioProxy == null) {
-            Rlog.e(RIL.RILJ_LOG_TAG, "Radio Proxy object is null!");
-            return;
-        }
-
-        android.hardware.radio.V1_1.IRadio radioProxy11 =
-                android.hardware.radio.V1_1.IRadio.castFrom(radioProxy);
-        if (radioProxy11 == null) {
-            if (result != null) {
-                AsyncResult.forMessage(result, null,
-                        CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
-                result.sendToTarget();
-            }
-            return;
-        }
-
-        RILRequest rr = obtainRequest(
-                RIL_REQUEST_STOP_KEEPALIVE, result, mRILDefaultWorkSource);
-
-        if (RILJ_LOGD) riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
-
-        try {
-            radioProxy11.stopKeepalive(rr.mSerial, sessionHandle);
-        } catch (RemoteException | RuntimeException e) {
-            handleRadioProxyExceptionForRR(rr, "stopNattKeepalive", e);
         }
     }
 
@@ -4103,8 +3936,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
      * @param responseInfo RadioResponseInfo received in response callback
      * @return RILRequest corresponding to the response
      */
-    @VisibleForTesting
-    public RILRequest processResponse(RadioResponseInfo responseInfo) {
+    RILRequest processResponse(RadioResponseInfo responseInfo) {
         int serial = responseInfo.serial;
         int error = responseInfo.error;
         int type = responseInfo.type;
@@ -4204,8 +4036,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
      * @param responseInfo RadioResponseInfo received in the callback
      * @param ret object to be returned to request sender
      */
-    @VisibleForTesting
-    public void processResponseDone(RILRequest rr, RadioResponseInfo responseInfo, Object ret) {
+    void processResponseDone(RILRequest rr, RadioResponseInfo responseInfo, Object ret) {
         if (responseInfo.error == 0) {
             if (RILJ_LOGD) {
                 riljLog(rr.serialString() + "< " + requestToString(rr.mRequest)
@@ -4258,6 +4089,13 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return workSource;
     }
 
+    private String getWorkSourceClientId(WorkSource workSource) {
+        if (workSource != null) {
+            return String.valueOf(workSource.get(0)) + ":" + workSource.getName(0);
+        }
+
+        return null;
+    }
 
     /**
      * Holds a PARTIAL_WAKE_LOCK whenever
@@ -4267,6 +4105,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
      * There is a WAKE_LOCK_TIMEOUT to release the lock, though it shouldn't
      * happen often.
      */
+
     private void acquireWakeLock(RILRequest rr, int wakeLockType) {
         synchronized (rr) {
             if (rr.mWakeLockType != INVALID_WAKELOCK) {
@@ -4281,7 +4120,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
                         mWakeLockCount++;
                         mWlSequenceNum++;
 
-                        String clientId = rr.getWorkSourceClientId();
+                        String clientId = getWorkSourceClientId(rr.mWorkSource);
                         if (!mClientWakelockTracker.isClientActive(clientId)) {
                             if (mActiveWakelockWorkSource != null) {
                                 mActiveWakelockWorkSource.add(rr.mWorkSource);
@@ -4317,24 +4156,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
-    /** Returns the wake lock of the given type. */
-    @VisibleForTesting
-    public WakeLock getWakeLock(int wakeLockType) {
-        return wakeLockType == FOR_WAKELOCK ? mWakeLock : mAckWakeLock;
-    }
-
-    /** Returns the {@link RilHandler} instance. */
-    @VisibleForTesting
-    public RilHandler getRilHandler() {
-        return mRilHandler;
-    }
-
-    /** Returns the Ril request list. */
-    @VisibleForTesting
-    public SparseArray<RILRequest> getRilRequestList() {
-        return mRequestList;
-    }
-
     private void decrementWakeLock(RILRequest rr) {
         synchronized (rr) {
             switch(rr.mWakeLockType) {
@@ -4343,7 +4164,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
                         mClientWakelockTracker.stopTracking(rr.mClientId,
                                 rr.mRequest, rr.mSerial,
                                 (mWakeLockCount > 1) ? mWakeLockCount - 1 : 0);
-                        String clientId = rr.getWorkSourceClientId();
+                        String clientId = getWorkSourceClientId(rr.mWorkSource);;
                         if (!mClientWakelockTracker.isClientActive(clientId)
                                 && (mActiveWakelockWorkSource != null)) {
                             mActiveWakelockWorkSource.remove(rr.mWorkSource);
@@ -4912,18 +4733,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 return "RIL_REQUEST_START_NETWORK_SCAN";
             case RIL_REQUEST_STOP_NETWORK_SCAN:
                 return "RIL_REQUEST_STOP_NETWORK_SCAN";
-            case RIL_REQUEST_GET_SLOT_STATUS:
-                return "RIL_REQUEST_GET_SLOT_STATUS";
-            case RIL_REQUEST_SET_LOGICAL_TO_PHYSICAL_SLOT_MAPPING:
-                return "RIL_REQUEST_SET_LOGICAL_TO_PHYSICAL_SLOT_MAPPING";
-            case RIL_REQUEST_START_KEEPALIVE:
-                return "RIL_REQUEST_START_KEEPALIVE";
-            case RIL_REQUEST_STOP_KEEPALIVE:
-                return "RIL_REQUEST_STOP_KEEPALIVE";
-            case RIL_REQUEST_SET_SIGNAL_STRENGTH_REPORTING_CRITERIA:
-                return "RIL_REQUEST_SET_SIGNAL_STRENGTH_REPORTING_CRITERIA";
-            case RIL_REQUEST_SET_LINK_CAPACITY_REPORTING_CRITERIA:
-                return "RIL_REQUEST_SET_LINK_CAPACITY_REPORTING_CRITERIA";
             default: return "<unknown request>";
         }
     }
@@ -5028,12 +4837,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 return "RIL_UNSOL_CARRIER_INFO_IMSI_ENCRYPTION";
             case RIL_UNSOL_NETWORK_SCAN_RESULT:
                 return "RIL_UNSOL_NETWORK_SCAN_RESULT";
-            case RIL_UNSOL_ICC_SLOT_STATUS:
-                return "RIL_UNSOL_ICC_SLOT_STATUS";
-            case RIL_UNSOL_KEEPALIVE_STATUS:
-                return "RIL_UNSOL_KEEPALIVE_STATUS";
-            case RIL_UNSOL_PHYSICAL_CHANNEL_CONFIG:
-                return "RIL_UNSOL_PHYSICAL_CHANNEL_CONFIG";
             default:
                 return "<unknown response>";
         }
@@ -5114,13 +4917,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return mClientWakelockTracker.getClientRequestStats();
     }
 
-    /** Append the data to the end of an ArrayList */
-    public static void appendPrimitiveArrayToArrayList(byte[] src, ArrayList<Byte> dst) {
-        for (byte b : src) {
-            dst.add(b);
-        }
-    }
-
     public static ArrayList<Byte> primitiveArrayToArrayList(byte[] arr) {
         ArrayList<Byte> arrayList = new ArrayList<>(arr.length);
         for (byte b : arr) {
@@ -5129,16 +4925,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return arrayList;
     }
 
-    /** Convert a primitive int array to an ArrayList<Integer>. */
-    public static ArrayList<Integer> primitiveArrayToArrayList(int[] arr) {
-        ArrayList<Integer> arrayList = new ArrayList<>(arr.length);
-        for (int i : arr) {
-            arrayList.add(i);
-        }
-        return arrayList;
-    }
-
-    /** Convert an ArrayList of Bytes to an exactly-sized primitive array */
     public static byte[] arrayListToPrimitiveArray(ArrayList<Byte> bytes) {
         byte[] ret = new byte[bytes.size()];
         for (int i = 0; i < ret.length; i++) {
@@ -5205,94 +4991,24 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return rc;
     }
 
-    static LinkCapacityEstimate convertHalLceData(LceDataInfo halData, RIL ril) {
-        final LinkCapacityEstimate lce = new LinkCapacityEstimate(
-                halData.lastHopCapacityKbps,
-                Byte.toUnsignedInt(halData.confidenceLevel),
-                halData.lceSuspended ? LinkCapacityEstimate.STATUS_SUSPENDED
-                        : LinkCapacityEstimate.STATUS_ACTIVE);
+    static ArrayList<Integer> convertHalLceData(LceDataInfo lce, RIL ril) {
+        final ArrayList<Integer> capacityResponse = new ArrayList<Integer>();
+        final int capacityDownKbps = lce.lastHopCapacityKbps;
+        final int confidenceLevel = Byte.toUnsignedInt(lce.confidenceLevel);
+        final int lceSuspended = lce.lceSuspended ? 1 : 0;
 
-        ril.riljLog("LCE capacity information received:" + lce);
-        return lce;
+        ril.riljLog("LCE capacity information received:" +
+                " capacity=" + capacityDownKbps +
+                " confidence=" + confidenceLevel +
+                " lceSuspended=" + lceSuspended);
+
+        capacityResponse.add(capacityDownKbps);
+        capacityResponse.add(confidenceLevel);
+        capacityResponse.add(lceSuspended);
+        return capacityResponse;
     }
 
-    static LinkCapacityEstimate convertHalLceData(
-            android.hardware.radio.V1_2.LinkCapacityEstimate halData, RIL ril) {
-        final LinkCapacityEstimate lce = new LinkCapacityEstimate(
-                halData.downlinkCapacityKbps,
-                halData.uplinkCapacityKbps);
-        ril.riljLog("LCE capacity information received:" + lce);
-        return lce;
-    }
-
-    private static void writeToParcelForGsm(
-            Parcel p, int lac, int cid, int arfcn, int bsic, String mcc, String mnc,
-            String al, String as, int ss, int ber, int ta) {
-        p.writeInt(CellIdentity.TYPE_GSM);
-        p.writeString(mcc);
-        p.writeString(mnc);
-        p.writeString(al);
-        p.writeString(as);
-        p.writeInt(lac);
-        p.writeInt(cid);
-        p.writeInt(arfcn);
-        p.writeInt(bsic);
-        p.writeInt(ss);
-        p.writeInt(ber);
-        p.writeInt(ta);
-    }
-
-    private static void writeToParcelForCdma(
-            Parcel p, int ni, int si, int bsi, int lon, int lat, String al, String as,
-            int dbm, int ecio, int eDbm, int eEcio, int eSnr) {
-        new CellIdentityCdma(ni, si, bsi, lon, lat, al, as).writeToParcel(p, 0);
-        new CellSignalStrengthCdma(dbm, ecio, eDbm, eEcio, eSnr).writeToParcel(p, 0);
-    }
-
-    private static void writeToParcelForLte(
-            Parcel p, int ci, int pci, int tac, int earfcn, int bandwidth, String mcc, String mnc,
-            String al, String as, int ss, int rsrp, int rsrq, int rssnr, int cqi, int ta) {
-        p.writeInt(CellIdentity.TYPE_LTE);
-        p.writeString(mcc);
-        p.writeString(mnc);
-        p.writeString(al);
-        p.writeString(as);
-        p.writeInt(ci);
-        p.writeInt(pci);
-        p.writeInt(tac);
-        p.writeInt(earfcn);
-        p.writeInt(bandwidth);
-        p.writeInt(ss);
-        p.writeInt(rsrp);
-        p.writeInt(rsrq);
-        p.writeInt(rssnr);
-        p.writeInt(cqi);
-        p.writeInt(ta);
-    }
-
-    private static void writeToParcelForWcdma(
-            Parcel p, int lac, int cid, int psc, int uarfcn, String mcc, String mnc,
-            String al, String as, int ss, int ber) {
-        p.writeInt(CellIdentity.TYPE_WCDMA);
-        p.writeString(mcc);
-        p.writeString(mnc);
-        p.writeString(al);
-        p.writeString(as);
-        p.writeInt(lac);
-        p.writeInt(cid);
-        p.writeInt(psc);
-        p.writeInt(uarfcn);
-        p.writeInt(ss);
-        p.writeInt(ber);
-    }
-
-    /**
-     * Convert CellInfo defined in 1.0/types.hal to CellInfo type.
-     * @param records List of CellInfo defined in 1.0/types.hal
-     * @return List of converted CellInfo object
-     */
-    @VisibleForTesting
-    public static ArrayList<CellInfo> convertHalCellInfoList(
+    static ArrayList<CellInfo> convertHalCellInfoList(
             ArrayList<android.hardware.radio.V1_0.CellInfo> records) {
         ArrayList<CellInfo> response = new ArrayList<CellInfo>(records.size());
 
@@ -5303,81 +5019,63 @@ public class RIL extends BaseCommands implements CommandsInterface {
             p.writeInt(record.registered ? 1 : 0);
             p.writeInt(record.timeStampType);
             p.writeLong(record.timeStamp);
-            p.writeInt(CellInfo.CONNECTION_UNKNOWN);
             switch (record.cellInfoType) {
                 case CellInfoType.GSM: {
                     CellInfoGsm cellInfoGsm = record.gsm.get(0);
-                    writeToParcelForGsm(
-                            p,
-                            cellInfoGsm.cellIdentityGsm.lac,
-                            cellInfoGsm.cellIdentityGsm.cid,
-                            cellInfoGsm.cellIdentityGsm.arfcn,
-                            Byte.toUnsignedInt(cellInfoGsm.cellIdentityGsm.bsic),
-                            cellInfoGsm.cellIdentityGsm.mcc,
-                            cellInfoGsm.cellIdentityGsm.mnc,
-                            EMPTY_ALPHA_LONG,
-                            EMPTY_ALPHA_SHORT,
-                            cellInfoGsm.signalStrengthGsm.signalStrength,
-                            cellInfoGsm.signalStrengthGsm.bitErrorRate,
-                            cellInfoGsm.signalStrengthGsm.timingAdvance);
+                    p.writeInt(Integer.parseInt(cellInfoGsm.cellIdentityGsm.mcc));
+                    p.writeInt(Integer.parseInt(cellInfoGsm.cellIdentityGsm.mnc));
+                    p.writeInt(cellInfoGsm.cellIdentityGsm.lac);
+                    p.writeInt(cellInfoGsm.cellIdentityGsm.cid);
+                    p.writeInt(cellInfoGsm.cellIdentityGsm.arfcn);
+                    p.writeInt(Byte.toUnsignedInt(cellInfoGsm.cellIdentityGsm.bsic));
+                    p.writeInt(cellInfoGsm.signalStrengthGsm.signalStrength);
+                    p.writeInt(cellInfoGsm.signalStrengthGsm.bitErrorRate);
+                    p.writeInt(cellInfoGsm.signalStrengthGsm.timingAdvance);
                     break;
                 }
 
                 case CellInfoType.CDMA: {
                     CellInfoCdma cellInfoCdma = record.cdma.get(0);
-                    writeToParcelForCdma(
-                            p,
-                            cellInfoCdma.cellIdentityCdma.networkId,
-                            cellInfoCdma.cellIdentityCdma.systemId,
-                            cellInfoCdma.cellIdentityCdma.baseStationId,
-                            cellInfoCdma.cellIdentityCdma.longitude,
-                            cellInfoCdma.cellIdentityCdma.latitude,
-                            EMPTY_ALPHA_LONG,
-                            EMPTY_ALPHA_SHORT,
-                            cellInfoCdma.signalStrengthCdma.dbm,
-                            cellInfoCdma.signalStrengthCdma.ecio,
-                            cellInfoCdma.signalStrengthEvdo.dbm,
-                            cellInfoCdma.signalStrengthEvdo.ecio,
-                            cellInfoCdma.signalStrengthEvdo.signalNoiseRatio);
+                    p.writeInt(cellInfoCdma.cellIdentityCdma.networkId);
+                    p.writeInt(cellInfoCdma.cellIdentityCdma.systemId);
+                    p.writeInt(cellInfoCdma.cellIdentityCdma.baseStationId);
+                    p.writeInt(cellInfoCdma.cellIdentityCdma.longitude);
+                    p.writeInt(cellInfoCdma.cellIdentityCdma.latitude);
+                    p.writeInt(cellInfoCdma.signalStrengthCdma.dbm);
+                    p.writeInt(cellInfoCdma.signalStrengthCdma.ecio);
+                    p.writeInt(cellInfoCdma.signalStrengthEvdo.dbm);
+                    p.writeInt(cellInfoCdma.signalStrengthEvdo.ecio);
+                    p.writeInt(cellInfoCdma.signalStrengthEvdo.signalNoiseRatio);
                     break;
                 }
 
                 case CellInfoType.LTE: {
                     CellInfoLte cellInfoLte = record.lte.get(0);
-                    writeToParcelForLte(
-                            p,
-                            cellInfoLte.cellIdentityLte.ci,
-                            cellInfoLte.cellIdentityLte.pci,
-                            cellInfoLte.cellIdentityLte.tac,
-                            cellInfoLte.cellIdentityLte.earfcn,
-                            Integer.MAX_VALUE,
-                            cellInfoLte.cellIdentityLte.mcc,
-                            cellInfoLte.cellIdentityLte.mnc,
-                            EMPTY_ALPHA_LONG,
-                            EMPTY_ALPHA_SHORT,
-                            cellInfoLte.signalStrengthLte.signalStrength,
-                            cellInfoLte.signalStrengthLte.rsrp,
-                            cellInfoLte.signalStrengthLte.rsrq,
-                            cellInfoLte.signalStrengthLte.rssnr,
-                            cellInfoLte.signalStrengthLte.cqi,
-                            cellInfoLte.signalStrengthLte.timingAdvance);
+                    p.writeInt(Integer.parseInt(cellInfoLte.cellIdentityLte.mcc));
+                    p.writeInt(Integer.parseInt(cellInfoLte.cellIdentityLte.mnc));
+                    p.writeInt(cellInfoLte.cellIdentityLte.ci);
+                    p.writeInt(cellInfoLte.cellIdentityLte.pci);
+                    p.writeInt(cellInfoLte.cellIdentityLte.tac);
+                    p.writeInt(cellInfoLte.cellIdentityLte.earfcn);
+                    p.writeInt(cellInfoLte.signalStrengthLte.signalStrength);
+                    p.writeInt(cellInfoLte.signalStrengthLte.rsrp);
+                    p.writeInt(cellInfoLte.signalStrengthLte.rsrq);
+                    p.writeInt(cellInfoLte.signalStrengthLte.rssnr);
+                    p.writeInt(cellInfoLte.signalStrengthLte.cqi);
+                    p.writeInt(cellInfoLte.signalStrengthLte.timingAdvance);
                     break;
                 }
 
                 case CellInfoType.WCDMA: {
                     CellInfoWcdma cellInfoWcdma = record.wcdma.get(0);
-                    writeToParcelForWcdma(
-                            p,
-                            cellInfoWcdma.cellIdentityWcdma.lac,
-                            cellInfoWcdma.cellIdentityWcdma.cid,
-                            cellInfoWcdma.cellIdentityWcdma.psc,
-                            cellInfoWcdma.cellIdentityWcdma.uarfcn,
-                            cellInfoWcdma.cellIdentityWcdma.mcc,
-                            cellInfoWcdma.cellIdentityWcdma.mnc,
-                            EMPTY_ALPHA_LONG,
-                            EMPTY_ALPHA_SHORT,
-                            cellInfoWcdma.signalStrengthWcdma.signalStrength,
-                            cellInfoWcdma.signalStrengthWcdma.bitErrorRate);
+                    p.writeInt(Integer.parseInt(cellInfoWcdma.cellIdentityWcdma.mcc));
+                    p.writeInt(Integer.parseInt(cellInfoWcdma.cellIdentityWcdma.mnc));
+                    p.writeInt(cellInfoWcdma.cellIdentityWcdma.lac);
+                    p.writeInt(cellInfoWcdma.cellIdentityWcdma.cid);
+                    p.writeInt(cellInfoWcdma.cellIdentityWcdma.psc);
+                    p.writeInt(cellInfoWcdma.cellIdentityWcdma.uarfcn);
+                    p.writeInt(cellInfoWcdma.signalStrengthWcdma.signalStrength);
+                    p.writeInt(cellInfoWcdma.signalStrengthWcdma.bitErrorRate);
                     break;
                 }
 
@@ -5394,129 +5092,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return response;
     }
 
-    /**
-     * Convert CellInfo defined in 1.2/types.hal to CellInfo type.
-     * @param records List of CellInfo defined in 1.2/types.hal
-     * @return List of converted CellInfo object
-     */
-    @VisibleForTesting
-    public static ArrayList<CellInfo> convertHalCellInfoList_1_2(
-            ArrayList<android.hardware.radio.V1_2.CellInfo> records) {
-        ArrayList<CellInfo> response = new ArrayList<CellInfo>(records.size());
-
-        for (android.hardware.radio.V1_2.CellInfo record : records) {
-            // first convert RIL CellInfo to Parcel
-            Parcel p = Parcel.obtain();
-            p.writeInt(record.cellInfoType);
-            p.writeInt(record.registered ? 1 : 0);
-            p.writeInt(record.timeStampType);
-            p.writeLong(record.timeStamp);
-            p.writeInt(record.connectionStatus);
-            switch (record.cellInfoType) {
-                case CellInfoType.GSM: {
-                    android.hardware.radio.V1_2.CellInfoGsm cellInfoGsm = record.gsm.get(0);
-                    writeToParcelForGsm(
-                            p,
-                            cellInfoGsm.cellIdentityGsm.base.lac,
-                            cellInfoGsm.cellIdentityGsm.base.cid,
-                            cellInfoGsm.cellIdentityGsm.base.arfcn,
-                            Byte.toUnsignedInt(cellInfoGsm.cellIdentityGsm.base.bsic),
-                            cellInfoGsm.cellIdentityGsm.base.mcc,
-                            cellInfoGsm.cellIdentityGsm.base.mnc,
-                            cellInfoGsm.cellIdentityGsm.operatorNames.alphaLong,
-                            cellInfoGsm.cellIdentityGsm.operatorNames.alphaShort,
-                            cellInfoGsm.signalStrengthGsm.signalStrength,
-                            cellInfoGsm.signalStrengthGsm.bitErrorRate,
-                            cellInfoGsm.signalStrengthGsm.timingAdvance);
-                    break;
-                }
-
-                case CellInfoType.CDMA: {
-                    android.hardware.radio.V1_2.CellInfoCdma cellInfoCdma = record.cdma.get(0);
-                    writeToParcelForCdma(
-                            p,
-                            cellInfoCdma.cellIdentityCdma.base.networkId,
-                            cellInfoCdma.cellIdentityCdma.base.systemId,
-                            cellInfoCdma.cellIdentityCdma.base.baseStationId,
-                            cellInfoCdma.cellIdentityCdma.base.longitude,
-                            cellInfoCdma.cellIdentityCdma.base.latitude,
-                            cellInfoCdma.cellIdentityCdma.operatorNames.alphaLong,
-                            cellInfoCdma.cellIdentityCdma.operatorNames.alphaShort,
-                            cellInfoCdma.signalStrengthCdma.dbm,
-                            cellInfoCdma.signalStrengthCdma.ecio,
-                            cellInfoCdma.signalStrengthEvdo.dbm,
-                            cellInfoCdma.signalStrengthEvdo.ecio,
-                            cellInfoCdma.signalStrengthEvdo.signalNoiseRatio);
-                    break;
-                }
-
-                case CellInfoType.LTE: {
-                    android.hardware.radio.V1_2.CellInfoLte cellInfoLte = record.lte.get(0);
-                    writeToParcelForLte(
-                            p,
-                            cellInfoLte.cellIdentityLte.base.ci,
-                            cellInfoLte.cellIdentityLte.base.pci,
-                            cellInfoLte.cellIdentityLte.base.tac,
-                            cellInfoLte.cellIdentityLte.base.earfcn,
-                            cellInfoLte.cellIdentityLte.bandwidth,
-                            cellInfoLte.cellIdentityLte.base.mcc,
-                            cellInfoLte.cellIdentityLte.base.mnc,
-                            cellInfoLte.cellIdentityLte.operatorNames.alphaLong,
-                            cellInfoLte.cellIdentityLte.operatorNames.alphaShort,
-                            cellInfoLte.signalStrengthLte.signalStrength,
-                            cellInfoLte.signalStrengthLte.rsrp,
-                            cellInfoLte.signalStrengthLte.rsrq,
-                            cellInfoLte.signalStrengthLte.rssnr,
-                            cellInfoLte.signalStrengthLte.cqi,
-                            cellInfoLte.signalStrengthLte.timingAdvance);
-                    break;
-                }
-
-                case CellInfoType.WCDMA: {
-                    android.hardware.radio.V1_2.CellInfoWcdma cellInfoWcdma = record.wcdma.get(0);
-                    writeToParcelForWcdma(
-                            p,
-                            cellInfoWcdma.cellIdentityWcdma.base.lac,
-                            cellInfoWcdma.cellIdentityWcdma.base.cid,
-                            cellInfoWcdma.cellIdentityWcdma.base.psc,
-                            cellInfoWcdma.cellIdentityWcdma.base.uarfcn,
-                            cellInfoWcdma.cellIdentityWcdma.base.mcc,
-                            cellInfoWcdma.cellIdentityWcdma.base.mnc,
-                            cellInfoWcdma.cellIdentityWcdma.operatorNames.alphaLong,
-                            cellInfoWcdma.cellIdentityWcdma.operatorNames.alphaShort,
-                            cellInfoWcdma.signalStrengthWcdma.base.signalStrength,
-                            cellInfoWcdma.signalStrengthWcdma.base.bitErrorRate);
-                    break;
-                }
-
-                default:
-                    throw new RuntimeException("unexpected cellinfotype: " + record.cellInfoType);
-            }
-
-            p.setDataPosition(0);
-            CellInfo InfoRec = CellInfo.CREATOR.createFromParcel(p);
-            p.recycle();
-            response.add(InfoRec);
-        }
-
-        return response;
-    }
-
-    /** Convert HAL 1.0 Signal Strength to android SignalStrength */
-    @VisibleForTesting
-    public static SignalStrength convertHalSignalStrength(
+    static SignalStrength convertHalSignalStrength(
             android.hardware.radio.V1_0.SignalStrength signalStrength) {
-        int tdscdmaRscp_1_2 = 255; // 255 is the value for unknown/unreported ASU.
-        // The HAL 1.0 range is 25..120; the ASU/ HAL 1.2 range is 0..96;
-        // yes, this means the range in 1.0 cannot express -24dBm = 96
-        if (signalStrength.tdScdma.rscp >= 25 && signalStrength.tdScdma.rscp <= 120) {
-            // First we flip the sign to convert from the HALs -rscp to the actual RSCP value.
-            int rscpDbm = -signalStrength.tdScdma.rscp;
-            // Then to convert from RSCP to ASU, we apply the offset which aligns 0 ASU to -120dBm.
-            tdscdmaRscp_1_2 = rscpDbm + 120;
-        }
-        return new SignalStrength(
-                signalStrength.gw.signalStrength,
+        return new SignalStrength(signalStrength.gw.signalStrength,
                 signalStrength.gw.bitErrorRate,
                 signalStrength.cdma.dbm,
                 signalStrength.cdma.ecio,
@@ -5528,28 +5106,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
                 signalStrength.lte.rsrq,
                 signalStrength.lte.rssnr,
                 signalStrength.lte.cqi,
-                tdscdmaRscp_1_2);
-    }
-
-    /** Convert HAL 1.2 Signal Strength to android SignalStrength */
-    @VisibleForTesting
-    public static SignalStrength convertHalSignalStrength_1_2(
-            android.hardware.radio.V1_2.SignalStrength signalStrength) {
-        return new SignalStrength(
-                signalStrength.gsm.signalStrength,
-                signalStrength.gsm.bitErrorRate,
-                signalStrength.cdma.dbm,
-                signalStrength.cdma.ecio,
-                signalStrength.evdo.dbm,
-                signalStrength.evdo.ecio,
-                signalStrength.evdo.signalNoiseRatio,
-                signalStrength.lte.signalStrength,
-                signalStrength.lte.rsrp,
-                signalStrength.lte.rsrq,
-                signalStrength.lte.rssnr,
-                signalStrength.lte.cqi,
                 signalStrength.tdScdma.rscp,
-                signalStrength.wcdma.base.signalStrength,
-                signalStrength.wcdma.rscp);
+                false /* gsmFlag - don't care; will be changed by SST */);
     }
 }

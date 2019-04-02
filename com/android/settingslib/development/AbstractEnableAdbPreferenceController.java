@@ -16,13 +16,11 @@
 
 package com.android.settingslib.development;
 
-import android.app.ActivityManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.os.UserManager;
 import android.provider.Settings;
-import android.support.annotation.VisibleForTesting;
 import android.support.v14.preference.SwitchPreference;
 import android.support.v4.content.LocalBroadcastManager;
 import android.support.v7.preference.Preference;
@@ -30,20 +28,15 @@ import android.support.v7.preference.PreferenceScreen;
 import android.support.v7.preference.TwoStatePreference;
 import android.text.TextUtils;
 
-import com.android.settingslib.core.ConfirmationDialogController;
+import com.android.settingslib.core.AbstractPreferenceController;
 
-public abstract class AbstractEnableAdbPreferenceController extends
-        DeveloperOptionsPreferenceController implements ConfirmationDialogController {
+public abstract class AbstractEnableAdbPreferenceController extends AbstractPreferenceController {
     private static final String KEY_ENABLE_ADB = "enable_adb";
     public static final String ACTION_ENABLE_ADB_STATE_CHANGED =
             "com.android.settingslib.development.AbstractEnableAdbController."
                     + "ENABLE_ADB_STATE_CHANGED";
 
-    public static final int ADB_SETTING_ON = 1;
-    public static final int ADB_SETTING_OFF = 0;
-
-
-    protected SwitchPreference mPreference;
+    private SwitchPreference mPreference;
 
     public AbstractEnableAdbPreferenceController(Context context) {
         super(context);
@@ -59,8 +52,7 @@ public abstract class AbstractEnableAdbPreferenceController extends
 
     @Override
     public boolean isAvailable() {
-        final UserManager um = mContext.getSystemService(UserManager.class);
-        return um != null && (um.isAdminUser() || um.isDemoUser());
+        return mContext.getSystemService(UserManager.class).isAdminUser();
     }
 
     @Override
@@ -70,13 +62,12 @@ public abstract class AbstractEnableAdbPreferenceController extends
 
     private boolean isAdbEnabled() {
         final ContentResolver cr = mContext.getContentResolver();
-        return Settings.Global.getInt(cr, Settings.Global.ADB_ENABLED, ADB_SETTING_OFF)
-                != ADB_SETTING_OFF;
+        return Settings.Global.getInt(cr, Settings.Global.ADB_ENABLED, 0) != 0;
     }
 
     @Override
     public void updateState(Preference preference) {
-        ((TwoStatePreference) preference).setChecked(isAdbEnabled());
+        ((TwoStatePreference)preference).setChecked(isAdbEnabled());
     }
 
     public void enablePreference(boolean enabled) {
@@ -98,13 +89,9 @@ public abstract class AbstractEnableAdbPreferenceController extends
 
     @Override
     public boolean handlePreferenceTreeClick(Preference preference) {
-        if (isUserAMonkey()) {
-            return false;
-        }
-
         if (TextUtils.equals(KEY_ENABLE_ADB, preference.getKey())) {
             if (!isAdbEnabled()) {
-                showConfirmationDialog(preference);
+                showConfirmationDialog((SwitchPreference) preference);
             } else {
                 writeAdbSetting(false);
             }
@@ -116,17 +103,14 @@ public abstract class AbstractEnableAdbPreferenceController extends
 
     protected void writeAdbSetting(boolean enabled) {
         Settings.Global.putInt(mContext.getContentResolver(),
-                Settings.Global.ADB_ENABLED, enabled ? ADB_SETTING_ON : ADB_SETTING_OFF);
+                Settings.Global.ADB_ENABLED, enabled ? 1 : 0);
         notifyStateChanged();
     }
 
-    private void notifyStateChanged() {
+    protected void notifyStateChanged() {
         LocalBroadcastManager.getInstance(mContext)
                 .sendBroadcast(new Intent(ACTION_ENABLE_ADB_STATE_CHANGED));
     }
 
-    @VisibleForTesting
-    boolean isUserAMonkey() {
-        return ActivityManager.isUserAMonkey();
-    }
+    public abstract void showConfirmationDialog(SwitchPreference preference);
 }

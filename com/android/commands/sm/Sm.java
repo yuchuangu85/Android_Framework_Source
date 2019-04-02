@@ -16,17 +16,14 @@
 
 package com.android.commands.sm;
 
-import android.os.IVoldTaskListener;
-import android.os.PersistableBundle;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.os.SystemProperties;
 import android.os.storage.DiskInfo;
 import android.os.storage.IStorageManager;
 import android.os.storage.StorageManager;
 import android.os.storage.VolumeInfo;
 import android.util.Log;
-
-import java.util.concurrent.CompletableFuture;
 
 public final class Sm {
     private static final String TAG = "Sm";
@@ -95,8 +92,6 @@ public final class Sm {
             runSetEmulateFbe();
         } else if ("get-fbe-mode".equals(op)) {
             runGetFbeMode();
-        } else if ("idle-maint".equals(op)) {
-            runIdleMaint();
         } else if ("fstrim".equals(op)) {
             runFstrim();
         } else if ("set-virtual-disk".equals(op)) {
@@ -139,7 +134,7 @@ public final class Sm {
     }
 
     public void runHasAdoptable() {
-        System.out.println(StorageManager.hasAdoptable());
+        System.out.println(SystemProperties.getBoolean(StorageManager.PROP_HAS_ADOPTABLE, false));
     }
 
     public void runGetPrimaryStorageUuid() throws RemoteException {
@@ -147,21 +142,9 @@ public final class Sm {
     }
 
     public void runSetForceAdoptable() throws RemoteException {
-        final int mask = StorageManager.DEBUG_ADOPTABLE_FORCE_ON
-                | StorageManager.DEBUG_ADOPTABLE_FORCE_OFF;
-        switch (nextArg()) {
-            case "on":
-            case "true":
-                mSm.setDebugFlags(StorageManager.DEBUG_ADOPTABLE_FORCE_ON, mask);
-                break;
-            case "off":
-                mSm.setDebugFlags(StorageManager.DEBUG_ADOPTABLE_FORCE_OFF, mask);
-                break;
-            case "default":
-            case "false":
-                mSm.setDebugFlags(0, mask);
-                break;
-        }
+        final boolean forceAdoptable = Boolean.parseBoolean(nextArg());
+        mSm.setDebugFlags(forceAdoptable ? StorageManager.DEBUG_FORCE_ADOPTABLE : 0,
+                StorageManager.DEBUG_FORCE_ADOPTABLE);
     }
 
     public void runSetSdcardfs() throws RemoteException {
@@ -226,23 +209,9 @@ public final class Sm {
         mSm.format(volId);
     }
 
-    public void runBenchmark() throws Exception {
+    public void runBenchmark() throws RemoteException {
         final String volId = nextArg();
-        final CompletableFuture<PersistableBundle> result = new CompletableFuture<>();
-        mSm.benchmark(volId, new IVoldTaskListener.Stub() {
-            @Override
-            public void onStatus(int status, PersistableBundle extras) {
-                // Ignored
-            }
-
-            @Override
-            public void onFinished(int status, PersistableBundle extras) {
-                // Touch to unparcel
-                extras.size();
-                result.complete(extras);
-            }
-        });
-        System.out.println(result.get());
+        mSm.benchmark(volId);
     }
 
     public void runForget() throws RemoteException {
@@ -254,37 +223,14 @@ public final class Sm {
         }
     }
 
-    public void runFstrim() throws Exception {
-        final CompletableFuture<PersistableBundle> result = new CompletableFuture<>();
-        mSm.fstrim(0, new IVoldTaskListener.Stub() {
-            @Override
-            public void onStatus(int status, PersistableBundle extras) {
-                // Ignored
-            }
-
-            @Override
-            public void onFinished(int status, PersistableBundle extras) {
-                // Touch to unparcel
-                extras.size();
-                result.complete(extras);
-            }
-        });
-        System.out.println(result.get());
+    public void runFstrim() throws RemoteException {
+        mSm.fstrim(0);
     }
 
     public void runSetVirtualDisk() throws RemoteException {
         final boolean virtualDisk = Boolean.parseBoolean(nextArg());
         mSm.setDebugFlags(virtualDisk ? StorageManager.DEBUG_VIRTUAL_DISK : 0,
                 StorageManager.DEBUG_VIRTUAL_DISK);
-    }
-
-    public void runIdleMaint() throws RemoteException {
-        final boolean im_run = "run".equals(nextArg());
-        if (im_run) {
-            mSm.runIdleMaintenance();
-        } else {
-            mSm.abortIdleMaintenance();
-        }
     }
 
     private String nextArg() {
@@ -301,7 +247,7 @@ public final class Sm {
         System.err.println("       sm list-volumes [public|private|emulated|all]");
         System.err.println("       sm has-adoptable");
         System.err.println("       sm get-primary-storage-uuid");
-        System.err.println("       sm set-force-adoptable [on|off|default]");
+        System.err.println("       sm set-force-adoptable [true|false]");
         System.err.println("       sm set-virtual-disk [true|false]");
         System.err.println("");
         System.err.println("       sm partition DISK [public|private|mixed] [ratio]");
@@ -309,7 +255,6 @@ public final class Sm {
         System.err.println("       sm unmount VOLUME");
         System.err.println("       sm format VOLUME");
         System.err.println("       sm benchmark VOLUME");
-        System.err.println("       sm idle-maint [run|abort]");
         System.err.println("       sm fstrim");
         System.err.println("");
         System.err.println("       sm forget [UUID|all]");

@@ -30,8 +30,8 @@ abstract class GnssStatusListenerHelper extends RemoteListenerHelper<IGnssStatus
     }
 
     @Override
-    protected int registerWithService() {
-        return RemoteListenerHelper.RESULT_SUCCESS;
+    protected boolean registerWithService() {
+        return true;
     }
 
     @Override

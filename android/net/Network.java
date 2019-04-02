@@ -16,17 +16,11 @@
 
 package android.net;
 
-import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.Parcel;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
-import android.util.proto.ProtoOutputStream;
-
-import com.android.okhttp.internalandroidapi.Dns;
-import com.android.okhttp.internalandroidapi.HttpURLConnectionFactory;
-
-import libcore.io.IoUtils;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
@@ -37,13 +31,21 @@ import java.net.MalformedURLException;
 import java.net.Socket;
 import java.net.SocketAddress;
 import java.net.SocketException;
+import java.net.UnknownHostException;
 import java.net.URL;
 import java.net.URLConnection;
-import java.net.UnknownHostException;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
-
 import javax.net.SocketFactory;
+
+import com.android.okhttp.ConnectionPool;
+import com.android.okhttp.Dns;
+import com.android.okhttp.HttpHandler;
+import com.android.okhttp.HttpsHandler;
+import com.android.okhttp.OkHttpClient;
+import com.android.okhttp.OkUrlFactory;
+import com.android.okhttp.internal.Internal;
 
 /**
  * Identifies a {@code Network}.  This is supplied to applications via
@@ -64,9 +66,10 @@ public class Network implements Parcelable {
     // Objects used to perform per-network operations such as getSocketFactory
     // and openConnection, and a lock to protect access to them.
     private volatile NetworkBoundSocketFactory mNetworkBoundSocketFactory = null;
-    // mLock should be used to control write access to mUrlConnectionFactory.
-    // maybeInitUrlConnectionFactory() must be called prior to reading this field.
-    private volatile HttpURLConnectionFactory mUrlConnectionFactory;
+    // mLock should be used to control write access to mConnectionPool and mDns.
+    // maybeInitHttpClient() must be called prior to reading either variable.
+    private volatile ConnectionPool mConnectionPool = null;
+    private volatile Dns mDns = null;
     private final Object mLock = new Object();
 
     // Default connection pool values. These are evaluated at startup, just
@@ -79,26 +82,6 @@ public class Network implements Parcelable {
             httpKeepAlive ? Integer.parseInt(System.getProperty("http.maxConnections", "5")) : 0;
     private static final long httpKeepAliveDurationMs =
             Long.parseLong(System.getProperty("http.keepAliveDuration", "300000"));  // 5 minutes.
-    // Value used to obfuscate network handle longs.
-    // The HANDLE_MAGIC value MUST be kept in sync with the corresponding
-    // value in the native/android/net.c NDK implementation.
-    private static final long HANDLE_MAGIC = 0xcafed00dL;
-    private static final int HANDLE_MAGIC_SIZE = 32;
-
-    // A boolean to control how getAllByName()/getByName() behaves in the face
-    // of Private DNS.
-    //
-    // When true, these calls will request that DNS resolution bypass any
-    // Private DNS that might otherwise apply. Use of this feature is restricted
-    // and permission checks are made by netd (attempts to bypass Private DNS
-    // without appropriate permission are silently turned into vanilla DNS
-    // requests). This only affects DNS queries made using this network object.
-    //
-    // It it not parceled to receivers because (a) it can be set or cleared at
-    // anytime and (b) receivers should be explicit about attempts to bypass
-    // Private DNS so that the intent of the code is easily determined and
-    // code search audits are possible.
-    private boolean mPrivateDnsBypass = false;
 
     /**
      * @hide
@@ -123,7 +106,7 @@ public class Network implements Parcelable {
      * @throws UnknownHostException if the address lookup fails.
      */
     public InetAddress[] getAllByName(String host) throws UnknownHostException {
-        return InetAddress.getAllByNameOnNet(host, getNetIdForResolv());
+        return InetAddress.getAllByNameOnNet(host, netId);
     }
 
     /**
@@ -137,32 +120,7 @@ public class Network implements Parcelable {
      *             if the address lookup fails.
      */
     public InetAddress getByName(String host) throws UnknownHostException {
-        return InetAddress.getByNameOnNet(host, getNetIdForResolv());
-    }
-
-    /**
-     * Specify whether or not Private DNS should be bypassed when attempting
-     * to use {@link getAllByName()}/{@link getByName()} methods on the given
-     * instance for hostname resolution.
-     *
-     * @hide
-     */
-    public void setPrivateDnsBypass(boolean bypass) {
-        mPrivateDnsBypass = bypass;
-    }
-
-    /**
-     * Returns a netid marked with the Private DNS bypass flag.
-     *
-     * This flag must be kept in sync with the NETID_USE_LOCAL_NAMESERVERS flag
-     * in system/netd/include/NetdClient.h.
-     *
-     * @hide
-     */
-    public int getNetIdForResolv() {
-        return mPrivateDnsBypass
-                ? (int) (0x80000000L | (long) netId)  // Non-portable DNS resolution flag.
-                : netId;
+        return InetAddress.getByNameOnNet(host, netId);
     }
 
     /**
@@ -184,15 +142,9 @@ public class Network implements Parcelable {
             for (int i = 0; i < hostAddresses.length; i++) {
                 try {
                     Socket socket = createSocket();
-                    boolean failed = true;
-                    try {
-                        if (localAddress != null) socket.bind(localAddress);
-                        socket.connect(new InetSocketAddress(hostAddresses[i], port));
-                        failed = false;
-                        return socket;
-                    } finally {
-                        if (failed) IoUtils.closeQuietly(socket);
-                    }
+                    if (localAddress != null) socket.bind(localAddress);
+                    socket.connect(new InetSocketAddress(hostAddresses[i], port));
+                    return socket;
                 } catch (IOException e) {
                     if (i == (hostAddresses.length - 1)) throw e;
                 }
@@ -209,27 +161,15 @@ public class Network implements Parcelable {
         public Socket createSocket(InetAddress address, int port, InetAddress localAddress,
                 int localPort) throws IOException {
             Socket socket = createSocket();
-            boolean failed = true;
-            try {
-                socket.bind(new InetSocketAddress(localAddress, localPort));
-                socket.connect(new InetSocketAddress(address, port));
-                failed = false;
-            } finally {
-                if (failed) IoUtils.closeQuietly(socket);
-            }
+            socket.bind(new InetSocketAddress(localAddress, localPort));
+            socket.connect(new InetSocketAddress(address, port));
             return socket;
         }
 
         @Override
         public Socket createSocket(InetAddress host, int port) throws IOException {
             Socket socket = createSocket();
-            boolean failed = true;
-            try {
-                socket.connect(new InetSocketAddress(host, port));
-                failed = false;
-            } finally {
-                if (failed) IoUtils.closeQuietly(socket);
-            }
+            socket.connect(new InetSocketAddress(host, port));
             return socket;
         }
 
@@ -241,13 +181,7 @@ public class Network implements Parcelable {
         @Override
         public Socket createSocket() throws IOException {
             Socket socket = new Socket();
-            boolean failed = true;
-            try {
-                bindSocket(socket);
-                failed = false;
-            } finally {
-                if (failed) IoUtils.closeQuietly(socket);
-            }
+            bindSocket(socket);
             return socket;
         }
     }
@@ -287,19 +221,19 @@ public class Network implements Parcelable {
     // will be instantiated in the near future with the same NetID. A good
     // solution would involve purging empty (or when all connections are timed
     // out) ConnectionPools.
-    private void maybeInitUrlConnectionFactory() {
+    private void maybeInitHttpClient() {
         synchronized (mLock) {
-            if (mUrlConnectionFactory == null) {
-                // Set configuration on the HttpURLConnectionFactory that will be good for all
-                // connections created by this Network. Configuration that might vary is left
-                // until openConnection() and passed as arguments.
-                Dns dnsLookup = hostname -> Arrays.asList(Network.this.getAllByName(hostname));
-                HttpURLConnectionFactory urlConnectionFactory = new HttpURLConnectionFactory();
-                urlConnectionFactory.setDns(dnsLookup); // Let traffic go via dnsLookup
-                // A private connection pool just for this Network.
-                urlConnectionFactory.setNewConnectionPool(httpMaxConnections,
+            if (mDns == null) {
+                mDns = new Dns() {
+                    @Override
+                    public List<InetAddress> lookup(String hostname) throws UnknownHostException {
+                        return Arrays.asList(Network.this.getAllByName(hostname));
+                    }
+                };
+            }
+            if (mConnectionPool == null) {
+                mConnectionPool = new ConnectionPool(httpMaxConnections,
                         httpKeepAliveDurationMs, TimeUnit.MILLISECONDS);
-                mUrlConnectionFactory = urlConnectionFactory;
             }
         }
     }
@@ -320,7 +254,7 @@ public class Network implements Parcelable {
         }
         // TODO: Should this be optimized to avoid fetching the global proxy for every request?
         final ProxyInfo proxyInfo = cm.getProxyForNetwork(this);
-        final java.net.Proxy proxy;
+        java.net.Proxy proxy = null;
         if (proxyInfo != null) {
             proxy = proxyInfo.makeProxy();
         } else {
@@ -342,9 +276,26 @@ public class Network implements Parcelable {
      */
     public URLConnection openConnection(URL url, java.net.Proxy proxy) throws IOException {
         if (proxy == null) throw new IllegalArgumentException("proxy is null");
-        maybeInitUrlConnectionFactory();
-        SocketFactory socketFactory = getSocketFactory();
-        return mUrlConnectionFactory.openConnection(url, socketFactory, proxy);
+        maybeInitHttpClient();
+        String protocol = url.getProtocol();
+        OkUrlFactory okUrlFactory;
+        // TODO: HttpHandler creates OkUrlFactory instances that share the default ResponseCache.
+        // Could this cause unexpected behavior?
+        if (protocol.equals("http")) {
+            okUrlFactory = HttpHandler.createHttpOkUrlFactory(proxy);
+        } else if (protocol.equals("https")) {
+            okUrlFactory = HttpsHandler.createHttpsOkUrlFactory(proxy);
+        } else {
+            // OkHttp only supports HTTP and HTTPS and returns a null URLStreamHandler if
+            // passed another protocol.
+            throw new MalformedURLException("Invalid URL or unrecognized protocol " + protocol);
+        }
+        OkHttpClient client = okUrlFactory.client();
+        client.setSocketFactory(getSocketFactory()).setConnectionPool(mConnectionPool);
+        // Let network traffic go via mDns
+        client.setDns(mDns);
+
+        return okUrlFactory.open(url);
     }
 
     /**
@@ -406,25 +357,6 @@ public class Network implements Parcelable {
     }
 
     /**
-     * Returns a {@link Network} object given a handle returned from {@link #getNetworkHandle}.
-     *
-     * @param networkHandle a handle returned from {@link #getNetworkHandle}.
-     * @return A {@link Network} object derived from {@code networkHandle}.
-     */
-    public static Network fromNetworkHandle(long networkHandle) {
-        if (networkHandle == 0) {
-            throw new IllegalArgumentException(
-                    "Network.fromNetworkHandle refusing to instantiate NETID_UNSET Network.");
-        }
-        if ((networkHandle & ((1L << HANDLE_MAGIC_SIZE) - 1)) != HANDLE_MAGIC
-                || networkHandle < 0) {
-            throw new IllegalArgumentException(
-                    "Value passed to fromNetworkHandle() is not a network handle.");
-        }
-        return new Network((int) (networkHandle >> HANDLE_MAGIC_SIZE));
-    }
-
-    /**
      * Returns a handle representing this {@code Network}, for use with the NDK API.
      */
     public long getNetworkHandle() {
@@ -446,10 +378,14 @@ public class Network implements Parcelable {
         // At some future date it may be desirable to realign the handle with
         // Multiple Provisioning Domains API recommendations, as made by the
         // IETF mif working group.
+        //
+        // The HANDLE_MAGIC value MUST be kept in sync with the corresponding
+        // value in the native/android/net.c NDK implementation.
         if (netId == 0) {
             return 0L;  // make this zero condition obvious for debugging
         }
-        return (((long) netId) << HANDLE_MAGIC_SIZE) | HANDLE_MAGIC;
+        final long HANDLE_MAGIC = 0xfacade;
+        return (((long) netId) << 32) | HANDLE_MAGIC;
     }
 
     // implement the Parcelable interface
@@ -488,12 +424,5 @@ public class Network implements Parcelable {
     @Override
     public String toString() {
         return Integer.toString(netId);
-    }
-
-    /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
-        final long token = proto.start(fieldId);
-        proto.write(NetworkProto.NET_ID, netId);
-        proto.end(token);
     }
 }

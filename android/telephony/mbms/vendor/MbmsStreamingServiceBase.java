@@ -18,7 +18,6 @@ package android.telephony.mbms.vendor;
 
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
-import android.annotation.TestApi;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Binder;
@@ -38,8 +37,7 @@ import java.util.List;
  * object from its {@link android.app.Service#onBind(Intent)} method.
  * @hide
  */
-@SystemApi
-@TestApi
+//@SystemApi
 public class MbmsStreamingServiceBase extends IMbmsStreamingService.Stub {
     /**
      * Initialize streaming service for this app and subId, registering the listener.
@@ -67,20 +65,18 @@ public class MbmsStreamingServiceBase extends IMbmsStreamingService.Stub {
     @Override
     public final int initialize(final IMbmsStreamingSessionCallback callback,
             final int subscriptionId) throws RemoteException {
-        if (callback == null) {
-            throw new NullPointerException("Callback must not be null");
-        }
-
         final int uid = Binder.getCallingUid();
+        callback.asBinder().linkToDeath(new DeathRecipient() {
+            @Override
+            public void binderDied() {
+                onAppCallbackDied(uid, subscriptionId);
+            }
+        }, 0);
 
-        int result = initialize(new MbmsStreamingSessionCallback() {
+        return initialize(new MbmsStreamingSessionCallback() {
             @Override
             public void onError(final int errorCode, final String message) {
                 try {
-                    if (errorCode == MbmsErrors.UNKNOWN) {
-                        throw new IllegalArgumentException(
-                                "Middleware cannot send an unknown error.");
-                    }
                     callback.onError(errorCode, message);
                 } catch (RemoteException e) {
                     onAppCallbackDied(uid, subscriptionId);
@@ -105,17 +101,6 @@ public class MbmsStreamingServiceBase extends IMbmsStreamingService.Stub {
                 }
             }
         }, subscriptionId);
-
-        if (result == MbmsErrors.SUCCESS) {
-            callback.asBinder().linkToDeath(new DeathRecipient() {
-                @Override
-                public void binderDied() {
-                    onAppCallbackDied(uid, subscriptionId);
-                }
-            }, 0);
-        }
-
-        return result;
     }
 
 
@@ -167,20 +152,18 @@ public class MbmsStreamingServiceBase extends IMbmsStreamingService.Stub {
     @Override
     public int startStreaming(final int subscriptionId, String serviceId,
             final IStreamingServiceCallback callback) throws RemoteException {
-        if (callback == null) {
-            throw new NullPointerException("Callback must not be null");
-        }
-
         final int uid = Binder.getCallingUid();
+        callback.asBinder().linkToDeath(new DeathRecipient() {
+            @Override
+            public void binderDied() {
+                onAppCallbackDied(uid, subscriptionId);
+            }
+        }, 0);
 
-        int result = startStreaming(subscriptionId, serviceId, new StreamingServiceCallback() {
+        return startStreaming(subscriptionId, serviceId, new StreamingServiceCallback() {
             @Override
             public void onError(final int errorCode, final String message) {
                 try {
-                    if (errorCode == MbmsErrors.UNKNOWN) {
-                        throw new IllegalArgumentException(
-                                "Middleware cannot send an unknown error.");
-                    }
                     callback.onError(errorCode, message);
                 } catch (RemoteException e) {
                     onAppCallbackDied(uid, subscriptionId);
@@ -224,17 +207,6 @@ public class MbmsStreamingServiceBase extends IMbmsStreamingService.Stub {
                 }
             }
         });
-
-        if (result == MbmsErrors.SUCCESS) {
-            callback.asBinder().linkToDeath(new DeathRecipient() {
-                @Override
-                public void binderDied() {
-                    onAppCallbackDied(uid, subscriptionId);
-                }
-            }, 0);
-        }
-
-        return result;
     }
 
     /**

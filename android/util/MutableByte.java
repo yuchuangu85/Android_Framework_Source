@@ -17,13 +17,11 @@
 package android.util;
 
 /**
- * @deprecated This class will be removed from a future version of the Android API.
  */
-@Deprecated
 public final class MutableByte {
-    public byte value;
+  public byte value;
 
-    public MutableByte(byte value) {
-        this.value = value;
-    }
+  public MutableByte(byte value) {
+    this.value = value;
+  }
 }

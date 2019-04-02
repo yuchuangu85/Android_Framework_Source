@@ -17,13 +17,9 @@
 package android.graphics;
 
 import android.content.res.AssetManager;
-
-import java.io.FileInputStream;
 import java.io.InputStream;
+import java.io.FileInputStream;
 
-/**
- * @deprecated Prefer {@link android.graphics.drawable.AnimatedImageDrawable}.
- */
 public class Movie {
     private long mNativeMovie;
 

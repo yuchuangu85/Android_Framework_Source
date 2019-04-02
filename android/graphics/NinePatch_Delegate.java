@@ -160,12 +160,8 @@ public final class NinePatch_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nativeFinalize(long nativeNinePatch) {
-        NinePatch_Delegate delegate = sManager.getDelegate(nativeNinePatch);
-        if (delegate != null && delegate.chunk != null) {
-            sChunkCache.remove(delegate.chunk);
-        }
-        sManager.removeJavaReferenceFor(nativeNinePatch);
+    /*package*/ static void nativeFinalize(long chunk) {
+        sManager.removeJavaReferenceFor(chunk);
     }
 
 

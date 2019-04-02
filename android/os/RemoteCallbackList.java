@@ -19,7 +19,6 @@ package android.os;
 import android.util.ArrayMap;
 import android.util.Slog;
 
-import java.io.PrintWriter;
 import java.util.function.Consumer;
 
 /**
@@ -334,23 +333,6 @@ public class RemoteCallbackList<E extends IInterface> {
     }
 
     /**
-     * Performs {@code action} for each cookie associated with a callback, calling
-     * {@link #beginBroadcast()}/{@link #finishBroadcast()} before/after looping
-     *
-     * @hide
-     */
-    public <C> void broadcastForEachCookie(Consumer<C> action) {
-        int itemCount = beginBroadcast();
-        try {
-            for (int i = 0; i < itemCount; i++) {
-                action.accept((C) getBroadcastCookie(i));
-            }
-        } finally {
-            finishBroadcast();
-        }
-    }
-
-    /**
      * Returns the number of registered callbacks. Note that the number of registered
      * callbacks may differ from the value returned by {@link #beginBroadcast()} since
      * the former returns the number of callbacks registered at the time of the call
@@ -415,13 +397,6 @@ public class RemoteCallbackList<E extends IInterface> {
             }
             return mCallbacks.valueAt(index).mCookie;
         }
-    }
-
-    /** @hide */
-    public void dump(PrintWriter pw, String prefix) {
-        pw.print(prefix); pw.print("callbacks: "); pw.println(mCallbacks.size());
-        pw.print(prefix); pw.print("killed: "); pw.println(mKilled);
-        pw.print(prefix); pw.print("broadcasts count: "); pw.println(mBroadcastCount);
     }
 
     private void logExcessiveCallbacks() {

@@ -16,7 +16,6 @@
 package android.hardware.location;
 
 import android.annotation.SystemApi;
-import android.hardware.contexthub.V1_0.ContextHub;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -26,55 +25,25 @@ import java.util.Arrays;
  * @hide
  */
 @SystemApi
-public class ContextHubInfo implements Parcelable {
+public class ContextHubInfo {
     private int mId;
     private String mName;
     private String mVendor;
     private String mToolchain;
     private int mPlatformVersion;
+    private int mStaticSwVersion;
     private int mToolchainVersion;
     private float mPeakMips;
     private float mStoppedPowerDrawMw;
     private float mSleepPowerDrawMw;
     private float mPeakPowerDrawMw;
     private int mMaxPacketLengthBytes;
-    private byte mChreApiMajorVersion;
-    private byte mChreApiMinorVersion;
-    private short mChrePatchVersion;
-    private long mChrePlatformId;
 
     private int[] mSupportedSensors;
 
     private MemoryRegion[] mMemoryRegions;
 
-    /*
-     * TODO(b/67734082): Deprecate this constructor and mark private fields as final.
-     */
     public ContextHubInfo() {
-    }
-
-    /**
-     * @hide
-     */
-    public ContextHubInfo(ContextHub contextHub) {
-        mId = contextHub.hubId;
-        mName = contextHub.name;
-        mVendor = contextHub.vendor;
-        mToolchain = contextHub.toolchain;
-        mPlatformVersion = contextHub.platformVersion;
-        mToolchainVersion = contextHub.toolchainVersion;
-        mPeakMips = contextHub.peakMips;
-        mStoppedPowerDrawMw = contextHub.stoppedPowerDrawMw;
-        mSleepPowerDrawMw = contextHub.sleepPowerDrawMw;
-        mPeakPowerDrawMw = contextHub.peakPowerDrawMw;
-        mMaxPacketLengthBytes = contextHub.maxSupportedMsgLen;
-        mChrePlatformId = contextHub.chrePlatformId;
-        mChreApiMajorVersion = contextHub.chreApiMajorVersion;
-        mChreApiMinorVersion = contextHub.chreApiMinorVersion;
-        mChrePatchVersion = contextHub.chrePatchVersion;
-
-        mSupportedSensors = new int[0];
-        mMemoryRegions = new MemoryRegion[0];
     }
 
     /**
@@ -88,12 +57,34 @@ public class ContextHubInfo implements Parcelable {
     }
 
     /**
+     * set the context hub unique identifer
+     *
+     * @param bytes - Maximum number of bytes per message
+     *
+     * @hide
+     */
+    public void setMaxPacketLenBytes(int bytes) {
+        mMaxPacketLengthBytes = bytes;
+    }
+
+    /**
      * get the context hub unique identifer
      *
      * @return int - unique system wide identifier
      */
     public int getId() {
         return mId;
+    }
+
+    /**
+     * set the context hub unique identifer
+     *
+     * @param id - unique system wide identifier for the hub
+     *
+     * @hide
+     */
+    public void setId(int id) {
+        mId = id;
     }
 
     /**
@@ -106,12 +97,34 @@ public class ContextHubInfo implements Parcelable {
     }
 
     /**
+     * set a string as the hub name
+     *
+     * @param name - the name for the hub
+     *
+     * @hide
+     */
+    public void setName(String name) {
+        mName = name;
+    }
+
+    /**
      * get a string as the vendor name
      *
      * @return String - a name for the vendor
      */
     public String getVendor() {
         return mVendor;
+    }
+
+    /**
+     * set a string as the vendor name
+     *
+     * @param vendor - a name for the vendor
+     *
+     * @hide
+     */
+    public void setVendor(String vendor) {
+        mVendor = vendor;
     }
 
     /**
@@ -124,6 +137,17 @@ public class ContextHubInfo implements Parcelable {
     }
 
     /**
+     * set tool chain string
+     *
+     * @param toolchain - description of the tool chain
+     *
+     * @hide
+     */
+    public void setToolchain(String toolchain) {
+        mToolchain = toolchain;
+    }
+
+    /**
      * get platform version
      *
      * @return int - platform version number
@@ -133,12 +157,34 @@ public class ContextHubInfo implements Parcelable {
     }
 
     /**
+     * set platform version
+     *
+     * @param platformVersion - platform version number
+     *
+     * @hide
+     */
+    public void setPlatformVersion(int platformVersion) {
+        mPlatformVersion = platformVersion;
+    }
+
+    /**
      * get static platform version number
      *
      * @return int - platform version number
      */
     public int getStaticSwVersion() {
-        return (mChreApiMajorVersion << 24) | (mChreApiMinorVersion << 16) | (mChrePatchVersion);
+        return mStaticSwVersion;
+    }
+
+    /**
+     * set platform software version
+     *
+     * @param staticSwVersion - platform static s/w version number
+     *
+     * @hide
+     */
+    public void setStaticSwVersion(int staticSwVersion) {
+        mStaticSwVersion = staticSwVersion;
     }
 
     /**
@@ -151,12 +197,34 @@ public class ContextHubInfo implements Parcelable {
     }
 
     /**
+     * set the tool chain version number
+     *
+     * @param toolchainVersion - tool chain version number
+     *
+     * @hide
+     */
+    public void setToolchainVersion(int toolchainVersion) {
+        mToolchainVersion = toolchainVersion;
+    }
+
+    /**
      * get the peak processing mips the hub can support
      *
      * @return float - peak MIPS that this hub can deliver
      */
     public float getPeakMips() {
         return mPeakMips;
+    }
+
+    /**
+     * set the peak mips that this hub can support
+     *
+     * @param peakMips - peak mips this hub can deliver
+     *
+     * @hide
+     */
+    public void setPeakMips(float peakMips) {
+        mPeakMips = peakMips;
     }
 
     /**
@@ -170,6 +238,17 @@ public class ContextHubInfo implements Parcelable {
      */
     public float getStoppedPowerDrawMw() {
         return mStoppedPowerDrawMw;
+    }
+
+    /**
+     * Set the power consumed by the hub in stopped state
+     *
+     * @param stoppedPowerDrawMw - stopped power in milli watts
+     *
+     * @hide
+     */
+    public void setStoppedPowerDrawMw(float stoppedPowerDrawMw) {
+        mStoppedPowerDrawMw = stoppedPowerDrawMw;
     }
 
     /**
@@ -188,6 +267,17 @@ public class ContextHubInfo implements Parcelable {
     }
 
     /**
+     * Set the sleep power draw in milliwatts
+     *
+     * @param sleepPowerDrawMw - sleep power draw in milliwatts.
+     *
+     * @hide
+     */
+    public void setSleepPowerDrawMw(float sleepPowerDrawMw) {
+        mSleepPowerDrawMw = sleepPowerDrawMw;
+    }
+
+    /**
      * get the peak powe draw of the hub. This is the power consumed
      * by the hub at maximum load.
      *
@@ -195,6 +285,18 @@ public class ContextHubInfo implements Parcelable {
      */
     public float getPeakPowerDrawMw() {
         return mPeakPowerDrawMw;
+    }
+
+    /**
+     * set the peak power draw of the hub
+     *
+     * @param peakPowerDrawMw - peak power draw of the hub in
+     *                        milliwatts.
+     *
+     * @hide
+     */
+    public void setPeakPowerDrawMw(float peakPowerDrawMw) {
+        mPeakPowerDrawMw = peakPowerDrawMw;
     }
 
     /**
@@ -220,51 +322,46 @@ public class ContextHubInfo implements Parcelable {
     }
 
     /**
-     * @return the CHRE platform ID as defined in chre/version.h
+     * set the supported sensors on this hub
+     *
+     * @param supportedSensors - supported sensors on this hub
+     *
+     * @hide
      */
-    public long getChrePlatformId() {
-        return mChrePlatformId;
+    public void setSupportedSensors(int[] supportedSensors) {
+        mSupportedSensors = Arrays.copyOf(supportedSensors, supportedSensors.length);
     }
 
     /**
-     * @return the CHRE API's major version as defined in chre/version.h
+     * set memory regions for this hub
+     *
+     * @param memoryRegions - memory regions information
+     *
+     * @see MemoryRegion
+     *
+     * @hide
      */
-    public byte getChreApiMajorVersion() {
-        return mChreApiMajorVersion;
-    }
-
-    /**
-     * @return the CHRE API's minor version as defined in chre/version.h
-     */
-    public byte getChreApiMinorVersion() {
-        return mChreApiMinorVersion;
-    }
-
-    /**
-     * @return the CHRE patch version as defined in chre/version.h
-     */
-    public short getChrePatchVersion() {
-        return mChrePatchVersion;
+    public void setMemoryRegions(MemoryRegion[] memoryRegions) {
+        mMemoryRegions = Arrays.copyOf(memoryRegions, memoryRegions.length);
     }
 
     @Override
     public String toString() {
-        String retVal = "";
-        retVal += "ID/handle : " + mId;
-        retVal += ", Name : " + mName;
-        retVal += "\n\tVendor : " + mVendor;
-        retVal += ", Toolchain : " + mToolchain;
-        retVal += ", Toolchain version: 0x" + Integer.toHexString(mToolchainVersion);
-        retVal += "\n\tPlatformVersion : 0x" + Integer.toHexString(mPlatformVersion);
-        retVal += ", SwVersion : "
-                + mChreApiMajorVersion + "." + mChreApiMinorVersion + "." + mChrePatchVersion;
-        retVal += ", CHRE platform ID: 0x" + Long.toHexString(mChrePlatformId);
-        retVal += "\n\tPeakMips : " + mPeakMips;
-        retVal += ", StoppedPowerDraw : " + mStoppedPowerDrawMw + " mW";
-        retVal += ", PeakPowerDraw : " + mPeakPowerDrawMw + " mW";
-        retVal += ", MaxPacketLength : " + mMaxPacketLengthBytes + " Bytes";
+      String retVal = "";
+      retVal += "Id : " + mId;
+      retVal += ", Name : " + mName;
+      retVal += "\n\tVendor : " + mVendor;
+      retVal += ", ToolChain : " + mToolchain;
+      retVal += "\n\tPlatformVersion : " + mPlatformVersion;
+      retVal += ", StaticSwVersion : " + mStaticSwVersion;
+      retVal += "\n\tPeakMips : " + mPeakMips;
+      retVal += ", StoppedPowerDraw : " + mStoppedPowerDrawMw + " mW";
+      retVal += ", PeakPowerDraw : " + mPeakPowerDrawMw + " mW";
+      retVal += ", MaxPacketLength : " + mMaxPacketLengthBytes + " Bytes";
+      retVal += "\n\tSupported sensors : " + Arrays.toString(mSupportedSensors);
+      retVal += "\n\tMemory Regions : " + Arrays.toString(mMemoryRegions);
 
-        return retVal;
+      return retVal;
     }
 
     private ContextHubInfo(Parcel in) {
@@ -274,15 +371,12 @@ public class ContextHubInfo implements Parcelable {
         mToolchain = in.readString();
         mPlatformVersion = in.readInt();
         mToolchainVersion = in.readInt();
+        mStaticSwVersion = in.readInt();
         mPeakMips = in.readFloat();
         mStoppedPowerDrawMw = in.readFloat();
         mSleepPowerDrawMw = in.readFloat();
         mPeakPowerDrawMw = in.readFloat();
         mMaxPacketLengthBytes = in.readInt();
-        mChrePlatformId = in.readLong();
-        mChreApiMajorVersion = in.readByte();
-        mChreApiMinorVersion = in.readByte();
-        mChrePatchVersion = (short) in.readInt();
 
         int numSupportedSensors = in.readInt();
         mSupportedSensors = new int[numSupportedSensors];
@@ -301,15 +395,12 @@ public class ContextHubInfo implements Parcelable {
         out.writeString(mToolchain);
         out.writeInt(mPlatformVersion);
         out.writeInt(mToolchainVersion);
+        out.writeInt(mStaticSwVersion);
         out.writeFloat(mPeakMips);
         out.writeFloat(mStoppedPowerDrawMw);
         out.writeFloat(mSleepPowerDrawMw);
         out.writeFloat(mPeakPowerDrawMw);
         out.writeInt(mMaxPacketLengthBytes);
-        out.writeLong(mChrePlatformId);
-        out.writeByte(mChreApiMajorVersion);
-        out.writeByte(mChreApiMinorVersion);
-        out.writeInt(mChrePatchVersion);
 
         out.writeInt(mSupportedSensors.length);
         out.writeIntArray(mSupportedSensors);

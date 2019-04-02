@@ -26,6 +26,7 @@ import android.app.BroadcastOptions;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.PendingIntent.CanceledException;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.ContentResolver;
@@ -145,7 +146,7 @@ public abstract class InboundSmsHandler extends StateMachine {
     /** Sent on exit from {@link WaitingState} to return to idle after sending all broadcasts. */
     private static final int EVENT_RETURN_TO_IDLE = 4;
 
-    /** Release wakelock after {@link #mWakeLockTimeout} when returning to idle state. */
+    /** Release wakelock after {@link mWakeLockTimeout} when returning to idle state. */
     private static final int EVENT_RELEASE_WAKELOCK = 5;
 
     /** Sent by {@link SmsBroadcastUndelivered} after cleaning the raw table. */
@@ -156,6 +157,17 @@ public abstract class InboundSmsHandler extends StateMachine {
 
     /** New SMS received as an AsyncResult. */
     public static final int EVENT_INJECT_SMS = 8;
+
+    /** Update tracker object; used only in waiting state */
+    private static final int EVENT_UPDATE_TRACKER = 9;
+
+    /** Timeout in case state machine is stuck in a state for too long; used only in waiting
+     * state */
+    private static final int EVENT_STATE_TIMEOUT = 10;
+
+    /** Timeout duration for EVENT_STATE_TIMEOUT */
+    @VisibleForTesting
+    public static final int STATE_TIMEOUT = 30000;
 
     /** Wakelock release delay when returning to idle state. */
     private static final int WAKELOCK_TIMEOUT = 3000;
@@ -449,6 +461,7 @@ public abstract class InboundSmsHandler extends StateMachine {
                     // if any broadcasts were sent, transition to waiting state
                     InboundSmsTracker inboundSmsTracker = (InboundSmsTracker) msg.obj;
                     if (processMessagePart(inboundSmsTracker)) {
+                        sendMessage(EVENT_UPDATE_TRACKER, inboundSmsTracker);
                         transitionTo(mWaitingState);
                     } else {
                         // if event is sent from SmsBroadcastUndelivered.broadcastSms(), and
@@ -492,10 +505,13 @@ public abstract class InboundSmsHandler extends StateMachine {
      * {@link IdleState} after any deferred {@link #EVENT_BROADCAST_SMS} messages are handled.
      */
     private class WaitingState extends State {
+        private InboundSmsTracker mTracker;
 
         @Override
         public void enter() {
             if (DBG) log("entering Waiting state");
+            mTracker = null;
+            sendMessageDelayed(EVENT_STATE_TIMEOUT, STATE_TIMEOUT);
         }
 
         @Override
@@ -504,12 +520,26 @@ public abstract class InboundSmsHandler extends StateMachine {
             // Before moving to idle state, set wakelock timeout to WAKE_LOCK_TIMEOUT milliseconds
             // to give any receivers time to take their own wake locks
             setWakeLockTimeout(WAKELOCK_TIMEOUT);
+            if (VDBG) {
+                if (hasMessages(EVENT_STATE_TIMEOUT)) {
+                    log("exiting Waiting state: removing EVENT_STATE_TIMEOUT from message queue");
+                }
+                if (hasMessages(EVENT_UPDATE_TRACKER)) {
+                    log("exiting Waiting state: removing EVENT_UPDATE_TRACKER from message queue");
+                }
+            }
+            removeMessages(EVENT_STATE_TIMEOUT);
+            removeMessages(EVENT_UPDATE_TRACKER);
         }
 
         @Override
         public boolean processMessage(Message msg) {
             log("WaitingState.processMessage:" + msg.what);
             switch (msg.what) {
+                case EVENT_UPDATE_TRACKER:
+                    mTracker = (InboundSmsTracker) msg.obj;
+                    return HANDLED;
+
                 case EVENT_BROADCAST_SMS:
                     // defer until the current broadcast completes
                     deferMessage(msg);
@@ -523,6 +553,18 @@ public abstract class InboundSmsHandler extends StateMachine {
 
                 case EVENT_RETURN_TO_IDLE:
                     // not ready to return to idle; ignore
+                    return HANDLED;
+
+                case EVENT_STATE_TIMEOUT:
+                    // stuck in WaitingState for too long; drop the message and exit this state
+                    if (mTracker != null) {
+                        log("WaitingState.processMessage: EVENT_STATE_TIMEOUT; dropping message");
+                        dropSms(new SmsBroadcastReceiver(mTracker));
+                    } else {
+                        log("WaitingState.processMessage: EVENT_STATE_TIMEOUT; mTracker is null "
+                                + "- sending EVENT_BROADCAST_COMPLETE");
+                        sendMessage(EVENT_BROADCAST_COMPLETE);
+                    }
                     return HANDLED;
 
                 default:
@@ -561,9 +603,9 @@ public abstract class InboundSmsHandler extends StateMachine {
      */
     private void handleInjectSms(AsyncResult ar) {
         int result;
-        SmsDispatchersController.SmsInjectionCallback callback = null;
+        PendingIntent receivedIntent = null;
         try {
-            callback = (SmsDispatchersController.SmsInjectionCallback) ar.userObj;
+            receivedIntent = (PendingIntent) ar.userObj;
             SmsMessage sms = (SmsMessage) ar.result;
             if (sms == null) {
               result = Intents.RESULT_SMS_GENERIC_ERROR;
@@ -575,8 +617,10 @@ public abstract class InboundSmsHandler extends StateMachine {
             result = Intents.RESULT_SMS_GENERIC_ERROR;
         }
 
-        if (callback != null) {
-            callback.onSmsInjectedResult(result);
+        if (receivedIntent != null) {
+            try {
+                receivedIntent.send(result);
+            } catch (CanceledException e) { }
         }
     }
 
@@ -759,17 +803,10 @@ public abstract class InboundSmsHandler extends StateMachine {
         int destPort = tracker.getDestPort();
         boolean block = false;
 
-        // Do not process when the message count is invalid.
-        if (messageCount <= 0) {
-            loge("processMessagePart: returning false due to invalid message count "
-                    + messageCount);
-            return false;
-        }
-
         if (messageCount == 1) {
             // single-part message
             pdus = new byte[][]{tracker.getPdu()};
-            block = BlockChecker.isBlocked(mContext, tracker.getDisplayAddress(), null);
+            block = BlockChecker.isBlocked(mContext, tracker.getDisplayAddress());
         } else {
             // multi-part message
             Cursor cursor = null;
@@ -801,17 +838,6 @@ public abstract class InboundSmsHandler extends StateMachine {
                     int index = cursor.getInt(PDU_SEQUENCE_PORT_PROJECTION_INDEX_MAPPING
                             .get(SEQUENCE_COLUMN)) - tracker.getIndexOffset();
 
-                    // The invalid PDUs can be received and stored in the raw table. The range
-                    // check ensures the process not crash even if the seqNumber in the
-                    // UserDataHeader is invalid.
-                    if (index >= pdus.length || index < 0) {
-                        loge(String.format(
-                                "processMessagePart: invalid seqNumber = %d, messageCount = %d",
-                                index + tracker.getIndexOffset(),
-                                messageCount));
-                        continue;
-                    }
-
                     pdus[index] = HexDump.hexStringToByteArray(cursor.getString(
                             PDU_SEQUENCE_PORT_PROJECTION_INDEX_MAPPING.get(PDU_COLUMN)));
 
@@ -837,7 +863,7 @@ public abstract class InboundSmsHandler extends StateMachine {
                         // could be used for block checking purpose.
                         block = BlockChecker.isBlocked(mContext,
                                 cursor.getString(PDU_SEQUENCE_PORT_PROJECTION_INDEX_MAPPING
-                                        .get(DISPLAY_ADDRESS_COLUMN)), null);
+                                        .get(DISPLAY_ADDRESS_COLUMN)));
                     }
                 }
             } catch (SQLException e) {

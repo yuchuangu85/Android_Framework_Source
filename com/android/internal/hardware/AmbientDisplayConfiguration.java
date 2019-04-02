@@ -59,11 +59,8 @@ public class AmbientDisplayConfiguration {
     }
 
     public boolean pulseOnPickupAvailable() {
-        return dozePulsePickupSensorAvailable() && ambientDisplayAvailable();
-    }
-
-    public boolean dozePulsePickupSensorAvailable() {
-        return mContext.getResources().getBoolean(R.bool.config_dozePulsePickup);
+        return mContext.getResources().getBoolean(R.bool.config_dozePulsePickup)
+                && ambientDisplayAvailable();
     }
 
     public boolean pulseOnPickupCanBeModified(int user) {
@@ -76,11 +73,7 @@ public class AmbientDisplayConfiguration {
     }
 
     public boolean pulseOnDoubleTapAvailable() {
-        return doubleTapSensorAvailable() && ambientDisplayAvailable();
-    }
-
-    public boolean doubleTapSensorAvailable() {
-        return !TextUtils.isEmpty(doubleTapSensorType());
+        return !TextUtils.isEmpty(doubleTapSensorType()) && ambientDisplayAvailable();
     }
 
     public String doubleTapSensorType() {
@@ -122,7 +115,7 @@ public class AmbientDisplayConfiguration {
         return boolSettingDefaultOff(Settings.Secure.ACCESSIBILITY_DISPLAY_INVERSION_ENABLED, user);
     }
 
-    public boolean ambientDisplayAvailable() {
+    private boolean ambientDisplayAvailable() {
         return !TextUtils.isEmpty(ambientDisplayComponent());
     }
 

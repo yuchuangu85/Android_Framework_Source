@@ -11,7 +11,6 @@ public class FullBackupDataOutput {
     // Currently a name-scoping shim around BackupDataOutput
     private final BackupDataOutput mData;
     private final long mQuota;
-    private final int mTransportFlags;
     private long mSize;
 
     /**
@@ -24,49 +23,22 @@ public class FullBackupDataOutput {
         return mQuota;
     }
 
-    /**
-     * Returns flags with additional information about the backup transport. For supported flags see
-     * {@link android.app.backup.BackupAgent}
-     *
-     * @see BackupDataOutput#getTransportFlags()
-     */
-    public int getTransportFlags() {
-        return mTransportFlags;
-    }
-
     /** @hide - used only in measure operation */
     public FullBackupDataOutput(long quota) {
         mData = null;
         mQuota = quota;
         mSize = 0;
-        mTransportFlags = 0;
-    }
-
-    /** @hide - used only in measure operation */
-    public FullBackupDataOutput(long quota, int transportFlags) {
-        mData = null;
-        mQuota = quota;
-        mSize = 0;
-        mTransportFlags = transportFlags;
     }
 
     /** @hide */
     public FullBackupDataOutput(ParcelFileDescriptor fd, long quota) {
-        mData = new BackupDataOutput(fd.getFileDescriptor(), quota, 0);
+        mData = new BackupDataOutput(fd.getFileDescriptor(), quota);
         mQuota = quota;
-        mTransportFlags = 0;
-    }
-
-    /** @hide */
-    public FullBackupDataOutput(ParcelFileDescriptor fd, long quota, int transportFlags) {
-        mData = new BackupDataOutput(fd.getFileDescriptor(), quota, transportFlags);
-        mQuota = quota;
-        mTransportFlags = transportFlags;
     }
 
     /** @hide - used only internally to the backup manager service's stream construction */
     public FullBackupDataOutput(ParcelFileDescriptor fd) {
-        this(fd, /*quota=*/ -1, /*transportFlags=*/ 0);
+        this(fd, -1);
     }
 
     /** @hide */

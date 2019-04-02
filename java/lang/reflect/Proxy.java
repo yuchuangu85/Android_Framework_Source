@@ -240,6 +240,9 @@ public class Proxy implements java.io.Serializable {
 
     private static final long serialVersionUID = -2222568056686623797L;
 
+    /** prefix for all proxy class names */
+    private final static String proxyClassNamePrefix = "$Proxy";
+
     /** parameter types of a proxy class constructor */
     private static final Class<?>[] constructorParams =
         { InvocationHandler.class };
@@ -255,6 +258,31 @@ public class Proxy implements java.io.Serializable {
      * @serial
      */
     protected InvocationHandler h;
+
+    /**
+     * Orders methods by their name, parameters, return type and inheritance relationship.
+     *
+     * @hide
+     */
+    private static final Comparator<Method> ORDER_BY_SIGNATURE_AND_SUBTYPE = new Comparator<Method>() {
+        @Override public int compare(Method a, Method b) {
+            int comparison = Method.ORDER_BY_SIGNATURE.compare(a, b);
+            if (comparison != 0) {
+                return comparison;
+            }
+            Class<?> aClass = a.getDeclaringClass();
+            Class<?> bClass = b.getDeclaringClass();
+            if (aClass == bClass) {
+                return 0;
+            } else if (aClass.isAssignableFrom(bClass)) {
+                return 1;
+            } else if (bClass.isAssignableFrom(aClass)) {
+                return -1;
+            } else {
+                return 0;
+            }
+        }
+    };
 
     /**
      * Prohibits instantiation.
@@ -372,55 +400,8 @@ public class Proxy implements java.io.Serializable {
                                          Class<?>... interfaces)
         throws IllegalArgumentException
     {
-        // BEGIN Android-changed: Excluded SecurityManager / permission checks.
-        /*
-        final Class<?>[] intfs = interfaces.clone();
-        final SecurityManager sm = System.getSecurityManager();
-        if (sm != null) {
-            checkProxyAccess(Reflection.getCallerClass(), loader, intfs);
-        }
-
-        return getProxyClass0(loader, intfs);
-        */
-
         return getProxyClass0(loader, interfaces);
-        // END Android-changed: Excluded SecurityManager / permission checks.
     }
-
-    // Android-removed: SecurityManager / permission check code.
-    /*
-    /*
-     * Check permissions required to create a Proxy class.
-     *
-     * To define a proxy class, it performs the access checks as in
-     * Class.forName (VM will invoke ClassLoader.checkPackageAccess):
-     * 1. "getClassLoader" permission check if loader == null
-     * 2. checkPackageAccess on the interfaces it implements
-     *
-     * To get a constructor and new instance of a proxy class, it performs
-     * the package access check on the interfaces it implements
-     * as in Class.getConstructor.
-     *
-     * If an interface is non-public, the proxy class must be defined by
-     * the defining loader of the interface.  If the caller's class loader
-     * is not the same as the defining loader of the interface, the VM
-     * will throw IllegalAccessError when the generated proxy class is
-     * being defined via the defineClass0 method.
-     *
-    private static void checkProxyAccess(Class<?> caller,
-                                         ClassLoader loader,
-                                         Class<?>... interfaces)
-    {
-        SecurityManager sm = System.getSecurityManager();
-        if (sm != null) {
-            ClassLoader ccl = caller.getClassLoader();
-            if (VM.isSystemDomainLoader(loader) && !VM.isSystemDomainLoader(ccl)) {
-                sm.checkPermission(SecurityConstants.GET_CLASSLOADER_PERMISSION);
-            }
-            ReflectUtil.checkProxyPackageAccess(ccl, interfaces);
-        }
-    }
-    */
 
     /**
      * Generate a proxy class.  Must call the checkProxyAccess method
@@ -568,32 +549,6 @@ public class Proxy implements java.io.Serializable {
             }
         }
     }
-
-    // BEGIN Android-changed: How proxies are generated.
-    /**
-     * Orders methods by their name, parameters, return type and inheritance relationship.
-     *
-     * @hide
-     */
-    private static final Comparator<Method> ORDER_BY_SIGNATURE_AND_SUBTYPE = new Comparator<Method>() {
-        @Override public int compare(Method a, Method b) {
-            int comparison = Method.ORDER_BY_SIGNATURE.compare(a, b);
-            if (comparison != 0) {
-                return comparison;
-            }
-            Class<?> aClass = a.getDeclaringClass();
-            Class<?> bClass = b.getDeclaringClass();
-            if (aClass == bClass) {
-                return 0;
-            } else if (aClass.isAssignableFrom(bClass)) {
-                return 1;
-            } else if (bClass.isAssignableFrom(aClass)) {
-                return -1;
-            } else {
-                return 0;
-            }
-        }
-    };
 
     /**
      * A factory function that generates, defines and returns the proxy class given
@@ -798,12 +753,6 @@ public class Proxy implements java.io.Serializable {
         }
     }
 
-    @FastNative
-    private static native Class<?> generateProxy(String name, Class<?>[] interfaces,
-                                                 ClassLoader loader, Method[] methods,
-                                                 Class<?>[][] exceptions);
-    // END Android-changed: How proxies are generated.
-
 
     /**
      * Returns an instance of a proxy class for the specified interfaces
@@ -859,13 +808,11 @@ public class Proxy implements java.io.Serializable {
         Objects.requireNonNull(h);
 
         final Class<?>[] intfs = interfaces.clone();
-        // Android-removed: SecurityManager calls
-        /*
-        final SecurityManager sm = System.getSecurityManager();
-        if (sm != null) {
-            checkProxyAccess(Reflection.getCallerClass(), loader, intfs);
-        }
-        */
+        // Android-changed: sm is always null
+        // final SecurityManager sm = System.getSecurityManager();
+        // if (sm != null) {
+        //     checkProxyAccess(Reflection.getCallerClass(), loader, intfs);
+        // }
 
         /*
          * Look up or generate the designated proxy class.
@@ -876,28 +823,16 @@ public class Proxy implements java.io.Serializable {
          * Invoke its constructor with the designated invocation handler.
          */
         try {
-            // Android-removed: SecurityManager / permission checks.
-            /*
-            if (sm != null) {
-                checkNewProxyPermission(Reflection.getCallerClass(), cl);
-            }
-            */
+            // Android-changed: sm is always null
+            // if (sm != null) {
+            //     checkNewProxyPermission(Reflection.getCallerClass(), cl);
+            // }
 
             final Constructor<?> cons = cl.getConstructor(constructorParams);
             final InvocationHandler ih = h;
             if (!Modifier.isPublic(cl.getModifiers())) {
-                // BEGIN Android-changed: Excluded AccessController.doPrivileged call.
-                /*
-                AccessController.doPrivileged(new PrivilegedAction<Void>() {
-                    public Void run() {
-                        cons.setAccessible(true);
-                        return null;
-                    }
-                });
-                */
-
+                // Android-changed: Removed AccessController.doPrivileged
                 cons.setAccessible(true);
-                // END Android-removed: Excluded AccessController.doPrivileged call.
             }
             return cons.newInstance(new Object[]{h});
         } catch (IllegalAccessException|InstantiationException e) {
@@ -913,31 +848,6 @@ public class Proxy implements java.io.Serializable {
             throw new InternalError(e.toString(), e);
         }
     }
-
-    // Android-removed: SecurityManager / permission checks.
-    /*
-    private static void checkNewProxyPermission(Class<?> caller, Class<?> proxyClass) {
-        SecurityManager sm = System.getSecurityManager();
-        if (sm != null) {
-            if (ReflectUtil.isNonPublicProxyClass(proxyClass)) {
-                ClassLoader ccl = caller.getClassLoader();
-                ClassLoader pcl = proxyClass.getClassLoader();
-
-                // do permission check if the caller is in a different runtime package
-                // of the proxy class
-                int n = proxyClass.getName().lastIndexOf('.');
-                String pkg = (n == -1) ? "" : proxyClass.getName().substring(0, n);
-
-                n = caller.getName().lastIndexOf('.');
-                String callerPkg = (n == -1) ? "" : caller.getName().substring(0, n);
-
-                if (pcl != ccl || !pkg.equals(callerPkg)) {
-                    sm.checkPermission(new ReflectPermission("newProxyInPackage." + pkg));
-                }
-            }
-        }
-    }
-    */
 
     /**
      * Returns true if and only if the specified class was dynamically
@@ -984,25 +894,31 @@ public class Proxy implements java.io.Serializable {
 
         final Proxy p = (Proxy) proxy;
         final InvocationHandler ih = p.h;
-        // Android-removed: SecurityManager / access checks.
-        /*
-        if (System.getSecurityManager() != null) {
-            Class<?> ihClass = ih.getClass();
-            Class<?> caller = Reflection.getCallerClass();
-            if (ReflectUtil.needsPackageAccessCheck(caller.getClassLoader(),
-                                                    ihClass.getClassLoader()))
-            {
-                ReflectUtil.checkPackageAccess(ihClass);
-            }
-        }
-        */
-
+        // Android-changed, System.getSecurityManager() is always null
+        // if (System.getSecurityManager() != null) {
+        //     Class<?> ihClass = ih.getClass();
+        //     Class<?> caller = Reflection.getCallerClass();
+        //     if (ReflectUtil.needsPackageAccessCheck(caller.getClassLoader(),
+        //                                             ihClass.getClassLoader()))
+        //     {
+        //         ReflectUtil.checkPackageAccess(ihClass);
+        //     }
+        // }
         return ih;
     }
 
-    // Android-added: Helper method invoke(Proxy, Method, Object[]) for ART native code.
+    // Android-changed: helper for art native code.
     private static Object invoke(Proxy proxy, Method method, Object[] args) throws Throwable {
         InvocationHandler h = proxy.h;
         return h.invoke(proxy, method, args);
     }
+
+    @FastNative
+    private static native Class<?> generateProxy(String name, Class<?>[] interfaces,
+                                                 ClassLoader loader, Method[] methods,
+                                                 Class<?>[][] exceptions);
+
+    // Temporary methods.
+    private static void reserved1() {};
+    private static void reserved2() {};
 }

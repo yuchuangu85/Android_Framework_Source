@@ -46,8 +46,6 @@ import java.io.PrintStream;
 import java.util.List;
 
 public class Media extends BaseCommand {
-    // This doesn't belongs to any package. Setting the package name to empty string.
-    private static final String PACKAGE_NAME = "";
     private ISessionManager mSessionService;
 
     /**
@@ -106,7 +104,7 @@ public class Media extends BaseCommand {
 
     private void sendMediaKey(KeyEvent event) {
         try {
-            mSessionService.dispatchMediaKeyEvent(PACKAGE_NAME, false, event, false);
+            mSessionService.dispatchMediaKeyEvent(event, false);
         } catch (RemoteException e) {
         }
     }
@@ -171,6 +169,7 @@ public class Media extends BaseCommand {
             showError("Error: unknown dispatch code '" + cmd + "'");
             return;
         }
+
         final long now = SystemClock.uptimeMillis();
         sendMediaKey(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keycode, 0, 0,
                 KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD));
@@ -188,6 +187,7 @@ public class Media extends BaseCommand {
         @Override
         public void onSessionDestroyed() {
             System.out.println("onSessionDestroyed. Enter q to quit.");
+
         }
 
         @Override
@@ -244,7 +244,7 @@ public class Media extends BaseCommand {
                 @Override
                 protected void onLooperPrepared() {
                     try {
-                        mController.registerCallbackListener(PACKAGE_NAME, ControllerMonitor.this);
+                        mController.registerCallbackListener(ControllerMonitor.this);
                     } catch (RemoteException e) {
                         System.out.println("Error registering monitor callback");
                     }
@@ -264,13 +264,13 @@ public class Media extends BaseCommand {
                     } else if ("q".equals(line) || "quit".equals(line)) {
                         break;
                     } else if ("play".equals(line)) {
-                        dispatchKeyCode(KeyEvent.KEYCODE_MEDIA_PLAY);
+                        mController.play();
                     } else if ("pause".equals(line)) {
-                        dispatchKeyCode(KeyEvent.KEYCODE_MEDIA_PAUSE);
+                        mController.pause();
                     } else if ("next".equals(line)) {
-                        dispatchKeyCode(KeyEvent.KEYCODE_MEDIA_NEXT);
+                        mController.next();
                     } else if ("previous".equals(line)) {
-                        dispatchKeyCode(KeyEvent.KEYCODE_MEDIA_PREVIOUS);
+                        mController.previous();
                     } else {
                         System.out.println("Invalid command: " + line);
                     }
@@ -291,20 +291,6 @@ public class Media extends BaseCommand {
                 } catch (Exception e) {
                     // ignoring
                 }
-            }
-        }
-
-        private void dispatchKeyCode(int keyCode) {
-            final long now = SystemClock.uptimeMillis();
-            KeyEvent down = new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0, 0,
-                    KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD);
-            KeyEvent up = new KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0, 0,
-                    KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD);
-            try {
-                mController.sendMediaButton(PACKAGE_NAME, null, false, down);
-                mController.sendMediaButton(PACKAGE_NAME, null, false, up);
-            } catch (RemoteException e) {
-                System.out.println("Failed to dispatch " + keyCode);
             }
         }
     }

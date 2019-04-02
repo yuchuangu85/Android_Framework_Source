@@ -16,39 +16,26 @@
 
 package com.android.server.broadcastradio;
 
-import android.annotation.NonNull;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.hardware.radio.IAnnouncementListener;
-import android.hardware.radio.ICloseHandle;
 import android.hardware.radio.IRadioService;
 import android.hardware.radio.ITuner;
 import android.hardware.radio.ITunerCallback;
 import android.hardware.radio.RadioManager;
 import android.os.ParcelableException;
-import android.os.RemoteException;
-import android.util.Slog;
 
-import com.android.internal.util.Preconditions;
 import com.android.server.SystemService;
-import com.android.server.broadcastradio.hal2.AnnouncementAggregator;
 
-import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
-import java.util.OptionalInt;
 
 public class BroadcastRadioService extends SystemService {
-    private static final String TAG = "BcRadioSrv";
-    private static final boolean DEBUG = false;
-
     private final ServiceImpl mServiceImpl = new ServiceImpl();
 
-    private final com.android.server.broadcastradio.hal1.BroadcastRadioService mHal1 =
-            new com.android.server.broadcastradio.hal1.BroadcastRadioService();
-    private final com.android.server.broadcastradio.hal2.BroadcastRadioService mHal2 =
-            new com.android.server.broadcastradio.hal2.BroadcastRadioService();
+    /**
+     * This field is used by native code, do not access or modify.
+     */
+    private final long mNativeContext = nativeInit();
 
     private final Object mLock = new Object();
     private List<RadioManager.ModuleProperties> mModules = null;
@@ -58,16 +45,20 @@ public class BroadcastRadioService extends SystemService {
     }
 
     @Override
-    public void onStart() {
-        publishBinderService(Context.RADIO_SERVICE, mServiceImpl);
+    protected void finalize() throws Throwable {
+        nativeFinalize(mNativeContext);
+        super.finalize();
     }
 
-    /**
-     * Finds next available index for newly loaded modules.
-     */
-    private static int getNextId(@NonNull List<RadioManager.ModuleProperties> modules) {
-        OptionalInt max = modules.stream().mapToInt(RadioManager.ModuleProperties::getId).max();
-        return max.isPresent() ? max.getAsInt() + 1 : 0;
+    private native long nativeInit();
+    private native void nativeFinalize(long nativeContext);
+    private native List<RadioManager.ModuleProperties> nativeLoadModules(long nativeContext);
+    private native Tuner nativeOpenTuner(long nativeContext, int moduleId,
+            RadioManager.BandConfig config, boolean withAudio, ITunerCallback callback);
+
+    @Override
+    public void onStart() {
+        publishBinderService(Context.RADIO_SERVICE, mServiceImpl);
     }
 
     private class ServiceImpl extends IRadioService.Stub {
@@ -84,8 +75,11 @@ public class BroadcastRadioService extends SystemService {
             synchronized (mLock) {
                 if (mModules != null) return mModules;
 
-                mModules = mHal1.loadModules();
-                mModules.addAll(mHal2.loadModules(getNextId(mModules)));
+                mModules = nativeLoadModules(mNativeContext);
+                if (mModules == null) {
+                    throw new ParcelableException(new NullPointerException(
+                            "couldn't load radio modules"));
+                }
 
                 return mModules;
             }
@@ -93,38 +87,13 @@ public class BroadcastRadioService extends SystemService {
 
         @Override
         public ITuner openTuner(int moduleId, RadioManager.BandConfig bandConfig,
-                boolean withAudio, ITunerCallback callback) throws RemoteException {
-            if (DEBUG) Slog.i(TAG, "Opening module " + moduleId);
+                boolean withAudio, ITunerCallback callback) {
             enforcePolicyAccess();
             if (callback == null) {
                 throw new IllegalArgumentException("Callback must not be empty");
             }
             synchronized (mLock) {
-                if (mHal2.hasModule(moduleId)) {
-                    return mHal2.openSession(moduleId, bandConfig, withAudio, callback);
-                } else {
-                    return mHal1.openTuner(moduleId, bandConfig, withAudio, callback);
-                }
-            }
-        }
-
-        @Override
-        public ICloseHandle addAnnouncementListener(int[] enabledTypes,
-                IAnnouncementListener listener) {
-            if (DEBUG) {
-                Slog.i(TAG, "Adding announcement listener for " + Arrays.toString(enabledTypes));
-            }
-            Objects.requireNonNull(enabledTypes);
-            Objects.requireNonNull(listener);
-            enforcePolicyAccess();
-
-            synchronized (mLock) {
-                if (!mHal2.hasAnyModules()) {
-                    Slog.i(TAG, "There are no HAL 2.x modules registered");
-                    return new AnnouncementAggregator(listener);
-                }
-
-                return mHal2.addAnnouncementListener(enabledTypes, listener);
+                return nativeOpenTuner(mNativeContext, moduleId, bandConfig, withAudio, callback);
             }
         }
     }

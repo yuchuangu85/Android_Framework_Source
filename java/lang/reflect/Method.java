@@ -26,7 +26,6 @@
 
 package java.lang.reflect;
 
-import sun.reflect.CallerSensitive;
 import dalvik.annotation.optimization.FastNative;
 import java.lang.annotation.Annotation;
 import java.util.Comparator;
@@ -54,11 +53,6 @@ import libcore.util.EmptyArray;
  * @author Nakul Saraiya
  */
 public final class Method extends Executable  {
-    // Android-changed: Extensive modifications made throughout the class for ART.
-    // Android-changed: Many fields and methods removed / modified.
-    // Android-removed: Type annotations runtime code. Not supported on Android.
-    // Android-removed: Declared vs actual parameter annotation indexes handling.
-
     /**
      * Orders methods by their name, parameters and return type.
      *
@@ -92,7 +86,7 @@ public final class Method extends Executable  {
 
     @Override
     boolean hasGenericInformation() {
-        // Android-changed: hasGenericInformation() implemented using Executable.
+        // Android-changed: Signature retrieval is handled in Executable.
         return super.hasGenericInformationInternal();
     }
 
@@ -101,7 +95,7 @@ public final class Method extends Executable  {
      */
     @Override
     public Class<?> getDeclaringClass() {
-        // Android-changed: getDeclaringClass() implemented using Executable.
+        // Android-changed: This is handled by Executable.
         return super.getDeclaringClassInternal();
     }
 
@@ -111,7 +105,7 @@ public final class Method extends Executable  {
      */
     @Override
     public String getName() {
-        // Android-changed: getName() implemented using Executable.
+        // Android-changed: This is handled by Executable.
         return getMethodNameInternal();
     }
 
@@ -120,7 +114,7 @@ public final class Method extends Executable  {
      */
     @Override
     public int getModifiers() {
-        // Android-changed: getModifiers() implemented using Executable.
+        // Android-changed: This is handled by Executable.
         return super.getModifiersInternal();
     }
 
@@ -132,7 +126,7 @@ public final class Method extends Executable  {
     @Override
     @SuppressWarnings({"rawtypes", "unchecked"})
     public TypeVariable<Method>[] getTypeParameters() {
-        // Android-changed: getTypeParameters() partly implemented using Executable.
+        // Android-changed: This is mostly handled by Executable.
         GenericInfo info = getMethodOrConstructorGenericInfoInternal();
         return (TypeVariable<Method>[]) info.formalTypeParameters.clone();
     }
@@ -144,7 +138,6 @@ public final class Method extends Executable  {
      * @return the return type for the method this object represents
      */
     public Class<?> getReturnType() {
-        // Android-changed: getReturnType() implemented using Executable.
         return getMethodReturnTypeInternal();
     }
 
@@ -173,7 +166,7 @@ public final class Method extends Executable  {
      * @since 1.5
      */
     public Type getGenericReturnType() {
-        // Android-changed: getGenericReturnType() partly implemented using Executable.
+        // Android-changed: Modified implementation to use Executable.
       return Types.getType(getMethodOrConstructorGenericInfoInternal().genericReturnType);
     }
 
@@ -182,7 +175,7 @@ public final class Method extends Executable  {
      */
     @Override
     public Class<?>[] getParameterTypes() {
-        // Android-changed: getParameterTypes() partly implemented using Executable.
+        // Android-changed: This is handled by Executable.
         Class<?>[] paramTypes = super.getParameterTypesInternal();
         if (paramTypes == null) {
             return EmptyArray.CLASS;
@@ -196,7 +189,7 @@ public final class Method extends Executable  {
      * @since 1.8
      */
     public int getParameterCount() {
-        // Android-changed: getParameterTypes() implemented using Executable.
+        // Android-changed: This is handled by Executable.
         return super.getParameterCountInternal();
     }
 
@@ -216,7 +209,6 @@ public final class Method extends Executable  {
      * {@inheritDoc}
      */
     @Override
-    // Android-changed: getExceptionTypes() implemented natively.
     @FastNative
     public native Class<?>[] getExceptionTypes();
 
@@ -243,10 +235,9 @@ public final class Method extends Executable  {
             Method other = (Method)obj;
             if ((getDeclaringClass() == other.getDeclaringClass())
                 && (getName() == other.getName())) {
-                // Android-changed: Use getReturnType() instead of deleted returnType field
                 if (!getReturnType().equals(other.getReturnType()))
                     return false;
-                // Android-changed: Use getParameterTypes() instead of deleted parameterTypes field
+                // Android-changed: Use getParameterTypes.
                 return equalParamTypes(getParameterTypes(), other.getParameterTypes());
             }
         }
@@ -289,7 +280,7 @@ public final class Method extends Executable  {
      * @jls 8.4.3 Method Modifiers
      */
     public String toString() {
-        // Android-changed: Use getParameterTypes() / getExceptionTypes() instead of deleted fields
+        // Android-changed: Use getParameterTypes.
         return sharedToString(Modifier.methodModifiers(),
                               isDefault(),
                               getParameterTypes(),
@@ -412,8 +403,6 @@ public final class Method extends Executable  {
      * @exception ExceptionInInitializerError if the initialization
      * provoked by this method fails.
      */
-    @CallerSensitive
-    // Android-changed: invoke(Object, Object...) implemented natively.
     @FastNative
     public native Object invoke(Object obj, Object... args)
             throws IllegalAccessException, IllegalArgumentException, InvocationTargetException;
@@ -427,7 +416,7 @@ public final class Method extends Executable  {
      * @since 1.5
      */
     public boolean isBridge() {
-        // Android-changed: isBridge() implemented using Executable.
+        // Android-changed: This is handled by Executable.
         return super.isBridgeMethodInternal();
     }
 
@@ -463,7 +452,7 @@ public final class Method extends Executable  {
      * @since 1.8
      */
     public boolean isDefault() {
-        // Android-changed: isDefault() implemented using Executable.
+        // Android-changed: This is handled by Executable.
         return super.isDefaultMethodInternal();
     }
 
@@ -481,7 +470,6 @@ public final class Method extends Executable  {
      *     default class value.
      * @since  1.5
      */
-    // Android-changed: isDefault() implemented natively.
     @FastNative
     public native Object getDefaultValue();
 
@@ -508,11 +496,10 @@ public final class Method extends Executable  {
      */
     @Override
     public Annotation[][] getParameterAnnotations() {
-        // Android-changed: getParameterAnnotations() implemented using Executable.
+        // Android-changed: This is handled by Executable.
         return super.getParameterAnnotationsInternal();
     }
 
-    // Android-added: equalNameAndParameters(Method) for Proxy support.
     /**
      * Returns true if this and {@code method} have the same name and the same
      * parameters in the same order. Such methods can share implementation if

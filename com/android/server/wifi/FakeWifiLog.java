@@ -42,11 +42,6 @@ public class FakeWifiLog implements WifiLog {
     }
 
     @Override
-    public LogMessage trace(String format, int numFramesToIgnore) {
-        return sDummyLogMessage;
-    }
-
-    @Override
     public LogMessage dump(String format) {
         return sDummyLogMessage;
     }

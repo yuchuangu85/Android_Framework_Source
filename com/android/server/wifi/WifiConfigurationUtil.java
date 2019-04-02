@@ -29,7 +29,6 @@ import android.util.Log;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.wifi.util.NativeUtil;
 
-import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.BitSet;
@@ -50,8 +49,8 @@ public class WifiConfigurationUtil {
      * Constants used for validating external config objects.
      */
     private static final int ENCLOSING_QUTOES_LEN = 2;
-    private static final int SSID_UTF_8_MIN_LEN = 1 + ENCLOSING_QUTOES_LEN;
-    private static final int SSID_UTF_8_MAX_LEN = 32 + ENCLOSING_QUTOES_LEN;
+    private static final int SSID_ASCII_MIN_LEN = 1 + ENCLOSING_QUTOES_LEN;
+    private static final int SSID_ASCII_MAX_LEN = 32 + ENCLOSING_QUTOES_LEN;
     private static final int SSID_HEX_MIN_LEN = 2;
     private static final int SSID_HEX_MAX_LEN = 64;
     private static final int PSK_ASCII_MIN_LEN = 8 + ENCLOSING_QUTOES_LEN;
@@ -200,10 +199,6 @@ public class WifiConfigurationUtil {
                                          newEnterpriseConfig.getAnonymousIdentity())) {
                 return true;
             }
-            if (!TextUtils.equals(existingEnterpriseConfig.getPassword(),
-                                    newEnterpriseConfig.getPassword())) {
-                return true;
-            }
             X509Certificate[] existingCaCerts = existingEnterpriseConfig.getCaCertificates();
             X509Certificate[] newCaCerts = newEnterpriseConfig.getCaCertificates();
             if (!Arrays.equals(existingCaCerts, newCaCerts)) {
@@ -283,16 +278,13 @@ public class WifiConfigurationUtil {
             return false;
         }
         if (ssid.startsWith("\"")) {
-            // UTF-8 SSID string
-            byte[] ssidBytes = ssid.getBytes(StandardCharsets.UTF_8);
-            if (ssidBytes.length < SSID_UTF_8_MIN_LEN) {
-                Log.e(TAG, "validateSsid failed: utf-8 ssid string size too small: "
-                        + ssidBytes.length);
+            // ASCII SSID string
+            if (ssid.length() < SSID_ASCII_MIN_LEN) {
+                Log.e(TAG, "validateSsid failed: ascii string size too small: " + ssid.length());
                 return false;
             }
-            if (ssidBytes.length > SSID_UTF_8_MAX_LEN) {
-                Log.e(TAG, "validateSsid failed: utf-8 ssid string size too large: "
-                        + ssidBytes.length);
+            if (ssid.length() > SSID_ASCII_MAX_LEN) {
+                Log.e(TAG, "validateSsid failed: ascii string size too large: " + ssid.length());
                 return false;
             }
         } else {
@@ -337,13 +329,12 @@ public class WifiConfigurationUtil {
         }
         if (psk.startsWith("\"")) {
             // ASCII PSK string
-            byte[] pskBytes = psk.getBytes(StandardCharsets.US_ASCII);
-            if (pskBytes.length < PSK_ASCII_MIN_LEN) {
-                Log.e(TAG, "validatePsk failed: ascii string size too small: " + pskBytes.length);
+            if (psk.length() < PSK_ASCII_MIN_LEN) {
+                Log.e(TAG, "validatePsk failed: ascii string size too small: " + psk.length());
                 return false;
             }
-            if (pskBytes.length > PSK_ASCII_MAX_LEN) {
-                Log.e(TAG, "validatePsk failed: ascii string size too large: " + pskBytes.length);
+            if (psk.length() > PSK_ASCII_MAX_LEN) {
+                Log.e(TAG, "validatePsk failed: ascii string size too large: " + psk.length());
                 return false;
             }
         } else {
@@ -362,53 +353,11 @@ public class WifiConfigurationUtil {
         return true;
     }
 
-    private static boolean validateBitSet(BitSet bitSet, int validValuesLength) {
-        if (bitSet == null) return false;
-        BitSet clonedBitset = (BitSet) bitSet.clone();
-        clonedBitset.clear(0, validValuesLength);
-        return clonedBitset.isEmpty();
-    }
-
-    private static boolean validateBitSets(WifiConfiguration config) {
-        // 1. Check |allowedKeyManagement|.
-        if (!validateBitSet(config.allowedKeyManagement,
-                WifiConfiguration.KeyMgmt.strings.length)) {
-            Log.e(TAG, "validateBitsets failed: invalid allowedKeyManagement bitset "
-                    + config.allowedKeyManagement);
-            return false;
-        }
-        // 2. Check |allowedProtocols|.
-        if (!validateBitSet(config.allowedProtocols,
-                WifiConfiguration.Protocol.strings.length)) {
-            Log.e(TAG, "validateBitsets failed: invalid allowedProtocols bitset "
-                    + config.allowedProtocols);
-            return false;
-        }
-        // 3. Check |allowedAuthAlgorithms|.
-        if (!validateBitSet(config.allowedAuthAlgorithms,
-                WifiConfiguration.AuthAlgorithm.strings.length)) {
-            Log.e(TAG, "validateBitsets failed: invalid allowedAuthAlgorithms bitset "
-                    + config.allowedAuthAlgorithms);
-            return false;
-        }
-        // 4. Check |allowedGroupCiphers|.
-        if (!validateBitSet(config.allowedGroupCiphers,
-                WifiConfiguration.GroupCipher.strings.length)) {
-            Log.e(TAG, "validateBitsets failed: invalid allowedGroupCiphers bitset "
-                    + config.allowedGroupCiphers);
-            return false;
-        }
-        // 5. Check |allowedPairwiseCiphers|.
-        if (!validateBitSet(config.allowedPairwiseCiphers,
-                WifiConfiguration.PairwiseCipher.strings.length)) {
-            Log.e(TAG, "validateBitsets failed: invalid allowedPairwiseCiphers bitset "
-                    + config.allowedPairwiseCiphers);
-            return false;
-        }
-        return true;
-    }
-
     private static boolean validateKeyMgmt(BitSet keyMgmnt) {
+        if (keyMgmnt == null) {
+            Log.e(TAG, "validateKeyMgmt failed: null bitset");
+            return false;
+        }
         if (keyMgmnt.cardinality() > 1) {
             if (keyMgmnt.cardinality() != 2) {
                 Log.e(TAG, "validateKeyMgmt failed: cardinality != 2");
@@ -459,11 +408,7 @@ public class WifiConfigurationUtil {
      * 1. {@link WifiConfiguration#SSID}
      * 2. {@link WifiConfiguration#preSharedKey}
      * 3. {@link WifiConfiguration#allowedKeyManagement}
-     * 4. {@link WifiConfiguration#allowedProtocols}
-     * 5. {@link WifiConfiguration#allowedAuthAlgorithms}
-     * 6. {@link WifiConfiguration#allowedGroupCiphers}
-     * 7. {@link WifiConfiguration#allowedPairwiseCiphers}
-     * 8. {@link WifiConfiguration#getIpConfiguration()}
+     * 4. {@link WifiConfiguration#getIpConfiguration()}
      *
      * @param config {@link WifiConfiguration} received from an external application.
      * @param isAdd {@link #VALIDATE_FOR_ADD} to indicate a network config received for an add,
@@ -474,9 +419,6 @@ public class WifiConfigurationUtil {
      */
     public static boolean validate(WifiConfiguration config, boolean isAdd) {
         if (!validateSsid(config.SSID, isAdd)) {
-            return false;
-        }
-        if (!validateBitSets(config)) {
             return false;
         }
         if (!validateKeyMgmt(config.allowedKeyManagement)) {
@@ -495,10 +437,9 @@ public class WifiConfigurationUtil {
 
     /**
      * Check if the provided two networks are the same.
-     * Note: This does not check if network selection BSSID's are the same.
      *
-     * @param config  Configuration corresponding to a network.
-     * @param config1 Configuration corresponding to another network.
+     * @param config      Configuration corresponding to a network.
+     * @param config1      Configuration corresponding to another network.
      *
      * @return true if |config| and |config1| are the same network.
      *         false otherwise.
@@ -516,6 +457,13 @@ public class WifiConfigurationUtil {
         if (!Objects.equals(config.SSID, config1.SSID)) {
             return false;
         }
+        String networkSelectionBSSID = config.getNetworkSelectionStatus()
+                .getNetworkSelectionBSSID();
+        String networkSelectionBSSID1 = config1.getNetworkSelectionStatus()
+                .getNetworkSelectionBSSID();
+        if (!Objects.equals(networkSelectionBSSID, networkSelectionBSSID1)) {
+            return false;
+        }
         if (WifiConfigurationUtil.hasCredentialChanged(config, config1)) {
             return false;
         }
@@ -526,10 +474,11 @@ public class WifiConfigurationUtil {
      * Create a PnoNetwork object from the provided WifiConfiguration.
      *
      * @param config      Configuration corresponding to the network.
+     * @param newPriority New priority to be assigned to the network.
      * @return PnoNetwork object corresponding to the network.
      */
     public static WifiScanner.PnoSettings.PnoNetwork createPnoNetwork(
-            WifiConfiguration config) {
+            WifiConfiguration config, int newPriority) {
         WifiScanner.PnoSettings.PnoNetwork pnoNetwork =
                 new WifiScanner.PnoSettings.PnoNetwork(config.SSID);
         if (config.hiddenSSID) {

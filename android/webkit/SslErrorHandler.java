@@ -36,10 +36,6 @@ public class SslErrorHandler extends Handler {
 
     /**
      * Proceed with the SSL certificate.
-     * <p>
-     * It is not recommended to proceed past SSL errors and this method should
-     * generally not be used; see {@link WebViewClient#onReceivedSslError} for
-     * more information.
      */
     public void proceed() {}
 

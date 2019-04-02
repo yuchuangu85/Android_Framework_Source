@@ -19,12 +19,13 @@ package android.test.mock;
 import android.annotation.SystemApi;
 import android.app.IApplicationThread;
 import android.app.IServiceConnection;
-import android.content.BroadcastReceiver;
+import android.app.Notification;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.BroadcastReceiver;
 import android.content.IntentSender;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
@@ -43,8 +44,8 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.UserHandle;
-import android.view.Display;
 import android.view.DisplayAdjustments;
+import android.view.Display;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -52,7 +53,6 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.concurrent.Executor;
 
 /**
  * A mock {@link android.content.Context} class.  All methods are non-functional and throw
@@ -83,11 +83,6 @@ public class MockContext extends Context {
 
     @Override
     public Looper getMainLooper() {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public Executor getMainExecutor() {
         throw new UnsupportedOperationException();
     }
 
@@ -360,13 +355,6 @@ public class MockContext extends Context {
     /** @hide */
     @Override
     public void sendBroadcastMultiplePermissions(Intent intent, String[] receiverPermissions) {
-        throw new UnsupportedOperationException();
-    }
-
-    /** @hide */
-    @Override
-    public void sendBroadcastAsUserMultiplePermissions(Intent intent, UserHandle user,
-            String[] receiverPermissions) {
         throw new UnsupportedOperationException();
     }
 

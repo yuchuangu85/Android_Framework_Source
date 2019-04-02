@@ -21,6 +21,7 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Path;
+import android.graphics.Rect;
 import android.util.ArrayMap;
 import android.util.MutableBoolean;
 import android.view.InputDevice;
@@ -44,9 +45,9 @@ import com.android.systemui.recents.events.activity.HideRecentsEvent;
 import com.android.systemui.recents.events.ui.StackViewScrolledEvent;
 import com.android.systemui.recents.events.ui.TaskViewDismissedEvent;
 import com.android.systemui.recents.misc.FreePathInterpolator;
-import com.android.systemui.shared.recents.utilities.AnimationProps;
-import com.android.systemui.shared.recents.utilities.Utilities;
-import com.android.systemui.shared.recents.model.Task;
+import com.android.systemui.recents.misc.SystemServicesProxy;
+import com.android.systemui.recents.misc.Utilities;
+import com.android.systemui.recents.model.Task;
 import com.android.systemui.statusbar.FlingAnimationUtils;
 
 import java.util.ArrayList;
@@ -256,9 +257,6 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
             }
             case MotionEvent.ACTION_MOVE: {
                 int activePointerIndex = ev.findPointerIndex(mActivePointerId);
-                if (activePointerIndex == -1) {
-                    break;
-                }
                 int y = (int) ev.getY(activePointerIndex);
                 int x = (int) ev.getX(activePointerIndex);
                 if (!mIsScrolling) {
@@ -405,6 +403,18 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
             return;
         }
 
+        // If tapping on the freeform workspace background, just launch the first freeform task
+        SystemServicesProxy ssp = Recents.getSystemServices();
+        if (ssp.hasFreeformWorkspaceSupport()) {
+            Rect freeformRect = mSv.mLayoutAlgorithm.mFreeformRect;
+            if (freeformRect.top <= y && y <= freeformRect.bottom) {
+                if (mSv.launchFreeformTasks()) {
+                    // TODO: Animate Recents away as we launch the freeform tasks
+                    return;
+                }
+            }
+        }
+
         // The user intentionally tapped on the background, which is like a tap on the "desktop".
         // Hide recents and transition to the launcher.
         EventBus.getDefault().send(new HideRecentsEvent(false, true));
@@ -449,7 +459,7 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
         TaskView tv = (TaskView) v;
         Task task = tv.getTask();
         return !mSwipeHelperAnimations.containsKey(v) &&
-                (mSv.getStack().indexOfTask(task) != -1);
+                (mSv.getStack().indexOfStackTask(task) != -1);
     }
 
     /**
@@ -479,7 +489,7 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
         mSv.addIgnoreTask(tv.getTask());
 
         // Determine if we are animating the other tasks while dismissing this task
-        mCurrentTasks = new ArrayList<Task>(mSv.getStack().getTasks());
+        mCurrentTasks = new ArrayList<Task>(mSv.getStack().getStackTasks());
         MutableBoolean isFrontMostTask = new MutableBoolean(false);
         Task anchorTask = mSv.findAnchorTask(mCurrentTasks, isFrontMostTask);
         TaskStackLayoutAlgorithm layoutAlgorithm = mSv.getStackAlgorithm();
@@ -676,7 +686,7 @@ class TaskStackViewTouchHandler implements SwipeHelper.Callback {
 
     /** Returns the view at the specified coordinates */
     private TaskView findViewAtPoint(int x, int y) {
-        List<Task> tasks = mSv.getStack().getTasks();
+        List<Task> tasks = mSv.getStack().getStackTasks();
         int taskCount = tasks.size();
         for (int i = taskCount - 1; i >= 0; i--) {
             TaskView tv = mSv.getChildViewForTask(tasks.get(i));

@@ -20,13 +20,14 @@ import android.animation.Animator;
 import android.animation.AnimatorSet;
 import android.animation.TypeEvaluator;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
 import android.graphics.Matrix;
-import android.graphics.Picture;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.view.DisplayListCanvas;
+import android.view.RenderNode;
+import android.view.ThreadedRenderer;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
@@ -127,8 +128,10 @@ public class TransitionUtils {
         }
         int bitmapWidth = (int) (width * scale);
         int bitmapHeight = (int) (height * scale);
-        final Picture picture = new Picture();
-        final Canvas canvas = picture.beginRecording(width, height);
+        final RenderNode node = RenderNode.create("TransitionUtils", hostView);
+        node.setLeftTopRightBottom(0, 0, width, height);
+        node.setClipToBounds(false);
+        final DisplayListCanvas canvas = node.start(width, height);
         // Do stuff with the canvas
         Rect existingBounds = drawable.getBounds();
         int left = existingBounds.left;
@@ -138,8 +141,8 @@ public class TransitionUtils {
         drawable.setBounds(0, 0, bitmapWidth, bitmapHeight);
         drawable.draw(canvas);
         drawable.setBounds(left, top, right, bottom);
-        picture.endRecording();
-        return Bitmap.createBitmap(picture);
+        node.end(canvas);
+        return ThreadedRenderer.createHardwareBitmap(node, width, height);
     }
 
     /**
@@ -160,14 +163,10 @@ public class TransitionUtils {
     public static Bitmap createViewBitmap(View view, Matrix matrix, RectF bounds,
             ViewGroup sceneRoot) {
         final boolean addToOverlay = !view.isAttachedToWindow();
-        ViewGroup parent = null;
-        int indexInParent = 0;
         if (addToOverlay) {
             if (sceneRoot == null || !sceneRoot.isAttachedToWindow()) {
                 return null;
             }
-            parent = (ViewGroup) view.getParent();
-            indexInParent = parent.indexOfChild(view);
             sceneRoot.getOverlay().add(view);
         }
         Bitmap bitmap = null;
@@ -180,16 +179,17 @@ public class TransitionUtils {
             matrix.postTranslate(-bounds.left, -bounds.top);
             matrix.postScale(scale, scale);
 
-            final Picture picture = new Picture();
-            final Canvas canvas = picture.beginRecording(bitmapWidth, bitmapHeight);
+            final RenderNode node = RenderNode.create("TransitionUtils", view);
+            node.setLeftTopRightBottom(0, 0, bitmapWidth, bitmapHeight);
+            node.setClipToBounds(false);
+            final DisplayListCanvas canvas = node.start(bitmapWidth, bitmapHeight);
             canvas.concat(matrix);
             view.draw(canvas);
-            picture.endRecording();
-            bitmap = Bitmap.createBitmap(picture);
+            node.end(canvas);
+            bitmap = ThreadedRenderer.createHardwareBitmap(node, bitmapWidth, bitmapHeight);
         }
         if (addToOverlay) {
             sceneRoot.getOverlay().remove(view);
-            parent.addView(view, indexInParent);
         }
         return bitmap;
     }

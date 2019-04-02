@@ -208,6 +208,7 @@ import dalvik.system.VMStack;
 public class ObjectInputStream
     extends InputStream implements ObjectInput, ObjectStreamConstants
 {
+
     /** handle value representing null */
     private static final int NULL_HANDLE = -1;
 
@@ -2020,13 +2021,11 @@ public class ObjectInputStream
             throw new InternalError();
         }
         clear();
-        // BEGIN Android-changed: Fix SerializationStressTest#test_2_writeReplace.
         IOException e = (IOException) readObject0(false);
-        // If we want to continue reading from same stream after fatal exception, we
-        // need to clear internal data structures.
+        // BEGIN Android-changed
         clear();
+        // END Android-changed
         return e;
-        // END Android-changed: Fix SerializationStressTest#test_2_writeReplace.
     }
 
     /**
@@ -2070,7 +2069,6 @@ public class ObjectInputStream
      * corresponding modifications to the above class.
      */
     private static ClassLoader latestUserDefinedLoader() {
-        // Android-changed: Use VMStack on Android.
         return VMStack.getClosestUserClassLoader();
     }
 

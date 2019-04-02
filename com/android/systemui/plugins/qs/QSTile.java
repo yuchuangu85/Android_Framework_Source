@@ -26,7 +26,6 @@ import com.android.systemui.plugins.qs.QSTile.Icon;
 import com.android.systemui.plugins.qs.QSTile.State;
 
 import java.util.Objects;
-import java.util.function.Supplier;
 
 @ProvidesInterface(version = QSTile.VERSION)
 @DependsOn(target = QSIconView.class)
@@ -105,10 +104,8 @@ public interface QSTile {
     public static class State {
         public static final int VERSION = 1;
         public Icon icon;
-        public Supplier<Icon> iconSupplier;
         public int state = Tile.STATE_ACTIVE;
         public CharSequence label;
-        public CharSequence secondaryLabel;
         public CharSequence contentDescription;
         public CharSequence dualLabelContentDescription;
         public boolean disabledByPolicy;
@@ -121,9 +118,7 @@ public interface QSTile {
             if (other == null) throw new IllegalArgumentException();
             if (!other.getClass().equals(getClass())) throw new IllegalArgumentException();
             final boolean changed = !Objects.equals(other.icon, icon)
-                    || !Objects.equals(other.iconSupplier, iconSupplier)
                     || !Objects.equals(other.label, label)
-                    || !Objects.equals(other.secondaryLabel, secondaryLabel)
                     || !Objects.equals(other.contentDescription, contentDescription)
                     || !Objects.equals(other.dualLabelContentDescription,
                             dualLabelContentDescription)
@@ -135,9 +130,7 @@ public interface QSTile {
                     || !Objects.equals(other.dualTarget, dualTarget)
                     || !Objects.equals(other.slash, slash);
             other.icon = icon;
-            other.iconSupplier = iconSupplier;
             other.label = label;
-            other.secondaryLabel = secondaryLabel;
             other.contentDescription = contentDescription;
             other.dualLabelContentDescription = dualLabelContentDescription;
             other.expandedAccessibilityClassName = expandedAccessibilityClassName;
@@ -157,9 +150,7 @@ public interface QSTile {
         protected StringBuilder toStringBuilder() {
             final StringBuilder sb = new StringBuilder(getClass().getSimpleName()).append('[');
             sb.append(",icon=").append(icon);
-            sb.append(",iconSupplier=").append(iconSupplier);
             sb.append(",label=").append(label);
-            sb.append(",secondaryLabel=").append(secondaryLabel);
             sb.append(",contentDescription=").append(contentDescription);
             sb.append(",dualLabelContentDescription=").append(dualLabelContentDescription);
             sb.append(",expandedAccessibilityClassName=").append(expandedAccessibilityClassName);

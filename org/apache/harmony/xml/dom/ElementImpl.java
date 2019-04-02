@@ -18,7 +18,7 @@ package org.apache.harmony.xml.dom;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
+import libcore.util.Objects;
 import org.w3c.dom.Attr;
 import org.w3c.dom.DOMException;
 import org.w3c.dom.Element;
@@ -59,7 +59,7 @@ public class ElementImpl extends InnerNodeImpl implements Element {
     private int indexOfAttribute(String name) {
         for (int i = 0; i < attributes.size(); i++) {
             AttrImpl attr = attributes.get(i);
-            if (Objects.equals(name, attr.getNodeName())) {
+            if (Objects.equal(name, attr.getNodeName())) {
                 return i;
             }
         }
@@ -70,8 +70,8 @@ public class ElementImpl extends InnerNodeImpl implements Element {
     private int indexOfAttributeNS(String namespaceURI, String localName) {
         for (int i = 0; i < attributes.size(); i++) {
             AttrImpl attr = attributes.get(i);
-            if (Objects.equals(namespaceURI, attr.getNamespaceURI())
-                    && Objects.equals(localName, attr.getLocalName())) {
+            if (Objects.equal(namespaceURI, attr.getNamespaceURI())
+                    && Objects.equal(localName, attr.getLocalName())) {
                 return i;
             }
         }

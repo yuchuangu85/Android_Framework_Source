@@ -95,11 +95,7 @@ import java.lang.annotation.RetentionPolicy;
 public abstract class ActionBar {
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "NAVIGATION_MODE_" }, value = {
-            NAVIGATION_MODE_STANDARD,
-            NAVIGATION_MODE_LIST,
-            NAVIGATION_MODE_TABS
-    })
+    @IntDef({NAVIGATION_MODE_STANDARD, NAVIGATION_MODE_LIST, NAVIGATION_MODE_TABS})
     public @interface NavigationMode {}
 
     /**
@@ -143,14 +139,15 @@ public abstract class ActionBar {
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(flag = true, prefix = { "DISPLAY_" }, value = {
-            DISPLAY_USE_LOGO,
-            DISPLAY_SHOW_HOME,
-            DISPLAY_HOME_AS_UP,
-            DISPLAY_SHOW_TITLE,
-            DISPLAY_SHOW_CUSTOM,
-            DISPLAY_TITLE_MULTIPLE_LINES
-    })
+    @IntDef(flag = true,
+            value = {
+                    DISPLAY_USE_LOGO,
+                    DISPLAY_SHOW_HOME,
+                    DISPLAY_HOME_AS_UP,
+                    DISPLAY_SHOW_TITLE,
+                    DISPLAY_SHOW_CUSTOM,
+                    DISPLAY_TITLE_MULTIPLE_LINES
+            })
     public @interface DisplayOptions {}
 
     /**

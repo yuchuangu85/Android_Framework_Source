@@ -17,10 +17,7 @@
 package com.android.internal.telephony.test;
 
 import android.hardware.radio.V1_0.DataRegStateResult;
-import android.hardware.radio.V1_0.SetupDataCallResult;
 import android.hardware.radio.V1_0.VoiceRegStateResult;
-import android.net.KeepalivePacketData;
-import android.net.LinkProperties;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -34,13 +31,10 @@ import android.telephony.CellInfo;
 import android.telephony.CellInfoGsm;
 import android.telephony.IccOpenLogicalChannelResponse;
 import android.telephony.ImsiEncryptionInfo;
-import android.telephony.NetworkRegistrationState;
 import android.telephony.NetworkScanRequest;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
-import android.telephony.data.DataCallResponse;
-import android.telephony.data.DataProfile;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.BaseCommands;
@@ -54,11 +48,12 @@ import com.android.internal.telephony.RadioCapability;
 import com.android.internal.telephony.SmsResponse;
 import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
+import com.android.internal.telephony.dataconnection.DataCallResponse;
+import com.android.internal.telephony.dataconnection.DataProfile;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 import com.android.internal.telephony.gsm.SuppServiceNotification;
 import com.android.internal.telephony.uicc.IccCardStatus;
 import com.android.internal.telephony.uicc.IccIoResult;
-import com.android.internal.telephony.uicc.IccSlotStatus;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -119,22 +114,14 @@ public class SimulatedCommands extends BaseCommands
     int mNetworkType;
     String mPin2Code;
     boolean mSsnNotifyOn = false;
-    private int mVoiceRegState = NetworkRegistrationState.REG_STATE_HOME;
+    private int mVoiceRegState = ServiceState.RIL_REG_STATE_HOME;
     private int mVoiceRadioTech = ServiceState.RIL_RADIO_TECHNOLOGY_UMTS;
-    private int mDataRegState = NetworkRegistrationState.REG_STATE_HOME;
+    private int mDataRegState = ServiceState.RIL_REG_STATE_HOME;
     private int mDataRadioTech = ServiceState.RIL_RADIO_TECHNOLOGY_UMTS;
-    public boolean mCssSupported;
-    public int mRoamingIndicator;
-    public int mSystemIsInPrl;
-    public int mDefaultRoamingIndicator;
-    public int mReasonForDenial;
-    public int mMaxDataCalls;
-
     private SignalStrength mSignalStrength;
     private List<CellInfo> mCellInfoList;
     private int[] mImsRegState;
     private IccCardStatus mIccCardStatus;
-    private IccSlotStatus mIccSlotStatus;
     private IccIoResult mIccIoResultForApduLogicalChannel;
     private int mChannelId = IccOpenLogicalChannelResponse.INVALID_CHANNEL;
 
@@ -144,8 +131,7 @@ public class SimulatedCommands extends BaseCommands
     int mNextCallFailCause = CallFailCause.NORMAL_CLEARING;
 
     private boolean mDcSuccess = true;
-    private SetupDataCallResult mSetupDataCallResult;
-    private boolean mIsRadioPowerFailResponse = false;
+    private DataCallResponse mDcResponse;
 
     //***** Constructor
     public
@@ -180,32 +166,11 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void getIccCardStatus(Message result) {
-        SimulatedCommandsVerifier.getInstance().getIccCardStatus(result);
-        if (mIccCardStatus != null) {
+        if(mIccCardStatus!=null) {
             resultSuccess(result, mIccCardStatus);
         } else {
             resultFail(result, null, new RuntimeException("IccCardStatus not set"));
         }
-    }
-
-    public void setIccSlotStatus(IccSlotStatus iccSlotStatus) {
-        mIccSlotStatus = iccSlotStatus;
-    }
-
-    @Override
-    public void getIccSlotsStatus(Message result) {
-        SimulatedCommandsVerifier.getInstance().getIccSlotsStatus(result);
-        if (mIccSlotStatus != null) {
-            resultSuccess(result, mIccSlotStatus);
-        } else {
-            resultFail(result, null,
-                    new CommandException(CommandException.Error.REQUEST_NOT_SUPPORTED));
-        }
-    }
-
-    @Override
-    public void setLogicalToPhysicalSlotMapping(int[] physicalSlots, Message result) {
-        unimplemented(result);
     }
 
     @Override
@@ -871,7 +836,8 @@ public class SimulatedCommands extends BaseCommands
                 SignalStrength.INVALID,     // lteRsrq
                 SignalStrength.INVALID,     // lteRssnr
                 SignalStrength.INVALID,     // lteCqi
-                SignalStrength.INVALID      // tdScdmaRscp
+                SignalStrength.INVALID,     // tdScdmaRscp
+                true                        // gsmFlag
             );
         }
 
@@ -964,11 +930,6 @@ public class SimulatedCommands extends BaseCommands
         VoiceRegStateResult ret = new VoiceRegStateResult();
         ret.regState = mVoiceRegState;
         ret.rat = mVoiceRadioTech;
-        ret.cssSupported = mCssSupported;
-        ret.roamingIndicator = mRoamingIndicator;
-        ret.systemIsInPrl = mSystemIsInPrl;
-        ret.defaultRoamingIndicator = mDefaultRoamingIndicator;
-        ret.reasonForDenial = mReasonForDenial;
 
         resultSuccess(result, ret);
     }
@@ -995,8 +956,6 @@ public class SimulatedCommands extends BaseCommands
         DataRegStateResult ret = new DataRegStateResult();
         ret.regState = mDataRegState;
         ret.rat = mDataRadioTech;
-        ret.maxDataCalls = mMaxDataCalls;
-        ret.reasonDataDenied = mReasonForDenial;
 
         resultSuccess(result, ret);
     }
@@ -1124,8 +1083,8 @@ public class SimulatedCommands extends BaseCommands
         unimplemented(response);
     }
 
-    public void setDataCallResult(final boolean success, final SetupDataCallResult dcResult) {
-        mSetupDataCallResult = dcResult;
+    public void setDataCallResponse(final boolean success, final DataCallResponse dcResponse) {
+        mDcResponse = dcResponse;
         mDcSuccess = success;
     }
 
@@ -1137,37 +1096,21 @@ public class SimulatedCommands extends BaseCommands
     }
 
     @Override
-    public void setupDataCall(int accessNetworkType, DataProfile dataProfile, boolean isRoaming,
-                              boolean allowRoaming, int reason, LinkProperties linkProperties,
-                              Message result) {
+    public void setupDataCall(int radioTechnology, DataProfile dataProfile, boolean isRoaming,
+                              boolean allowRoaming, Message result) {
 
-        SimulatedCommandsVerifier.getInstance().setupDataCall(accessNetworkType, dataProfile,
-                isRoaming, allowRoaming, reason, linkProperties, result);
+        SimulatedCommandsVerifier.getInstance().setupDataCall(radioTechnology, dataProfile,
+                isRoaming, allowRoaming, result);
 
-        if (mSetupDataCallResult == null) {
-            try {
-                mSetupDataCallResult = new SetupDataCallResult();
-                mSetupDataCallResult.status = 0;
-                mSetupDataCallResult.suggestedRetryTime = -1;
-                mSetupDataCallResult.cid = 1;
-                mSetupDataCallResult.active = 2;
-                mSetupDataCallResult.type = "IP";
-                mSetupDataCallResult.ifname = "rmnet_data7";
-                mSetupDataCallResult.addresses = "12.34.56.78";
-                mSetupDataCallResult.dnses = "98.76.54.32";
-                mSetupDataCallResult.gateways = "11.22.33.44";
-                mSetupDataCallResult.pcscf = "";
-                mSetupDataCallResult.mtu = 1440;
-            } catch (Exception e) {
-
-            }
+        if (mDcResponse == null) {
+            mDcResponse = new DataCallResponse(0, -1, 1, 2, "IP", "rmnet_data7",
+                    "12.34.56.78", "98.76.54.32", "11.22.33.44", "", 1440);
         }
 
         if (mDcSuccess) {
-            resultSuccess(result, mSetupDataCallResult);
+            resultSuccess(result, mDcResponse);
         } else {
-            resultFail(result, mSetupDataCallResult,
-                    new RuntimeException("Setup data call failed!"));
+            resultFail(result, mDcResponse, new RuntimeException("Setup data call failed!"));
         }
     }
 
@@ -1245,17 +1188,11 @@ public class SimulatedCommands extends BaseCommands
 
     @Override
     public void setRadioPower(boolean on, Message result) {
-        if (mIsRadioPowerFailResponse) {
-            resultFail(result, null, new RuntimeException("setRadioPower failed!"));
-            return;
-        }
-
         if(on) {
             setRadioState(RadioState.RADIO_ON);
         } else {
             setRadioState(RadioState.RADIO_OFF);
         }
-        resultSuccess(result, null);
     }
 
 
@@ -1870,6 +1807,11 @@ public class SimulatedCommands extends BaseCommands
     }
 
     @Override
+    public void requestIsimAuthentication(String nonce, Message response) {
+        unimplemented(response);
+    }
+
+    @Override
     public void requestIccSimAuthentication(int authContext, String data, String aid, Message response) {
         unimplemented(response);
     }
@@ -2022,6 +1964,7 @@ public class SimulatedCommands extends BaseCommands
     public void startLceService(int report_interval_ms, boolean pullMode, Message result) {
         SimulatedCommandsVerifier.getInstance().startLceService(report_interval_ms, pullMode,
                 result);
+        unimplemented(result);
     }
 
     @Override
@@ -2032,16 +1975,6 @@ public class SimulatedCommands extends BaseCommands
     @Override
     public void pullLceData(Message result) {
         unimplemented(result);
-    }
-
-    @Override
-    public void registerForLceInfo(Handler h, int what, Object obj) {
-        SimulatedCommandsVerifier.getInstance().registerForLceInfo(h, what, obj);
-    }
-
-    @Override
-    public void unregisterForLceInfo(Handler h) {
-        SimulatedCommandsVerifier.getInstance().unregisterForLceInfo(h);
     }
 
     @Override
@@ -2152,7 +2085,8 @@ public class SimulatedCommands extends BaseCommands
                     SignalStrength.INVALID,     // lteRsrq
                     SignalStrength.INVALID,     // lteRssnr
                     SignalStrength.INVALID,     // lteCqi
-                    SignalStrength.INVALID      // tdScdmaRscp
+                    SignalStrength.INVALID,     // tdScdmaRscp
+                    true                        // gsmFlag
             );
         }
 
@@ -2219,17 +2153,6 @@ public class SimulatedCommands extends BaseCommands
     }
 
     @Override
-    public void setSignalStrengthReportingCriteria(int hysteresisMs, int hysteresisDb,
-            int[] thresholdsDbm, int ran, Message result) {
-    }
-
-    @Override
-    public void setLinkCapacityReportingCriteria(int hysteresisMs, int hysteresisDlKbps,
-            int hysteresisUlKbps, int[] thresholdsDlKbps, int[] thresholdsUlKbps, int ran,
-            Message result) {
-    }
-
-    @Override
     public void setSimCardPower(int state, Message result) {
     }
 
@@ -2245,43 +2168,5 @@ public class SimulatedCommands extends BaseCommands
     public void setOnRestrictedStateChanged(Handler h, int what, Object obj) {
         super.setOnRestrictedStateChanged(h, what, obj);
         SimulatedCommandsVerifier.getInstance().setOnRestrictedStateChanged(h, what, obj);
-    }
-
-    public void setRadioPowerFailResponse(boolean fail) {
-        mIsRadioPowerFailResponse = fail;
-    }
-
-    @Override
-    public void registerForIccRefresh(Handler h, int what, Object obj) {
-        super.registerForIccRefresh(h, what, obj);
-        SimulatedCommandsVerifier.getInstance().registerForIccRefresh(h, what, obj);
-    }
-
-    @Override
-    public void unregisterForIccRefresh(Handler h) {
-        super.unregisterForIccRefresh(h);
-        SimulatedCommandsVerifier.getInstance().unregisterForIccRefresh(h);
-    }
-
-    @Override
-    public void registerForNattKeepaliveStatus(Handler h, int what, Object obj) {
-        SimulatedCommandsVerifier.getInstance().registerForNattKeepaliveStatus(h, what, obj);
-    }
-
-    @Override
-    public void unregisterForNattKeepaliveStatus(Handler h) {
-        SimulatedCommandsVerifier.getInstance().unregisterForNattKeepaliveStatus(h);
-    }
-
-    @Override
-    public void startNattKeepalive(
-            int contextId, KeepalivePacketData packetData, int intervalMillis, Message result) {
-        SimulatedCommandsVerifier.getInstance().startNattKeepalive(
-                contextId, packetData, intervalMillis, result);
-    }
-
-    @Override
-    public void stopNattKeepalive(int sessionHandle, Message result) {
-        SimulatedCommandsVerifier.getInstance().stopNattKeepalive(sessionHandle, result);
     }
 }

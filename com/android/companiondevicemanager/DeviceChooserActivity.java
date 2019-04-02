@@ -41,8 +41,7 @@ public class DeviceChooserActivity extends Activity {
     private static final boolean DEBUG = false;
     private static final String LOG_TAG = "DeviceChooserActivity";
 
-    View mLoadingIndicator = null;
-    ListView mDeviceListView;
+    private ListView mDeviceListView;
     private View mPairButton;
     private View mCancelButton;
 
@@ -81,9 +80,8 @@ public class DeviceChooserActivity extends Activity {
                     onSelectionUpdate();
                 }
             });
-            mDeviceListView.addFooterView(mLoadingIndicator = getProgressBar(), null, false);
+            mDeviceListView.addFooterView(getProgressBar(), null, false);
         }
-        getService().mActivity = this;
 
         mCancelButton = findViewById(R.id.button_cancel);
         mCancelButton.setOnClickListener(v -> cancel());

@@ -20,16 +20,10 @@ import android.app.Service;
 import android.content.Intent;
 import android.os.Build;
 import android.os.IBinder;
-import android.os.Process;
 import android.os.SystemProperties;
-import android.util.Slog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-
-import com.android.internal.os.BinderInternal;
-import com.android.systemui.plugins.PluginManager;
-import com.android.systemui.plugins.PluginManagerImpl;
 
 public class SystemUIService extends Service {
 
@@ -41,21 +35,6 @@ public class SystemUIService extends Service {
         // For debugging RescueParty
         if (Build.IS_DEBUGGABLE && SystemProperties.getBoolean("debug.crash_sysui", false)) {
             throw new RuntimeException();
-        }
-
-        if (Build.IS_DEBUGGABLE) {
-            // b/71353150 - looking for leaked binder proxies
-            BinderInternal.nSetBinderProxyCountEnabled(true);
-            BinderInternal.nSetBinderProxyCountWatermarks(1000,900);
-            BinderInternal.setBinderProxyCountCallback(
-                    new BinderInternal.BinderProxyLimitListener() {
-                        @Override
-                        public void onLimitReached(int uid) {
-                            Slog.w(SystemUIApplication.TAG,
-                                    "uid " + uid + " sent too many Binder proxies to uid "
-                                    + Process.myUid());
-                        }
-                    }, Dependency.get(Dependency.MAIN_HANDLER));
         }
     }
 
@@ -71,10 +50,6 @@ public class SystemUIService extends Service {
             for (SystemUI ui: services) {
                 pw.println("dumping service: " + ui.getClass().getName());
                 ui.dump(fd, pw, args);
-            }
-            if (Build.IS_DEBUGGABLE) {
-                pw.println("dumping plugins:");
-                ((PluginManagerImpl) Dependency.get(PluginManager.class)).dump(fd, pw, args);
             }
         } else {
             String svc = args[0];

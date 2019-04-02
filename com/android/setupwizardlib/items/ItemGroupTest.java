@@ -24,6 +24,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
+import com.android.setupwizardlib.BuildConfig;
 import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
 
 import org.junit.Before;
@@ -35,7 +36,9 @@ import org.mockito.MockitoAnnotations;
 import org.robolectric.annotation.Config;
 
 @RunWith(SuwLibRobolectricTestRunner.class)
-@Config(sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
+@Config(
+        constants = BuildConfig.class,
+        sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
 public class ItemGroupTest {
 
     private static final Item CHILD_1 = new EqualsItem("Child 1");

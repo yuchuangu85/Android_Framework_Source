@@ -25,7 +25,6 @@ import android.media.IAudioFocusDispatcher;
 import android.os.IBinder;
 import android.util.Log;
 
-import com.android.internal.annotations.GuardedBy;
 import com.android.server.audio.MediaFocusControl.AudioFocusDeathHandler;
 
 import java.io.PrintWriter;
@@ -241,15 +240,15 @@ public class FocusRequester {
 
 
     void release() {
-        final IBinder srcRef = mSourceRef;
-        final AudioFocusDeathHandler deathHdlr = mDeathHandler;
         try {
-            if (srcRef != null && deathHdlr != null) {
-                srcRef.unlinkToDeath(deathHdlr, 0);
+            if (mSourceRef != null && mDeathHandler != null) {
+                mSourceRef.unlinkToDeath(mDeathHandler, 0);
+                mDeathHandler = null;
+                mFocusDispatcher = null;
             }
-        } catch (java.util.NoSuchElementException e) { }
-        mDeathHandler = null;
-        mFocusDispatcher = null;
+        } catch (java.util.NoSuchElementException e) {
+            Log.e(TAG, "FocusRequester.release() hit ", e);
+        }
     }
 
     @Override
@@ -301,20 +300,16 @@ public class FocusRequester {
     }
 
     /**
-     * Handle the loss of focus resulting from a given focus gain.
-     * @param focusGain the focus gain from which the loss of focus is resulting
-     * @param frWinner the new focus owner
-     * @return true if the focus loss is definitive, false otherwise.
+     * Called synchronized on MediaFocusControl.mAudioFocusLock
      */
-    @GuardedBy("MediaFocusControl.mAudioFocusLock")
-    boolean handleFocusLossFromGain(int focusGain, final FocusRequester frWinner, boolean forceDuck)
-    {
-        final int focusLoss = focusLossForGainRequest(focusGain);
-        handleFocusLoss(focusLoss, frWinner, forceDuck);
-        return (focusLoss == AudioManager.AUDIOFOCUS_LOSS);
+    void handleExternalFocusGain(int focusGain, final FocusRequester fr) {
+        int focusLoss = focusLossForGainRequest(focusGain);
+        handleFocusLoss(focusLoss, fr);
     }
 
-    @GuardedBy("MediaFocusControl.mAudioFocusLock")
+    /**
+     * Called synchronized on MediaFocusControl.mAudioFocusLock
+     */
     void handleFocusGain(int focusGain) {
         try {
             mFocusLossReceived = AudioManager.AUDIOFOCUS_NONE;
@@ -336,16 +331,19 @@ public class FocusRequester {
         }
     }
 
-    @GuardedBy("MediaFocusControl.mAudioFocusLock")
+    /**
+     * Called synchronized on MediaFocusControl.mAudioFocusLock
+     */
     void handleFocusGainFromRequest(int focusRequestResult) {
         if (focusRequestResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             mFocusController.unduckPlayers(this);
         }
     }
 
-    @GuardedBy("MediaFocusControl.mAudioFocusLock")
-    void handleFocusLoss(int focusLoss, @Nullable final FocusRequester frWinner, boolean forceDuck)
-    {
+    /**
+     * Called synchronized on MediaFocusControl.mAudioFocusLock
+     */
+    void handleFocusLoss(int focusLoss, @Nullable final FocusRequester fr) {
         try {
             if (focusLoss != mFocusLossReceived) {
                 mFocusLossReceived = focusLoss;
@@ -373,23 +371,22 @@ public class FocusRequester {
                 boolean handled = false;
                 if (focusLoss == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
                         && MediaFocusControl.ENFORCE_DUCKING
-                        && frWinner != null) {
+                        && fr != null) {
                     // candidate for enforcement by the framework
-                    if (frWinner.mCallingUid != this.mCallingUid) {
-                        if (!forceDuck && ((mGrantFlags
-                                & AudioManager.AUDIOFOCUS_FLAG_PAUSES_ON_DUCKABLE_LOSS) != 0)) {
+                    if (fr.mCallingUid != this.mCallingUid) {
+                        if ((mGrantFlags
+                                & AudioManager.AUDIOFOCUS_FLAG_PAUSES_ON_DUCKABLE_LOSS) != 0) {
                             // the focus loser declared it would pause instead of duck, let it
                             // handle it (the framework doesn't pause for apps)
                             handled = false;
                             Log.v(TAG, "not ducking uid " + this.mCallingUid + " - flags");
-                        } else if (!forceDuck && (MediaFocusControl.ENFORCE_DUCKING_FOR_NEW &&
-                                this.getSdkTarget() <= MediaFocusControl.DUCKING_IN_APP_SDK_LEVEL))
-                        {
+                        } else if (MediaFocusControl.ENFORCE_DUCKING_FOR_NEW &&
+                                this.getSdkTarget() <= MediaFocusControl.DUCKING_IN_APP_SDK_LEVEL) {
                             // legacy behavior, apps used to be notified when they should be ducking
                             handled = false;
                             Log.v(TAG, "not ducking uid " + this.mCallingUid + " - old SDK");
                         } else {
-                            handled = mFocusController.duckPlayers(frWinner, this, forceDuck);
+                            handled = mFocusController.duckPlayers(fr, this);
                         }
                     } // else: the focus change is within the same app, so let the dispatching
                       //       happen as if the framework was not involved.
@@ -424,7 +421,7 @@ public class FocusRequester {
 
     int dispatchFocusChange(int focusChange) {
         if (mFocusDispatcher == null) {
-            if (MediaFocusControl.DEBUG) { Log.e(TAG, "dispatchFocusChange: no focus dispatcher"); }
+            if (MediaFocusControl.DEBUG) { Log.v(TAG, "dispatchFocusChange: no focus dispatcher"); }
             return AudioManager.AUDIOFOCUS_REQUEST_FAILED;
         }
         if (focusChange == AudioManager.AUDIOFOCUS_NONE) {
@@ -445,27 +442,10 @@ public class FocusRequester {
         try {
             mFocusDispatcher.dispatchAudioFocusChange(focusChange, mClientId);
         } catch (android.os.RemoteException e) {
-            Log.e(TAG, "dispatchFocusChange: error talking to focus listener " + mClientId, e);
+            Log.v(TAG, "dispatchFocusChange: error talking to focus listener", e);
             return AudioManager.AUDIOFOCUS_REQUEST_FAILED;
         }
         return AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
-    }
-
-    void dispatchFocusResultFromExtPolicy(int requestResult) {
-        if (mFocusDispatcher == null) {
-            if (MediaFocusControl.DEBUG) {
-                Log.e(TAG, "dispatchFocusResultFromExtPolicy: no focus dispatcher");
-            }
-        }
-        if (DEBUG) {
-            Log.v(TAG, "dispatching result" + requestResult + " to " + mClientId);
-        }
-        try {
-            mFocusDispatcher.dispatchFocusResultFromExtPolicy(requestResult, mClientId);
-        } catch (android.os.RemoteException e) {
-            Log.e(TAG, "dispatchFocusResultFromExtPolicy: error talking to focus listener"
-                    + mClientId, e);
-        }
     }
 
     AudioFocusInfo toAudioFocusInfo() {

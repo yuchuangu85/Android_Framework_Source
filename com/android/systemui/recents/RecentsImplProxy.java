@@ -58,12 +58,15 @@ public class RecentsImplProxy extends IRecentsNonSystemUserCallbacks.Stub {
 
     @Override
     public void showRecents(boolean triggeredFromAltTab, boolean draggingInRecents, boolean animate,
-            int growTarget) throws RemoteException {
+            boolean reloadTasks, boolean fromHome, int growTarget)
+            throws RemoteException {
         SomeArgs args = SomeArgs.obtain();
         args.argi1 = triggeredFromAltTab ? 1 : 0;
         args.argi2 = draggingInRecents ? 1 : 0;
         args.argi3 = animate ? 1 : 0;
-        args.argi4 = growTarget;
+        args.argi4 = reloadTasks ? 1 : 0;
+        args.argi5 = fromHome ? 1 : 0;
+        args.argi6 = growTarget;
         mHandler.sendMessage(mHandler.obtainMessage(MSG_SHOW_RECENTS, args));
     }
 
@@ -87,7 +90,7 @@ public class RecentsImplProxy extends IRecentsNonSystemUserCallbacks.Stub {
     }
 
     @Override
-    public void splitPrimaryTask(int topTaskId, int dragMode, int stackCreateMode,
+    public void dockTopTask(int topTaskId, int dragMode, int stackCreateMode,
             Rect initialBounds) throws RemoteException {
         SomeArgs args = SomeArgs.obtain();
         args.argi1 = topTaskId;
@@ -127,7 +130,7 @@ public class RecentsImplProxy extends IRecentsNonSystemUserCallbacks.Stub {
                 case MSG_SHOW_RECENTS:
                     args = (SomeArgs) msg.obj;
                     mImpl.showRecents(args.argi1 != 0, args.argi2 != 0, args.argi3 != 0,
-                            args.argi4);
+                            args.argi4 != 0, args.argi5 != 0, args.argi6);
                     break;
                 case MSG_HIDE_RECENTS:
                     mImpl.hideRecents(msg.arg1 != 0, msg.arg2 != 0);
@@ -141,7 +144,7 @@ public class RecentsImplProxy extends IRecentsNonSystemUserCallbacks.Stub {
                     break;
                 case MSG_DOCK_TOP_TASK:
                     args = (SomeArgs) msg.obj;
-                    mImpl.splitPrimaryTask(args.argi1, args.argi2, args.argi3 = 0,
+                    mImpl.dockTopTask(args.argi1, args.argi2, args.argi3 = 0,
                             (Rect) args.arg1);
                     break;
                 case MSG_ON_DRAGGING_IN_RECENTS:

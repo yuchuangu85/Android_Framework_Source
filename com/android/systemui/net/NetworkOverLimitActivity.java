@@ -16,9 +16,6 @@
 
 package com.android.systemui.net;
 
-import static android.net.NetworkPolicyManager.EXTRA_NETWORK_TEMPLATE;
-import static android.net.NetworkTemplate.MATCH_MOBILE;
-
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
@@ -34,6 +31,11 @@ import android.util.Log;
 import android.view.WindowManager;
 
 import com.android.systemui.R;
+
+import static android.net.NetworkPolicyManager.EXTRA_NETWORK_TEMPLATE;
+import static android.net.NetworkTemplate.MATCH_MOBILE_3G_LOWER;
+import static android.net.NetworkTemplate.MATCH_MOBILE_4G;
+import static android.net.NetworkTemplate.MATCH_MOBILE_ALL;
 
 /**
  * Notify user that a {@link NetworkTemplate} is over its
@@ -83,7 +85,11 @@ public class NetworkOverLimitActivity extends Activity {
 
     private static int getLimitedDialogTitleForTemplate(NetworkTemplate template) {
         switch (template.getMatchRule()) {
-            case MATCH_MOBILE:
+            case MATCH_MOBILE_3G_LOWER:
+                return R.string.data_usage_disabled_dialog_3g_title;
+            case MATCH_MOBILE_4G:
+                return R.string.data_usage_disabled_dialog_4g_title;
+            case MATCH_MOBILE_ALL:
                 return R.string.data_usage_disabled_dialog_mobile_title;
             default:
                 return R.string.data_usage_disabled_dialog_title;

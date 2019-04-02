@@ -137,7 +137,7 @@ public class GlifPatternDrawableTest {
         assertEquals("Matrices should match", expected, canvas.getMatrix());
     }
 
-    @Test
+    @SmallTest
     public void testScaleToCanvasMaxSize() {
         final Canvas canvas = new Canvas();
         final Matrix expected = new Matrix(canvas.getMatrix());

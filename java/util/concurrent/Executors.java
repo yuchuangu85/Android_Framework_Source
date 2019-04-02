@@ -35,7 +35,6 @@
 
 package java.util.concurrent;
 
-import dalvik.annotation.optimization.ReachabilitySensitive;
 import java.security.AccessControlContext;
 import java.security.AccessControlException;
 import java.security.AccessController;
@@ -616,9 +615,6 @@ public class Executors {
      */
     private static class DelegatedExecutorService
             extends AbstractExecutorService {
-        // Android-added: @ReachabilitySensitive
-        // Needed for FinalizableDelegatedExecutorService below.
-        @ReachabilitySensitive
         private final ExecutorService e;
         DelegatedExecutorService(ExecutorService executor) { e = executor; }
         public void execute(Runnable command) { e.execute(command); }

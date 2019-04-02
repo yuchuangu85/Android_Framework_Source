@@ -24,12 +24,10 @@ import android.accessibilityservice.IAccessibilityServiceConnection;
 import android.annotation.NonNull;
 import android.annotation.TestApi;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Point;
-import android.graphics.Rect;
 import android.graphics.Region;
 import android.hardware.display.DisplayManagerGlobal;
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
@@ -48,8 +46,6 @@ import android.view.accessibility.AccessibilityInteractionClient;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 import android.view.accessibility.IAccessibilityInteractionConnection;
-
-import com.android.internal.util.function.pooled.PooledLambda;
 import libcore.io.IoUtils;
 
 import java.io.IOException;
@@ -121,13 +117,9 @@ public final class UiAutomation {
 
     private final ArrayList<AccessibilityEvent> mEventQueue = new ArrayList<AccessibilityEvent>();
 
-    private final Handler mLocalCallbackHandler;
+    private final IAccessibilityServiceClient mClient;
 
     private final IUiAutomationConnection mUiAutomationConnection;
-
-    private HandlerThread mRemoteCallbackThread;
-
-    private IAccessibilityServiceClient mClient;
 
     private int mConnectionId = CONNECTION_ID_UNDEFINED;
 
@@ -197,8 +189,8 @@ public final class UiAutomation {
         if (connection == null) {
             throw new IllegalArgumentException("Connection cannot be null!");
         }
-        mLocalCallbackHandler = new Handler(looper);
         mUiAutomationConnection = connection;
+        mClient = new IAccessibilityServiceClientImpl(looper);
     }
 
     /**
@@ -224,9 +216,6 @@ public final class UiAutomation {
                 return;
             }
             mIsConnecting = true;
-            mRemoteCallbackThread = new HandlerThread("UiAutomation");
-            mRemoteCallbackThread.start();
-            mClient = new IAccessibilityServiceClientImpl(mRemoteCallbackThread.getLooper());
         }
 
         try {
@@ -291,9 +280,6 @@ public final class UiAutomation {
             mUiAutomationConnection.disconnect();
         } catch (RemoteException re) {
             throw new RuntimeException("Error while disconnecting UiAutomation", re);
-        } finally {
-            mRemoteCallbackThread.quit();
-            mRemoteCallbackThread = null;
         }
     }
 
@@ -324,7 +310,6 @@ public final class UiAutomation {
 
     /**
      * Sets a callback for observing the stream of {@link AccessibilityEvent}s.
-     * The callbacks are delivered on the main application thread.
      *
      * @param listener The callback.
      */
@@ -594,8 +579,6 @@ public final class UiAutomation {
         // Execute the command *without* the lock being held.
         command.run();
 
-        List<AccessibilityEvent> receivedEvents = new ArrayList<>();
-
         // Acquire the lock and wait for the event.
         try {
             // Wait for the event.
@@ -616,14 +599,14 @@ public final class UiAutomation {
                     if (filter.accept(event)) {
                         return event;
                     }
-                    receivedEvents.add(event);
+                    event.recycle();
                 }
                 // Check if timed out and if not wait.
                 final long elapsedTimeMillis = SystemClock.uptimeMillis() - startTimeMillis;
                 final long remainingTimeMillis = timeoutMillis - elapsedTimeMillis;
                 if (remainingTimeMillis <= 0) {
                     throw new TimeoutException("Expected event not received within: "
-                            + timeoutMillis + " ms among: " + receivedEvents);
+                            + timeoutMillis + " ms.");
                 }
                 synchronized (mLock) {
                     if (mEventQueue.isEmpty()) {
@@ -636,11 +619,6 @@ public final class UiAutomation {
                 }
             }
         } finally {
-            int size = receivedEvents.size();
-            for (int i = 0; i < size; i++) {
-                receivedEvents.get(i).recycle();
-            }
-
             synchronized (mLock) {
                 mWaitingForEventDelivery = false;
                 mEventQueue.clear();
@@ -712,21 +690,63 @@ public final class UiAutomation {
                 .getRealDisplay(Display.DEFAULT_DISPLAY);
         Point displaySize = new Point();
         display.getRealSize(displaySize);
+        final int displayWidth = displaySize.x;
+        final int displayHeight = displaySize.y;
 
-        int rotation = display.getRotation();
+        final float screenshotWidth;
+        final float screenshotHeight;
+
+        final int rotation = display.getRotation();
+        switch (rotation) {
+            case ROTATION_FREEZE_0: {
+                screenshotWidth = displayWidth;
+                screenshotHeight = displayHeight;
+            } break;
+            case ROTATION_FREEZE_90: {
+                screenshotWidth = displayHeight;
+                screenshotHeight = displayWidth;
+            } break;
+            case ROTATION_FREEZE_180: {
+                screenshotWidth = displayWidth;
+                screenshotHeight = displayHeight;
+            } break;
+            case ROTATION_FREEZE_270: {
+                screenshotWidth = displayHeight;
+                screenshotHeight = displayWidth;
+            } break;
+            default: {
+                throw new IllegalArgumentException("Invalid rotation: "
+                        + rotation);
+            }
+        }
 
         // Take the screenshot
         Bitmap screenShot = null;
         try {
             // Calling out without a lock held.
-            screenShot = mUiAutomationConnection.takeScreenshot(
-                    new Rect(0, 0, displaySize.x, displaySize.y), rotation);
+            screenShot = mUiAutomationConnection.takeScreenshot((int) screenshotWidth,
+                    (int) screenshotHeight);
             if (screenShot == null) {
                 return null;
             }
         } catch (RemoteException re) {
             Log.e(LOG_TAG, "Error while taking screnshot!", re);
             return null;
+        }
+
+        // Rotate the screenshot to the current orientation
+        if (rotation != ROTATION_FREEZE_0) {
+            Bitmap unrotatedScreenShot = Bitmap.createBitmap(displayWidth, displayHeight,
+                    Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(unrotatedScreenShot);
+            canvas.translate(unrotatedScreenShot.getWidth() / 2,
+                    unrotatedScreenShot.getHeight() / 2);
+            canvas.rotate(getDegreesForRotation(rotation));
+            canvas.translate(- screenshotWidth / 2, - screenshotHeight / 2);
+            canvas.drawBitmap(screenShot, 0, 0, null);
+            canvas.setBitmap(null);
+            screenShot.recycle();
+            screenShot = unrotatedScreenShot;
         }
 
         // Optimization
@@ -897,35 +917,15 @@ public final class UiAutomation {
     }
 
     /**
-     * Grants a runtime permission to a package.
-     * @param packageName The package to which to grant.
-     * @param permission The permission to grant.
-     * @throws SecurityException if unable to grant the permission.
-     */
-    public void grantRuntimePermission(String packageName, String permission) {
-        grantRuntimePermissionAsUser(packageName, permission, android.os.Process.myUserHandle());
-    }
-
-    /**
-     * @deprecated replaced by
-     *             {@link #grantRuntimePermissionAsUser(String, String, UserHandle)}.
-     * @hide
-     */
-    @Deprecated
-    @TestApi
-    public boolean grantRuntimePermission(String packageName, String permission,
-            UserHandle userHandle) {
-        grantRuntimePermissionAsUser(packageName, permission, userHandle);
-        return true;
-    }
-
-    /**
      * Grants a runtime permission to a package for a user.
      * @param packageName The package to which to grant.
      * @param permission The permission to grant.
-     * @throws SecurityException if unable to grant the permission.
+     * @return Whether granting succeeded.
+     *
+     * @hide
      */
-    public void grantRuntimePermissionAsUser(String packageName, String permission,
+    @TestApi
+    public boolean grantRuntimePermission(String packageName, String permission,
             UserHandle userHandle) {
         synchronized (mLock) {
             throwIfNotConnectedLocked();
@@ -937,41 +937,24 @@ public final class UiAutomation {
             // Calling out without a lock held.
             mUiAutomationConnection.grantRuntimePermission(packageName,
                     permission, userHandle.getIdentifier());
-        } catch (Exception e) {
-            throw new SecurityException("Error granting runtime permission", e);
+            // TODO: The package manager API should return boolean.
+            return true;
+        } catch (RemoteException re) {
+            Log.e(LOG_TAG, "Error granting runtime permission", re);
         }
+        return false;
     }
 
     /**
-     * Revokes a runtime permission from a package.
-     * @param packageName The package to which to grant.
-     * @param permission The permission to grant.
-     * @throws SecurityException if unable to revoke the permission.
-     */
-    public void revokeRuntimePermission(String packageName, String permission) {
-        revokeRuntimePermissionAsUser(packageName, permission, android.os.Process.myUserHandle());
-    }
-
-    /**
-     * @deprecated replaced by
-     *             {@link #revokeRuntimePermissionAsUser(String, String, UserHandle)}.
+     * Revokes a runtime permission from a package for a user.
+     * @param packageName The package from which to revoke.
+     * @param permission The permission to revoke.
+     * @return Whether revoking succeeded.
+     *
      * @hide
      */
-    @Deprecated
     @TestApi
     public boolean revokeRuntimePermission(String packageName, String permission,
-            UserHandle userHandle) {
-        revokeRuntimePermissionAsUser(packageName, permission, userHandle);
-        return true;
-    }
-
-    /**
-     * Revokes a runtime permission from a package.
-     * @param packageName The package to which to grant.
-     * @param permission The permission to grant.
-     * @throws SecurityException if unable to revoke the permission.
-     */
-    public void revokeRuntimePermissionAsUser(String packageName, String permission,
             UserHandle userHandle) {
         synchronized (mLock) {
             throwIfNotConnectedLocked();
@@ -983,9 +966,12 @@ public final class UiAutomation {
             // Calling out without a lock held.
             mUiAutomationConnection.revokeRuntimePermission(packageName,
                     permission, userHandle.getIdentifier());
-        } catch (Exception e) {
-            throw new SecurityException("Error granting runtime permission", e);
+            // TODO: The package manager API should return boolean.
+            return true;
+        } catch (RemoteException re) {
+            Log.e(LOG_TAG, "Error revoking runtime permission", re);
         }
+        return false;
     }
 
     /**
@@ -1004,7 +990,6 @@ public final class UiAutomation {
         synchronized (mLock) {
             throwIfNotConnectedLocked();
         }
-        warnIfBetterCommand(command);
 
         ParcelFileDescriptor source = null;
         ParcelFileDescriptor sink = null;
@@ -1047,7 +1032,6 @@ public final class UiAutomation {
         synchronized (mLock) {
             throwIfNotConnectedLocked();
         }
-        warnIfBetterCommand(command);
 
         ParcelFileDescriptor source_read = null;
         ParcelFileDescriptor sink_read = null;
@@ -1113,16 +1097,6 @@ public final class UiAutomation {
         }
     }
 
-    private void warnIfBetterCommand(String cmd) {
-        if (cmd.startsWith("pm grant ")) {
-            Log.w(LOG_TAG, "UiAutomation.grantRuntimePermission() "
-                    + "is more robust and should be used instead of 'pm grant'");
-        } else if (cmd.startsWith("pm revoke ")) {
-            Log.w(LOG_TAG, "UiAutomation.revokeRuntimePermission() "
-                    + "is more robust and should be used instead of 'pm revoke'");
-        }
-    }
-
     private class IAccessibilityServiceClientImpl extends IAccessibilityServiceClientWrapper {
 
         public IAccessibilityServiceClientImpl(Looper looper) {
@@ -1153,21 +1127,17 @@ public final class UiAutomation {
 
                 @Override
                 public void onAccessibilityEvent(AccessibilityEvent event) {
-                    final OnAccessibilityEventListener listener;
                     synchronized (mLock) {
                         mLastEventTimeMillis = event.getEventTime();
                         if (mWaitingForEventDelivery) {
                             mEventQueue.add(AccessibilityEvent.obtain(event));
                         }
                         mLock.notifyAll();
-                        listener = mOnAccessibilityEventListener;
                     }
+                    // Calling out only without a lock held.
+                    final OnAccessibilityEventListener listener = mOnAccessibilityEventListener;
                     if (listener != null) {
-                        // Calling out only without a lock held.
-                        mLocalCallbackHandler.post(PooledLambda.obtainRunnable(
-                                OnAccessibilityEventListener::onAccessibilityEvent,
-                                listener, AccessibilityEvent.obtain(event))
-                                .recycleOnUse());
+                        listener.onAccessibilityEvent(AccessibilityEvent.obtain(event));
                     }
                 }
 

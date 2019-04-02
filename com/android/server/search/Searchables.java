@@ -26,17 +26,13 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageManagerInternal;
 import android.content.pm.ResolveInfo;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.RemoteException;
-import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Log;
-
-import com.android.server.LocalServices;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -123,15 +119,7 @@ public class Searchables {
         SearchableInfo result;
         synchronized (this) {
             result = mSearchablesMap.get(activity);
-            if (result != null) {
-                final PackageManagerInternal pm =
-                        LocalServices.getService(PackageManagerInternal.class);
-                if (pm.canAccessComponent(Binder.getCallingUid(), result.getSearchActivity(),
-                        UserHandle.getCallingUserId())) {
-                    return result;
-                }
-                return null;
-            }
+            if (result != null) return result;
         }
 
         // Step 2.  See if the current activity references a searchable.
@@ -182,16 +170,8 @@ public class Searchables {
                 result = mSearchablesMap.get(referredActivity);
                 if (result != null) {
                     mSearchablesMap.put(activity, result);
-                }
-            }
-            if (result != null) {
-                final PackageManagerInternal pm =
-                        LocalServices.getService(PackageManagerInternal.class);
-                if (pm.canAccessComponent(Binder.getCallingUid(), result.getSearchActivity(),
-                        UserHandle.getCallingUserId())) {
                     return result;
                 }
-                return null;
             }
         }
 
@@ -430,7 +410,7 @@ public class Searchables {
             activities =
                     mPm.queryIntentActivities(intent,
                     intent.resolveTypeIfNeeded(mContext.getContentResolver()),
-                    flags | PackageManager.MATCH_INSTANT, mUserId).getList();
+                    flags, mUserId).getList();
         } catch (RemoteException re) {
             // Local call
         }
@@ -441,82 +421,36 @@ public class Searchables {
      * Returns the list of searchable activities.
      */
     public synchronized ArrayList<SearchableInfo> getSearchablesList() {
-        return createFilterdSearchableInfoList(mSearchablesList);
+        ArrayList<SearchableInfo> result = new ArrayList<SearchableInfo>(mSearchablesList);
+        return result;
     }
 
     /**
      * Returns a list of the searchable activities that can be included in global search.
      */
     public synchronized ArrayList<SearchableInfo> getSearchablesInGlobalSearchList() {
-        return createFilterdSearchableInfoList(mSearchablesInGlobalSearchList);
+        return new ArrayList<SearchableInfo>(mSearchablesInGlobalSearchList);
     }
 
     /**
      * Returns a list of activities that handle the global search intent.
      */
     public synchronized ArrayList<ResolveInfo> getGlobalSearchActivities() {
-        return createFilterdResolveInfoList(mGlobalSearchActivities);
-    }
-
-    private ArrayList<SearchableInfo> createFilterdSearchableInfoList(List<SearchableInfo> list) {
-        if (list == null) {
-            return null;
-        }
-        final ArrayList<SearchableInfo> resultList = new ArrayList<>(list.size());
-        final PackageManagerInternal pm = LocalServices.getService(PackageManagerInternal.class);
-        final int callingUid = Binder.getCallingUid();
-        final int callingUserId = UserHandle.getCallingUserId();
-        for (SearchableInfo info : list) {
-            if (pm.canAccessComponent(callingUid, info.getSearchActivity(), callingUserId)) {
-                resultList.add(info);
-            }
-        }
-        return resultList;
-    }
-
-    private ArrayList<ResolveInfo> createFilterdResolveInfoList(List<ResolveInfo> list) {
-        if (list == null) {
-            return null;
-        }
-        final ArrayList<ResolveInfo> resultList = new ArrayList<>(list.size());
-        final PackageManagerInternal pm = LocalServices.getService(PackageManagerInternal.class);
-        final int callingUid = Binder.getCallingUid();
-        final int callingUserId = UserHandle.getCallingUserId();
-        for (ResolveInfo info : list) {
-            if (pm.canAccessComponent(
-                    callingUid, info.activityInfo.getComponentName(), callingUserId)) {
-                resultList.add(info);
-            }
-        }
-        return resultList;
+        return new ArrayList<ResolveInfo>(mGlobalSearchActivities);
     }
 
     /**
      * Gets the name of the global search activity.
      */
     public synchronized ComponentName getGlobalSearchActivity() {
-        final PackageManagerInternal pm = LocalServices.getService(PackageManagerInternal.class);
-        final int callingUid = Binder.getCallingUid();
-        final int callingUserId = UserHandle.getCallingUserId();
-        if (mCurrentGlobalSearchActivity != null
-                && pm.canAccessComponent(callingUid, mCurrentGlobalSearchActivity, callingUserId)) {
-            return mCurrentGlobalSearchActivity;
-        }
-        return null;
+        return mCurrentGlobalSearchActivity;
     }
 
     /**
      * Gets the name of the web search activity.
      */
     public synchronized ComponentName getWebSearchActivity() {
-        final PackageManagerInternal pm = LocalServices.getService(PackageManagerInternal.class);
-        final int callingUid = Binder.getCallingUid();
-        final int callingUserId = UserHandle.getCallingUserId();
-        if (mWebSearchActivity != null
-                && pm.canAccessComponent(callingUid, mWebSearchActivity, callingUserId)) {
-            return mWebSearchActivity;
-        }
-        return null;
+        return mWebSearchActivity;
     }
 
     void dump(FileDescriptor fd, PrintWriter pw, String[] args) {

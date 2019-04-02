@@ -153,14 +153,9 @@ public class QSSecurityFooter implements OnClickListener, DialogInterface.OnClic
                 hasCACerts, hasCACertsInWorkProfile, isNetworkLoggingEnabled, vpnName,
                 vpnNameWorkProfile, organizationName, workProfileName);
         // Update the icon
-        int footerIconId = R.drawable.ic_info_outline;
-        if (vpnName != null || vpnNameWorkProfile != null) {
-            if (mSecurityController.isVpnBranded()) {
-                footerIconId = R.drawable.ic_qs_branded_vpn;
-            } else {
-                footerIconId = R.drawable.ic_qs_vpn;
-            }
-        }
+        int footerIconId = vpnName != null || vpnNameWorkProfile != null
+                ? R.drawable.ic_qs_vpn
+                : R.drawable.ic_info_outline;
         if (mFooterIconId != footerIconId) {
             mFooterIconId = footerIconId;
             mMainHandler.post(mUpdateIcon);

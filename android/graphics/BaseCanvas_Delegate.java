@@ -477,39 +477,40 @@ public class BaseCanvas_Delegate {
 
     @LayoutlibDelegate
     /*package*/ static void nDrawText(long nativeCanvas, char[] text, int index, int count,
-            float startX, float startY, int flags, long paint) {
+            float startX, float startY, int flags, long paint, long typeface) {
         drawText(nativeCanvas, text, index, count, startX, startY, flags,
-                paint);
+                paint, typeface);
     }
 
     @LayoutlibDelegate
     /*package*/ static void nDrawText(long nativeCanvas, String text,
-            int start, int end, float x, float y, final int flags, long paint) {
+            int start, int end, float x, float y, final int flags, long paint,
+            long typeface) {
         int count = end - start;
         char[] buffer = TemporaryBuffer.obtain(count);
         TextUtils.getChars(text, start, end, buffer, 0);
 
-        nDrawText(nativeCanvas, buffer, 0, count, x, y, flags, paint);
+        nDrawText(nativeCanvas, buffer, 0, count, x, y, flags, paint, typeface);
     }
 
     @LayoutlibDelegate
     /*package*/ static void nDrawTextRun(long nativeCanvas, String text,
             int start, int end, int contextStart, int contextEnd,
-            float x, float y, boolean isRtl, long paint) {
+            float x, float y, boolean isRtl, long paint, long typeface) {
         int count = end - start;
         char[] buffer = TemporaryBuffer.obtain(count);
         TextUtils.getChars(text, start, end, buffer, 0);
 
         drawText(nativeCanvas, buffer, 0, count, x, y, isRtl ? Paint.BIDI_RTL : Paint.BIDI_LTR,
-                paint);
+                paint,
+                typeface);
     }
 
     @LayoutlibDelegate
     /*package*/ static void nDrawTextRun(long nativeCanvas, char[] text,
             int start, int count, int contextStart, int contextCount,
-            float x, float y, boolean isRtl, long paint,
-            long nativeMeasuredText, int measuredTextOffset) {
-        drawText(nativeCanvas, text, start, count, x, y, isRtl ? Paint.BIDI_RTL : Paint.BIDI_LTR, paint);
+            float x, float y, boolean isRtl, long paint, long typeface) {
+        drawText(nativeCanvas, text, start, count, x, y, isRtl ? Paint.BIDI_RTL : Paint.BIDI_LTR, paint, typeface);
     }
 
     @LayoutlibDelegate
@@ -518,7 +519,7 @@ public class BaseCanvas_Delegate {
             int count, long path,
             float hOffset,
             float vOffset, int bidiFlags,
-            long paint) {
+            long paint, long typeface) {
         // FIXME
         Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
                 "Canvas.drawTextOnPath is not supported.", null, null /*data*/);
@@ -529,7 +530,8 @@ public class BaseCanvas_Delegate {
             String text, long path,
             float hOffset,
             float vOffset,
-            int bidiFlags, long paint) {
+            int bidiFlags, long paint,
+            long typeface) {
         // FIXME
         Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
                 "Canvas.drawTextOnPath is not supported.", null, null /*data*/);
@@ -574,12 +576,15 @@ public class BaseCanvas_Delegate {
 
     private static void drawText(long nativeCanvas, final char[] text, final int index,
             final int count, final float startX, final float startY, final int bidiFlags,
-            long paint) {
+            long paint, final long typeface) {
 
         draw(nativeCanvas, paint, false /*compositeOnly*/, false /*forceSrcMode*/,
                 (graphics, paintDelegate) -> {
                     // WARNING: the logic in this method is similar to Paint_Delegate.measureText.
                     // Any change to this method should be reflected in Paint.measureText
+
+                    // assert that the typeface passed is actually the one stored in paint.
+                    assert (typeface == paintDelegate.mNativeTypeface);
 
                     // Paint.TextAlign indicates how the text is positioned relative to X.
                     // LEFT is the default and there's nothing to do.

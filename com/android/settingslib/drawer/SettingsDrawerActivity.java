@@ -17,6 +17,7 @@ package com.android.settingslib.drawer;
 
 import android.annotation.LayoutRes;
 import android.annotation.Nullable;
+import android.app.ActionBar;
 import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -71,9 +72,9 @@ public class SettingsDrawerActivity extends Activity {
             requestWindowFeature(Window.FEATURE_NO_TITLE);
         }
         super.setContentView(R.layout.settings_with_drawer);
-        mContentHeaderContainer = findViewById(R.id.content_header_container);
+        mContentHeaderContainer = (FrameLayout) findViewById(R.id.content_header_container);
 
-        Toolbar toolbar = findViewById(R.id.action_bar);
+        Toolbar toolbar = (Toolbar) findViewById(R.id.action_bar);
         if (theme.getBoolean(android.R.styleable.Theme_windowNoTitle, false)) {
             toolbar.setVisibility(View.GONE);
             return;
@@ -88,9 +89,7 @@ public class SettingsDrawerActivity extends Activity {
 
     @Override
     public boolean onNavigateUp() {
-        if (!super.onNavigateUp()) {
-            finish();
-        }
+        finish();
         return true;
     }
 
@@ -105,6 +104,11 @@ public class SettingsDrawerActivity extends Activity {
         registerReceiver(mPackageReceiver, filter);
 
         new CategoriesUpdateTask().execute();
+        final Intent intent = getIntent();
+        if (intent != null && intent.getBooleanExtra(EXTRA_SHOW_MENU, false)) {
+            // Intent explicitly set to show menu.
+            showMenuIcon();
+        }
     }
 
     @Override
@@ -119,6 +123,13 @@ public class SettingsDrawerActivity extends Activity {
 
     public void remCategoryListener(CategoryListener listener) {
         mCategoryListeners.remove(listener);
+    }
+
+    public void setContentHeaderView(View headerView) {
+        mContentHeaderContainer.removeAllViews();
+        if (headerView != null) {
+            mContentHeaderContainer.addView(headerView);
+        }
     }
 
     @Override
@@ -140,11 +151,22 @@ public class SettingsDrawerActivity extends Activity {
         ((ViewGroup) findViewById(R.id.content_frame)).addView(view, params);
     }
 
+    private void showMenuIcon() {
+        final ActionBar actionBar = getActionBar();
+        if (actionBar != null) {
+            actionBar.setDisplayHomeAsUpEnabled(true);
+        }
+    }
+
     private void onCategoriesChanged() {
         final int N = mCategoryListeners.size();
         for (int i = 0; i < N; i++) {
             mCategoryListeners.get(i).onCategoriesChanged();
         }
+    }
+
+    public void onProfileTileOpen() {
+        finish();
     }
 
     /**

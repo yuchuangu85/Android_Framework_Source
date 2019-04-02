@@ -16,14 +16,15 @@
 
 package com.android.setupwizardlib.test.util;
 
-import android.app.Activity;
+import android.support.v7.app.AppCompatActivity;
 
 /**
  * Activity to test view and drawable drawing behaviors. This is used to make sure that the drawing
- * behavior tested is the same as it would when inflated as part of an activity, including any
- * injected layout inflater factories and custom themes etc.
+ * behavior tested is the same as it would when inflated as part of an {@link AppCompatActivity},
+ * including custom layout inflaters and theme values that the support library injects to the
+ * activity.
  *
  * @see DrawingTestHelper
  */
-public class DrawingTestActivity extends Activity {
+public class DrawingTestActivity extends AppCompatActivity {
 }

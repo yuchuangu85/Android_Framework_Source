@@ -37,7 +37,6 @@ import android.util.SparseArray;
 import android.widget.RemoteViews;
 import android.widget.RemoteViews.OnClickHandler;
 
-import com.android.internal.R;
 import com.android.internal.appwidget.IAppWidgetHost;
 import com.android.internal.appwidget.IAppWidgetService;
 
@@ -172,9 +171,8 @@ public class AppWidgetHost {
                 return;
             }
             sServiceInitialized = true;
-            PackageManager packageManager = context.getPackageManager();
-            if (!packageManager.hasSystemFeature(PackageManager.FEATURE_APP_WIDGETS)
-                    && !context.getResources().getBoolean(R.bool.config_enableAppWidgetService)) {
+            if (!context.getPackageManager().hasSystemFeature(
+                    PackageManager.FEATURE_APP_WIDGETS)) {
                 return;
             }
             IBinder b = ServiceManager.getService(Context.APPWIDGET_SERVICE);

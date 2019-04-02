@@ -76,6 +76,7 @@ public class MediaNotificationProcessor {
      * notification.
      */
     private final Context mPackageContext;
+    private boolean mIsLowPriority;
 
     public MediaNotificationProcessor(Context context, Context packageContext) {
         this(context, packageContext, new ImageGradientColorizer());
@@ -145,7 +146,10 @@ public class MediaNotificationProcessor {
                 int foregroundColor = selectForegroundColor(backgroundColor, palette);
                 builder.setColorPalette(backgroundColor, foregroundColor);
             } else {
-                backgroundColor = mContext.getColor(R.color.notification_material_background_color);
+                int id = mIsLowPriority
+                        ? R.color.notification_material_background_low_priority_color
+                        : R.color.notification_material_background_color;
+                backgroundColor = mContext.getColor(id);
             }
             Bitmap colorized = mColorizer.colorize(drawable, backgroundColor,
                     mContext.getResources().getConfiguration().getLayoutDirection() ==
@@ -302,5 +306,9 @@ public class MediaNotificationProcessor {
      */
     private boolean isWhite(float[] hslColor) {
         return hslColor[2] >= WHITE_MIN_LIGHTNESS;
+    }
+
+    public void setIsLowPriority(boolean isLowPriority) {
+        mIsLowPriority = isLowPriority;
     }
 }

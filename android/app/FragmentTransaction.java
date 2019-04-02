@@ -21,11 +21,7 @@ import java.lang.annotation.RetentionPolicy;
  * <a href="{@docRoot}guide/components/fragments.html">Fragments</a> developer
  * guide.</p>
  * </div>
- *
- * @deprecated Use the <a href="{@docRoot}tools/extras/support-library.html">Support Library</a>
- *      {@link android.support.v4.app.FragmentTransaction}
  */
-@Deprecated
 public abstract class FragmentTransaction {
     /**
      * Calls {@link #add(int, Fragment, String)} with a 0 containerViewId.
@@ -183,12 +179,7 @@ public abstract class FragmentTransaction {
     public static final int TRANSIT_FRAGMENT_FADE = 3 | TRANSIT_ENTER_MASK;
 
     /** @hide */
-    @IntDef(prefix = { "TRANSIT_" }, value = {
-            TRANSIT_NONE,
-            TRANSIT_FRAGMENT_OPEN,
-            TRANSIT_FRAGMENT_CLOSE,
-            TRANSIT_FRAGMENT_FADE
-    })
+    @IntDef({TRANSIT_NONE, TRANSIT_FRAGMENT_OPEN, TRANSIT_FRAGMENT_CLOSE, TRANSIT_FRAGMENT_FADE})
     @Retention(RetentionPolicy.SOURCE)
     public @interface Transit {}
 

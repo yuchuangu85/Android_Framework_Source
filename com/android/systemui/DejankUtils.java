@@ -16,7 +16,6 @@
 
 package com.android.systemui;
 
-import com.android.internal.annotations.VisibleForTesting;
 import com.android.systemui.util.Assert;
 
 import android.os.Handler;
@@ -31,12 +30,8 @@ public class DejankUtils {
 
     private static final Choreographer sChoreographer = Choreographer.getInstance();
     private static final Handler sHandler = new Handler();
-    private static final ArrayList<Runnable> sPendingRunnables = new ArrayList<>();
 
-    /**
-     * Only for testing.
-     */
-    private static boolean sImmediate;
+    private static final ArrayList<Runnable> sPendingRunnables = new ArrayList<>();
 
     private static final Runnable sAnimationCallbackRunnable = new Runnable() {
         @Override
@@ -56,10 +51,6 @@ public class DejankUtils {
      * <p>Needs to be called from the main thread.
      */
     public static void postAfterTraversal(Runnable r) {
-        if (sImmediate) {
-            r.run();
-            return;
-        }
         Assert.isMainThread();
         sPendingRunnables.add(r);
         postAnimationCallback();
@@ -79,10 +70,5 @@ public class DejankUtils {
     private static void postAnimationCallback() {
         sChoreographer.postCallback(Choreographer.CALLBACK_ANIMATION, sAnimationCallbackRunnable,
                 null);
-    }
-
-    @VisibleForTesting
-    public static void setImmediate(boolean immediate) {
-        sImmediate = immediate;
     }
 }

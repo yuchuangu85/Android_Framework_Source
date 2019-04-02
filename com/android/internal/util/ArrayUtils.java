@@ -30,7 +30,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -135,13 +134,6 @@ public class ArrayUtils {
     }
 
     /**
-     * Checks if given map is null or has zero elements.
-     */
-    public static boolean isEmpty(@Nullable Map<?, ?> map) {
-        return map == null || map.isEmpty();
-    }
-
-    /**
      * Checks if given array is null or has zero elements.
      */
     public static <T> boolean isEmpty(@Nullable T[] array) {
@@ -181,13 +173,6 @@ public class ArrayUtils {
      */
     public static int size(@Nullable Object[] array) {
         return array == null ? 0 : array.length;
-    }
-
-    /**
-     * Length of the given collection or 0 if it's null.
-     */
-    public static int size(@Nullable Collection<?> collection) {
-        return collection == null ? 0 : collection.size();
     }
 
     /**
@@ -295,15 +280,6 @@ public class ArrayUtils {
         int[] array = new int[list.size()];
         for (int i = 0; i < list.size(); i++) {
             array[i] = list.get(i);
-        }
-        return array;
-    }
-
-    public static @Nullable long[] convertToLongArray(@Nullable int[] intArray) {
-        if (intArray == null) return null;
-        long[] array = new long[intArray.length];
-        for (int i = 0; i < intArray.length; i++) {
-            array[i] = (long) intArray[i];
         }
         return array;
     }
@@ -441,31 +417,20 @@ public class ArrayUtils {
      * Adds value to given array if not already present, providing set-like
      * behavior.
      */
-    public static @NonNull long[] appendLong(@Nullable long[] cur, long val,
-            boolean allowDuplicates) {
+    public static @NonNull long[] appendLong(@Nullable long[] cur, long val) {
         if (cur == null) {
             return new long[] { val };
         }
         final int N = cur.length;
-        if (!allowDuplicates) {
-            for (int i = 0; i < N; i++) {
-                if (cur[i] == val) {
-                    return cur;
-                }
+        for (int i = 0; i < N; i++) {
+            if (cur[i] == val) {
+                return cur;
             }
         }
         long[] ret = new long[N + 1];
         System.arraycopy(cur, 0, ret, 0, N);
         ret[N] = val;
         return ret;
-    }
-
-    /**
-     * Adds value to given array if not already present, providing set-like
-     * behavior.
-     */
-    public static @NonNull long[] appendLong(@Nullable long[] cur, long val) {
-        return appendLong(cur, val, false);
     }
 
     /**
@@ -617,10 +582,6 @@ public class ArrayUtils {
             collection.remove(i);
         }
         return size - leftIdx;
-    }
-
-    public static @NonNull int[] defeatNullable(@Nullable int[] val) {
-        return (val != null) ? val : EmptyArray.INT;
     }
 
     public static @NonNull String[] defeatNullable(@Nullable String[] val) {

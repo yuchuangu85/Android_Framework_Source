@@ -17,7 +17,6 @@
 package com.android.printservice.recommendation;
 
 import android.content.res.Configuration;
-import android.net.wifi.WifiManager;
 import android.printservice.PrintService;
 import android.printservice.recommendation.RecommendationInfo;
 import android.printservice.recommendation.RecommendationService;
@@ -48,20 +47,8 @@ public class RecommendationServiceImpl extends RecommendationService
     /** All registered plugins */
     private ArrayList<RemotePrintServicePlugin> mPlugins;
 
-    /** Lock to keep multi-cast enabled */
-    private WifiManager.MulticastLock mMultiCastLock;
-
     @Override
     public void onConnected() {
-        WifiManager wifiManager = getSystemService(WifiManager.class);
-        if (wifiManager != null) {
-            if (mMultiCastLock == null) {
-                mMultiCastLock = wifiManager.createMulticastLock(LOG_TAG);
-            }
-
-            mMultiCastLock.acquire();
-        }
-
         mPlugins = new ArrayList<>();
 
         try {
@@ -137,10 +124,6 @@ public class RecommendationServiceImpl extends RecommendationService
             } catch (RemotePrintServicePlugin.PluginException e) {
                 Log.e(LOG_TAG, "Could not stop plugin", e);
             }
-        }
-
-        if (mMultiCastLock != null) {
-            mMultiCastLock.release();
         }
     }
 

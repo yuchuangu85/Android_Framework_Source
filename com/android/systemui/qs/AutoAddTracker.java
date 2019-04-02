@@ -51,11 +51,10 @@ public class AutoAddTracker {
     public AutoAddTracker(Context context) {
         mContext = context;
         mAutoAdded = new ArraySet<>(getAdded());
-        // TODO: remove migration code and shared preferences keys after P release
         for (String[] convertPref : CONVERT_PREFS) {
             if (Prefs.getBoolean(context, convertPref[0], false)) {
                 setTileAdded(convertPref[1]);
-                Prefs.remove(context, convertPref[0]);
+                Prefs.putBoolean(context, convertPref[0], false);
             }
         }
         mContext.getContentResolver().registerContentObserver(

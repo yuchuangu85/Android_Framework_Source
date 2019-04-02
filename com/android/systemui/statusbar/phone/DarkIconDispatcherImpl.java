@@ -69,7 +69,7 @@ public class DarkIconDispatcherImpl implements DarkIconDispatcher {
         mReceivers.remove(object);
     }
 
-    public void applyDark(DarkReceiver object) {
+    public void applyDark(ImageView object) {
         mReceivers.get(object).onDarkChanged(mTintArea, mDarkIntensity, mIconTint);
     }
 

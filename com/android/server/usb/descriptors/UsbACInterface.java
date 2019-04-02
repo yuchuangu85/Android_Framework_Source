@@ -78,10 +78,10 @@ public abstract class UsbACInterface extends UsbDescriptor {
     public static final int FORMAT_III_IEC1937_MPEG2_Layer1LS = 0x2005;
 
     protected final byte mSubtype;  // 2:1 HEADER descriptor subtype
-    protected final int mSubclass;  // from the mSubclass member of the
+    protected final byte mSubclass; // from the mSubclass member of the
                                     // "enclosing" Interface Descriptor
 
-    public UsbACInterface(int length, byte type, byte subtype, int subclass) {
+    public UsbACInterface(int length, byte type, byte subtype, byte subclass) {
         super(length, type);
         mSubtype = subtype;
         mSubclass = subclass;
@@ -91,12 +91,12 @@ public abstract class UsbACInterface extends UsbDescriptor {
         return mSubtype;
     }
 
-    public int getSubclass() {
+    public byte getSubclass() {
         return mSubclass;
     }
 
     private static UsbDescriptor allocAudioControlDescriptor(UsbDescriptorParser parser,
-            ByteStream stream, int length, byte type, byte subtype, int subClass) {
+            ByteStream stream, int length, byte type, byte subtype, byte subClass) {
         switch (subtype) {
             case ACI_HEADER:
             {
@@ -157,7 +157,7 @@ public abstract class UsbACInterface extends UsbDescriptor {
     }
 
     private static UsbDescriptor allocAudioStreamingDescriptor(UsbDescriptorParser parser,
-            ByteStream stream, int length, byte type, byte subtype, int subClass) {
+            ByteStream stream, int length, byte type, byte subtype, byte subClass) {
         //int spec = parser.getUsbSpec();
         int acInterfaceSpec = parser.getACInterfaceSpec();
         switch (subtype) {
@@ -182,7 +182,7 @@ public abstract class UsbACInterface extends UsbDescriptor {
     }
 
     private static UsbDescriptor allocMidiStreamingDescriptor(int length, byte type,
-            byte subtype, int subClass) {
+            byte subtype, byte subClass) {
         switch (subtype) {
             case MSI_HEADER:
                 return new UsbMSMidiHeader(length, type, subtype, subClass);
@@ -212,7 +212,7 @@ public abstract class UsbACInterface extends UsbDescriptor {
             int length, byte type) {
         byte subtype = stream.getByte();
         UsbInterfaceDescriptor interfaceDesc = parser.getCurInterface();
-        int subClass = interfaceDesc.getUsbSubclass();
+        byte subClass = interfaceDesc.getUsbSubclass();
         switch (subClass) {
             case AUDIO_AUDIOCONTROL:
                 return allocAudioControlDescriptor(
@@ -236,7 +236,7 @@ public abstract class UsbACInterface extends UsbDescriptor {
     public void report(ReportCanvas canvas) {
         super.report(canvas);
 
-        int subClass = getSubclass();
+        byte subClass = getSubclass();
         String subClassName = UsbStrings.getACInterfaceSubclassName(subClass);
 
         byte subtype = getSubtype();

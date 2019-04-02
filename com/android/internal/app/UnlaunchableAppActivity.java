@@ -21,15 +21,24 @@ import static android.content.Intent.FLAG_ACTIVITY_NEW_TASK;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentSender;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
 import android.os.Bundle;
 import android.os.UserHandle;
 import android.os.UserManager;
+import android.text.TextUtils;
 import android.util.Log;
+import android.view.LayoutInflater;
+import android.view.View;
 import android.view.Window;
+import android.widget.TextView;
 
 import com.android.internal.R;
 
@@ -76,9 +85,14 @@ public class UnlaunchableAppActivity extends Activity
             return;
         }
 
+        View rootView = LayoutInflater.from(this).inflate(R.layout.unlaunchable_app_activity, null);
+        TextView titleView = (TextView)rootView.findViewById(R.id.unlaunchable_app_title);
+        TextView messageView = (TextView)rootView.findViewById(R.id.unlaunchable_app_message);
+        titleView.setText(dialogTitle);
+        messageView.setText(dialogMessage);
+
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle(dialogTitle)
-                .setMessage(dialogMessage)
+                .setView(rootView)
                 .setOnDismissListener(this);
         if (mReason == UNLAUNCHABLE_REASON_QUIET_MODE) {
             builder.setPositiveButton(R.string.work_mode_turn_on, this)
@@ -97,7 +111,14 @@ public class UnlaunchableAppActivity extends Activity
     @Override
     public void onClick(DialogInterface dialog, int which) {
         if (mReason == UNLAUNCHABLE_REASON_QUIET_MODE && which == DialogInterface.BUTTON_POSITIVE) {
-            UserManager.get(this).requestQuietModeEnabled(false, UserHandle.of(mUserId), mTarget);
+            if (UserManager.get(this).trySetQuietModeDisabled(mUserId, mTarget)
+                    && mTarget != null) {
+                try {
+                    startIntentSenderForResult(mTarget, -1, null, 0, 0, 0);
+                } catch (IntentSender.SendIntentException e) {
+                    /* ignore */
+                }
+            }
         }
     }
 

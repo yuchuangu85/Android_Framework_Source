@@ -103,7 +103,7 @@ import com.android.internal.view.IDragAndDropPermissions;
  *  <tr>
  *      <td>ACTION_DRAG_ENDED</td>
  *      <td style="text-align: center;">&nbsp;</td>
- *      <td style="text-align: center;">X</td>
+ *      <td style="text-align: center;">&nbsp;</td>
  *      <td style="text-align: center;">&nbsp;</td>
  *      <td style="text-align: center;">&nbsp;</td>
  *      <td style="text-align: center;">&nbsp;</td>
@@ -112,7 +112,6 @@ import com.android.internal.view.IDragAndDropPermissions;
  * </table>
  * <p>
  *  The {@link android.view.DragEvent#getAction()},
- *  {@link android.view.DragEvent#getLocalState()}
  *  {@link android.view.DragEvent#describeContents()},
  *  {@link android.view.DragEvent#writeToParcel(Parcel,int)}, and
  *  {@link android.view.DragEvent#toString()} methods always return valid data.
@@ -398,7 +397,7 @@ public class DragEvent implements Parcelable {
      * operation. In all other activities this method will return null
      * </p>
      * <p>
-     *  This method returns valid data for all event actions.
+     *  This method returns valid data for all event actions except for {@link #ACTION_DRAG_ENDED}.
      * </p>
      * @return The local state object sent to the system by startDragAndDrop().
      */

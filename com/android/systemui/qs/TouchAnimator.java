@@ -107,7 +107,7 @@ public class TouchAnimator {
         void onAnimationAtStart();
 
         /**
-         * Called when the animator moves into a position of "1". Start and end delays are
+         * Called when the animator moves into a position of "0". Start and end delays are
          * taken into account, so this position may cover a range of fractional inputs.
          */
         void onAnimationAtEnd();
@@ -200,6 +200,7 @@ public class TouchAnimator {
     }
 
     private static abstract class KeyframeSet {
+
         private final float mFrameWidth;
         private final int mSize;
 
@@ -209,8 +210,9 @@ public class TouchAnimator {
         }
 
         void setValue(float fraction, Object target) {
-            int i = MathUtils.constrain((int) Math.ceil(fraction / mFrameWidth), 1, mSize - 1);
-            float amount = (fraction - mFrameWidth * (i - 1)) / mFrameWidth;
+            int i;
+            for (i = 1; i < mSize - 1 && fraction > mFrameWidth; i++);
+            float amount = fraction / mFrameWidth;
             interpolate(i, amount, target);
         }
 

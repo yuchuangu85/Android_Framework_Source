@@ -52,11 +52,7 @@ public final class SystemUpdateInfo implements Parcelable {
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "SECURITY_PATCH_STATE_" }, value = {
-            SECURITY_PATCH_STATE_FALSE,
-            SECURITY_PATCH_STATE_TRUE,
-            SECURITY_PATCH_STATE_UNKNOWN
-    })
+    @IntDef({SECURITY_PATCH_STATE_FALSE, SECURITY_PATCH_STATE_TRUE, SECURITY_PATCH_STATE_UNKNOWN})
     public @interface SecurityPatchState {}
 
     private static final String ATTR_RECEIVED_TIME = "received-time";

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1994, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2010, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,23 +23,27 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-
 package java.lang;
 
 import dalvik.annotation.optimization.FastNative;
 import java.io.ObjectStreamField;
 import java.io.UnsupportedEncodingException;
+import java.lang.ArrayIndexOutOfBoundsException;
 import java.nio.charset.Charset;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Formatter;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.StringJoiner;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 import libcore.util.CharsetUtils;
+import libcore.util.EmptyArray;
 
 /**
  * The {@code String} class represents character strings. All
@@ -113,26 +117,11 @@ import libcore.util.CharsetUtils;
 public final class String
     implements java.io.Serializable, Comparable<String>, CharSequence {
 
-    // BEGIN Android-changed: The character data is managed by the runtime.
-    // We only keep track of the length here and compression here. This has several consequences
-    // throughout this class:
-    //  - References to value[i] are replaced by charAt(i).
-    //  - References to value.length are replaced by calls to length().
-    //  - Sometimes the result of length() is assigned to a local variable to avoid repeated calls.
-    //  - We skip several attempts at optimization where the values field was assigned to a local
-    //    variable to avoid the getfield opcode.
-    // These changes are not all marked individually.
+    // The associated character storage is managed by the runtime. We only
+    // keep track of the length here.
     //
     // private final char value[];
-    //
-    // If STRING_COMPRESSION_ENABLED, count stores the length shifted one bit to the left with the
-    // lowest bit used to indicate whether or not the bytes are compressed (see GetFlaggedCount in
-    // the native code).
     private final int count;
-    // END Android-changed: The character data is managed by the runtime.
-
-    // Android-changed: We make use of new StringIndexOutOfBoundsException constructor signatures.
-    // These improve some error messages. These changes are not all marked individually.
 
     /** Cache the hash code for the string */
     private int hash; // Default to 0
@@ -144,7 +133,7 @@ public final class String
      * Class String is special cased within the Serialization Stream Protocol.
      *
      * A String instance is written into an ObjectOutputStream according to
-     * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/platform/serialization/spec/output.html">
+     * <a href="{@docRoot}/../platform/serialization/spec/output.html">
      * Object Serialization Specification, Section 6.2, "Stream Elements"</a>
      */
     private static final ObjectStreamField[] serialPersistentFields =
@@ -156,7 +145,6 @@ public final class String
      * unnecessary since Strings are immutable.
      */
     public String() {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -171,7 +159,6 @@ public final class String
      *         A {@code String}
      */
     public String(String original) {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -185,7 +172,6 @@ public final class String
      *         The initial value of the string
      */
     public String(char value[]) {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -211,7 +197,6 @@ public final class String
      *          characters outside the bounds of the {@code value} array
      */
     public String(char value[], int offset, int count) {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -244,7 +229,6 @@ public final class String
      * @since  1.5
      */
     public String(int[] codePoints, int offset, int count) {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -289,7 +273,6 @@ public final class String
      */
     @Deprecated
     public String(byte ascii[], int hibyte, int offset, int count) {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -325,7 +308,6 @@ public final class String
      */
     @Deprecated
     public String(byte ascii[], int hibyte) {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -364,7 +346,6 @@ public final class String
      */
     public String(byte bytes[], int offset, int length, String charsetName)
             throws UnsupportedEncodingException {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -399,7 +380,6 @@ public final class String
      * @since  1.6
      */
     public String(byte bytes[], int offset, int length, Charset charset) {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -428,7 +408,6 @@ public final class String
      */
     public String(byte bytes[], String charsetName)
             throws UnsupportedEncodingException {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -453,7 +432,6 @@ public final class String
      * @since  1.6
      */
     public String(byte bytes[], Charset charset) {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -484,7 +462,6 @@ public final class String
      * @since  JDK1.1
      */
     public String(byte bytes[], int offset, int length) {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -505,7 +482,6 @@ public final class String
      * @since  JDK1.1
      */
     public String(byte bytes[]) {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -519,7 +495,6 @@ public final class String
      *         A {@code StringBuffer}
      */
     public String(StringBuffer buffer) {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
@@ -539,14 +514,10 @@ public final class String
      * @since  1.5
      */
     public String(StringBuilder builder) {
-        // Android-changed: Constructor unsupported as all calls are intercepted by the runtime.
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
 
-    // Android-removed: Unused package-private constructor String(char[] value, boolean share).
 
-    // BEGIN Android-added: Constructor for internal use.
-    // Not implemented in java as all calls are intercepted by the runtime.
     /**
      * Package private constructor
      *
@@ -556,7 +527,6 @@ public final class String
     String(int offset, int count, char[] value) {
         throw new UnsupportedOperationException("Use StringFactory instead.");
     }
-    // END Android-added: Constructor for internal use.
 
     /**
      * Returns the length of this string.
@@ -567,8 +537,6 @@ public final class String
      *          object.
      */
     public int length() {
-        // BEGIN Android-changed: Get length from count field rather than value array (see above).
-        // return value.length;
         final boolean STRING_COMPRESSION_ENABLED = true;
         if (STRING_COMPRESSION_ENABLED) {
             // For the compression purposes (save the characters as 8-bit if all characters
@@ -577,7 +545,6 @@ public final class String
         } else {
             return count;
         }
-        // END Android-changed: Get length from count field rather than value array (see above).
     }
 
     /**
@@ -589,9 +556,7 @@ public final class String
      * @since 1.6
      */
     public boolean isEmpty() {
-        // Android-changed: Get length from count field rather than value array (see above).
         // Empty string has {@code count == 0} with or without string compression enabled.
-        // return value.length == 0;
         return count == 0;
     }
 
@@ -613,10 +578,8 @@ public final class String
      *             argument is negative or not less than the length of this
      *             string.
      */
-    // BEGIN Android-changed: Replace with implementation in runtime to access chars (see above).
     @FastNative
     public native char charAt(int index);
-    // END Android-changed: Replace with implementation in runtime to access chars (see above).
 
     /**
      * Returns the character (Unicode code point) at the specified
@@ -630,7 +593,7 @@ public final class String
      * {@code char} value at the following index is in the
      * low-surrogate range, then the supplementary code point
      * corresponding to this surrogate pair is returned. Otherwise,
-     * the {@code char} value at the given index is returned.
+     * the {@code char} value at the given index is returned
      *
      * @param      index the index to the {@code char} values
      * @return     the code point value of the character at the
@@ -644,7 +607,6 @@ public final class String
         if ((index < 0) || (index >= length())) {
             throw new StringIndexOutOfBoundsException(index);
         }
-        // Android-changed: Skip codePointAtImpl optimization that needs access to java chars.
         return Character.codePointAt(this, index);
     }
 
@@ -675,7 +637,6 @@ public final class String
         if ((i < 0) || (i >= length())) {
             throw new StringIndexOutOfBoundsException(index);
         }
-        // Android-changed: Skip codePointBeforeImpl optimization that needs access to java chars.
         return Character.codePointBefore(this, index);
     }
 
@@ -704,7 +665,6 @@ public final class String
         if (beginIndex < 0 || endIndex > length() || beginIndex > endIndex) {
             throw new IndexOutOfBoundsException();
         }
-        // Android-changed: Skip codePointCountImpl optimization that needs access to java chars.
         return Character.codePointCount(this, beginIndex, endIndex);
     }
 
@@ -732,7 +692,6 @@ public final class String
         if (index < 0 || index > length()) {
             throw new IndexOutOfBoundsException();
         }
-        // Android-changed: Skip offsetByCodePointsImpl optimization that needs access to java chars
         return Character.offsetByCodePoints(this, index, codePointOffset);
     }
 
@@ -741,7 +700,6 @@ public final class String
      * This method doesn't perform any range checking.
      */
     void getChars(char dst[], int dstBegin) {
-        // Android-changed: Replace arraycopy with native call since chars are managed by runtime.
         getCharsNoCheck(0, length(), dst, dstBegin);
     }
 
@@ -776,7 +734,6 @@ public final class String
      *                {@code dst.length}</ul>
      */
     public void getChars(int srcBegin, int srcEnd, char dst[], int dstBegin) {
-        // BEGIN Android-changed: Implement in terms of length() and native getCharsNoCheck method.
         if (dst == null) {
             throw new NullPointerException("dst == null");
         }
@@ -809,10 +766,8 @@ public final class String
         }
 
         getCharsNoCheck(srcBegin, srcEnd, dst, dstBegin);
-        // END Android-changed: Implement in terms of length() and native getCharsNoCheck method.
     }
 
-    // BEGIN Android-added: Native method to access char storage managed by runtime.
     /**
      * getChars without bounds checks, for use by other classes
      * within the java.lang package only.  The caller is responsible for
@@ -820,7 +775,7 @@ public final class String
      */
     @FastNative
     native void getCharsNoCheck(int start, int end, char[] buffer, int index);
-    // END Android-added: Native method to access char storage managed by runtime.
+
 
     /**
      * Copies characters from this string into the destination byte array. Each
@@ -874,7 +829,7 @@ public final class String
             throw new StringIndexOutOfBoundsException(this, srcEnd);
         }
         if (srcBegin > srcEnd) {
-            throw new StringIndexOutOfBoundsException(this, srcEnd - srcBegin);
+            throw new StringIndexOutOfBoundsException(this, (srcEnd - srcBegin));
         }
 
         int j = dstBegin;
@@ -909,8 +864,6 @@ public final class String
     public byte[] getBytes(String charsetName)
             throws UnsupportedEncodingException {
         if (charsetName == null) throw new NullPointerException();
-        // Android-changed: Skip StringCoding optimization that needs access to java chars.
-        // return StringCoding.encode(charsetName, value, 0, value.length);
         return getBytes(Charset.forNameUEE(charsetName));
     }
 
@@ -933,9 +886,6 @@ public final class String
      * @since  1.6
      */
     public byte[] getBytes(Charset charset) {
-        // BEGIN Android-changed: Skip StringCoding optimization that needs access to java chars.
-        // if (charset == null) throw new NullPointerException();
-        // return StringCoding.encode(charset, value, 0, value.length);
         if (charset == null) {
             throw new NullPointerException("charset == null");
         }
@@ -956,7 +906,6 @@ public final class String
         byte[] bytes = new byte[buffer.limit()];
         buffer.get(bytes);
         return bytes;
-        // END Android-changed: Skip StringCoding optimization that needs access to java chars.
     }
 
     /**
@@ -973,8 +922,6 @@ public final class String
      * @since      JDK1.1
      */
     public byte[] getBytes() {
-        // Android-changed: Skip StringCoding optimization that needs access to java chars.
-        // return StringCoding.encode(value, 0, value.length);
         return getBytes(Charset.defaultCharset());
     }
 
@@ -998,7 +945,7 @@ public final class String
             return true;
         }
         if (anObject instanceof String) {
-            String anotherString = (String)anObject;
+            String anotherString = (String) anObject;
             int n = length();
             if (n == anotherString.length()) {
                 int i = 0;
@@ -1167,10 +1114,8 @@ public final class String
      *          value greater than {@code 0} if this string is
      *          lexicographically greater than the string argument.
      */
-    // BEGIN Android-changed: Replace with implementation in runtime to access chars (see above).
     @FastNative
     public native int compareTo(String anotherString);
-    // END Android-changed: Replace with implementation in runtime to access chars (see above).
 
     /**
      * A Comparator that orders {@code String} objects as by
@@ -1561,6 +1506,9 @@ public final class String
         }
     }
 
+    @FastNative
+    private native int fastIndexOf(int c, int start);
+
     /**
      * Handles (rare) calls of indexOf with a supplementary character.
      */
@@ -1707,7 +1655,6 @@ public final class String
      *          or {@code -1} if there is no such occurrence.
      */
     public int indexOf(String str, int fromIndex) {
-        // Android-changed: Change parameters to static indexOf to match new signature below.
         return indexOf(this, str, fromIndex);
     }
 
@@ -1720,8 +1667,6 @@ public final class String
      * @param   target       the characters being searched for.
      * @param   fromIndex    the index to begin searching from.
      */
-    // BEGIN Android-changed: Change signature to take String object rather than char arrays.
-    // The implementation using a java char array is replaced with one using length() & charAt().
     static int indexOf(String source,
                        String target,
                        int fromIndex) {
@@ -1761,7 +1706,6 @@ public final class String
         }
         return -1;
     }
-    // END Android-changed: Change signature to take String object rather than char arrays.
 
     /**
      * Code shared by String and StringBuffer to do searches. The
@@ -1850,7 +1794,6 @@ public final class String
      *          or {@code -1} if there is no such occurrence.
      */
     public int lastIndexOf(String str, int fromIndex) {
-        // Android-changed: Change parameters to static lastIndexOf to match new signature below.
         return lastIndexOf(this, str, fromIndex);
     }
 
@@ -1863,8 +1806,6 @@ public final class String
      * @param   target       the characters being searched for.
      * @param   fromIndex    the index to begin searching from.
      */
-    // BEGIN Android-changed: Change signature to take String object rather than char arrays.
-    // The implementation using a java char array is replaced with one using length() & charAt().
     static int lastIndexOf(String source,
                            String target,
                            int fromIndex) {
@@ -1912,7 +1853,6 @@ public final class String
             return start + 1;
         }
     }
-    // END Android-changed: Change signature to take String object rather than char arrays.
 
     /**
      * Code shared by String and StringBuffer to do searches. The
@@ -1998,7 +1938,6 @@ public final class String
         if (subLen < 0) {
             throw new StringIndexOutOfBoundsException(this, beginIndex);
         }
-        // Android-changed: Use native fastSubstring instead of String constructor.
         return (beginIndex == 0) ? this : fastSubstring(beginIndex, subLen);
     }
 
@@ -2036,15 +1975,12 @@ public final class String
             throw new StringIndexOutOfBoundsException(subLen);
         }
 
-        // Android-changed: Use native fastSubstring instead of String constructor.
         return ((beginIndex == 0) && (endIndex == length())) ? this
                 : fastSubstring(beginIndex, subLen);
     }
 
-    // BEGIN Android-added: Native method to access char storage managed by runtime.
     @FastNative
     private native String fastSubstring(int start, int length);
-    // END Android-added: Native method to access char storage managed by runtime.
 
     /**
      * Returns a character sequence that is a subsequence of this sequence.
@@ -2099,10 +2035,8 @@ public final class String
      * @return  a string that represents the concatenation of this object's
      *          characters followed by the string argument's characters.
      */
-    // BEGIN Android-changed: Replace with implementation in runtime to access chars (see above).
     @FastNative
     public native String concat(String str);
-    // END Android-changed: Replace with implementation in runtime to access chars (see above).
 
     /**
      * Returns a string resulting from replacing all occurrences of
@@ -2134,7 +2068,6 @@ public final class String
      *          occurrence of {@code oldChar} with {@code newChar}.
      */
     public String replace(char oldChar, char newChar) {
-        // BEGIN Android-changed: Replace with implementation using native doReplace method.
         if (oldChar != newChar) {
             final int len = length();
             for (int i = 0; i < len; ++i) {
@@ -2143,15 +2076,12 @@ public final class String
                 }
             }
         }
-        // END Android-changed: Replace with implementation using native doReplace method.
         return this;
     }
 
-    // BEGIN Android-added: Native method to access char storage managed by runtime.
     // Implementation of replace(char oldChar, char newChar) called when we found a match.
     @FastNative
     private native String doReplace(char oldChar, char newChar);
-    // END Android-added: Native method to access char storage managed by runtime.
 
     /**
      * Tells whether or not this string matches the given <a
@@ -2296,10 +2226,11 @@ public final class String
      * @param  target The sequence of char values to be replaced
      * @param  replacement The replacement sequence of char values
      * @return  The resulting string
+     * @throws NullPointerException if <code>target</code> or
+     *         <code>replacement</code> is <code>null</code>.
      * @since 1.5
      */
     public String replace(CharSequence target, CharSequence replacement) {
-        // BEGIN Android-changed: Replace regex-based implementation with a bespoke one.
         if (target == null) {
             throw new NullPointerException("target == null");
         }
@@ -2355,7 +2286,6 @@ public final class String
         } else {
             return this;
         }
-        // END Android-changed: Replace regex-based implementation with a bespoke one.
     }
 
     /**
@@ -2445,13 +2375,12 @@ public final class String
      * @spec JSR-51
      */
     public String[] split(String regex, int limit) {
-        // BEGIN Android-changed: Replace custom fast-path with use of new Pattern.fastSplit method.
         // Try fast splitting without allocating Pattern object
         String[] fast = Pattern.fastSplit(regex, this, limit);
         if (fast != null) {
             return fast;
         }
-        // END Android-changed: Replace custom fast-path with use of new Pattern.fastSplit method.
+
         return Pattern.compile(regex).split(this, limit);
     }
 
@@ -2634,7 +2563,6 @@ public final class String
      * @since   1.1
      */
     public String toLowerCase(Locale locale) {
-        // Android-changed: Replace custom code with call to new CaseMapper class.
         return CaseMapper.toLowerCase(locale, this);
     }
 
@@ -2710,7 +2638,6 @@ public final class String
      * @since   1.1
      */
     public String toUpperCase(Locale locale) {
-        // Android-changed: Replace custom code with call to new CaseMapper class.
         return CaseMapper.toUpperCase(locale, this, length());
     }
 
@@ -2797,10 +2724,8 @@ public final class String
      *          of this string and whose contents are initialized to contain
      *          the character sequence represented by this string.
      */
-    // BEGIN Android-changed: Replace with implementation in runtime to access chars (see above).
     @FastNative
     public native char[] toCharArray();
-    // END Android-changed: Replace with implementation in runtime to access chars (see above).
 
 
     /**
@@ -2832,6 +2757,9 @@ public final class String
      *          formatting errors, see the <a
      *          href="../util/Formatter.html#detail">Details</a> section of the
      *          formatter class specification.
+     *
+     * @throws  NullPointerException
+     *          If the <tt>format</tt> is <tt>null</tt>
      *
      * @return  A formatted string
      *
@@ -2874,6 +2802,9 @@ public final class String
      *          href="../util/Formatter.html#detail">Details</a> section of the
      *          formatter class specification
      *
+     * @throws  NullPointerException
+     *          If the <tt>format</tt> is <tt>null</tt>
+     *
      * @return  A formatted string
      *
      * @see  java.util.Formatter
@@ -2907,8 +2838,6 @@ public final class String
      *          character array.
      */
     public static String valueOf(char data[]) {
-        // Android-changed: Replace constructor call with call to new StringFactory class.
-        // return new String(data);
         return StringFactory.newStringFromChars(data);
     }
 
@@ -2933,8 +2862,6 @@ public final class String
      *          {@code data.length}.
      */
     public static String valueOf(char data[], int offset, int count) {
-        // Android-changed: Replace constructor call with call to new StringFactory class.
-        // return new String(data, offset, count);
         return StringFactory.newStringFromChars(data, offset, count);
     }
 
@@ -2952,9 +2879,7 @@ public final class String
      *          {@code data.length}.
      */
     public static String copyValueOf(char data[], int offset, int count) {
-        // Android-changed: Replace constructor call with call to new StringFactory class.
         // All public String constructors now copy the data.
-        // return new String(data, offset, count);
         return StringFactory.newStringFromChars(data, offset, count);
     }
 
@@ -2966,8 +2891,6 @@ public final class String
      *          character array.
      */
     public static String copyValueOf(char data[]) {
-        // Android-changed: Replace constructor call with call to new StringFactory class.
-        // return new String(data);
         return StringFactory.newStringFromChars(data);
     }
 
@@ -2992,9 +2915,6 @@ public final class String
      *          as its single character the argument {@code c}.
      */
     public static String valueOf(char c) {
-        // Android-changed: Replace constructor call with call to new StringFactory class.
-        // char data[] = {c};
-        // return new String(data, true);
         return StringFactory.newStringFromChars(0, 1, new char[] { c });
     }
 
@@ -3077,8 +2997,6 @@ public final class String
      * @return  a string that has the same contents as this string, but is
      *          guaranteed to be from a pool of unique strings.
      */
-    // BEGIN Android-changed: Annotate native method as @FastNative.
     @FastNative
-    // END Android-changed: Annotate native method as @FastNative.
     public native String intern();
 }

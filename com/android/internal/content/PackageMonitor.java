@@ -21,7 +21,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.Uri;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.UserHandle;
@@ -195,10 +194,6 @@ public abstract class PackageMonitor extends android.content.BroadcastReceiver {
     }
 
     public void onPackagesSuspended(String[] packages) {
-    }
-
-    public void onPackagesSuspended(String[] packages, Bundle launcherExtras) {
-        onPackagesSuspended(packages);
     }
 
     public void onPackagesUnsuspended(String[] packages) {
@@ -438,9 +433,8 @@ public abstract class PackageMonitor extends android.content.BroadcastReceiver {
             }
         } else if (Intent.ACTION_PACKAGES_SUSPENDED.equals(action)) {
             String[] pkgList = intent.getStringArrayExtra(Intent.EXTRA_CHANGED_PACKAGE_LIST);
-            final Bundle launcherExtras = intent.getBundleExtra(Intent.EXTRA_LAUNCHER_EXTRAS);
             mSomePackagesChanged = true;
-            onPackagesSuspended(pkgList, launcherExtras);
+            onPackagesSuspended(pkgList);
         } else if (Intent.ACTION_PACKAGES_UNSUSPENDED.equals(action)) {
             String[] pkgList = intent.getStringArrayExtra(Intent.EXTRA_CHANGED_PACKAGE_LIST);
             mSomePackagesChanged = true;

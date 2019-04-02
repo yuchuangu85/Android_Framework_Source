@@ -106,7 +106,7 @@ import android.util.Log;
 public class TextureView extends View {
     private static final String LOG_TAG = "TextureView";
 
-    private TextureLayer mLayer;
+    private HardwareLayer mLayer;
     private SurfaceTexture mSurface;
     private SurfaceTextureListener mListener;
     private boolean mHadSurface;
@@ -336,13 +336,13 @@ public class TextureView extends View {
         if (canvas.isHardwareAccelerated()) {
             DisplayListCanvas displayListCanvas = (DisplayListCanvas) canvas;
 
-            TextureLayer layer = getTextureLayer();
+            HardwareLayer layer = getHardwareLayer();
             if (layer != null) {
                 applyUpdate();
                 applyTransformMatrix();
 
                 mLayer.setLayerPaint(mLayerPaint); // ensure layer paint is up to date
-                displayListCanvas.drawTextureLayer(layer);
+                displayListCanvas.drawHardwareLayer(layer);
             }
         }
     }
@@ -369,7 +369,7 @@ public class TextureView extends View {
         }
     }
 
-    TextureLayer getTextureLayer() {
+    HardwareLayer getHardwareLayer() {
         if (mLayer == null) {
             if (mAttachInfo == null || mAttachInfo.mThreadedRenderer == null) {
                 return null;
@@ -602,7 +602,7 @@ public class TextureView extends View {
             // the layer here thanks to the validate() call at the beginning of
             // this method
             if (mLayer == null && mUpdateSurface) {
-                getTextureLayer();
+                getHardwareLayer();
             }
 
             if (mLayer != null) {

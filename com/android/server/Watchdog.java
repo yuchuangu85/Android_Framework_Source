@@ -60,6 +60,9 @@ public class Watchdog extends Thread {
     // Set this to true to use debug default values.
     static final boolean DB = false;
 
+    // Set this to true to have the watchdog record kernel thread stacks when it fires
+    static final boolean RECORD_KERNEL_THREADS = true;
+
     // Note 1: Do not lower this value below thirty seconds without tightening the invoke-with
     //         timeout in com.android.internal.os.ZygoteConnection, or wrapped applications
     //         can trigger the watchdog.
@@ -84,20 +87,16 @@ public class Watchdog extends Thread {
         "/system/bin/sdcard",
         "/system/bin/surfaceflinger",
         "media.extractor", // system/bin/mediaextractor
-        "media.metrics", // system/bin/mediametrics
         "media.codec", // vendor/bin/hw/android.hardware.media.omx@1.0-service
         "com.android.bluetooth",  // Bluetooth service
-        "statsd",  // Stats daemon
     };
 
     public static final List<String> HAL_INTERFACES_OF_INTEREST = Arrays.asList(
         "android.hardware.audio@2.0::IDevicesFactory",
-        "android.hardware.audio@4.0::IDevicesFactory",
         "android.hardware.bluetooth@1.0::IBluetoothHci",
         "android.hardware.camera.provider@2.4::ICameraProvider",
         "android.hardware.graphics.composer@2.1::IComposer",
         "android.hardware.media.omx@1.0::IOmx",
-        "android.hardware.media.omx@1.0::IOmxStore",
         "android.hardware.sensors@1.0::ISensors",
         "android.hardware.vr@1.0::IVr"
     );
@@ -510,6 +509,11 @@ public class Watchdog extends Thread {
             // The system's been hanging for a minute, another second or two won't hurt much.
             SystemClock.sleep(2000);
 
+            // Pull our own kernel thread stacks as well if we're configured for that
+            if (RECORD_KERNEL_THREADS) {
+                dumpKernelStackTraces();
+            }
+
             // Trigger the kernel to dump all blocked threads, and backtraces on all CPUs to the kernel log
             doSysRq('w');
             doSysRq('l');
@@ -560,7 +564,14 @@ public class Watchdog extends Thread {
                 Slog.w(TAG, "Restart not allowed: Watchdog is *not* killing the system process");
             } else {
                 Slog.w(TAG, "*** WATCHDOG KILLING SYSTEM PROCESS: " + subject);
-                WatchdogDiagnostics.diagnoseCheckers(blockedCheckers);
+                for (int i=0; i<blockedCheckers.size(); i++) {
+                    Slog.w(TAG, blockedCheckers.get(i).getName() + " stack trace:");
+                    StackTraceElement[] stackTrace
+                            = blockedCheckers.get(i).getThread().getStackTrace();
+                    for (StackTraceElement element: stackTrace) {
+                        Slog.w(TAG, "    at " + element);
+                    }
+                }
                 Slog.w(TAG, "*** GOODBYE!");
                 Process.killProcess(Process.myPid());
                 System.exit(10);
@@ -579,6 +590,18 @@ public class Watchdog extends Thread {
             Slog.w(TAG, "Failed to write to /proc/sysrq-trigger", e);
         }
     }
+
+    private File dumpKernelStackTraces() {
+        String tracesPath = SystemProperties.get("dalvik.vm.stack-trace-file", null);
+        if (tracesPath == null || tracesPath.length() == 0) {
+            return null;
+        }
+
+        native_dumpKernelStacks(tracesPath);
+        return new File(tracesPath);
+    }
+
+    private native void native_dumpKernelStacks(String tracesPath);
 
     public static final class OpenFdMonitor {
         /**

@@ -21,7 +21,6 @@ import android.content.Context;
 import android.database.ContentObserver;
 import android.net.NetworkKey;
 import android.net.NetworkScoreManager;
-import android.net.NetworkScorerAppData;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiNetworkScoreCache;
@@ -35,7 +34,6 @@ import android.util.Log;
 import android.util.Pair;
 
 import com.android.server.wifi.util.ScanResultUtil;
-import com.android.server.wifi.util.WifiPermissionsUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,17 +50,14 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
     private final WifiConfigManager mWifiConfigManager;
     private final LocalLog mLocalLog;
     private final ContentObserver mContentObserver;
-    private final WifiPermissionsUtil mWifiPermissionsUtil;
     private boolean mNetworkRecommendationsEnabled;
     private WifiNetworkScoreCache mScoreCache;
 
     ScoredNetworkEvaluator(final Context context, Looper looper,
             final FrameworkFacade frameworkFacade, NetworkScoreManager networkScoreManager,
             WifiConfigManager wifiConfigManager, LocalLog localLog,
-            WifiNetworkScoreCache wifiNetworkScoreCache,
-            WifiPermissionsUtil wifiPermissionsUtil) {
+            WifiNetworkScoreCache wifiNetworkScoreCache) {
         mScoreCache = wifiNetworkScoreCache;
-        mWifiPermissionsUtil = wifiPermissionsUtil;
         mNetworkScoreManager = networkScoreManager;
         mWifiConfigManager = wifiConfigManager;
         mLocalLog = localLog;
@@ -102,23 +97,10 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
         }
 
         // Kick the score manager if there are any unscored network.
-        if (!unscoredNetworks.isEmpty() && activeScorerAllowedtoSeeScanResults()) {
+        if (!unscoredNetworks.isEmpty()) {
             NetworkKey[] unscoredNetworkKeys =
                     unscoredNetworks.toArray(new NetworkKey[unscoredNetworks.size()]);
             mNetworkScoreManager.requestScores(unscoredNetworkKeys);
-        }
-    }
-
-    private boolean activeScorerAllowedtoSeeScanResults() {
-        NetworkScorerAppData networkScorerAppData = mNetworkScoreManager.getActiveScorer();
-        String packageName = mNetworkScoreManager.getActiveScorerPackage();
-        if (networkScorerAppData == null || packageName == null) return false;
-        int uid = networkScorerAppData.packageUid;
-        try {
-            mWifiPermissionsUtil.enforceCanAccessScanResults(packageName, uid);
-            return true;
-        } catch (SecurityException e) {
-            return false;
         }
     }
 

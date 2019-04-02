@@ -261,7 +261,7 @@ public class SuggestionParser {
         if (requiredAccountType == null) {
             return true;
         }
-        AccountManager accountManager = mContext.getSystemService(AccountManager.class);
+        AccountManager accountManager = AccountManager.get(mContext);
         Account[] accounts = accountManager.getAccountsByType(requiredAccountType);
         boolean satisfiesRequiredAccount = accounts.length > 0;
         if (!satisfiesRequiredAccount) {

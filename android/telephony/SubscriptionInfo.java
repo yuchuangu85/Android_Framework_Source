@@ -17,7 +17,6 @@
 package android.telephony;
 
 import android.annotation.Nullable;
-import android.annotation.SystemApi;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -35,8 +34,6 @@ import android.os.Parcelable;
 import android.util.DisplayMetrics;
 
 import java.util.Arrays;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * A Parcelable class for Subscription Information.
@@ -129,31 +126,14 @@ public class SubscriptionInfo implements Parcelable {
     private UiccAccessRule[] mAccessRules;
 
     /**
-     * The ID of the SIM card. It is the ICCID of the active profile for a UICC card and the EID
-     * for an eUICC card.
-     */
-    private String mCardId;
-
-    /**
-     * @hide
-     */
-    public SubscriptionInfo(int id, String iccId, int simSlotIndex, CharSequence displayName,
-        CharSequence carrierName, int nameSource, int iconTint, String number, int roaming,
-        Bitmap icon, int mcc, int mnc, String countryIso) {
-        this(id, iccId, simSlotIndex, displayName, carrierName, nameSource, iconTint, number,
-            roaming, icon, mcc, mnc, countryIso, false /* isEmbedded */,
-            null /* accessRules */, null /* accessRules */);
-    }
-
-    /**
      * @hide
      */
     public SubscriptionInfo(int id, String iccId, int simSlotIndex, CharSequence displayName,
             CharSequence carrierName, int nameSource, int iconTint, String number, int roaming,
-            Bitmap icon, int mcc, int mnc, String countryIso,  boolean isEmbedded,
-            @Nullable UiccAccessRule[] accessRules) {
+            Bitmap icon, int mcc, int mnc, String countryIso) {
         this(id, iccId, simSlotIndex, displayName, carrierName, nameSource, iconTint, number,
-                roaming, icon, mcc, mnc, countryIso, isEmbedded, accessRules, null /* cardId */);
+                roaming, icon, mcc, mnc, countryIso, false /* isEmbedded */,
+                null /* accessRules */);
     }
 
     /**
@@ -162,7 +142,7 @@ public class SubscriptionInfo implements Parcelable {
     public SubscriptionInfo(int id, String iccId, int simSlotIndex, CharSequence displayName,
             CharSequence carrierName, int nameSource, int iconTint, String number, int roaming,
             Bitmap icon, int mcc, int mnc, String countryIso, boolean isEmbedded,
-            @Nullable UiccAccessRule[] accessRules, String cardId) {
+            @Nullable UiccAccessRule[] accessRules) {
         this.mId = id;
         this.mIccId = iccId;
         this.mSimSlotIndex = simSlotIndex;
@@ -178,7 +158,6 @@ public class SubscriptionInfo implements Parcelable {
         this.mCountryIso = countryIso;
         this.mIsEmbedded = isEmbedded;
         this.mAccessRules = accessRules;
-        this.mCardId = cardId;
     }
 
     /**
@@ -335,7 +314,12 @@ public class SubscriptionInfo implements Parcelable {
         return this.mCountryIso;
     }
 
-    /** @return whether the subscription is an eUICC one. */
+    /**
+     * @return whether the subscription is an embedded one.
+     * @hide
+     *
+     * TODO(b/35851809): Make this public.
+     */
     public boolean isEmbedded() {
         return this.mIsEmbedded;
     }
@@ -349,9 +333,9 @@ public class SubscriptionInfo implements Parcelable {
      * @return whether the app is authorized to manage this subscription per its metadata.
      * @throws UnsupportedOperationException if this subscription is not embedded.
      * @hide
-     * @deprecated - Do not use.
+     *
+     * TODO(b/35851809): Make this public.
      */
-    @Deprecated
     public boolean canManageSubscription(Context context) {
         return canManageSubscription(context, context.getPackageName());
     }
@@ -365,9 +349,7 @@ public class SubscriptionInfo implements Parcelable {
      * @return whether the app is authorized to manage this subscription per its metadata.
      * @throws UnsupportedOperationException if this subscription is not embedded.
      * @hide
-     * @deprecated - Do not use.
      */
-    @Deprecated
     public boolean canManageSubscription(Context context, String packageName) {
         if (!isEmbedded()) {
             throw new UnsupportedOperationException("Not an embedded subscription");
@@ -395,22 +377,14 @@ public class SubscriptionInfo implements Parcelable {
      * @return the {@link UiccAccessRule}s dictating who is authorized to manage this subscription.
      * @throws UnsupportedOperationException if this subscription is not embedded.
      * @hide
+     *
+     * TODO(b/35851809): Make this a SystemApi.
      */
-    @SystemApi
-    public @Nullable List<UiccAccessRule> getAccessRules() {
+    public @Nullable UiccAccessRule[] getAccessRules() {
         if (!isEmbedded()) {
             throw new UnsupportedOperationException("Not an embedded subscription");
         }
-        if (mAccessRules == null) return null;
-        return Arrays.asList(mAccessRules);
-    }
-
-    /**
-     * @return the ID of the SIM card which contains the subscription.
-     * @hide
-     */
-    public String getCardId() {
-        return this.mCardId;
+        return mAccessRules;
     }
 
     public static final Parcelable.Creator<SubscriptionInfo> CREATOR = new Parcelable.Creator<SubscriptionInfo>() {
@@ -431,11 +405,10 @@ public class SubscriptionInfo implements Parcelable {
             Bitmap iconBitmap = Bitmap.CREATOR.createFromParcel(source);
             boolean isEmbedded = source.readBoolean();
             UiccAccessRule[] accessRules = source.createTypedArray(UiccAccessRule.CREATOR);
-            String cardId = source.readString();
 
             return new SubscriptionInfo(id, iccId, simSlotIndex, displayName, carrierName,
                     nameSource, iconTint, number, dataRoaming, iconBitmap, mcc, mnc, countryIso,
-                    isEmbedded, accessRules, cardId);
+                    isEmbedded, accessRules);
         }
 
         @Override
@@ -461,7 +434,6 @@ public class SubscriptionInfo implements Parcelable {
         mIconBitmap.writeToParcel(dest, flags);
         dest.writeBoolean(mIsEmbedded);
         dest.writeTypedArray(mAccessRules, flags);
-        dest.writeString(mCardId);
     }
 
     @Override
@@ -487,13 +459,11 @@ public class SubscriptionInfo implements Parcelable {
     @Override
     public String toString() {
         String iccIdToPrint = givePrintableIccid(mIccId);
-        String cardIdToPrint = givePrintableIccid(mCardId);
         return "{id=" + mId + ", iccId=" + iccIdToPrint + " simSlotIndex=" + mSimSlotIndex
                 + " displayName=" + mDisplayName + " carrierName=" + mCarrierName
                 + " nameSource=" + mNameSource + " iconTint=" + mIconTint
                 + " dataRoaming=" + mDataRoaming + " iconBitmap=" + mIconBitmap + " mcc " + mMcc
                 + " mnc " + mMnc + " isEmbedded " + mIsEmbedded
-                + " accessRules " + Arrays.toString(mAccessRules)
-                + " cardId=" + cardIdToPrint + "}";
+                + " accessRules " + Arrays.toString(mAccessRules) + "}";
     }
 }

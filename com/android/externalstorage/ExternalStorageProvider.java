@@ -19,6 +19,7 @@ package com.android.externalstorage;
 import android.annotation.Nullable;
 import android.app.usage.StorageStatsManager;
 import android.content.ContentResolver;
+import android.content.Context;
 import android.content.UriPermission;
 import android.database.Cursor;
 import android.database.MatrixCursor;
@@ -27,9 +28,7 @@ import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.IBinder;
 import android.os.UserHandle;
-import android.os.UserManager;
 import android.os.storage.DiskInfo;
 import android.os.storage.StorageManager;
 import android.os.storage.VolumeInfo;
@@ -38,9 +37,6 @@ import android.provider.DocumentsContract.Document;
 import android.provider.DocumentsContract.Path;
 import android.provider.DocumentsContract.Root;
 import android.provider.Settings;
-import android.system.ErrnoException;
-import android.system.Os;
-import android.system.OsConstants;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.DebugUtils;
@@ -99,7 +95,6 @@ public class ExternalStorageProvider extends FileSystemProvider {
     private static final String ROOT_ID_HOME = "home";
 
     private StorageManager mStorageManager;
-    private UserManager mUserManager;
 
     private final Object mRootsLock = new Object();
 
@@ -110,33 +105,10 @@ public class ExternalStorageProvider extends FileSystemProvider {
     public boolean onCreate() {
         super.onCreate(DEFAULT_DOCUMENT_PROJECTION);
 
-        mStorageManager = getContext().getSystemService(StorageManager.class);
-        mUserManager = getContext().getSystemService(UserManager.class);
+        mStorageManager = (StorageManager) getContext().getSystemService(Context.STORAGE_SERVICE);
 
         updateVolumes();
         return true;
-    }
-
-    private void enforceShellRestrictions() {
-        if (UserHandle.getCallingAppId() == android.os.Process.SHELL_UID
-                && mUserManager.hasUserRestriction(UserManager.DISALLOW_USB_FILE_TRANSFER)) {
-            throw new SecurityException(
-                    "Shell user cannot access files for user " + UserHandle.myUserId());
-        }
-    }
-
-    @Override
-    protected int enforceReadPermissionInner(Uri uri, String callingPkg, IBinder callerToken)
-            throws SecurityException {
-        enforceShellRestrictions();
-        return super.enforceReadPermissionInner(uri, callingPkg, callerToken);
-    }
-
-    @Override
-    protected int enforceWritePermissionInner(Uri uri, String callingPkg, IBinder callerToken)
-            throws SecurityException {
-        enforceShellRestrictions();
-        return super.enforceWritePermissionInner(uri, callingPkg, callerToken);
     }
 
     public void updateVolumes() {
@@ -363,19 +335,14 @@ public class ExternalStorageProvider extends FileSystemProvider {
 
     @Override
     protected File getFileForDocId(String docId, boolean visible) throws FileNotFoundException {
-        return getFileForDocId(docId, visible, true);
-    }
-
-    private File getFileForDocId(String docId, boolean visible, boolean mustExist)
-            throws FileNotFoundException {
         RootInfo root = getRootFromDocId(docId);
-        return buildFile(root, docId, visible, mustExist);
+        return buildFile(root, docId, visible);
     }
 
     private Pair<RootInfo, File> resolveDocId(String docId, boolean visible)
             throws FileNotFoundException {
         RootInfo root = getRootFromDocId(docId);
-        return Pair.create(root, buildFile(root, docId, visible, true));
+        return Pair.create(root, buildFile(root, docId, visible));
     }
 
     private RootInfo getRootFromDocId(String docId) throws FileNotFoundException {
@@ -393,7 +360,7 @@ public class ExternalStorageProvider extends FileSystemProvider {
         return root;
     }
 
-    private File buildFile(RootInfo root, String docId, boolean visible, boolean mustExist)
+    private File buildFile(RootInfo root, String docId, boolean visible)
             throws FileNotFoundException {
         final int splitIndex = docId.indexOf(':', 1);
         final String path = docId.substring(splitIndex + 1);
@@ -406,7 +373,7 @@ public class ExternalStorageProvider extends FileSystemProvider {
             target.mkdirs();
         }
         target = new File(target, path);
-        if (mustExist && !target.exists()) {
+        if (!target.exists()) {
             throw new FileNotFoundException("Missing file for " + docId + " at " + target);
         }
         return target;
@@ -415,19 +382,6 @@ public class ExternalStorageProvider extends FileSystemProvider {
     @Override
     protected Uri buildNotificationUri(String docId) {
         return DocumentsContract.buildChildDocumentsUri(AUTHORITY, docId);
-    }
-
-    @Override
-    protected void onDocIdChanged(String docId) {
-        try {
-            // Touch the visible path to ensure that any sdcardfs caches have
-            // been updated to reflect underlying changes on disk.
-            final File visiblePath = getFileForDocId(docId, true, false);
-            if (visiblePath != null) {
-                Os.access(visiblePath.getAbsolutePath(), OsConstants.F_OK);
-            }
-        } catch (FileNotFoundException | ErrnoException ignored) {
-        }
     }
 
     @Override

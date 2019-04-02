@@ -30,9 +30,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Parcelable;
 import android.os.ResultReceiver;
+import android.support.annotation.RequiresApi;
 import android.util.Log;
-
-import androidx.annotation.RequiresApi;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -269,11 +268,5 @@ class MediaSessionCompatApi21 {
         public static long getQueueId(Object queueItem) {
             return ((MediaSession.QueueItem) queueItem).getQueueId();
         }
-
-        private QueueItem() {
-        }
-    }
-
-    private MediaSessionCompatApi21() {
     }
 }

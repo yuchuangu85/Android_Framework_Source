@@ -98,8 +98,6 @@ public final class VerifyCredentialResponse implements Parcelable {
             if (mPayload != null) {
                 dest.writeInt(mPayload.length);
                 dest.writeByteArray(mPayload);
-            } else {
-                dest.writeInt(0);
             }
         }
     }

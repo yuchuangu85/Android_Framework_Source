@@ -17,7 +17,6 @@
 package android.telephony.mbms.vendor;
 
 import android.annotation.SystemApi;
-import android.annotation.TestApi;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -34,8 +33,7 @@ import java.util.List;
  * frontend apps.
  * @hide
  */
-@SystemApi
-@TestApi
+//@SystemApi
 public class VendorUtils {
 
     /**

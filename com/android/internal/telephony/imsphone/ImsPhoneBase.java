@@ -32,7 +32,6 @@ import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
 import android.util.Pair;
 
-import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Call;
 import com.android.internal.telephony.Connection;
 import com.android.internal.telephony.IccCard;
@@ -105,8 +104,7 @@ abstract class ImsPhoneBase extends Phone {
      *
      * @param cn The connection.
      */
-    @VisibleForTesting
-    public void startOnHoldTone(Connection cn) {
+    protected void startOnHoldTone(Connection cn) {
         Pair<Connection, Boolean> result = new Pair<Connection, Boolean>(cn, Boolean.TRUE);
         mOnHoldRegistrants.notifyRegistrants(new AsyncResult(null, result, null));
     }
@@ -446,6 +444,10 @@ abstract class ImsPhoneBase extends Phone {
             Message response) {
     }
 
+    @Override
+    public void getDataCallList(Message response) {
+    }
+
     public List<DataConnection> getCurrentDataConnectionList () {
         return null;
     }
@@ -472,17 +474,12 @@ abstract class ImsPhoneBase extends Phone {
     }
 
     @Override
-    public boolean isUserDataEnabled() {
+    public boolean getDataEnabled() {
         return false;
     }
 
     @Override
-    public boolean isDataEnabled() {
-        return false;
-    }
-
-    @Override
-    public void setUserDataEnabled(boolean enable) {
+    public void setDataEnabled(boolean enable) {
     }
 
 
@@ -497,6 +494,9 @@ abstract class ImsPhoneBase extends Phone {
     @Override
     public boolean isDataAllowed() {
         return false;
+    }
+
+    public void saveClirSetting(int commandInterfaceCLIRMode) {
     }
 
     @Override
@@ -536,16 +536,6 @@ abstract class ImsPhoneBase extends Phone {
     public LinkProperties getLinkProperties(String apnType) {
         // FIXME: what's this for Volte?
         return null;
-    }
-
-    @Override
-    public void getCallBarring(String facility, String password, Message onComplete,
-            int serviceClass) {
-    }
-
-    @Override
-    public void setCallBarring(String facility, boolean lockState, String password,
-            Message onComplete, int serviceClass) {
     }
 
     @Override

@@ -48,8 +48,6 @@ public final class JobSchedulerShellCommand extends ShellCommand {
                     return runJob(pw);
                 case "timeout":
                     return timeout(pw);
-                case "cancel":
-                    return cancelJob(pw);
                 case "monitor-battery":
                     return monitorBattery(pw);
                 case "get-battery-seq":
@@ -64,10 +62,6 @@ public final class JobSchedulerShellCommand extends ShellCommand {
                     return getStorageNotLow(pw);
                 case "get-job-state":
                     return getJobState(pw);
-                case "heartbeat":
-                    return doHeartbeat(pw);
-                case "trigger-dock-state":
-                    return triggerDockState(pw);
                 default:
                     return handleDefaultCommands(cmd);
             }
@@ -211,42 +205,6 @@ public final class JobSchedulerShellCommand extends ShellCommand {
         }
     }
 
-    private int cancelJob(PrintWriter pw) throws Exception {
-        checkPermission("cancel jobs");
-
-        int userId = UserHandle.USER_SYSTEM;
-
-        String opt;
-        while ((opt = getNextOption()) != null) {
-            switch (opt) {
-                case "-u":
-                case "--user":
-                    userId = UserHandle.parseUserArg(getNextArgRequired());
-                    break;
-
-                default:
-                    pw.println("Error: unknown option '" + opt + "'");
-                    return -1;
-            }
-        }
-
-        if (userId < 0) {
-            pw.println("Error: must specify a concrete user ID");
-            return -1;
-        }
-
-        final String pkgName = getNextArg();
-        final String jobIdStr = getNextArg();
-        final int jobId = jobIdStr != null ? Integer.parseInt(jobIdStr) : -1;
-
-        final long ident = Binder.clearCallingIdentity();
-        try {
-            return mInternal.executeCancelCommand(pw, pkgName, userId, jobIdStr != null, jobId);
-        } finally {
-            Binder.restoreCallingIdentity(ident);
-        }
-    }
-
     private int monitorBattery(PrintWriter pw) throws Exception {
         checkPermission("change battery monitoring");
         String opt = getNextArgRequired();
@@ -337,43 +295,6 @@ public final class JobSchedulerShellCommand extends ShellCommand {
         }
     }
 
-    private int doHeartbeat(PrintWriter pw) throws Exception {
-        checkPermission("manipulate scheduler heartbeat");
-
-        final String arg = getNextArg();
-        final int numBeats = (arg != null) ? Integer.parseInt(arg) : 0;
-
-        final long ident = Binder.clearCallingIdentity();
-        try {
-            return mInternal.executeHeartbeatCommand(pw, numBeats);
-        } finally {
-            Binder.restoreCallingIdentity(ident);
-        }
-    }
-
-    private int triggerDockState(PrintWriter pw) throws Exception {
-        checkPermission("trigger wireless charging dock state");
-
-        final String opt = getNextArgRequired();
-        boolean idleState;
-        if ("idle".equals(opt)) {
-            idleState = true;
-        } else if ("active".equals(opt)) {
-            idleState = false;
-        } else {
-            getErrPrintWriter().println("Error: unknown option " + opt);
-            return 1;
-        }
-
-        final long ident = Binder.clearCallingIdentity();
-        try {
-            mInternal.triggerDockState(idleState);
-        } finally {
-            Binder.restoreCallingIdentity(ident);
-        }
-        return 0;
-    }
-
     @Override
     public void onHelp() {
         final PrintWriter pw = getOutPrintWriter();
@@ -394,15 +315,6 @@ public final class JobSchedulerShellCommand extends ShellCommand {
         pw.println("    Options:");
         pw.println("      -u or --user: specify which user's job is to be run; the default is");
         pw.println("         all users");
-        pw.println("  cancel [-u | --user USER_ID] PACKAGE [JOB_ID]");
-        pw.println("    Cancel a scheduled job.  If a job ID is not supplied, all jobs scheduled");
-        pw.println("    by that package will be canceled.  USE WITH CAUTION.");
-        pw.println("    Options:");
-        pw.println("      -u or --user: specify which user's job is to be run; the default is");
-        pw.println("         the primary or system user");
-        pw.println("  heartbeat [num]");
-        pw.println("    With no argument, prints the current standby heartbeat.  With a positive");
-        pw.println("    argument, advances the standby heartbeat by that number.");
         pw.println("  monitor-battery [on|off]");
         pw.println("    Control monitoring of all battery changes.  Off by default.  Turning");
         pw.println("    on makes get-battery-seq useful.");
@@ -428,8 +340,6 @@ public final class JobSchedulerShellCommand extends ShellCommand {
         pw.println("    Options:");
         pw.println("      -u or --user: specify which user's job is to be run; the default is");
         pw.println("         the primary or system user");
-        pw.println("  trigger-dock-state [idle|active]");
-        pw.println("    Trigger wireless charging dock state.  Active by default.");
         pw.println();
     }
 

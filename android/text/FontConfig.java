@@ -64,19 +64,17 @@ public final class FontConfig {
         private final int mWeight;
         private final boolean mIsItalic;
         private Uri mUri;
-        private final String mFallbackFor;
 
         /**
          * @hide
          */
         public Font(@NonNull String fontName, int ttcIndex, @NonNull FontVariationAxis[] axes,
-                int weight, boolean isItalic, String fallbackFor) {
+                int weight, boolean isItalic) {
             mFontName = fontName;
             mTtcIndex = ttcIndex;
             mAxes = axes;
             mWeight = weight;
             mIsItalic = isItalic;
-            mFallbackFor = fallbackFor;
         }
 
         /**
@@ -127,10 +125,6 @@ public final class FontConfig {
         public void setUri(@NonNull Uri uri) {
             mUri = uri;
         }
-
-        public String getFallbackFor() {
-            return mFallbackFor;
-        }
     }
 
     /**
@@ -175,15 +169,11 @@ public final class FontConfig {
     public static final class Family {
         private final @NonNull String mName;
         private final @NonNull Font[] mFonts;
-        private final @NonNull String[] mLanguages;
+        private final @NonNull String mLanguage;
 
         /** @hide */
         @Retention(SOURCE)
-        @IntDef(prefix = { "VARIANT_" }, value = {
-                VARIANT_DEFAULT,
-                VARIANT_COMPACT,
-                VARIANT_ELEGANT
-        })
+        @IntDef({VARIANT_DEFAULT, VARIANT_COMPACT, VARIANT_ELEGANT})
         public @interface Variant {}
 
         /**
@@ -213,11 +203,11 @@ public final class FontConfig {
         // See frameworks/minikin/include/minikin/FontFamily.h
         private final @Variant int mVariant;
 
-        public Family(@NonNull String name, @NonNull Font[] fonts, @NonNull String[] languages,
+        public Family(@NonNull String name, @NonNull Font[] fonts, @NonNull String language,
                 @Variant int variant) {
             mName = name;
             mFonts = fonts;
-            mLanguages = languages;
+            mLanguage = language;
             mVariant = variant;
         }
 
@@ -236,10 +226,10 @@ public final class FontConfig {
         }
 
         /**
-         * Returns the languages for this family. May be null.
+         * Returns the language for this family. May be null.
          */
-        public @Nullable String[] getLanguages() {
-            return mLanguages;
+        public @Nullable String getLanguage() {
+            return mLanguage;
         }
 
         /**

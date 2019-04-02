@@ -16,88 +16,52 @@
 
 package android.text.style;
 
-import android.annotation.ColorInt;
-import android.annotation.NonNull;
 import android.os.Parcel;
 import android.text.ParcelableSpan;
 import android.text.TextPaint;
 import android.text.TextUtils;
 
-/**
- * Changes the background color of the text to which the span is attached.
- * <p>
- * For example, to set a green background color for a text you would create a {@link
- * android.text.SpannableString} based on the text and set the span.
- * <pre>{@code
- * SpannableString string = new SpannableString("Text with a background color span");
- *string.setSpan(new BackgroundColorSpan(color), 12, 28, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);}</pre>
- * <img src="{@docRoot}reference/android/images/text/style/backgroundcolorspan.png" />
- * <figcaption>Set a background color for the text.</figcaption>
- */
 public class BackgroundColorSpan extends CharacterStyle
         implements UpdateAppearance, ParcelableSpan {
 
     private final int mColor;
 
-    /**
-     * Creates a {@link BackgroundColorSpan} from a color integer.
-     * <p>
-     *
-     * @param color color integer that defines the background color
-     * @see android.content.res.Resources#getColor(int, Resources.Theme)
-     */
-    public BackgroundColorSpan(@ColorInt int color) {
+    public BackgroundColorSpan(int color) {
         mColor = color;
     }
 
-    /**
-     * Creates a {@link BackgroundColorSpan} from a parcel.
-     */
-    public BackgroundColorSpan(@NonNull Parcel src) {
+    public BackgroundColorSpan(Parcel src) {
         mColor = src.readInt();
     }
-
-    @Override
+    
     public int getSpanTypeId() {
         return getSpanTypeIdInternal();
     }
 
     /** @hide */
-    @Override
     public int getSpanTypeIdInternal() {
         return TextUtils.BACKGROUND_COLOR_SPAN;
     }
-
-    @Override
+    
     public int describeContents() {
         return 0;
     }
 
-    @Override
-    public void writeToParcel(@NonNull Parcel dest, int flags) {
+    public void writeToParcel(Parcel dest, int flags) {
         writeToParcelInternal(dest, flags);
     }
 
     /** @hide */
-    @Override
-    public void writeToParcelInternal(@NonNull Parcel dest, int flags) {
+    public void writeToParcelInternal(Parcel dest, int flags) {
         dest.writeInt(mColor);
     }
 
-    /**
-     * @return the background color of this span.
-     * @see BackgroundColorSpan#BackgroundColorSpan(int)
-     */
-    @ColorInt
     public int getBackgroundColor() {
         return mColor;
     }
 
-    /**
-     * Updates the background color of the TextPaint.
-     */
     @Override
-    public void updateDrawState(@NonNull TextPaint textPaint) {
-        textPaint.bgColor = mColor;
+    public void updateDrawState(TextPaint ds) {
+        ds.bgColor = mColor;
     }
 }

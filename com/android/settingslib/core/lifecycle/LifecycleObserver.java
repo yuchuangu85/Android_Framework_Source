@@ -17,9 +17,6 @@ package com.android.settingslib.core.lifecycle;
 
 /**
  * Observer of lifecycle events.
- * @deprecated use {@link android.arch.lifecycle.LifecycleObserver} instead
  */
-@Deprecated
-public interface LifecycleObserver extends
-        android.arch.lifecycle.LifecycleObserver {
+public interface LifecycleObserver {
 }

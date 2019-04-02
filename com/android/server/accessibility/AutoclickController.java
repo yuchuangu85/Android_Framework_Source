@@ -23,12 +23,15 @@ import android.database.ContentObserver;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.SystemClock;
+import android.os.UserHandle;
 import android.provider.Settings;
+import android.util.Slog;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.MotionEvent.PointerCoords;
 import android.view.MotionEvent.PointerProperties;
+import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
 
 /**
@@ -52,10 +55,11 @@ import android.view.accessibility.AccessibilityManager;
  *
  * Each instance is associated to a single user (and it does not handle user switch itself).
  */
-public class AutoclickController extends BaseEventStreamTransformation {
+public class AutoclickController implements EventStreamTransformation {
 
     private static final String LOG_TAG = AutoclickController.class.getSimpleName();
 
+    private EventStreamTransformation mNext;
     private final Context mContext;
     private final int mUserId;
 
@@ -84,7 +88,9 @@ public class AutoclickController extends BaseEventStreamTransformation {
             mClickScheduler.cancel();
         }
 
-        super.onMotionEvent(event, rawEvent, policyFlags);
+        if (mNext != null) {
+            mNext.onMotionEvent(event, rawEvent, policyFlags);
+        }
     }
 
     @Override
@@ -97,7 +103,21 @@ public class AutoclickController extends BaseEventStreamTransformation {
             }
         }
 
-        super.onKeyEvent(event, policyFlags);
+        if (mNext != null) {
+          mNext.onKeyEvent(event, policyFlags);
+        }
+    }
+
+    @Override
+    public void onAccessibilityEvent(AccessibilityEvent event) {
+        if (mNext != null) {
+            mNext.onAccessibilityEvent(event);
+        }
+    }
+
+    @Override
+    public void setNext(EventStreamTransformation next) {
+        mNext = next;
     }
 
     @Override
@@ -106,7 +126,9 @@ public class AutoclickController extends BaseEventStreamTransformation {
             mClickScheduler.cancel();
         }
 
-        super.clearEvents(inputSource);
+        if (mNext != null) {
+            mNext.clearEvents(inputSource);
+        }
     }
 
     @Override
@@ -396,7 +418,7 @@ public class AutoclickController extends BaseEventStreamTransformation {
          * Creates and forwards click event sequence.
          */
         private void sendClick() {
-            if (mLastMotionEvent == null || getNext() == null) {
+            if (mLastMotionEvent == null || mNext == null) {
                 return;
             }
 
@@ -426,10 +448,10 @@ public class AutoclickController extends BaseEventStreamTransformation {
             MotionEvent upEvent = MotionEvent.obtain(downEvent);
             upEvent.setAction(MotionEvent.ACTION_UP);
 
-            AutoclickController.super.onMotionEvent(downEvent, downEvent, mEventPolicyFlags);
+            mNext.onMotionEvent(downEvent, downEvent, mEventPolicyFlags);
             downEvent.recycle();
 
-            AutoclickController.super.onMotionEvent(upEvent, upEvent, mEventPolicyFlags);
+            mNext.onMotionEvent(upEvent, upEvent, mEventPolicyFlags);
             upEvent.recycle();
         }
 

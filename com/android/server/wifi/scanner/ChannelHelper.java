@@ -242,7 +242,7 @@ public abstract class ChannelHelper {
         if (scanSettings.band == WifiScanner.WIFI_BAND_UNSPECIFIED) {
             return toString(scanSettings.channels);
         } else {
-            return bandToString(scanSettings.band);
+            return toString(scanSettings.band);
         }
     }
 
@@ -255,7 +255,7 @@ public abstract class ChannelHelper {
         if (bucketSettings.band == WifiScanner.WIFI_BAND_UNSPECIFIED) {
             return toString(bucketSettings.channels, bucketSettings.num_channels);
         } else {
-            return bandToString(bucketSettings.band);
+            return toString(bucketSettings.band);
         }
     }
 
@@ -293,10 +293,7 @@ public abstract class ChannelHelper {
         return sb.toString();
     }
 
-    /**
-     * Converts a WifiScanner.WIFI_BAND_* constant to a meaningful String
-     */
-    public static String bandToString(int band) {
+    private static String toString(int band) {
         switch (band) {
             case WifiScanner.WIFI_BAND_UNSPECIFIED:
                 return "unspecified";
@@ -313,6 +310,7 @@ public abstract class ChannelHelper {
             case WifiScanner.WIFI_BAND_BOTH_WITH_DFS:
                 return "24Ghz & 5Ghz (DFS incl)";
         }
+
         return "invalid band";
     }
 }

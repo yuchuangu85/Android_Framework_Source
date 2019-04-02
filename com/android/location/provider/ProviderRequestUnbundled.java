@@ -33,7 +33,6 @@ import com.android.internal.location.ProviderRequest;
 public final class ProviderRequestUnbundled {
     private final ProviderRequest mRequest;
 
-    /** @hide */
     public ProviderRequestUnbundled(ProviderRequest request) {
         mRequest = request;
     }

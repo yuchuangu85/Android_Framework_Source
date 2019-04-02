@@ -698,9 +698,10 @@ final class HdmiCecLocalDeviceTv extends HdmiCecLocalDevice {
     protected boolean handleReportAudioStatus(HdmiCecMessage message) {
         assertRunOnServiceThread();
 
-        boolean mute = HdmiUtils.isAudioStatusMute(message);
-        int volume = HdmiUtils.getAudioStatusVolume(message);
-        setAudioStatus(mute, volume);
+        byte params[] = message.getParams();
+        int mute = params[0] & 0x80;
+        int volume = params[0] & 0x7F;
+        setAudioStatus(mute == 0x80, volume);
         return true;
     }
 
@@ -1003,9 +1004,6 @@ final class HdmiCecLocalDeviceTv extends HdmiCecLocalDevice {
     }
 
     void setAudioStatus(boolean mute, int volume) {
-        if (!isSystemAudioActivated()) {
-            return;
-        }
         synchronized (mLock) {
             mSystemAudioMute = mute;
             mSystemAudioVolume = volume;
@@ -1021,10 +1019,6 @@ final class HdmiCecLocalDeviceTv extends HdmiCecLocalDevice {
     @ServiceThreadOnly
     void changeVolume(int curVolume, int delta, int maxVolume) {
         assertRunOnServiceThread();
-        if (getAvrDeviceInfo() == null) {
-            // On initialization process, getAvrDeviceInfo() may return null and cause exception
-            return;
-        }
         if (delta == 0 || !isSystemAudioActivated()) {
             return;
         }
@@ -1054,10 +1048,6 @@ final class HdmiCecLocalDeviceTv extends HdmiCecLocalDevice {
     @ServiceThreadOnly
     void changeMute(boolean mute) {
         assertRunOnServiceThread();
-        if (getAvrDeviceInfo() == null) {
-            // On initialization process, getAvrDeviceInfo() may return null and cause exception
-            return;
-        }
         HdmiLogger.debug("[A]:Change mute:%b", mute);
         synchronized (mLock) {
             if (mSystemAudioMute == mute) {
@@ -1299,7 +1289,6 @@ final class HdmiCecLocalDeviceTv extends HdmiCecLocalDevice {
     /**
      * Return external input devices.
      */
-    @GuardedBy("mLock")
     List<HdmiDeviceInfo> getSafeExternalInputsLocked() {
         return mSafeExternalInputs;
     }
@@ -1422,7 +1411,6 @@ final class HdmiCecLocalDeviceTv extends HdmiCecLocalDevice {
         }
     }
 
-    @GuardedBy("mLock")
     List<HdmiDeviceInfo> getSafeCecDevicesLocked() {
         ArrayList<HdmiDeviceInfo> infoList = new ArrayList<>();
         for (HdmiDeviceInfo info : mSafeAllDeviceInfos) {

@@ -98,11 +98,7 @@ public class UiModeManager {
     public static String ACTION_EXIT_DESK_MODE = "android.app.action.EXIT_DESK_MODE";
 
     /** @hide */
-    @IntDef(prefix = { "MODE_" }, value = {
-            MODE_NIGHT_AUTO,
-            MODE_NIGHT_NO,
-            MODE_NIGHT_YES
-    })
+    @IntDef({MODE_NIGHT_AUTO, MODE_NIGHT_NO, MODE_NIGHT_YES})
     @Retention(RetentionPolicy.SOURCE)
     public @interface NightMode {}
 

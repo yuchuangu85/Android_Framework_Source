@@ -16,7 +16,6 @@
 
 package android.app.usage;
 
-import android.annotation.SystemApi;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -62,11 +61,6 @@ public final class UsageStats implements Parcelable {
     /**
      * {@hide}
      */
-    public int mAppLaunchCount;
-
-    /**
-     * {@hide}
-     */
     public int mLastEvent;
 
     /**
@@ -87,7 +81,6 @@ public final class UsageStats implements Parcelable {
         mLastTimeUsed = stats.mLastTimeUsed;
         mTotalTimeInForeground = stats.mTotalTimeInForeground;
         mLaunchCount = stats.mLaunchCount;
-        mAppLaunchCount = stats.mAppLaunchCount;
         mLastEvent = stats.mLastEvent;
         mChooserCounts = stats.mChooserCounts;
     }
@@ -144,16 +137,6 @@ public final class UsageStats implements Parcelable {
     }
 
     /**
-     * Returns the number of times the app was launched as an activity from outside of the app.
-     * Excludes intra-app activity transitions.
-     * @hide
-     */
-    @SystemApi
-    public int getAppLaunchCount() {
-        return mAppLaunchCount;
-    }
-
-    /**
      * Add the statistics from the right {@link UsageStats} to the left. The package name for
      * both {@link UsageStats} objects must be the same.
      * @param right The {@link UsageStats} object to merge into this one.
@@ -178,7 +161,6 @@ public final class UsageStats implements Parcelable {
         mEndTimeStamp = Math.max(mEndTimeStamp, right.mEndTimeStamp);
         mTotalTimeInForeground += right.mTotalTimeInForeground;
         mLaunchCount += right.mLaunchCount;
-        mAppLaunchCount += right.mAppLaunchCount;
         if (mChooserCounts == null) {
             mChooserCounts = right.mChooserCounts;
         } else if (right.mChooserCounts != null) {
@@ -214,7 +196,6 @@ public final class UsageStats implements Parcelable {
         dest.writeLong(mLastTimeUsed);
         dest.writeLong(mTotalTimeInForeground);
         dest.writeInt(mLaunchCount);
-        dest.writeInt(mAppLaunchCount);
         dest.writeInt(mLastEvent);
         Bundle allCounts = new Bundle();
         if (mChooserCounts != null) {
@@ -243,7 +224,6 @@ public final class UsageStats implements Parcelable {
             stats.mLastTimeUsed = in.readLong();
             stats.mTotalTimeInForeground = in.readLong();
             stats.mLaunchCount = in.readInt();
-            stats.mAppLaunchCount = in.readInt();
             stats.mLastEvent = in.readInt();
             Bundle allCounts = in.readBundle();
             if (allCounts != null) {

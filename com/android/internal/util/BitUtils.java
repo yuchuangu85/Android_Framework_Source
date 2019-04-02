@@ -20,9 +20,10 @@ package com.android.internal.util;
 import android.annotation.Nullable;
 import android.text.TextUtils;
 
+import libcore.util.Objects;
+
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.function.IntFunction;
 
@@ -55,7 +56,7 @@ public final class BitUtils {
 
     public static boolean maskedEquals(UUID a, UUID b, @Nullable UUID mask) {
         if (mask == null) {
-            return Objects.equals(a, b);
+            return Objects.equal(a, b);
         }
         return maskedEquals(a.getLeastSignificantBits(), b.getLeastSignificantBits(),
                     mask.getLeastSignificantBits())
@@ -90,10 +91,6 @@ public final class BitUtils {
 
     public static int uint16(short s) {
         return s & 0xffff;
-    }
-
-    public static int uint16(byte hi, byte lo) {
-        return ((hi & 0xff) << 8) | (lo & 0xff);
     }
 
     public static long uint32(int i) {

@@ -51,29 +51,25 @@ public class Events {
     public static final int EVENT_SUPPRESSOR_CHANGED = 14;  // (component|string) (name|string)
     public static final int EVENT_MUTE_CHANGED = 15;  // (stream|int) (muted|bool)
     public static final int EVENT_TOUCH_LEVEL_DONE = 16;  // (stream|int) (level|bool)
-    public static final int EVENT_ZEN_CONFIG_CHANGED = 17; // (allow/disallow|string)
-    public static final int EVENT_RINGER_TOGGLE = 18; // (ringer_mode)
 
     private static final String[] EVENT_TAGS = {
-            "show_dialog",
-            "dismiss_dialog",
-            "active_stream_changed",
-            "expand",
-            "key",
-            "collection_started",
-            "collection_stopped",
-            "icon_click",
-            "settings_click",
-            "touch_level_changed",
-            "level_changed",
-            "internal_ringer_mode_changed",
-            "external_ringer_mode_changed",
-            "zen_mode_changed",
-            "suppressor_changed",
-            "mute_changed",
-            "touch_level_done",
-            "zen_mode_config_changed",
-            "ringer_toggle"
+        "show_dialog",
+        "dismiss_dialog",
+        "active_stream_changed",
+        "expand",
+        "key",
+        "collection_started",
+        "collection_stopped",
+        "icon_click",
+        "settings_click",
+        "touch_level_changed",
+        "level_changed",
+        "internal_ringer_mode_changed",
+        "external_ringer_mode_changed",
+        "zen_mode_changed",
+        "suppressor_changed",
+        "mute_changed",
+        "touch_level_done",
     };
 
     public static final int DISMISS_REASON_UNKNOWN = 0;
@@ -84,7 +80,6 @@ public class Events {
     public static final int DISMISS_REASON_SETTINGS_CLICKED = 5;
     public static final int DISMISS_REASON_DONE_CLICKED = 6;
     public static final int DISMISS_STREAM_GONE = 7;
-    public static final int DISMISS_REASON_OUTPUT_CHOOSER = 8;
     public static final String[] DISMISS_REASONS = {
             "unknown",
             "touch_outside",
@@ -93,8 +88,7 @@ public class Events {
             "screen_off",
             "settings_clicked",
             "done_clicked",
-            "a11y_stream_changed",
-            "output_chooser"
+            "a11y_stream_changed"
     };
 
     public static final int SHOW_REASON_UNKNOWN = 0;
@@ -114,7 +108,6 @@ public class Events {
     public static Callback sCallback;
 
     public static void writeEvent(Context context, int tag, Object... list) {
-        MetricsLogger logger = new MetricsLogger();
         final long time = System.currentTimeMillis();
         final StringBuilder sb = new StringBuilder("writeEvent ").append(EVENT_TAGS[tag]);
         if (list != null && list.length > 0) {
@@ -142,7 +135,7 @@ public class Events {
                     break;
                 case EVENT_ICON_CLICK:
                     MetricsLogger.action(context, MetricsEvent.ACTION_VOLUME_ICON,
-                            (Integer) list[0]);
+                            (Integer) list[1]);
                     sb.append(AudioSystem.streamToString((Integer) list[0])).append(' ')
                             .append(iconStateToString((Integer) list[1]));
                     break;
@@ -158,15 +151,9 @@ public class Events {
                     break;
                 case EVENT_KEY:
                     MetricsLogger.action(context, MetricsEvent.ACTION_VOLUME_KEY,
-                            (Integer) list[0]);
+                            (Integer) list[1]);
                     sb.append(AudioSystem.streamToString((Integer) list[0])).append(' ')
                             .append(list[1]);
-                    break;
-                case EVENT_RINGER_TOGGLE:
-                    logger.action(MetricsEvent.ACTION_VOLUME_RINGER_TOGGLE, (Integer) list[0]);
-                    break;
-                case EVENT_SETTINGS_CLICK:
-                    logger.action(MetricsEvent.ACTION_VOLUME_SETTINGS);
                     break;
                 case EVENT_EXTERNAL_RINGER_MODE_CHANGED:
                     MetricsLogger.action(context, MetricsEvent.ACTION_RINGER_MODE,

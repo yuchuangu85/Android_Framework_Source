@@ -23,6 +23,8 @@ import android.widget.BaseAdapter;
 import java.util.ArrayList;
 
 public class MenuAdapter extends BaseAdapter {
+    static final int ITEM_LAYOUT = com.android.internal.R.layout.popup_menu_item_layout;
+
     MenuBuilder mAdapterMenu;
 
     private int mExpandedIndex = -1;
@@ -30,14 +32,11 @@ public class MenuAdapter extends BaseAdapter {
     private boolean mForceShowIcon;
     private final boolean mOverflowOnly;
     private final LayoutInflater mInflater;
-    private final int mItemLayoutRes;
 
-    public MenuAdapter(MenuBuilder menu, LayoutInflater inflater, boolean overflowOnly,
-            int itemLayoutRes) {
+    public MenuAdapter(MenuBuilder menu, LayoutInflater inflater, boolean overflowOnly) {
         mOverflowOnly = overflowOnly;
         mInflater = inflater;
         mAdapterMenu = menu;
-        mItemLayoutRes = itemLayoutRes;
         findExpandedIndex();
     }
 
@@ -79,16 +78,8 @@ public class MenuAdapter extends BaseAdapter {
 
     public View getView(int position, View convertView, ViewGroup parent) {
         if (convertView == null) {
-            convertView = mInflater.inflate(mItemLayoutRes, parent, false);
+            convertView = mInflater.inflate(ITEM_LAYOUT, parent, false);
         }
-
-        final int currGroupId = getItem(position).getGroupId();
-        final int prevGroupId =
-                position - 1 >= 0 ? getItem(position - 1).getGroupId() : currGroupId;
-        // Show a divider if adjacent items are in different groups.
-        ((ListMenuItemView) convertView)
-                .setGroupDividerEnabled(mAdapterMenu.isGroupDividerEnabled()
-                        && (currGroupId != prevGroupId));
 
         MenuView.ItemView itemView = (MenuView.ItemView) convertView;
         if (mForceShowIcon) {

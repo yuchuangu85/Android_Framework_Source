@@ -19,25 +19,22 @@ package com.android.internal.telephony.cat;
 import android.graphics.Bitmap;
 import android.os.Handler;
 import android.os.Message;
-import android.text.TextUtils;
 
 import com.android.internal.telephony.GsmAlphabet;
 import com.android.internal.telephony.uicc.IccFileHandler;
 
 import java.util.Iterator;
 import java.util.List;
-import java.util.Locale;
-
-import static com.android.internal.telephony.cat.CatCmdMessage
-                   .SetupEventListConstants.BROWSER_TERMINATION_EVENT;
-import static com.android.internal.telephony.cat.CatCmdMessage
-                   .SetupEventListConstants.BROWSING_STATUS_EVENT;
-import static com.android.internal.telephony.cat.CatCmdMessage
-                   .SetupEventListConstants.IDLE_SCREEN_AVAILABLE_EVENT;
-import static com.android.internal.telephony.cat.CatCmdMessage
-                   .SetupEventListConstants.LANGUAGE_SELECTION_EVENT;
-import static com.android.internal.telephony.cat.CatCmdMessage
-                   .SetupEventListConstants.USER_ACTIVITY_EVENT;
+import static com.android.internal.telephony.cat.CatCmdMessage.
+                   SetupEventListConstants.USER_ACTIVITY_EVENT;
+import static com.android.internal.telephony.cat.CatCmdMessage.
+                   SetupEventListConstants.IDLE_SCREEN_AVAILABLE_EVENT;
+import static com.android.internal.telephony.cat.CatCmdMessage.
+                   SetupEventListConstants.LANGUAGE_SELECTION_EVENT;
+import static com.android.internal.telephony.cat.CatCmdMessage.
+                   SetupEventListConstants.BROWSER_TERMINATION_EVENT;
+import static com.android.internal.telephony.cat.CatCmdMessage.
+                   SetupEventListConstants.BROWSING_STATUS_EVENT;
 /**
  * Factory class, used for decoding raw byte arrays, received from baseband,
  * into a CommandParams object.
@@ -50,8 +47,6 @@ class CommandParamsFactory extends Handler {
     private int mIconLoadState = LOAD_NO_ICON;
     private RilMessageDecoder mCaller = null;
     private boolean mloadIcon = false;
-    private String mSavedLanguage;
-    private String mRequestedLanguage;
 
     // constants
     static final int MSG_ID_LOAD_ICON_DONE = 1;
@@ -70,10 +65,6 @@ class CommandParamsFactory extends Handler {
     // Command Qualifier values for PLI command
     static final int DTTZ_SETTING                           = 0x03;
     static final int LANGUAGE_SETTING                       = 0x04;
-
-    // Command Qualifier value for language notification command
-    static final int NON_SPECIFIC_LANGUAGE                  = 0x00;
-    static final int SPECIFIC_LANGUAGE                      = 0x01;
 
     // As per TS 102.223 Annex C, Structure of CAT communications,
     // the APDU length can be max 255 bytes. This leaves only 239 bytes for user
@@ -212,9 +203,6 @@ class CommandParamsFactory extends Handler {
              case PROVIDE_LOCAL_INFORMATION:
                 cmdPending = processProvideLocalInfo(cmdDet, ctlvs);
                 break;
-             case LANGUAGE_NOTIFICATION:
-                 cmdPending = processLanguageNotification(cmdDet, ctlvs);
-                 break;
              case OPEN_CHANNEL:
              case CLOSE_CHANNEL:
              case RECEIVE_DATA:
@@ -547,11 +535,6 @@ class CommandParamsFactory extends Handler {
         if (ctlv != null) {
             iconId = ValueParser.retrieveIconId(ctlv);
             input.iconSelfExplanatory = iconId.selfExplanatory;
-        }
-
-        ctlv = searchForTag(ComprehensionTlvTag.DURATION, ctlvs);
-        if (ctlv != null) {
-            input.duration = ValueParser.retrieveDuration(ctlv);
         }
 
         input.digitOnly = (cmdDet.commandQualifier & 0x01) == 0;
@@ -922,10 +905,6 @@ class CommandParamsFactory extends Handler {
         ctlv = searchForTag(ComprehensionTlvTag.ALPHA_ID, ctlvs);
         if (ctlv != null) {
             textMsg.text = ValueParser.retrieveAlphaId(ctlv);
-            // Assign the tone message text to empty string, if alpha identifier
-            // data is null. If no alpha identifier tlv is present, then tone
-            // message text will be null.
-            if (textMsg.text == null) textMsg.text = "";
         }
         // parse tone duration
         ctlv = searchForTag(ComprehensionTlvTag.DURATION, ctlvs);
@@ -1032,67 +1011,6 @@ class CommandParamsFactory extends Handler {
                 mCmdParams = new CommandParams(cmdDet);
                 throw new ResultException(ResultCode.BEYOND_TERMINAL_CAPABILITY);
         }
-        return false;
-    }
-
-    /**
-     * Processes LANGUAGE_NOTIFICATION proactive command from the SIM card.
-     *
-     * The SPECIFIC_LANGUAGE notification sets the specified language.
-     * The NON_SPECIFIC_LANGUAGE notification restores the last specifically set language.
-     *
-     * @param cmdDet Command Details object retrieved from the proactive command object
-     * @param ctlvs List of ComprehensionTlv objects following Command Details
-     *        object and Device Identities object within the proactive command
-     * @return false. This function always returns false meaning that the command
-     *         processing is  not pending and additional asynchronous processing
-     *         is not required.
-     */
-    private boolean processLanguageNotification(CommandDetails cmdDet, List<ComprehensionTlv> ctlvs)
-            throws ResultException {
-        CatLog.d(this, "process Language Notification");
-
-        String desiredLanguage = null;
-        String currentLanguage = Locale.getDefault().getLanguage();
-        switch (cmdDet.commandQualifier) {
-            case NON_SPECIFIC_LANGUAGE:
-                if (!TextUtils.isEmpty(mSavedLanguage) && (!TextUtils.isEmpty(mRequestedLanguage)
-                        && mRequestedLanguage.equals(currentLanguage))) {
-                    CatLog.d(this, "Non-specific language notification changes the language "
-                            + "setting back to " + mSavedLanguage);
-                    desiredLanguage = mSavedLanguage;
-                }
-
-                mSavedLanguage = null;
-                mRequestedLanguage = null;
-                break;
-            case SPECIFIC_LANGUAGE:
-                ComprehensionTlv ctlv = searchForTag(ComprehensionTlvTag.LANGUAGE, ctlvs);
-                if (ctlv != null) {
-                    int valueLen = ctlv.getLength();
-                    if (valueLen != 2) {
-                        throw new ResultException(ResultCode.CMD_DATA_NOT_UNDERSTOOD);
-                    }
-
-                    byte[] rawValue = ctlv.getRawValue();
-                    int valueIndex = ctlv.getValueIndex();
-                    desiredLanguage = GsmAlphabet.gsm8BitUnpackedToString(rawValue, valueIndex, 2);
-
-                    if (TextUtils.isEmpty(mSavedLanguage) || (!TextUtils.isEmpty(mRequestedLanguage)
-                            && !mRequestedLanguage.equals(currentLanguage))) {
-                        mSavedLanguage = currentLanguage;
-                    }
-                    mRequestedLanguage = desiredLanguage;
-                    CatLog.d(this, "Specific language notification changes the language setting to "
-                            + mRequestedLanguage);
-                }
-                break;
-            default:
-                CatLog.d(this, "LN[" + cmdDet.commandQualifier + "] Command Not Supported");
-                break;
-        }
-
-        mCmdParams = new LanguageParams(cmdDet, desiredLanguage);
         return false;
     }
 

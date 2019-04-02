@@ -24,10 +24,9 @@ import android.util.Log;
 
 import com.android.systemui.Dependency;
 import com.android.systemui.plugins.DozeServicePlugin;
+import com.android.systemui.plugins.PluginManager;
 import com.android.systemui.plugins.DozeServicePlugin.RequestDoze;
 import com.android.systemui.plugins.PluginListener;
-import com.android.systemui.plugins.PluginManager;
-
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 
@@ -56,13 +55,6 @@ public class DozeService extends DreamService
         Dependency.get(PluginManager.class).addPluginListener(this,
                 DozeServicePlugin.class, false /* Allow multiple */);
         mDozeMachine = new DozeFactory().assembleMachine(this);
-    }
-
-    @Override
-    public void onDestroy() {
-        Dependency.get(PluginManager.class).removePluginListener(this);
-        super.onDestroy();
-        mDozeMachine = null;
     }
 
     @Override
@@ -100,7 +92,6 @@ public class DozeService extends DreamService
 
     @Override
     protected void dumpOnHandler(FileDescriptor fd, PrintWriter pw, String[] args) {
-        super.dumpOnHandler(fd, pw, args);
         if (mDozeMachine != null) {
             mDozeMachine.dump(pw);
         }

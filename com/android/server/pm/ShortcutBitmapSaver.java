@@ -21,8 +21,6 @@ import android.content.pm.ShortcutInfo;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.CompressFormat;
 import android.graphics.drawable.Icon;
-import android.os.StrictMode;
-import android.os.StrictMode.ThreadPolicy;
 import android.os.SystemClock;
 import android.util.Log;
 import android.util.Slog;
@@ -167,13 +165,7 @@ public class ShortcutBitmapSaver {
 
         // Compress it and enqueue to the requests.
         final byte[] bytes;
-        final StrictMode.ThreadPolicy oldPolicy = StrictMode.getThreadPolicy();
         try {
-            // compress() triggers a slow call, but in this case it's needed to save RAM and also
-            // the target bitmap is of an icon size, so let's just permit it.
-            StrictMode.setThreadPolicy(new ThreadPolicy.Builder(oldPolicy)
-                    .permitCustomSlowCalls()
-                    .build());
             final Bitmap shrunk = mService.shrinkBitmap(original, maxDimension);
             try {
                 try (final ByteArrayOutputStream out = new ByteArrayOutputStream(64 * 1024)) {
@@ -192,8 +184,6 @@ public class ShortcutBitmapSaver {
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
             Slog.wtf(ShortcutService.TAG, "Unable to write bitmap to file", e);
             return;
-        } finally {
-            StrictMode.setThreadPolicy(oldPolicy);
         }
 
         shortcut.addFlags(

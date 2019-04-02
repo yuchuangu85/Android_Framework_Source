@@ -23,7 +23,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
-import android.os.Messenger;
 import android.os.PersistableBundle;
 import android.os.PowerManager;
 import android.os.Registrant;
@@ -34,12 +33,12 @@ import android.telephony.DisconnectCause;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
-import android.telephony.ims.ImsCallProfile;
-import android.telephony.ims.ImsStreamMediaProfile;
 import android.text.TextUtils;
 
 import com.android.ims.ImsCall;
+import com.android.ims.ImsCallProfile;
 import com.android.ims.ImsException;
+import com.android.ims.ImsStreamMediaProfile;
 import com.android.ims.internal.ImsVideoCallProviderWrapper;
 import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.Connection;
@@ -80,7 +79,6 @@ public class ImsPhoneConnection extends Connection implements
 
     private UUSInfo mUusInfo;
     private Handler mHandler;
-    private Messenger mHandlerMessenger;
 
     private PowerManager.WakeLock mPartialWakeLock;
 
@@ -107,8 +105,6 @@ public class ImsPhoneConnection extends Connection implements
 
     private ImsRttTextHandler mRttTextHandler;
     private android.telecom.Connection.RttTextStream mRttTextStream;
-    // This reflects the RTT status as reported to us by the IMS stack via the media profile.
-    private boolean mIsRttEnabledForCall = false;
 
     /**
      * Used to indicate that this call is in the midst of being merged into a conference.
@@ -173,7 +169,6 @@ public class ImsPhoneConnection extends Connection implements
 
         mOwner = ct;
         mHandler = new MyHandler(mOwner.getLooper());
-        mHandlerMessenger = new Messenger(mHandler);
         mImsCall = imsCall;
 
         if ((imsCall != null) && (imsCall.getCallProfile() != null)) {
@@ -348,23 +343,6 @@ public class ImsPhoneConnection extends Connection implements
     }
 
     @Override
-    public void deflect(String number) throws CallStateException {
-        if (mParent.getState().isRinging()) {
-            try {
-                if (mImsCall != null) {
-                    mImsCall.deflect(number);
-                } else {
-                    throw new CallStateException("no valid ims call to deflect");
-                }
-            } catch (ImsException e) {
-                throw new CallStateException("cannot deflect call");
-            }
-        } else {
-            throw new CallStateException("phone not ringing");
-        }
-    }
-
-    @Override
     public void hangup() throws CallStateException {
         if (!mDisconnected) {
             mOwner.hangup(this);
@@ -450,7 +428,6 @@ public class ImsPhoneConnection extends Connection implements
             mDisconnected = true;
 
             mOwner.mPhone.notifyDisconnect(this);
-            notifyDisconnect(mCause);
 
             if (mParent != null) {
                 changed = mParent.connectionDisconnected(this);
@@ -498,9 +475,7 @@ public class ImsPhoneConnection extends Connection implements
     private boolean
     processPostDialChar(char c) {
         if (PhoneNumberUtils.is12Key(c)) {
-            Message dtmfComplete = mHandler.obtainMessage(EVENT_DTMF_DONE);
-            dtmfComplete.replyTo = mHandlerMessenger;
-            mOwner.sendDtmf(c, dtmfComplete);
+            mOwner.sendDtmf(c, mHandler.obtainMessage(EVENT_DTMF_DONE));
         } else if (c == PhoneNumberUtils.PAUSE) {
             // From TS 22.101:
             // It continues...
@@ -806,8 +781,8 @@ public class ImsPhoneConnection extends Connection implements
                     callProfile.getCallExtraInt(ImsCallProfile.EXTRA_CNAP));
             if (Phone.DEBUG_PHONE) {
                 Rlog.d(LOG_TAG, "updateAddressDisplay: callId = " + getTelecomCallId()
-                        + " address = " + Rlog.pii(LOG_TAG, address) + " name = "
-                        + Rlog.pii(LOG_TAG, name) + " nump = " + nump + " namep = " + namep);
+                        + " address = " + Rlog.pii(LOG_TAG, address) + " name = " + name
+                        + " nump = " + nump + " namep = " + namep);
             }
             if (!mIsMergeInProcess) {
                 // Only process changes to the name and address when a merge is not in process.
@@ -898,25 +873,6 @@ public class ImsPhoneConnection extends Connection implements
                         mShouldIgnoreVideoStateChanges = true;
                     }
                 }
-
-                if (negotiatedCallProfile.mMediaProfile != null) {
-                    mIsRttEnabledForCall = negotiatedCallProfile.mMediaProfile.isRttCall();
-
-                    if (mIsRttEnabledForCall && mRttTextHandler == null) {
-                        Rlog.d(LOG_TAG, "updateMediaCapabilities -- turning RTT on, profile="
-                                + negotiatedCallProfile);
-                        startRttTextProcessing();
-                        onRttInitiated();
-                        changed = true;
-                    } else if (!mIsRttEnabledForCall && mRttTextHandler != null) {
-                        Rlog.d(LOG_TAG, "updateMediaCapabilities -- turning RTT off, profile="
-                                + negotiatedCallProfile);
-                        mRttTextHandler.tearDown();
-                        mRttTextHandler = null;
-                        onRttTerminated();
-                        changed = true;
-                    }
-                }
             }
 
             // Check for a change in the capabilities for the call and update
@@ -990,64 +946,31 @@ public class ImsPhoneConnection extends Connection implements
         imsCall.sendRttModifyResponse(accept);
         if (accept) {
             setCurrentRttTextStream(textStream);
+            startRttTextProcessing();
         } else {
             Rlog.e(LOG_TAG, "sendRttModifyResponse: foreground call has no connections");
         }
     }
 
     public void onRttMessageReceived(String message) {
-        synchronized (this) {
-            if (mRttTextHandler == null) {
-                Rlog.w(LOG_TAG, "onRttMessageReceived: RTT text handler not available."
-                        + " Attempting to create one.");
-                if (mRttTextStream == null) {
-                    Rlog.e(LOG_TAG, "onRttMessageReceived:"
-                            + " Unable to process incoming message. No textstream available");
-                    return;
-                }
-                createRttTextHandler();
-            }
-        }
-        mRttTextHandler.sendToInCall(message);
+        getOrCreateRttTextHandler().sendToInCall(message);
     }
 
     public void setCurrentRttTextStream(android.telecom.Connection.RttTextStream rttTextStream) {
-        synchronized (this) {
-            mRttTextStream = rttTextStream;
-            if (mRttTextHandler == null && mIsRttEnabledForCall) {
-                Rlog.i(LOG_TAG, "setCurrentRttTextStream: Creating a text handler");
-                createRttTextHandler();
-            }
-        }
-    }
-
-    public boolean hasRttTextStream() {
-        return mRttTextStream != null;
-    }
-
-    public boolean isRttEnabledForCall() {
-        return mIsRttEnabledForCall;
+        mRttTextStream = rttTextStream;
     }
 
     public void startRttTextProcessing() {
-        synchronized (this) {
-            if (mRttTextStream == null) {
-                Rlog.w(LOG_TAG, "startRttTextProcessing: no RTT text stream. Ignoring.");
-                return;
-            }
-            if (mRttTextHandler != null) {
-                Rlog.w(LOG_TAG, "startRttTextProcessing: RTT text handler already exists");
-                return;
-            }
-            createRttTextHandler();
-        }
+        getOrCreateRttTextHandler().initialize(mRttTextStream);
     }
 
-    // Make sure to synchronize on ImsPhoneConnection.this before calling.
-    private void createRttTextHandler() {
+    private ImsRttTextHandler getOrCreateRttTextHandler() {
+        if (mRttTextHandler != null) {
+            return mRttTextHandler;
+        }
         mRttTextHandler = new ImsRttTextHandler(Looper.getMainLooper(),
                 (message) -> getImsCall().sendRttMessage(message));
-        mRttTextHandler.initialize(mRttTextStream);
+        return mRttTextHandler;
     }
 
     /**

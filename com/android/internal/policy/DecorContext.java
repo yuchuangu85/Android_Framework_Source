@@ -23,8 +23,6 @@ import android.view.ContextThemeWrapper;
 import android.view.WindowManager;
 import android.view.WindowManagerImpl;
 
-import java.lang.ref.WeakReference;
-
 /**
  * Context for decor views which can be seeded with pure application context and not depend on the
  * activity, but still provide some of the facilities that Activity has,
@@ -37,12 +35,9 @@ class DecorContext extends ContextThemeWrapper {
     private WindowManager mWindowManager;
     private Resources mActivityResources;
 
-    private WeakReference<Context> mActivityContext;
-
-    public DecorContext(Context context, Context activityContext) {
+    public DecorContext(Context context, Resources activityResources) {
         super(context, null);
-        mActivityContext = new WeakReference<>(activityContext);
-        mActivityResources = activityContext.getResources();
+        mActivityResources = activityResources;
     }
 
     void setPhoneWindow(PhoneWindow phoneWindow) {
@@ -65,13 +60,6 @@ class DecorContext extends ContextThemeWrapper {
 
     @Override
     public Resources getResources() {
-        Context activityContext = mActivityContext.get();
-        // Attempt to update the local cached Resources from the activity context. If the activity
-        // is no longer around, return the old cached values.
-        if (activityContext != null) {
-            mActivityResources = activityContext.getResources();
-        }
-
         return mActivityResources;
     }
 

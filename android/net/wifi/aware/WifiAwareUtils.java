@@ -16,8 +16,6 @@
 
 package android.net.wifi.aware;
 
-import android.content.Context;
-import android.content.pm.PackageManager;
 import android.hardware.wifi.V1_0.Constants;
 
 /**
@@ -85,22 +83,5 @@ public class WifiAwareUtils {
         }
 
         return true;
-    }
-
-    /**
-     * Returns true if the App version is older than minVersion.
-     */
-    public static boolean isLegacyVersion(Context context, int minVersion) {
-        try {
-            if (context.getPackageManager().getApplicationInfo(context.getOpPackageName(), 0)
-                    .targetSdkVersion < minVersion) {
-                return true;
-            }
-        } catch (PackageManager.NameNotFoundException e) {
-            // In case of exception, assume known app (more strict checking)
-            // Note: This case will never happen since checkPackage is
-            // called to verify valididity before checking App's version.
-        }
-        return false;
     }
 }

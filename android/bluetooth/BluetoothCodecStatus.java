@@ -38,15 +38,15 @@ public final class BluetoothCodecStatus implements Parcelable {
      * profile.
      */
     public static final String EXTRA_CODEC_STATUS =
-            "android.bluetooth.codec.extra.CODEC_STATUS";
+        "android.bluetooth.codec.extra.CODEC_STATUS";
 
     private final BluetoothCodecConfig mCodecConfig;
     private final BluetoothCodecConfig[] mCodecsLocalCapabilities;
     private final BluetoothCodecConfig[] mCodecsSelectableCapabilities;
 
     public BluetoothCodecStatus(BluetoothCodecConfig codecConfig,
-            BluetoothCodecConfig[] codecsLocalCapabilities,
-            BluetoothCodecConfig[] codecsSelectableCapabilities) {
+                                BluetoothCodecConfig[] codecsLocalCapabilities,
+                                BluetoothCodecConfig[] codecsSelectableCapabilities) {
         mCodecConfig = codecConfig;
         mCodecsLocalCapabilities = codecsLocalCapabilities;
         mCodecsSelectableCapabilities = codecsSelectableCapabilities;
@@ -55,77 +55,50 @@ public final class BluetoothCodecStatus implements Parcelable {
     @Override
     public boolean equals(Object o) {
         if (o instanceof BluetoothCodecStatus) {
-            BluetoothCodecStatus other = (BluetoothCodecStatus) o;
-            return (Objects.equals(other.mCodecConfig, mCodecConfig)
-                    && sameCapabilities(other.mCodecsLocalCapabilities, mCodecsLocalCapabilities)
-                    && sameCapabilities(other.mCodecsSelectableCapabilities,
-                    mCodecsSelectableCapabilities));
+            BluetoothCodecStatus other = (BluetoothCodecStatus)o;
+            return (Objects.equals(other.mCodecConfig, mCodecConfig) &&
+                    Objects.equals(other.mCodecsLocalCapabilities,
+                                   mCodecsLocalCapabilities) &&
+                    Objects.equals(other.mCodecsSelectableCapabilities,
+                                   mCodecsSelectableCapabilities));
         }
         return false;
-    }
-
-    /**
-     * Checks whether two arrays of capabilities contain same capabilities.
-     * The order of the capabilities in each array is ignored.
-     *
-     * @param c1 the first array of capabilities to compare
-     * @param c2 the second array of capabilities to compare
-     * @return true if both arrays contain same capabilities
-     */
-    private static boolean sameCapabilities(BluetoothCodecConfig[] c1,
-                                            BluetoothCodecConfig[] c2) {
-        if (c1 == null) {
-            return (c2 == null);
-        }
-        if (c2 == null) {
-            return false;
-        }
-        if (c1.length != c2.length) {
-            return false;
-        }
-        return Arrays.asList(c1).containsAll(Arrays.asList(c2));
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(mCodecConfig, mCodecsLocalCapabilities,
-                mCodecsLocalCapabilities);
+                            mCodecsLocalCapabilities);
     }
 
     @Override
     public String toString() {
-        return "{mCodecConfig:" + mCodecConfig
-                + ",mCodecsLocalCapabilities:" + Arrays.toString(mCodecsLocalCapabilities)
-                + ",mCodecsSelectableCapabilities:" + Arrays.toString(mCodecsSelectableCapabilities)
-                + "}";
+        return "{mCodecConfig:" + mCodecConfig +
+            ",mCodecsLocalCapabilities:" + Arrays.toString(mCodecsLocalCapabilities) +
+            ",mCodecsSelectableCapabilities:" + Arrays.toString(mCodecsSelectableCapabilities) +
+            "}";
     }
 
-    @Override
     public int describeContents() {
         return 0;
     }
 
     public static final Parcelable.Creator<BluetoothCodecStatus> CREATOR =
             new Parcelable.Creator<BluetoothCodecStatus>() {
-                public BluetoothCodecStatus createFromParcel(Parcel in) {
-                    final BluetoothCodecConfig codecConfig = in.readTypedObject(
-                            BluetoothCodecConfig.CREATOR);
-                    final BluetoothCodecConfig[] codecsLocalCapabilities = in.createTypedArray(
-                            BluetoothCodecConfig.CREATOR);
-                    final BluetoothCodecConfig[] codecsSelectableCapabilities = in.createTypedArray(
-                            BluetoothCodecConfig.CREATOR);
+        public BluetoothCodecStatus createFromParcel(Parcel in) {
+            final BluetoothCodecConfig codecConfig = in.readTypedObject(BluetoothCodecConfig.CREATOR);
+            final BluetoothCodecConfig[] codecsLocalCapabilities = in.createTypedArray(BluetoothCodecConfig.CREATOR);
+            final BluetoothCodecConfig[] codecsSelectableCapabilities = in.createTypedArray(BluetoothCodecConfig.CREATOR);
 
-                    return new BluetoothCodecStatus(codecConfig,
-                            codecsLocalCapabilities,
-                            codecsSelectableCapabilities);
-                }
+            return new BluetoothCodecStatus(codecConfig,
+                                            codecsLocalCapabilities,
+                                            codecsSelectableCapabilities);
+        }
+        public BluetoothCodecStatus[] newArray(int size) {
+            return new BluetoothCodecStatus[size];
+        }
+    };
 
-                public BluetoothCodecStatus[] newArray(int size) {
-                    return new BluetoothCodecStatus[size];
-                }
-            };
-
-    @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeTypedObject(mCodecConfig, 0);
         out.writeTypedArray(mCodecsLocalCapabilities, 0);

@@ -15,8 +15,6 @@
  */
 package com.android.systemui;
 
-import static android.app.StatusBarManager.DISABLE2_SYSTEM_ICONS;
-import static android.app.StatusBarManager.DISABLE_NONE;
 import static android.provider.Settings.System.SHOW_BATTERY_PERCENT;
 
 import android.animation.ArgbEvaluator;
@@ -54,7 +52,6 @@ import com.android.systemui.statusbar.policy.DarkIconDispatcher.DarkReceiver;
 import com.android.systemui.statusbar.policy.IconLogger;
 import com.android.systemui.tuner.TunerService;
 import com.android.systemui.tuner.TunerService.Tunable;
-import com.android.systemui.util.Utils.DisableStateTracker;
 
 import java.text.NumberFormat;
 
@@ -81,14 +78,6 @@ public class BatteryMeterView extends LinearLayout implements
     private float mDarkIntensity;
     private int mUser;
 
-    /**
-     * Whether we should use colors that adapt based on wallpaper/the scrim behind quick settings.
-     */
-    private boolean mUseWallpaperTextColors;
-
-    private int mNonAdaptedForegroundColor;
-    private int mNonAdaptedBackgroundColor;
-
     public BatteryMeterView(Context context) {
         this(context, null, 0);
     }
@@ -112,9 +101,6 @@ public class BatteryMeterView extends LinearLayout implements
 
         mSettingObserver = new SettingObserver(new Handler(context.getMainLooper()));
 
-        addOnAttachStateChangeListener(
-                new DisableStateTracker(DISABLE_NONE, DISABLE2_SYSTEM_ICONS));
-
         mSlotBattery = context.getString(
                 com.android.internal.R.string.status_bar_battery);
         mBatteryIconView = new ImageView(context);
@@ -127,10 +113,18 @@ public class BatteryMeterView extends LinearLayout implements
         addView(mBatteryIconView, mlp);
 
         updateShowPercent();
-        setColorsFromContext(context);
+
+        Context dualToneDarkTheme = new ContextThemeWrapper(context,
+                Utils.getThemeAttr(context, R.attr.darkIconTheme));
+        Context dualToneLightTheme = new ContextThemeWrapper(context,
+                Utils.getThemeAttr(context, R.attr.lightIconTheme));
+        mDarkModeBackgroundColor = Utils.getColorAttr(dualToneDarkTheme, R.attr.backgroundColor);
+        mDarkModeFillColor = Utils.getColorAttr(dualToneDarkTheme, R.attr.fillColor);
+        mLightModeBackgroundColor = Utils.getColorAttr(dualToneLightTheme, R.attr.backgroundColor);
+        mLightModeFillColor = Utils.getColorAttr(dualToneLightTheme, R.attr.fillColor);
+
         // Init to not dark at all.
         onDarkChanged(new Rect(), 0, DarkIconDispatcher.DEFAULT_ICON_TINT);
-
         mUserTracker = new CurrentUserTracker(mContext) {
             @Override
             public void onUserSwitched(int newUserId) {
@@ -141,52 +135,11 @@ public class BatteryMeterView extends LinearLayout implements
                         newUserId);
             }
         };
-
-        setClipChildren(false);
-        setClipToPadding(false);
     }
 
     public void setForceShowPercent(boolean show) {
         mForceShowPercent = show;
         updateShowPercent();
-    }
-
-    /**
-     * Sets whether the battery meter view uses the wallpaperTextColor. If we're not using it, we'll
-     * revert back to dark-mode-based/tinted colors.
-     *
-     * @param shouldUseWallpaperTextColor whether we should use wallpaperTextColor for all
-     *                                    components
-     */
-    public void useWallpaperTextColor(boolean shouldUseWallpaperTextColor) {
-        if (shouldUseWallpaperTextColor == mUseWallpaperTextColors) {
-            return;
-        }
-
-        mUseWallpaperTextColors = shouldUseWallpaperTextColor;
-
-        if (mUseWallpaperTextColors) {
-            updateColors(
-                    Utils.getColorAttr(mContext, R.attr.wallpaperTextColor),
-                    Utils.getColorAttr(mContext, R.attr.wallpaperTextColorSecondary));
-        } else {
-            updateColors(mNonAdaptedForegroundColor, mNonAdaptedBackgroundColor);
-        }
-    }
-
-    public void setColorsFromContext(Context context) {
-        if (context == null) {
-            return;
-        }
-
-        Context dualToneDarkTheme = new ContextThemeWrapper(context,
-                Utils.getThemeAttr(context, R.attr.darkIconTheme));
-        Context dualToneLightTheme = new ContextThemeWrapper(context,
-                Utils.getThemeAttr(context, R.attr.lightIconTheme));
-        mDarkModeBackgroundColor = Utils.getColorAttr(dualToneDarkTheme, R.attr.backgroundColor);
-        mDarkModeFillColor = Utils.getColorAttr(dualToneDarkTheme, R.attr.fillColor);
-        mLightModeBackgroundColor = Utils.getColorAttr(dualToneLightTheme, R.attr.backgroundColor);
-        mLightModeFillColor = Utils.getColorAttr(dualToneLightTheme, R.attr.fillColor);
     }
 
     @Override
@@ -213,8 +166,7 @@ public class BatteryMeterView extends LinearLayout implements
         getContext().getContentResolver().registerContentObserver(
                 Settings.System.getUriFor(SHOW_BATTERY_PERCENT), false, mSettingObserver, mUser);
         updateShowPercent();
-        Dependency.get(TunerService.class)
-                .addTunable(this, StatusBarIconController.ICON_BLACKLIST);
+        Dependency.get(TunerService.class).addTunable(this, StatusBarIconController.ICON_BLACKLIST);
         Dependency.get(ConfigurationController.class).addCallback(this);
         mUserTracker.startTracking();
     }
@@ -266,6 +218,7 @@ public class BatteryMeterView extends LinearLayout implements
                 if (mTextColor != 0) mBatteryPercentView.setTextColor(mTextColor);
                 updatePercentText();
                 addView(mBatteryPercentView,
+                        0,
                         new ViewGroup.LayoutParams(
                                 LayoutParams.WRAP_CONTENT,
                                 LayoutParams.MATCH_PARENT));
@@ -308,23 +261,19 @@ public class BatteryMeterView extends LinearLayout implements
     @Override
     public void onDarkChanged(Rect area, float darkIntensity, int tint) {
         mDarkIntensity = darkIntensity;
-
         float intensity = DarkIconDispatcher.isInArea(area, this) ? darkIntensity : 0;
-        mNonAdaptedForegroundColor = getColorForDarkIntensity(
-                intensity, mLightModeFillColor, mDarkModeFillColor);
-        mNonAdaptedBackgroundColor = getColorForDarkIntensity(
-                intensity, mLightModeBackgroundColor,mDarkModeBackgroundColor);
-
-        if (!mUseWallpaperTextColors) {
-            updateColors(mNonAdaptedForegroundColor, mNonAdaptedBackgroundColor);
-        }
+        int foreground = getColorForDarkIntensity(intensity, mLightModeFillColor,
+                mDarkModeFillColor);
+        int background = getColorForDarkIntensity(intensity, mLightModeBackgroundColor,
+                mDarkModeBackgroundColor);
+        mDrawable.setColors(foreground, background);
+        setTextColor(foreground);
     }
 
-    private void updateColors(int foregroundColor, int backgroundColor) {
-        mDrawable.setColors(foregroundColor, backgroundColor);
-        mTextColor = foregroundColor;
+    public void setTextColor(int color) {
+        mTextColor = color;
         if (mBatteryPercentView != null) {
-            mBatteryPercentView.setTextColor(foregroundColor);
+            mBatteryPercentView.setTextColor(color);
         }
     }
 

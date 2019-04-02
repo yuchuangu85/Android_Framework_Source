@@ -31,7 +31,6 @@ public abstract class Classifier {
     public static final int LEFT_AFFORDANCE = 5;
     public static final int RIGHT_AFFORDANCE = 6;
     public static final int GENERIC = 7;
-    public static final int BOUNCER_UNLOCK = 8;
 
     /**
      * Contains all the information about touch events from which the classifier can query

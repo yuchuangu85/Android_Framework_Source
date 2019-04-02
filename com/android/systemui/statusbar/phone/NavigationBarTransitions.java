@@ -26,7 +26,7 @@ import android.view.IWallpaperVisibilityListener;
 import android.view.IWindowManager;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.View.OnLayoutChangeListener;
+import android.view.WindowManagerGlobal;
 
 import com.android.internal.statusbar.IStatusBarService;
 import com.android.systemui.Dependency;
@@ -37,12 +37,10 @@ public final class NavigationBarTransitions extends BarTransitions {
     private final NavigationBarView mView;
     private final IStatusBarService mBarService;
     private final LightBarTransitionsController mLightTransitionsController;
-    private final boolean mAllowAutoDimWallpaperNotVisible;
     private boolean mWallpaperVisible;
 
     private boolean mLightsOut;
     private boolean mAutoDim;
-    private View mNavButtons;
 
     public NavigationBarTransitions(NavigationBarView view) {
         super(view, R.drawable.nav_background);
@@ -51,8 +49,6 @@ public final class NavigationBarTransitions extends BarTransitions {
                 ServiceManager.getService(Context.STATUS_BAR_SERVICE));
         mLightTransitionsController = new LightBarTransitionsController(view.getContext(),
                 this::applyDarkIntensity);
-        mAllowAutoDimWallpaperNotVisible = view.getContext().getResources()
-                .getBoolean(R.bool.config_navigation_bar_enable_auto_dim_no_visible_wallpaper);
 
         IWindowManager windowManagerService = Dependency.get(IWindowManager.class);
         Handler handler = Handler.getMain();
@@ -67,18 +63,6 @@ public final class NavigationBarTransitions extends BarTransitions {
                     }
                 }, Display.DEFAULT_DISPLAY);
         } catch (RemoteException e) {
-        }
-        mView.addOnLayoutChangeListener(
-                (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-                    View currentView = mView.getCurrentView();
-                    if (currentView != null) {
-                        mNavButtons = currentView.findViewById(R.id.nav_buttons);
-                        applyLightsOut(false, true);
-                    }
-                });
-        View currentView = mView.getCurrentView();
-        if (currentView != null) {
-            mNavButtons = currentView.findViewById(R.id.nav_buttons);
         }
     }
 
@@ -96,8 +80,7 @@ public final class NavigationBarTransitions extends BarTransitions {
 
     @Override
     protected boolean isLightsOut(int mode) {
-        return super.isLightsOut(mode) || (mAllowAutoDimWallpaperNotVisible && mAutoDim
-                && !mWallpaperVisible && mode != MODE_WARNING);
+        return super.isLightsOut(mode) || (mAutoDim && !mWallpaperVisible);
     }
 
     public LightBarTransitionsController getLightTransitionsController() {
@@ -119,20 +102,19 @@ public final class NavigationBarTransitions extends BarTransitions {
         if (!force && lightsOut == mLightsOut) return;
 
         mLightsOut = lightsOut;
-        if (mNavButtons == null) return;
+
+        final View navButtons = mView.getCurrentView().findViewById(R.id.nav_buttons);
 
         // ok, everyone, stop it right there
-        mNavButtons.animate().cancel();
+        navButtons.animate().cancel();
 
-        // Bump percentage by 10% if dark.
-        float darkBump = mLightTransitionsController.getCurrentDarkIntensity() / 10;
-        final float navButtonsAlpha = lightsOut ? 0.6f + darkBump : 1f;
+        final float navButtonsAlpha = lightsOut ? 0.6f : 1f;
 
         if (!animate) {
-            mNavButtons.setAlpha(navButtonsAlpha);
+            navButtons.setAlpha(navButtonsAlpha);
         } else {
             final int duration = lightsOut ? LIGHTS_OUT_DURATION : LIGHTS_IN_DURATION;
-            mNavButtons.animate()
+            navButtons.animate()
                 .alpha(navButtonsAlpha)
                 .setDuration(duration)
                 .start();
@@ -148,10 +130,6 @@ public final class NavigationBarTransitions extends BarTransitions {
         for (int i = buttonDispatchers.size() - 1; i >= 0; i--) {
             buttonDispatchers.valueAt(i).setDarkIntensity(darkIntensity);
         }
-        if (mAutoDim) {
-            applyLightsOut(false, true);
-        }
-        mView.onDarkIntensityChange(darkIntensity);
     }
 
     private final View.OnTouchListener mLightsOutListener = new View.OnTouchListener() {

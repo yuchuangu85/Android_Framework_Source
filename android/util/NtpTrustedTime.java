@@ -20,7 +20,6 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.res.Resources;
 import android.net.ConnectivityManager;
-import android.net.Network;
 import android.net.NetworkInfo;
 import android.net.SntpClient;
 import android.os.SystemClock;
@@ -81,18 +80,6 @@ public class NtpTrustedTime implements TrustedTime {
 
     @Override
     public boolean forceRefresh() {
-        // We can't do this at initialization time: ConnectivityService might not be running yet.
-        synchronized (this) {
-            if (mCM == null) {
-                mCM = sContext.getSystemService(ConnectivityManager.class);
-            }
-        }
-
-        final Network network = mCM == null ? null : mCM.getActiveNetwork();
-        return forceRefresh(network);
-    }
-
-    public boolean forceRefresh(Network network) {
         if (TextUtils.isEmpty(mServer)) {
             // missing server, so no trusted time available
             return false;
@@ -101,11 +88,11 @@ public class NtpTrustedTime implements TrustedTime {
         // We can't do this at initialization time: ConnectivityService might not be running yet.
         synchronized (this) {
             if (mCM == null) {
-                mCM = sContext.getSystemService(ConnectivityManager.class);
+                mCM = (ConnectivityManager) sContext.getSystemService(Context.CONNECTIVITY_SERVICE);
             }
         }
 
-        final NetworkInfo ni = mCM == null ? null : mCM.getNetworkInfo(network);
+        final NetworkInfo ni = mCM == null ? null : mCM.getActiveNetworkInfo();
         if (ni == null || !ni.isConnected()) {
             if (LOGD) Log.d(TAG, "forceRefresh: no connectivity");
             return false;
@@ -114,7 +101,7 @@ public class NtpTrustedTime implements TrustedTime {
 
         if (LOGD) Log.d(TAG, "forceRefresh() from cache miss");
         final SntpClient client = new SntpClient();
-        if (client.requestTime(mServer, (int) mTimeout, network)) {
+        if (client.requestTime(mServer, (int) mTimeout)) {
             mHasCache = true;
             mCachedNtpTime = client.getNtpTime();
             mCachedNtpElapsedRealtime = client.getNtpTimeReference();

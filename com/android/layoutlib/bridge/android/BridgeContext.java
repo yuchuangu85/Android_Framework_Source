@@ -22,8 +22,6 @@ import com.android.ide.common.rendering.api.ILayoutPullParser;
 import com.android.ide.common.rendering.api.LayoutLog;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
 import com.android.ide.common.rendering.api.RenderResources;
-import com.android.ide.common.rendering.api.ResourceNamespace;
-import com.android.ide.common.rendering.api.ResourceNamespace.Resolver;
 import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.ide.common.rendering.api.StyleResourceValue;
@@ -42,6 +40,7 @@ import org.xmlpull.v1.XmlPullParserException;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.app.Notification;
 import android.app.SystemServiceRegistry_Accessor;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -87,6 +86,7 @@ import android.util.TypedValue;
 import android.view.BridgeInflater;
 import android.view.Display;
 import android.view.DisplayAdjustments;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -101,7 +101,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -119,9 +118,6 @@ public class BridgeContext extends Context {
 
     private static final Map<String, ResourceValue> FRAMEWORK_PATCHED_VALUES = new HashMap<>(2);
     private static final Map<String, ResourceValue> FRAMEWORK_REPLACE_VALUES = new HashMap<>(3);
-
-    private static final Resolver LEGACY_NAMESPACE_RESOLVER =
-            Collections.singletonMap(SdkConstants.TOOLS_PREFIX, SdkConstants.TOOLS_URI)::get;
 
     static {
         FRAMEWORK_PATCHED_VALUES.put("animateFirstView", new ResourceValue(
@@ -614,35 +610,45 @@ public class BridgeContext extends Context {
 
     @Override
     public Object getSystemService(String service) {
-        switch (service) {
-            case LAYOUT_INFLATER_SERVICE:
-                return mBridgeInflater;
-
-            case TEXT_SERVICES_MANAGER_SERVICE:
-                // we need to return a valid service to avoid NPE
-                return TextServicesManager.getInstance();
-
-            case WINDOW_SERVICE:
-                return mWindowManager;
-
-            case POWER_SERVICE:
-                return new PowerManager(this, new BridgePowerManager(), new Handler());
-
-            case DISPLAY_SERVICE:
-                return mDisplayManager;
-
-            case ACCESSIBILITY_SERVICE:
-                return AccessibilityManager.getInstance(this);
-
-            case INPUT_METHOD_SERVICE:  // needed by SearchView
-            case AUTOFILL_MANAGER_SERVICE:
-            case AUDIO_SERVICE:
-            case TEXT_CLASSIFICATION_SERVICE:
-                return null;
-            default:
-                assert false : "Unsupported Service: " + service;
+        if (LAYOUT_INFLATER_SERVICE.equals(service)) {
+            return mBridgeInflater;
         }
 
+        if (TEXT_SERVICES_MANAGER_SERVICE.equals(service)) {
+            // we need to return a valid service to avoid NPE
+            return TextServicesManager.getInstance();
+        }
+
+        if (WINDOW_SERVICE.equals(service)) {
+            return mWindowManager;
+        }
+
+        // needed by SearchView
+        if (INPUT_METHOD_SERVICE.equals(service)) {
+            return null;
+        }
+
+        if (POWER_SERVICE.equals(service)) {
+            return new PowerManager(this, new BridgePowerManager(), new Handler());
+        }
+
+        if (DISPLAY_SERVICE.equals(service)) {
+            return mDisplayManager;
+        }
+
+        if (ACCESSIBILITY_SERVICE.equals(service)) {
+            return AccessibilityManager.getInstance(this);
+        }
+
+        if (AUTOFILL_MANAGER_SERVICE.equals(service)) {
+            return null;
+        }
+
+        if (AUDIO_SERVICE.equals(service)) {
+            return null;
+        }
+
+        assert false : "Unsupported Service: " + service;
         return null;
     }
 
@@ -651,13 +657,13 @@ public class BridgeContext extends Context {
         return SystemServiceRegistry_Accessor.getSystemServiceName(serviceClass);
     }
 
+    @Override
+    public final BridgeTypedArray obtainStyledAttributes(int[] attrs) {
+        return obtainStyledAttributes(0, attrs);
+    }
 
-    /**
-     * Same as Context#obtainStyledAttributes. We do not override the base method to give the
-     * original Context the chance to override the theme when needed.
-     */
-    @Nullable
-    public final BridgeTypedArray internalObtainStyledAttributes(int resId, int[] attrs)
+    @Override
+    public final BridgeTypedArray obtainStyledAttributes(int resId, int[] attrs)
             throws Resources.NotFoundException {
         StyleResourceValue style = null;
         // get the StyleResourceValue based on the resId;
@@ -709,23 +715,17 @@ public class BridgeContext extends Context {
         return typeArrayAndPropertiesPair.getFirst();
     }
 
-    /**
-     * Same as Context#obtainStyledAttributes. We do not override the base method to give the
-     * original Context the chance to override the theme when needed.
-     */
-    @Nullable
-    public BridgeTypedArray internalObtainStyledAttributes(@Nullable AttributeSet set, int[] attrs,
+    @Override
+    public final BridgeTypedArray obtainStyledAttributes(AttributeSet set, int[] attrs) {
+        return obtainStyledAttributes(set, attrs, 0, 0);
+    }
+
+    @Override
+    public BridgeTypedArray obtainStyledAttributes(AttributeSet set, int[] attrs,
             int defStyleAttr, int defStyleRes) {
 
         PropertiesMap defaultPropMap = null;
         boolean isPlatformFile = true;
-
-        // TODO(namespaces): We need to figure out how to keep track of the namespace of the current
-        // layout file.
-        ResourceNamespace currentFileNamespace = ResourceNamespace.TODO;
-
-        // TODO(namespaces): get this through the callback, only in non-namespaced projects.
-        ResourceNamespace.Resolver resolver = LEGACY_NAMESPACE_RESOLVER;
 
         // Hint: for XmlPullParser, attach source //DEVICE_SRC/dalvik/libcore/xml/src/java
         if (set instanceof BridgeXmlBlockParser) {
@@ -739,8 +739,6 @@ public class BridgeContext extends Context {
                 defaultPropMap = mDefaultPropMaps.computeIfAbsent(key, k -> new PropertiesMap());
             }
 
-            resolver = parser::getNamespace;
-            currentFileNamespace = ResourceNamespace.fromBoolean(parser.isPlatformFile());
         } else if (set instanceof BridgeLayoutParamsMapAttributes) {
             // this is only for temp layout params generated dynamically, so this is never
             // platform content.
@@ -809,11 +807,15 @@ public class BridgeContext extends Context {
                         }
                         defaultPropMap.put("style", new Property(defStyleName, item.getValue()));
                     }
+                } else {
+                    Bridge.getLog().error(LayoutLog.TAG_RESOURCES_RESOLVE_THEME_ATTR,
+                            String.format(
+                                    "Failed to find style '%s' in current theme",
+                                    defStyleAttribute.getFirst()),
+                            null);
                 }
             }
-        }
-
-        if (defStyleValues == null && defStyleRes != 0) {
+        } else if (defStyleRes != 0) {
             StyleResourceValue item = getStyleByDynamicId(defStyleRes);
             if (item != null) {
                 defStyleValues = item;
@@ -966,19 +968,10 @@ public class BridgeContext extends Context {
                     ta.bridgeSetValue(index, attrName, frameworkAttr, attributeHolder.resourceId,
                             defaultValue);
                 } else {
-                    // There is a value in the XML, but we need to resolve it in case it's
+                    // there is a value in the XML, but we need to resolve it in case it's
                     // referencing another resource or a theme value.
-                    ResourceValue dummy =
-                            new ResourceValue(
-                                    currentFileNamespace,
-                                    null,
-                                    attrName,
-                                    value);
-                    dummy.setNamespaceLookup(resolver);
-
-                    ta.bridgeSetValue(
-                            index, attrName, frameworkAttr, attributeHolder.resourceId,
-                            mRenderResources.resolveResValue(dummy));
+                    ta.bridgeSetValue(index, attrName, frameworkAttr, attributeHolder.resourceId,
+                            mRenderResources.resolveValue(null, attrName, value, isPlatformFile));
                 }
             }
         }
@@ -1686,13 +1679,6 @@ public class BridgeContext extends Context {
 
     @Override
     public void sendBroadcastMultiplePermissions(Intent intent, String[] receiverPermissions) {
-        // pass
-
-    }
-
-    @Override
-    public void sendBroadcastAsUserMultiplePermissions(Intent intent, UserHandle user,
-            String[] receiverPermissions) {
         // pass
 
     }

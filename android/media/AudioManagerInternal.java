@@ -42,8 +42,6 @@ public abstract class AudioManagerInternal {
 
     public abstract void setRingerModeInternal(int ringerMode, String caller);
 
-    public abstract void silenceRingerModeInternal(String caller);
-
     public abstract void updateRingerModeAffectedStreamsInternal();
 
     public abstract void setAccessibilityServiceUids(IntArray uids);

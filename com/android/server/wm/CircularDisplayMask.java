@@ -17,6 +17,7 @@
 package com.android.server.wm;
 
 
+import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_SURFACE_TRACE;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WITH_CLASS_NAME;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
 
@@ -33,6 +34,7 @@ import android.view.Display;
 import android.view.Surface;
 import android.view.Surface.OutOfResourcesException;
 import android.view.SurfaceControl;
+import android.view.SurfaceSession;
 
 class CircularDisplayMask {
     private static final String TAG = TAG_WITH_CLASS_NAME ? "CircularDisplayMask" : TAG_WM;
@@ -53,10 +55,8 @@ class CircularDisplayMask {
     private boolean mDimensionsUnequal = false;
     private int mMaskThickness;
 
-    public CircularDisplayMask(DisplayContent dc, int zOrder,
+    public CircularDisplayMask(Display display, SurfaceSession session, int zOrder,
             int screenOffset, int maskThickness) {
-        final Display display = dc.getDisplay();
-
         mScreenSize = new Point();
         display.getSize(mScreenSize);
         if (mScreenSize.x != mScreenSize.y + screenOffset) {
@@ -67,12 +67,14 @@ class CircularDisplayMask {
 
         SurfaceControl ctrl = null;
         try {
-            ctrl = dc.makeOverlay()
-                    .setName("CircularDisplayMask")
-                    .setSize(mScreenSize.x, mScreenSize.y) // not a typo
-                    .setFormat(PixelFormat.TRANSLUCENT)
-                    .build();
-
+            if (DEBUG_SURFACE_TRACE) {
+                ctrl = new WindowSurfaceController.SurfaceTrace(session, "CircularDisplayMask",
+                        mScreenSize.x, mScreenSize.y, PixelFormat.TRANSLUCENT,
+                        SurfaceControl.HIDDEN);
+            } else {
+                ctrl = new SurfaceControl(session, "CircularDisplayMask", mScreenSize.x,
+                        mScreenSize.y, PixelFormat.TRANSLUCENT, SurfaceControl.HIDDEN);
+            }
             ctrl.setLayerStack(display.getLayerStack());
             ctrl.setLayer(zOrder);
             ctrl.setPosition(0, 0);

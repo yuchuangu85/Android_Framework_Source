@@ -28,7 +28,6 @@ import android.os.UserHandle;
 import android.os.UserManager;
 import android.service.persistentdata.IPersistentDataBlockService;
 import android.service.persistentdata.PersistentDataBlockManager;
-import android.util.Log;
 import android.util.Slog;
 
 import com.android.internal.R;
@@ -583,12 +582,7 @@ public class PersistentDataBlockService extends SystemService {
         @Override
         public boolean hasFrpCredentialHandle() {
             enforcePersistentDataBlockAccess();
-            try {
-                return mInternalService.getFrpCredentialHandle() != null;
-            } catch (IllegalStateException e) {
-                Slog.e(TAG, "error reading frp handle", e);
-                throw new UnsupportedOperationException("cannot read frp credential");
-            }
+            return mInternalService.getFrpCredentialHandle() != null;
         }
     };
 
@@ -644,7 +638,7 @@ public class PersistentDataBlockService extends SystemService {
         @Override
         public byte[] getFrpCredentialHandle() {
             if (!enforceChecksumValidity()) {
-                throw new IllegalStateException("invalid checksum");
+                return null;
             }
 
             DataInputStream inputStream;
@@ -652,7 +646,8 @@ public class PersistentDataBlockService extends SystemService {
                 inputStream = new DataInputStream(
                         new FileInputStream(new File(mDataBlockFile)));
             } catch (FileNotFoundException e) {
-                throw new IllegalStateException("frp partition not available");
+                Slog.e(TAG, "partition not available");
+                return null;
             }
 
             try {
@@ -667,17 +662,10 @@ public class PersistentDataBlockService extends SystemService {
                     return bytes;
                 }
             } catch (IOException e) {
-                throw new IllegalStateException("frp handle not readable", e);
+                Slog.e(TAG, "unable to access persistent partition", e);
+                return null;
             } finally {
                 IoUtils.closeQuietly(inputStream);
-            }
-        }
-
-        @Override
-        public void forceOemUnlockEnabled(boolean enabled) {
-            synchronized (mLock) {
-                doSetOemUnlockEnabledLocked(enabled);
-                computeAndWriteDigestLocked();
             }
         }
     };

@@ -23,18 +23,14 @@ import android.util.Log;
 import android.view.View;
 
 import com.android.systemui.ConfigurationChangedReceiver;
-import com.android.systemui.Dumpable;
 import com.android.systemui.SystemUI;
 import com.android.systemui.SystemUIApplication;
-
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
 
 /**
  * Holds a map of root views to FragmentHostStates and generates them as needed.
  * Also dispatches the configuration changes to all current FragmentHostStates.
  */
-public class FragmentService implements ConfigurationChangedReceiver, Dumpable {
+public class FragmentService implements ConfigurationChangedReceiver {
 
     private static final String TAG = "FragmentService";
 
@@ -66,14 +62,6 @@ public class FragmentService implements ConfigurationChangedReceiver, Dumpable {
     public void onConfigurationChanged(Configuration newConfig) {
         for (FragmentHostState state : mHosts.values()) {
             state.sendConfigurationChange(newConfig);
-        }
-    }
-
-    @Override
-    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        pw.println("Dumping fragments:");
-        for (FragmentHostState state : mHosts.values()) {
-            state.mFragmentHostManager.getFragmentManager().dump("  ", fd, pw, args);
         }
     }
 

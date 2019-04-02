@@ -23,11 +23,9 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.Cursor;
 import android.database.SQLException;
-import android.os.PersistableBundle;
+import android.os.UserHandle;
 import android.os.UserManager;
-import android.telephony.CarrierConfigManager;
 import android.telephony.Rlog;
-import android.telephony.SubscriptionManager;
 
 import com.android.internal.telephony.cdma.CdmaInboundSmsHandler;
 import com.android.internal.telephony.gsm.GsmInboundSmsHandler;
@@ -47,7 +45,7 @@ public class SmsBroadcastUndelivered {
     private static final boolean DBG = InboundSmsHandler.DBG;
 
     /** Delete any partial message segments older than 30 days. */
-    static final long DEFAULT_PARTIAL_SEGMENT_EXPIRE_AGE = (long) (60 * 60 * 1000) * 24 * 30;
+    static final long PARTIAL_SEGMENT_EXPIRE_AGE = (long) (60 * 60 * 1000) * 24 * 30;
 
     /**
      * Query projection for dispatching pending messages at boot time.
@@ -99,7 +97,7 @@ public class SmsBroadcastUndelivered {
 
         @Override
         public void run() {
-            scanRawTable(context);
+            scanRawTable();
             InboundSmsHandler.cancelNewMessageNotification(context);
         }
     }
@@ -142,7 +140,7 @@ public class SmsBroadcastUndelivered {
     /**
      * Scan the raw table for complete SMS messages to broadcast, and old PDUs to delete.
      */
-    private void scanRawTable(Context context) {
+    private void scanRawTable() {
         if (DBG) Rlog.d(TAG, "scanning raw table for undelivered messages");
         long startTime = System.nanoTime();
         HashMap<SmsReferenceKey, Integer> multiPartReceivedCount =
@@ -178,9 +176,8 @@ public class SmsBroadcastUndelivered {
                     Integer receivedCount = multiPartReceivedCount.get(reference);
                     if (receivedCount == null) {
                         multiPartReceivedCount.put(reference, 1);    // first segment seen
-                        long expirationTime = getUndeliveredSmsExpirationTime(context);
                         if (tracker.getTimestamp() <
-                                (System.currentTimeMillis() - expirationTime)) {
+                                (System.currentTimeMillis() - PARTIAL_SEGMENT_EXPIRE_AGE)) {
                             // older than 30 days; delete if we don't find all the segments
                             oldMultiPartMessages.add(reference);
                         }
@@ -236,20 +233,6 @@ public class SmsBroadcastUndelivered {
             handler.sendMessage(InboundSmsHandler.EVENT_BROADCAST_SMS, tracker);
         } else {
             Rlog.e(TAG, "null handler for " + tracker.getFormat() + " format, can't deliver.");
-        }
-    }
-
-    private long getUndeliveredSmsExpirationTime(Context context) {
-        int subId = SubscriptionManager.getDefaultSmsSubscriptionId();
-        CarrierConfigManager configManager =
-                (CarrierConfigManager) context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
-        PersistableBundle bundle = configManager.getConfigForSubId(subId);
-
-        if (bundle != null) {
-            return bundle.getLong(CarrierConfigManager.KEY_UNDELIVERED_SMS_MESSAGE_EXPIRATION_TIME,
-                    DEFAULT_PARTIAL_SEGMENT_EXPIRE_AGE);
-        } else {
-            return DEFAULT_PARTIAL_SEGMENT_EXPIRE_AGE;
         }
     }
 

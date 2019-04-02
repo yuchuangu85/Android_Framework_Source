@@ -16,6 +16,7 @@
 
 package com.android.printspooler.model;
 
+import android.annotation.NonNull;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.net.Uri;
@@ -38,7 +39,6 @@ import android.print.PrintDocumentAdapter;
 import android.print.PrintDocumentInfo;
 import android.util.Log;
 
-import com.android.internal.util.function.pooled.PooledLambda;
 import com.android.printspooler.R;
 import com.android.printspooler.util.PageRangeUtils;
 
@@ -136,12 +136,7 @@ public final class RemotePrintDocument {
                     mState = STATE_CANCELED;
                     notifyUpdateCanceled();
                 }
-                if (mNextCommand != null) {
-                    runPendingCommand();
-                } else {
-                    // The update was not performed, hence the spec is stale
-                    mUpdateSpec.reset();
-                }
+                runPendingCommand();
             }
         }
     };
@@ -549,9 +544,6 @@ public final class RemotePrintDocument {
     }
 
     private static abstract class AsyncCommand implements Runnable {
-        /** Message indicated the desire to {@link #forceCancel} a command */
-        static final int MSG_FORCE_CANCEL = 0;
-
         private static final int STATE_PENDING = 0;
         private static final int STATE_RUNNING = 1;
         private static final int STATE_COMPLETED = 2;
@@ -577,7 +569,7 @@ public final class RemotePrintDocument {
 
         public AsyncCommand(Looper looper, IPrintDocumentAdapter adapter, RemotePrintDocumentInfo document,
                 CommandDoneCallback doneCallback) {
-            mHandler = new Handler(looper);
+            mHandler = new AsyncCommandHandler(looper);
             mAdapter = adapter;
             mDocument = document;
             mDoneCallback = doneCallback;
@@ -597,12 +589,12 @@ public final class RemotePrintDocument {
          */
         protected void removeForceCancel() {
             if (DEBUG) {
-                if (mHandler.hasMessages(MSG_FORCE_CANCEL)) {
+                if (mHandler.hasMessages(AsyncCommandHandler.MSG_FORCE_CANCEL)) {
                     Log.i(LOG_TAG, "[FORCE CANCEL] Removed");
                 }
             }
 
-            mHandler.removeMessages(MSG_FORCE_CANCEL);
+            mHandler.removeMessages(AsyncCommandHandler.MSG_FORCE_CANCEL);
         }
 
         /**
@@ -631,8 +623,7 @@ public final class RemotePrintDocument {
                         Log.i(LOG_TAG, "[FORCE CANCEL] queued");
                     }
                     mHandler.sendMessageDelayed(
-                            PooledLambda.obtainMessage(AsyncCommand::forceCancel, this)
-                                    .setWhat(MSG_FORCE_CANCEL),
+                            mHandler.obtainMessage(AsyncCommandHandler.MSG_FORCE_CANCEL),
                             FORCE_CANCEL_TIMEOUT);
                 }
 
@@ -702,15 +693,34 @@ public final class RemotePrintDocument {
             return mError;
         }
 
-        private void forceCancel() {
-            if (isCanceling()) {
-                if (DEBUG) {
-                    Log.i(LOG_TAG, "[FORCE CANCEL] executed");
-                }
-                failed("Command did not respond to cancellation in "
-                        + FORCE_CANCEL_TIMEOUT + " ms");
+        /**
+         * Handler for the async command.
+         */
+        private class AsyncCommandHandler extends Handler {
+            /** Message indicated the desire for to force cancel a command */
+            final static int MSG_FORCE_CANCEL = 0;
 
-                mDoneCallback.onDone();
+            AsyncCommandHandler(@NonNull Looper looper) {
+                super(looper);
+            }
+
+            @Override
+            public void handleMessage(Message msg) {
+                switch (msg.what) {
+                    case MSG_FORCE_CANCEL:
+                        if (isCanceling()) {
+                            if (DEBUG) {
+                                Log.i(LOG_TAG, "[FORCE CANCEL] executed");
+                            }
+                            failed("Command did not respond to cancellation in "
+                                    + FORCE_CANCEL_TIMEOUT + " ms");
+
+                            mDoneCallback.onDone();
+                        }
+                        break;
+                    default:
+                        // not reached;
+                }
             }
         }
     }

@@ -56,8 +56,7 @@ public class Resources_Theme_Delegate {
             Resources thisResources, Theme thisTheme,
             int[] attrs) {
         boolean changed = setupResources(thisTheme);
-        BridgeTypedArray ta = RenderSessionImpl.getCurrentContext().internalObtainStyledAttributes(
-                0, attrs);
+        BridgeTypedArray ta = RenderSessionImpl.getCurrentContext().obtainStyledAttributes(attrs);
         ta.setTheme(thisTheme);
         restoreResources(changed);
         return ta;
@@ -69,8 +68,8 @@ public class Resources_Theme_Delegate {
             int resid, int[] attrs)
             throws NotFoundException {
         boolean changed = setupResources(thisTheme);
-        BridgeTypedArray ta = RenderSessionImpl.getCurrentContext().internalObtainStyledAttributes(
-                resid, attrs);
+        BridgeTypedArray ta = RenderSessionImpl.getCurrentContext().obtainStyledAttributes(resid,
+                attrs);
         ta.setTheme(thisTheme);
         restoreResources(changed);
         return ta;
@@ -81,7 +80,7 @@ public class Resources_Theme_Delegate {
             Resources thisResources, Theme thisTheme,
             AttributeSet set, int[] attrs, int defStyleAttr, int defStyleRes) {
         boolean changed = setupResources(thisTheme);
-        BridgeTypedArray ta = RenderSessionImpl.getCurrentContext().internalObtainStyledAttributes(set,
+        BridgeTypedArray ta = RenderSessionImpl.getCurrentContext().obtainStyledAttributes(set,
                 attrs, defStyleAttr, defStyleRes);
         ta.setTheme(thisTheme);
         restoreResources(changed);

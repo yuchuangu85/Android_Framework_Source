@@ -109,10 +109,6 @@ import sun.security.jca.GetInstance.Instance;
  *       <td>10+</td>
  *     </tr>
  *     <tr>
- *       <td>ChaCha20</td>
- *       <td>28+</td>
- *     </tr>
- *     <tr>
  *       <td>DES</td>
  *       <td>1+</td>
  *     </tr>
@@ -330,8 +326,6 @@ public class KeyGenerator {
     public static final KeyGenerator getInstance(String algorithm,
             String provider) throws NoSuchAlgorithmException,
             NoSuchProviderException {
-        // Android-added: Check for Bouncy Castle deprecation
-        Providers.checkBouncyCastleDeprecation(provider, "KeyGenerator", algorithm);
         Instance instance = JceSecurity.getInstance("KeyGenerator",
                 KeyGeneratorSpi.class, algorithm, provider);
         return new KeyGenerator((KeyGeneratorSpi)instance.impl,
@@ -370,8 +364,6 @@ public class KeyGenerator {
      */
     public static final KeyGenerator getInstance(String algorithm,
             Provider provider) throws NoSuchAlgorithmException {
-        // Android-added: Check for Bouncy Castle deprecation
-        Providers.checkBouncyCastleDeprecation(provider, "KeyGenerator", algorithm);
         Instance instance = JceSecurity.getInstance("KeyGenerator",
                 KeyGeneratorSpi.class, algorithm, provider);
         return new KeyGenerator((KeyGeneratorSpi)instance.impl,

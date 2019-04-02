@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -81,7 +82,7 @@ public abstract class Conference extends Conferenceable {
     private int mConnectionProperties;
     private String mDisconnectMessage;
     private long mConnectTimeMillis = CONNECT_TIME_NOT_SPECIFIED;
-    private long mConnectionStartElapsedRealTime = CONNECT_TIME_NOT_SPECIFIED;
+    private long mConnectElapsedTimeMillis = CONNECT_TIME_NOT_SPECIFIED;
     private StatusHints mStatusHints;
     private Bundle mExtras;
     private Set<String> mPreviousExtraKeys;
@@ -583,36 +584,28 @@ public abstract class Conference extends Conferenceable {
     }
 
     /**
-     * Sets the connection start time of the {@code Conference}.  This is used in the call log to
-     * indicate the date and time when the conference took place.
-     * <p>
-     * Should be specified in wall-clock time returned by {@link System#currentTimeMillis()}.
-     * <p>
-     * When setting the connection time, you should always set the connection elapsed time via
-     * {@link #setConnectionStartElapsedRealTime(long)} to ensure the duration is reflected.
+     * Sets the connection start time of the {@code Conference}.  Should be specified in wall-clock
+     * time returned by {@link System#currentTimeMillis()}.
      *
-     * @param connectionTimeMillis The connection time, in milliseconds, as returned by
-     *                             {@link System#currentTimeMillis()}.
+     * @param connectionTimeMillis The connection time, in milliseconds.
      */
     public final void setConnectionTime(long connectionTimeMillis) {
         mConnectTimeMillis = connectionTimeMillis;
     }
 
     /**
-     * Sets the start time of the {@link Conference} which is the basis for the determining the
-     * duration of the {@link Conference}.
+     * Sets the elapsed time since system boot when the {@link Conference} was connected.
+     * This is used to determine the duration of the {@link Conference}.
      * <p>
-     * You should use a value returned by {@link SystemClock#elapsedRealtime()} to ensure that time
-     * zone changes do not impact the conference duration.
-     * <p>
-     * When setting this, you should also set the connection time via
+     * When setting the connection elapsed time, you should always set the connection time via
      * {@link #setConnectionTime(long)}.
      *
-     * @param connectionStartElapsedRealTime The connection time, as measured by
+     * @param connectionElapsedTime The connection time, as measured by
      * {@link SystemClock#elapsedRealtime()}.
+     * @hide
      */
-    public final void setConnectionStartElapsedRealTime(long connectionStartElapsedRealTime) {
-        mConnectionStartElapsedRealTime = connectionStartElapsedRealTime;
+    public final void setConnectionElapsedTime(long connectionElapsedTime) {
+        mConnectElapsedTimeMillis = connectionElapsedTime;
     }
 
     /**
@@ -647,8 +640,8 @@ public abstract class Conference extends Conferenceable {
      * @return The elapsed time at which the {@link Conference} was connected.
      * @hide
      */
-    public final long getConnectionStartElapsedRealTime() {
-        return mConnectionStartElapsedRealTime;
+    public final long getConnectElapsedTime() {
+        return mConnectElapsedTimeMillis;
     }
 
     /**

@@ -34,11 +34,8 @@ import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.style.URLSpan;
 import android.util.Log;
-import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.util.ArrayUtils;
-
-import libcore.io.IoUtils;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -46,6 +43,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
+import libcore.io.IoUtils;
 
 /**
  * Representation of a clipped data on the clipboard.
@@ -667,25 +665,6 @@ public class ClipData implements Parcelable {
                 b.append("NULL");
             }
         }
-
-        /** @hide */
-        public void writeToProto(ProtoOutputStream proto, long fieldId) {
-            final long token = proto.start(fieldId);
-
-            if (mHtmlText != null) {
-                proto.write(ClipDataProto.Item.HTML_TEXT, mHtmlText);
-            } else if (mText != null) {
-                proto.write(ClipDataProto.Item.TEXT, mText.toString());
-            } else if (mUri != null) {
-                proto.write(ClipDataProto.Item.URI, mUri.toString());
-            } else if (mIntent != null) {
-                mIntent.writeToProto(proto, ClipDataProto.Item.INTENT, true, true, true, true);
-            } else {
-                proto.write(ClipDataProto.Item.NOTHING, true);
-            }
-
-            proto.end(token);
-        }
     }
 
     /**
@@ -1066,26 +1045,6 @@ public class ClipData implements Parcelable {
                 b.append(" ...");
             }
         }
-    }
-
-    /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
-        final long token = proto.start(fieldId);
-
-        if (mClipDescription != null) {
-            mClipDescription.writeToProto(proto, ClipDataProto.DESCRIPTION);
-        }
-        if (mIcon != null) {
-            final long iToken = proto.start(ClipDataProto.ICON);
-            proto.write(ClipDataProto.Icon.WIDTH, mIcon.getWidth());
-            proto.write(ClipDataProto.Icon.HEIGHT, mIcon.getHeight());
-            proto.end(iToken);
-        }
-        for (int i = 0; i < mItems.size(); i++) {
-            mItems.get(i).writeToProto(proto, ClipDataProto.ITEMS);
-        }
-
-        proto.end(token);
     }
 
     /** @hide */

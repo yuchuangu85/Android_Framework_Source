@@ -21,8 +21,6 @@ import android.util.Pools;
 import android.view.View;
 import android.widget.ImageView;
 
-import com.android.internal.widget.MessagingImageMessage;
-import com.android.internal.widget.MessagingMessage;
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.CrossFadeHelper;
@@ -41,8 +39,8 @@ public class ImageTransformState extends TransformState {
     private Icon mIcon;
 
     @Override
-    public void initFrom(View view, TransformInfo transformInfo) {
-        super.initFrom(view, transformInfo);
+    public void initFrom(View view) {
+        super.initFrom(view);
         if (view instanceof ImageView) {
             mIcon = (Icon) view.getTag(ICON_TAG);
         }
@@ -119,15 +117,13 @@ public class ImageTransformState extends TransformState {
 
     @Override
     protected boolean transformScale(TransformState otherState) {
-        return sameAs(otherState);
+        return true;
     }
 
     @Override
     public void recycle() {
         super.recycle();
-        if (getClass() == ImageTransformState.class) {
-            sInstancePool.release(this);
-        }
+        sInstancePool.release(this);
     }
 
     @Override

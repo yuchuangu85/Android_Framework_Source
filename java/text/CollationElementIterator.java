@@ -107,15 +107,10 @@ public final class CollationElementIterator
      * Null order which indicates the end of string is reached by the
      * cursor.
      */
-    // Android-changed: use ICU CollationElementIterator constant.
     public final static int NULLORDER = android.icu.text.CollationElementIterator.NULLORDER;
 
-    // Android-removed: internal constructors.
-
-    // Android-added: ICU iterator to delegate to.
     private android.icu.text.CollationElementIterator icuIterator;
 
-   // Android-added: internal constructor taking an ICU CollationElementIterator.
     CollationElementIterator(android.icu.text.CollationElementIterator iterator) {
         icuIterator = iterator;
     }
@@ -126,7 +121,6 @@ public final class CollationElementIterator
      */
     public void reset()
     {
-        // Android-changed: delegate to ICU CollationElementIterator.
         icuIterator.reset();
     }
 
@@ -148,7 +142,6 @@ public final class CollationElementIterator
      */
     public int next()
     {
-        // Android-changed: delegate to ICU CollationElementIterator.
         return icuIterator.next();
     }
 
@@ -171,7 +164,6 @@ public final class CollationElementIterator
      */
     public int previous()
     {
-        // Android-changed: delegate to ICU CollationElementIterator.
         return icuIterator.previous();
     }
 
@@ -182,7 +174,6 @@ public final class CollationElementIterator
      */
     public final static int primaryOrder(int order)
     {
-        // Android-changed: delegate to ICU CollationElementIterator.
         return android.icu.text.CollationElementIterator.primaryOrder(order);
     }
     /**
@@ -192,7 +183,6 @@ public final class CollationElementIterator
      */
     public final static short secondaryOrder(int order)
     {
-        // Android-changed: delegate to ICU CollationElementIterator.
        return (short) android.icu.text.CollationElementIterator.secondaryOrder(order);
     }
     /**
@@ -202,7 +192,6 @@ public final class CollationElementIterator
      */
     public final static short tertiaryOrder(int order)
     {
-        // Android-changed: delegate to ICU CollationElementIterator.
         return (short) android.icu.text.CollationElementIterator.tertiaryOrder(order);
     }
 
@@ -224,7 +213,6 @@ public final class CollationElementIterator
     @SuppressWarnings("deprecation") // getBeginIndex, getEndIndex and setIndex are deprecated
     public void setOffset(int newOffset)
     {
-        // Android-changed: delegate to ICU CollationElementIterator.
         icuIterator.setOffset(newOffset);
     }
 
@@ -244,10 +232,8 @@ public final class CollationElementIterator
      */
     public int getOffset()
     {
-        // Android-changed: delegate to ICU CollationElementIterator.
         return icuIterator.getOffset();
     }
-
 
     /**
      * Return the maximum length of any expansion sequences that end
@@ -259,7 +245,6 @@ public final class CollationElementIterator
      */
     public int getMaxExpansion(int order)
     {
-        // Android-changed: delegate to ICU CollationElementIterator.
         return icuIterator.getMaxExpansion(order);
     }
 
@@ -271,7 +256,6 @@ public final class CollationElementIterator
      */
     public void setText(String source)
     {
-        // Android-changed: delegate to ICU CollationElementIterator.
         icuIterator.setText(source);
     }
 
@@ -283,9 +267,6 @@ public final class CollationElementIterator
      */
     public void setText(CharacterIterator source)
     {
-        // Android-changed: delegate to ICU CollationElementIterator.
         icuIterator.setText(source);
     }
-
-    // Android-removed: private helper methods and fields.
 }

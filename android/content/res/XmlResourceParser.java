@@ -16,21 +16,20 @@
 
 package android.content.res;
 
-import android.util.AttributeSet;
-
 import org.xmlpull.v1.XmlPullParser;
+
+import android.util.AttributeSet;
 
 /**
  * The XML parsing interface returned for an XML resource.  This is a standard
- * {@link XmlPullParser} interface but also extends {@link AttributeSet} and
- * adds an additional {@link #close()} method for the client to indicate when
- * it is done reading the resource.
+ * XmlPullParser interface, as well as an extended AttributeSet interface and
+ * an additional close() method on this interface for the client to indicate
+ * when it is done reading the resource.
  */
 public interface XmlResourceParser extends XmlPullParser, AttributeSet, AutoCloseable {
-    String getAttributeNamespace (int index);
-
     /**
-     * Close this parser. Calls on the interface are no longer valid after this call.
+     * Close this interface to the resource.  Calls on the interface are no
+     * longer value after this call.
      */
     public void close();
 }

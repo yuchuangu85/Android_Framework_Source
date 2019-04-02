@@ -227,6 +227,13 @@ public class DisconnectCause {
     public static final int DATA_LIMIT_REACHED = 55;
 
     /**
+     * The emergency call was terminated because it was dialed on the wrong SIM slot.
+     * The call needs to be redialed the other slot.
+     * {@hide}
+     */
+    public static final int DIALED_ON_WRONG_SLOT = 56;
+
+    /**
      * The call being placed was detected as a call forwarding number and was being dialed while
      * roaming on a carrier that does not allow this.
      */
@@ -260,62 +267,6 @@ public class DisconnectCause {
      * A call was not dialed because the device's battery is too low.
      */
     public static final int DIAL_LOW_BATTERY = 62;
-
-    /**
-     * Emergency call failed with a temporary fail cause and can be redialed on this slot.
-     * {@hide}
-     */
-    public static final int EMERGENCY_TEMP_FAILURE = 63;
-
-    /**
-     * Emergency call failed with a permanent fail cause and should not be redialed on this
-     * slot. 
-     * {@hide}
-     */
-    public static final int EMERGENCY_PERM_FAILURE = 64;
-
-    /**
-     * This cause is used to report a normal event only when no other cause in the normal class
-     * applies.
-     * {@hide}
-     */
-    public static final int NORMAL_UNSPECIFIED = 65;
-
-    /**
-     * Stk Call Control modified DIAL request to video DIAL request.
-     * {@hide}
-     */
-    public static final int DIAL_MODIFIED_TO_DIAL_VIDEO = 66;
-
-    /**
-     * Stk Call Control modified Video DIAL request to SS request.
-     * {@hide}
-     */
-    public static final int DIAL_VIDEO_MODIFIED_TO_SS = 67;
-
-    /**
-     * Stk Call Control modified Video DIAL request to USSD request.
-     * {@hide}
-     */
-    public static final int DIAL_VIDEO_MODIFIED_TO_USSD = 68;
-
-    /**
-     * Stk Call Control modified Video DIAL request to DIAL request.
-     * {@hide}
-     */
-    public static final int DIAL_VIDEO_MODIFIED_TO_DIAL = 69;
-
-    /**
-     * Stk Call Control modified Video DIAL request to Video DIAL request.
-     * {@hide}
-     */
-    public static final int DIAL_VIDEO_MODIFIED_TO_DIAL_VIDEO = 70;
-
-    /**
-     * The network has reported that an alternative emergency number has been dialed, but the user
-     * must exit airplane mode to place the call.
-     */
-    public static final int IMS_SIP_ALTERNATE_EMERGENCY_CALL = 71;
 
     //*********************************************************************************************
     // When adding a disconnect type:
@@ -419,16 +370,6 @@ public class DisconnectCause {
             return "DIAL_MODIFIED_TO_SS";
         case DIAL_MODIFIED_TO_DIAL:
             return "DIAL_MODIFIED_TO_DIAL";
-        case DIAL_MODIFIED_TO_DIAL_VIDEO:
-            return "DIAL_MODIFIED_TO_DIAL_VIDEO";
-        case DIAL_VIDEO_MODIFIED_TO_SS:
-            return "DIAL_VIDEO_MODIFIED_TO_SS";
-        case DIAL_VIDEO_MODIFIED_TO_USSD:
-            return "DIAL_VIDEO_MODIFIED_TO_USSD";
-        case DIAL_VIDEO_MODIFIED_TO_DIAL:
-            return "DIAL_VIDEO_MODIFIED_TO_DIAL";
-        case DIAL_VIDEO_MODIFIED_TO_DIAL_VIDEO:
-            return "DIAL_VIDEO_MODIFIED_TO_DIAL_VIDEO";
         case ERROR_UNSPECIFIED:
             return "ERROR_UNSPECIFIED";
         case OUTGOING_FAILURE:
@@ -451,6 +392,8 @@ public class DisconnectCause {
             return "DATA_DISABLED";
         case DATA_LIMIT_REACHED:
             return "DATA_LIMIT_REACHED";
+        case DIALED_ON_WRONG_SLOT:
+            return "DIALED_ON_WRONG_SLOT";
         case DIALED_CALL_FORWARDING_WHILE_ROAMING:
             return "DIALED_CALL_FORWARDING_WHILE_ROAMING";
         case IMEI_NOT_ACCEPTED:
@@ -463,14 +406,6 @@ public class DisconnectCause {
             return "LOW_BATTERY";
         case DIAL_LOW_BATTERY:
             return "DIAL_LOW_BATTERY";
-        case EMERGENCY_TEMP_FAILURE:
-            return "EMERGENCY_TEMP_FAILURE";
-        case EMERGENCY_PERM_FAILURE:
-            return "EMERGENCY_PERM_FAILURE";
-        case NORMAL_UNSPECIFIED:
-            return "NORMAL_UNSPECIFIED";
-        case IMS_SIP_ALTERNATE_EMERGENCY_CALL:
-            return "IMS_SIP_ALTERNATE_EMERGENCY_CALL";
         default:
             return "INVALID: " + cause;
         }

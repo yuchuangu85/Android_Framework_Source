@@ -16,6 +16,11 @@
 
 package com.android.server.accessibility;
 
+import com.android.internal.R;
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.os.SomeArgs;
+import com.android.server.LocalServices;
+
 import android.animation.ValueAnimator;
 import android.annotation.NonNull;
 import android.content.BroadcastReceiver;
@@ -34,14 +39,8 @@ import android.util.MathUtils;
 import android.util.Slog;
 import android.view.MagnificationSpec;
 import android.view.View;
+import android.view.WindowManagerInternal;
 import android.view.animation.DecelerateInterpolator;
-
-import com.android.internal.R;
-import com.android.internal.annotations.GuardedBy;
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.os.SomeArgs;
-import com.android.server.LocalServices;
-import com.android.server.wm.WindowManagerInternal;
 
 import java.util.Locale;
 
@@ -55,8 +54,7 @@ import java.util.Locale;
  * magnification region. If a value is out of bounds, it will be adjusted to guarantee these
  * constraints.
  */
-public class MagnificationController implements Handler.Callback {
-    private static final boolean DEBUG = false;
+class MagnificationController implements Handler.Callback {
     private static final String LOG_TAG = "MagnificationController";
 
     public static final float MIN_SCALE = 1.0f;
@@ -140,7 +138,7 @@ public class MagnificationController implements Handler.Callback {
     private final WindowManagerInternal mWindowManager;
 
     // Flag indicating that we are registered with window manager.
-    @VisibleForTesting boolean mRegistered;
+    private boolean mRegistered;
 
     private boolean mUnregisterPending;
 
@@ -150,14 +148,9 @@ public class MagnificationController implements Handler.Callback {
         mHandler = new Handler(context.getMainLooper(), this);
     }
 
-    public MagnificationController(
-            Context context,
-            AccessibilityManagerService ams,
-            Object lock,
-            Handler handler,
-            WindowManagerInternal windowManagerInternal,
-            ValueAnimator valueAnimator,
-            SettingsBridge settingsBridge) {
+    public MagnificationController(Context context, AccessibilityManagerService ams, Object lock,
+            Handler handler, WindowManagerInternal windowManagerInternal,
+            ValueAnimator valueAnimator, SettingsBridge settingsBridge) {
         mHandler = handler;
         mWindowManager = windowManagerInternal;
         mMainThreadId = context.getMainLooper().getThread().getId();
@@ -446,10 +439,8 @@ public class MagnificationController implements Handler.Callback {
             mMagnificationRegion.getBounds(viewport);
             final MagnificationSpec spec = mCurrentMagnificationSpec;
             final float oldScale = spec.scale;
-            final float oldCenterX
-                    = (viewport.width() / 2.0f - spec.offsetX + viewport.left) / oldScale;
-            final float oldCenterY
-                    = (viewport.height() / 2.0f - spec.offsetY + viewport.top) / oldScale;
+            final float oldCenterX = (viewport.width() / 2.0f - spec.offsetX) / oldScale;
+            final float oldCenterY = (viewport.height() / 2.0f - spec.offsetY) / oldScale;
             final float normPivotX = (pivotX - spec.offsetX) / oldScale;
             final float normPivotY = (pivotY - spec.offsetY) / oldScale;
             final float offsetX = (oldCenterX - normPivotX) * (oldScale / scale);
@@ -512,12 +503,6 @@ public class MagnificationController implements Handler.Callback {
 
     private boolean setScaleAndCenterLocked(float scale, float centerX, float centerY,
             boolean animate, int id) {
-        if (DEBUG) {
-            Slog.i(LOG_TAG,
-                    "setScaleAndCenterLocked(scale = " + scale + ", centerX = " + centerX
-                            + ", centerY = " + centerY + ", animate = " + animate + ", id = " + id
-                            + ")");
-        }
         final boolean changed = updateMagnificationSpecLocked(scale, centerX, centerY);
         sendSpecToAnimation(mCurrentMagnificationSpec, animate);
         if (isMagnifying() && (id != INVALID_ID)) {
@@ -544,9 +529,7 @@ public class MagnificationController implements Handler.Callback {
 
             final float nonNormOffsetX = mCurrentMagnificationSpec.offsetX - offsetX;
             final float nonNormOffsetY = mCurrentMagnificationSpec.offsetY - offsetY;
-            if (updateCurrentSpecWithOffsetsLocked(nonNormOffsetX, nonNormOffsetY)) {
-                onMagnificationChangedLocked();
-            }
+            updateCurrentSpecWithOffsetsLocked(nonNormOffsetX, nonNormOffsetY);
             if (id != INVALID_ID) {
                 mIdOfLastServiceToMagnify = id;
             }
@@ -644,11 +627,6 @@ public class MagnificationController implements Handler.Callback {
     }
 
     private boolean updateCurrentSpecWithOffsetsLocked(float nonNormOffsetX, float nonNormOffsetY) {
-        if (DEBUG) {
-            Slog.i(LOG_TAG,
-                    "updateCurrentSpecWithOffsetsLocked(nonNormOffsetX = " + nonNormOffsetX
-                            + ", nonNormOffsetY = " + nonNormOffsetY + ")");
-        }
         boolean changed = false;
         final float offsetX = MathUtils.constrain(nonNormOffsetX, getMinOffsetXLocked(), 0);
         if (Float.compare(mCurrentMagnificationSpec.offsetX, offsetX) != 0) {
@@ -694,7 +672,8 @@ public class MagnificationController implements Handler.Callback {
      * Resets magnification if magnification and auto-update are both enabled.
      *
      * @param animate whether the animate the transition
-     * @return whether was {@link #isMagnifying magnifying}
+     * @return {@code true} if magnification was reset to the disabled state,
+     *         {@code false} if magnification is still active
      */
     boolean resetIfNeeded(boolean animate) {
         synchronized (mLock) {
@@ -766,9 +745,6 @@ public class MagnificationController implements Handler.Callback {
     }
 
     private void sendSpecToAnimation(MagnificationSpec spec, boolean animate) {
-        if (DEBUG) {
-            Slog.i(LOG_TAG, "sendSpecToAnimation(spec = " + spec + ", animate = " + animate + ")");
-        }
         if (Thread.currentThread().getId() == mMainThreadId) {
             mSpecAnimationBridge.updateSentSpecMainThread(spec, animate);
         } else {
@@ -812,19 +788,6 @@ public class MagnificationController implements Handler.Callback {
                 break;
         }
         return true;
-    }
-
-    @Override
-    public String toString() {
-        return "MagnificationController{" +
-                "mCurrentMagnificationSpec=" + mCurrentMagnificationSpec +
-                ", mMagnificationRegion=" + mMagnificationRegion +
-                ", mMagnificationBounds=" + mMagnificationBounds +
-                ", mUserId=" + mUserId +
-                ", mIdOfLastServiceToMagnify=" + mIdOfLastServiceToMagnify +
-                ", mRegistered=" + mRegistered +
-                ", mUnregisterPending=" + mUnregisterPending +
-                '}';
     }
 
     /**
@@ -903,7 +866,6 @@ public class MagnificationController implements Handler.Callback {
             }
         }
 
-        @GuardedBy("mLock")
         private void setMagnificationSpecLocked(MagnificationSpec spec) {
             if (mEnabled) {
                 if (DEBUG_SET_MAGNIFICATION_SPEC) {

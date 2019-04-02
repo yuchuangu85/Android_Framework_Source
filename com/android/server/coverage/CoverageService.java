@@ -112,7 +112,7 @@ public class CoverageService extends Binder {
             }
 
             // Try to open the destination file
-            ParcelFileDescriptor fd = openFileForSystem(dest, "w");
+            ParcelFileDescriptor fd = openOutputFileForSystem(dest);
             if (fd == null) {
                 return -1;
             }

@@ -22,7 +22,6 @@ import android.os.Bundle;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.telephony.CellInfo;
-import android.telephony.PhysicalChannelConfig;
 import android.telephony.PreciseCallState;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
@@ -233,19 +232,6 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     }
 
     @Override
-    public void notifyPhysicalChannelConfiguration(Phone sender,
-            List<PhysicalChannelConfig> configs) {
-        int subId = sender.getSubId();
-        try {
-            if (mRegistry != null) {
-                mRegistry.notifyPhysicalChannelConfigurationForSubscriber(subId, configs);
-            }
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
-    }
-
-    @Override
     public void notifyOtaspChanged(Phone sender, int otaspMode) {
         // FIXME: subId?
         try {
@@ -318,16 +304,6 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
         try {
             mRegistry.notifySimActivationStateChangedForPhoneId(sender.getPhoneId(),
                     sender.getSubId(), PhoneConstants.SIM_ACTIVATION_TYPE_VOICE, activationState);
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
-    }
-
-    @Override
-    public void notifyUserMobileDataStateChanged(Phone sender, boolean state) {
-        try {
-            mRegistry.notifyUserMobileDataStateChangedForPhoneId(
-                    sender.getPhoneId(), sender.getSubId(), state);
         } catch (RemoteException ex) {
             // system process is dead
         }

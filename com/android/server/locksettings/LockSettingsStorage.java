@@ -484,7 +484,6 @@ class LockSettingsStorage {
     }
 
     public void writeSyntheticPasswordState(int userId, long handle, String name, byte[] data) {
-        ensureSyntheticPasswordDirectoryForUser(userId);
         writeFile(getSynthenticPasswordStateFilePathForUser(userId, handle, name), data);
     }
 
@@ -496,11 +495,10 @@ class LockSettingsStorage {
         String path = getSynthenticPasswordStateFilePathForUser(userId, handle, name);
         File file = new File(path);
         if (file.exists()) {
-            try (RandomAccessFile raf = new RandomAccessFile(path, "rws")) {
-                final int fileSize = (int) raf.length();
-                raf.write(new byte[fileSize]);
+            try {
+                mContext.getSystemService(StorageManager.class).secdiscard(file.getAbsolutePath());
             } catch (Exception e) {
-                Slog.w(TAG, "Failed to zeroize " + path, e);
+                Slog.w(TAG, "Failed to secdiscard " + path, e);
             } finally {
                 file.delete();
             }
@@ -542,19 +540,14 @@ class LockSettingsStorage {
         return new File(Environment.getDataSystemDeDirectory(userId) ,SYNTHETIC_PASSWORD_DIRECTORY);
     }
 
-    /** Ensure per-user directory for synthetic password state exists */
-    private void ensureSyntheticPasswordDirectoryForUser(int userId) {
-        File baseDir = getSyntheticPasswordDirectoryForUser(userId);
-        if (!baseDir.exists()) {
-            baseDir.mkdir();
-        }
-    }
-
     @VisibleForTesting
     protected String getSynthenticPasswordStateFilePathForUser(int userId, long handle,
             String name) {
-        final File baseDir = getSyntheticPasswordDirectoryForUser(userId);
-        final String baseName = String.format("%016x.%s", handle, name);
+        File baseDir = getSyntheticPasswordDirectoryForUser(userId);
+        String baseName = String.format("%016x.%s", handle, name);
+        if (!baseDir.exists()) {
+            baseDir.mkdir();
+        }
         return new File(baseDir, baseName).getAbsolutePath();
     }
 
@@ -634,12 +627,7 @@ class LockSettingsStorage {
         if (persistentDataBlock == null) {
             return PersistentData.NONE;
         }
-        try {
-            return PersistentData.fromBytes(persistentDataBlock.getFrpCredentialHandle());
-        } catch (IllegalStateException e) {
-            Slog.e(TAG, "Error reading persistent data block", e);
-            return PersistentData.NONE;
-        }
+        return PersistentData.fromBytes(persistentDataBlock.getFrpCredentialHandle());
     }
 
     public static class PersistentData {
@@ -682,11 +670,11 @@ class LockSettingsStorage {
                     return new PersistentData(type, userId, qualityForUi, payload);
                 } else {
                     Slog.wtf(TAG, "Unknown PersistentData version code: " + version);
-                    return NONE;
+                    return null;
                 }
             } catch (IOException e) {
                 Slog.wtf(TAG, "Could not parse PersistentData", e);
-                return NONE;
+                return null;
             }
         }
 

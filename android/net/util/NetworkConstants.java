@@ -53,7 +53,7 @@ public final class NetworkConstants {
 
     public static final int ETHER_HEADER_LEN = 14;
 
-    public static final byte FF = asByte(0xff);
+    private static final byte FF = asByte(0xff);
     public static final byte[] ETHER_ADDR_BROADCAST = {
         FF, FF, FF, FF, FF, FF
     };
@@ -107,28 +107,6 @@ public final class NetworkConstants {
     public static final int RFC6177_MIN_PREFIX_LENGTH = 48;
 
     /**
-     * ICMP common (v4/v6) constants.
-     *
-     * See also:
-     *     - https://tools.ietf.org/html/rfc792
-     *     - https://tools.ietf.org/html/rfc4443
-     */
-    public static final int ICMP_HEADER_TYPE_OFFSET = 0;
-    public static final int ICMP_HEADER_CODE_OFFSET = 1;
-    public static final int ICMP_HEADER_CHECKSUM_OFFSET = 2;
-    public static final int ICMP_ECHO_IDENTIFIER_OFFSET = 4;
-    public static final int ICMP_ECHO_SEQUENCE_NUMBER_OFFSET = 6;
-    public static final int ICMP_ECHO_DATA_OFFSET = 8;
-
-    /**
-     * ICMPv4 constants.
-     *
-     * See also:
-     *     - https://tools.ietf.org/html/rfc792
-     */
-    public static final int ICMPV4_ECHO_REQUEST_TYPE = 8;
-
-    /**
      * ICMPv6 constants.
      *
      * See also:
@@ -136,8 +114,6 @@ public final class NetworkConstants {
      *     - https://tools.ietf.org/html/rfc4861
      */
     public static final int ICMPV6_HEADER_MIN_LEN = 4;
-    public static final int ICMPV6_ECHO_REQUEST_TYPE = 128;
-    public static final int ICMPV6_ECHO_REPLY_TYPE = 129;
     public static final int ICMPV6_ROUTER_SOLICITATION    = 133;
     public static final int ICMPV6_ROUTER_ADVERTISEMENT   = 134;
     public static final int ICMPV6_NEIGHBOR_SOLICITATION  = 135;
@@ -148,7 +124,6 @@ public final class NetworkConstants {
     public static final int ICMPV6_ND_OPTION_SLLA = 1;
     public static final int ICMPV6_ND_OPTION_TLLA = 2;
     public static final int ICMPV6_ND_OPTION_MTU  = 5;
-
 
     /**
      * UDP constants.
@@ -166,14 +141,6 @@ public final class NetworkConstants {
      */
     public static final int DHCP4_SERVER_PORT = 67;
     public static final int DHCP4_CLIENT_PORT = 68;
-
-    /**
-     * DNS constants.
-     *
-     * See also:
-     *     - https://tools.ietf.org/html/rfc1035
-     */
-    public static final int DNS_SERVER_PORT = 53;
 
     /**
      * Utility functions.

@@ -16,9 +16,6 @@
 
 package com.android.server.am;
 
-import static android.app.WindowConfiguration.ACTIVITY_TYPE_STANDARD;
-import static android.app.WindowConfiguration.WINDOWING_MODE_PINNED;
-
 import android.app.RemoteAction;
 import android.content.res.Configuration;
 import android.graphics.Rect;
@@ -35,16 +32,15 @@ import java.util.List;
 class PinnedActivityStack extends ActivityStack<PinnedStackWindowController>
         implements PinnedStackWindowListener {
 
-    PinnedActivityStack(ActivityDisplay display, int stackId, ActivityStackSupervisor supervisor,
-            boolean onTop) {
-        super(display, stackId, supervisor, WINDOWING_MODE_PINNED, ACTIVITY_TYPE_STANDARD, onTop);
+    PinnedActivityStack(ActivityStackSupervisor.ActivityDisplay display, int stackId,
+            ActivityStackSupervisor supervisor, RecentTasks recentTasks, boolean onTop) {
+        super(display, stackId, supervisor, recentTasks, onTop);
     }
 
     @Override
     PinnedStackWindowController createStackWindowController(int displayId, boolean onTop,
             Rect outBounds) {
-        return new PinnedStackWindowController(mStackId, this, displayId, onTop, outBounds,
-                mStackSupervisor.mWindowManager);
+        return new PinnedStackWindowController(mStackId, this, displayId, onTop, outBounds);
     }
 
     Rect getDefaultPictureInPictureBounds(float aspectRatio) {

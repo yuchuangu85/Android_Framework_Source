@@ -16,8 +16,6 @@ package com.android.systemui.qs.tileimpl;
 
 import static com.android.systemui.qs.tileimpl.QSTileImpl.getColorForState;
 
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.ColorStateList;
@@ -89,15 +87,14 @@ public class QSIconViewImpl extends QSIconView {
     }
 
     protected void updateIcon(ImageView iv, State state) {
-        final QSTile.Icon icon = state.iconSupplier != null ? state.iconSupplier.get() : state.icon;
-        if (!Objects.equals(icon, iv.getTag(R.id.qs_icon_tag))
+        if (!Objects.equals(state.icon, iv.getTag(R.id.qs_icon_tag))
                 || !Objects.equals(state.slash, iv.getTag(R.id.qs_slash_tag))) {
             boolean shouldAnimate = iv.isShown() && mAnimationEnabled
                     && iv.getDrawable() != null;
-            Drawable d = icon != null
-                    ? shouldAnimate ? icon.getDrawable(mContext)
-                    : icon.getInvisibleDrawable(mContext) : null;
-            int padding = icon != null ? icon.getPadding() : 0;
+            Drawable d = state.icon != null
+                    ? shouldAnimate ? state.icon.getDrawable(mContext)
+                    : state.icon.getInvisibleDrawable(mContext) : null;
+            int padding = state.icon != null ? state.icon.getPadding() : 0;
             if (d != null) {
                 d.setAutoMirrored(false);
                 d.setLayoutDirection(getLayoutDirection());
@@ -105,12 +102,12 @@ public class QSIconViewImpl extends QSIconView {
 
             if (iv instanceof SlashImageView) {
                 ((SlashImageView) iv).setAnimationEnabled(shouldAnimate);
-                ((SlashImageView) iv).setState(null, d);
+                ((SlashImageView) iv).setState(state.slash, d);
             } else {
                 iv.setImageDrawable(d);
             }
 
-            iv.setTag(R.id.qs_icon_tag, icon);
+            iv.setTag(R.id.qs_icon_tag, state.icon);
             iv.setTag(R.id.qs_slash_tag, state.slash);
             iv.setPadding(0, padding, 0, padding);
             if (d instanceof Animatable2) {
@@ -129,6 +126,7 @@ public class QSIconViewImpl extends QSIconView {
     }
 
     protected void setIcon(ImageView iv, QSTile.State state) {
+        updateIcon(iv, state);
         if (state.disabledByPolicy) {
             iv.setColorFilter(getContext().getColor(R.color.qs_tile_disabled_color));
         } else {
@@ -138,7 +136,7 @@ public class QSIconViewImpl extends QSIconView {
             int color = getColor(state.state);
             mState = state.state;
             if (iv.isShown() && mTint != 0) {
-                animateGrayScale(mTint, color, iv, () -> updateIcon(iv, state));
+                animateGrayScale(mTint, color, iv);
                 mTint = color;
             } else {
                 if (iv instanceof AlphaControlledSlashImageView) {
@@ -148,10 +146,7 @@ public class QSIconViewImpl extends QSIconView {
                     setTint(iv, color);
                 }
                 mTint = color;
-                updateIcon(iv, state);
             }
-        } else {
-            updateIcon(iv, state);
         }
     }
 
@@ -159,13 +154,12 @@ public class QSIconViewImpl extends QSIconView {
         return getColorForState(getContext(), state);
     }
 
-    private void animateGrayScale(int fromColor, int toColor, ImageView iv,
-        final Runnable endRunnable) {
+    public static void animateGrayScale(int fromColor, int toColor, ImageView iv) {
         if (iv instanceof AlphaControlledSlashImageView) {
             ((AlphaControlledSlashImageView)iv)
                     .setFinalImageTintList(ColorStateList.valueOf(toColor));
         }
-        if (mAnimationEnabled && ValueAnimator.areAnimatorsEnabled()) {
+        if (ValueAnimator.areAnimatorsEnabled()) {
             final float fromAlpha = Color.alpha(fromColor);
             final float toAlpha = Color.alpha(toColor);
             final float fromChannel = Color.red(fromColor);
@@ -180,16 +174,10 @@ public class QSIconViewImpl extends QSIconView {
 
                 setTint(iv, Color.argb(alpha, channel, channel, channel));
             });
-            anim.addListener(new AnimatorListenerAdapter() {
-                @Override
-                public void onAnimationEnd(Animator animation) {
-                    endRunnable.run();
-                }
-            });
+
             anim.start();
         } else {
             setTint(iv, toColor);
-            endRunnable.run();
         }
     }
 

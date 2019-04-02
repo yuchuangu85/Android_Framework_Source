@@ -36,7 +36,7 @@ import java.util.Arrays;
  * <p>This interface is intended for use with the default APK-based time zone rules update
  * application but it can also be used by OEMs if that mechanism is turned off using configuration.
  * All callers must possess the {@link android.Manifest.permission#UPDATE_TIME_ZONE_RULES} system
- * permission unless otherwise stated.
+ * permission.
  *
  * <p>When using the default mechanism, when properly configured the Android system will send a
  * {@link RulesUpdaterContract#ACTION_TRIGGER_RULES_UPDATE_CHECK} intent with a
@@ -68,29 +68,8 @@ public final class RulesManager {
     private static final String TAG = "timezone.RulesManager";
     private static final boolean DEBUG = false;
 
-    /**
-     * The action of the intent that the Android system will broadcast when a time zone rules update
-     * operation has been successfully staged  (i.e. to be applied next reboot) or unstaged.
-     *
-     * <p>See {@link #EXTRA_OPERATION_STAGED}
-     *
-     * <p>This is a protected intent that can only be sent by the system.
-     */
-    public static final String ACTION_RULES_UPDATE_OPERATION =
-            "com.android.intent.action.timezone.RULES_UPDATE_OPERATION";
-
-    /**
-     * The key for a boolean extra for the {@link #ACTION_RULES_UPDATE_OPERATION} intent used to
-     * indicate whether the operation was a "stage" or an "unstage".
-     */
-    public static final String EXTRA_OPERATION_STAGED = "staged";
-
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "SUCCESS", "ERROR_" }, value = {
-            SUCCESS,
-            ERROR_UNKNOWN_FAILURE,
-            ERROR_OPERATION_IN_PROGRESS
-    })
+    @IntDef({SUCCESS, ERROR_UNKNOWN_FAILURE, ERROR_OPERATION_IN_PROGRESS})
     public @interface ResultCode {}
 
     /**
@@ -120,18 +99,15 @@ public final class RulesManager {
 
     /**
      * Returns information about the current time zone rules state such as the IANA version of
-     * the system and any currently installed distro. This method allows clients to determine the
-     * current device state, perhaps to see if it can be improved; for example by passing the
-     * information to a server that may provide a new distro for download.
-     *
-     * <p>Callers must possess the {@link android.Manifest.permission#QUERY_TIME_ZONE_RULES} system
-     * permission.
+     * the system and any currently installed distro. This method is intended to allow clients to
+     * determine if the current state can be improved; for example by passing the information to a
+     * server that may provide a new distro for download.
      */
     public RulesState getRulesState() {
         try {
-            logDebug("mIRulesManager.getRulesState()");
+            logDebug("sIRulesManager.getRulesState()");
             RulesState rulesState = mIRulesManager.getRulesState();
-            logDebug("mIRulesManager.getRulesState() returned " + rulesState);
+            logDebug("sIRulesManager.getRulesState() returned " + rulesState);
             return rulesState;
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -155,7 +131,7 @@ public final class RulesManager {
 
         ICallback iCallback = new CallbackWrapper(mContext, callback);
         try {
-            logDebug("mIRulesManager.requestInstall()");
+            logDebug("sIRulesManager.requestInstall()");
             return mIRulesManager.requestInstall(distroFileDescriptor, checkToken, iCallback);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -175,7 +151,7 @@ public final class RulesManager {
     public int requestUninstall(byte[] checkToken, Callback callback) {
         ICallback iCallback = new CallbackWrapper(mContext, callback);
         try {
-            logDebug("mIRulesManager.requestUninstall()");
+            logDebug("sIRulesManager.requestUninstall()");
             return mIRulesManager.requestUninstall(checkToken, iCallback);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -220,7 +196,7 @@ public final class RulesManager {
      */
     public void requestNothing(byte[] checkToken, boolean succeeded) {
         try {
-            logDebug("mIRulesManager.requestNothing() with token=" + Arrays.toString(checkToken));
+            logDebug("sIRulesManager.requestNothing() with token=" + Arrays.toString(checkToken));
             mIRulesManager.requestNothing(checkToken, succeeded);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();

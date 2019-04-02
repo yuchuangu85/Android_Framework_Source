@@ -16,11 +16,12 @@
 
 package android.view;
 
+import com.android.layoutlib.bridge.android.BridgeWindow;
+import com.android.layoutlib.bridge.android.BridgeWindowSession;
+
 import android.content.Context;
 import android.os.Handler;
 import android.view.View.AttachInfo;
-
-import com.android.layoutlib.bridge.util.ReflectionUtils;
 
 /**
  * Class allowing access to package-protected methods/fields.
@@ -32,9 +33,8 @@ public class AttachInfo_Accessor {
         WindowManager wm = (WindowManager)context.getSystemService(Context.WINDOW_SERVICE);
         Display display = wm.getDefaultDisplay();
         ViewRootImpl root = new ViewRootImpl(context, display);
-        AttachInfo info = new AttachInfo(ReflectionUtils.createProxy(IWindowSession.class),
-                ReflectionUtils.createProxy(IWindow.class), display, root, new Handler(), null,
-                context);
+        AttachInfo info = new AttachInfo(new BridgeWindowSession(), new BridgeWindow(),
+                display, root, new Handler(), null, context);
         info.mHasWindowFocus = true;
         info.mWindowVisibility = View.VISIBLE;
         info.mInTouchMode = false; // this is so that we can display selections.

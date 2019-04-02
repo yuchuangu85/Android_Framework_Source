@@ -16,15 +16,10 @@
 
 package android.telephony.ims.stub;
 
-import android.annotation.SystemApi;
 import android.os.RemoteException;
-import android.util.Log;
 
-import android.telephony.ims.ImsExternalCallState;
 import com.android.ims.internal.IImsExternalCallStateListener;
 import com.android.ims.internal.IImsMultiEndpoint;
-
-import java.util.List;
 
 /**
  * Base implementation of ImsMultiEndpoint, which implements stub versions of the methods
@@ -36,49 +31,23 @@ import java.util.List;
  *
  * @hide
  */
-@SystemApi
-public class ImsMultiEndpointImplBase {
-    private static final String TAG = "MultiEndpointImplBase";
 
-    private IImsExternalCallStateListener mListener;
-    private IImsMultiEndpoint mImsMultiEndpoint = new IImsMultiEndpoint.Stub() {
-        @Override
-        public void setListener(IImsExternalCallStateListener listener) throws RemoteException {
-            mListener = listener;
-        }
+public class ImsMultiEndpointImplBase extends IImsMultiEndpoint.Stub {
 
-        @Override
-        public void requestImsExternalCallStateInfo() throws RemoteException {
-            ImsMultiEndpointImplBase.this.requestImsExternalCallStateInfo();
-        }
-    };
+    /**
+     * Sets the listener.
+     */
+    @Override
+    public void setListener(IImsExternalCallStateListener listener) throws RemoteException {
 
-    /** @hide */
-    public IImsMultiEndpoint getIImsMultiEndpoint() {
-        return mImsMultiEndpoint;
     }
 
     /**
-     * Notifies framework when Dialog Event Package update is received
-     *
-     * @throws RuntimeException if the connection to the framework is not available.
+     * Query API to get the latest Dialog Event Package information
+     * Should be invoked only after setListener is done
      */
-    public final void onImsExternalCallStateUpdate(List<ImsExternalCallState> externalCallDialogs) {
-        Log.d(TAG, "ims external call state update triggered.");
-        if (mListener != null) {
-            try {
-                mListener.onImsExternalCallStateUpdate(externalCallDialogs);
-            } catch (RemoteException e) {
-                throw new RuntimeException(e);
-            }
-        }
-    }
+    @Override
+    public void requestImsExternalCallStateInfo() throws RemoteException {
 
-    /**
-     * This method should be implemented by the IMS provider. Framework will trigger this to get the
-     * latest Dialog Event Package information. Should
-     */
-    public void requestImsExternalCallStateInfo() {
-        Log.d(TAG, "requestImsExternalCallStateInfo() not implemented");
     }
 }

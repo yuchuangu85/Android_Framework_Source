@@ -17,11 +17,10 @@ package com.android.systemui.statusbar.phone;
 import android.annotation.Nullable;
 import android.content.Context;
 import android.util.AttributeSet;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
-import android.widget.RelativeLayout;
 
 import java.util.ArrayList;
 
@@ -49,7 +48,7 @@ public class ReverseLinearLayout extends LinearLayout {
 
     @Override
     public void addView(View child) {
-        reverseParams(child.getLayoutParams(), child, mIsLayoutReverse);
+        reverseParams(child.getLayoutParams(), child);
         if (mIsLayoutReverse) {
             super.addView(child, 0);
         } else {
@@ -59,7 +58,7 @@ public class ReverseLinearLayout extends LinearLayout {
 
     @Override
     public void addView(View child, ViewGroup.LayoutParams params) {
-        reverseParams(params, child, mIsLayoutReverse);
+        reverseParams(params, child);
         if (mIsLayoutReverse) {
             super.addView(child, 0, params);
         } else {
@@ -95,17 +94,15 @@ public class ReverseLinearLayout extends LinearLayout {
             }
             removeAllViews();
             for (int i = childCount - 1; i >= 0; i--) {
-                final View child = childList.get(i);
-                super.addView(child);
+                super.addView(childList.get(i));
             }
             mIsLayoutReverse = isLayoutReverse;
         }
     }
 
-    private static void reverseParams(ViewGroup.LayoutParams params, View child,
-            boolean isLayoutReverse) {
+    private static void reverseParams(ViewGroup.LayoutParams params, View child) {
         if (child instanceof Reversable) {
-            ((Reversable) child).reverse(isLayoutReverse);
+            ((Reversable) child).reverse();
         }
         if (child.getPaddingLeft() == child.getPaddingRight()
                 && child.getPaddingTop() == child.getPaddingBottom()) {
@@ -121,48 +118,20 @@ public class ReverseLinearLayout extends LinearLayout {
     }
 
     public interface Reversable {
-        void reverse(boolean isLayoutReverse);
+        void reverse();
     }
 
-    public static class ReverseRelativeLayout extends RelativeLayout implements Reversable {
+    public static class ReverseFrameLayout extends FrameLayout implements Reversable {
 
-        public ReverseRelativeLayout(Context context) {
+        public ReverseFrameLayout(Context context) {
             super(context);
         }
 
         @Override
-        public void reverse(boolean isLayoutReverse) {
-            updateGravity(isLayoutReverse);
-            reverseGroup(this, isLayoutReverse);
-        }
-
-        private int mDefaultGravity = Gravity.NO_GRAVITY;
-        public void setDefaultGravity(int gravity) {
-            mDefaultGravity = gravity;
-        }
-
-        public void updateGravity(boolean isLayoutReverse) {
-            // Flip gravity if top of bottom is used
-            if (mDefaultGravity != Gravity.TOP && mDefaultGravity != Gravity.BOTTOM) return;
-
-            // Use the default (intended for 270 LTR and 90 RTL) unless layout is otherwise
-            int gravityToApply = mDefaultGravity;
-            if (isLayoutReverse) {
-                gravityToApply = mDefaultGravity == Gravity.TOP ? Gravity.BOTTOM : Gravity.TOP;
-            }
-
-            if (getGravity() != gravityToApply) setGravity(gravityToApply);
-        }
-    }
-    
-    private static void reverseGroup(ViewGroup group, boolean isLayoutReverse) {
-        for (int i = 0; i < group.getChildCount(); i++) {
-            final View child = group.getChildAt(i);
-            reverseParams(child.getLayoutParams(), child, isLayoutReverse);
-
-            // Recursively reverse all children
-            if (child instanceof ViewGroup) {
-                reverseGroup((ViewGroup) child, isLayoutReverse);
+        public void reverse() {
+            for (int i = 0; i < getChildCount(); i++) {
+                View child = getChildAt(i);
+                reverseParams(child.getLayoutParams(), child);
             }
         }
     }

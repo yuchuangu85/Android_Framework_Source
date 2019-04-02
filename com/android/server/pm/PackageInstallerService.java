@@ -27,13 +27,11 @@ import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PackageDeleteObserver;
 import android.app.PackageInstallObserver;
-import android.app.admin.DeviceAdminInfo;
-import android.app.admin.DevicePolicyManagerInternal;
+import android.app.admin.DevicePolicyManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.content.IntentSender.SendIntentException;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.IPackageInstaller;
 import android.content.pm.IPackageInstallerCallback;
 import android.content.pm.IPackageInstallerSession;
@@ -47,7 +45,6 @@ import android.content.pm.VersionedPackage;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Binder;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -58,7 +55,6 @@ import android.os.Process;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.SELinux;
-import android.os.SystemClock;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.os.storage.StorageManager;
@@ -84,8 +80,6 @@ import com.android.internal.util.FastXmlSerializer;
 import com.android.internal.util.ImageUtils;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.IoThread;
-import com.android.server.LocalServices;
-import com.android.server.pm.permission.PermissionManagerInternal;
 
 import libcore.io.IoUtils;
 
@@ -128,7 +122,6 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
 
     private final Context mContext;
     private final PackageManagerService mPm;
-    private final PermissionManagerInternal mPermissionManager;
 
     private AppOpsManager mAppOps;
 
@@ -184,7 +177,6 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
     public PackageInstallerService(Context context, PackageManagerService pm) {
         mContext = context;
         mPm = pm;
-        mPermissionManager = LocalServices.getService(PermissionManagerInternal.class);
 
         mInstallThread = new HandlerThread(TAG);
         mInstallThread.start();
@@ -194,8 +186,7 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
         mCallbacks = new Callbacks(mInstallThread.getLooper());
 
         mSessionsFile = new AtomicFile(
-                new File(Environment.getDataSystemDirectory(), "install_sessions.xml"),
-                "package-session");
+                new File(Environment.getDataSystemDirectory(), "install_sessions.xml"));
         mSessionsDir = new File(Environment.getDataSystemDirectory(), "install_sessions");
         mSessionsDir.mkdirs();
     }
@@ -226,7 +217,6 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
         }
     }
 
-    @GuardedBy("mSessions")
     private void reconcileStagesLocked(String volumeUuid, boolean isEphemeral) {
         final File stagingDir = buildStagingDir(volumeUuid, isEphemeral);
         final ArraySet<File> unclaimedStages = newArraySet(
@@ -250,6 +240,35 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
     public void onPrivateVolumeMounted(String volumeUuid) {
         synchronized (mSessions) {
             reconcileStagesLocked(volumeUuid, false /*isInstant*/);
+        }
+    }
+
+    public void onSecureContainersAvailable() {
+        synchronized (mSessions) {
+            final ArraySet<String> unclaimed = new ArraySet<>();
+            for (String cid : PackageHelper.getSecureContainerList()) {
+                if (isStageName(cid)) {
+                    unclaimed.add(cid);
+                }
+            }
+
+            // Ignore stages claimed by active sessions
+            for (int i = 0; i < mSessions.size(); i++) {
+                final PackageInstallerSession session = mSessions.valueAt(i);
+                final String cid = session.stageCid;
+
+                if (unclaimed.remove(cid)) {
+                    // Claimed by active session, mount it
+                    PackageHelper.mountSdDir(cid, PackageManagerService.getEncryptKey(),
+                            Process.SYSTEM_UID);
+                }
+            }
+
+            // Clean up orphaned staging containers
+            for (String cid : unclaimed) {
+                Slog.w(TAG, "Deleting orphan container " + cid);
+                PackageHelper.destroySdDir(cid);
+            }
         }
     }
 
@@ -284,7 +303,6 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
         }
     }
 
-    @GuardedBy("mSessions")
     private void readSessionsLocked() {
         if (LOGD) Slog.v(TAG, "readSessionsLocked()");
 
@@ -342,7 +360,6 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
         }
     }
 
-    @GuardedBy("mSessions")
     private void addHistoricalSessionLocked(PackageInstallerSession session) {
         CharArrayWriter writer = new CharArrayWriter();
         IndentingPrintWriter pw = new IndentingPrintWriter(writer, "    ");
@@ -355,7 +372,6 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
                 mHistoricalSessionsByInstaller.get(installerUid) + 1);
     }
 
-    @GuardedBy("mSessions")
     private void writeSessionsLocked() {
         if (LOGD) Slog.v(TAG, "writeSessionsLocked()");
 
@@ -410,8 +426,7 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
     private int createSessionInternal(SessionParams params, String installerPackageName, int userId)
             throws IOException {
         final int callingUid = Binder.getCallingUid();
-        mPermissionManager.enforceCrossUserPermission(
-                callingUid, userId, true, true, "createSession");
+        mPm.enforceCrossUserPermission(callingUid, userId, true, true, "createSession");
 
         if (mPm.isUserRestricted(userId, UserManager.DISALLOW_INSTALL_APPS)) {
             throw new SecurityException("User restriction prevents installing");
@@ -421,12 +436,7 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
             params.installFlags |= PackageManager.INSTALL_FROM_ADB;
 
         } else {
-            // Only apps with INSTALL_PACKAGES are allowed to set an installer that is not the
-            // caller.
-            if (mContext.checkCallingOrSelfPermission(Manifest.permission.INSTALL_PACKAGES) !=
-                    PackageManager.PERMISSION_GRANTED) {
-                mAppOps.checkPackage(callingUid, installerPackageName);
-            }
+            mAppOps.checkPackage(callingUid, installerPackageName);
 
             params.installFlags &= ~PackageManager.INSTALL_FROM_ADB;
             params.installFlags &= ~PackageManager.INSTALL_ALL_USERS;
@@ -616,7 +626,6 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
         }
     }
 
-    @GuardedBy("mSessions")
     private int allocateSessionIdLocked() {
         int n = 0;
         int sessionId;
@@ -662,6 +671,13 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
         return "smdl" + sessionId + ".tmp";
     }
 
+    static void prepareExternalStageCid(String stageCid, long sizeBytes) throws IOException {
+        if (PackageHelper.createSdDir(sizeBytes, stageCid, PackageManagerService.getEncryptKey(),
+                Process.SYSTEM_UID, true) == null) {
+            throw new IOException("Failed to create session cid: " + stageCid);
+        }
+    }
+
     @Override
     public SessionInfo getSessionInfo(int sessionId) {
         synchronized (mSessions) {
@@ -672,8 +688,7 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
 
     @Override
     public ParceledListSlice<SessionInfo> getAllSessions(int userId) {
-        mPermissionManager.enforceCrossUserPermission(
-                Binder.getCallingUid(), userId, true, false, "getAllSessions");
+        mPm.enforceCrossUserPermission(Binder.getCallingUid(), userId, true, false, "getAllSessions");
 
         final List<SessionInfo> result = new ArrayList<>();
         synchronized (mSessions) {
@@ -689,8 +704,7 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
 
     @Override
     public ParceledListSlice<SessionInfo> getMySessions(String installerPackageName, int userId) {
-        mPermissionManager.enforceCrossUserPermission(
-                Binder.getCallingUid(), userId, true, false, "getMySessions");
+        mPm.enforceCrossUserPermission(Binder.getCallingUid(), userId, true, false, "getMySessions");
         mAppOps.checkPackage(Binder.getCallingUid(), installerPackageName);
 
         final List<SessionInfo> result = new ArrayList<>();
@@ -712,30 +726,25 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
     public void uninstall(VersionedPackage versionedPackage, String callerPackageName, int flags,
                 IntentSender statusReceiver, int userId) throws RemoteException {
         final int callingUid = Binder.getCallingUid();
-        mPermissionManager.enforceCrossUserPermission(callingUid, userId, true, true, "uninstall");
+        mPm.enforceCrossUserPermission(callingUid, userId, true, true, "uninstall");
         if ((callingUid != Process.SHELL_UID) && (callingUid != Process.ROOT_UID)) {
             mAppOps.checkPackage(callingUid, callerPackageName);
         }
 
-        // Check whether the caller is device owner or affiliated profile owner, in which case we do
-        // it silently.
-        final int callingUserId = UserHandle.getUserId(callingUid);
-        DevicePolicyManagerInternal dpmi =
-                LocalServices.getService(DevicePolicyManagerInternal.class);
-        final boolean isDeviceOwnerOrAffiliatedProfileOwner =
-                dpmi != null && dpmi.isActiveAdminWithPolicy(callingUid,
-                        DeviceAdminInfo.USES_POLICY_PROFILE_OWNER)
-                        && dpmi.isUserAffiliatedWithDevice(callingUserId);
+        // Check whether the caller is device owner, in which case we do it silently.
+        DevicePolicyManager dpm = (DevicePolicyManager) mContext.getSystemService(
+                Context.DEVICE_POLICY_SERVICE);
+        boolean isDeviceOwner = (dpm != null) && dpm.isDeviceOwnerAppOnCallingUser(
+                callerPackageName);
 
         final PackageDeleteObserverAdapter adapter = new PackageDeleteObserverAdapter(mContext,
-                statusReceiver, versionedPackage.getPackageName(),
-                isDeviceOwnerOrAffiliatedProfileOwner, userId);
+                statusReceiver, versionedPackage.getPackageName(), isDeviceOwner, userId);
         if (mContext.checkCallingOrSelfPermission(android.Manifest.permission.DELETE_PACKAGES)
                     == PackageManager.PERMISSION_GRANTED) {
             // Sweet, call straight through!
             mPm.deletePackageVersioned(versionedPackage, adapter.getBinder(), userId, flags);
-        } else if (isDeviceOwnerOrAffiliatedProfileOwner) {
-            // Allow the device owner and affiliated profile owner to silently delete packages
+        } else if (isDeviceOwner) {
+            // Allow the DeviceOwner to silently delete packages
             // Need to clear the calling identity to get DELETE_PACKAGES permission
             long ident = Binder.clearCallingIdentity();
             try {
@@ -744,12 +753,6 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
                 Binder.restoreCallingIdentity(ident);
             }
         } else {
-            ApplicationInfo appInfo = mPm.getApplicationInfo(callerPackageName, 0, userId);
-            if (appInfo.targetSdkVersion >= Build.VERSION_CODES.P) {
-                mContext.enforceCallingOrSelfPermission(Manifest.permission.REQUEST_DELETE_PACKAGES,
-                        null);
-            }
-
             // Take a short detour to confirm with user
             final Intent intent = new Intent(Intent.ACTION_UNINSTALL_PACKAGE);
             intent.setData(Uri.fromParts("package", versionedPackage.getPackageName(), null));
@@ -772,8 +775,7 @@ public class PackageInstallerService extends IPackageInstaller.Stub {
 
     @Override
     public void registerCallback(IPackageInstallerCallback callback, int userId) {
-        mPermissionManager.enforceCrossUserPermission(
-                Binder.getCallingUid(), userId, true, false, "registerCallback");
+        mPm.enforceCrossUserPermission(Binder.getCallingUid(), userId, true, false, "registerCallback");
         mCallbacks.register(callback, userId);
     }
 

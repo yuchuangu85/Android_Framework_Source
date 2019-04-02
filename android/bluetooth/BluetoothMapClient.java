@@ -72,7 +72,7 @@ public final class BluetoothMapClient implements BluetoothProfile {
     /** Connection canceled before completion. */
     public static final int RESULT_CANCELED = 2;
 
-    private final IBluetoothStateChangeCallback mBluetoothStateChangeCallback =
+    final private IBluetoothStateChangeCallback mBluetoothStateChangeCallback =
             new IBluetoothStateChangeCallback.Stub() {
                 public void onBluetoothStateChange(boolean up) {
                     if (DBG) Log.d(TAG, "onBluetoothStateChange: up=" + up);
@@ -125,7 +125,7 @@ public final class BluetoothMapClient implements BluetoothProfile {
         ComponentName comp = intent.resolveSystemService(mContext.getPackageManager(), 0);
         intent.setComponent(comp);
         if (comp == null || !mContext.bindServiceAsUser(intent, mConnection, 0,
-                mContext.getUser())) {
+                android.os.Process.myUserHandle())) {
             Log.e(TAG, "Could not bind to Bluetooth MAP MCE Service with " + intent);
             return false;
         }
@@ -351,10 +351,10 @@ public final class BluetoothMapClient implements BluetoothProfile {
      *
      * Send an SMS message to either the contacts primary number or the telephone number specified.
      *
-     * @param device Bluetooth device
-     * @param contacts Uri[] of the contacts
-     * @param message Message to be sent
-     * @param sentIntent intent issued when message is sent
+     * @param device          Bluetooth device
+     * @param contacts        Uri[] of the contacts
+     * @param message         Message to be sent
+     * @param sentIntent      intent issued when message is sent
      * @param deliveredIntent intent issued when message is delivered
      * @return true if the message is enqueued, false on error
      */
@@ -399,7 +399,7 @@ public final class BluetoothMapClient implements BluetoothProfile {
             mService = IBluetoothMapClient.Stub.asInterface(service);
             if (mServiceListener != null) {
                 mServiceListener.onServiceConnected(BluetoothProfile.MAP_CLIENT,
-                        BluetoothMapClient.this);
+                    BluetoothMapClient.this);
             }
         }
 

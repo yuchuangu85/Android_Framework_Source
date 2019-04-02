@@ -4,15 +4,18 @@ import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
 import android.annotation.NonNull;
-import android.annotation.Nullable;
+import android.graphics.BidiRenderer;
+import android.graphics.Paint;
+import android.graphics.Paint_Delegate;
+import android.graphics.RectF;
 import android.icu.text.BreakIterator;
-import android.text.Layout.BreakStrategy;
-import android.text.Layout.HyphenationFrequency;
+import android.icu.util.ULocale;
 import android.text.Primitive.PrimitiveType;
 import android.text.StaticLayout.LineBreaks;
 
-import java.text.CharacterIterator;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import javax.swing.text.Segment;
@@ -36,62 +39,108 @@ public class StaticLayout_Delegate {
         new DelegateManager<Builder>(Builder.class);
 
     @LayoutlibDelegate
-    /*package*/ static long nInit(
-            @BreakStrategy int breakStrategy,
-            @HyphenationFrequency int hyphenationFrequency,
-            boolean isJustified,
-            @Nullable int[] indents,
-            @Nullable int[] leftPaddings,
-            @Nullable int[] rightPaddings) {
-        Builder builder = new Builder();
-        builder.mBreakStrategy = breakStrategy;
-        return sBuilderManager.addNewDelegate(builder);
+    /*package*/ static long nNewBuilder() {
+        return sBuilderManager.addNewDelegate(new Builder());
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nFinish(long nativePtr) {
-        sBuilderManager.removeJavaReferenceFor(nativePtr);
+    /*package*/ static void nFreeBuilder(long nativeBuilder) {
+        sBuilderManager.removeJavaReferenceFor(nativeBuilder);
     }
 
     @LayoutlibDelegate
-    /*package*/ static int nComputeLineBreaks(
-            /* non zero */ long nativePtr,
+    /*package*/ static void nFinishBuilder(long nativeBuilder) {
+    }
 
-            // Inputs
-            @NonNull char[] text,
-            long measuredTextPtr,
-            int length,
-            float firstWidth,
-            int firstWidthLineCount,
-            float restWidth,
-            @Nullable int[] variableTabStops,
-            int defaultTabStop,
-            int indentsOffset,
+    @LayoutlibDelegate
+    /*package*/ static long nLoadHyphenator(ByteBuffer buf, int offset, int minPrefix,
+            int minSuffix) {
+        return Hyphenator_Delegate.loadHyphenator(buf, offset, minPrefix, minSuffix);
+    }
 
-            // Outputs
-            @NonNull LineBreaks recycle,
-            int recycleLength,
-            @NonNull int[] recycleBreaks,
-            @NonNull float[] recycleWidths,
-            @NonNull float[] recycleAscents,
-            @NonNull float[] recycleDescents,
-            @NonNull int[] recycleFlags,
-            @NonNull float[] charWidths) {
-        Builder builder = sBuilderManager.getDelegate(nativePtr);
+    @LayoutlibDelegate
+    /*package*/ static void nSetLocales(long nativeBuilder, String locales,
+            long[] nativeHyphenators) {
+        Builder builder = sBuilderManager.getDelegate(nativeBuilder);
+        if (builder != null) {
+            builder.mLocales = locales;
+            builder.mNativeHyphenators = nativeHyphenators;
+        }
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static void nSetIndents(long nativeBuilder, int[] indents) {
+        // TODO.
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static void nSetupParagraph(long nativeBuilder, char[] text, int length,
+            float firstWidth, int firstWidthLineCount, float restWidth,
+            int[] variableTabStops, int defaultTabStop, int breakStrategy,
+            int hyphenationFrequency, boolean isJustified) {
+        // TODO: implement justified alignment
+        Builder builder = sBuilderManager.getDelegate(nativeBuilder);
         if (builder == null) {
-            return 0;
+            return;
         }
 
         builder.mText = text;
         builder.mWidths = new float[length];
         builder.mLineWidth = new LineWidth(firstWidth, firstWidthLineCount, restWidth);
         builder.mTabStopCalculator = new TabStops(variableTabStops, defaultTabStop);
+    }
 
-        MeasuredParagraph_Delegate.computeRuns(measuredTextPtr, builder);
+    @LayoutlibDelegate
+    /*package*/ static float nAddStyleRun(long nativeBuilder, long nativePaint, long nativeTypeface,
+            int start, int end, boolean isRtl) {
+        Builder builder = sBuilderManager.getDelegate(nativeBuilder);
+
+        int bidiFlags = isRtl ? Paint.BIDI_FORCE_RTL : Paint.BIDI_FORCE_LTR;
+        return builder == null ? 0 :
+                measureText(nativePaint, builder.mText, start, end - start, builder.mWidths,
+                        bidiFlags);
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static void nAddMeasuredRun(long nativeBuilder, int start, int end, float[] widths) {
+        Builder builder = sBuilderManager.getDelegate(nativeBuilder);
+        if (builder != null) {
+            System.arraycopy(widths, start, builder.mWidths, start, end - start);
+        }
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static void nAddReplacementRun(long nativeBuilder, int start, int end, float width) {
+        Builder builder = sBuilderManager.getDelegate(nativeBuilder);
+        if (builder == null) {
+            return;
+        }
+        builder.mWidths[start] = width;
+        Arrays.fill(builder.mWidths, start + 1, end, 0.0f);
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static void nGetWidths(long nativeBuilder, float[] floatsArray) {
+        Builder builder = sBuilderManager.getDelegate(nativeBuilder);
+        if (builder != null) {
+            System.arraycopy(builder.mWidths, 0, floatsArray, 0, builder.mWidths.length);
+        }
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static int nComputeLineBreaks(long nativeBuilder,
+            LineBreaks recycle, int[] recycleBreaks, float[] recycleWidths,
+            int[] recycleFlags, int recycleLength) {
+
+        Builder builder = sBuilderManager.getDelegate(nativeBuilder);
+        if (builder == null) {
+            return 0;
+        }
 
         // compute all possible breakpoints.
-        BreakIterator it = BreakIterator.getLineInstance();
-        it.setText((CharacterIterator) new Segment(builder.mText, 0, length));
+        int length = builder.mWidths.length;
+        BreakIterator it = BreakIterator.getLineInstance(new ULocale(builder.mLocales));
+        it.setText(new Segment(builder.mText, 0, length));
 
         // average word length in english is 5. So, initialize the possible breaks with a guess.
         List<Integer> breaks = new ArrayList<Integer>((int) Math.ceil(length / 5d));
@@ -121,7 +170,6 @@ public class StaticLayout_Delegate {
                         builder.mTabStopCalculator);
         }
         builder.mLineBreaker.computeBreaks(recycle);
-        System.arraycopy(builder.mWidths, 0, charWidths, 0, builder.mWidths.length);
         return recycle.breaks.length;
     }
 
@@ -166,28 +214,26 @@ public class StaticLayout_Delegate {
         return primitives;
     }
 
+    private static float measureText(long nativePaint, char []text, int index, int count,
+            float[] widths, int bidiFlags) {
+        Paint_Delegate paint = Paint_Delegate.getDelegate(nativePaint);
+        RectF bounds = new BidiRenderer(null, paint, text)
+            .renderText(index, index + count, bidiFlags, widths, 0, false);
+        return bounds.right - bounds.left;
+    }
+
     // TODO: Rename to LineBreakerRef and move everything other than LineBreaker to LineBreaker.
     /**
      * Java representation of the native Builder class.
      */
-    public static class Builder {
+    private static class Builder {
+        String mLocales;
         char[] mText;
         float[] mWidths;
-        private LineBreaker mLineBreaker;
-        private int mBreakStrategy;
-        private LineWidth mLineWidth;
-        private TabStops mTabStopCalculator;
-    }
-
-    public abstract static class Run {
-        int mStart;
-        int mEnd;
-
-        Run(int start, int end) {
-            mStart = start;
-            mEnd = end;
-        }
-
-        abstract void addTo(Builder builder);
+        LineBreaker mLineBreaker;
+        long[] mNativeHyphenators;
+        int mBreakStrategy;
+        LineWidth mLineWidth;
+        TabStops mTabStopCalculator;
     }
 }

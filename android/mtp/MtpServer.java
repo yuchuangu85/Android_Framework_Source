@@ -18,8 +18,6 @@ package android.mtp;
 
 import com.android.internal.util.Preconditions;
 
-import java.io.FileDescriptor;
-
 /**
  * Java wrapper for MTP/PTP support as USB responder.
  * {@hide}
@@ -36,7 +34,6 @@ public class MtpServer implements Runnable {
 
     public MtpServer(
             MtpDatabase database,
-            FileDescriptor controlFd,
             boolean usePtp,
             Runnable onTerminate,
             String deviceInfoManufacturer,
@@ -47,7 +44,6 @@ public class MtpServer implements Runnable {
         mOnTerminate = Preconditions.checkNotNull(onTerminate);
         native_setup(
                 database,
-                controlFd,
                 usePtp,
                 deviceInfoManufacturer,
                 deviceInfoModel,
@@ -96,7 +92,6 @@ public class MtpServer implements Runnable {
     public static native final void native_configure(boolean usePtp);
     private native final void native_setup(
             MtpDatabase database,
-            FileDescriptor controlFd,
             boolean usePtp,
             String deviceInfoManufacturer,
             String deviceInfoModel,

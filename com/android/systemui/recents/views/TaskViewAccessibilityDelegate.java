@@ -28,10 +28,11 @@ import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
 import com.android.systemui.R;
 import com.android.systemui.recents.Recents;
 import com.android.systemui.recents.events.EventBus;
+import com.android.systemui.recents.events.ui.ShowApplicationInfoEvent;
 import com.android.systemui.recents.events.ui.dragndrop.DragEndEvent;
 import com.android.systemui.recents.events.ui.dragndrop.DragStartEvent;
-import com.android.systemui.shared.recents.utilities.Utilities;
-import com.android.systemui.shared.recents.model.TaskStack;
+import com.android.systemui.recents.misc.Utilities;
+import com.android.systemui.recents.model.TaskStack;
 
 public class TaskViewAccessibilityDelegate extends View.AccessibilityDelegate {
     private static final String TAG = "TaskViewAccessibilityDelegate";
@@ -60,14 +61,14 @@ public class TaskViewAccessibilityDelegate extends View.AccessibilityDelegate {
         super.onInitializeAccessibilityNodeInfo(host, info);
         if (ActivityManager.supportsSplitScreenMultiWindow(mTaskView.getContext())
                 && !Recents.getSystemServices().hasDockedTask()) {
-            DockState[] dockStates = Recents.getConfiguration()
+            TaskStack.DockState[] dockStates = Recents.getConfiguration()
                     .getDockStatesForCurrentOrientation();
-            for (DockState dockState: dockStates) {
-                if (dockState == DockState.TOP) {
+            for (TaskStack.DockState dockState: dockStates) {
+                if (dockState == TaskStack.DockState.TOP) {
                     info.addAction(mActions.get(SPLIT_TASK_TOP));
-                } else if (dockState == DockState.LEFT) {
+                } else if (dockState == TaskStack.DockState.LEFT) {
                     info.addAction(mActions.get(SPLIT_TASK_LEFT));
-                } else if (dockState == DockState.RIGHT) {
+                } else if (dockState == TaskStack.DockState.RIGHT) {
                     info.addAction(mActions.get(SPLIT_TASK_RIGHT));
                 }
             }
@@ -77,11 +78,11 @@ public class TaskViewAccessibilityDelegate extends View.AccessibilityDelegate {
     @Override
     public boolean performAccessibilityAction(View host, int action, Bundle args) {
         if (action == SPLIT_TASK_TOP) {
-            simulateDragIntoMultiwindow(DockState.TOP);
+            simulateDragIntoMultiwindow(TaskStack.DockState.TOP);
         } else if (action == SPLIT_TASK_LEFT) {
-            simulateDragIntoMultiwindow(DockState.LEFT);
+            simulateDragIntoMultiwindow(TaskStack.DockState.LEFT);
         } else if (action == SPLIT_TASK_RIGHT) {
-            simulateDragIntoMultiwindow(DockState.RIGHT);
+            simulateDragIntoMultiwindow(TaskStack.DockState.RIGHT);
         } else {
             return super.performAccessibilityAction(host, action, args);
         }
@@ -89,7 +90,8 @@ public class TaskViewAccessibilityDelegate extends View.AccessibilityDelegate {
     }
 
     /** Simulate a user drag event to split the screen to the respected side */
-    private void simulateDragIntoMultiwindow(DockState dockState) {
+    private void simulateDragIntoMultiwindow(TaskStack.DockState dockState) {
+        int orientation = Utilities.getAppConfiguration(mTaskView.getContext()).orientation;
         EventBus.getDefault().send(new DragStartEvent(mTaskView.getTask(), mTaskView,
                 new Point(0,0), false /* isUserTouchInitiated */));
         EventBus.getDefault().send(new DragEndEvent(mTaskView.getTask(), mTaskView, dockState));

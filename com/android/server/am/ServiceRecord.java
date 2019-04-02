@@ -42,8 +42,6 @@ import android.provider.Settings;
 import android.util.ArrayMap;
 import android.util.Slog;
 import android.util.TimeUtils;
-import android.util.proto.ProtoOutputStream;
-import android.util.proto.ProtoUtils;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -56,7 +54,7 @@ import static com.android.server.am.ActivityManagerDebugConfig.TAG_WITH_CLASS_NA
 /**
  * A running application service.
  */
-final class ServiceRecord extends Binder implements ComponentName.WithComponentName {
+final class ServiceRecord extends Binder {
     private static final String TAG = TAG_WITH_CLASS_NAME ? "ServiceRecord" : TAG_AM;
 
     // Maximum number of delivery attempts before giving up.
@@ -73,7 +71,7 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
                             // original intent used to find service.
     final ServiceInfo serviceInfo;
                             // all information about the service.
-    ApplicationInfo appInfo;
+    final ApplicationInfo appInfo;
                             // information about service's app.
     final int userId;       // user that this service is running as
     final String packageName; // the package implementing intent's component
@@ -81,7 +79,7 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
     final String permission;// permission needed to access service
     final boolean exported; // from ServiceInfo.exported
     final Runnable restarter; // used to schedule retries of starting the service
-    final long createRealTime;  // when this service was created
+    final long createTime;  // when this service was created
     final ArrayMap<Intent.FilterComparison, IntentBindRecord> bindings
             = new ArrayMap<Intent.FilterComparison, IntentBindRecord>();
                             // All active bindings to the service.
@@ -105,7 +103,7 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
     boolean startRequested; // someone explicitly called start?
     boolean delayedStop;    // service has been stopped but is in a delayed start?
     boolean stopIfKilled;   // last onStart() said to stop if service killed?
-    boolean callStart;      // last onStart() has asked to always be called on restart.
+    boolean callStart;      // last onStart() has asked to alway be called on restart.
     int executeNesting;     // number of outstanding operations keeping foreground.
     boolean executeFg;      // should we be executing in the foreground?
     long executingStart;    // start time of last execute request.
@@ -161,26 +159,6 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
             }
         }
 
-        public void writeToProto(ProtoOutputStream proto, long fieldId, long now) {
-            long token = proto.start(fieldId);
-            proto.write(ServiceRecordProto.StartItem.ID, id);
-            ProtoUtils.toDuration(proto,
-                    ServiceRecordProto.StartItem.DURATION, deliveredTime, now);
-            proto.write(ServiceRecordProto.StartItem.DELIVERY_COUNT, deliveryCount);
-            proto.write(ServiceRecordProto.StartItem.DONE_EXECUTING_COUNT, doneExecutingCount);
-            if (intent != null) {
-                intent.writeToProto(proto, ServiceRecordProto.StartItem.INTENT, true, true,
-                        true, false);
-            }
-            if (neededGrants != null) {
-                neededGrants.writeToProto(proto, ServiceRecordProto.StartItem.NEEDED_GRANTS);
-            }
-            if (uriPermissions != null) {
-                uriPermissions.writeToProto(proto, ServiceRecordProto.StartItem.URI_PERMISSIONS);
-            }
-            proto.end(token);
-        }
-
         public String toString() {
             if (stringName != null) {
                 return stringName;
@@ -231,115 +209,6 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
         }
     }
 
-    void writeToProto(ProtoOutputStream proto, long fieldId) {
-        long token = proto.start(fieldId);
-        proto.write(ServiceRecordProto.SHORT_NAME, this.shortName);
-        proto.write(ServiceRecordProto.IS_RUNNING, app != null);
-        if (app != null) {
-            proto.write(ServiceRecordProto.PID, app.pid);
-        }
-        if (intent != null) {
-            intent.getIntent().writeToProto(proto, ServiceRecordProto.INTENT, false, true, false,
-                    true);
-        }
-        proto.write(ServiceRecordProto.PACKAGE_NAME, packageName);
-        proto.write(ServiceRecordProto.PROCESS_NAME, processName);
-        proto.write(ServiceRecordProto.PERMISSION, permission);
-
-        long now = SystemClock.uptimeMillis();
-        long nowReal = SystemClock.elapsedRealtime();
-        if (appInfo != null) {
-            long appInfoToken = proto.start(ServiceRecordProto.APPINFO);
-            proto.write(ServiceRecordProto.AppInfo.BASE_DIR, appInfo.sourceDir);
-            if (!Objects.equals(appInfo.sourceDir, appInfo.publicSourceDir)) {
-                proto.write(ServiceRecordProto.AppInfo.RES_DIR, appInfo.publicSourceDir);
-            }
-            proto.write(ServiceRecordProto.AppInfo.DATA_DIR, appInfo.dataDir);
-            proto.end(appInfoToken);
-        }
-        if (app != null) {
-            app.writeToProto(proto, ServiceRecordProto.APP);
-        }
-        if (isolatedProc != null) {
-            isolatedProc.writeToProto(proto, ServiceRecordProto.ISOLATED_PROC);
-        }
-        proto.write(ServiceRecordProto.WHITELIST_MANAGER, whitelistManager);
-        proto.write(ServiceRecordProto.DELAYED, delayed);
-        if (isForeground || foregroundId != 0) {
-            long fgToken = proto.start(ServiceRecordProto.FOREGROUND);
-            proto.write(ServiceRecordProto.Foreground.ID, foregroundId);
-            foregroundNoti.writeToProto(proto, ServiceRecordProto.Foreground.NOTIFICATION);
-            proto.end(fgToken);
-        }
-        ProtoUtils.toDuration(proto, ServiceRecordProto.CREATE_REAL_TIME, createRealTime, nowReal);
-        ProtoUtils.toDuration(proto,
-                ServiceRecordProto.STARTING_BG_TIMEOUT, startingBgTimeout, now);
-        ProtoUtils.toDuration(proto, ServiceRecordProto.LAST_ACTIVITY_TIME, lastActivity, now);
-        ProtoUtils.toDuration(proto, ServiceRecordProto.RESTART_TIME, restartTime, now);
-        proto.write(ServiceRecordProto.CREATED_FROM_FG, createdFromFg);
-
-        if (startRequested || delayedStop || lastStartId != 0) {
-            long startToken = proto.start(ServiceRecordProto.START);
-            proto.write(ServiceRecordProto.Start.START_REQUESTED, startRequested);
-            proto.write(ServiceRecordProto.Start.DELAYED_STOP, delayedStop);
-            proto.write(ServiceRecordProto.Start.STOP_IF_KILLED, stopIfKilled);
-            proto.write(ServiceRecordProto.Start.LAST_START_ID, lastStartId);
-            proto.end(startToken);
-        }
-
-        if (executeNesting != 0) {
-            long executNestingToken = proto.start(ServiceRecordProto.EXECUTE);
-            proto.write(ServiceRecordProto.ExecuteNesting.EXECUTE_NESTING, executeNesting);
-            proto.write(ServiceRecordProto.ExecuteNesting.EXECUTE_FG, executeFg);
-            ProtoUtils.toDuration(proto,
-                    ServiceRecordProto.ExecuteNesting.EXECUTING_START, executingStart, now);
-            proto.end(executNestingToken);
-        }
-        if (destroying || destroyTime != 0) {
-            ProtoUtils.toDuration(proto, ServiceRecordProto.DESTORY_TIME, destroyTime, now);
-        }
-        if (crashCount != 0 || restartCount != 0 || restartDelay != 0 || nextRestartTime != 0) {
-            long crashToken = proto.start(ServiceRecordProto.CRASH);
-            proto.write(ServiceRecordProto.Crash.RESTART_COUNT, restartCount);
-            ProtoUtils.toDuration(proto, ServiceRecordProto.Crash.RESTART_DELAY, restartDelay, now);
-            ProtoUtils.toDuration(proto,
-                    ServiceRecordProto.Crash.NEXT_RESTART_TIME, nextRestartTime, now);
-            proto.write(ServiceRecordProto.Crash.CRASH_COUNT, crashCount);
-            proto.end(crashToken);
-        }
-
-        if (deliveredStarts.size() > 0) {
-            final int N = deliveredStarts.size();
-            for (int i = 0; i < N; i++) {
-                deliveredStarts.get(i).writeToProto(proto,
-                        ServiceRecordProto.DELIVERED_STARTS, now);
-            }
-        }
-        if (pendingStarts.size() > 0) {
-            final int N = pendingStarts.size();
-            for (int i = 0; i < N; i++) {
-                pendingStarts.get(i).writeToProto(proto, ServiceRecordProto.PENDING_STARTS, now);
-            }
-        }
-        if (bindings.size() > 0) {
-            final int N = bindings.size();
-            for (int i=0; i<N; i++) {
-                IntentBindRecord b = bindings.valueAt(i);
-                b.writeToProto(proto, ServiceRecordProto.BINDINGS);
-            }
-        }
-        if (connections.size() > 0) {
-            final int N = connections.size();
-            for (int conni=0; conni<N; conni++) {
-                ArrayList<ConnectionRecord> c = connections.valueAt(conni);
-                for (int i=0; i<c.size(); i++) {
-                    c.get(i).writeToProto(proto, ServiceRecordProto.CONNECTIONS);
-                }
-            }
-        }
-        proto.end(token);
-    }
-
     void dump(PrintWriter pw, String prefix) {
         pw.print(prefix); pw.print("intent={");
                 pw.print(intent.getIntent().toShortString(false, true, false, true));
@@ -374,7 +243,7 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
                     pw.print(" foregroundNoti="); pw.println(foregroundNoti);
         }
         pw.print(prefix); pw.print("createTime=");
-                TimeUtils.formatDuration(createRealTime, nowReal, pw);
+                TimeUtils.formatDuration(createTime, nowReal, pw);
                 pw.print(" startingBgTimeout=");
                 TimeUtils.formatDuration(startingBgTimeout, now, pw);
                 pw.println();
@@ -460,7 +329,7 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
         permission = sInfo.permission;
         exported = sInfo.exported;
         this.restarter = restarter;
-        createRealTime = SystemClock.elapsedRealtime();
+        createTime = SystemClock.elapsedRealtime();
         lastActivity = SystemClock.uptimeMillis();
         userId = UserHandle.getUserId(appInfo.uid);
         createdFromFg = callerIsFg;
@@ -550,11 +419,11 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
         restartTime = 0;
     }
 
-    public StartItem findDeliveredStart(int id, boolean taskRemoved, boolean remove) {
+    public StartItem findDeliveredStart(int id, boolean remove) {
         final int N = deliveredStarts.size();
         for (int i=0; i<N; i++) {
             StartItem si = deliveredStarts.get(i);
-            if (si.id == id && si.taskRemoved == taskRemoved) {
+            if (si.id == id) {
                 if (remove) deliveredStarts.remove(i);
                 return si;
             }
@@ -756,9 +625,5 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
             .append(" u").append(userId)
             .append(' ').append(shortName).append('}');
         return stringName = sb.toString();
-    }
-
-    public ComponentName getComponentName() {
-        return name;
     }
 }

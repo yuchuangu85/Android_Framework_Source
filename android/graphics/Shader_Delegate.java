@@ -92,10 +92,6 @@ public abstract class Shader_Delegate {
     // ---- Private delegate/helper methods ----
 
     protected Shader_Delegate(long nativeMatrix) {
-        setLocalMatrix(nativeMatrix);
-    }
-
-    public void setLocalMatrix(long nativeMatrix) {
         mLocalMatrix = Matrix_Delegate.getDelegate(nativeMatrix);
     }
 

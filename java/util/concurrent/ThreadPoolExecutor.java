@@ -35,7 +35,6 @@
 
 package java.util.concurrent;
 
-import dalvik.annotation.optimization.ReachabilitySensitive;
 import java.util.ArrayList;
 import java.util.ConcurrentModificationException;
 import java.util.HashSet;
@@ -394,8 +393,6 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * that workerCount is 0 (which sometimes entails a recheck -- see
      * below).
      */
-    // Android-added: @ReachabilitySensitive
-    @ReachabilitySensitive
     private final AtomicInteger ctl = new AtomicInteger(ctlOf(RUNNING, 0));
     private static final int COUNT_BITS = Integer.SIZE - 3;
     private static final int CAPACITY   = (1 << COUNT_BITS) - 1;
@@ -484,8 +481,6 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * Set containing all worker threads in pool. Accessed only when
      * holding mainLock.
      */
-    // Android-added: @ReachabilitySensitive
-    @ReachabilitySensitive
     private final HashSet<Worker> workers = new HashSet<>();
 
     /**

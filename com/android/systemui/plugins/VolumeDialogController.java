@@ -19,7 +19,6 @@ import android.content.ComponentName;
 import android.media.AudioManager;
 import android.media.AudioSystem;
 import android.os.Handler;
-import android.os.VibrationEffect;
 import android.util.SparseArray;
 
 import com.android.systemui.plugins.VolumeDialogController.Callbacks;
@@ -45,8 +44,7 @@ public interface VolumeDialogController {
     void setRingerMode(int ringerModeNormal, boolean external);
 
     boolean hasVibrator();
-    void vibrate(VibrationEffect effect);
-    void scheduleTouchFeedback();
+    void vibrate();
 
     AudioManager getAudioManager();
 
@@ -101,10 +99,6 @@ public interface VolumeDialogController {
         public ComponentName effectsSuppressor;
         public String effectsSuppressorName;
         public int activeStream = NO_ACTIVE_STREAM;
-        public boolean disallowAlarms;
-        public boolean disallowMedia;
-        public boolean disallowSystem;
-        public boolean disallowRinger;
 
         public State copy() {
             final State rt = new State();
@@ -119,10 +113,6 @@ public interface VolumeDialogController {
             }
             rt.effectsSuppressorName = effectsSuppressorName;
             rt.activeStream = activeStream;
-            rt.disallowAlarms = disallowAlarms;
-            rt.disallowMedia = disallowMedia;
-            rt.disallowSystem = disallowSystem;
-            rt.disallowRinger = disallowRinger;
             return rt;
         }
 
@@ -152,10 +142,6 @@ public interface VolumeDialogController {
             sep(sb, indent); sb.append("effectsSuppressor:").append(effectsSuppressor);
             sep(sb, indent); sb.append("effectsSuppressorName:").append(effectsSuppressorName);
             sep(sb, indent); sb.append("activeStream:").append(activeStream);
-            sep(sb, indent); sb.append("disallowAlarms:").append(disallowAlarms);
-            sep(sb, indent); sb.append("disallowMedia:").append(disallowMedia);
-            sep(sb, indent); sb.append("disallowSystem:").append(disallowSystem);
-            sep(sb, indent); sb.append("disallowRinger:").append(disallowRinger);
             if (indent > 0) sep(sb, indent);
             return sb.append('}').toString();
         }

@@ -33,6 +33,7 @@ import android.util.ArrayMap;
 import android.util.Slog;
 import android.view.animation.AnimationUtils;
 import android.view.animation.Interpolator;
+import android.view.WindowManagerInternal;
 
 import com.android.internal.annotations.VisibleForTesting;
 
@@ -161,10 +162,7 @@ public class BoundsAnimationController {
 
         // Timeout callback to ensure we continue the animation if waiting for resuming or app
         // windows drawn fails
-        private final Runnable mResumeRunnable = () -> {
-            if (DEBUG) Slog.d(TAG, "pause: timed out waiting for windows drawn");
-            resume();
-        };
+        private final Runnable mResumeRunnable = () -> resume();
 
         BoundsAnimator(BoundsAnimationTarget target, Rect from, Rect to,
                 @SchedulePipModeChangedState int schedulePipModeChangedState,
@@ -216,7 +214,7 @@ public class BoundsAnimationController {
 
                 // When starting an animation from fullscreen, pause here and wait for the
                 // windows-drawn signal before we start the rest of the transition down into PiP.
-                if (mMoveFromFullscreen && mTarget.shouldDeferStartOnMoveToFullscreen()) {
+                if (mMoveFromFullscreen) {
                     pause();
                 }
             } else if (mPrevSchedulePipModeChangedState == SCHEDULE_PIP_MODE_CHANGED_ON_END &&
@@ -401,13 +399,12 @@ public class BoundsAnimationController {
                 + " replacing=" + replacing);
 
         if (replacing) {
-            if (existing.isAnimatingTo(to) && (!moveToFullscreen || existing.mMoveToFullscreen)
-                    && (!moveFromFullscreen || existing.mMoveFromFullscreen)) {
+            if (existing.isAnimatingTo(to)) {
                 // Just let the current animation complete if it has the same destination as the
-                // one we are trying to start, and, if moveTo/FromFullscreen was requested, already
-                // has that flag set.
-                if (DEBUG) Slog.d(TAG, "animateBounds: same destination and moveTo/From flags as "
-                        + "existing=" + existing + ", ignoring...");
+                // one we are trying to start.
+                if (DEBUG) Slog.d(TAG, "animateBounds: same destination as existing=" + existing
+                        + " ignoring...");
+
                 return existing;
             }
 
@@ -433,13 +430,6 @@ public class BoundsAnimationController {
                             + " existing deferred state");
                     schedulePipModeChangedState = SCHEDULE_PIP_MODE_CHANGED_ON_END;
                 }
-            }
-
-            // We need to keep the previous moveTo/FromFullscreen flag, unless the new animation
-            // specifies a direction.
-            if (!moveFromFullscreen && !moveToFullscreen) {
-                moveToFullscreen = existing.mMoveToFullscreen;
-                moveFromFullscreen = existing.mMoveFromFullscreen;
             }
 
             // Since we are replacing, we skip both animation start and end callbacks

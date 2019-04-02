@@ -23,7 +23,6 @@ import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
-import android.content.res.Resources;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.util.Log;
@@ -34,7 +33,6 @@ import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.SubMenu;
 import android.view.View;
-import android.view.ViewConfiguration;
 import android.view.ViewDebug;
 import android.widget.LinearLayout;
 
@@ -110,6 +108,13 @@ public final class MenuItemImpl implements MenuItem {
     private CharSequence mContentDescription;
     private CharSequence mTooltipText;
 
+    private static String sLanguage;
+    private static String sPrependShortcutLabel;
+    private static String sEnterShortcutLabel;
+    private static String sDeleteShortcutLabel;
+    private static String sSpaceShortcutLabel;
+
+
     /**
      * Instantiates this menu item.
      *
@@ -124,6 +129,20 @@ public final class MenuItemImpl implements MenuItem {
      */
     MenuItemImpl(MenuBuilder menu, int group, int id, int categoryOrder, int ordering,
             CharSequence title, int showAsAction) {
+
+        String lang = menu.getContext().getResources().getConfiguration().locale.toString();
+        if (sPrependShortcutLabel == null || !lang.equals(sLanguage)) {
+            sLanguage = lang;
+            // This is instantiated from the UI thread, so no chance of sync issues
+            sPrependShortcutLabel = menu.getContext().getResources().getString(
+                    com.android.internal.R.string.prepend_shortcut_label);
+            sEnterShortcutLabel = menu.getContext().getResources().getString(
+                    com.android.internal.R.string.menu_enter_shortcut_label);
+            sDeleteShortcutLabel = menu.getContext().getResources().getString(
+                    com.android.internal.R.string.menu_delete_shortcut_label);
+            sSpaceShortcutLabel = menu.getContext().getResources().getString(
+                    com.android.internal.R.string.menu_space_shortcut_label);
+        }
 
         mMenu = menu;
         mId = id;
@@ -334,45 +353,19 @@ public final class MenuItemImpl implements MenuItem {
             return "";
         }
 
-        final Resources res = mMenu.getContext().getResources();
-
-        StringBuilder sb = new StringBuilder();
-        if (ViewConfiguration.get(mMenu.getContext()).hasPermanentMenuKey()) {
-            // Only prepend "Menu+" if there is a hardware menu key.
-            sb.append(res.getString(
-                com.android.internal.R.string.prepend_shortcut_label));
-        }
-
-        final int modifiers =
-            mMenu.isQwertyMode() ? mShortcutAlphabeticModifiers : mShortcutNumericModifiers;
-        appendModifier(sb, modifiers, KeyEvent.META_META_ON, res.getString(
-            com.android.internal.R.string.menu_meta_shortcut_label));
-        appendModifier(sb, modifiers, KeyEvent.META_CTRL_ON, res.getString(
-            com.android.internal.R.string.menu_ctrl_shortcut_label));
-        appendModifier(sb, modifiers, KeyEvent.META_ALT_ON, res.getString(
-            com.android.internal.R.string.menu_alt_shortcut_label));
-        appendModifier(sb, modifiers, KeyEvent.META_SHIFT_ON, res.getString(
-            com.android.internal.R.string.menu_shift_shortcut_label));
-        appendModifier(sb, modifiers, KeyEvent.META_SYM_ON, res.getString(
-            com.android.internal.R.string.menu_sym_shortcut_label));
-        appendModifier(sb, modifiers, KeyEvent.META_FUNCTION_ON, res.getString(
-            com.android.internal.R.string.menu_function_shortcut_label));
-
+        StringBuilder sb = new StringBuilder(sPrependShortcutLabel);
         switch (shortcut) {
 
             case '\n':
-                sb.append(res.getString(
-                    com.android.internal.R.string.menu_enter_shortcut_label));
+                sb.append(sEnterShortcutLabel);
                 break;
 
             case '\b':
-                sb.append(res.getString(
-                    com.android.internal.R.string.menu_delete_shortcut_label));
+                sb.append(sDeleteShortcutLabel);
                 break;
 
             case ' ':
-                sb.append(res.getString(
-                    com.android.internal.R.string.menu_space_shortcut_label));
+                sb.append(sSpaceShortcutLabel);
                 break;
 
             default:
@@ -381,12 +374,6 @@ public final class MenuItemImpl implements MenuItem {
         }
 
         return sb.toString();
-    }
-
-    private static void appendModifier(StringBuilder sb, int mask, int modifier, String label) {
-        if ((mask & modifier) == modifier) {
-            sb.append(label);
-        }
     }
 
     /**
@@ -671,7 +658,7 @@ public final class MenuItemImpl implements MenuItem {
 
     @Override
     public boolean requiresOverflow() {
-        return !requiresActionButton() && !requestsActionButton();
+        return (mShowAsAction & SHOW_AS_OVERFLOW_ALWAYS) == SHOW_AS_OVERFLOW_ALWAYS;
     }
 
     public void setIsActionButton(boolean isActionButton) {

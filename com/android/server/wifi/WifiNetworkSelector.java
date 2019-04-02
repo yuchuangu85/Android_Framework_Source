@@ -57,7 +57,10 @@ public class WifiNetworkSelector {
     private volatile List<Pair<ScanDetail, WifiConfiguration>> mConnectableNetworks =
             new ArrayList<>();
     private List<ScanDetail> mFilteredNetworks = new ArrayList<>();
-    private final ScoringParams mScoringParams;
+    private final int mThresholdQualifiedRssi24;
+    private final int mThresholdQualifiedRssi5;
+    private final int mThresholdMinimumRssi24;
+    private final int mThresholdMinimumRssi5;
     private final int mStayOnNetworkMinimumTxRate;
     private final int mStayOnNetworkMinimumRxRate;
     private final boolean mEnableAutoJoinWhenAssociated;
@@ -146,10 +149,12 @@ public class WifiNetworkSelector {
         }
 
         int currentRssi = wifiInfo.getRssi();
-        boolean hasQualifiedRssi = currentRssi
-                > mScoringParams.getSufficientRssi(wifiInfo.getFrequency());
-        boolean hasActiveStream = (wifiInfo.txSuccessRate > mStayOnNetworkMinimumTxRate)
-                || (wifiInfo.rxSuccessRate > mStayOnNetworkMinimumRxRate);
+        boolean hasQualifiedRssi =
+                (wifiInfo.is24GHz() && (currentRssi > mThresholdQualifiedRssi24))
+                        || (wifiInfo.is5GHz() && (currentRssi > mThresholdQualifiedRssi5));
+        // getTxSuccessRate() and getRxSuccessRate() returns the packet rate in per 5 seconds unit.
+        boolean hasActiveStream = (wifiInfo.getTxSuccessRatePps() > mStayOnNetworkMinimumTxRate)
+                || (wifiInfo.getRxSuccessRatePps() > mStayOnNetworkMinimumRxRate);
         if (hasQualifiedRssi && hasActiveStream) {
             localLog("Stay on current network because of good RSSI and ongoing traffic");
             return true;
@@ -179,12 +184,6 @@ public class WifiNetworkSelector {
             return false;
         }
 
-        // Network with no internet access reports is not qualified.
-        if (network.numNoInternetAccessReports > 0 && !network.noInternetAccessExpected) {
-            localLog("Current network has [" + network.numNoInternetAccessReports
-                    + "] no-internet access reports.");
-            return false;
-        }
         return true;
     }
 
@@ -264,7 +263,8 @@ public class WifiNetworkSelector {
      * Compares ScanResult level against the minimum threshold for its band, returns true if lower
      */
     public boolean isSignalTooWeak(ScanResult scanResult) {
-        return (scanResult.level < mScoringParams.getEntryRssi(scanResult.frequency));
+        return ((scanResult.is24GHz() && scanResult.level < mThresholdMinimumRssi24)
+                || (scanResult.is5GHz() && scanResult.level < mThresholdMinimumRssi5));
     }
 
     private List<ScanDetail> filterScanResults(List<ScanDetail> scanDetails,
@@ -358,36 +358,6 @@ public class WifiNetworkSelector {
             openUnsavedNetworks.add(scanDetail);
         }
         return openUnsavedNetworks;
-    }
-
-    /**
-     * This returns a list of ScanDetails that were filtered in the process of network selection.
-     * The list is further filtered for only carrier unsaved networks with EAP encryption.
-     *
-     * @param carrierConfig CarrierNetworkConfig used to filter carrier networks
-     * @return the list of ScanDetails for carrier unsaved networks that do not have invalid SSIDS,
-     * blacklisted BSSIDS, or low signal strength, and with EAP encryption. This will return an
-     * empty list when there are no such networks, or when network selection has not been run.
-     */
-    public List<ScanDetail> getFilteredScanDetailsForCarrierUnsavedNetworks(
-            CarrierNetworkConfig carrierConfig) {
-        List<ScanDetail> carrierUnsavedNetworks = new ArrayList<>();
-        for (ScanDetail scanDetail : mFilteredNetworks) {
-            ScanResult scanResult = scanDetail.getScanResult();
-
-            if (!ScanResultUtil.isScanResultForEapNetwork(scanResult)
-                    || !carrierConfig.isCarrierNetwork(scanResult.SSID)) {
-                continue;
-            }
-
-            // Skip saved networks
-            if (mWifiConfigManager.getConfiguredNetworkForScanDetailAndCache(scanDetail) != null) {
-                continue;
-            }
-
-            carrierUnsavedNetworks.add(scanDetail);
-        }
-        return carrierUnsavedNetworks;
     }
 
     /**
@@ -598,14 +568,20 @@ public class WifiNetworkSelector {
         return true;
     }
 
-    WifiNetworkSelector(Context context, ScoringParams scoringParams,
-            WifiConfigManager configManager, Clock clock,
+    WifiNetworkSelector(Context context, WifiConfigManager configManager, Clock clock,
             LocalLog localLog) {
         mWifiConfigManager = configManager;
         mClock = clock;
-        mScoringParams = scoringParams;
         mLocalLog = localLog;
 
+        mThresholdQualifiedRssi24 = context.getResources().getInteger(
+                R.integer.config_wifi_framework_wifi_score_low_rssi_threshold_24GHz);
+        mThresholdQualifiedRssi5 = context.getResources().getInteger(
+                R.integer.config_wifi_framework_wifi_score_low_rssi_threshold_5GHz);
+        mThresholdMinimumRssi24 = context.getResources().getInteger(
+                R.integer.config_wifi_framework_wifi_score_entry_rssi_threshold_24GHz);
+        mThresholdMinimumRssi5 = context.getResources().getInteger(
+                R.integer.config_wifi_framework_wifi_score_entry_rssi_threshold_5GHz);
         mEnableAutoJoinWhenAssociated = context.getResources().getBoolean(
                 R.bool.config_wifi_framework_enable_associated_network_selection);
         mStayOnNetworkMinimumTxRate = context.getResources().getInteger(

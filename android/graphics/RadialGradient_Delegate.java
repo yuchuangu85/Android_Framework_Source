@@ -24,9 +24,6 @@ import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 import android.graphics.Shader.TileMode;
 
 import java.awt.image.ColorModel;
-import java.awt.image.DataBufferInt;
-import java.awt.image.Raster;
-import java.awt.image.SampleModel;
 
 /**
  * Delegate implementing the native methods of android.graphics.RadialGradient
@@ -166,6 +163,10 @@ public class RadialGradient_Delegate extends Gradient_Delegate {
 
             @Override
             public java.awt.image.Raster getRaster(int x, int y, int w, int h) {
+                java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(
+                    mColorModel, mColorModel.createCompatibleWritableRaster(w, h),
+                    mColorModel.isAlphaPremultiplied(), null);
+
                 int[] data = new int[w*h];
 
                 // compute distance from each point to the center, and figure out the distance from
@@ -173,7 +174,6 @@ public class RadialGradient_Delegate extends Gradient_Delegate {
                 int index = 0;
                 float[] pt1 = new float[2];
                 float[] pt2 = new float[2];
-
                 for (int iy = 0 ; iy < h ; iy++) {
                     for (int ix = 0 ; ix < w ; ix++) {
                         // handle the canvas transform
@@ -182,21 +182,21 @@ public class RadialGradient_Delegate extends Gradient_Delegate {
                         mCanvasMatrix.transform(pt1, 0, pt2, 0, 1);
 
                         // handle the local matrix
-                        pt1[0] = pt2[0];
-                        pt1[1] = pt2[1];
+                        pt1[0] = pt2[0] - mX;
+                        pt1[1] = pt2[1] - mY;
                         mLocalMatrix.transform(pt1, 0, pt2, 0, 1);
 
-                        float _x = pt2[0] - mX;
-                        float _y = pt2[1] - mY;
+                        float _x = pt2[0];
+                        float _y = pt2[1];
                         float distance = (float) Math.hypot(_x, _y);
 
                         data[index++] = getGradientColor(distance / mRadius);
                     }
                 }
 
-                DataBufferInt dataBuffer = new DataBufferInt(data, data.length);
-                SampleModel colorModel = mColorModel.createCompatibleSampleModel(w, h);
-                return Raster.createWritableRaster(colorModel, dataBuffer, null);
+                image.setRGB(0 /*startX*/, 0 /*startY*/, w, h, data, 0 /*offset*/, w /*scansize*/);
+
+                return image.getRaster();
             }
 
         }

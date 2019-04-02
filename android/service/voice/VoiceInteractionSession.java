@@ -16,8 +16,6 @@
 
 package android.service.voice;
 
-import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
-
 import android.annotation.Nullable;
 import android.app.Activity;
 import android.app.Dialog;
@@ -48,6 +46,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
@@ -63,6 +62,8 @@ import com.android.internal.os.SomeArgs;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
+
+import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
 
 /**
  * An active voice interaction session, providing a facility for the implementation
@@ -108,6 +109,16 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
      * {@link Activity#startLocalVoiceInteraction(Bundle)}.
      */
     public static final int SHOW_SOURCE_ACTIVITY = 1<<4;
+
+    // Keys for Bundle values
+    /** @hide */
+    public static final String KEY_DATA = "data";
+    /** @hide */
+    public static final String KEY_STRUCTURE = "structure";
+    /** @hide */
+    public static final String KEY_CONTENT = "content";
+    /** @hide */
+    public static final String KEY_RECEIVER_EXTRAS = "receiverExtras";
 
     final Context mContext;
     final HandlerCaller mHandlerCaller;
@@ -1412,7 +1423,9 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
     public void setContentView(View view) {
         ensureWindowCreated();
         mContentFrame.removeAllViews();
-        mContentFrame.addView(view, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+        mContentFrame.addView(view, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
         mContentFrame.requestApplyInsets();
     }
 

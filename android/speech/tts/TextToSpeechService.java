@@ -502,28 +502,10 @@ public abstract class TextToSpeechService extends Service {
             return mCurrentSpeechItem;
         }
 
-        private synchronized boolean setCurrentSpeechItem(SpeechItem speechItem) {
-            // Do not set as current if the item has already been flushed. The check is
-            // intentionally put inside this synchronized method. Specifically, the following
-            // racy sequence between this method and stopForApp() needs to be avoided.
-            //        (this method)          (stopForApp)
-            //     1. isFlushed
-            //     2.                        startFlushingSpeechItems
-            //     3.                        maybeRemoveCurrentSpeechItem
-            //     4. set mCurrentSpeechItem
-            // If it happens, stop() is never called on the item. The guard by synchornized(this)
-            // ensures that the step 3 cannot interrupt between 1 and 4.
-            if (speechItem != null && isFlushed(speechItem)) {
-                return false;
-            }
+        private synchronized SpeechItem setCurrentSpeechItem(SpeechItem speechItem) {
+            SpeechItem old = mCurrentSpeechItem;
             mCurrentSpeechItem = speechItem;
-            return true;
-        }
-
-        private synchronized SpeechItem removeCurrentSpeechItem() {
-            SpeechItem current = mCurrentSpeechItem;
-            mCurrentSpeechItem = null;
-            return current;
+            return old;
         }
 
         private synchronized SpeechItem maybeRemoveCurrentSpeechItem(Object callerIdentity) {
@@ -545,7 +527,7 @@ public abstract class TextToSpeechService extends Service {
             // Don't process any more speech items
             getLooper().quit();
             // Stop the current speech item
-            SpeechItem current = removeCurrentSpeechItem();
+            SpeechItem current = setCurrentSpeechItem(null);
             if (current != null) {
                 current.stop();
             }
@@ -579,12 +561,12 @@ public abstract class TextToSpeechService extends Service {
             Runnable runnable = new Runnable() {
                 @Override
                 public void run() {
-                    if (setCurrentSpeechItem(speechItem)) {
-                        speechItem.play();
-                        removeCurrentSpeechItem();
-                    } else {
-                        // The item is alreadly flushed. Stopping.
+                    if (isFlushed(speechItem)) {
                         speechItem.stop();
+                    } else {
+                        setCurrentSpeechItem(speechItem);
+                        speechItem.play();
+                        setCurrentSpeechItem(null);
                     }
                 }
             };
@@ -618,8 +600,7 @@ public abstract class TextToSpeechService extends Service {
                 return TextToSpeech.ERROR;
             }
 
-            // Flush pending messages from callerIdentity.
-            // See setCurrentSpeechItem on a subtlety around a race condition.
+            // Flush pending messages from callerIdentity
             startFlushingSpeechItems(callerIdentity);
 
             // This stops writing data to the file / or publishing
@@ -653,7 +634,7 @@ public abstract class TextToSpeechService extends Service {
             startFlushingSpeechItems(null);
 
             // Stop the current speech item unconditionally .
-            SpeechItem current = removeCurrentSpeechItem();
+            SpeechItem current = setCurrentSpeechItem(null);
             if (current != null) {
                 current.stop();
             }

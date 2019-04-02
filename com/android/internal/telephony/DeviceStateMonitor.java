@@ -25,18 +25,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.hardware.display.DisplayManager;
-import android.hardware.radio.V1_2.IndicationFilter;
+import android.hardware.radio.V1_0.IndicationFilter;
 import android.net.ConnectivityManager;
 import android.os.BatteryManager;
 import android.os.Handler;
 import android.os.Message;
 import android.os.PowerManager;
-import android.telephony.AccessNetworkConstants.AccessNetworkType;
-import android.telephony.CarrierConfigManager;
 import android.telephony.Rlog;
-import android.telephony.TelephonyManager;
 import android.util.LocalLog;
-import android.util.SparseIntArray;
 import android.view.Display;
 
 import com.android.internal.util.IndentingPrintWriter;
@@ -59,14 +55,10 @@ public class DeviceStateMonitor extends Handler {
     protected static final String TAG = DeviceStateMonitor.class.getSimpleName();
 
     private static final int EVENT_RIL_CONNECTED                = 0;
-    private static final int EVENT_UPDATE_MODE_CHANGED          = 1;
-    private static final int EVENT_SCREEN_STATE_CHANGED         = 2;
-    private static final int EVENT_POWER_SAVE_MODE_CHANGED      = 3;
-    private static final int EVENT_CHARGING_STATE_CHANGED       = 4;
-    private static final int EVENT_TETHERING_STATE_CHANGED      = 5;
-
-    // TODO(b/74006656) load hysteresis values from a property when DeviceStateMonitor starts
-    private static final int HYSTERESIS_KBPS = 50;
+    private static final int EVENT_SCREEN_STATE_CHANGED         = 1;
+    private static final int EVENT_POWER_SAVE_MODE_CHANGED      = 2;
+    private static final int EVENT_CHARGING_STATE_CHANGED       = 3;
+    private static final int EVENT_TETHERING_STATE_CHANGED      = 4;
 
     private final Phone mPhone;
 
@@ -103,8 +95,6 @@ public class DeviceStateMonitor extends Handler {
      * doesn't mean no data is expected.
      */
     private boolean mIsLowDataExpected;
-
-    private SparseIntArray mUpdateModes = new SparseIntArray();
 
     /**
      * The unsolicited response filter. See IndicationFilter defined in types.hal for the definition
@@ -206,27 +196,14 @@ public class DeviceStateMonitor extends Handler {
      * @return True if low data is expected
      */
     private boolean isLowDataExpected() {
-        return !mIsCharging && !mIsTetheringOn && !mIsScreenOn;
+        return mIsPowerSaveOn || (!mIsCharging && !mIsTetheringOn && !mIsScreenOn);
     }
 
     /**
      * @return True if signal strength update should be turned off.
      */
     private boolean shouldTurnOffSignalStrength() {
-        // We should not turn off signal strength update if one of the following condition is true.
-        // 1. The device is charging.
-        // 2. When the screen is on.
-        // 3. When the update mode is IGNORE_SCREEN_OFF. This mode is used in some corner cases like
-        //    when Bluetooth carkit is connected, we still want to update signal strength even
-        //    when screen is off.
-        if (mIsCharging || mIsScreenOn
-                || mUpdateModes.get(TelephonyManager.INDICATION_FILTER_SIGNAL_STRENGTH)
-                == TelephonyManager.INDICATION_UPDATE_MODE_IGNORE_SCREEN_OFF) {
-            return false;
-        }
-
-        // In all other cases, we turn off signal strength update.
-        return true;
+        return mIsPowerSaveOn || (!mIsCharging && !mIsScreenOn);
     }
 
     /**
@@ -234,104 +211,14 @@ public class DeviceStateMonitor extends Handler {
      * trigger the network update unsolicited response.
      */
     private boolean shouldTurnOffFullNetworkUpdate() {
-        // We should not turn off full network update if one of the following condition is true.
-        // 1. The device is charging.
-        // 2. When the screen is on.
-        // 3. When data tethering is on.
-        // 4. When the update mode is IGNORE_SCREEN_OFF.
-        if (mIsCharging || mIsScreenOn || mIsTetheringOn
-                || mUpdateModes.get(TelephonyManager.INDICATION_FILTER_FULL_NETWORK_STATE)
-                == TelephonyManager.INDICATION_UPDATE_MODE_IGNORE_SCREEN_OFF) {
-            return false;
-        }
-
-        // In all other cases, we turn off full network state update.
-        return true;
+        return mIsPowerSaveOn || (!mIsCharging && !mIsScreenOn && !mIsTetheringOn);
     }
 
     /**
      * @return True if data dormancy status update should be turned off.
      */
     private boolean shouldTurnOffDormancyUpdate() {
-        // We should not turn off data dormancy update if one of the following condition is true.
-        // 1. The device is charging.
-        // 2. When the screen is on.
-        // 3. When data tethering is on.
-        // 4. When the update mode is IGNORE_SCREEN_OFF.
-        if (mIsCharging || mIsScreenOn || mIsTetheringOn
-                || mUpdateModes.get(TelephonyManager.INDICATION_FILTER_DATA_CALL_DORMANCY_CHANGED)
-                == TelephonyManager.INDICATION_UPDATE_MODE_IGNORE_SCREEN_OFF) {
-            return false;
-        }
-
-        // In all other cases, we turn off data dormancy update.
-        return true;
-    }
-
-    /**
-     * @return True if link capacity estimate update should be turned off.
-     */
-    private boolean shouldTurnOffLinkCapacityEstimate() {
-        // We should not turn off link capacity update if one of the following condition is true.
-        // 1. The device is charging.
-        // 2. When the screen is on.
-        // 3. When data tethering is on.
-        // 4. When the update mode is IGNORE_SCREEN_OFF.
-        if (mIsCharging || mIsScreenOn || mIsTetheringOn
-                || mUpdateModes.get(TelephonyManager.INDICATION_FILTER_LINK_CAPACITY_ESTIMATE)
-                == TelephonyManager.INDICATION_UPDATE_MODE_IGNORE_SCREEN_OFF) {
-            return false;
-        }
-
-        // In all other cases, we turn off link capacity update.
-        return true;
-    }
-
-    /**
-     * @return True if physical channel config update should be turned off.
-     */
-    private boolean shouldTurnOffPhysicalChannelConfig() {
-        // We should not turn off physical channel update if one of the following condition is true.
-        // 1. The device is charging.
-        // 2. When the screen is on.
-        // 3. When data tethering is on.
-        // 4. When the update mode is IGNORE_SCREEN_OFF.
-        if (mIsCharging || mIsScreenOn || mIsTetheringOn
-                || mUpdateModes.get(TelephonyManager.INDICATION_FILTER_PHYSICAL_CHANNEL_CONFIG)
-                == TelephonyManager.INDICATION_UPDATE_MODE_IGNORE_SCREEN_OFF) {
-            return false;
-        }
-
-        // In all other cases, we turn off physical channel config update.
-        return true;
-    }
-
-    /**
-     * Set indication update mode
-     *
-     * @param filters Indication filters. Should be a bitmask of INDICATION_FILTER_XXX.
-     * @param mode The voice activation state
-     */
-    public void setIndicationUpdateMode(int filters, int mode) {
-        sendMessage(obtainMessage(EVENT_UPDATE_MODE_CHANGED, filters, mode));
-    }
-
-    private void onSetIndicationUpdateMode(int filters, int mode) {
-        if ((filters & TelephonyManager.INDICATION_FILTER_SIGNAL_STRENGTH) != 0) {
-            mUpdateModes.put(TelephonyManager.INDICATION_FILTER_SIGNAL_STRENGTH, mode);
-        }
-        if ((filters & TelephonyManager.INDICATION_FILTER_FULL_NETWORK_STATE) != 0) {
-            mUpdateModes.put(TelephonyManager.INDICATION_FILTER_FULL_NETWORK_STATE, mode);
-        }
-        if ((filters & TelephonyManager.INDICATION_FILTER_DATA_CALL_DORMANCY_CHANGED) != 0) {
-            mUpdateModes.put(TelephonyManager.INDICATION_FILTER_DATA_CALL_DORMANCY_CHANGED, mode);
-        }
-        if ((filters & TelephonyManager.INDICATION_FILTER_LINK_CAPACITY_ESTIMATE) != 0) {
-            mUpdateModes.put(TelephonyManager.INDICATION_FILTER_LINK_CAPACITY_ESTIMATE, mode);
-        }
-        if ((filters & TelephonyManager.INDICATION_FILTER_PHYSICAL_CHANNEL_CONFIG) != 0) {
-            mUpdateModes.put(TelephonyManager.INDICATION_FILTER_PHYSICAL_CHANNEL_CONFIG, mode);
-        }
+        return mIsPowerSaveOn || (!mIsCharging && !mIsTetheringOn && !mIsScreenOn);
     }
 
     /**
@@ -346,17 +233,8 @@ public class DeviceStateMonitor extends Handler {
             case EVENT_RIL_CONNECTED:
                 onRilConnected();
                 break;
-            case EVENT_UPDATE_MODE_CHANGED:
-                onSetIndicationUpdateMode(msg.arg1, msg.arg2);
-                break;
-            case EVENT_SCREEN_STATE_CHANGED:
-            case EVENT_POWER_SAVE_MODE_CHANGED:
-            case EVENT_CHARGING_STATE_CHANGED:
-            case EVENT_TETHERING_STATE_CHANGED:
-                onUpdateDeviceState(msg.what, msg.arg1 != 0);
-                break;
             default:
-                throw new IllegalStateException("Unexpected message arrives. msg = " + msg.what);
+                updateDeviceState(msg.what, msg.arg1 != 0);
         }
     }
 
@@ -366,7 +244,7 @@ public class DeviceStateMonitor extends Handler {
      * @param eventType Device state event type
      * @param state True if enabled/on, otherwise disabled/off.
      */
-    private void onUpdateDeviceState(int eventType, boolean state) {
+    private void updateDeviceState(int eventType, boolean state) {
         switch (eventType) {
             case EVENT_SCREEN_STATE_CHANGED:
                 if (mIsScreenOn == state) return;
@@ -408,14 +286,6 @@ public class DeviceStateMonitor extends Handler {
             newFilter |= IndicationFilter.DATA_CALL_DORMANCY_CHANGED;
         }
 
-        if (!shouldTurnOffLinkCapacityEstimate()) {
-            newFilter |= IndicationFilter.LINK_CAPACITY_ESTIMATE;
-        }
-
-        if (!shouldTurnOffPhysicalChannelConfig()) {
-            newFilter |= IndicationFilter.PHYSICAL_CHANNEL_CONFIG;
-        }
-
         setUnsolResponseFilter(newFilter, false);
     }
 
@@ -432,8 +302,6 @@ public class DeviceStateMonitor extends Handler {
         sendDeviceState(LOW_DATA_EXPECTED, mIsLowDataExpected);
         sendDeviceState(POWER_SAVE_MODE, mIsPowerSaveOn);
         setUnsolResponseFilter(mUnsolicitedResponseFilter, true);
-        setSignalStrengthReportingCriteria();
-        setLinkCapacityReportingCriteria();
     }
 
     /**
@@ -474,28 +342,6 @@ public class DeviceStateMonitor extends Handler {
             mPhone.mCi.setUnsolResponseFilter(newFilter, null);
             mUnsolicitedResponseFilter = newFilter;
         }
-    }
-
-    private void setSignalStrengthReportingCriteria() {
-        mPhone.setSignalStrengthReportingCriteria(
-                AccessNetworkThresholds.GERAN, AccessNetworkType.GERAN);
-        mPhone.setSignalStrengthReportingCriteria(
-                AccessNetworkThresholds.UTRAN, AccessNetworkType.UTRAN);
-        mPhone.setSignalStrengthReportingCriteria(
-                AccessNetworkThresholds.EUTRAN, AccessNetworkType.EUTRAN);
-        mPhone.setSignalStrengthReportingCriteria(
-                AccessNetworkThresholds.CDMA2000, AccessNetworkType.CDMA2000);
-    }
-
-    private void setLinkCapacityReportingCriteria() {
-        mPhone.setLinkCapacityReportingCriteria(LINK_CAPACITY_DOWNLINK_THRESHOLDS,
-                LINK_CAPACITY_UPLINK_THRESHOLDS, AccessNetworkType.GERAN);
-        mPhone.setLinkCapacityReportingCriteria(LINK_CAPACITY_DOWNLINK_THRESHOLDS,
-                LINK_CAPACITY_UPLINK_THRESHOLDS, AccessNetworkType.UTRAN);
-        mPhone.setLinkCapacityReportingCriteria(LINK_CAPACITY_DOWNLINK_THRESHOLDS,
-                LINK_CAPACITY_UPLINK_THRESHOLDS, AccessNetworkType.EUTRAN);
-        mPhone.setLinkCapacityReportingCriteria(LINK_CAPACITY_DOWNLINK_THRESHOLDS,
-                LINK_CAPACITY_UPLINK_THRESHOLDS, AccessNetworkType.CDMA2000);
     }
 
     /**
@@ -583,85 +429,4 @@ public class DeviceStateMonitor extends Handler {
         ipw.decreaseIndent();
         ipw.flush();
     }
-
-    /**
-     * dBm thresholds that correspond to changes in signal strength indications.
-     */
-    private static final class AccessNetworkThresholds {
-
-        /**
-         * List of dBm thresholds for GERAN {@link AccessNetworkType}.
-         *
-         * Calculated from GSM asu level thresholds - TS 27.007 Sec 8.5
-         */
-        public static final int[] GERAN = new int[] {
-            -109,
-            -103,
-            -97,
-            -89,
-        };
-
-        /**
-         * List of default dBm thresholds for UTRAN {@link AccessNetworkType}.
-         *
-         * These thresholds are taken from the WCDMA RSCP defaults in {@link CarrierConfigManager}.
-         * See TS 27.007 Sec 8.69.
-         */
-        public static final int[] UTRAN = new int[] {
-            -114, /* SIGNAL_STRENGTH_POOR */
-            -104, /* SIGNAL_STRENGTH_MODERATE */
-            -94,  /* SIGNAL_STRENGTH_GOOD */
-            -84   /* SIGNAL_STRENGTH_GREAT */
-        };
-
-        /**
-         * List of default dBm thresholds for EUTRAN {@link AccessNetworkType}.
-         *
-         * These thresholds are taken from the LTE RSRP defaults in {@link CarrierConfigManager}.
-         */
-        public static final int[] EUTRAN = new int[] {
-            -140, /* SIGNAL_STRENGTH_NONE_OR_UNKNOWN */
-            -128, /* SIGNAL_STRENGTH_POOR */
-            -118, /* SIGNAL_STRENGTH_MODERATE */
-            -108, /* SIGNAL_STRENGTH_GOOD */
-            -98,  /* SIGNAL_STRENGTH_GREAT */
-            -44   /* SIGNAL_STRENGTH_NONE_OR_UNKNOWN */
-        };
-
-        /**
-         * List of dBm thresholds for CDMA2000 {@link AccessNetworkType}.
-         *
-         * These correspond to EVDO level thresholds.
-         */
-        public static final int[] CDMA2000 = new int[] {
-            -105,
-            -90,
-            -75,
-            -65
-        };
-    }
-
-    /**
-     * Downlink reporting thresholds in kbps
-     *
-     * <p>Threshold values taken from FCC Speed Guide
-     * (https://www.fcc.gov/reports-research/guides/broadband-speed-guide) and Android WiFi speed
-     * labels (https://support.google.com/pixelphone/answer/2819519#strength_speed).
-     */
-    private static final int[] LINK_CAPACITY_DOWNLINK_THRESHOLDS = new int[] {
-            500,   // Web browsing
-            1000,  // SD video streaming
-            5000,  // HD video streaming
-            10000, // file downloading
-            20000, // 4K video streaming
-    };
-
-    /** Uplink reporting thresholds in kbps */
-    private static final int[] LINK_CAPACITY_UPLINK_THRESHOLDS = new int[] {
-            100,   // VoIP calls
-            500,
-            1000,
-            5000,
-            10000,
-    };
 }

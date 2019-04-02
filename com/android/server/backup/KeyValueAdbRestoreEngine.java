@@ -13,8 +13,6 @@ import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.util.Slog;
 
-import com.android.server.backup.restore.PerformAdbRestoreTask;
-
 import libcore.io.IoUtils;
 
 import java.io.File;
@@ -43,7 +41,7 @@ public class KeyValueAdbRestoreEngine implements Runnable {
     private final File mDataDir;
 
     FileMetadata mInfo;
-    PerformAdbRestoreTask mRestoreTask;
+    BackupManagerService.PerformAdbRestoreTask mRestoreTask;
     ParcelFileDescriptor mInFD;
     IBackupAgent mAgent;
     int mToken;
@@ -64,7 +62,8 @@ public class KeyValueAdbRestoreEngine implements Runnable {
         try {
             File restoreData = prepareRestoreData(mInfo, mInFD);
 
-            invokeAgentForAdbRestore(mAgent, mInfo, restoreData);
+            // TODO: version ?
+            invokeAgentForAdbRestore(mAgent, mInfo, restoreData, 0);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -82,8 +81,8 @@ public class KeyValueAdbRestoreEngine implements Runnable {
         return sortedDataName;
     }
 
-    private void invokeAgentForAdbRestore(IBackupAgent agent, FileMetadata info, File restoreData)
-            throws IOException {
+    private void invokeAgentForAdbRestore(IBackupAgent agent, FileMetadata info, File restoreData,
+            int versionCode) throws IOException {
         String pkg = info.packageName;
         File newStateName = new File(mDataDir, pkg + ".new");
         try {
@@ -94,9 +93,9 @@ public class KeyValueAdbRestoreEngine implements Runnable {
 
             if (DEBUG) {
                 Slog.i(TAG, "Starting restore of package " + pkg + " for version code "
-                        + info.version);
+                        + versionCode);
             }
-            agent.doRestore(backupData, info.version, newState, mToken,
+            agent.doRestore(backupData, versionCode, newState, mToken,
                     mBackupManagerService.getBackupManagerBinder());
         } catch (IOException e) {
             Slog.e(TAG, "Exception opening file. " + e);

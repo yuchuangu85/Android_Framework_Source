@@ -28,11 +28,6 @@ class NopAttributeSet implements AttributeSet {
     }
 
     @Override
-    public String getAttributeNamespace(int index) {
-        return null;
-    }
-
-    @Override
     public String getAttributeName(int index) {
         return null;
     }

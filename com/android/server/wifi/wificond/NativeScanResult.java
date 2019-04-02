@@ -19,7 +19,6 @@ package com.android.server.wifi.wificond;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import java.util.ArrayList;
 import java.util.BitSet;
 
 /**
@@ -38,7 +37,6 @@ public class NativeScanResult implements Parcelable {
     public long tsf;
     public BitSet capability;
     public boolean associated;
-    public ArrayList<RadioChainInfo> radioChainInfos;
 
     /** public constructor */
     public NativeScanResult() { }
@@ -78,7 +76,6 @@ public class NativeScanResult implements Parcelable {
         }
         out.writeInt(capabilityInt);
         out.writeInt(associated ? 1 : 0);
-        out.writeTypedList(radioChainInfos);
     }
 
     /** implement Parcelable interface */
@@ -101,8 +98,6 @@ public class NativeScanResult implements Parcelable {
                 }
             }
             result.associated = (in.readInt() != 0);
-            result.radioChainInfos = new ArrayList<>();
-            in.readTypedList(result.radioChainInfos, RadioChainInfo.CREATOR);
             return result;
         }
 

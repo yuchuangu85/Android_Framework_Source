@@ -17,8 +17,6 @@
 package android.app;
 
 import android.annotation.IntDef;
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Context;
@@ -420,52 +418,22 @@ public class Instrumentation {
      * different process.  In addition, if the given Intent resolves to
      * multiple activities, instead of displaying a dialog for the user to
      * select an activity, an exception will be thrown.
-     *
+     * 
      * <p>The function returns as soon as the activity goes idle following the
      * call to its {@link Activity#onCreate}.  Generally this means it has gone
      * through the full initialization including {@link Activity#onResume} and
      * drawn and displayed its initial window.
-     *
+     * 
      * @param intent Description of the activity to start.
-     *
+     * 
      * @see Context#startActivity
-     * @see #startActivitySync(Intent, Bundle)
      */
     public Activity startActivitySync(Intent intent) {
-        return startActivitySync(intent, null /* options */);
-    }
-
-    /**
-     * Start a new activity and wait for it to begin running before returning.
-     * In addition to being synchronous, this method as some semantic
-     * differences from the standard {@link Context#startActivity} call: the
-     * activity component is resolved before talking with the activity manager
-     * (its class name is specified in the Intent that this method ultimately
-     * starts), and it does not allow you to start activities that run in a
-     * different process.  In addition, if the given Intent resolves to
-     * multiple activities, instead of displaying a dialog for the user to
-     * select an activity, an exception will be thrown.
-     *
-     * <p>The function returns as soon as the activity goes idle following the
-     * call to its {@link Activity#onCreate}.  Generally this means it has gone
-     * through the full initialization including {@link Activity#onResume} and
-     * drawn and displayed its initial window.
-     *
-     * @param intent Description of the activity to start.
-     * @param options Additional options for how the Activity should be started.
-     * May be null if there are no options.  See {@link android.app.ActivityOptions}
-     * for how to build the Bundle supplied here; there are no supported definitions
-     * for building it manually.
-     *
-     * @see Context#startActivity(Intent, Bundle)
-     */
-    @NonNull
-    public Activity startActivitySync(@NonNull Intent intent, @Nullable Bundle options) {
         validateNotAppThread();
 
         synchronized (mSync) {
             intent = new Intent(intent);
-
+    
             ActivityInfo ai = intent.resolveActivityInfo(
                 getTargetContext().getPackageManager(), 0);
             if (ai == null) {
@@ -479,7 +447,7 @@ public class Instrumentation {
                         + myProc + " resolved to different process "
                         + ai.processName + ": " + intent);
             }
-
+    
             intent.setComponent(new ComponentName(
                     ai.applicationInfo.packageName, ai.name));
             final ActivityWaiter aw = new ActivityWaiter(intent);
@@ -489,7 +457,7 @@ public class Instrumentation {
             }
             mWaitingActivities.add(aw);
 
-            getTargetContext().startActivity(intent, options);
+            getTargetContext().startActivity(intent);
 
             do {
                 try {
@@ -497,7 +465,7 @@ public class Instrumentation {
                 } catch (InterruptedException e) {
                 }
             } while (mWaitingActivities.contains(aw));
-
+         
             return aw.activity;
         }
     }
@@ -1116,10 +1084,7 @@ public class Instrumentation {
     public Application newApplication(ClassLoader cl, String className, Context context)
             throws InstantiationException, IllegalAccessException, 
             ClassNotFoundException {
-        Application app = getFactory(context.getPackageName())
-                .instantiateApplication(cl, className);
-        app.attach(context);
-        return app;
+        return newApplication(cl.loadClass(className), context);
     }
     
     /**
@@ -1182,10 +1147,6 @@ public class Instrumentation {
             IllegalAccessException {
         Activity activity = (Activity)clazz.newInstance();
         ActivityThread aThread = null;
-        // Activity.attach expects a non-null Application Object.
-        if (application == null) {
-            application = new Application();
-        }
         activity.attach(context, aThread, this, token, 0 /* ident */, application, intent,
                 info, title, parent, id,
                 (Activity.NonConfigurationInstances)lastNonConfigurationInstance,
@@ -1210,25 +1171,7 @@ public class Instrumentation {
             Intent intent)
             throws InstantiationException, IllegalAccessException,
             ClassNotFoundException {
-        String pkg = intent != null && intent.getComponent() != null
-                ? intent.getComponent().getPackageName() : null;
-        return getFactory(pkg).instantiateActivity(cl, className, intent);
-    }
-
-    private AppComponentFactory getFactory(String pkg) {
-        if (pkg == null) {
-            Log.e(TAG, "No pkg specified, disabling AppComponentFactory");
-            return AppComponentFactory.DEFAULT;
-        }
-        if (mThread == null) {
-            Log.e(TAG, "Uninitialized ActivityThread, likely app-created Instrumentation,"
-                    + " disabling AppComponentFactory", new Throwable());
-            return AppComponentFactory.DEFAULT;
-        }
-        LoadedApk apk = mThread.peekPackageInfo(pkg, true);
-        // This is in the case of starting up "android".
-        if (apk == null) apk = mThread.getSystemContext().mPackageInfo;
-        return apk.getAppFactory();
+        return (Activity)cl.loadClass(className).newInstance();
     }
 
     private void prePerformCreate(Activity activity) {
@@ -1688,7 +1631,7 @@ public class Instrumentation {
     public void execStartActivities(Context who, IBinder contextThread,
             IBinder token, Activity target, Intent[] intents, Bundle options) {
         execStartActivitiesAsUser(who, contextThread, token, target, intents, options,
-                who.getUserId());
+                UserHandle.myUserId());
     }
 
     /**
@@ -1697,13 +1640,9 @@ public class Instrumentation {
      * {@link ActivityMonitor} objects only match against the first activity in
      * the array.
      *
-     * @return The corresponding flag {@link ActivityManager#START_CANCELED},
-     *         {@link ActivityManager#START_SUCCESS} etc. indicating whether the launch was
-     *         successful.
-     *
      * {@hide}
      */
-    public int execStartActivitiesAsUser(Context who, IBinder contextThread,
+    public void execStartActivitiesAsUser(Context who, IBinder contextThread,
             IBinder token, Activity target, Intent[] intents, Bundle options,
             int userId) {
         IApplicationThread whoThread = (IApplicationThread) contextThread;
@@ -1718,11 +1657,11 @@ public class Instrumentation {
                     }
                     if (result != null) {
                         am.mHits++;
-                        return ActivityManager.START_CANCELED;
+                        return;
                     } else if (am.match(who, null, intents[0])) {
                         am.mHits++;
                         if (am.isBlocking()) {
-                            return ActivityManager.START_CANCELED;
+                            return;
                         }
                         break;
                     }
@@ -1740,7 +1679,6 @@ public class Instrumentation {
                 .startActivities(whoThread, who.getBasePackageName(), intents, resolvedTypes,
                         token, options, userId);
             checkStartActivityResult(result, intents[0]);
-            return result;
         } catch (RemoteException e) {
             throw new RuntimeException("Failure from system", e);
         }
@@ -1980,14 +1918,6 @@ public class Instrumentation {
         mComponent = component;
         mWatcher = watcher;
         mUiAutomationConnection = uiAutomationConnection;
-    }
-
-    /**
-     * Only sets the ActivityThread up, keeps everything else null because app is not being
-     * instrumented.
-     */
-    final void basicInit(ActivityThread thread) {
-        mThread = thread;
     }
 
     /** @hide */

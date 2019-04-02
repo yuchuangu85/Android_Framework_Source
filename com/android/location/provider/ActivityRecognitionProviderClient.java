@@ -27,7 +27,6 @@ import android.util.Log;
 
 /**
  * A client class for interaction with an Activity-Recognition provider.
- * @hide
  */
 public abstract class ActivityRecognitionProviderClient {
     private static final String TAG = "ArProviderClient";

@@ -644,11 +644,9 @@ public final class ArrayMap<K, V> implements Map<K, V> {
         if (osize <= 1) {
             // Now empty.
             if (DEBUG) Log.d(TAG, "remove: shrink from " + mHashes.length + " to 0");
-            final int[] ohashes = mHashes;
-            final Object[] oarray = mArray;
+            freeArrays(mHashes, mArray, osize);
             mHashes = EmptyArray.INT;
             mArray = EmptyArray.OBJECT;
-            freeArrays(ohashes, oarray, osize);
             nsize = 0;
         } else {
             nsize = osize - 1;

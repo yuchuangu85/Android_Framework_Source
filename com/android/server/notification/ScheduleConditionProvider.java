@@ -29,22 +29,21 @@ import android.os.Binder;
 import android.provider.Settings;
 import android.service.notification.Condition;
 import android.service.notification.IConditionProvider;
-import android.service.notification.ScheduleCalendar;
 import android.service.notification.ZenModeConfig;
+import android.service.notification.ZenModeConfig.ScheduleInfo;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.Log;
 import android.util.Slog;
 
-import com.android.internal.annotations.GuardedBy;
-import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.notification.NotificationManagerService.DumpFilter;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
+import java.util.TimeZone;
 
 /**
  * Built-in zen condition provider for daily scheduled time-based conditions.
@@ -63,9 +62,10 @@ public class ScheduleConditionProvider extends SystemConditionProviderService {
     private static final String SEPARATOR = ";";
     private static final String SCP_SETTING = "snoozed_schedule_condition_provider";
 
+
     private final Context mContext = this;
     private final ArrayMap<Uri, ScheduleCalendar> mSubscriptions = new ArrayMap<>();
-    private ArraySet<Uri> mSnoozedForAlarm = new ArraySet<>();
+    private ArraySet<Uri> mSnoozed = new ArraySet<>();
 
     private AlarmManager mAlarmManager;
     private boolean mConnected;
@@ -102,7 +102,7 @@ public class ScheduleConditionProvider extends SystemConditionProviderService {
                 pw.println(mSubscriptions.get(conditionId).toString());
             }
         }
-        pw.println("      snoozed due to alarm: " + TextUtils.join(SEPARATOR, mSnoozedForAlarm));
+        pw.println("      snoozed due to alarm: " + TextUtils.join(SEPARATOR, mSnoozed));
         dumpUpcomingTime(pw, "mNextAlarmTime", mNextAlarmTime, now);
     }
 
@@ -129,11 +129,11 @@ public class ScheduleConditionProvider extends SystemConditionProviderService {
     public void onSubscribe(Uri conditionId) {
         if (DEBUG) Slog.d(TAG, "onSubscribe " + conditionId);
         if (!ZenModeConfig.isValidScheduleConditionId(conditionId)) {
-            notifyCondition(createCondition(conditionId, Condition.STATE_ERROR, "invalidId"));
+            notifyCondition(createCondition(conditionId, Condition.STATE_FALSE, "badCondition"));
             return;
         }
         synchronized (mSubscriptions) {
-            mSubscriptions.put(conditionId, ZenModeConfig.toScheduleCalendar(conditionId));
+            mSubscriptions.put(conditionId, toScheduleCalendar(conditionId));
         }
         evaluateSubscriptions();
     }
@@ -169,51 +169,37 @@ public class ScheduleConditionProvider extends SystemConditionProviderService {
         synchronized (mSubscriptions) {
             setRegistered(!mSubscriptions.isEmpty());
             for (Uri conditionId : mSubscriptions.keySet()) {
-                Condition condition =
-                        evaluateSubscriptionLocked(conditionId, mSubscriptions.get(conditionId),
-                                now, nextUserAlarmTime);
-                if (condition != null) {
-                    conditionsToNotify.add(condition);
+                final ScheduleCalendar cal = mSubscriptions.get(conditionId);
+                if (cal != null && cal.isInSchedule(now)) {
+                    if (conditionSnoozed(conditionId) || cal.shouldExitForAlarm(now)) {
+                        conditionsToNotify.add(createCondition(
+                                conditionId, Condition.STATE_FALSE, "alarmCanceled"));
+                        addSnoozed(conditionId);
+                    } else {
+                        conditionsToNotify.add(createCondition(
+                                conditionId, Condition.STATE_TRUE, "meetsSchedule"));
+                    }
+                    cal.maybeSetNextAlarm(now, nextUserAlarmTime);
+                } else {
+                    conditionsToNotify.add(createCondition(
+                            conditionId, Condition.STATE_FALSE, "!meetsSchedule"));
+                    removeSnoozed(conditionId);
+                    if (cal != null && nextUserAlarmTime == 0) {
+                        cal.maybeSetNextAlarm(now, nextUserAlarmTime);
+                    }
+                }
+                if (cal != null) {
+                    final long nextChangeTime = cal.getNextChangeTime(now);
+                    if (nextChangeTime > 0 && nextChangeTime > now) {
+                        if (mNextAlarmTime == 0 || nextChangeTime < mNextAlarmTime) {
+                            mNextAlarmTime = nextChangeTime;
+                        }
+                    }
                 }
             }
         }
         notifyConditions(conditionsToNotify.toArray(new Condition[conditionsToNotify.size()]));
         updateAlarm(now, mNextAlarmTime);
-    }
-
-    @VisibleForTesting
-    @GuardedBy("mSubscriptions")
-    Condition evaluateSubscriptionLocked(Uri conditionId, ScheduleCalendar cal,
-            long now, long nextUserAlarmTime) {
-        if (DEBUG) Slog.d(TAG, String.format("evaluateSubscriptionLocked cal=%s, now=%s, "
-                        + "nextUserAlarmTime=%s", cal, ts(now), ts(nextUserAlarmTime)));
-        Condition condition;
-        if (cal == null) {
-            condition = createCondition(conditionId, Condition.STATE_ERROR, "!invalidId");
-            removeSnoozed(conditionId);
-            return condition;
-        }
-        if (cal.isInSchedule(now)) {
-            if (conditionSnoozed(conditionId)) {
-                condition = createCondition(conditionId, Condition.STATE_FALSE, "snoozed");
-            } else if (cal.shouldExitForAlarm(now)) {
-                condition = createCondition(conditionId, Condition.STATE_FALSE, "alarmCanceled");
-                addSnoozed(conditionId);
-            } else {
-                condition = createCondition(conditionId, Condition.STATE_TRUE, "meetsSchedule");
-            }
-        } else {
-            condition = createCondition(conditionId, Condition.STATE_FALSE, "!meetsSchedule");
-            removeSnoozed(conditionId);
-        }
-        cal.maybeSetNextAlarm(now, nextUserAlarmTime);
-        final long nextChangeTime = cal.getNextChangeTime(now);
-        if (nextChangeTime > 0 && nextChangeTime > now) {
-            if (mNextAlarmTime == 0 || nextChangeTime < mNextAlarmTime) {
-                mNextAlarmTime = nextChangeTime;
-            }
-        }
-        return condition;
     }
 
     private void updateAlarm(long now, long time) {
@@ -244,6 +230,15 @@ public class ScheduleConditionProvider extends SystemConditionProviderService {
         return cal != null && cal.isInSchedule(time);
     }
 
+    private static ScheduleCalendar toScheduleCalendar(Uri conditionId) {
+        final ScheduleInfo schedule = ZenModeConfig.tryParseScheduleConditionId(conditionId);
+        if (schedule == null || schedule.days == null || schedule.days.length == 0) return null;
+        final ScheduleCalendar sc = new ScheduleCalendar();
+        sc.setSchedule(schedule);
+        sc.setTimeZone(TimeZone.getDefault());
+        return sc;
+    }
+
     private void setRegistered(boolean registered) {
         if (mRegistered == registered) return;
         if (DEBUG) Slog.d(TAG, "setRegistered " + registered);
@@ -271,28 +266,27 @@ public class ScheduleConditionProvider extends SystemConditionProviderService {
     }
 
     private boolean conditionSnoozed(Uri conditionId) {
-        synchronized (mSnoozedForAlarm) {
-            return mSnoozedForAlarm.contains(conditionId);
+        synchronized (mSnoozed) {
+            return mSnoozed.contains(conditionId);
         }
     }
 
-    @VisibleForTesting
-    void addSnoozed(Uri conditionId) {
-        synchronized (mSnoozedForAlarm) {
-            mSnoozedForAlarm.add(conditionId);
+    private void addSnoozed(Uri conditionId) {
+        synchronized (mSnoozed) {
+            mSnoozed.add(conditionId);
             saveSnoozedLocked();
         }
     }
 
     private void removeSnoozed(Uri conditionId) {
-        synchronized (mSnoozedForAlarm) {
-            mSnoozedForAlarm.remove(conditionId);
+        synchronized (mSnoozed) {
+            mSnoozed.remove(conditionId);
             saveSnoozedLocked();
         }
     }
 
-    private void saveSnoozedLocked() {
-        final String setting = TextUtils.join(SEPARATOR, mSnoozedForAlarm);
+    public void saveSnoozedLocked() {
+        final String setting = TextUtils.join(SEPARATOR, mSnoozed);
         final int currentUser = ActivityManager.getCurrentUser();
         Settings.Secure.putStringForUser(mContext.getContentResolver(),
                 SCP_SETTING,
@@ -300,8 +294,8 @@ public class ScheduleConditionProvider extends SystemConditionProviderService {
                 currentUser);
     }
 
-    private void readSnoozed() {
-        synchronized (mSnoozedForAlarm) {
+    public void readSnoozed() {
+        synchronized (mSnoozed) {
             long identity = Binder.clearCallingIdentity();
             try {
                 final String setting = Settings.Secure.getStringForUser(
@@ -318,7 +312,7 @@ public class ScheduleConditionProvider extends SystemConditionProviderService {
                         if (TextUtils.isEmpty(token)) {
                             continue;
                         }
-                        mSnoozedForAlarm.add(Uri.parse(token));
+                        mSnoozed.add(Uri.parse(token));
                     }
                 }
             } finally {

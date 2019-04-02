@@ -17,32 +17,31 @@
 package com.android.setupwizardlib.view;
 
 import android.content.Context;
+import android.graphics.drawable.Drawable;
+import android.os.Build.VERSION;
+import android.os.Build.VERSION_CODES;
+import android.support.v4.view.ViewCompat;
+import android.support.v7.widget.AppCompatTextView;
 import android.text.Annotation;
 import android.text.SpannableString;
 import android.text.Spanned;
-import android.text.method.MovementMethod;
+import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.text.style.TextAppearanceSpan;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.MotionEvent;
-import android.widget.TextView;
 
 import com.android.setupwizardlib.span.LinkSpan;
 import com.android.setupwizardlib.span.LinkSpan.OnLinkClickListener;
 import com.android.setupwizardlib.span.SpanHelper;
-import com.android.setupwizardlib.view.TouchableMovementMethod.TouchableLinkMovementMethod;
+import com.android.setupwizardlib.util.LinkAccessibilityHelper;
 
 /**
  * An extension of TextView that automatically replaces the annotation tags as specified in
  * {@link SpanHelper#replaceSpan(android.text.Spannable, Object, Object)}
- *
- * <p>Note: The accessibility interaction for ClickableSpans (and therefore LinkSpans) are built
- * into platform in O, although the interaction paradigm is different. (See b/17726921). In this
- * platform version, the links are exposed in the Local Context Menu of TalkBack instead of
- * accessible directly through swiping.
  */
-public class RichTextView extends TextView implements OnLinkClickListener {
+public class RichTextView extends AppCompatTextView implements OnLinkClickListener {
 
     /* static section */
 
@@ -90,14 +89,22 @@ public class RichTextView extends TextView implements OnLinkClickListener {
 
     /* non-static section */
 
+    private LinkAccessibilityHelper mAccessibilityHelper;
     private OnLinkClickListener mOnLinkClickListener;
 
     public RichTextView(Context context) {
         super(context);
+        init();
     }
 
     public RichTextView(Context context, AttributeSet attrs) {
         super(context, attrs);
+        init();
+    }
+
+    private void init() {
+        mAccessibilityHelper = new LinkAccessibilityHelper(this);
+        ViewCompat.setAccessibilityDelegate(this, mAccessibilityHelper);
     }
 
     @Override
@@ -114,7 +121,7 @@ public class RichTextView extends TextView implements OnLinkClickListener {
             // nullifying any return values of MovementMethod.onTouchEvent.
             // To still allow propagating touch events to the parent when this view doesn't have
             // links, we only set the movement method here if the text contains links.
-            setMovementMethod(TouchableLinkMovementMethod.getInstance());
+            setMovementMethod(LinkMovementMethod.getInstance());
         } else {
             setMovementMethod(null);
         }
@@ -123,11 +130,6 @@ public class RichTextView extends TextView implements OnLinkClickListener {
         // as individual TextViews consume touch events and thereby reducing the focus window
         // shown by Talkback. Disable focus if there are no links
         setFocusable(hasLinks);
-        // Do not "reveal" (i.e. scroll to) this view when this view is focused. Since this view is
-        // focusable in touch mode, we may be focused when the screen is first shown, and starting
-        // a screen halfway scrolled down is confusing to the user.
-        setRevealOnFocusHint(false);
-        setFocusableInTouchMode(hasLinks);
     }
 
     private boolean hasLinks(CharSequence text) {
@@ -140,22 +142,29 @@ public class RichTextView extends TextView implements OnLinkClickListener {
     }
 
     @Override
-    @SuppressWarnings("ClickableViewAccessibility")  // super.onTouchEvent is called
-    public boolean onTouchEvent(MotionEvent event) {
-        // Since View#onTouchEvent always return true if the view is clickable (which is the case
-        // when a TextView has a movement method), override the implementation to allow the movement
-        // method, if it implements TouchableMovementMethod, to say that the touch is not handled,
-        // allowing the event to bubble up to the parent view.
-        boolean superResult = super.onTouchEvent(event);
-        MovementMethod movementMethod = getMovementMethod();
-        if (movementMethod instanceof TouchableMovementMethod) {
-            TouchableMovementMethod touchableMovementMethod =
-                    (TouchableMovementMethod) movementMethod;
-            if (touchableMovementMethod.getLastTouchEvent() == event) {
-                return touchableMovementMethod.isLastTouchEventHandled();
+    protected boolean dispatchHoverEvent(MotionEvent event) {
+        if (mAccessibilityHelper != null && mAccessibilityHelper.dispatchHoverEvent(event)) {
+            return true;
+        }
+        return super.dispatchHoverEvent(event);
+    }
+
+    @Override
+    protected void drawableStateChanged() {
+        super.drawableStateChanged();
+
+        if (VERSION.SDK_INT >= VERSION_CODES.JELLY_BEAN_MR1) {
+            // b/26765507 causes drawableStart and drawableEnd to not get the right state on M. As a
+            // workaround, set the state on those drawables directly.
+            final int[] state = getDrawableState();
+            for (Drawable drawable : getCompoundDrawablesRelative()) {
+                if (drawable != null) {
+                    if (drawable.setState(state)) {
+                        invalidateDrawable(drawable);
+                    }
+                }
             }
         }
-        return superResult;
     }
 
     public void setOnLinkClickListener(OnLinkClickListener listener) {

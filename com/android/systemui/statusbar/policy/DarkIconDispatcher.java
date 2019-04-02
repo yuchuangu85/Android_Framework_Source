@@ -35,7 +35,7 @@ public interface DarkIconDispatcher {
 
     // Used to reapply darkness on an object, must have previously been added through
     // addDarkReceiver.
-    void applyDark(DarkReceiver object);
+    void applyDark(ImageView object);
 
     int DEFAULT_ICON_TINT = Color.WHITE;
     Rect sTmpRect = new Rect();

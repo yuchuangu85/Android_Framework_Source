@@ -52,7 +52,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
@@ -74,9 +73,12 @@ public abstract class FileSystemProvider extends DocumentsProvider {
 
     private Handler mHandler;
 
+
     private static final String MIMETYPE_JPEG = "image/jpeg";
+
     private static final String MIMETYPE_JPG = "image/jpg";
-    private static final String MIMETYPE_OCTET_STREAM = "application/octet-stream";
+
+
 
     protected abstract File getFileForDocId(String docId, boolean visible)
             throws FileNotFoundException;
@@ -84,14 +86,6 @@ public abstract class FileSystemProvider extends DocumentsProvider {
     protected abstract String getDocIdForFile(File file) throws FileNotFoundException;
 
     protected abstract Uri buildNotificationUri(String docId);
-
-    /**
-     * Callback indicating that the given document has been modified. This gives
-     * the provider a hook to invalidate cached data, such as {@code sdcardfs}.
-     */
-    protected void onDocIdChanged(String docId) {
-        // Default is no-op
-    }
 
     @Override
     public boolean onCreate() {
@@ -118,41 +112,27 @@ public abstract class FileSystemProvider extends DocumentsProvider {
     }
 
     @Override
-    public @Nullable Bundle getDocumentMetadata(String documentId)
+    public @Nullable Bundle getDocumentMetadata(String documentId, @Nullable String[] tags)
             throws FileNotFoundException {
         File file = getFileForDocId(documentId);
-
-        if (!file.exists()) {
-            throw new FileNotFoundException("Can't find the file for documentId: " + documentId);
+        if (!(file.exists() && file.isFile() && file.canRead())) {
+            return Bundle.EMPTY;
         }
-
-        if (!file.isFile()) {
-            Log.w(TAG, "Can't stream non-regular file. Returning empty metadata.");
-            return null;
+        String filePath = file.getAbsolutePath();
+        Bundle metadata = new Bundle();
+        if (getTypeForFile(file).equals(MIMETYPE_JPEG)
+                || getTypeForFile(file).equals(MIMETYPE_JPG)) {
+            FileInputStream stream = new FileInputStream(filePath);
+            try {
+                MetadataReader.getMetadata(metadata, stream, getTypeForFile(file), tags);
+                return metadata;
+            } catch (IOException e) {
+                Log.e(TAG, "An error occurred retrieving the metadata", e);
+            } finally {
+                IoUtils.closeQuietly(stream);
+            }
         }
-
-        if (!file.canRead()) {
-            Log.w(TAG, "Can't stream non-readable file. Returning empty metadata.");
-            return null;
-        }
-
-        String mimeType = getTypeForFile(file);
-        if (!MetadataReader.isSupportedMimeType(mimeType)) {
-            return null;
-        }
-
-        InputStream stream = null;
-        try {
-            Bundle metadata = new Bundle();
-            stream = new FileInputStream(file.getAbsolutePath());
-            MetadataReader.getMetadata(metadata, stream, mimeType, null);
-            return metadata;
-        } catch (IOException e) {
-            Log.e(TAG, "An error occurred retrieving the metadata", e);
-            return null;
-        } finally {
-            IoUtils.closeQuietly(stream);
-        }
+        return null;
     }
 
     protected final List<String> findDocumentPath(File parent, File doc)
@@ -193,7 +173,6 @@ public abstract class FileSystemProvider extends DocumentsProvider {
                 throw new IllegalStateException("Failed to mkdir " + file);
             }
             childId = getDocIdForFile(file);
-            onDocIdChanged(childId);
             addFolderToMediaStore(getFileForDocId(childId, true));
         } else {
             try {
@@ -201,7 +180,6 @@ public abstract class FileSystemProvider extends DocumentsProvider {
                     throw new IllegalStateException("Failed to touch " + file);
                 }
                 childId = getDocIdForFile(file);
-                onDocIdChanged(childId);
             } catch (IOException e) {
                 throw new IllegalStateException("Failed to touch " + file + ": " + e);
             }
@@ -237,20 +215,15 @@ public abstract class FileSystemProvider extends DocumentsProvider {
 
         final File before = getFileForDocId(docId);
         final File after = FileUtils.buildUniqueFile(before.getParentFile(), displayName);
+        final File visibleFileBefore = getFileForDocId(docId, true);
         if (!before.renameTo(after)) {
             throw new IllegalStateException("Failed to rename to " + after);
         }
 
         final String afterDocId = getDocIdForFile(after);
-        onDocIdChanged(docId);
-        onDocIdChanged(afterDocId);
-
-        final File beforeVisibleFile = getFileForDocId(docId, true);
-        final File afterVisibleFile = getFileForDocId(afterDocId, true);
-        moveInMediaStore(beforeVisibleFile, afterVisibleFile);
+        moveInMediaStore(visibleFileBefore, getFileForDocId(afterDocId, true));
 
         if (!TextUtils.equals(docId, afterDocId)) {
-            scanFile(afterVisibleFile);
             return afterDocId;
         } else {
             return null;
@@ -273,8 +246,6 @@ public abstract class FileSystemProvider extends DocumentsProvider {
         }
 
         final String docId = getDocIdForFile(after);
-        onDocIdChanged(sourceDocumentId);
-        onDocIdChanged(docId);
         moveInMediaStore(visibleFileBefore, getFileForDocId(docId, true));
 
         return docId;
@@ -324,7 +295,6 @@ public abstract class FileSystemProvider extends DocumentsProvider {
             throw new IllegalStateException("Failed to delete " + file);
         }
 
-        onDocIdChanged(docId);
         removeFromMediaStore(visibleFile, isDirectory);
     }
 
@@ -435,10 +405,7 @@ public abstract class FileSystemProvider extends DocumentsProvider {
             try {
                 // When finished writing, kick off media scanner
                 return ParcelFileDescriptor.open(
-                        file, pfdMode, mHandler, (IOException e) -> {
-                            onDocIdChanged(documentId);
-                            scanFile(visibleFile);
-                        });
+                        file, pfdMode, mHandler, (IOException e) -> scanFile(visibleFile));
             } catch (IOException e) {
                 throw new FileNotFoundException("Failed to open for writing: " + e);
             }
@@ -489,10 +456,6 @@ public abstract class FileSystemProvider extends DocumentsProvider {
             flags |= Document.FLAG_SUPPORTS_THUMBNAIL;
         }
 
-        if (typeSupportsMetadata(mimeType)) {
-            flags |= Document.FLAG_SUPPORTS_METADATA;
-        }
-
         final RowBuilder row = result.newRow();
         row.add(Document.COLUMN_DOCUMENT_ID, docId);
         row.add(Document.COLUMN_DISPLAY_NAME, displayName);
@@ -518,10 +481,6 @@ public abstract class FileSystemProvider extends DocumentsProvider {
         }
     }
 
-    protected boolean typeSupportsMetadata(String mimeType) {
-        return MetadataReader.isSupportedMimeType(mimeType);
-    }
-
     private static String getTypeForName(String name) {
         final int lastDot = name.lastIndexOf('.');
         if (lastDot >= 0) {
@@ -532,7 +491,7 @@ public abstract class FileSystemProvider extends DocumentsProvider {
             }
         }
 
-        return MIMETYPE_OCTET_STREAM;
+        return "application/octet-stream";
     }
 
     protected final File getFileForDocId(String docId) throws FileNotFoundException {

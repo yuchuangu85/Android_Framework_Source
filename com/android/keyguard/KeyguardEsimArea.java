@@ -16,18 +16,14 @@
 
 package com.android.keyguard;
 
-import android.app.AlertDialog;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.UserHandle;
 import android.util.AttributeSet;
 import android.view.View;
-import android.view.WindowManager;
 import android.widget.Button;
 import android.telephony.SubscriptionManager;
 import android.telephony.SubscriptionInfo;
@@ -54,17 +50,8 @@ class KeyguardEsimArea extends Button implements View.OnClickListener {
                 if (ACTION_DISABLE_ESIM.equals(intent.getAction())) {
                     int resultCode = getResultCode();
                     if (resultCode != EuiccManager.EMBEDDED_SUBSCRIPTION_RESULT_OK) {
+                        // TODO (b/62680294): Surface more info. to the end users for this failure.
                         Log.e(TAG, "Error disabling esim, result code = " + resultCode);
-                        AlertDialog.Builder builder =
-                                new AlertDialog.Builder(mContext)
-                                        .setMessage(R.string.error_disable_esim_msg)
-                                        .setTitle(R.string.error_disable_esim_title)
-                                        .setCancelable(false /* cancelable */)
-                                        .setPositiveButton(R.string.ok, null /* listener */);
-                        AlertDialog alertDialog = builder.create();
-                        alertDialog.getWindow().setType(
-                                WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG);
-                        alertDialog.show();
                     }
                 }
             }
@@ -114,13 +101,14 @@ class KeyguardEsimArea extends Button implements View.OnClickListener {
 
     @Override
     public void onClick(View v) {
-        Intent intent = new Intent(ACTION_DISABLE_ESIM);
+        Intent intent = new Intent(mContext, KeyguardEsimArea.class);
+        intent.setAction(ACTION_DISABLE_ESIM);
         intent.setPackage(mContext.getPackageName());
-        PendingIntent callbackIntent = PendingIntent.getBroadcastAsUser(
+        PendingIntent callbackIntent = PendingIntent.getBroadcast(
             mContext,
             0 /* requestCode */,
             intent,
-            PendingIntent.FLAG_UPDATE_CURRENT, UserHandle.SYSTEM);
+            PendingIntent.FLAG_UPDATE_CURRENT);
         mEuiccManager
                 .switchToSubscription(SubscriptionManager.INVALID_SUBSCRIPTION_ID, callbackIntent);
     }

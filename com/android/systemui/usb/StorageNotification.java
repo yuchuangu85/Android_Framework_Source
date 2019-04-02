@@ -219,7 +219,7 @@ public class StorageNotification extends SystemUI {
                                 .setCategory(Notification.CATEGORY_SYSTEM)
                                 .setDeleteIntent(buildSnoozeIntent(fsUuid))
                                 .extend(new Notification.TvExtender());
-                SystemUI.overrideNotificationAppName(mContext, builder, false);
+                SystemUI.overrideNotificationAppName(mContext, builder);
 
                 mNotificationManager.notifyAsUser(fsUuid, SystemMessage.NOTE_STORAGE_PRIVATE,
                         builder.build(), UserHandle.ALL);
@@ -247,7 +247,7 @@ public class StorageNotification extends SystemUI {
                             .setLocalOnly(true)
                             .setCategory(Notification.CATEGORY_ERROR)
                             .extend(new Notification.TvExtender());
-            SystemUI.overrideNotificationAppName(mContext, builder, false);
+            SystemUI.overrideNotificationAppName(mContext, builder);
 
             mNotificationManager.notifyAsUser(disk.getId(), SystemMessage.NOTE_STORAGE_DISK,
                     builder.build(), UserHandle.ALL);
@@ -323,10 +323,10 @@ public class StorageNotification extends SystemUI {
 
         if (notif != null) {
             mNotificationManager.notifyAsUser(vol.getId(), SystemMessage.NOTE_STORAGE_PUBLIC,
-                    notif, UserHandle.of(vol.getMountUserId()));
+                    notif, UserHandle.ALL);
         } else {
             mNotificationManager.cancelAsUser(vol.getId(), SystemMessage.NOTE_STORAGE_PUBLIC,
-                    UserHandle.of(vol.getMountUserId()));
+                    UserHandle.ALL);
         }
     }
 
@@ -498,7 +498,7 @@ public class StorageNotification extends SystemUI {
                         .setCategory(Notification.CATEGORY_PROGRESS)
                         .setProgress(100, status, false)
                         .setOngoing(true);
-        SystemUI.overrideNotificationAppName(mContext, builder, false);
+        SystemUI.overrideNotificationAppName(mContext, builder);
 
         mNotificationManager.notifyAsUser(move.packageName, SystemMessage.NOTE_STORAGE_MOVE,
                 builder.build(), UserHandle.ALL);
@@ -548,7 +548,7 @@ public class StorageNotification extends SystemUI {
                         .setLocalOnly(true)
                         .setCategory(Notification.CATEGORY_SYSTEM)
                         .setAutoCancel(true);
-        SystemUI.overrideNotificationAppName(mContext, builder, false);
+        SystemUI.overrideNotificationAppName(mContext, builder);
 
         mNotificationManager.notifyAsUser(move.packageName, SystemMessage.NOTE_STORAGE_MOVE,
                 builder.build(), UserHandle.ALL);
@@ -582,7 +582,7 @@ public class StorageNotification extends SystemUI {
                         .setVisibility(Notification.VISIBILITY_PUBLIC)
                         .setLocalOnly(true)
                         .extend(new Notification.TvExtender());
-        overrideNotificationAppName(mContext, builder, false);
+        overrideNotificationAppName(mContext, builder);
         return builder;
     }
 
@@ -640,7 +640,7 @@ public class StorageNotification extends SystemUI {
     }
 
     private PendingIntent buildBrowsePendingIntent(VolumeInfo vol) {
-        final Intent intent = vol.buildBrowseIntentForUser(vol.getMountUserId());
+        final Intent intent = vol.buildBrowseIntent();
 
         final int requestKey = vol.getId().hashCode();
         return PendingIntent.getActivityAsUser(mContext, requestKey, intent,
