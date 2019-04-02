@@ -143,9 +143,9 @@ public class RecyclerItemAdapter extends RecyclerView.Adapter<ItemViewHolder>
     @Override
     public void onBindViewHolder(ItemViewHolder holder, int position) {
         final IItem item = getItem(position);
-        item.onBindView(holder.itemView);
         holder.setEnabled(item.isEnabled());
         holder.setItem(item);
+        item.onBindView(holder.itemView);
     }
 
     @Override

@@ -70,11 +70,12 @@ class StringIndexOutOfBoundsException extends IndexOutOfBoundsException {
         super("String index out of range: " + index);
     }
 
+    // BEGIN Android-added: Additional constructors for internal use.
     /**
      * Used internally for consistent high-quality error reporting.
      * @hide
      */
-    public StringIndexOutOfBoundsException(String s, int index) {
+    StringIndexOutOfBoundsException(String s, int index) {
         this(s.length(), index);
     }
 
@@ -82,7 +83,7 @@ class StringIndexOutOfBoundsException extends IndexOutOfBoundsException {
      * Used internally for consistent high-quality error reporting.
      * @hide
      */
-    public StringIndexOutOfBoundsException(int sourceLength, int index) {
+    StringIndexOutOfBoundsException(int sourceLength, int index) {
         super("length=" + sourceLength + "; index=" + index);
     }
 
@@ -90,7 +91,7 @@ class StringIndexOutOfBoundsException extends IndexOutOfBoundsException {
      * Used internally for consistent high-quality error reporting.
      * @hide
      */
-    public StringIndexOutOfBoundsException(String s, int offset, int count) {
+    StringIndexOutOfBoundsException(String s, int offset, int count) {
         this(s.length(), offset, count);
     }
 
@@ -98,9 +99,10 @@ class StringIndexOutOfBoundsException extends IndexOutOfBoundsException {
      * Used internally for consistent high-quality error reporting.
      * @hide
      */
-    public StringIndexOutOfBoundsException(int sourceLength, int offset,
+    StringIndexOutOfBoundsException(int sourceLength, int offset,
             int count) {
         super("length=" + sourceLength + "; regionStart=" + offset
                 + "; regionLength=" + count);
     }
+    // END Android-added: Additional constructors for internal use.
 }

@@ -125,6 +125,10 @@ public class PasspointConfigStoreData implements WifiConfigStore.StoreData {
     @Override
     public void deserializeData(XmlPullParser in, int outerTagDepth, boolean shared)
             throws XmlPullParserException, IOException {
+        // Ignore empty reads.
+        if (in == null) {
+            return;
+        }
         if (shared) {
             deserializeShareData(in, outerTagDepth);
         } else {
@@ -307,6 +311,7 @@ public class PasspointConfigStoreData implements WifiConfigStore.StoreData {
         String clientCertificateAlias = null;
         String clientPrivateKeyAlias = null;
         boolean hasEverConnected = false;
+        boolean shared = false;
         PasspointConfiguration config = null;
         while (XmlUtils.nextElementWithin(in, outerTagDepth)) {
             if (in.getAttributeValue(null, "name") != null) {
@@ -351,7 +356,7 @@ public class PasspointConfigStoreData implements WifiConfigStore.StoreData {
         }
         return new PasspointProvider(config, mKeyStore, mSimAccessor, providerId, creatorUid,
                 caCertificateAlias, clientCertificateAlias, clientPrivateKeyAlias,
-                hasEverConnected);
+                hasEverConnected, shared);
     }
 
     /**

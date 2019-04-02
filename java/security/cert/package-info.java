@@ -52,7 +52,7 @@
  *   <li><a href="http://www.ietf.org/rfc/rfc5280.txt">
  *     http://www.ietf.org/rfc/rfc5280.txt</a>
  *   <li><a href=
- *     "{@docRoot}/../technotes/guides/security/certpath/CertPathProgGuide.html">
+ *     "{@docRoot}/openjdk-redirect.html?v=8&path=/technotes/guides/security/certpath/CertPathProgGuide.html">
  *     <b>Java&trade;
  *     PKI Programmer's Guide</b></a>
  *   <li><a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/cert3.html">

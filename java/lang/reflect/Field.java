@@ -27,7 +27,7 @@
 package java.lang.reflect;
 
 import dalvik.annotation.optimization.FastNative;
-
+import sun.reflect.CallerSensitive;
 import java.lang.annotation.Annotation;
 import java.util.Objects;
 import libcore.reflect.AnnotatedElements;
@@ -55,6 +55,9 @@ import libcore.reflect.GenericSignatureParser;
  */
 public final
 class Field extends AccessibleObject implements Member {
+    // Android-changed: Extensive modifications made throughout the class for ART.
+    // Android-changed: Many fields and methods removed / modified.
+    // Android-removed: Type annotations runtime code. Not supported on Android.
 
     private int accessFlags;
     private Class<?> declaringClass;
@@ -70,6 +73,7 @@ class Field extends AccessibleObject implements Member {
      * that declares the field represented by this {@code Field} object.
      */
     public Class<?> getDeclaringClass() {
+        // Android-changed: Adjust code for different field names.
         return declaringClass;
     }
 
@@ -77,6 +81,7 @@ class Field extends AccessibleObject implements Member {
      * Returns the name of the field represented by this {@code Field} object.
      */
     public String getName() {
+        // Android-changed: getName() implemented differently.
         if (dexFieldIndex == -1) {
             // Proxy classes have 1 synthesized static field with no valid dex index.
             if (!declaringClass.isProxy()) {
@@ -88,6 +93,7 @@ class Field extends AccessibleObject implements Member {
         return getNameInternal();
     }
 
+    // Android-added: getName() implemented differently.
     @FastNative
     private native String getNameInternal();
 
@@ -99,6 +105,7 @@ class Field extends AccessibleObject implements Member {
      * @see Modifier
      */
     public int getModifiers() {
+        // Android-changed: Adjust getModifiers() implementation to mask extra bits used on Android.
         return accessFlags & 0xffff;  // mask out bits not used by Java
     }
 
@@ -163,6 +170,7 @@ class Field extends AccessibleObject implements Member {
      * @since 1.5
      */
     public Type getGenericType() {
+        // Android-changed: getGenericType() implemented differently.
         String signatureAttribute = getSignatureAttribute();
         ClassLoader cl = declaringClass.getClassLoader();
         GenericSignatureParser parser = new GenericSignatureParser(cl);
@@ -174,6 +182,7 @@ class Field extends AccessibleObject implements Member {
         return genericType;
     }
 
+    // BEGIN Android-added: getGenericType() implemented differently.
     private String getSignatureAttribute() {
         String[] annotation = getSignatureAnnotation();
         if (annotation == null) {
@@ -187,6 +196,7 @@ class Field extends AccessibleObject implements Member {
     }
     @FastNative
     private native String[] getSignatureAnnotation();
+    // END Android-added: getGenericType() implemented differently.
 
 
     /**
@@ -319,6 +329,8 @@ class Field extends AccessibleObject implements Member {
      * @exception ExceptionInInitializerError if the initialization provoked
      *              by this method fails.
      */
+    @CallerSensitive
+    // Android-changed: get*(Object) implemented natively.
     @FastNative
     public native Object get(Object obj)
         throws IllegalArgumentException, IllegalAccessException;
@@ -345,6 +357,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#get
      */
+    @CallerSensitive
+    // Android-changed: get*(Object) implemented natively.
     @FastNative
     public native boolean getBoolean(Object obj)
         throws IllegalArgumentException, IllegalAccessException;
@@ -371,6 +385,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#get
      */
+    @CallerSensitive
+    // Android-changed: get*(Object) implemented natively.
     @FastNative
     public native byte getByte(Object obj)
         throws IllegalArgumentException, IllegalAccessException;
@@ -399,6 +415,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see Field#get
      */
+    @CallerSensitive
+    // Android-changed: get*(Object) implemented natively.
     @FastNative
     public native char getChar(Object obj)
         throws IllegalArgumentException, IllegalAccessException;
@@ -427,6 +445,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#get
      */
+    @CallerSensitive
+    // Android-changed: get*(Object) implemented natively.
     @FastNative
     public native short getShort(Object obj)
         throws IllegalArgumentException, IllegalAccessException;
@@ -455,6 +475,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#get
      */
+    @CallerSensitive
+    // Android-changed: get*(Object) implemented natively.
     @FastNative
     public native int getInt(Object obj)
         throws IllegalArgumentException, IllegalAccessException;
@@ -483,6 +505,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#get
      */
+    @CallerSensitive
+    // Android-changed: get*(Object) implemented natively.
     @FastNative
     public native long getLong(Object obj)
         throws IllegalArgumentException, IllegalAccessException;
@@ -511,6 +535,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see Field#get
      */
+    @CallerSensitive
+    // Android-changed: get*(Object) implemented natively.
     @FastNative
     public native float getFloat(Object obj)
         throws IllegalArgumentException, IllegalAccessException;
@@ -539,6 +565,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#get
      */
+    @CallerSensitive
+    // Android-changed: get*(Object) implemented natively.
     @FastNative
     public native double getDouble(Object obj)
         throws IllegalArgumentException, IllegalAccessException;
@@ -609,6 +637,8 @@ class Field extends AccessibleObject implements Member {
      * @exception ExceptionInInitializerError if the initialization provoked
      *              by this method fails.
      */
+    @CallerSensitive
+    // Android-changed: set*(Object, ...) implemented natively.
     @FastNative
     public native void set(Object obj, Object value)
         throws IllegalArgumentException, IllegalAccessException;
@@ -637,6 +667,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#set
      */
+    @CallerSensitive
+    // Android-changed: set*(Object, ...) implemented natively.
     @FastNative
     public native void setBoolean(Object obj, boolean z)
         throws IllegalArgumentException, IllegalAccessException;
@@ -665,6 +697,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#set
      */
+    @CallerSensitive
+    // Android-changed: set*(Object, ...) implemented natively.
     @FastNative
     public native void setByte(Object obj, byte b)
         throws IllegalArgumentException, IllegalAccessException;
@@ -693,6 +727,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#set
      */
+    @CallerSensitive
+    // Android-changed: set*(Object, ...) implemented natively.
     @FastNative
     public native void setChar(Object obj, char c)
         throws IllegalArgumentException, IllegalAccessException;
@@ -721,6 +757,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#set
      */
+    @CallerSensitive
+    // Android-changed: set*(Object, ...) implemented natively.
     @FastNative
     public native void setShort(Object obj, short s)
         throws IllegalArgumentException, IllegalAccessException;
@@ -749,6 +787,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#set
      */
+    @CallerSensitive
+    // Android-changed: set*(Object, ...) implemented natively.
     @FastNative
     public native void setInt(Object obj, int i)
         throws IllegalArgumentException, IllegalAccessException;
@@ -777,6 +817,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#set
      */
+    @CallerSensitive
+    // Android-changed: set*(Object, ...) implemented natively.
     @FastNative
     public native void setLong(Object obj, long l)
         throws IllegalArgumentException, IllegalAccessException;
@@ -805,6 +847,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#set
      */
+    @CallerSensitive
+    // Android-changed: set*(Object, ...) implemented natively.
     @FastNative
     public native void setFloat(Object obj, float f)
         throws IllegalArgumentException, IllegalAccessException;
@@ -833,6 +877,8 @@ class Field extends AccessibleObject implements Member {
      *              by this method fails.
      * @see       Field#set
      */
+    @CallerSensitive
+    // Android-changed: set*(Object, ...) implemented natively.
     @FastNative
     public native void setDouble(Object obj, double d)
         throws IllegalArgumentException, IllegalAccessException;
@@ -841,11 +887,12 @@ class Field extends AccessibleObject implements Member {
      * @throws NullPointerException {@inheritDoc}
      * @since 1.5
      */
-    @Override
     public <T extends Annotation> T getAnnotation(Class<T> annotationClass) {
         Objects.requireNonNull(annotationClass);
+        // Android-changed: getAnnotation(Class) implemented differently.
         return getAnnotationNative(annotationClass);
     }
+    // Android-added: getAnnotation(Class) implemented differently.
     @FastNative
     private native <A extends Annotation> A getAnnotationNative(Class<A> annotationType);
 
@@ -856,12 +903,13 @@ class Field extends AccessibleObject implements Member {
      */
     @Override
     public <T extends Annotation> T[] getAnnotationsByType(Class<T> annotationClass) {
-        // Android-changed: Uses AnnotatedElements instead.
+        // Android-added: getAnnotationsByType(Class) implemented differently.
         return AnnotatedElements.getDirectOrIndirectAnnotationsByType(this, annotationClass);
     }
 
-
-    @Override public boolean isAnnotationPresent(Class<? extends Annotation> annotationType) {
+    // BEGIN Android-added: isAnnotationPresent(Class) overridden in Field.
+    @Override
+    public boolean isAnnotationPresent(Class<? extends Annotation> annotationType) {
         if (annotationType == null) {
             throw new NullPointerException("annotationType == null");
         }
@@ -869,6 +917,7 @@ class Field extends AccessibleObject implements Member {
     }
     @FastNative
     private native boolean isAnnotationPresentNative(Class<? extends Annotation> annotationType);
+    // END Android-added: isAnnotationPresent(Class) overridden in Field.
 
     /**
      * {@inheritDoc}
@@ -877,6 +926,7 @@ class Field extends AccessibleObject implements Member {
     @FastNative
     public native Annotation[] getDeclaredAnnotations();
 
+    // BEGIN Android-added: Methods for use by Android-specific code.
     /**
      * Returns the index of this field's ID in its dex file.
      *
@@ -900,4 +950,5 @@ class Field extends AccessibleObject implements Member {
      */
     @FastNative
     public native long getArtField();
+    // END Android-added: Methods for use by Android-specific code.
 }

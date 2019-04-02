@@ -20,7 +20,6 @@ import android.Manifest;
 import android.app.AppOpsManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.net.wifi.RttManager;
 import android.net.wifi.aware.ConfigRequest;
 import android.net.wifi.aware.IWifiAwareEventCallback;
 import android.os.RemoteException;
@@ -44,8 +43,8 @@ import java.util.Arrays;
  */
 public class WifiAwareClientState {
     private static final String TAG = "WifiAwareClientState";
-    private static final boolean DBG = false;
     private static final boolean VDBG = false; // STOPSHIP if true
+    /* package */ boolean mDbg = false;
 
     /* package */ static final int CLUSTER_CHANGE_EVENT_STARTED = 0;
     /* package */ static final int CLUSTER_CHANGE_EVENT_JOINED = 1;
@@ -105,6 +104,10 @@ public class WifiAwareClientState {
 
     public int getUid() {
         return mUid;
+    }
+
+    public String getCallingPackage() {
+        return mCallingPackage;
     }
 
     public boolean getNotifyIdentityChange() {
@@ -268,47 +271,6 @@ public class WifiAwareClientState {
                 == PackageManager.PERMISSION_GRANTED && mAppOps.noteOp(
                 AppOpsManager.OP_COARSE_LOCATION, mUid, mCallingPackage)
                 == AppOpsManager.MODE_ALLOWED;
-    }
-
-    /**
-     * Called on RTT success - forwards call to client.
-     */
-    public void onRangingSuccess(int rangingId, RttManager.ParcelableRttResults results) {
-        if (VDBG) {
-            Log.v(TAG, "onRangingSuccess: rangingId=" + rangingId + ", results=" + results);
-        }
-        try {
-            mCallback.onRangingSuccess(rangingId, results);
-        } catch (RemoteException e) {
-            Log.w(TAG, "onRangingSuccess: RemoteException - ignored: " + e);
-        }
-    }
-
-    /**
-     * Called on RTT failure - forwards call to client.
-     */
-    public void onRangingFailure(int rangingId, int reason, String description) {
-        if (VDBG) {
-            Log.v(TAG, "onRangingSuccess: rangingId=" + rangingId + ", reason=" + reason
-                    + ", description=" + description);
-        }
-        try {
-            mCallback.onRangingFailure(rangingId, reason, description);
-        } catch (RemoteException e) {
-            Log.w(TAG, "onRangingFailure: RemoteException - ignored: " + e);
-        }
-    }
-
-    /**
-     * Called on RTT operation aborted - forwards call to client.
-     */
-    public void onRangingAborted(int rangingId) {
-        if (VDBG) Log.v(TAG, "onRangingSuccess: rangingId=" + rangingId);
-        try {
-            mCallback.onRangingAborted(rangingId);
-        } catch (RemoteException e) {
-            Log.w(TAG, "onRangingAborted: RemoteException - ignored: " + e);
-        }
     }
 
     /**

@@ -18,6 +18,7 @@ package com.android.server;
 
 import static android.Manifest.permission.CONNECTIVITY_INTERNAL;
 import static android.Manifest.permission.DUMP;
+import static android.Manifest.permission.NETWORK_SETTINGS;
 import static android.Manifest.permission.NETWORK_STACK;
 import static android.Manifest.permission.SHUTDOWN;
 import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_DOZABLE;
@@ -73,8 +74,10 @@ import android.net.wifi.WifiConfiguration.KeyMgmt;
 import android.os.BatteryStats;
 import android.os.Binder;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.INetworkActivityListener;
 import android.os.INetworkManagementService;
+import android.os.PersistableBundle;
 import android.os.PowerManager;
 import android.os.Process;
 import android.os.RemoteCallbackList;
@@ -90,6 +93,7 @@ import android.telephony.DataConnectionRealTimeInfo;
 import android.telephony.PhoneStateListener;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
+import android.text.TextUtils;
 import android.util.Log;
 import android.util.Slog;
 import android.util.SparseBooleanArray;
@@ -132,10 +136,27 @@ import java.util.concurrent.CountDownLatch;
  */
 public class NetworkManagementService extends INetworkManagementService.Stub
         implements Watchdog.Monitor {
+
+    /**
+     * Helper class that encapsulates NetworkManagementService dependencies and makes them
+     * easier to mock in unit tests.
+     */
+    static class SystemServices {
+        public IBinder getService(String name) {
+            return ServiceManager.getService(name);
+        }
+        public void registerLocalService(NetworkManagementInternal nmi) {
+            LocalServices.addService(NetworkManagementInternal.class, nmi);
+        }
+        public INetd getNetd() {
+            return NetdService.get();
+        }
+    }
+
     private static final String TAG = "NetworkManagement";
     private static final boolean DBG = Log.isLoggable(TAG, Log.DEBUG);
     private static final String NETD_TAG = "NetdConnector";
-    private static final String NETD_SERVICE_NAME = "netd";
+    static final String NETD_SERVICE_NAME = "netd";
 
     private static final int MAX_UID_RANGES_PER_COMMAND = 10;
 
@@ -186,12 +207,6 @@ public class NetworkManagementService extends INetworkManagementService.Stub
         public static final int StrictCleartext           = 617;
     }
 
-    /* Defaults for resolver parameters. */
-    public static final int DNS_RESOLVER_DEFAULT_SAMPLE_VALIDITY_SECONDS = 1800;
-    public static final int DNS_RESOLVER_DEFAULT_SUCCESS_THRESHOLD_PERCENT = 25;
-    public static final int DNS_RESOLVER_DEFAULT_MIN_SAMPLES = 8;
-    public static final int DNS_RESOLVER_DEFAULT_MAX_SAMPLES = 64;
-
     /**
      * String indicating a softap command.
      */
@@ -216,6 +231,8 @@ public class NetworkManagementService extends INetworkManagementService.Stub
 
     private final Handler mFgHandler;
     private final Handler mDaemonHandler;
+
+    private final SystemServices mServices;
 
     private INetd mNetdService;
 
@@ -315,8 +332,10 @@ public class NetworkManagementService extends INetworkManagementService.Stub
      *
      * @param context  Binder context for this service
      */
-    private NetworkManagementService(Context context, String socket) {
+    private NetworkManagementService(
+            Context context, String socket, SystemServices services) {
         mContext = context;
+        mServices = services;
 
         // make sure this is on the same looper as our NativeDaemonConnector for sync purposes
         mFgHandler = new Handler(FgThread.get().getLooper());
@@ -338,7 +357,7 @@ public class NetworkManagementService extends INetworkManagementService.Stub
         // Add ourself to the Watchdog monitors.
         Watchdog.getInstance().addMonitor(this);
 
-        LocalServices.addService(NetworkManagementInternal.class, new LocalService());
+        mServices.registerLocalService(new LocalService());
 
         synchronized (mTetheringStatsProviders) {
             mTetheringStatsProviders.put(new NetdTetheringStatsProvider(), "netd");
@@ -352,11 +371,13 @@ public class NetworkManagementService extends INetworkManagementService.Stub
         mDaemonHandler = null;
         mFgHandler = null;
         mThread = null;
+        mServices = null;
     }
 
-    static NetworkManagementService create(Context context, String socket)
+    static NetworkManagementService create(Context context, String socket, SystemServices services)
             throws InterruptedException {
-        final NetworkManagementService service = new NetworkManagementService(context, socket);
+        final NetworkManagementService service =
+                new NetworkManagementService(context, socket, services);
         final CountDownLatch connectedSignal = service.mConnectedSignal;
         if (DBG) Slog.d(TAG, "Creating NetworkManagementService");
         service.mThread.start();
@@ -370,7 +391,7 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     }
 
     public static NetworkManagementService create(Context context) throws InterruptedException {
-        return create(context, NETD_SERVICE_NAME);
+        return create(context, NETD_SERVICE_NAME, new SystemServices());
     }
 
     public void systemReady() {
@@ -390,8 +411,8 @@ public class NetworkManagementService extends INetworkManagementService.Stub
             if (mBatteryStats != null) {
                 return mBatteryStats;
             }
-            mBatteryStats = IBatteryStats.Stub.asInterface(ServiceManager.getService(
-                    BatteryStats.SERVICE_NAME));
+            mBatteryStats =
+                    IBatteryStats.Stub.asInterface(mServices.getService(BatteryStats.SERVICE_NAME));
             return mBatteryStats;
         }
     }
@@ -589,7 +610,7 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     }
 
     private void connectNativeNetdService() {
-        mNetdService = NetdService.get();
+        mNetdService = mServices.getNetd();
     }
 
     /**
@@ -1109,17 +1130,6 @@ public class NetworkManagementService extends INetworkManagementService.Stub
         mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
         try {
             mConnector.execute("interface", "ipv6", iface, "disable");
-        } catch (NativeDaemonConnectorException e) {
-            throw e.rethrowAsParcelableException();
-        }
-    }
-
-    @Override
-    public void setInterfaceIpv6NdOffload(String iface, boolean enable) {
-        mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
-        try {
-            mConnector.execute(
-                    "interface", "ipv6ndoffload", iface, (enable ? "enable" : "disable"));
         } catch (NativeDaemonConnectorException e) {
             throw e.rethrowAsParcelableException();
         }
@@ -1750,6 +1760,8 @@ public class NetworkManagementService extends INetworkManagementService.Stub
 
     @Override
     public boolean setDataSaverModeEnabled(boolean enable) {
+        mContext.enforceCallingOrSelfPermission(NETWORK_SETTINGS, TAG);
+
         if (DBG) Log.d(TAG, "setDataSaverMode: " + enable);
         synchronized (mQuotaLock) {
             if (mDataSaverMode == enable) {
@@ -1777,6 +1789,8 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     @Override
     public void setAllowOnlyVpnForUids(boolean add, UidRange[] uidRanges)
             throws ServiceSpecificException {
+        mContext.enforceCallingOrSelfPermission(NETWORK_STACK, TAG);
+
         try {
             mNetdService.networkRejectNonSecureVpn(add, uidRanges);
         } catch (ServiceSpecificException e) {
@@ -1855,10 +1869,10 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     }
 
     @Override
-    public NetworkStats getNetworkStatsUidDetail(int uid) {
+    public NetworkStats getNetworkStatsUidDetail(int uid, String[] ifaces) {
         mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
         try {
-            return mStatsFactory.readNetworkStatsDetail(uid, null, TAG_ALL, null);
+            return mStatsFactory.readNetworkStatsDetail(uid, ifaces, TAG_ALL, null);
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
@@ -1873,38 +1887,34 @@ public class NetworkManagementService extends INetworkManagementService.Stub
                 return new NetworkStats(SystemClock.elapsedRealtime(), 0);
             }
 
-            final NativeDaemonEvent[] events;
+            final PersistableBundle bundle;
             try {
-                events = mConnector.executeForList("bandwidth", "gettetherstats");
-            } catch (NativeDaemonConnectorException e) {
-                throw e.rethrowAsParcelableException();
+                bundle = mNetdService.tetherGetStats();
+            } catch (RemoteException | ServiceSpecificException e) {
+                throw new IllegalStateException("problem parsing tethering stats: ", e);
             }
-            final NetworkStats stats = new NetworkStats(SystemClock.elapsedRealtime(), 1);
-            for (NativeDaemonEvent event : events) {
-                if (event.getCode() != TetheringStatsListResult) continue;
 
-                // 114 ifaceIn ifaceOut rx_bytes rx_packets tx_bytes tx_packets
-                final StringTokenizer tok = new StringTokenizer(event.getMessage());
+            final NetworkStats stats = new NetworkStats(SystemClock.elapsedRealtime(),
+                    bundle.size());
+            final NetworkStats.Entry entry = new NetworkStats.Entry();
+
+            for (String iface : bundle.keySet()) {
+                long[] statsArray = bundle.getLongArray(iface);
                 try {
-                    final String ifaceIn = tok.nextToken();
-                    final String ifaceOut = tok.nextToken();
-
-                    final NetworkStats.Entry entry = new NetworkStats.Entry();
-                    entry.iface = ifaceOut;
+                    entry.iface = iface;
                     entry.uid = UID_TETHERING;
                     entry.set = SET_DEFAULT;
                     entry.tag = TAG_NONE;
-                    entry.rxBytes = Long.parseLong(tok.nextToken());
-                    entry.rxPackets = Long.parseLong(tok.nextToken());
-                    entry.txBytes = Long.parseLong(tok.nextToken());
-                    entry.txPackets = Long.parseLong(tok.nextToken());
+                    entry.rxBytes   = statsArray[INetd.TETHER_STATS_RX_BYTES];
+                    entry.rxPackets = statsArray[INetd.TETHER_STATS_RX_PACKETS];
+                    entry.txBytes   = statsArray[INetd.TETHER_STATS_TX_BYTES];
+                    entry.txPackets = statsArray[INetd.TETHER_STATS_TX_PACKETS];
                     stats.combineValues(entry);
-                } catch (NoSuchElementException e) {
-                    throw new IllegalStateException("problem parsing tethering stats: " + event);
-                } catch (NumberFormatException e) {
-                    throw new IllegalStateException("problem parsing tethering stats: " + event);
+                } catch (ArrayIndexOutOfBoundsException e) {
+                    throw new IllegalStateException("invalid tethering stats for " + iface, e);
                 }
             }
+
             return stats;
         }
 
@@ -1933,45 +1943,14 @@ public class NetworkManagementService extends INetworkManagementService.Stub
     }
 
     @Override
-    public void setDnsConfigurationForNetwork(int netId, String[] servers, String domains) {
+    public void setDnsConfigurationForNetwork(int netId, String[] servers, String[] domains,
+                    int[] params, String tlsHostname, String[] tlsServers) {
         mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
 
-        ContentResolver resolver = mContext.getContentResolver();
-
-        int sampleValidity = Settings.Global.getInt(resolver,
-                Settings.Global.DNS_RESOLVER_SAMPLE_VALIDITY_SECONDS,
-                DNS_RESOLVER_DEFAULT_SAMPLE_VALIDITY_SECONDS);
-        if (sampleValidity < 0 || sampleValidity > 65535) {
-            Slog.w(TAG, "Invalid sampleValidity=" + sampleValidity + ", using default=" +
-                    DNS_RESOLVER_DEFAULT_SAMPLE_VALIDITY_SECONDS);
-            sampleValidity = DNS_RESOLVER_DEFAULT_SAMPLE_VALIDITY_SECONDS;
-        }
-
-        int successThreshold = Settings.Global.getInt(resolver,
-                Settings.Global.DNS_RESOLVER_SUCCESS_THRESHOLD_PERCENT,
-                DNS_RESOLVER_DEFAULT_SUCCESS_THRESHOLD_PERCENT);
-        if (successThreshold < 0 || successThreshold > 100) {
-            Slog.w(TAG, "Invalid successThreshold=" + successThreshold + ", using default=" +
-                    DNS_RESOLVER_DEFAULT_SUCCESS_THRESHOLD_PERCENT);
-            successThreshold = DNS_RESOLVER_DEFAULT_SUCCESS_THRESHOLD_PERCENT;
-        }
-
-        int minSamples = Settings.Global.getInt(resolver,
-                Settings.Global.DNS_RESOLVER_MIN_SAMPLES, DNS_RESOLVER_DEFAULT_MIN_SAMPLES);
-        int maxSamples = Settings.Global.getInt(resolver,
-                Settings.Global.DNS_RESOLVER_MAX_SAMPLES, DNS_RESOLVER_DEFAULT_MAX_SAMPLES);
-        if (minSamples < 0 || minSamples > maxSamples || maxSamples > 64) {
-            Slog.w(TAG, "Invalid sample count (min, max)=(" + minSamples + ", " + maxSamples +
-                    "), using default=(" + DNS_RESOLVER_DEFAULT_MIN_SAMPLES + ", " +
-                    DNS_RESOLVER_DEFAULT_MAX_SAMPLES + ")");
-            minSamples = DNS_RESOLVER_DEFAULT_MIN_SAMPLES;
-            maxSamples = DNS_RESOLVER_DEFAULT_MAX_SAMPLES;
-        }
-
-        final String[] domainStrs = domains == null ? new String[0] : domains.split(" ");
-        final int[] params = { sampleValidity, successThreshold, minSamples, maxSamples };
+        final String[] tlsFingerprints = new String[0];
         try {
-            mNetdService.setResolverConfiguration(netId, servers, domainStrs, params);
+            mNetdService.setResolverConfiguration(
+                    netId, servers, domains, params, tlsHostname, tlsServers, tlsFingerprints);
         } catch (RemoteException e) {
             throw new RuntimeException(e);
         }
@@ -2519,12 +2498,16 @@ public class NetworkManagementService extends INetworkManagementService.Stub
 
     @Override
     public void removeNetwork(int netId) {
-        mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
+        mContext.enforceCallingOrSelfPermission(NETWORK_STACK, TAG);
 
         try {
-            mConnector.execute("network", "destroy", netId);
-        } catch (NativeDaemonConnectorException e) {
-            throw e.rethrowAsParcelableException();
+            mNetdService.networkDestroy(netId);
+        } catch (ServiceSpecificException e) {
+            Log.w(TAG, "removeNetwork(" + netId + "): ", e);
+            throw e;
+        } catch (RemoteException e) {
+            Log.w(TAG, "removeNetwork(" + netId + "): ", e);
+            throw e.rethrowAsRuntimeException();
         }
     }
 

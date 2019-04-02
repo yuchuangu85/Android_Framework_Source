@@ -17,7 +17,7 @@
 package com.android.test.runner;
 
 import android.os.Bundle;
-import android.support.multidex.MultiDex;
+import androidx.multidex.MultiDex;
 import android.test.InstrumentationTestRunner;
 
 /**

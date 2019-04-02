@@ -98,7 +98,8 @@ public class Am extends BaseCommand {
     static final class MyShellCallback extends ShellCallback {
         boolean mActive = true;
 
-        @Override public ParcelFileDescriptor onOpenOutputFile(String path, String seLinuxContext) {
+        @Override public ParcelFileDescriptor onOpenFile(String path, String seLinuxContext,
+                String mode) {
             if (!mActive) {
                 System.err.println("Open attempt after active for: " + path);
                 return null;
@@ -159,7 +160,11 @@ public class Am extends BaseCommand {
             } else if (opt.equals("-r")) {
                 instrument.rawMode = true;
             } else if (opt.equals("-m")) {
-                instrument.proto = true;
+                instrument.protoStd = true;
+            } else if (opt.equals("-f")) {
+                instrument.protoFile = true;
+                if (peekNextArg() != null && !peekNextArg().startsWith("-"))
+                    instrument.logPath = nextArg();
             } else if (opt.equals("-e")) {
                 final String argKey = nextArgRequired();
                 final String argValue = nextArgRequired();
@@ -167,6 +172,8 @@ public class Am extends BaseCommand {
             } else if (opt.equals("--no_window_animation")
                     || opt.equals("--no-window-animation")) {
                 instrument.noWindowAnimation = true;
+            } else if (opt.equals("--no-hidden-api-checks")) {
+                instrument.disableHiddenApiChecks = true;
             } else if (opt.equals("--user")) {
                 instrument.userId = parseUserArg(nextArgRequired());
             } else if (opt.equals("--abi")) {

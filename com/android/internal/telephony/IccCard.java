@@ -16,12 +16,12 @@
 
 package com.android.internal.telephony;
 
+import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
 
 import com.android.internal.telephony.IccCardConstants.State;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus;
-import com.android.internal.telephony.uicc.IccFileHandler;
 import com.android.internal.telephony.uicc.IccRecords;
 
 /**
@@ -35,42 +35,51 @@ import com.android.internal.telephony.uicc.IccRecords;
  * Apps (those that have access to Phone object) can retrieve this object
  * by calling phone.getIccCard()
  *
- * This interface is implemented by IccCardProxy and the object PhoneApp
- * gets when it calls getIccCard is IccCardProxy.
+ * This interface is implemented by UiccProfile and the object PhoneApp
+ * gets when it calls getIccCard is UiccProfile.
  */
-public interface IccCard {
+public class IccCard {
+    private State mIccCardState = State.UNKNOWN;
+
+    /**
+     * Empty constructor.
+     */
+    public IccCard() {}
+
+    /**
+     * Set the state of the IccCard to be returned in {@link getState}.
+     */
+    public IccCard(State state) {
+        mIccCardState = state;
+    }
+
     /**
      * @return combined Card and current App state
      */
-    public State getState();
+    public State getState() {
+        return mIccCardState;
+    }
 
+    // todo: delete
     /**
      * @return IccRecords object belonging to current UiccCardApplication
      */
-    public IccRecords getIccRecords();
-
-    /**
-     * @return IccFileHandler object belonging to current UiccCardApplication
-     */
-    public IccFileHandler getIccFileHandler();
-
-    /**
-     * Notifies handler of any transition into IccCardConstants.State.ABSENT
-     */
-    public void registerForAbsent(Handler h, int what, Object obj);
-    public void unregisterForAbsent(Handler h);
+    public IccRecords getIccRecords() {
+        return null;
+    }
 
     /**
      * Notifies handler of any transition into IccCardConstants.State.NETWORK_LOCKED
      */
-    public void registerForNetworkLocked(Handler h, int what, Object obj);
-    public void unregisterForNetworkLocked(Handler h);
-
+    public void registerForNetworkLocked(Handler h, int what, Object obj) {
+        return;
+    }
     /**
-     * Notifies handler of any transition into IccCardConstants.State.isPinLocked()
+     * Unregister for networkLocked state change.
      */
-    public void registerForLocked(Handler h, int what, Object obj);
-    public void unregisterForLocked(Handler h);
+    public void unregisterForNetworkLocked(Handler h) {
+        return;
+    }
 
     /**
      * Supply the ICC PIN to the ICC
@@ -90,34 +99,37 @@ public interface IccCard {
      * && ((CommandException)(((AsyncResult)onComplete.obj).exception))
      *          .getCommandError() == CommandException.Error.PASSWORD_INCORRECT
      */
-    public void supplyPin (String pin, Message onComplete);
+    public void supplyPin(String pin, Message onComplete) {
+        sendMessageWithCardAbsentException(onComplete);
+    }
 
     /**
      * Supply the ICC PUK to the ICC
      */
-    public void supplyPuk (String puk, String newPin, Message onComplete);
+    public void supplyPuk(String puk, String newPin, Message onComplete) {
+        sendMessageWithCardAbsentException(onComplete);
+    }
 
     /**
      * Supply the ICC PIN2 to the ICC
      */
-    public void supplyPin2 (String pin2, Message onComplete);
+    public void supplyPin2(String pin2, Message onComplete) {
+        sendMessageWithCardAbsentException(onComplete);
+    }
 
     /**
      * Supply the ICC PUK2 to the ICC
      */
-    public void supplyPuk2 (String puk2, String newPin2, Message onComplete);
-
-    /**
-     * Check whether fdn (fixed dialing number) service is available.
-     * @return true if ICC fdn service available
-     *         false if ICC fdn service not available
-    */
-    public boolean getIccFdnAvailable();
+    public void supplyPuk2(String puk2, String newPin2, Message onComplete) {
+        sendMessageWithCardAbsentException(onComplete);
+    }
 
     /**
      * Supply Network depersonalization code to the RIL
      */
-    public void supplyNetworkDepersonalization (String pin, Message onComplete);
+    public void supplyNetworkDepersonalization(String pin, Message onComplete) {
+        sendMessageWithCardAbsentException(onComplete);
+    }
 
     /**
      * Check whether ICC pin lock is enabled
@@ -126,7 +138,9 @@ public interface IccCard {
      * @return true for ICC locked enabled
      *         false for ICC locked disabled
      */
-    public boolean getIccLockEnabled();
+    public boolean getIccLockEnabled() {
+        return false;
+    }
 
     /**
      * Check whether ICC fdn (fixed dialing number) is enabled
@@ -135,7 +149,9 @@ public interface IccCard {
      * @return true for ICC fdn enabled
      *         false for ICC fdn disabled
      */
-    public boolean getIccFdnEnabled();
+    public boolean getIccFdnEnabled() {
+        return false;
+    }
 
      /**
       * Set the ICC pin lock enabled or disabled
@@ -148,8 +164,10 @@ public interface IccCard {
       *        ((AsyncResult)onComplete.obj).exception == null on success
       *        ((AsyncResult)onComplete.obj).exception != null on fail
       */
-     public void setIccLockEnabled (boolean enabled,
-             String password, Message onComplete);
+     public void setIccLockEnabled(boolean enabled,
+             String password, Message onComplete) {
+         sendMessageWithCardAbsentException(onComplete);
+     }
 
      /**
       * Set the ICC fdn enabled or disabled
@@ -162,8 +180,10 @@ public interface IccCard {
       *        ((AsyncResult)onComplete.obj).exception == null on success
       *        ((AsyncResult)onComplete.obj).exception != null on fail
       */
-     public void setIccFdnEnabled (boolean enabled,
-             String password, Message onComplete);
+     public void setIccFdnEnabled(boolean enabled,
+             String password, Message onComplete) {
+         sendMessageWithCardAbsentException(onComplete);
+     }
 
      /**
       * Change the ICC password used in ICC pin lock
@@ -177,7 +197,9 @@ public interface IccCard {
       *        ((AsyncResult)onComplete.obj).exception != null on fail
       */
      public void changeIccLockPassword(String oldPassword, String newPassword,
-             Message onComplete);
+             Message onComplete) {
+         sendMessageWithCardAbsentException(onComplete);
+     }
 
      /**
       * Change the ICC password used in ICC fdn enable
@@ -191,7 +213,9 @@ public interface IccCard {
       *        ((AsyncResult)onComplete.obj).exception != null on fail
       */
      public void changeIccFdnPassword(String oldPassword, String newPassword,
-             Message onComplete);
+             Message onComplete) {
+         sendMessageWithCardAbsentException(onComplete);
+     }
 
     /**
      * Returns service provider name stored in ICC card.
@@ -209,26 +233,42 @@ public interface IccCard {
      *         yet available
      *
      */
-    public String getServiceProviderName ();
+    public String getServiceProviderName() {
+        return null;
+    }
 
     /**
      * Checks if an Application of specified type present on the card
      * @param type is AppType to look for
      */
-    public boolean isApplicationOnIcc(IccCardApplicationStatus.AppType type);
+    public boolean isApplicationOnIcc(IccCardApplicationStatus.AppType type) {
+        return false;
+    }
 
     /**
      * @return true if a ICC card is present
      */
-    public boolean hasIccCard();
+    public boolean hasIccCard() {
+        return false;
+    }
 
     /**
      * @return true if ICC card is PIN2 blocked
      */
-    public boolean getIccPin2Blocked();
+    public boolean getIccPin2Blocked() {
+        return false;
+    }
 
     /**
      * @return true if ICC card is PUK2 blocked
      */
-    public boolean getIccPuk2Blocked();
+    public boolean getIccPuk2Blocked() {
+        return false;
+    }
+
+    private void sendMessageWithCardAbsentException(Message onComplete) {
+        AsyncResult ret = AsyncResult.forMessage(onComplete);
+        ret.exception = new RuntimeException("No valid IccCard");
+        onComplete.sendToTarget();
+    }
 }

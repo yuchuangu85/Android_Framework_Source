@@ -44,7 +44,7 @@ import com.android.systemui.plugins.qs.QSTile.State;
 import com.android.systemui.qs.tileimpl.QSTileImpl;
 import com.android.systemui.qs.external.TileLifecycleManager.TileChangeListener;
 import com.android.systemui.qs.QSTileHost;
-import libcore.util.Objects;
+import java.util.Objects;
 
 import static android.view.Display.DEFAULT_DISPLAY;
 import static android.view.WindowManager.LayoutParams.TYPE_QS_DIALOG;
@@ -140,7 +140,7 @@ public class CustomTile extends QSTileImpl<State> implements TileChangeListener 
         if (icon1.getResId() != icon2.getResId()) {
             return false;
         }
-        if (!Objects.equal(icon1.getResPackage(), icon2.getResPackage())) {
+        if (!Objects.equals(icon1.getResPackage(), icon2.getResPackage())) {
             return false;
         }
         return true;
@@ -305,7 +305,15 @@ public class CustomTile extends QSTileImpl<State> implements TileChangeListener 
             state.state = Tile.STATE_UNAVAILABLE;
             drawable = mDefaultIcon.loadDrawable(mContext);
         }
-        state.icon = new DrawableIcon(drawable);
+
+        final Drawable drawableF = drawable;
+        state.iconSupplier = () -> {
+            Drawable.ConstantState cs = drawableF.getConstantState();
+            if (cs != null) {
+                return new DrawableIcon(cs.newDrawable());
+            }
+            return null;
+        };
         state.label = mTile.getLabel();
         if (mTile.getContentDescription() != null) {
             state.contentDescription = mTile.getContentDescription();
@@ -340,7 +348,7 @@ public class CustomTile extends QSTileImpl<State> implements TileChangeListener 
         return ComponentName.unflattenFromString(action);
     }
 
-    public static QSTile create(QSTileHost host, String spec) {
+    public static CustomTile create(QSTileHost host, String spec) {
         if (spec == null || !spec.startsWith(PREFIX) || !spec.endsWith(")")) {
             throw new IllegalArgumentException("Bad custom tile spec: " + spec);
         }

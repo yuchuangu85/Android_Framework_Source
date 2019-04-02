@@ -43,13 +43,22 @@ package java.net;
 public final
 class DatagramPacket {
 
-    // Android-removed: init method has been removed
-    // /**
-    //  * Perform class initialization
-    //  */
-    // static {
-    //     init();
-    // }
+    // BEGIN Android-removed: Android doesn't need to load native net library
+    /**
+     * Perform class initialization
+     *
+    static {
+        java.security.AccessController.doPrivileged(
+            new java.security.PrivilegedAction<Void>() {
+                public Void run() {
+                    System.loadLibrary("net");
+                    return null;
+                }
+            });
+        init();
+    }
+    */
+    // END Android-removed: init method has been removed
 
     /*
      * The fields of this class are package-private since DatagramSocketImpl

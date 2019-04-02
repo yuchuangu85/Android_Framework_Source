@@ -32,18 +32,43 @@ import static com.android.layoutlib.bridge.util.ReflectionUtils.invoke;
  */
 public class FragmentTabHostUtil {
 
-    public static final String CN_FRAGMENT_TAB_HOST = "android.support.v4.app.FragmentTabHost";
+    public static final String[] CN_FRAGMENT_TAB_HOST = {
+            "android.support.v4.app.FragmentTabHost",
+            "androidx.app.FragmentTabHost"
+    };
+
+    private static final String[] CN_FRAGMENT_MANAGER = {
+            "android.support.v4.app.FragmentManager",
+            "androidx.app.FragmentManager"
+    };
 
     /**
      * Calls the setup method for the FragmentTabHost tabHost
      */
     public static void setup(TabHost tabHost, Context context) {
+        Class<?> fragmentManager = null;
+
+        for (int i = CN_FRAGMENT_MANAGER.length - 1; i >= 0; i--) {
+            String className = CN_FRAGMENT_MANAGER[i];
+            try {
+                fragmentManager = Class.forName(className, true,
+                        tabHost.getClass().getClassLoader());
+                break;
+            } catch (ClassNotFoundException ignore) {
+            }
+        }
+
+        if (fragmentManager == null) {
+            Bridge.getLog().error(LayoutLog.TAG_BROKEN,
+                    "Unable to find FragmentManager.", null);
+            return;
+        }
+
         try {
             invoke(getMethod(tabHost.getClass(), "setup", Context.class,
-                    Class.forName("android.support.v4.app.FragmentManager", true,
-                            tabHost.getClass().getClassLoader()), int.class), tabHost, context, null,
+                    fragmentManager, int.class), tabHost, context, null,
                     android.R.id.tabcontent);
-        } catch (ReflectionException | ClassNotFoundException e) {
+        } catch (ReflectionException e) {
             Throwable cause = getCause(e);
             Bridge.getLog().error(LayoutLog.TAG_BROKEN,
                     "Error occurred while trying to setup FragmentTabHost.", cause, null);

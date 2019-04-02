@@ -368,6 +368,7 @@ public final class OsConstants {
     public static final int O_APPEND = placeholder();
     public static final int O_CLOEXEC = placeholder();
     public static final int O_CREAT = placeholder();
+    /** @hide */ public static final int O_DIRECT = placeholder();
     public static final int O_EXCL = placeholder();
     public static final int O_NOCTTY = placeholder();
     public static final int O_NOFOLLOW = placeholder();
@@ -485,6 +486,9 @@ public final class OsConstants {
     public static final int SO_SNDLOWAT = placeholder();
     public static final int SO_SNDTIMEO = placeholder();
     public static final int SO_TYPE = placeholder();
+    /** @hide */ public static final int SPLICE_F_MOVE = placeholder();
+    /** @hide */ public static final int SPLICE_F_NONBLOCK = placeholder();
+    /** @hide */ public static final int SPLICE_F_MORE = placeholder();
     public static final int STDERR_FILENO = placeholder();
     public static final int STDIN_FILENO = placeholder();
     public static final int STDOUT_FILENO = placeholder();

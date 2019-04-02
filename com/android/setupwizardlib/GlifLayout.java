@@ -77,6 +77,8 @@ public class GlifLayout extends TemplateLayout {
     @Nullable
     private ColorStateList mBackgroundBaseColor;
 
+    private boolean mLayoutFullscreen = true;
+
     public GlifLayout(Context context) {
         this(context, 0, 0);
     }
@@ -139,7 +141,18 @@ public class GlifLayout extends TemplateLayout {
             inflateFooter(footer);
         }
 
+        final int stickyHeader = a.getResourceId(R.styleable.SuwGlifLayout_suwStickyHeader, 0);
+        if (stickyHeader != 0) {
+            inflateStickyHeader(stickyHeader);
+        }
+
+        mLayoutFullscreen = a.getBoolean(R.styleable.SuwGlifLayout_suwLayoutFullscreen, true);
+
         a.recycle();
+
+        if (Build.VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP && mLayoutFullscreen) {
+            setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+        }
     }
 
     @Override
@@ -160,15 +173,29 @@ public class GlifLayout extends TemplateLayout {
 
     /**
      * Sets the footer of the layout, which is at the bottom of the content area outside the
-     * scrolling container. The footer can only be inflated once per layout.
+     * scrolling container. The footer can only be inflated once per instance of this layout.
      *
      * @param footer The layout to be inflated as footer.
      * @return The root of the inflated footer view.
      */
     public View inflateFooter(@LayoutRes int footer) {
-        ViewStub footerStub = (ViewStub) findManagedViewById(R.id.suw_layout_footer);
+        ViewStub footerStub = findManagedViewById(R.id.suw_layout_footer);
         footerStub.setLayoutResource(footer);
         return footerStub.inflate();
+    }
+
+    /**
+     * Sets the sticky header (i.e. header that doesn't scroll) of the layout, which is at the top
+     * of the content area outside of the scrolling container. The header can only be inflated once
+     * per instance of this layout.
+     *
+     * @param header The layout to be inflated as the header.
+     * @return The root of the inflated header view.
+     */
+    public View inflateStickyHeader(@LayoutRes int header) {
+        ViewStub stickyHeaderStub = findManagedViewById(R.id.suw_layout_sticky_header);
+        stickyHeaderStub.setLayoutResource(header);
+        return stickyHeaderStub.inflate();
     }
 
     public ScrollView getScrollView() {
@@ -279,9 +306,6 @@ public class GlifLayout extends TemplateLayout {
             } else {
                 patternBg.setBackgroundDrawable(background);
             }
-        }
-        if (Build.VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
         }
     }
 

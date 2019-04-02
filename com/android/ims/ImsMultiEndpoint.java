@@ -21,6 +21,8 @@ import com.android.ims.internal.IImsExternalCallStateListener;
 
 import android.os.RemoteException;
 import android.telephony.Rlog;
+import android.telephony.ims.ImsExternalCallState;
+import android.telephony.ims.ImsReasonInfo;
 
 import java.util.List;
 

@@ -536,34 +536,8 @@ public class TreeMap<K,V>
     public V put(K key, V value) {
         TreeMapEntry<K,V> t = root;
         if (t == null) {
-            // BEGIN Android-changed: Work around buggy comparators. http://b/34084348
-            // We could just call compare(key, key) for its side effect of checking the type and
-            // nullness of the input key. However, several applications seem to have written comparators
-            // that only expect to be called on elements that aren't equal to each other (after
-            // making assumptions about the domain of the map). Clearly, such comparators are bogus
-            // because get() would never work, but TreeSets are frequently used for sorting a set
-            // of distinct elements.
-            //
-            // As a temporary work around, we perform the null & instanceof checks by hand so that
-            // we can guarantee that elements are never compared against themselves.
-            //
-            // **** THIS CHANGE WILL BE REVERTED IN A FUTURE ANDROID RELEASE ****
-            //
-            // Upstream code was:
-            // compare(key, key); // type (and possibly null) check
-            if (comparator != null) {
-                if (key == null) {
-                    comparator.compare(key, key);
-                }
-            } else {
-                if (key == null) {
-                    throw new NullPointerException("key == null");
-                } else if (!(key instanceof Comparable)) {
-                    throw new ClassCastException(
-                            "Cannot cast" + key.getClass().getName() + " to Comparable.");
-                }
-            }
-            // END Android-changed: Work around buggy comparators. http://b/34084348
+            compare(key, key); // type (and possibly null) check
+
             root = new TreeMapEntry<>(key, value, null);
             size = 1;
             modCount++;

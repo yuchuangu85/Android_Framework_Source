@@ -32,6 +32,8 @@ import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
+import android.os.Build.VERSION;
+import android.os.Build.VERSION_CODES;
 import android.support.annotation.IdRes;
 import android.view.ContextThemeWrapper;
 import android.view.View;
@@ -53,7 +55,7 @@ import org.robolectric.Robolectric;
 import org.robolectric.annotation.Config;
 
 @RunWith(SuwLibRobolectricTestRunner.class)
-@Config(constants = BuildConfig.class, sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
+@Config(sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
 public class GlifLayoutTest {
 
     private Context mContext;
@@ -264,6 +266,74 @@ public class GlifLayoutTest {
                         .build());
 
         assertNotNull(layout.findViewById(android.R.id.text1));
+    }
+
+    @Test
+    public void inflateStickyHeader_shouldAddViewToLayout() {
+        GlifLayout layout = new GlifLayout(mContext);
+
+        final View view = layout.inflateStickyHeader(android.R.layout.simple_list_item_1);
+        assertEquals(android.R.id.text1, view.getId());
+        assertNotNull(layout.findViewById(android.R.id.text1));
+    }
+
+    @Config(qualifiers = "sw600dp")
+    @Test
+    public void inflateStickyHeader_whenOnTablets_shouldAddViewToLayout() {
+        inflateStickyHeader_shouldAddViewToLayout();
+    }
+
+    @Test
+    public void inflateStickyHeader_whenInXml_shouldAddViewToLayout() {
+        GlifLayout layout = new GlifLayout(
+                mContext,
+                Robolectric.buildAttributeSet()
+                        .addAttribute(R.attr.suwStickyHeader, "@android:layout/simple_list_item_1")
+                        .build());
+
+        assertNotNull(layout.findViewById(android.R.id.text1));
+    }
+
+    @Test
+    public void inflateStickyHeader_whenOnBlankTemplate_shouldAddViewToLayout() {
+        GlifLayout layout = new GlifLayout(mContext, R.layout.suw_glif_blank_template);
+
+        final View view = layout.inflateStickyHeader(android.R.layout.simple_list_item_1);
+        assertEquals(android.R.id.text1, view.getId());
+        assertNotNull(layout.findViewById(android.R.id.text1));
+    }
+
+    @Config(qualifiers = "sw600dp")
+    @Test
+    public void inflateStickyHeader_whenOnBlankTemplateTablet_shouldAddViewToLayout() {
+        inflateStickyHeader_whenOnBlankTemplate_shouldAddViewToLayout();
+    }
+
+    @Config(minSdk = Config.OLDEST_SDK, maxSdk = Config.NEWEST_SDK)
+    @Test
+    public void createFromXml_shouldSetLayoutFullscreen_whenLayoutFullscreenIsNotSet() {
+        GlifLayout layout = new GlifLayout(
+                mContext,
+                Robolectric.buildAttributeSet()
+                        .build());
+        if (VERSION.SDK_INT >= VERSION_CODES.M) {
+            assertEquals(
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN,
+                    layout.getSystemUiVisibility() & View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+        }
+    }
+
+    @Test
+    public void createFromXml_shouldNotSetLayoutFullscreen_whenLayoutFullscreenIsFalse() {
+        GlifLayout layout = new GlifLayout(
+                mContext,
+                Robolectric.buildAttributeSet()
+                        .addAttribute(R.attr.suwLayoutFullscreen, "false")
+                        .build());
+
+        assertEquals(
+                0,
+                layout.getSystemUiVisibility() & View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
     }
 
     private Drawable getPhoneBackground(GlifLayout layout) {

@@ -3808,7 +3808,9 @@ public class Collections {
                 };
             }
 
-            @SuppressWarnings("unchecked")
+            // Android-changed: Ignore IsInstanceOfClass warning. b/73288967, b/73344263.
+            // @SuppressWarnings("unchecked")
+            @SuppressWarnings({ "unchecked", "IsInstanceOfClass" })
             public Object[] toArray() {
                 Object[] source = s.toArray();
 

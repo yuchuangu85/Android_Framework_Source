@@ -24,6 +24,9 @@ import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 import android.graphics.Shader.TileMode;
 
 import java.awt.image.ColorModel;
+import java.awt.image.DataBufferInt;
+import java.awt.image.Raster;
+import java.awt.image.SampleModel;
 
 /**
  * Delegate implementing the native methods of android.graphics.LinearGradient
@@ -174,10 +177,6 @@ public final class LinearGradient_Delegate extends Gradient_Delegate {
 
             @Override
             public java.awt.image.Raster getRaster(int x, int y, int w, int h) {
-                java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(
-                    mColorModel, mColorModel.createCompatibleWritableRaster(w, h),
-                    mColorModel.isAlphaPremultiplied(), null);
-
                 int[] data = new int[w*h];
 
                 int index = 0;
@@ -199,9 +198,9 @@ public final class LinearGradient_Delegate extends Gradient_Delegate {
                     }
                 }
 
-                image.setRGB(0 /*startX*/, 0 /*startY*/, w, h, data, 0 /*offset*/, w /*scansize*/);
-
-                return image.getRaster();
+                DataBufferInt dataBuffer = new DataBufferInt(data, data.length);
+                SampleModel colorModel = mColorModel.createCompatibleSampleModel(w, h);
+                return Raster.createWritableRaster(colorModel, dataBuffer, null);
             }
         }
 

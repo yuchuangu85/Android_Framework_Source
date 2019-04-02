@@ -70,7 +70,7 @@ public final class Integer extends Number implements Comparable<Integer> {
      * @since   JDK1.1
      */
     @SuppressWarnings("unchecked")
-    public static final Class<Integer>  TYPE = (Class<Integer>) int[].class.getComponentType();
+    public static final Class<Integer>  TYPE = (Class<Integer>) Class.getPrimitiveClass("int");
 
     /**
      * All possible chars for representing a number as a String
@@ -315,7 +315,8 @@ public final class Integer extends Number implements Comparable<Integer> {
 
         formatUnsignedInt(val, shift, buf, 0, chars);
 
-        // Use special constructor which takes over "buf".
+        // Android-changed: Use regular constructor instead of one which takes over "buf".
+        // return new String(buf, true);
         return new String(buf);
     }
 
@@ -340,8 +341,10 @@ public final class Integer extends Number implements Comparable<Integer> {
         return charPos;
     }
 
+    // BEGIN Android-changed: Cache the toString() result for small values.
     private static final String[] SMALL_NEG_VALUES  = new String[100];
     private static final String[] SMALL_NONNEG_VALUES = new String[100];
+    // END Android-changed: Cache the toString() result for small values.
 
     final static char [] DigitTens = {
         '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
@@ -402,7 +405,8 @@ public final class Integer extends Number implements Comparable<Integer> {
         if (i == Integer.MIN_VALUE)
             return "-2147483648";
 
-        // Android-changed: cache the string literal for small values.
+        // BEGIN Android-changed: Cache the String for small values.
+        // int size = (i < 0) ? stringSize(-i) + 1 : stringSize(i);
         boolean negative = i < 0;
         boolean small = negative ? i > -100 : i < 100;
         if (small) {
@@ -424,10 +428,12 @@ public final class Integer extends Number implements Comparable<Integer> {
             }
             return smallValues[i];
         }
-
         int size = negative ? stringSize(-i) + 1 : stringSize(i);
+        // END Android-changed: Cache the String for small values.
         char[] buf = new char[size];
         getChars(i, size, buf);
+        // Android-changed: Use regular constructor instead of one which takes over "buf".
+        // return new String(buf, true);
         return new String(buf);
     }
 
@@ -567,6 +573,7 @@ public final class Integer extends Number implements Comparable<Integer> {
          */
 
         if (s == null) {
+            // Android-changed: Improve exception message for parseInt.
             throw new NumberFormatException("s == null");
         }
 

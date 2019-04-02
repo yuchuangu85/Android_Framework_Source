@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,8 +20,9 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.media.browse.MediaBrowser;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.annotation.RequiresApi;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
 
 import java.util.List;
 
@@ -147,5 +148,11 @@ class MediaBrowserCompatApi21 {
         public static Object getDescription(Object itemObj) {
             return ((MediaBrowser.MediaItem) itemObj).getDescription();
         }
+
+        private MediaItem() {
+        }
+    }
+
+    private MediaBrowserCompatApi21() {
     }
 }

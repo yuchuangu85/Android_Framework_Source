@@ -72,7 +72,7 @@ public final class Long extends Number implements Comparable<Long> {
      * @since   JDK1.1
      */
     @SuppressWarnings("unchecked")
-    public static final Class<Long>     TYPE = (Class<Long>) long[].class.getComponentType();
+    public static final Class<Long>     TYPE = (Class<Long>) Class.getPrimitiveClass("long");
 
     /**
      * Returns a string representation of the first argument in the
@@ -357,6 +357,8 @@ public final class Long extends Number implements Comparable<Long> {
         char[] buf = new char[chars];
 
         formatUnsignedLong(val, shift, buf, 0, chars);
+        // Android-changed: Use regular constructor instead of one which takes over "buf".
+        // return new String(buf, true);
         return new String(buf);
     }
 
@@ -397,6 +399,8 @@ public final class Long extends Number implements Comparable<Long> {
         int size = (i < 0) ? stringSize(-i) + 1 : stringSize(i);
         char[] buf = new char[size];
         getChars(i, size, buf);
+        // Android-changed: Use regular constructor instead of one which takes over "buf".
+        // return new String(buf, true);
         return new String(buf);
     }
 

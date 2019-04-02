@@ -17,7 +17,9 @@
 package android.telecom;
 
 import android.annotation.SystemApi;
+import android.bluetooth.BluetoothDevice;
 import android.os.Bundle;
+import android.os.RemoteException;
 import android.util.ArrayMap;
 
 import java.util.Collections;
@@ -221,6 +223,20 @@ public final class Phone {
         }
     }
 
+    final void internalOnHandoverFailed(String callId, int error) {
+        Call call = mCallByTelecomCallId.get(callId);
+        if (call != null) {
+            call.internalOnHandoverFailed(error);
+        }
+    }
+
+    final void internalOnHandoverComplete(String callId) {
+        Call call = mCallByTelecomCallId.get(callId);
+        if (call != null) {
+            call.internalOnHandoverComplete();
+        }
+    }
+
     /**
      * Called to destroy the phone and cleanup any lingering calls.
      */
@@ -292,6 +308,18 @@ public final class Phone {
      */
     public final void setAudioRoute(int route) {
         mInCallAdapter.setAudioRoute(route);
+    }
+
+    /**
+     * Request audio routing to a specific bluetooth device. Calling this method may result in
+     * the device routing audio to a different bluetooth device than the one specified. A list of
+     * available devices can be obtained via {@link CallAudioState#getSupportedBluetoothDevices()}
+     *
+     * @param bluetoothAddress The address of the bluetooth device to connect to, as returned by
+     * {@link BluetoothDevice#getAddress()}, or {@code null} if no device is preferred.
+     */
+    public void requestBluetoothAudio(String bluetoothAddress) {
+        mInCallAdapter.requestBluetoothAudio(bluetoothAddress);
     }
 
     /**

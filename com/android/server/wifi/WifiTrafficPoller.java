@@ -18,18 +18,19 @@ package com.android.server.wifi;
 
 import static android.net.NetworkInfo.DetailedState.CONNECTED;
 
+import android.annotation.NonNull;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.NetworkInfo;
-import android.net.TrafficStats;
 import android.net.wifi.WifiManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.Messenger;
 import android.os.RemoteException;
+import android.text.TextUtils;
 import android.util.Log;
 
 import java.io.FileDescriptor;
@@ -68,14 +69,15 @@ public class WifiTrafficPoller {
     // the first time
     private AtomicBoolean mScreenOn = new AtomicBoolean(true);
     private final TrafficHandler mTrafficHandler;
+    private final WifiNative mWifiNative;
     private NetworkInfo mNetworkInfo;
-    private final String mInterface;
 
     private boolean mVerboseLoggingEnabled = false;
 
-    WifiTrafficPoller(Context context, Looper looper, String iface) {
-        mInterface = iface;
+    WifiTrafficPoller(@NonNull Context context, @NonNull Looper looper,
+            @NonNull WifiNative wifiNative) {
         mTrafficHandler = new TrafficHandler(looper);
+        mWifiNative = wifiNative;
 
         IntentFilter filter = new IntentFilter();
         filter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
@@ -103,11 +105,13 @@ public class WifiTrafficPoller {
                 }, filter);
     }
 
-    void addClient(Messenger client) {
+    /** */
+    public void addClient(Messenger client) {
         Message.obtain(mTrafficHandler, ADD_CLIENT, client).sendToTarget();
     }
 
-    void removeClient(Messenger client) {
+    /** */
+    public void removeClient(Messenger client) {
         Message.obtain(mTrafficHandler, REMOVE_CLIENT, client).sendToTarget();
     }
 
@@ -125,6 +129,7 @@ public class WifiTrafficPoller {
         }
 
         public void handleMessage(Message msg) {
+            String ifaceName;
             switch (msg.what) {
                 case ENABLE_TRAFFIC_STATS_POLL:
                     mEnableTrafficStatsPoll = (msg.arg1 == 1);
@@ -134,8 +139,9 @@ public class WifiTrafficPoller {
                                 + Integer.toString(mTrafficStatsPollToken));
                     }
                     mTrafficStatsPollToken++;
-                    if (mEnableTrafficStatsPoll) {
-                        notifyOnDataActivity();
+                    ifaceName = mWifiNative.getClientInterfaceName();
+                    if (mEnableTrafficStatsPoll && !TextUtils.isEmpty(ifaceName)) {
+                        notifyOnDataActivity(ifaceName);
                         sendMessageDelayed(Message.obtain(this, TRAFFIC_STATS_POLL,
                                 mTrafficStatsPollToken, 0), POLL_TRAFFIC_STATS_INTERVAL_MSECS);
                     }
@@ -148,9 +154,12 @@ public class WifiTrafficPoller {
                                 + " num clients " + mClients.size());
                     }
                     if (msg.arg1 == mTrafficStatsPollToken) {
-                        notifyOnDataActivity();
-                        sendMessageDelayed(Message.obtain(this, TRAFFIC_STATS_POLL,
-                                mTrafficStatsPollToken, 0), POLL_TRAFFIC_STATS_INTERVAL_MSECS);
+                        ifaceName = mWifiNative.getClientInterfaceName();
+                        if (!TextUtils.isEmpty(ifaceName)) {
+                            notifyOnDataActivity(ifaceName);
+                            sendMessageDelayed(Message.obtain(this, TRAFFIC_STATS_POLL,
+                                    mTrafficStatsPollToken, 0), POLL_TRAFFIC_STATS_INTERVAL_MSECS);
+                        }
                     }
                     break;
                 case ADD_CLIENT:
@@ -181,13 +190,13 @@ public class WifiTrafficPoller {
         msg.sendToTarget();
     }
 
-    private void notifyOnDataActivity() {
+    private void notifyOnDataActivity(@NonNull String ifaceName) {
         long sent, received;
         long preTxPkts = mTxPkts, preRxPkts = mRxPkts;
         int dataActivity = WifiManager.DATA_ACTIVITY_NONE;
 
-        mTxPkts = TrafficStats.getTxPackets(mInterface);
-        mRxPkts = TrafficStats.getRxPackets(mInterface);
+        mTxPkts = mWifiNative.getTxPackets(ifaceName);
+        mRxPkts = mWifiNative.getRxPackets(ifaceName);
 
         if (DBG) {
             Log.d(TAG, " packet count Tx="

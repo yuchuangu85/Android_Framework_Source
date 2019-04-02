@@ -95,6 +95,7 @@ class PlainDatagramSocketImpl extends AbstractPlainDatagramSocketImpl
         }
     }
 
+    // BEGIN Android-changed: Rewrote on top of Libcore.io.
     protected synchronized void bind0(int lport, InetAddress laddr) throws SocketException {
         if (isClosed()) {
             throw new SocketException("Socket closed");
@@ -245,6 +246,7 @@ class PlainDatagramSocketImpl extends AbstractPlainDatagramSocketImpl
             IoBridge.connect(fd, inetAddressUnspec, 0);
         } catch (SocketException ignored) { }
     }
+    // END Android-changed: Rewrote on top of Libcore.io.
 
     // Android-removed: JNI has been removed
     // /**

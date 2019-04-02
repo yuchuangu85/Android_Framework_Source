@@ -309,6 +309,8 @@ public class Mac implements Cloneable {
      */
     public static final Mac getInstance(String algorithm, String provider)
             throws NoSuchAlgorithmException, NoSuchProviderException {
+        // Android-added: Check for Bouncy Castle deprecation
+        Providers.checkBouncyCastleDeprecation(provider, "Mac", algorithm);
         Instance instance = JceSecurity.getInstance
                 ("Mac", MacSpi.class, algorithm, provider);
         return new Mac((MacSpi)instance.impl, instance.provider, algorithm);
@@ -344,6 +346,8 @@ public class Mac implements Cloneable {
      */
     public static final Mac getInstance(String algorithm, Provider provider)
             throws NoSuchAlgorithmException {
+        // Android-added: Check for Bouncy Castle deprecation
+        Providers.checkBouncyCastleDeprecation(provider, "Mac", algorithm);
         Instance instance = JceSecurity.getInstance
                 ("Mac", MacSpi.class, algorithm, provider);
         return new Mac((MacSpi)instance.impl, instance.provider, algorithm);

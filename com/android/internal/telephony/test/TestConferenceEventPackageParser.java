@@ -16,7 +16,7 @@
 
 package com.android.internal.telephony.test;
 
-import com.android.ims.ImsConferenceState;
+import android.telephony.ims.ImsConferenceState;
 import com.android.internal.util.XmlUtils;
 
 import org.xmlpull.v1.XmlPullParser;
@@ -26,7 +26,6 @@ import android.os.Bundle;
 import android.util.Log;
 import android.util.Xml;
 
-import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -47,9 +46,9 @@ import java.io.InputStream;
  * </pre>
  * <p>
  * Note: This XML format is similar to the information stored in the
- * {@link com.android.ims.ImsConferenceState} parcelable.  The {@code status} values expected in the
+ * {@link ImsConferenceState} parcelable.  The {@code status} values expected in the
  * XML are those found in the {@code ImsConferenceState} class (e.g.
- * {@link com.android.ims.ImsConferenceState#STATUS_CONNECTED}).
+ * {@link ImsConferenceState#STATUS_CONNECTED}).
  * <p>
  * Place a file formatted similar to above in /data/data/com.android.phone/files/ and invoke the
  * following command while you have an ongoing IMS call:
@@ -79,10 +78,10 @@ public class TestConferenceEventPackageParser {
 
     /**
      * Parses the conference event package XML file and returns an
-     * {@link com.android.ims.ImsConferenceState} instance containing the participants described in
+     * {@link ImsConferenceState} instance containing the participants described in
      * the XML file.
      *
-     * @return The {@link com.android.ims.ImsConferenceState} instance.
+     * @return The {@link ImsConferenceState} instance.
      */
     public ImsConferenceState parse() {
         ImsConferenceState conferenceState = new ImsConferenceState();

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2014, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -137,79 +137,106 @@ import sun.security.jca.*;
  *       <th>Modes</th>
  *       <th>Paddings</th>
  *       <th>Supported API Levels</th>
+ *       <th>Notes</th>
  *     </tr>
  *   </thead>
  *   <tbody>
  *     <tr>
- *       <td rowspan="2">AES</td>
- *       <td>CBC<br>CFB<br>CTR<br>CTS<br>ECB<br>OFB</td>
- *       <td>ISO10126Padding<br>NoPadding<br>PKCS5Padding</td>
- *       <td>1+</td>
+ *       <td rowspan="2"><span style="white-space: nowrap">AES</span></td>
+ *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">CFB</span><br><span style="white-space: nowrap">CTR</span><br><span style="white-space: nowrap">CTS</span><br><span style="white-space: nowrap">ECB</span><br><span style="white-space: nowrap">OFB</span></td>
+ *       <td><span style="white-space: nowrap">ISO10126Padding</span><br><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
+ *       <td><span style="white-space: nowrap">1+</span></td>
+ *       <td></td>
  *     </tr>
  *     <tr>
- *       <td>GCM</td>
- *       <td>NOPADDING</td>
- *       <td>10+</td>
+ *       <td><span style="white-space: nowrap">GCM</span></td>
+ *       <td><span style="white-space: nowrap">NoPadding</span></td>
+ *       <td><span style="white-space: nowrap">10+</span></td>
+ *       <td></td>
  *     </tr>
  *     <tr>
- *       <td rowspan="2">AES_128</td>
- *       <td>CBC<br>ECB</td>
- *       <td>NoPadding<br>PKCS5Padding</td>
- *       <td>26+</td>
+ *       <td rowspan="2"><span style="white-space: nowrap">AES_128</span></td>
+ *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">ECB</span></td>
+ *       <td><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
+ *       <td><span style="white-space: nowrap">26+</span></td>
+ *       <td></td>
  *     </tr>
  *     <tr>
- *       <td>GCM</td>
- *       <td>NoPadding</td>
- *       <td>26+</td>
+ *       <td><span style="white-space: nowrap">GCM</span></td>
+ *       <td><span style="white-space: nowrap">NoPadding</span></td>
+ *       <td><span style="white-space: nowrap">26+</span></td>
+ *       <td></td>
  *     </tr>
  *     <tr>
- *       <td rowspan="2">AES_256</td>
- *       <td>CBC<br>ECB</td>
- *       <td>NoPadding<br>PKCS5Padding</td>
- *       <td>26+</td>
+ *       <td rowspan="2"><span style="white-space: nowrap">AES_256</span></td>
+ *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">ECB</span></td>
+ *       <td><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
+ *       <td><span style="white-space: nowrap">26+</span></td>
+ *       <td></td>
  *     </tr>
  *     <tr>
- *       <td>GCM</td>
- *       <td>NoPadding</td>
- *       <td>26+</td>
+ *       <td><span style="white-space: nowrap">GCM</span></td>
+ *       <td><span style="white-space: nowrap">NoPadding</span></td>
+ *       <td><span style="white-space: nowrap">26+</span></td>
+ *       <td></td>
  *     </tr>
  *     <tr>
- *       <td>ARC4</td>
- *       <td>ECB</td>
- *       <td>NoPadding</td>
- *       <td>10+</td>
+ *       <td rowspan="2"><span style="white-space: nowrap">ARC4</span></td>
+ *       <td><span style="white-space: nowrap">ECB</span></td>
+ *       <td><span style="white-space: nowrap">NoPadding</span></td>
+ *       <td><span style="white-space: nowrap">10+</span></td>
+ *       <td></td>
  *     </tr>
  *     <tr>
- *       <td>BLOWFISH</td>
- *       <td>CBC<br>CFB<br>CTR<br>CTS<br>ECB<br>OFB</td>
- *       <td>ISO10126Padding<br>NoPadding<br>PKCS5Padding</td>
- *       <td>10+</td>
+ *       <td><span style="white-space: nowrap">NONE</span></td>
+ *       <td><span style="white-space: nowrap">NoPadding</span></td>
+ *       <td><span style="white-space: nowrap">28+</span></td>
+ *       <td></td>
  *     </tr>
  *     <tr>
- *       <td>DES</td>
- *       <td>CBC<br>CFB<br>CTR<br>CTS<br>ECB<br>OFB</td>
- *       <td>ISO10126Padding<br>NoPadding<br>PKCS5Padding</td>
- *       <td>1+</td>
+ *       <td><span style="white-space: nowrap">BLOWFISH</span></td>
+ *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">CFB</span><br><span style="white-space: nowrap">CTR</span><br><span style="white-space: nowrap">CTS</span><br><span style="white-space: nowrap">ECB</span><br><span style="white-space: nowrap">OFB</span></td>
+ *       <td><span style="white-space: nowrap">ISO10126Padding</span><br><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
+ *       <td><span style="white-space: nowrap">10+</span></td>
+ *       <td></td>
  *     </tr>
  *     <tr>
- *       <td>DESede</td>
- *       <td>CBC<br>CFB<br>CTR<br>CTS<br>ECB<br>OFB</td>
- *       <td>ISO10126Padding<br>NoPadding<br>PKCS5Padding</td>
- *       <td>1+</td>
+ *       <td><span style="white-space: nowrap">ChaCha20</span></td>
+ *       <td><span style="white-space: nowrap">NONE</span><br><span style="white-space: nowrap">Poly1305</span></td>
+ *       <td><span style="white-space: nowrap">NoPadding</span></td>
+ *       <td><span style="white-space: nowrap">28+</span></td>
+ *       <td>ChaCha with 20 rounds, 96-bit nonce, and 32-bit counter as described in RFC 7539.</td>
  *     </tr>
  *     <tr>
- *       <td rowspan="3">RSA</td>
- *       <td rowspan="3">ECB<br>NONE</td>
- *       <td>NoPadding<br>OAEPPadding<br>PKCS1Padding</td>
- *       <td>1+</td>
+ *       <td><span style="white-space: nowrap">DES</span></td>
+ *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">CFB</span><br><span style="white-space: nowrap">CTR</span><br><span style="white-space: nowrap">CTS</span><br><span style="white-space: nowrap">ECB</span><br><span style="white-space: nowrap">OFB</span></td>
+ *       <td><span style="white-space: nowrap">ISO10126Padding</span><br><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
+ *       <td><span style="white-space: nowrap">1+</span></td>
+ *       <td></td>
  *     </tr>
  *     <tr>
- *       <td>OAEPwithSHA-1andMGF1Padding<br>OAEPwithSHA-256andMGF1Padding</td>
- *       <td>10+</td>
+ *       <td><span style="white-space: nowrap">DESede</span></td>
+ *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">CFB</span><br><span style="white-space: nowrap">CTR</span><br><span style="white-space: nowrap">CTS</span><br><span style="white-space: nowrap">ECB</span><br><span style="white-space: nowrap">OFB</span></td>
+ *       <td><span style="white-space: nowrap">ISO10126Padding</span><br><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
+ *       <td><span style="white-space: nowrap">1+</span></td>
+ *       <td></td>
  *     </tr>
  *     <tr>
- *       <td>OAEPwithSHA-224andMGF1Padding<br>OAEPwithSHA-384andMGF1Padding<br>OAEPwithSHA-512andMGF1Padding</td>
- *       <td>23+</td>
+ *       <td rowspan="3"><span style="white-space: nowrap">RSA</span></td>
+ *       <td rowspan="3"><span style="white-space: nowrap">ECB</span><br><span style="white-space: nowrap">NONE</span></td>
+ *       <td><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">OAEPPadding</span><br><span style="white-space: nowrap">PKCS1Padding</span></td>
+ *       <td><span style="white-space: nowrap">1+</span></td>
+ *       <td></td>
+ *     </tr>
+ *     <tr>
+ *       <td><span style="white-space: nowrap">OAEPwithSHA-1andMGF1Padding</span><br><span style="white-space: nowrap">OAEPwithSHA-256andMGF1Padding</span></td>
+ *       <td><span style="white-space: nowrap">10+</span></td>
+ *       <td></td>
+ *     </tr>
+ *     <tr>
+ *       <td><span style="white-space: nowrap">OAEPwithSHA-224andMGF1Padding</span><br><span style="white-space: nowrap">OAEPwithSHA-384andMGF1Padding</span><br><span style="white-space: nowrap">OAEPwithSHA-512andMGF1Padding</span></td>
+ *       <td><span style="white-space: nowrap">23+</span></td>
+ *       <td></td>
  *     </tr>
  *   </tbody>
  * </table>
@@ -226,6 +253,18 @@ import sun.security.jca.*;
  */
 
 public class Cipher {
+
+    // Android-note: Android reimplements provider selection.
+    //
+    // Android uses different provider/impl selection code than upstream does.  Provider
+    // selection permeates much of this class, so this class is forked significantly
+    // from the upstream version.  Not every change is marked, and any changes to upstream code
+    // should be evaluated to see if they should be merged.
+    //
+    // The changes are chiefly in construction (constructors, getInstance, and createCipher) and
+    // initialization (init and chooseProvider).  Most of the actual implementation is in the
+    // classes and methods at the bottom of this file.
+
 
     // Android-removed: this debugging mechanism is not used in Android.
     /*
@@ -280,10 +319,21 @@ public class Cipher {
     private CipherSpi spi;
 
     // The transformation
+    // Android-changed: Made final.
     final private String transformation;
 
+    // Android-added: Added tokenizedTransformation.
     // The tokenized version of transformation
     final private String[] tokenizedTransformation;
+
+    // Android-removed: Removed cryptoPerm.
+    /*
+    // Crypto permission representing the maximum allowable cryptographic
+    // strength that this Cipher object can be used for. (The cryptographic
+    // strength is a function of the keysize and algorithm parameters encoded
+    // in the crypto permission.)
+    private CryptoPermission cryptoPerm;
+    */
 
     // The exemption mechanism that needs to be enforced
     private ExemptionMechanism exmech;
@@ -298,8 +348,28 @@ public class Cipher {
     // The OID for the KeyUsage extension in an X.509 v3 certificate
     private static final String KEY_USAGE_EXTENSION_OID = "2.5.29.15";
 
+    // BEGIN Android-changed: Reimplement provider selection.
+    // See note at top of class.
     private final SpiAndProviderUpdater spiAndProviderUpdater;
+    /*
+    // next SPI  to try in provider selection
+    // null once provider is selected
+    private CipherSpi firstSpi;
 
+    // next service to try in provider selection
+    // null once provider is selected
+    private Service firstService;
+
+    // remaining services to try in provider selection
+    // null once provider is selected
+    private Iterator<Service> serviceIterator;
+
+    // list of transform Strings to lookup in the provider
+    private List<Transform> transforms;
+
+    private final Object lock;
+    */
+    // END Android-changed: Reimplement provider selection.
 
     /**
      * Creates a Cipher object.
@@ -375,6 +445,141 @@ public class Cipher {
         }
         return parts;
     }
+
+    // BEGIN Android-removed: Reimplement provider selection.
+    // See note at top of class.
+    /*
+    // Provider attribute name for supported chaining mode
+    private final static String ATTR_MODE = "SupportedModes";
+    // Provider attribute name for supported padding names
+    private final static String ATTR_PAD  = "SupportedPaddings";
+
+    // constants indicating whether the provider supports
+    // a given mode or padding
+    private final static int S_NO    = 0;       // does not support
+    private final static int S_MAYBE = 1;       // unable to determine
+    private final static int S_YES   = 2;       // does support
+
+    /**
+     * Nested class to deal with modes and paddings.
+     *
+    private static class Transform {
+        // transform string to lookup in the provider
+        final String transform;
+        // the mode/padding suffix in upper case. for example, if the algorithm
+        // to lookup is "DES/CBC/PKCS5Padding" suffix is "/CBC/PKCS5PADDING"
+        // if loopup is "DES", suffix is the empty string
+        // needed because aliases prevent straight transform.equals()
+        final String suffix;
+        // value to pass to setMode() or null if no such call required
+        final String mode;
+        // value to pass to setPadding() or null if no such call required
+        final String pad;
+        Transform(String alg, String suffix, String mode, String pad) {
+            this.transform = alg + suffix;
+            this.suffix = suffix.toUpperCase(Locale.ENGLISH);
+            this.mode = mode;
+            this.pad = pad;
+        }
+        // set mode and padding for the given SPI
+        void setModePadding(CipherSpi spi) throws NoSuchAlgorithmException,
+                NoSuchPaddingException {
+            if (mode != null) {
+                spi.engineSetMode(mode);
+            }
+            if (pad != null) {
+                spi.engineSetPadding(pad);
+            }
+        }
+        // check whether the given services supports the mode and
+        // padding described by this Transform
+        int supportsModePadding(Service s) {
+            int smode = supportsMode(s);
+            if (smode == S_NO) {
+                return smode;
+            }
+            int spad = supportsPadding(s);
+            // our constants are defined so that Math.min() is a tri-valued AND
+            return Math.min(smode, spad);
+        }
+
+        // separate methods for mode and padding
+        // called directly by Cipher only to throw the correct exception
+        int supportsMode(Service s) {
+            return supports(s, ATTR_MODE, mode);
+        }
+        int supportsPadding(Service s) {
+            return supports(s, ATTR_PAD, pad);
+        }
+
+        private static int supports(Service s, String attrName, String value) {
+            if (value == null) {
+                return S_YES;
+            }
+            String regexp = s.getAttribute(attrName);
+            if (regexp == null) {
+                return S_MAYBE;
+            }
+            return matches(regexp, value) ? S_YES : S_NO;
+        }
+
+        // ConcurrentMap<String,Pattern> for previously compiled patterns
+        private final static ConcurrentMap<String, Pattern> patternCache =
+            new ConcurrentHashMap<String, Pattern>();
+
+        private static boolean matches(String regexp, String str) {
+            Pattern pattern = patternCache.get(regexp);
+            if (pattern == null) {
+                pattern = Pattern.compile(regexp);
+                patternCache.putIfAbsent(regexp, pattern);
+            }
+            return pattern.matcher(str.toUpperCase(Locale.ENGLISH)).matches();
+        }
+
+    }
+
+    private static List<Transform> getTransforms(String transformation)
+            throws NoSuchAlgorithmException {
+        String[] parts = tokenizeTransformation(transformation);
+
+        String alg = parts[0];
+        String mode = parts[1];
+        String pad = parts[2];
+        if ((mode != null) && (mode.length() == 0)) {
+            mode = null;
+        }
+        if ((pad != null) && (pad.length() == 0)) {
+            pad = null;
+        }
+
+        if ((mode == null) && (pad == null)) {
+            // DES
+            Transform tr = new Transform(alg, "", null, null);
+            return Collections.singletonList(tr);
+        } else { // if ((mode != null) && (pad != null)) {
+            // DES/CBC/PKCS5Padding
+            List<Transform> list = new ArrayList<>(4);
+            list.add(new Transform(alg, "/" + mode + "/" + pad, null, null));
+            list.add(new Transform(alg, "/" + mode, null, pad));
+            list.add(new Transform(alg, "//" + pad, mode, null));
+            list.add(new Transform(alg, "", mode, pad));
+            return list;
+        }
+    }
+
+    // get the transform matching the specified service
+    private static Transform getTransform(Service s,
+                                          List<Transform> transforms) {
+        String alg = s.getAlgorithm().toUpperCase(Locale.ENGLISH);
+        for (Transform tr : transforms) {
+            if (alg.endsWith(tr.suffix)) {
+                return tr;
+            }
+        }
+        return null;
+    }
+    */
+    // END Android-removed: Reimplement provider selection.
 
     /**
      * Returns a <code>Cipher</code> object that implements the specified
@@ -466,7 +671,7 @@ public class Cipher {
             throw new NoSuchProviderException("No such provider: " +
                                               provider);
         }
-        return createCipher(transformation, p);
+        return getInstance(transformation, p);
     }
 
     /**
@@ -514,6 +719,7 @@ public class Cipher {
 
     static final Cipher createCipher(String transformation, Provider provider)
         throws NoSuchAlgorithmException, NoSuchPaddingException {
+        Providers.checkBouncyCastleDeprecation(provider, "Cipher", transformation);
         String[] tokenizedTransformation = tokenizeTransformation(transformation);
 
         CipherSpiAndProvider cipherSpiAndProvider = null;
@@ -693,6 +899,112 @@ public class Cipher {
         return exmech;
     }
 
+    // BEGIN Android-removed: Eliminate crypto permission checking.
+    // Android doesn't implement SecurityManager permissions.
+    /*
+    //
+    // Crypto permission check code below
+    //
+    private void checkCryptoPerm(CipherSpi checkSpi, Key key)
+            throws InvalidKeyException {
+        if (cryptoPerm == CryptoAllPermission.INSTANCE) {
+            return;
+        }
+        // Check if key size and default parameters are within legal limits
+        AlgorithmParameterSpec params;
+        try {
+            params = getAlgorithmParameterSpec(checkSpi.engineGetParameters());
+        } catch (InvalidParameterSpecException ipse) {
+            throw new InvalidKeyException
+                ("Unsupported default algorithm parameters");
+        }
+        if (!passCryptoPermCheck(checkSpi, key, params)) {
+            throw new InvalidKeyException(
+                "Illegal key size or default parameters");
+        }
+    }
+
+    private void checkCryptoPerm(CipherSpi checkSpi, Key key,
+            AlgorithmParameterSpec params) throws InvalidKeyException,
+            InvalidAlgorithmParameterException {
+        if (cryptoPerm == CryptoAllPermission.INSTANCE) {
+            return;
+        }
+        // Determine keysize and check if it is within legal limits
+        if (!passCryptoPermCheck(checkSpi, key, null)) {
+            throw new InvalidKeyException("Illegal key size");
+        }
+        if ((params != null) && (!passCryptoPermCheck(checkSpi, key, params))) {
+            throw new InvalidAlgorithmParameterException("Illegal parameters");
+        }
+    }
+
+    private void checkCryptoPerm(CipherSpi checkSpi, Key key,
+            AlgorithmParameters params)
+            throws InvalidKeyException, InvalidAlgorithmParameterException {
+        if (cryptoPerm == CryptoAllPermission.INSTANCE) {
+            return;
+        }
+        // Convert the specified parameters into specs and then delegate.
+        AlgorithmParameterSpec pSpec;
+        try {
+            pSpec = getAlgorithmParameterSpec(params);
+        } catch (InvalidParameterSpecException ipse) {
+            throw new InvalidAlgorithmParameterException
+                ("Failed to retrieve algorithm parameter specification");
+        }
+        checkCryptoPerm(checkSpi, key, pSpec);
+    }
+
+    private boolean passCryptoPermCheck(CipherSpi checkSpi, Key key,
+                                        AlgorithmParameterSpec params)
+            throws InvalidKeyException {
+        String em = cryptoPerm.getExemptionMechanism();
+        int keySize = checkSpi.engineGetKeySize(key);
+        // Use the "algorithm" component of the cipher
+        // transformation so that the perm check would
+        // work when the key has the "aliased" algo.
+        String algComponent;
+        int index = transformation.indexOf('/');
+        if (index != -1) {
+            algComponent = transformation.substring(0, index);
+        } else {
+            algComponent = transformation;
+        }
+        CryptoPermission checkPerm =
+            new CryptoPermission(algComponent, keySize, params, em);
+
+        if (!cryptoPerm.implies(checkPerm)) {
+            if (debug != null) {
+                debug.println("Crypto Permission check failed");
+                debug.println("granted: " + cryptoPerm);
+                debug.println("requesting: " + checkPerm);
+            }
+            return false;
+        }
+        if (exmech == null) {
+            return true;
+        }
+        try {
+            if (!exmech.isCryptoAllowed(key)) {
+                if (debug != null) {
+                    debug.println(exmech.getName() + " isn't enforced");
+                }
+                return false;
+            }
+        } catch (ExemptionMechanismException eme) {
+            if (debug != null) {
+                debug.println("Cannot determine whether "+
+                              exmech.getName() + " has been enforced");
+                eme.printStackTrace();
+            }
+            return false;
+        }
+        return true;
+    }
+    */
+    // END Android-removed: Eliminate crypto permission checking.
+
     // check if opmode is one of the defined constants
     // throw InvalidParameterExeption if not
     private static void checkOpmode(int opmode) {
@@ -836,6 +1148,7 @@ public class Cipher {
 
         initialized = true;
         this.opmode = opmode;
+
         // Android-removed: this debugging mechanism is not used in Android.
         /*
         if (!skipDebug && pdebug != null) {
@@ -1263,7 +1576,8 @@ public class Cipher {
      */
     public final void init(int opmode, Certificate certificate,
                            SecureRandom random)
-            throws InvalidKeyException {
+            throws InvalidKeyException
+    {
         initialized = false;
         checkOpmode(opmode);
 
@@ -1272,28 +1586,28 @@ public class Cipher {
         if (certificate instanceof java.security.cert.X509Certificate) {
             // Check whether the cert has a key usage extension
             // marked as a critical extension.
-            X509Certificate cert = (X509Certificate) certificate;
+            X509Certificate cert = (X509Certificate)certificate;
             Set<String> critSet = cert.getCriticalExtensionOIDs();
 
             if (critSet != null && !critSet.isEmpty()
-                    && critSet.contains(KEY_USAGE_EXTENSION_OID)) {
+                && critSet.contains(KEY_USAGE_EXTENSION_OID)) {
                 boolean[] keyUsageInfo = cert.getKeyUsage();
                 // keyUsageInfo[2] is for keyEncipherment;
                 // keyUsageInfo[3] is for dataEncipherment.
                 if ((keyUsageInfo != null) &&
-                        (((opmode == Cipher.ENCRYPT_MODE) &&
-                                (keyUsageInfo.length > 3) &&
-                                (keyUsageInfo[3] == false)) ||
-                                ((opmode == Cipher.WRAP_MODE) &&
-                                        (keyUsageInfo.length > 2) &&
-                                        (keyUsageInfo[2] == false)))) {
+                    (((opmode == Cipher.ENCRYPT_MODE) &&
+                      (keyUsageInfo.length > 3) &&
+                      (keyUsageInfo[3] == false)) ||
+                     ((opmode == Cipher.WRAP_MODE) &&
+                      (keyUsageInfo.length > 2) &&
+                      (keyUsageInfo[2] == false)))) {
                     throw new InvalidKeyException("Wrong key usage");
                 }
             }
         }
 
         PublicKey publicKey =
-                (certificate == null ? null : certificate.getPublicKey());
+            (certificate==null? null:certificate.getPublicKey());
 
         try {
             chooseProvider(InitType.KEY, opmode, (Key) publicKey, null, null, random);
@@ -2346,6 +2660,8 @@ public class Cipher {
         spi.engineUpdateAAD(src);
     }
 
+    // BEGIN Android-added: Bulk of the new provider implementation.
+    // See note at top of class.
     /**
      * Returns the {@code CipherSpi} backing this {@code Cipher} or {@code null} if no
      * {@code CipherSpi} is backing this {@code Cipher}.
@@ -2677,4 +2993,5 @@ public class Cipher {
         }
         return null;
     }
+    // END Android-added: Bulk of the new provider implementation.
 }

@@ -26,10 +26,12 @@ import android.graphics.Point;
 import android.graphics.Rect;
 import android.os.ParcelFileDescriptor;
 import android.system.ErrnoException;
+import android.system.Os;
 import android.system.OsConstants;
 import com.android.internal.util.Preconditions;
 import dalvik.system.CloseGuard;
-import libcore.io.Libcore;
+
+import libcore.io.IoUtils;
 
 import java.io.IOException;
 import java.lang.annotation.Retention;
@@ -110,7 +112,7 @@ public final class PdfRenderer implements AutoCloseable {
 
     private final Point mTempPoint = new Point();
 
-    private final long mNativeDocument;
+    private long mNativeDocument;
 
     private final int mPageCount;
 
@@ -154,12 +156,11 @@ public final class PdfRenderer implements AutoCloseable {
 
         final long size;
         try {
-            Libcore.os.lseek(input.getFileDescriptor(), 0, OsConstants.SEEK_SET);
-            size = Libcore.os.fstat(input.getFileDescriptor()).st_size;
+            Os.lseek(input.getFileDescriptor(), 0, OsConstants.SEEK_SET);
+            size = Os.fstat(input.getFileDescriptor()).st_size;
         } catch (ErrnoException ee) {
             throw new IllegalArgumentException("file descriptor not seekable");
         }
-
         mInput = input;
 
         synchronized (sPdfiumLock) {
@@ -168,6 +169,7 @@ public final class PdfRenderer implements AutoCloseable {
                 mPageCount = nativeGetPageCount(mNativeDocument);
             } catch (Throwable t) {
                 nativeClose(mNativeDocument);
+                mNativeDocument = 0;
                 throw t;
             }
         }
@@ -234,9 +236,7 @@ public final class PdfRenderer implements AutoCloseable {
                 mCloseGuard.warnIfOpen();
             }
 
-            if (mInput != null) {
-                doClose();
-            }
+            doClose();
         } finally {
             super.finalize();
         }
@@ -245,16 +245,20 @@ public final class PdfRenderer implements AutoCloseable {
     private void doClose() {
         if (mCurrentPage != null) {
             mCurrentPage.close();
+            mCurrentPage = null;
         }
-        synchronized (sPdfiumLock) {
-            nativeClose(mNativeDocument);
+
+        if (mNativeDocument != 0) {
+            synchronized (sPdfiumLock) {
+                nativeClose(mNativeDocument);
+            }
+            mNativeDocument = 0;
         }
-        try {
-            mInput.close();
-        } catch (IOException ioe) {
-            /* ignore - best effort */
+
+        if (mInput != null) {
+            IoUtils.closeQuietly(mInput);
+            mInput = null;
         }
-        mInput = null;
         mCloseGuard.close();
     }
 
@@ -451,19 +455,20 @@ public final class PdfRenderer implements AutoCloseable {
                     mCloseGuard.warnIfOpen();
                 }
 
-                if (mNativePage != 0) {
-                    doClose();
-                }
+                doClose();
             } finally {
                 super.finalize();
             }
         }
 
         private void doClose() {
-            synchronized (sPdfiumLock) {
-                nativeClosePage(mNativePage);
+            if (mNativePage != 0) {
+                synchronized (sPdfiumLock) {
+                    nativeClosePage(mNativePage);
+                }
+                mNativePage = 0;
             }
-            mNativePage = 0;
+
             mCloseGuard.close();
             mCurrentPage = null;
         }

@@ -28,6 +28,7 @@ package java.io;
 
 import java.nio.channels.FileChannel;
 
+import dalvik.annotation.optimization.ReachabilitySensitive;
 import dalvik.system.BlockGuard;
 import dalvik.system.CloseGuard;
 import sun.nio.ch.FileChannelImpl;
@@ -60,6 +61,8 @@ class FileOutputStream extends OutputStream
     /**
      * The system dependent file descriptor.
      */
+    // Android-added: @ReachabilitySensitive
+    @ReachabilitySensitive
     private final FileDescriptor fd;
 
     /**
@@ -72,17 +75,23 @@ class FileOutputStream extends OutputStream
      */
     private FileChannel channel;
 
-    private final Object closeLock = new Object();
-    private volatile boolean closed = false;
-
     /**
      * The path of the referenced file
      * (null if the stream is created with a file descriptor)
      */
     private final String path;
 
+    private final Object closeLock = new Object();
+    private volatile boolean closed = false;
+
+    // Android-added: CloseGuard support: Log if the stream is not closed.
+    @ReachabilitySensitive
     private final CloseGuard guard = CloseGuard.get();
+
+    // Android-added: Field for tracking whether the stream owns the underlying FileDescriptor.
     private final boolean isFdOwner;
+
+    // Android-added: Tracking of unbuffered I/O.
     private final IoTracker tracker = new IoTracker();
 
     /**
@@ -215,15 +224,24 @@ class FileOutputStream extends OutputStream
             throw new FileNotFoundException("Invalid file path");
         }
         this.fd = new FileDescriptor();
-        this.append = append;
-        this.path = name;
+
+        // Android-changed: Tracking mechanism for FileDescriptor sharing.
+        // fd.attach(this);
         this.isFdOwner = true;
 
+        this.append = append;
+        this.path = name;
+
+        // Android-added: BlockGuard support.
         BlockGuard.getThreadPolicy().onWriteToDisk();
+
         open(name, append);
+
+        // Android-added: CloseGuard support.
         guard.open("close");
     }
 
+    // Android-removed: Documentation around SecurityException. Not thrown on Android.
     /**
      * Creates a file output stream to write to the specified file
      * descriptor, which represents an existing connection to an actual
@@ -242,15 +260,14 @@ class FileOutputStream extends OutputStream
      * I/O on the stream, an <code>IOException</code> is thrown.
      *
      * @param      fdObj   the file descriptor to be opened for writing
-     * @exception  SecurityException  if a security manager exists and its
-     *               <code>checkWrite</code> method denies
-     *               write access to the file descriptor
-     * @see        java.lang.SecurityManager#checkWrite(java.io.FileDescriptor)
      */
     public FileOutputStream(FileDescriptor fdObj) {
+        // Android-changed: Delegate to added hidden constructor.
         this(fdObj, false /* isOwner */);
     }
 
+    // Android-added: Internal/hidden constructor for specifying FileDescriptor ownership.
+    // Android-removed: SecurityManager calls.
     /**
      * Internal constructor for {@code FileOutputStream} objects where the file descriptor
      * is owned by this tream.
@@ -259,12 +276,16 @@ class FileOutputStream extends OutputStream
      */
     public FileOutputStream(FileDescriptor fdObj, boolean isFdOwner) {
         if (fdObj == null) {
+            // Android-changed: Improved NullPointerException message.
             throw new NullPointerException("fdObj == null");
         }
 
         this.fd = fdObj;
-        this.path = null;
         this.append = false;
+        this.path = null;
+
+        // Android-changed: FileDescriptor ownership tracking mechanism.
+        // fd.attach(this);
         this.isFdOwner = isFdOwner;
     }
 
@@ -287,6 +308,18 @@ class FileOutputStream extends OutputStream
         open0(name, append);
     }
 
+    // Android-removed: write(int, boolean), use IoBridge instead.
+    /*
+    /**
+     * Writes the specified byte to this file output stream.
+     *
+     * @param   b   the byte to be written.
+     * @param   append   {@code true} if the write operation first
+     *     advances the position to the end of file
+     *
+    private native void write(int b, boolean append) throws IOException;
+    */
+
     /**
      * Writes the specified byte to this file output stream. Implements
      * the <code>write</code> method of <code>OutputStream</code>.
@@ -295,8 +328,24 @@ class FileOutputStream extends OutputStream
      * @exception  IOException  if an I/O error occurs.
      */
     public void write(int b) throws IOException {
+        // Android-changed: Write methods delegate to write(byte[],int,int) to share Android logic.
         write(new byte[] { (byte) b }, 0, 1);
     }
+
+    // Android-removed: Write methods delegate to write(byte[],int,int) to share Android logic.
+    /*
+    /**
+     * Writes a sub array as a sequence of bytes.
+     * @param b the data to be written
+     * @param off the start offset in the data
+     * @param len the number of bytes that are written
+     * @param append {@code true} to first advance the position to the
+     *     end of file
+     * @exception IOException If an I/O error has occurred.
+     *
+    private native void writeBytes(byte b[], int off, int len, boolean append)
+        throws IOException;
+    */
 
     /**
      * Writes <code>b.length</code> bytes from the specified byte array
@@ -306,6 +355,7 @@ class FileOutputStream extends OutputStream
      * @exception  IOException  if an I/O error occurs.
      */
     public void write(byte b[]) throws IOException {
+        // Android-changed: Write methods delegate to write(byte[],int,int) to share Android logic.
         write(b, 0, b.length);
     }
 
@@ -319,10 +369,15 @@ class FileOutputStream extends OutputStream
      * @exception  IOException  if an I/O error occurs.
      */
     public void write(byte b[], int off, int len) throws IOException {
+        // Android-added: close() check before I/O.
         if (closed && len > 0) {
             throw new IOException("Stream Closed");
         }
+
+        // Android-added: Tracking of unbuffered I/O.
         tracker.trackIo(len);
+
+        // Android-changed: Use IoBridge instead of calling native method.
         IoBridge.write(fd, b, off, len);
     }
 
@@ -347,21 +402,18 @@ class FileOutputStream extends OutputStream
             closed = true;
         }
 
+        // Android-added: CloseGuard support.
         guard.close();
 
         if (channel != null) {
-            /*
-             * Decrement FD use count associated with the channel
-             * The use count is incremented whenever a new channel
-             * is obtained from this stream.
-             */
             channel.close();
         }
 
-
+        // BEGIN Android-changed: Close handling / notification of blocked threads.
         if (isFdOwner) {
             IoBridge.closeAndSignalBlockedThreads(fd);
         }
+        // END Android-changed: Close handling / notification of blocked threads.
     }
 
     /**
@@ -374,6 +426,8 @@ class FileOutputStream extends OutputStream
      * @exception  IOException  if an I/O error occurs.
      * @see        java.io.FileDescriptor
      */
+     // Android-added: @ReachabilitySensitive
+     @ReachabilitySensitive
      public final FileDescriptor getFD()  throws IOException {
         if (fd != null) {
             return fd;
@@ -416,6 +470,7 @@ class FileOutputStream extends OutputStream
      * @see        java.io.FileInputStream#close()
      */
     protected void finalize() throws IOException {
+        // Android-added: CloseGuard support.
         if (guard != null) {
             guard.warnIfOpen();
         }
@@ -424,8 +479,22 @@ class FileOutputStream extends OutputStream
             if (fd == FileDescriptor.out || fd == FileDescriptor.err) {
                 flush();
             } else {
+                // Android-removed: Obsoleted comment about shared FileDescriptor handling.
                 close();
             }
         }
     }
+
+    // BEGIN Android-removed: Unused code.
+    /*
+    private native void close0() throws IOException;
+
+    private static native void initIDs();
+
+    static {
+        initIDs();
+    }
+    */
+    // END Android-removed: Unused code.
+
 }

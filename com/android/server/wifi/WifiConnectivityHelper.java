@@ -59,7 +59,7 @@ public class WifiConnectivityHelper {
         mMaxNumBlacklistBssid = INVALID_LIST_SIZE;
         mMaxNumWhitelistSsid = INVALID_LIST_SIZE;
 
-        int fwFeatureSet = mWifiNative.getSupportedFeatureSet();
+        int fwFeatureSet = mWifiNative.getSupportedFeatureSet(mWifiNative.getClientInterfaceName());
         Log.d(TAG, "Firmware supported feature set: " + Integer.toHexString(fwFeatureSet));
 
         if ((fwFeatureSet & WIFI_FEATURE_CONTROL_ROAMING) == 0) {
@@ -68,7 +68,7 @@ public class WifiConnectivityHelper {
         }
 
         WifiNative.RoamingCapabilities roamingCap = new WifiNative.RoamingCapabilities();
-        if (mWifiNative.getRoamingCapabilities(roamingCap)) {
+        if (mWifiNative.getRoamingCapabilities(mWifiNative.getClientInterfaceName(), roamingCap)) {
             if (roamingCap.maxBlacklistSize < 0 || roamingCap.maxWhitelistSize < 0) {
                 Log.e(TAG, "Invalid firmware roaming capabilities: max num blacklist bssid="
                         + roamingCap.maxBlacklistSize + " max num whitelist ssid="
@@ -159,7 +159,7 @@ public class WifiConnectivityHelper {
         roamConfig.blacklistBssids = blacklistBssids;
         roamConfig.whitelistSsids = whitelistSsids;
 
-        return mWifiNative.configureRoaming(roamConfig);
+        return mWifiNative.configureRoaming(mWifiNative.getClientInterfaceName(), roamConfig);
     }
 
     /**
@@ -169,6 +169,6 @@ public class WifiConnectivityHelper {
      * @param networkId network id of the network to be removed from supplicant.
      */
     public void removeNetworkIfCurrent(int networkId) {
-        mWifiNative.removeNetworkIfCurrent(networkId);
+        mWifiNative.removeNetworkIfCurrent(mWifiNative.getClientInterfaceName(), networkId);
     }
 }

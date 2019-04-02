@@ -1,5 +1,4 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
  * Copyright (c) 1994, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -137,7 +136,7 @@ public final class Double extends Number implements Comparable<Double> {
      * @since JDK1.1
      */
     @SuppressWarnings("unchecked")
-    public static final Class<Double>   TYPE = (Class<Double>) double[].class.getComponentType();
+    public static final Class<Double>   TYPE = (Class<Double>) Class.getPrimitiveClass("double");
 
     /**
      * Returns a string representation of the {@code double}

@@ -70,7 +70,7 @@ public class SubscriptionMonitor {
     public SubscriptionMonitor(ITelephonyRegistry tr, Context context,
             SubscriptionController subscriptionController, int numPhones) {
         try {
-            tr.addOnSubscriptionsChangedListener("SubscriptionMonitor",
+            tr.addOnSubscriptionsChangedListener(context.getOpPackageName(),
                     mSubscriptionsChangedListener);
         } catch (RemoteException e) {
         }

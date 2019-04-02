@@ -60,6 +60,7 @@ class NoClassDefFoundError extends LinkageError {
         super(s);
     }
 
+    // Android-added: A new constructor for use by the Android runtime.
     /**
      * Constructs a new {@code NoClassDefFoundError} with the current stack
      * trace, the specified detail message and the specified cause. Used

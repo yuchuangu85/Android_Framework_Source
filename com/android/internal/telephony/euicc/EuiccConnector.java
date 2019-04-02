@@ -33,6 +33,7 @@ import android.content.pm.ServiceInfo;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.RemoteException;
 import android.service.euicc.EuiccService;
 import android.service.euicc.GetDefaultDownloadableSubscriptionListResult;
 import android.service.euicc.GetDownloadableSubscriptionMetadataResult;
@@ -46,12 +47,16 @@ import android.service.euicc.IGetDownloadableSubscriptionMetadataCallback;
 import android.service.euicc.IGetEidCallback;
 import android.service.euicc.IGetEuiccInfoCallback;
 import android.service.euicc.IGetEuiccProfileInfoListCallback;
+import android.service.euicc.IGetOtaStatusCallback;
+import android.service.euicc.IOtaStatusChangedCallback;
 import android.service.euicc.IRetainSubscriptionsForFactoryResetCallback;
 import android.service.euicc.ISwitchToSubscriptionCallback;
 import android.service.euicc.IUpdateSubscriptionNicknameCallback;
 import android.telephony.SubscriptionManager;
 import android.telephony.euicc.DownloadableSubscription;
 import android.telephony.euicc.EuiccInfo;
+import android.telephony.euicc.EuiccManager;
+import android.telephony.euicc.EuiccManager.OtaStatus;
 import android.text.TextUtils;
 import android.util.ArraySet;
 import android.util.Log;
@@ -132,6 +137,8 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
     private static final int CMD_UPDATE_SUBSCRIPTION_NICKNAME = 108;
     private static final int CMD_ERASE_SUBSCRIPTIONS = 109;
     private static final int CMD_RETAIN_SUBSCRIPTIONS = 110;
+    private static final int CMD_GET_OTA_STATUS = 111;
+    private static final int CMD_START_OTA_IF_NECESSARY = 112;
 
     private static boolean isEuiccCommand(int what) {
         return what >= CMD_GET_EID;
@@ -183,6 +190,21 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
     public interface GetEidCommandCallback extends BaseEuiccCommandCallback {
         /** Called when the EID lookup has completed. */
         void onGetEidComplete(String eid);
+    }
+
+    /** Callback class for {@link #getOtaStatus}. */
+    @VisibleForTesting(visibility = PACKAGE)
+    public interface GetOtaStatusCommandCallback extends BaseEuiccCommandCallback {
+        /** Called when the getting OTA status lookup has completed. */
+        void onGetOtaStatusComplete(@OtaStatus int status);
+    }
+
+    /** Callback class for {@link #startOtaIfNecessary}. */
+    @VisibleForTesting(visibility = PACKAGE)
+    public interface OtaStatusChangedCallback extends BaseEuiccCommandCallback {
+        /**
+         * Called when OTA status is changed to {@link EuiccM}. */
+        void onOtaStatusChanged(int status);
     }
 
     static class GetMetadataRequest {
@@ -371,6 +393,18 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
     @VisibleForTesting(visibility = PACKAGE)
     public void getEid(GetEidCommandCallback callback) {
         sendMessage(CMD_GET_EID, callback);
+    }
+
+    /** Asynchronously get OTA status. */
+    @VisibleForTesting(visibility = PACKAGE)
+    public void getOtaStatus(GetOtaStatusCommandCallback callback) {
+        sendMessage(CMD_GET_OTA_STATUS, callback);
+    }
+
+    /** Asynchronously perform OTA update. */
+    @VisibleForTesting(visibility = PACKAGE)
+    public void startOtaIfNecessary(OtaStatusChangedCallback callback) {
+        sendMessage(CMD_START_OTA_IF_NECESSARY, callback);
     }
 
     /** Asynchronously fetch metadata for the given downloadable subscription. */
@@ -809,6 +843,42 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                                     });
                             break;
                         }
+                        case CMD_GET_OTA_STATUS: {
+                            mEuiccService.getOtaStatus(slotId,
+                                    new IGetOtaStatusCallback.Stub() {
+                                        @Override
+                                        public void onSuccess(@OtaStatus int status) {
+                                            sendMessage(CMD_COMMAND_COMPLETE, (Runnable) () -> {
+                                                ((GetOtaStatusCommandCallback) callback)
+                                                        .onGetOtaStatusComplete(status);
+                                                onCommandEnd(callback);
+                                            });
+                                        }
+                                    });
+                            break;
+                        }
+                        case CMD_START_OTA_IF_NECESSARY: {
+                            mEuiccService.startOtaIfNecessary(slotId,
+                                    new IOtaStatusChangedCallback.Stub() {
+                                        @Override
+                                        public void onOtaStatusChanged(int status)
+                                                throws RemoteException {
+                                            if (status == EuiccManager.EUICC_OTA_IN_PROGRESS) {
+                                                sendMessage(CMD_COMMAND_COMPLETE, (Runnable) () -> {
+                                                    ((OtaStatusChangedCallback) callback)
+                                                            .onOtaStatusChanged(status);
+                                                });
+                                            } else {
+                                                sendMessage(CMD_COMMAND_COMPLETE, (Runnable) () -> {
+                                                    ((OtaStatusChangedCallback) callback)
+                                                            .onOtaStatusChanged(status);
+                                                    onCommandEnd(callback);
+                                                });
+                                            }
+                                        }
+                                    });
+                            break;
+                        }
                         default: {
                             Log.wtf(TAG, "Unimplemented eUICC command: " + message.what);
                             callback.onEuiccServiceUnavailable();
@@ -851,6 +921,8 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
             case CMD_GET_EUICC_INFO:
             case CMD_ERASE_SUBSCRIPTIONS:
             case CMD_RETAIN_SUBSCRIPTIONS:
+            case CMD_GET_OTA_STATUS:
+            case CMD_START_OTA_IF_NECESSARY:
                 return (BaseEuiccCommandCallback) message.obj;
             case CMD_GET_DOWNLOADABLE_SUBSCRIPTION_METADATA:
                 return ((GetMetadataRequest) message.obj).mCallback;

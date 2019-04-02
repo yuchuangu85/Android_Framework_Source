@@ -27,7 +27,6 @@ import android.annotation.Nullable;
 import android.content.res.AssetManager;
 import android.content.res.BridgeAssetManager;
 import android.graphics.fonts.FontVariationAxis;
-import android.text.FontConfig;
 
 import java.awt.Font;
 import java.awt.FontFormatException;
@@ -42,6 +41,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Scanner;
 import java.util.Set;
 
@@ -97,6 +97,28 @@ public class FontFamily_Delegate {
         Font mFont;
         int mWeight;
         boolean mIsItalic;
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            FontInfo fontInfo = (FontInfo) o;
+            return mWeight == fontInfo.mWeight && mIsItalic == fontInfo.mIsItalic;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(mWeight, mIsItalic);
+        }
+
+        @Override
+        public String toString() {
+            return "FontInfo{" + "mWeight=" + mWeight + ", mIsItalic=" + mIsItalic + '}';
+        }
     }
 
     // ---- delegate manager ----
@@ -111,7 +133,10 @@ public class FontFamily_Delegate {
 
 
     // ---- delegate data ----
-    private List<FontInfo> mFonts = new ArrayList<FontInfo>();
+
+    // Order does not really matter but we use a LinkedHashMap to get reproducible results across
+    // render calls
+    private Map<FontInfo, Font> mFonts = new LinkedHashMap<>();
 
     /**
      * The variant of the Font Family - compact or elegant.
@@ -147,7 +172,7 @@ public class FontFamily_Delegate {
         File allFonts = new File(fontLocation, FN_ALL_FONTS_LIST);
         // Current number of fonts is 103. Use the next round number to leave scope for more fonts
         // in the future.
-        Set<String> allFontsList = new HashSet<String>(128);
+        Set<String> allFontsList = new HashSet<>(128);
         Scanner scanner = null;
         try {
             scanner = new Scanner(allFonts);
@@ -179,23 +204,38 @@ public class FontFamily_Delegate {
         FontInfo desiredStyle = new FontInfo();
         desiredStyle.mWeight = desiredWeight;
         desiredStyle.mIsItalic = isItalic;
-        FontInfo bestFont = null;
-        int bestMatch = Integer.MAX_VALUE;
-        //noinspection ForLoopReplaceableByForEach (avoid iterator instantiation)
-        for (int i = 0, n = mFonts.size(); i < n; i++) {
-            FontInfo font = mFonts.get(i);
-            int match = computeMatch(font, desiredStyle);
-            if (match < bestMatch) {
-                bestMatch = match;
-                bestFont = font;
-            }
+
+        Font cachedFont = mFonts.get(desiredStyle);
+        if (cachedFont != null) {
+            return cachedFont;
         }
+
+        FontInfo bestFont = null;
+
+        if (mFonts.size() == 1) {
+            // No need to compute the match since we only have one candidate
+            bestFont = mFonts.keySet().iterator().next();
+        } else {
+            int bestMatch = Integer.MAX_VALUE;
+
+            //noinspection ForLoopReplaceableByForEach (avoid iterator instantiation)
+            for (FontInfo font : mFonts.keySet()) {
+                int match = computeMatch(font, desiredStyle);
+                if (match < bestMatch) {
+                    bestMatch = match;
+                    bestFont = font;
+                }
+            }
+
+            // This would mean that we already had the font so it should be in the set
+            assert bestMatch != 0;
+        }
+
         if (bestFont == null) {
             return null;
         }
-        if (bestMatch == 0) {
-            return bestFont.mFont;
-        }
+
+
         // Derive the font as required and add it to the list of Fonts.
         deriveFont(bestFont, desiredStyle);
         addFont(desiredStyle);
@@ -411,14 +451,6 @@ public class FontFamily_Delegate {
         sManager.removeJavaReferenceFor(builderPtr);
     }
 
-    /**
-     * @see FontFamily#allowUnsupportedFont
-     */
-    @LayoutlibDelegate
-    /*package*/ static void nAllowUnsupportedFont(long builderPtr) {
-        // Do nothing here as this is used for Minikin fonts
-    }
-
     // ---- private helper methods ----
 
     private void init() {
@@ -461,19 +493,7 @@ public class FontFamily_Delegate {
     }
 
     private boolean addFont(@NonNull FontInfo fontInfo) {
-        int weight = fontInfo.mWeight;
-        boolean isItalic = fontInfo.mIsItalic;
-        // The list is usually just two fonts big. So iterating over all isn't as bad as it looks.
-        // It's biggest for roboto where the size is 12.
-        //noinspection ForLoopReplaceableByForEach (avoid iterator instantiation)
-        for (int i = 0, n = mFonts.size(); i < n; i++) {
-            FontInfo font = mFonts.get(i);
-            if (font.mWeight == weight && font.mIsItalic == isItalic) {
-                return false;
-            }
-        }
-        mFonts.add(fontInfo);
-        return true;
+        return mFonts.putIfAbsent(fontInfo, fontInfo.mFont) == null;
     }
 
     /**
@@ -496,28 +516,32 @@ public class FontFamily_Delegate {
      *                its style
      * @return outFont
      */
-    @NonNull
-    private FontInfo deriveFont(@NonNull FontInfo srcFont, @NonNull FontInfo outFont) {
+    private void deriveFont(@NonNull FontInfo srcFont, @NonNull FontInfo outFont) {
         int desiredWeight = outFont.mWeight;
         int srcWeight = srcFont.mWeight;
         assert srcFont.mFont != null;
         Font derivedFont = srcFont.mFont;
+        int derivedStyle = 0;
         // Embolden the font if required.
         if (desiredWeight >= BOLD_FONT_WEIGHT && desiredWeight - srcWeight > BOLD_FONT_WEIGHT_DELTA / 2) {
-            derivedFont = derivedFont.deriveFont(Font.BOLD);
+            derivedStyle |= Font.BOLD;
             srcWeight += BOLD_FONT_WEIGHT_DELTA;
         }
         // Italicize the font if required.
         if (outFont.mIsItalic && !srcFont.mIsItalic) {
-            derivedFont = derivedFont.deriveFont(Font.ITALIC);
+            derivedStyle |= Font.ITALIC;
         } else if (outFont.mIsItalic != srcFont.mIsItalic) {
             // The desired font is plain, but the src font is italics. We can't convert it back. So
             // we update the value to reflect the true style of the font we're deriving.
             outFont.mIsItalic = srcFont.mIsItalic;
         }
+
+        if (derivedStyle != 0) {
+            derivedFont = derivedFont.deriveFont(derivedStyle);
+        }
+
         outFont.mFont = derivedFont;
         outFont.mWeight = srcWeight;
         // No need to update mIsItalics, as it's already been handled above.
-        return outFont;
     }
 }

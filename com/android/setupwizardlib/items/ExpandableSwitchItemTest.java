@@ -16,35 +16,29 @@
 
 package com.android.setupwizardlib.items;
 
-import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.not;
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.robolectric.RuntimeEnvironment.application;
 
-import android.support.v7.widget.SwitchCompat;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.TextView;
 
-import com.android.setupwizardlib.BuildConfig;
 import com.android.setupwizardlib.R;
 import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
+import com.android.setupwizardlib.view.CheckableLinearLayout;
 
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.annotation.Config;
 
-import java.util.ArrayList;
-
 @RunWith(SuwLibRobolectricTestRunner.class)
-@Config(constants = BuildConfig.class, sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
+@Config(sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
 public class ExpandableSwitchItemTest {
 
     private TextView mSummaryView;
@@ -71,6 +65,14 @@ public class ExpandableSwitchItemTest {
         assertEquals("Should be collapsed initially", "TestSummary", mItem.getSummary());
         assertEquals("Summary view should display collapsed summary",
                 "TestSummary", mSummaryView.getText());
+
+        assertFalse("Expandable switch item itself should not be focusable", view.isFocusable());
+
+        View switchContent = view.findViewById(R.id.suw_items_expandable_switch_content);
+        assertThat(switchContent).isInstanceOf(CheckableLinearLayout.class);
+        assertThat(switchContent.isFocusable())
+                .named("expandable content focusable")
+                .isTrue();
     }
 
     @Test
@@ -132,57 +134,25 @@ public class ExpandableSwitchItemTest {
         mItem.onBindView(view);
 
         final View titleView = view.findViewById(R.id.suw_items_title);
-        assertThat("state_checked should not be set initially",
-                toArrayList(titleView.getDrawableState()),
-                not(hasItem(android.R.attr.state_checked)));
+        assertThat(titleView.getDrawableState()).asList().named("Drawable state")
+                .doesNotContain(android.R.attr.state_checked);
 
         mItem.setExpanded(true);
         mItem.onBindView(view);
-        assertThat("state_checked should not be set initially",
-                toArrayList(titleView.getDrawableState()),
-                hasItem(android.R.attr.state_checked));
+        assertThat(titleView.getDrawableState()).asList().named("Drawable state")
+                .contains(android.R.attr.state_checked);
 
         mItem.setExpanded(false);
         mItem.onBindView(view);
-        assertThat("state_checked should not be set initially",
-                toArrayList(titleView.getDrawableState()),
-                not(hasItem(android.R.attr.state_checked)));
-    }
-
-    private ArrayList<Integer> toArrayList(int[] array) {
-        ArrayList<Integer> arrayList = new ArrayList<>(array.length);
-        for (int i : array) {
-            arrayList.add(i);
-        }
-        return arrayList;
+        assertThat(titleView.getDrawableState()).asList().named("Drawable state")
+                .doesNotContain(android.R.attr.state_checked);
     }
 
     private ViewGroup createLayout() {
-        ViewGroup root = new FrameLayout(application);
-
-        ViewGroup content = new FrameLayout(application);
-        content.setId(R.id.suw_items_expandable_switch_content);
-        root.addView(content);
-
-        TextView titleView = new TextView(application);
-        titleView.setId(R.id.suw_items_title);
-        content.addView(titleView);
-
-        mSummaryView = new TextView(application);
-        mSummaryView.setId(R.id.suw_items_summary);
-        content.addView(mSummaryView);
-
-        FrameLayout iconContainer = new FrameLayout(application);
-        iconContainer.setId(R.id.suw_items_icon_container);
-        content.addView(iconContainer);
-
-        ImageView iconView = new ImageView(application);
-        iconView.setId(R.id.suw_items_icon);
-        iconContainer.addView(iconView);
-
-        SwitchCompat switchView = new SwitchCompat(application);
-        switchView.setId(R.id.suw_items_switch);
-        root.addView(switchView);
+        ViewGroup root =
+                (ViewGroup) LayoutInflater.from(application)
+                        .inflate(R.layout.suw_items_expandable_switch, null);
+        mSummaryView = root.findViewById(R.id.suw_items_summary);
 
         return root;
     }

@@ -20,6 +20,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
+ * BEGIN LAYOUTLIB CHANGE
+ * This is a custom version that doesn't use the non standard LinkedHashMap#eldest.
+ * END LAYOUTLIB CHANGE
+ *
  * A cache that holds strong references to a limited number of values. Each time
  * a value is accessed, it is moved to the head of a queue. When a value is
  * added to a full cache, the value at the end of that queue is evicted and may
@@ -87,8 +91,9 @@ public class LruCache<K, V> {
 
     /**
      * Sets the size of the cache.
-     *
      * @param maxSize The new maximum size.
+     *
+     * @hide
      */
     public void resize(int maxSize) {
         if (maxSize <= 0) {
@@ -185,13 +190,10 @@ public class LruCache<K, V> {
     }
 
     /**
-     * Remove the eldest entries until the total of remaining entries is at or
-     * below the requested size.
-     *
      * @param maxSize the maximum size of the cache before returning. May be -1
-     *            to evict even 0-sized elements.
+     *     to evict even 0-sized elements.
      */
-    public void trimToSize(int maxSize) {
+    private void trimToSize(int maxSize) {
         while (true) {
             K key;
             V value;
@@ -205,7 +207,16 @@ public class LruCache<K, V> {
                     break;
                 }
 
-                Map.Entry<K, V> toEvict = map.eldest();
+                // BEGIN LAYOUTLIB CHANGE
+                // get the last item in the linked list.
+                // This is not efficient, the goal here is to minimize the changes
+                // compared to the platform version.
+                Map.Entry<K, V> toEvict = null;
+                for (Map.Entry<K, V> entry : map.entrySet()) {
+                    toEvict = entry;
+                }
+                // END LAYOUTLIB CHANGE
+
                 if (toEvict == null) {
                     break;
                 }

@@ -81,6 +81,13 @@ public final class Bidi {
      */
     public static final int DIRECTION_DEFAULT_RIGHT_TO_LEFT = -1;
 
+    // Android-note: Upstream this class delegates to an internal implementation class BidiBase.
+    // For Android that is replaced with android.icu.text.Bidi. BidiBase and ICU Bidi work very
+    // similarly, but differ in some details like level of argument validation and how how exactly
+    // runs are counted. The majority of the changes in this file exist to allow for backwards
+    // compatibility with an earlier ICU4C based Bidi implementation.
+
+    // BEGIN Android-added: translateConstToIcu(int).
     private static int translateConstToIcu(int javaInt) {
         switch (javaInt) {
             case DIRECTION_DEFAULT_LEFT_TO_RIGHT:
@@ -96,8 +103,10 @@ public final class Bidi {
                 return android.icu.text.Bidi.DIRECTION_LEFT_TO_RIGHT;
         }
     }
+    // END Android-added: translateConstToIcu(int).
 
-    private android.icu.text.Bidi bidiBase;
+    // Android-changed: use ICU Bidi class instead of BidiBase.
+    private final android.icu.text.Bidi bidiBase;
 
     /**
      * Create Bidi from the given paragraph of text and base direction.
@@ -108,8 +117,13 @@ public final class Bidi {
      * Other values are reserved.
      */
     public Bidi(String paragraph, int flags) {
-        this((paragraph == null ? null : paragraph.toCharArray()), 0, null, 0,
-                (paragraph == null ? 0 : paragraph.length()), flags);
+        if (paragraph == null) {
+            throw new IllegalArgumentException("paragraph is null");
+        }
+
+        // Android-changed: use ICU Bidi class instead of BidiBase.
+        bidiBase = new android.icu.text.Bidi(paragraph.toCharArray(), 0, null, 0,
+                                             paragraph.length(), translateConstToIcu(flags));
     }
 
     /**
@@ -142,6 +156,7 @@ public final class Bidi {
             throw new IllegalArgumentException("paragraph is null");
         }
 
+        // Android-changed: change from BidiBase to ICU Bidi class.
         this.bidiBase = new android.icu.text.Bidi(paragraph);
     }
 
@@ -180,10 +195,12 @@ public final class Bidi {
                                                " for embeddings of length: " + text.length);
         }
 
+        // Android-changed: use ICU Bidi class instead of BidiBase.
         bidiBase = new android.icu.text.Bidi(text, textStart, embeddings, embStart,
                                              paragraphLength, translateConstToIcu(flags));
     }
 
+    // Android-added: private constructor based on ICU Bidi object.
     private Bidi(android.icu.text.Bidi bidiBase) {
         this.bidiBase = bidiBase;
     }
@@ -198,6 +215,7 @@ public final class Bidi {
      * @return a {@code Bidi} object
      */
     public Bidi createLineBidi(int lineStart, int lineLimit) {
+        // BEGIN Android-changed: add explict argument checks and use ICU Bidi class.
         if (lineStart < 0 || lineLimit < 0 || lineStart > lineLimit || lineLimit > getLength()) {
             throw new IllegalArgumentException("Invalid ranges (start=" + lineStart + ", " +
                                                "limit=" + lineLimit + ", length=" + getLength() + ")");
@@ -214,6 +232,7 @@ public final class Bidi {
          }
 
         return new Bidi(bidiBase.createLineBidi(lineStart, lineLimit));
+        // END Android-changed: add explict argument checks and use ICU Bidi class.
     }
 
     /**
@@ -276,11 +295,13 @@ public final class Bidi {
      * @return the resolved level of the character at offset
      */
     public int getLevelAt(int offset) {
+        // BEGIN Android-changed: return base level on out of range offset argument.
         try {
             return bidiBase.getLevelAt(offset);
         } catch (IllegalArgumentException e) {
             return getBaseLevel();
         }
+        // END Android-changed: return base level on out of range offset argument.
     }
 
     /**
@@ -288,6 +309,7 @@ public final class Bidi {
      * @return the number of level runs
      */
     public int getRunCount() {
+        // Android-changed: ICU treats the empty string as having 0 runs, we see it as 1 empty run.
         int runCount = bidiBase.countRuns();
         return (runCount == 0 ? 1 : runCount);
     }
@@ -298,11 +320,11 @@ public final class Bidi {
      * @return the level of the run
      */
     public int getRunLevel(int run) {
-        // Paper over a the ICU4J behaviour of strictly enforcing run must be strictly less than
-        // the number of runs. Done to maintain compatibility with previous C implementation.
+        // Android-added: Tolerate calls with run == getRunCount() for backwards compatibility.
         if (run == getRunCount()) {
             return getBaseLevel();
         }
+        // Android-changed: ICU treats the empty string as having 0 runs, we see it as 1 empty run.
         return (bidiBase.countRuns() == 0 ? bidiBase.getBaseLevel() : bidiBase.getRunLevel(run));
     }
 
@@ -313,11 +335,11 @@ public final class Bidi {
      * @return the start of the run
      */
     public int getRunStart(int run) {
-        // Paper over a the ICU4J behaviour of strictly enforcing run must be strictly less than
-        // the number of runs. Done to maintain compatibility with previous C implementation.
+        // Android-added: Tolerate calls with run == getRunCount() for backwards compatibility.
         if (run == getRunCount()) {
             return getBaseLevel();
         }
+        // Android-changed: ICU treats the empty string as having 0 runs, we see it as 1 empty run.
         return (bidiBase.countRuns() == 0 ? 0 : bidiBase.getRunStart(run));
     }
 
@@ -329,11 +351,11 @@ public final class Bidi {
      * @return limit the limit of the run
      */
     public int getRunLimit(int run) {
-        // Paper over a the ICU4J behaviour of strictly enforcing run must be strictly less than
-        // the number of runs. Done to maintain compatibility with previous C implementation.
+        // Android-added: Tolerate calls with run == getRunCount() for backwards compatibility.
         if (run == getRunCount()) {
             return getBaseLevel();
         }
+        // Android-changed: ICU treats the empty string as having 0 runs, we see it as 1 empty run.
         return (bidiBase.countRuns() == 0 ? bidiBase.getLength() : bidiBase.getRunLimit(run));
     }
 
@@ -349,6 +371,7 @@ public final class Bidi {
      * @return true if the range of characters requires bidi analysis
      */
     public static boolean requiresBidi(char[] text, int start, int limit) {
+        // Android-added: Check arguments to throw correct exception.
         if (0 > start || start > limit || limit > text.length) {
             throw new IllegalArgumentException("Value start " + start +
                                                " is out of range 0 to " + limit);
@@ -373,6 +396,7 @@ public final class Bidi {
      * @param count the number of objects to reorder
      */
     public static void reorderVisually(byte[] levels, int levelStart, Object[] objects, int objectStart, int count) {
+        // BEGIN Android-added: Check arguments to throw correct exception.
         if (0 > levelStart || levels.length <= levelStart) {
             throw new IllegalArgumentException("Value levelStart " +
                       levelStart + " is out of range 0 to " +
@@ -388,6 +412,9 @@ public final class Bidi {
                       levelStart + " is out of range 0 to " +
                       (objects.length - objectStart));
         }
+        // END Android-added: Check arguments to throw correct exception.
+
+        // Android-changed: use ICU Bidi class instead of BidiBase.
         android.icu.text.Bidi.reorderVisually(levels, levelStart, objects, objectStart, count);
     }
 
@@ -395,8 +422,10 @@ public final class Bidi {
      * Display the bidi internal state, used in debugging.
      */
     public String toString() {
+        // Android-changed: construct String representation from ICU Bidi object values.
         return getClass().getName()
             + "[direction: " + bidiBase.getDirection() + " baseLevel: " + bidiBase.getBaseLevel()
             + " length: " + bidiBase.getLength() + " runs: " + bidiBase.getRunCount() + "]";
     }
+
 }

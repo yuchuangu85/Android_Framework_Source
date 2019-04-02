@@ -26,6 +26,7 @@
 
 package java.util.zip;
 
+import dalvik.annotation.optimization.ReachabilitySensitive;
 import dalvik.system.CloseGuard;
 
 /**
@@ -76,6 +77,12 @@ import dalvik.system.CloseGuard;
 public
 class Inflater {
 
+    // Android-added: @ReachabilitySensitive
+    // Finalization clears zsRef, and thus can't be allowed to occur early.
+    // Unlike some other CloseGuard uses, the spec allows clients to rely on finalization
+    // here.  Thus dropping a deflater without calling close() should work correctly.
+    // It thus does not suffice to just rely on the CloseGuard annotation.
+    @ReachabilitySensitive
     private final ZStreamRef zsRef;
     private byte[] buf = defaultBuf;
     private int off, len;
@@ -85,6 +92,7 @@ class Inflater {
     private long bytesWritten;
 
     // Android-changed: added CloseGuard instance
+    @ReachabilitySensitive
     private final CloseGuard guard = CloseGuard.get();
 
     private static final byte[] defaultBuf = new byte[0];

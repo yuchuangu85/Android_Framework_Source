@@ -16,8 +16,10 @@
 
 package com.android.setupwizardlib.util;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import static org.robolectric.RuntimeEnvironment.application;
 
 import android.annotation.TargetApi;
@@ -29,8 +31,8 @@ import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.view.ContextThemeWrapper;
 import android.widget.Button;
+import android.widget.ProgressBar;
 
-import com.android.setupwizardlib.BuildConfig;
 import com.android.setupwizardlib.R;
 import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
 
@@ -41,7 +43,7 @@ import org.robolectric.Robolectric;
 import org.robolectric.annotation.Config;
 
 @RunWith(SuwLibRobolectricTestRunner.class)
-@Config(constants = BuildConfig.class, sdk = {Config.OLDEST_SDK, Config.NEWEST_SDK})
+@Config(sdk = {Config.OLDEST_SDK, Config.NEWEST_SDK})
 public class GlifStyleTest {
 
     private Context mContext;
@@ -58,9 +60,8 @@ public class GlifStyleTest {
                 Robolectric.buildAttributeSet()
                         .setStyleAttribute("@style/SuwGlifButton.Tertiary")
                         .build());
-        assertNull("Background of tertiary button should be null", button.getBackground());
-        assertNull("Tertiary button should have no transformation method",
-                button.getTransformationMethod());
+        assertThat(button.getBackground()).named("background").isNotNull();
+        assertThat(button.getTransformationMethod()).named("transformation method").isNull();
         if (VERSION.SDK_INT < VERSION_CODES.M) {
             // Robolectric resolved the wrong theme attribute on versions >= M
             // https://github.com/robolectric/robolectric/issues/2940
@@ -74,6 +75,15 @@ public class GlifStyleTest {
     public void glifThemeLight_statusBarColorShouldBeTransparent() {
         GlifThemeActivity activity = Robolectric.setupActivity(GlifThemeActivity.class);
         assertEquals(0x00000000, activity.getWindow().getStatusBarColor());
+    }
+
+    @Test
+    public void glifLoadingScreen_shouldHaveProgressBar() {
+        GlifThemeActivity activity = Robolectric.setupActivity(GlifThemeActivity.class);
+        activity.setContentView(R.layout.suw_glif_loading_screen);
+
+        assertTrue("Progress bar should exist",
+                activity.findViewById(R.id.suw_large_progress_bar) instanceof ProgressBar);
     }
 
     private static class GlifThemeActivity extends Activity {

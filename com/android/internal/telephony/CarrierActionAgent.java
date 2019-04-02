@@ -26,6 +26,7 @@ import android.os.Message;
 import android.os.Registrant;
 import android.os.RegistrantList;
 import android.provider.Settings;
+import android.provider.Telephony;
 import android.telephony.Rlog;
 import android.telephony.TelephonyManager;
 import android.util.LocalLog;
@@ -33,6 +34,7 @@ import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.IndentingPrintWriter;
+
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 
@@ -62,6 +64,7 @@ public class CarrierActionAgent extends Handler {
     public static final int EVENT_MOBILE_DATA_SETTINGS_CHANGED             = 5;
     public static final int EVENT_DATA_ROAMING_OFF                         = 6;
     public static final int EVENT_SIM_STATE_CHANGED                        = 7;
+    public static final int EVENT_APN_SETTINGS_CHANGED                     = 8;
 
     /** Member variables */
     private final Phone mPhone;
@@ -147,7 +150,7 @@ public class CarrierActionAgent extends Handler {
                 break;
             case EVENT_MOBILE_DATA_SETTINGS_CHANGED:
                 log("EVENT_MOBILE_DATA_SETTINGS_CHANGED");
-                if (!mPhone.getDataEnabled()) carrierActionReset();
+                if (!mPhone.isUserDataEnabled()) carrierActionReset();
                 break;
             case EVENT_DATA_ROAMING_OFF:
                 log("EVENT_DATA_ROAMING_OFF");
@@ -168,6 +171,8 @@ public class CarrierActionAgent extends Handler {
                     mSettingsObserver.observe(
                             Settings.Global.getUriFor(Settings.Global.AIRPLANE_MODE_ON),
                             EVENT_APM_SETTINGS_CHANGED);
+                    mSettingsObserver.observe(
+                            Telephony.Carriers.CONTENT_URI, EVENT_APN_SETTINGS_CHANGED);
                     if (mPhone.getServiceStateTracker() != null) {
                         mPhone.getServiceStateTracker().registerForDataRoamingOff(
                                 this, EVENT_DATA_ROAMING_OFF, null, false);
@@ -180,6 +185,11 @@ public class CarrierActionAgent extends Handler {
                         mPhone.getServiceStateTracker().unregisterForDataRoamingOff(this);
                     }
                 }
+                break;
+            case EVENT_APN_SETTINGS_CHANGED:
+                log("EVENT_APN_SETTINGS_CHANGED");
+                // Reset carrier actions when APN change.
+                carrierActionReset();
                 break;
             default:
                 loge("Unknown carrier action: " + msg.what);

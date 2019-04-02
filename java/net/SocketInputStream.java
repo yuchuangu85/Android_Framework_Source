@@ -44,6 +44,11 @@ import sun.net.ConnectionResetException;
  */
 class SocketInputStream extends FileInputStream
 {
+    // Android-removed: Android doesn't need to call native init.
+    // static {
+    //    init();
+    //}
+
     private boolean eof;
     private AbstractPlainSocketImpl impl = null;
     private byte temp[];
@@ -166,6 +171,7 @@ class SocketInputStream extends FileInputStream
         // acquire file descriptor and do the read
         FileDescriptor fd = impl.acquireFD();
         try {
+            // Android-added: Check BlockGuard policy in read().
             BlockGuard.getThreadPolicy().onNetwork();
             n = socketRead(fd, b, off, length, timeout);
             if (n > 0) {
@@ -289,4 +295,11 @@ class SocketInputStream extends FileInputStream
      * Overrides finalize, the fd is closed by the Socket.
      */
     protected void finalize() {}
+
+    // Android-removed: Android doesn't need native init.
+    /*
+     * Perform class load-time initializations.
+     *
+    private native static void init();
+    */
 }

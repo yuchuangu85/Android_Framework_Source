@@ -20,6 +20,8 @@ import static com.android.internal.telephony.nano.TelephonyProto.ImsCapabilities
 import static com.android.internal.telephony.nano.TelephonyProto.ImsConnectionState;
 import static com.android.internal.telephony.nano.TelephonyProto.RilDataCall;
 import static com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent;
+import static com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.CarrierIdMatching;
+import static com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.CarrierKeyChange;
 import static com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.ModemRestart;
 import static com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilDeactivateDataCall;
 import static com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCall;
@@ -114,6 +116,21 @@ public class TelephonyEventBuilder {
     public TelephonyEventBuilder setModemRestart(ModemRestart modemRestart) {
         mEvent.type = TelephonyEvent.Type.MODEM_RESTART;
         mEvent.modemRestart = modemRestart;
+        return this;
+    }
+
+    /**
+     * Set and build Carrier Id Matching event
+     */
+    public TelephonyEventBuilder setCarrierIdMatching(CarrierIdMatching carrierIdMatching) {
+        mEvent.type = TelephonyEvent.Type.CARRIER_ID_MATCHING;
+        mEvent.carrierIdMatching = carrierIdMatching;
+        return this;
+    }
+
+    public TelephonyEventBuilder setCarrierKeyChange(CarrierKeyChange carrierKeyChange) {
+        mEvent.type = TelephonyEvent.Type.CARRIER_KEY_CHANGED;
+        mEvent.carrierKeyChange = carrierKeyChange;
         return this;
     }
 }

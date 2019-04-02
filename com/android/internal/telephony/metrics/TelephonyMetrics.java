@@ -23,8 +23,7 @@ import static com.android.internal.telephony.RILConstants.RIL_REQUEST_CDMA_SEND_
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DEACTIVATE_DATA_CALL;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DIAL;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_HANGUP;
-import static com.android.internal.telephony.RILConstants
-        .RIL_REQUEST_HANGUP_FOREGROUND_RESUME_BACKGROUND;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_HANGUP_FOREGROUND_RESUME_BACKGROUND;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_HANGUP_WAITING_OR_BACKGROUND;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_IMS_SEND_SMS;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SEND_SMS;
@@ -36,29 +35,34 @@ import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYP
 import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_PPP;
 import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_UNKNOWN;
 
+import android.hardware.radio.V1_0.SetupDataCallResult;
 import android.os.Build;
 import android.os.SystemClock;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyHistogram;
+import android.telephony.TelephonyManager;
+import android.telephony.data.DataCallResponse;
+import android.telephony.data.DataService;
+import android.telephony.ims.ImsCallSession;
+import android.telephony.ims.ImsReasonInfo;
+import android.telephony.ims.feature.MmTelFeature;
+import android.telephony.ims.stub.ImsRegistrationImplBase;
 import android.text.TextUtils;
 import android.util.Base64;
 import android.util.SparseArray;
 
-import com.android.ims.ImsConfig;
-import com.android.ims.ImsReasonInfo;
-import com.android.ims.internal.ImsCallSession;
 import com.android.internal.telephony.GsmCdmaConnection;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.RIL;
 import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.SmsResponse;
 import com.android.internal.telephony.UUSInfo;
-import com.android.internal.telephony.dataconnection.DataCallResponse;
 import com.android.internal.telephony.imsphone.ImsPhoneCall;
 import com.android.internal.telephony.nano.TelephonyProto;
 import com.android.internal.telephony.nano.TelephonyProto.ImsCapabilities;
 import com.android.internal.telephony.nano.TelephonyProto.ImsConnectionState;
+import com.android.internal.telephony.nano.TelephonyProto.ModemPowerStats;
 import com.android.internal.telephony.nano.TelephonyProto.RilDataCall;
 import com.android.internal.telephony.nano.TelephonyProto.SmsSession;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession;
@@ -66,12 +70,15 @@ import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession.E
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession.Event.RilCall;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession.Event.RilCall.Type;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.CarrierIdMatching;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.CarrierIdMatchingResult;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.CarrierKeyChange;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.ModemRestart;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilDeactivateDataCall;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilDeactivateDataCall.DeactivateReason;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCall;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCallResponse;
-import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCallResponse
-        .RilDataCallFailCause;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCallResponse.RilDataCallFailCause;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyLog;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyServiceState;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonySettings;
@@ -230,6 +237,8 @@ public class TelephonyMetrics {
                 return "DATA_STALL_ACTION";
             case TelephonyEvent.Type.MODEM_RESTART:
                 return "MODEM_RESTART";
+            case TelephonyEvent.Type.CARRIER_ID_MATCHING:
+                return "CARRIER_ID_MATCHING";
             default:
                 return Integer.toString(event);
         }
@@ -407,6 +416,21 @@ public class TelephonyMetrics {
         }
 
         pw.decreaseIndent();
+        pw.println("Modem power stats:");
+        pw.increaseIndent();
+        ModemPowerStats s = new ModemPowerMetrics().buildProto();
+        pw.println("Power log duration (battery time) (ms): " + s.loggingDurationMs);
+        pw.println("Energy consumed by modem (mAh): " + s.energyConsumedMah);
+        pw.println("Number of packets sent (tx): " + s.numPacketsTx);
+        pw.println("Amount of time kernel is active because of cellular data (ms): " +
+            s.cellularKernelActiveTimeMs);
+        pw.println("Amount of time spent in very poor rx signal level (ms): " +
+            s.timeInVeryPoorRxSignalLevelMs);
+        pw.println("Amount of time modem is in sleep (ms): " + s.sleepTimeMs);
+        pw.println("Amount of time modem is in idle (ms): " + s.idleTimeMs);
+        pw.println("Amount of time modem is in rx (ms): " + s.rxTimeMs);
+        pw.println("Amount of time modem is in tx (ms): " + Arrays.toString(s.txTimeMs));
+        pw.decreaseIndent();
     }
 
     /**
@@ -500,6 +524,9 @@ public class TelephonyMetrics {
             histogramProto.bucketCounters = rilHistogram.getBucketCounters();
         }
 
+        // Build modem power metrics
+        log.modemPowerStats = new ModemPowerMetrics().buildProto();
+
         // Log the starting system time
         log.startTime = new TelephonyProto.Time();
         log.startTime.systemTimestampMillis = mStartSystemTimeMs;
@@ -508,7 +535,6 @@ public class TelephonyMetrics {
         log.endTime = new TelephonyProto.Time();
         log.endTime.systemTimestampMillis = System.currentTimeMillis();
         log.endTime.elapsedTimestampMillis = SystemClock.elapsedRealtime();
-
         return log;
     }
 
@@ -522,6 +548,23 @@ public class TelephonyMetrics {
         return (int) ((timestamp) / (MINUTE_IN_MILLIS * SESSION_START_PRECISION_MINUTES)
                 * (SESSION_START_PRECISION_MINUTES));
     }
+
+    /**
+     * Write the Carrier Key change event
+     *
+     * @param phoneId Phone id
+     * @param keyType type of key
+     * @param isDownloadSuccessful true if the key was successfully downloaded
+     */
+    public void writeCarrierKeyEvent(int phoneId, int keyType,  boolean isDownloadSuccessful) {
+        final CarrierKeyChange carrierKeyChange = new CarrierKeyChange();
+        carrierKeyChange.keyType = keyType;
+        carrierKeyChange.isDownloadSuccessful = isDownloadSuccessful;
+        TelephonyEvent event = new TelephonyEventBuilder(phoneId).setCarrierKeyChange(
+                carrierKeyChange).build();
+        addTelephonyEvent(event);
+    }
+
 
     /**
      * Get the time interval with reduced prevision
@@ -832,25 +875,29 @@ public class TelephonyMetrics {
      * @param feature IMS feature
      * @param network The IMS network type
      * @param value The settings. 0 indicates disabled, otherwise enabled.
-     * @param status IMS operation status. See OperationStatusConstants for details.
      */
-    public void writeImsSetFeatureValue(int phoneId, int feature, int network, int value,
-                                        int status) {
+    public void writeImsSetFeatureValue(int phoneId, int feature, int network, int value) {
         TelephonySettings s = new TelephonySettings();
-        switch (feature) {
-            case ImsConfig.FeatureConstants.FEATURE_TYPE_VOICE_OVER_LTE:
-                s.isEnhanced4GLteModeEnabled = (value != 0);
-                break;
-            case ImsConfig.FeatureConstants.FEATURE_TYPE_VOICE_OVER_WIFI:
-                s.isWifiCallingEnabled = (value != 0);
-                break;
-            case ImsConfig.FeatureConstants.FEATURE_TYPE_VIDEO_OVER_LTE:
-                s.isVtOverLteEnabled = (value != 0);
-                break;
-            case ImsConfig.FeatureConstants.FEATURE_TYPE_VIDEO_OVER_WIFI:
-                s.isVtOverWifiEnabled = (value != 0);
-                break;
+        if (network == ImsRegistrationImplBase.REGISTRATION_TECH_LTE) {
+            switch (feature) {
+                case MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VOICE:
+                    s.isEnhanced4GLteModeEnabled = (value != 0);
+                    break;
+                case MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VIDEO:
+                    s.isVtOverLteEnabled = (value != 0);
+                    break;
+            }
+        } else if (network == ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN) {
+            switch (feature) {
+                case MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VOICE:
+                    s.isWifiCallingEnabled = (value != 0);
+                    break;
+                case MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VIDEO:
+                    s.isVtOverWifiEnabled = (value != 0);
+                    break;
+            }
         }
+
 
         // If the settings don't change, we don't log the event.
         if (mLastSettings.get(phoneId) != null &&
@@ -948,15 +995,27 @@ public class TelephonyMetrics {
      * @param phoneId Phone id
      * @param capabilities IMS capabilities array
      */
-    public synchronized void writeOnImsCapabilities(int phoneId, boolean[] capabilities) {
+    public synchronized void writeOnImsCapabilities(int phoneId,
+            @ImsRegistrationImplBase.ImsRegistrationTech int radioTech,
+            MmTelFeature.MmTelCapabilities capabilities) {
         ImsCapabilities cap = new ImsCapabilities();
 
-        cap.voiceOverLte = capabilities[0];
-        cap.videoOverLte = capabilities[1];
-        cap.voiceOverWifi = capabilities[2];
-        cap.videoOverWifi = capabilities[3];
-        cap.utOverLte = capabilities[4];
-        cap.utOverWifi = capabilities[5];
+        if (radioTech == ImsRegistrationImplBase.REGISTRATION_TECH_LTE) {
+            cap.voiceOverLte = capabilities.isCapable(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VOICE);
+            cap.videoOverLte = capabilities.isCapable(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VIDEO);
+            cap.utOverLte = capabilities.isCapable(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_UT);
+
+        } else if (radioTech == ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN) {
+            cap.voiceOverWifi = capabilities.isCapable(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VOICE);
+            cap.videoOverWifi = capabilities.isCapable(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VIDEO);
+            cap.utOverWifi = capabilities.isCapable(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_UT);
+        }
 
         TelephonyEvent event = new TelephonyEventBuilder(phoneId).setImsCapabilities(cap).build();
 
@@ -1005,19 +1064,17 @@ public class TelephonyMetrics {
      * Write setup data call event
      *
      * @param phoneId Phone id
-     * @param rilSerial RIL request serial number
      * @param radioTechnology The data call RAT
-     * @param profile Data profile
+     * @param profileId Data profile id
      * @param apn APN in string
-     * @param authType Authentication type
      * @param protocol Data connection protocol
      */
-    public void writeRilSetupDataCall(int phoneId, int rilSerial, int radioTechnology, int profile,
-                                      String apn, int authType, String protocol) {
+    public void writeSetupDataCall(int phoneId, int radioTechnology, int profileId, String apn,
+                                   String protocol) {
 
         RilSetupDataCall setupDataCall = new RilSetupDataCall();
         setupDataCall.rat = radioTechnology;
-        setupDataCall.dataProfile = profile + 1;  // off by 1 between proto and RIL constants.
+        setupDataCall.dataProfile = profileId + 1;  // off by 1 between proto and RIL constants.
         if (apn != null) {
             setupDataCall.apn = apn;
         }
@@ -1041,7 +1098,19 @@ public class TelephonyMetrics {
 
         RilDeactivateDataCall deactivateDataCall = new RilDeactivateDataCall();
         deactivateDataCall.cid = cid;
-        deactivateDataCall.reason = reason + 1;
+        switch (reason) {
+            case DataService.REQUEST_REASON_NORMAL:
+                deactivateDataCall.reason = DeactivateReason.DEACTIVATE_REASON_NONE;
+                break;
+            case DataService.REQUEST_REASON_SHUTDOWN:
+                deactivateDataCall.reason = DeactivateReason.DEACTIVATE_REASON_RADIO_OFF;
+                break;
+            case DataService.REQUEST_REASON_HANDOVER:
+                deactivateDataCall.reason = DeactivateReason.DEACTIVATE_REASON_HANDOVER;
+                break;
+            default:
+                deactivateDataCall.reason = DeactivateReason.DEACTIVATE_REASON_UNKNOWN;
+        }
 
         addTelephonyEvent(new TelephonyEventBuilder(phoneId).setDeactivateDataCall(
                 deactivateDataCall).build());
@@ -1059,12 +1128,12 @@ public class TelephonyMetrics {
 
         for (int i = 0; i < dcsList.size(); i++) {
             dataCalls[i] = new RilDataCall();
-            dataCalls[i].cid = dcsList.get(i).cid;
-            if (!TextUtils.isEmpty(dcsList.get(i).ifname)) {
-                dataCalls[i].iframe = dcsList.get(i).ifname;
+            dataCalls[i].cid = dcsList.get(i).getCallId();
+            if (!TextUtils.isEmpty(dcsList.get(i).getIfname())) {
+                dataCalls[i].iframe = dcsList.get(i).getIfname();
             }
-            if (!TextUtils.isEmpty(dcsList.get(i).type)) {
-                dataCalls[i].type = toPdpType(dcsList.get(i).type);
+            if (!TextUtils.isEmpty(dcsList.get(i).getType())) {
+                dataCalls[i].type = toPdpType(dcsList.get(i).getType());
             }
         }
 
@@ -1298,26 +1367,26 @@ public class TelephonyMetrics {
      * @param rilSerial RIL request serial number
      * @param rilError RIL error
      * @param rilRequest RIL request
-     * @param response Data call response
+     * @param result Data call result
      */
     private void writeOnSetupDataCallResponse(int phoneId, int rilSerial, int rilError,
-                                              int rilRequest, DataCallResponse response) {
+                                              int rilRequest, SetupDataCallResult result) {
 
         RilSetupDataCallResponse setupDataCallResponse = new RilSetupDataCallResponse();
         RilDataCall dataCall = new RilDataCall();
 
-        if (response != null) {
+        if (result != null) {
             setupDataCallResponse.status =
-                    (response.status == 0 ? RilDataCallFailCause.PDP_FAIL_NONE : response.status);
-            setupDataCallResponse.suggestedRetryTimeMillis = response.suggestedRetryTime;
+                    (result.status == 0 ? RilDataCallFailCause.PDP_FAIL_NONE : result.status);
+            setupDataCallResponse.suggestedRetryTimeMillis = result.suggestedRetryTime;
 
-            dataCall.cid = response.cid;
-            if (!TextUtils.isEmpty(response.type)) {
-                dataCall.type = toPdpType(response.type);
+            dataCall.cid = result.cid;
+            if (!TextUtils.isEmpty(result.type)) {
+                dataCall.type = toPdpType(result.type);
             }
 
-            if (!TextUtils.isEmpty(response.ifname)) {
-                dataCall.iframe = response.ifname;
+            if (!TextUtils.isEmpty(result.ifname)) {
+                dataCall.iframe = result.ifname;
             }
         }
         setupDataCallResponse.call = dataCall;
@@ -1405,8 +1474,8 @@ public class TelephonyMetrics {
                                             int rilRequest, Object ret) {
         switch (rilRequest) {
             case RIL_REQUEST_SETUP_DATA_CALL:
-                DataCallResponse dataCall = (DataCallResponse) ret;
-                writeOnSetupDataCallResponse(phoneId, rilSerial, rilError, rilRequest, dataCall);
+                SetupDataCallResult result = (SetupDataCallResult) ret;
+                writeOnSetupDataCallResponse(phoneId, rilSerial, rilError, rilRequest, result);
                 break;
             case RIL_REQUEST_DEACTIVATE_DATA_CALL:
                 writeOnDeactivateDataCallResponse(phoneId, rilError);
@@ -1653,7 +1722,7 @@ public class TelephonyMetrics {
      * @param tech SMS RAT
      * @param format SMS format. Either 3GPP or 3GPP2.
      */
-    public void writeRilSendSms(int phoneId, int rilSerial, int tech, int format) {
+    public synchronized void writeRilSendSms(int phoneId, int rilSerial, int tech, int format) {
         InProgressSmsSession smsSession = startNewSmsSessionIfNeeded(phoneId);
 
         smsSession.addEvent(new SmsSessionEventBuilder(SmsSession.Event.Type.SMS_SEND)
@@ -1672,12 +1741,48 @@ public class TelephonyMetrics {
      * @param tech SMS RAT
      * @param format SMS format. Either 3GPP or 3GPP2.
      */
-    public void writeRilNewSms(int phoneId, int tech, int format) {
+    public synchronized void writeRilNewSms(int phoneId, int tech, int format) {
         InProgressSmsSession smsSession = startNewSmsSessionIfNeeded(phoneId);
 
         smsSession.addEvent(new SmsSessionEventBuilder(SmsSession.Event.Type.SMS_RECEIVED)
                 .setTech(tech)
                 .setFormat(format)
+        );
+
+        finishSmsSessionIfNeeded(smsSession);
+    }
+
+    /**
+     * Write incoming Broadcast SMS event
+     *
+     * @param phoneId Phone id
+     * @param format CB msg format
+     * @param priority CB msg priority
+     * @param isCMAS true if msg is CMAS
+     * @param isETWS true if msg is ETWS
+     * @param serviceCategory Service category of CB msg
+     */
+    public synchronized void writeNewCBSms(int phoneId, int format, int priority, boolean isCMAS,
+                                           boolean isETWS, int serviceCategory) {
+        InProgressSmsSession smsSession = startNewSmsSessionIfNeeded(phoneId);
+
+        int type;
+        if (isCMAS) {
+            type = SmsSession.Event.CBMessageType.CMAS;
+        } else if (isETWS) {
+            type = SmsSession.Event.CBMessageType.ETWS;
+        } else {
+            type = SmsSession.Event.CBMessageType.OTHER;
+        }
+
+        SmsSession.Event.CBMessage cbm = new SmsSession.Event.CBMessage();
+        cbm.msgFormat = format;
+        cbm.msgPriority = priority + 1;
+        cbm.msgType = type;
+        cbm.serviceCategory = serviceCategory;
+
+        smsSession.addEvent(new SmsSessionEventBuilder(SmsSession.Event.Type.CB_SMS_RECEIVED)
+                .setCellBroadcastMessage(cbm)
         );
 
         finishSmsSessionIfNeeded(smsSession);
@@ -1712,6 +1817,43 @@ public class TelephonyMetrics {
         if (reason != null) modemRestart.reason = reason;
         TelephonyEvent event = new TelephonyEventBuilder(phoneId).setModemRestart(
                 modemRestart).build();
+        addTelephonyEvent(event);
+    }
+
+    /**
+     * Write carrier identification matching event
+     *
+     * @param phoneId Phone id
+     * @param version Carrier table version
+     * @param cid Unique Carrier Id
+     * @param mccmnc MCC and MNC that map to this carrier
+     * @param gid1 Group id level 1
+     */
+    public void writeCarrierIdMatchingEvent(int phoneId, int version, int cid,
+                                            String mccmnc, String gid1) {
+        final CarrierIdMatching carrierIdMatching = new CarrierIdMatching();
+        final CarrierIdMatchingResult carrierIdMatchingResult = new CarrierIdMatchingResult();
+
+        if (cid != TelephonyManager.UNKNOWN_CARRIER_ID) {
+            // Successful matching event if result only has carrierId
+            carrierIdMatchingResult.carrierId = cid;
+            // Unknown Gid1 event if result only has carrierId, gid1 and mccmnc
+            if (gid1 != null) {
+                carrierIdMatchingResult.mccmnc = mccmnc;
+                carrierIdMatchingResult.gid1 = gid1;
+            }
+        } else {
+            // Unknown mccmnc event if result only has mccmnc
+            if (mccmnc != null) {
+                carrierIdMatchingResult.mccmnc = mccmnc;
+            }
+        }
+
+        carrierIdMatching.cidTableVersion = version;
+        carrierIdMatching.result = carrierIdMatchingResult;
+
+        TelephonyEvent event = new TelephonyEventBuilder(phoneId).setCarrierIdMatching(
+                carrierIdMatching).build();
         addTelephonyEvent(event);
     }
 

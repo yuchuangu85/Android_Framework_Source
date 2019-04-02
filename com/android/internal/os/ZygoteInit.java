@@ -26,33 +26,35 @@ import android.icu.text.DecimalFormatSymbols;
 import android.icu.util.ULocale;
 import android.opengl.EGL14;
 import android.os.Build;
-import android.os.IInstalld;
 import android.os.Environment;
+import android.os.IInstalld;
 import android.os.Process;
 import android.os.RemoteException;
-import android.os.Seccomp;
 import android.os.ServiceManager;
 import android.os.ServiceSpecificException;
 import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.Trace;
+import android.os.UserHandle;
 import android.os.ZygoteProcess;
 import android.os.storage.StorageManager;
 import android.security.keystore.AndroidKeyStoreProvider;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
+import android.system.StructCapUserData;
+import android.system.StructCapUserHeader;
 import android.text.Hyphenator;
-import android.util.TimingsTraceLog;
 import android.util.EventLog;
 import android.util.Log;
 import android.util.Slog;
+import android.util.TimingsTraceLog;
 import android.webkit.WebViewFactory;
 import android.widget.TextView;
 
 import com.android.internal.logging.MetricsLogger;
-
 import com.android.internal.util.Preconditions;
+
 import dalvik.system.DexFile;
 import dalvik.system.VMRuntime;
 import dalvik.system.ZygoteHooks;
@@ -66,8 +68,8 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.security.Security;
 import java.security.Provider;
+import java.security.Security;
 
 /**
  * Startup class for the zygote process.
@@ -86,7 +88,6 @@ public class ZygoteInit {
 
     private static final String PROPERTY_DISABLE_OPENGL_PRELOADING = "ro.zygote.disable_gl_preload";
     private static final String PROPERTY_GFX_DRIVER = "ro.gfx.driver.0";
-    private static final String PROPERTY_RUNNING_IN_CONTAINER = "ro.boot.container";
 
     private static final int LOG_BOOT_PROGRESS_PRELOAD_START = 3020;
     private static final int LOG_BOOT_PROGRESS_PRELOAD_END = 3030;
@@ -466,13 +467,7 @@ public class ZygoteInit {
                     "dalvik.vm.profilesystemserver", false);
             if (profileSystemServer && (Build.IS_USERDEBUG || Build.IS_ENG)) {
                 try {
-                    File profileDir = Environment.getDataProfilesDePackageDirectory(
-                            Process.SYSTEM_UID, "system_server");
-                    File profile = new File(profileDir, "primary.prof");
-                    profile.getParentFile().mkdirs();
-                    profile.createNewFile();
-                    String[] codePaths = systemServerClasspath.split(":");
-                    VMRuntime.registerAppInfo(profile.getPath(), codePaths);
+                    prepareSystemServerProfile(systemServerClasspath);
                 } catch (Exception e) {
                     Log.wtf(TAG, "Failed to set up system server profile", e);
                 }
@@ -515,6 +510,45 @@ public class ZygoteInit {
     }
 
     /**
+     * Note that preparing the profiles for system server does not require special
+     * selinux permissions. From the installer perspective the system server is a regular package
+     * which can capture profile information.
+     */
+    private static void prepareSystemServerProfile(String systemServerClasspath)
+            throws RemoteException {
+        if (systemServerClasspath.isEmpty()) {
+            return;
+        }
+        String[] codePaths = systemServerClasspath.split(":");
+
+        final IInstalld installd = IInstalld.Stub
+                .asInterface(ServiceManager.getService("installd"));
+
+        String systemServerPackageName = "android";
+        String systemServerProfileName = "primary.prof";
+        installd.prepareAppProfile(
+                systemServerPackageName,
+                UserHandle.USER_SYSTEM,
+                UserHandle.getAppId(Process.SYSTEM_UID),
+                systemServerProfileName,
+                codePaths[0],
+                /*dexMetadata*/ null);
+
+        File profileDir = Environment.getDataProfilesDePackageDirectory(
+                UserHandle.USER_SYSTEM, systemServerPackageName);
+        String profilePath = new File(profileDir, systemServerProfileName).getAbsolutePath();
+        VMRuntime.registerAppInfo(profilePath, codePaths);
+    }
+
+    public static void setApiBlacklistExemptions(String[] exemptions) {
+        VMRuntime.getRuntime().setHiddenApiExemptions(exemptions);
+    }
+
+    public static void setHiddenApiAccessLogSampleRate(int percent) {
+        VMRuntime.getRuntime().setHiddenApiAccessLogSamplingRate(percent);
+    }
+
+    /**
      * Creates a PathClassLoader for the given class path that is associated with a shared
      * namespace, i.e., this classloader can access platform-private native libraries. The
      * classloader will use java.library.path as the native library path.
@@ -548,7 +582,7 @@ public class ZygoteInit {
             try {
                 dexoptNeeded = DexFile.getDexOptNeeded(
                     classPathElement, instructionSet, systemServerFilter,
-                    false /* newProfile */, false /* downgrade */);
+                    null /* classLoaderContext */, false /* newProfile */, false /* downgrade */);
             } catch (FileNotFoundException ignored) {
                 // Do not add to the classpath.
                 Log.w(TAG, "Missing classpath element for system server: " + classPathElement);
@@ -571,10 +605,13 @@ public class ZygoteInit {
                 final String seInfo = null;
                 final String classLoaderContext =
                         getSystemServerClassLoaderContext(classPathForElement);
+                final int targetSdkVersion = 0;  // SystemServer targets the system's SDK version
                 try {
                     installd.dexopt(classPathElement, Process.SYSTEM_UID, packageName,
                             instructionSet, dexoptNeeded, outputPath, dexFlags, compilerFilter,
-                            uuid, classLoaderContext, seInfo, false /* downgrade */);
+                            uuid, classLoaderContext, seInfo, false /* downgrade */,
+                            targetSdkVersion, /*profileName*/ null, /*dexMetadataPath*/ null,
+                            "server-dexopt");
                 } catch (RemoteException | ServiceSpecificException e) {
                     // Ignore (but log), we need this on the classpath for fallback mode.
                     Log.w(TAG, "Failed compiling classpath element for system server: "
@@ -631,20 +668,29 @@ public class ZygoteInit {
             OsConstants.CAP_SYS_PTRACE,
             OsConstants.CAP_SYS_TIME,
             OsConstants.CAP_SYS_TTY_CONFIG,
-            OsConstants.CAP_WAKE_ALARM
+            OsConstants.CAP_WAKE_ALARM,
+            OsConstants.CAP_BLOCK_SUSPEND
         );
-        /* Containers run without this capability, so avoid setting it in that case */
-        if (!SystemProperties.getBoolean(PROPERTY_RUNNING_IN_CONTAINER, false)) {
-            capabilities |= posixCapabilitiesAsBits(OsConstants.CAP_BLOCK_SUSPEND);
+        /* Containers run without some capabilities, so drop any caps that are not available. */
+        StructCapUserHeader header = new StructCapUserHeader(
+                OsConstants._LINUX_CAPABILITY_VERSION_3, 0);
+        StructCapUserData[] data;
+        try {
+            data = Os.capget(header);
+        } catch (ErrnoException ex) {
+            throw new RuntimeException("Failed to capget()", ex);
         }
+        capabilities &= ((long) data[0].effective) | (((long) data[1].effective) << 32);
+
         /* Hardcoded command line to start the system server */
         String args[] = {
             "--setuid=1000",
             "--setgid=1000",
-            "--setgroups=1001,1002,1003,1004,1005,1006,1007,1008,1009,1010,1018,1021,1023,1032,3001,3002,3003,3006,3007,3009,3010",
+            "--setgroups=1001,1002,1003,1004,1005,1006,1007,1008,1009,1010,1018,1021,1023,1024,1032,1065,3001,3002,3003,3006,3007,3009,3010",
             "--capabilities=" + capabilities + "," + capabilities,
             "--nice-name=system_server",
             "--runtime-args",
+            "--target-sdk-version=" + VMRuntime.SDK_VERSION_CUR_DEVELOPMENT,
             "com.android.server.SystemServer",
         };
         ZygoteConnection.Arguments parsedArgs = null;
@@ -656,11 +702,17 @@ public class ZygoteInit {
             ZygoteConnection.applyDebuggerSystemProperty(parsedArgs);
             ZygoteConnection.applyInvokeWithSystemProperty(parsedArgs);
 
+            boolean profileSystemServer = SystemProperties.getBoolean(
+                    "dalvik.vm.profilesystemserver", false);
+            if (profileSystemServer) {
+                parsedArgs.runtimeFlags |= Zygote.PROFILE_SYSTEM_SERVER;
+            }
+
             /* Request to fork the system server process */
             pid = Zygote.forkSystemServer(
                     parsedArgs.uid, parsedArgs.gid,
                     parsedArgs.gids,
-                    parsedArgs.debugFlags,
+                    parsedArgs.runtimeFlags,
                     null,
                     parsedArgs.permittedCapabilities,
                     parsedArgs.effectiveCapabilities);
@@ -745,7 +797,7 @@ public class ZygoteInit {
                 throw new RuntimeException("No ABI list supplied.");
             }
 
-            zygoteServer.registerServerSocket(socketName);
+            zygoteServer.registerServerSocketFromEnv(socketName);
             // In some configurations, we avoid preloading resources and classes eagerly.
             // In such cases, we will preload things prior to our first fork.
             if (!enableLazyPreload) {
@@ -770,11 +822,10 @@ public class ZygoteInit {
             // Zygote.
             Trace.setTracingEnabled(false, 0);
 
+            Zygote.nativeSecurityInit();
+
             // Zygote process unmounts root storage spaces.
             Zygote.nativeUnmountStorageOnInit();
-
-            // Set seccomp policy
-            Seccomp.setPolicy();
 
             ZygoteHooks.stopZygoteNoThreadCreation();
 
@@ -859,6 +910,17 @@ public class ZygoteInit {
         RuntimeInit.commonInit();
         ZygoteInit.nativeZygoteInit();
         return RuntimeInit.applicationInit(targetSdkVersion, argv, classLoader);
+    }
+
+    /**
+     * The main function called when starting a child zygote process. This is used as an
+     * alternative to zygoteInit(), which skips calling into initialization routines that
+     * start the Binder threadpool.
+     */
+    static final Runnable childZygoteInit(
+            int targetSdkVersion, String[] argv, ClassLoader classLoader) {
+        RuntimeInit.Arguments args = new RuntimeInit.Arguments(argv);
+        return RuntimeInit.findStaticMain(args.startClass, args.startArgs, classLoader);
     }
 
     private static final native void nativeZygoteInit();

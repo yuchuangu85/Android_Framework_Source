@@ -31,6 +31,8 @@ import com.android.layoutlib.bridge.android.support.RecyclerViewUtil;
 import com.android.layoutlib.bridge.impl.ParserFactory;
 import com.android.layoutlib.bridge.util.ReflectionUtils;
 import com.android.resources.ResourceType;
+import com.android.tools.layoutlib.annotations.NotNull;
+import com.android.tools.layoutlib.annotations.Nullable;
 import com.android.util.Pair;
 
 import org.xmlpull.v1.XmlPullParser;
@@ -45,25 +47,13 @@ import android.widget.ImageView;
 import android.widget.NumberPicker;
 
 import java.io.File;
-import java.util.Arrays;
-import java.util.Collections;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
+import java.util.function.BiFunction;
 
-import static com.android.SdkConstants.AUTO_COMPLETE_TEXT_VIEW;
-import static com.android.SdkConstants.BUTTON;
-import static com.android.SdkConstants.CHECKED_TEXT_VIEW;
-import static com.android.SdkConstants.CHECK_BOX;
-import static com.android.SdkConstants.EDIT_TEXT;
-import static com.android.SdkConstants.IMAGE_BUTTON;
-import static com.android.SdkConstants.IMAGE_VIEW;
-import static com.android.SdkConstants.MULTI_AUTO_COMPLETE_TEXT_VIEW;
-import static com.android.SdkConstants.RADIO_BUTTON;
-import static com.android.SdkConstants.SEEK_BAR;
-import static com.android.SdkConstants.SPINNER;
-import static com.android.SdkConstants.TEXT_VIEW;
 import static com.android.layoutlib.bridge.android.BridgeContext.getBaseContext;
 
 /**
@@ -72,36 +62,13 @@ import static com.android.layoutlib.bridge.android.BridgeContext.getBaseContext;
 public final class BridgeInflater extends LayoutInflater {
 
     private final LayoutlibCallback mLayoutlibCallback;
-    /**
-     * If true, the inflater will try to replace the framework widgets with the AppCompat versions.
-     * Ideally, this should be based on the activity being an AppCompat activity but since that is
-     * not trivial to check from layoutlib, we currently base the decision on the current theme
-     * being an AppCompat theme.
-     */
-    private boolean mLoadAppCompatViews;
-    /**
-     * This set contains the framework views that have an AppCompat version but failed to load.
-     * This might happen because not all widgets are contained in all versions of the support
-     * library.
-     * This will help us to avoid trying to load the AppCompat version multiple times if it
-     * doesn't exist.
-     */
-    private Set<String> mFailedAppCompatViews = new HashSet<>();
+
     private boolean mIsInMerge = false;
     private ResourceReference mResourceReference;
     private Map<View, String> mOpenDrawerLayouts;
 
     // Keep in sync with the same value in LayoutInflater.
     private static final int[] ATTRS_THEME = new int[] {com.android.internal.R.attr.theme };
-
-    private static final String APPCOMPAT_WIDGET_PREFIX = "android.support.v7.widget.AppCompat";
-    /** List of platform widgets that have an AppCompat version */
-    private static final Set<String> APPCOMPAT_VIEWS = Collections.unmodifiableSet(
-            new HashSet<>(
-                    Arrays.asList(TEXT_VIEW, IMAGE_VIEW, BUTTON, EDIT_TEXT, SPINNER,
-                            IMAGE_BUTTON, CHECK_BOX, RADIO_BUTTON, CHECKED_TEXT_VIEW,
-                            AUTO_COMPLETE_TEXT_VIEW, MULTI_AUTO_COMPLETE_TEXT_VIEW, "RatingBar",
-                            SEEK_BAR)));
 
     /**
      * List of class prefixes which are tried first by default.
@@ -113,6 +80,7 @@ public final class BridgeInflater extends LayoutInflater {
         "android.webkit.",
         "android.app."
     };
+    private BiFunction<String, AttributeSet, View> mCustomInflater;
 
     public static String[] getClassPrefixList() {
         return sClassPrefixList;
@@ -121,13 +89,9 @@ public final class BridgeInflater extends LayoutInflater {
     private BridgeInflater(LayoutInflater original, Context newContext) {
         super(original, newContext);
         newContext = getBaseContext(newContext);
-        if (newContext instanceof BridgeContext) {
-            mLayoutlibCallback = ((BridgeContext) newContext).getLayoutlibCallback();
-            mLoadAppCompatViews = ((BridgeContext) newContext).isAppCompatTheme();
-        } else {
-            mLayoutlibCallback = null;
-            mLoadAppCompatViews = false;
-        }
+        mLayoutlibCallback = (newContext instanceof BridgeContext) ?
+                ((BridgeContext) newContext).getLayoutlibCallback() :
+                null;
     }
 
     /**
@@ -140,26 +104,14 @@ public final class BridgeInflater extends LayoutInflater {
         super(context);
         mLayoutlibCallback = layoutlibCallback;
         mConstructorArgs[0] = context;
-        mLoadAppCompatViews = context.isAppCompatTheme();
     }
 
     @Override
     public View onCreateView(String name, AttributeSet attrs) throws ClassNotFoundException {
-        View view = null;
+        View view = createViewFromCustomInflater(name, attrs);
 
-        try {
-            if (mLoadAppCompatViews
-                    && APPCOMPAT_VIEWS.contains(name)
-                    && !mFailedAppCompatViews.contains(name)) {
-                // We are using an AppCompat theme so try to load the appcompat views
-                view = loadCustomView(APPCOMPAT_WIDGET_PREFIX + name, attrs, true);
-
-                if (view == null) {
-                    mFailedAppCompatViews.add(name); // Do not try this one anymore
-                }
-            }
-
-            if (view == null) {
+        if (view == null) {
+            try {
                 // First try to find a class using the default Android prefixes
                 for (String prefix : sClassPrefixList) {
                     try {
@@ -181,24 +133,128 @@ public final class BridgeInflater extends LayoutInflater {
                 } catch (ClassNotFoundException e) {
                     // Ignore. We'll try again using the custom view loader below.
                 }
-            }
 
-            // Finally try again using the custom view loader
-            if (view == null) {
-                view = loadCustomView(name, attrs);
+                // Finally try again using the custom view loader
+                if (view == null) {
+                    view = loadCustomView(name, attrs);
+                }
+            } catch (InflateException e) {
+                // Don't catch the InflateException below as that results in hiding the real cause.
+                throw e;
+            } catch (Exception e) {
+                // Wrap the real exception in a ClassNotFoundException, so that the calling method
+                // can deal with it.
+                throw new ClassNotFoundException("onCreateView", e);
             }
-        } catch (InflateException e) {
-            // Don't catch the InflateException below as that results in hiding the real cause.
-            throw e;
-        } catch (Exception e) {
-            // Wrap the real exception in a ClassNotFoundException, so that the calling method
-            // can deal with it.
-            throw new ClassNotFoundException("onCreateView", e);
         }
 
         setupViewInContext(view, attrs);
 
         return view;
+    }
+
+    /**
+     * Finds the createView method in the given customInflaterClass. Since createView is
+     * currently package protected, it will show in the declared class so we iterate up the
+     * hierarchy and return the first instance we find.
+     * The returned method will be accessible.
+     */
+    @NotNull
+    private static Method getCreateViewMethod(Class<?> customInflaterClass) throws NoSuchMethodException {
+        Class<?> current = customInflaterClass;
+        do {
+            try {
+                Method method = current.getDeclaredMethod("createView", View.class, String.class,
+                                Context.class, AttributeSet.class, boolean.class, boolean.class,
+                                boolean.class, boolean.class);
+                method.setAccessible(true);
+                return method;
+            } catch (NoSuchMethodException ignore) {
+            }
+            current = current.getSuperclass();
+        } while (current != null && current != Object.class);
+
+        throw new NoSuchMethodException();
+    }
+
+    /**
+     * Finds the custom inflater class. If it's defined in the theme, we'll use that one (if the
+     * class does not exist, null is returned).
+     * If {@code viewInflaterClass} is not defined in the theme, we'll try to instantiate
+     * {@code android.support.v7.app.AppCompatViewInflater}
+     */
+    @Nullable
+    private static Class<?> findCustomInflater(@NotNull BridgeContext bc,
+            @NotNull LayoutlibCallback layoutlibCallback) {
+        ResourceValue value = bc.getRenderResources().findItemInTheme("viewInflaterClass", false);
+        String inflaterName = value != null ? value.getValue() : null;
+
+        if (inflaterName != null) {
+            try {
+                return layoutlibCallback.findClass(inflaterName);
+            } catch (ClassNotFoundException ignore) {
+            }
+
+            // viewInflaterClass was defined but we couldn't find the class
+        } else if (bc.isAppCompatTheme()) {
+            // Older versions of AppCompat do not define the viewInflaterClass so try to get it
+            // manually
+            try {
+                return layoutlibCallback.findClass("android.support.v7.app.AppCompatViewInflater");
+            } catch (ClassNotFoundException ignore) {
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Checks if there is a custom inflater and, when present, tries to instantiate the view
+     * using it.
+     */
+    @Nullable
+    private View createViewFromCustomInflater(@NotNull String name, @NotNull AttributeSet attrs) {
+        if (mCustomInflater == null) {
+            Context context = getContext();
+            context = getBaseContext(context);
+            if (context instanceof BridgeContext) {
+                BridgeContext bc = (BridgeContext) context;
+                Class<?> inflaterClass = findCustomInflater(bc, mLayoutlibCallback);
+
+                if (inflaterClass != null) {
+                    try {
+                        Constructor<?> constructor =  inflaterClass.getDeclaredConstructor();
+                        constructor.setAccessible(true);
+                        Object inflater = constructor.newInstance();
+                        Method method = getCreateViewMethod(inflaterClass);
+                        Context finalContext = context;
+                        mCustomInflater = (viewName, attributeSet) -> {
+                            try {
+                                return (View) method.invoke(inflater, null, viewName, finalContext,
+                                        attributeSet,
+                                        false,
+                                        false /*readAndroidTheme*/, // No need after L
+                                        true /*readAppTheme*/,
+                                        true /*wrapContext*/);
+                            } catch (IllegalAccessException | InvocationTargetException e) {
+                                assert false : "Call to createView failed";
+                            }
+                            return null;
+                        };
+                    } catch (InvocationTargetException | IllegalAccessException |
+                            NoSuchMethodException | InstantiationException ignore) {
+                    }
+                }
+            }
+
+            if (mCustomInflater == null) {
+                // There is no custom inflater. We'll create a nop custom inflater to avoid the
+                // penalty of trying to instantiate again
+                mCustomInflater = (s, attributeSet) -> null;
+            }
+        }
+
+        return mCustomInflater.apply(name, attrs);
     }
 
     @Override

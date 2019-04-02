@@ -34,14 +34,15 @@ import android.hardware.soundtrigger.SoundTrigger.RecognitionEvent;
 import android.hardware.soundtrigger.SoundTrigger.SoundModel;
 import android.hardware.soundtrigger.SoundTrigger.SoundModelEvent;
 import android.hardware.soundtrigger.SoundTriggerModule;
+import android.os.Binder;
 import android.os.DeadObjectException;
 import android.os.PowerManager;
+import android.os.PowerManager.ServiceType;
 import android.os.RemoteException;
 import android.telephony.PhoneStateListener;
 import android.telephony.TelephonyManager;
 import android.util.Slog;
 import com.android.internal.logging.MetricsLogger;
-import com.android.server.power.BatterySaverPolicy.ServiceType;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -827,7 +828,12 @@ public class SoundTriggerHelper implements SoundTrigger.StatusListener {
     // internalClearGlobalStateLocked() cleans up the telephony and power save listeners.
     private void internalClearGlobalStateLocked() {
         // Unregister from call state changes.
-        mTelephonyManager.listen(mPhoneStateListener, PhoneStateListener.LISTEN_NONE);
+        long token = Binder.clearCallingIdentity();
+        try {
+            mTelephonyManager.listen(mPhoneStateListener, PhoneStateListener.LISTEN_NONE);
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
 
         // Unregister from power save mode changes.
         if (mPowerSaveModeListener != null) {
@@ -880,21 +886,26 @@ public class SoundTriggerHelper implements SoundTrigger.StatusListener {
     }
 
     private void initializeTelephonyAndPowerStateListeners() {
-        // Get the current call state synchronously for the first recognition.
-        mCallActive = mTelephonyManager.getCallState() != TelephonyManager.CALL_STATE_IDLE;
+        long token = Binder.clearCallingIdentity();
+        try {
+            // Get the current call state synchronously for the first recognition.
+            mCallActive = mTelephonyManager.getCallState() != TelephonyManager.CALL_STATE_IDLE;
 
-        // Register for call state changes when the first call to start recognition occurs.
-        mTelephonyManager.listen(mPhoneStateListener, PhoneStateListener.LISTEN_CALL_STATE);
+            // Register for call state changes when the first call to start recognition occurs.
+            mTelephonyManager.listen(mPhoneStateListener, PhoneStateListener.LISTEN_CALL_STATE);
 
-        // Register for power saver mode changes when the first call to start recognition
-        // occurs.
-        if (mPowerSaveModeListener == null) {
-            mPowerSaveModeListener = new PowerSaveModeListener();
-            mContext.registerReceiver(mPowerSaveModeListener,
-                    new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED));
+            // Register for power saver mode changes when the first call to start recognition
+            // occurs.
+            if (mPowerSaveModeListener == null) {
+                mPowerSaveModeListener = new PowerSaveModeListener();
+                mContext.registerReceiver(mPowerSaveModeListener,
+                        new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED));
+            }
+            mIsPowerSaveMode = mPowerManager.getPowerSaveState(ServiceType.SOUND)
+                    .batterySaverEnabled;
+        } finally {
+            Binder.restoreCallingIdentity(token);
         }
-        mIsPowerSaveMode = mPowerManager.getPowerSaveState(ServiceType.SOUND)
-                .batterySaverEnabled;
     }
 
     // Sends an error callback to all models with a valid registered callback.

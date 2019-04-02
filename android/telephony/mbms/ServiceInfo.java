@@ -36,7 +36,6 @@ import java.util.Set;
 /**
  * Describes a cell-broadcast service. This class should not be instantiated directly -- use
  * {@link StreamingServiceInfo} or {@link FileServiceInfo}
- * @hide
  */
 public class ServiceInfo {
     // arbitrary limit on the number of locale -> name pairs we support
@@ -52,8 +51,8 @@ public class ServiceInfo {
     /** @hide */
     public ServiceInfo(Map<Locale, String> newNames, String newClassName, List<Locale> newLocales,
             String newServiceId, Date start, Date end) {
-        if (newNames == null || newNames.isEmpty() || TextUtils.isEmpty(newClassName)
-                || newLocales == null || newLocales.isEmpty() || TextUtils.isEmpty(newServiceId)
+        if (newNames == null || newClassName == null
+                || newLocales == null || newServiceId == null
                 || start == null || end == null) {
             throw new IllegalArgumentException("Bad ServiceInfo construction");
         }

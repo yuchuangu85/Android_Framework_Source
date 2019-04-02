@@ -294,6 +294,7 @@ public abstract class FileSystem
      */
     public abstract Path getPath(String first, String... more);
 
+    // Android-changed: Removed javadoc references to UNIX and Windows.
     /**
      * Returns a {@code PathMatcher} that performs match operations on the
      * {@code String} representation of {@link Path} objects by interpreting a

@@ -943,21 +943,23 @@ public class TCKZoneRules {
     }
 
     public void test_Apia_jumpForwardOverInternationalDateLine_P12_to_M12() {
-        // transition occurred at 1879-07-04T00:00+12:33:04
+        // Android-changed: 1879 changed to 1892 in this test due to 2017c IANA update. Upstream
+        // will probably do the same. See https://bugs.openjdk.java.net/browse/JDK-8190259
+        // transition occurred at 1892-07-04T00:00+12:33:04
         ZoneRules test = pacificApia();
-        Instant instantBefore = LocalDate.of(1879, 7, 2).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant instantBefore = LocalDate.of(1892, 7, 2).atStartOfDay(ZoneOffset.UTC).toInstant();
         ZoneOffsetTransition trans = test.nextTransition(instantBefore);
-        assertEquals(trans.getDateTimeBefore(), LocalDateTime.of(1879, 7, 5, 0, 0));
-        assertEquals(trans.getDateTimeAfter(), LocalDateTime.of(1879, 7, 4, 0, 0));
+        assertEquals(trans.getDateTimeBefore(), LocalDateTime.of(1892, 7, 5, 0, 0));
+        assertEquals(trans.getDateTimeAfter(), LocalDateTime.of(1892, 7, 4, 0, 0));
         assertEquals(trans.isGap(), false);
         assertEquals(trans.isOverlap(), true);
         assertEquals(trans.isValidOffset(ZoneOffset.ofHoursMinutesSeconds(+12, 33, 4)), true);
         assertEquals(trans.isValidOffset(ZoneOffset.ofHoursMinutesSeconds(-11, -26, -56)), true);
         assertEquals(trans.getDuration(), Duration.ofHours(-24));
-        assertEquals(trans.getInstant(), LocalDateTime.of(1879, 7, 4, 0, 0).toInstant(ZoneOffset.ofHoursMinutesSeconds(-11, -26, -56)));
+        assertEquals(trans.getInstant(), LocalDateTime.of(1892, 7, 4, 0, 0).toInstant(ZoneOffset.ofHoursMinutesSeconds(-11, -26, -56)));
 
-        ZonedDateTime zdt = ZonedDateTime.of(1879, 7, 4, 23, 0, 0, 0, ZoneId.of("Pacific/Apia"));
-        assertEquals(zdt.plusHours(2).toLocalDateTime(), LocalDateTime.of(1879, 7, 4, 1, 0, 0));
+        ZonedDateTime zdt = ZonedDateTime.of(1892, 7, 4, 23, 0, 0, 0, ZoneId.of("Pacific/Apia"));
+        assertEquals(zdt.plusHours(2).toLocalDateTime(), LocalDateTime.of(1892, 7, 4, 1, 0, 0));
     }
 
     //-------------------------------------------------------------------------

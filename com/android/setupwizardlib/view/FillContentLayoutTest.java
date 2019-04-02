@@ -22,7 +22,6 @@ import static org.robolectric.RuntimeEnvironment.application;
 import android.view.View;
 import android.view.View.MeasureSpec;
 
-import com.android.setupwizardlib.BuildConfig;
 import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
 
 import org.junit.Test;
@@ -31,7 +30,7 @@ import org.robolectric.Robolectric;
 import org.robolectric.annotation.Config;
 
 @RunWith(SuwLibRobolectricTestRunner.class)
-@Config(constants = BuildConfig.class, sdk = {Config.OLDEST_SDK, Config.NEWEST_SDK})
+@Config(sdk = {Config.OLDEST_SDK, Config.NEWEST_SDK})
 public class FillContentLayoutTest {
 
     @Test

@@ -1,5 +1,4 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
  * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -26,9 +25,6 @@
 
 package java.lang;
 
-import java.lang.reflect.Method;
-import libcore.util.EmptyArray;
-
 /**
  * The {@code Void} class is an uninstantiable placeholder class to hold a
  * reference to the {@code Class} object representing the Java keyword
@@ -44,24 +40,8 @@ class Void {
      * The {@code Class} object representing the pseudo-type corresponding to
      * the keyword {@code void}.
      */
-    public static final Class<Void> TYPE = lookupType();
-
-    // Android-changed: Upstream code would use reflection to establish the value of "void.class".
-    // ART makes a native call instead because the reflection approach could lead to initialization
-    // of TYPE with the current, i.e. uninitialized, value of TYPE due to other Android changes.
-    @dalvik.annotation.optimization.FastNative
-    private static native Class<Void> lookupType();
-    /*
     @SuppressWarnings("unchecked")
-    private static Class<Void> lookupType() {
-        try {
-            Method method = Runnable.class.getMethod("run", EmptyArray.CLASS);
-            return (Class<Void>) method.getReturnType();
-        } catch (Exception e) {
-            throw new AssertionError(e);
-        }
-    }
-    */
+    public static final Class<Void> TYPE = (Class<Void>) Class.getPrimitiveClass("void");
 
     /*
      * The Void class cannot be instantiated.

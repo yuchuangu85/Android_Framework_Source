@@ -153,7 +153,7 @@ public class DcAsyncChannel extends AsyncChannel {
                 value = false;
             }
         } else {
-            value = mDc.getIsInactive();
+            value = mDc.isInactive();
         }
         return value;
     }

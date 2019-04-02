@@ -19,8 +19,8 @@ package android.os;
 import android.annotation.TestApi;
 import android.system.Os;
 import android.system.OsConstants;
-import android.util.Log;
 import android.webkit.WebViewZygote;
+
 import dalvik.system.VMRuntime;
 
 /**
@@ -143,13 +143,28 @@ public class Process {
      * Defines the UID/GID for the WebView zygote process.
      * @hide
      */
-    public static final int WEBVIEW_ZYGOTE_UID = 1051;
+    public static final int WEBVIEW_ZYGOTE_UID = 1053;
 
     /**
      * Defines the UID used for resource tracking for OTA updates.
      * @hide
      */
     public static final int OTA_UPDATE_UID = 1061;
+
+    /**
+     * Defines the UID used for incidentd.
+     * @hide
+     */
+    public static final int INCIDENTD_UID = 1067;
+
+    /**
+     * Defines the UID/GID for the Secure Element service process.
+     * @hide
+     */
+    public static final int SE_UID = 1068;
+
+    /** {@hide} */
+    public static final int NOBODY_UID = 9999;
 
     /**
      * Defines the start of a range of UIDs (and GIDs), going from this
@@ -264,6 +279,15 @@ public class Process {
      * {@link java.lang.Thread} class.
      */
     public static final int THREAD_PRIORITY_URGENT_DISPLAY = -8;
+
+    /**
+     * Standard priority of video threads.  Applications can not normally
+     * change to this priority.
+     * Use with {@link #setThreadPriority(int)} and
+     * {@link #setThreadPriority(int, int)}, <b>not</b> with the normal
+     * {@link java.lang.Thread} class.
+     */
+    public static final int THREAD_PRIORITY_VIDEO = -10;
 
     /**
      * Standard priority of audio threads.  Applications can not normally
@@ -392,6 +416,13 @@ public class Process {
      **/
     public static final int THREAD_GROUP_RT_APP = 6;
 
+    /**
+     * Thread group for bound foreground services that should
+     * have additional CPU restrictions during screen off
+     * @hide
+     **/
+    public static final int THREAD_GROUP_RESTRICTED = 7;
+
     public static final int SIGNAL_QUIT = 3;
     public static final int SIGNAL_KILL = 9;
     public static final int SIGNAL_USR1 = 10;
@@ -423,7 +454,7 @@ public class Process {
      * 
      * When invokeWith is not null, the process will be started as a fresh app
      * and not a zygote fork. Note that this is only allowed for uid 0 or when
-     * debugFlags contains DEBUG_ENABLE_DEBUGGER.
+     * runtimeFlags contains DEBUG_ENABLE_DEBUGGER.
      *
      * @param processClass The class to use as the process's main entry
      *                     point.
@@ -431,7 +462,7 @@ public class Process {
      * @param uid The user-id under which the process will run.
      * @param gid The group-id under which the process will run.
      * @param gids Additional group-ids associated with the process.
-     * @param debugFlags Additional flags.
+     * @param runtimeFlags Additional flags for the runtime.
      * @param targetSdkVersion The target SDK version for the app.
      * @param seInfo null-ok SELinux information for the new process.
      * @param abi non-null the ABI this app should be started with.
@@ -448,7 +479,7 @@ public class Process {
     public static final ProcessStartResult start(final String processClass,
                                   final String niceName,
                                   int uid, int gid, int[] gids,
-                                  int debugFlags, int mountExternal,
+                                  int runtimeFlags, int mountExternal,
                                   int targetSdkVersion,
                                   String seInfo,
                                   String abi,
@@ -457,7 +488,7 @@ public class Process {
                                   String invokeWith,
                                   String[] zygoteArgs) {
         return zygoteProcess.start(processClass, niceName, uid, gid, gids,
-                    debugFlags, mountExternal, targetSdkVersion, seInfo,
+                    runtimeFlags, mountExternal, targetSdkVersion, seInfo,
                     abi, instructionSet, appDataDir, invokeWith, zygoteArgs);
     }
 
@@ -465,7 +496,7 @@ public class Process {
     public static final ProcessStartResult startWebView(final String processClass,
                                   final String niceName,
                                   int uid, int gid, int[] gids,
-                                  int debugFlags, int mountExternal,
+                                  int runtimeFlags, int mountExternal,
                                   int targetSdkVersion,
                                   String seInfo,
                                   String abi,
@@ -474,7 +505,7 @@ public class Process {
                                   String invokeWith,
                                   String[] zygoteArgs) {
         return WebViewZygote.getProcess().start(processClass, niceName, uid, gid, gids,
-                    debugFlags, mountExternal, targetSdkVersion, seInfo,
+                    runtimeFlags, mountExternal, targetSdkVersion, seInfo,
                     abi, instructionSet, appDataDir, invokeWith, zygoteArgs);
     }
 
@@ -556,6 +587,14 @@ public class Process {
     }
 
     /**
+     * Returns whether the given uid belongs to a system core component or not.
+     * @hide
+     */
+    public static boolean isCoreUid(int uid) {
+        return UserHandle.isCore(uid);
+    }
+
+    /**
      * Returns whether the given uid belongs to an application.
      * @param uid A kernel uid.
      * @return Whether the uid corresponds to an application sandbox running in
@@ -567,7 +606,6 @@ public class Process {
 
     /**
      * Returns whether the current process is in an isolated sandbox.
-     * @hide
      */
     public static final boolean isIsolated() {
         return isIsolated(myUid());

@@ -54,11 +54,4 @@ public interface IsimRecords {
      *      not present or not loaded
      */
     String[] getIsimPcscf();
-
-    /**
-     * Returns the response of ISIM Authetification through RIL.
-     * Returns null if the Authentification hasn't been successed or isn't present iphonesubinfo.
-     * @return the response of ISIM Authetification, or null if not available
-     */
-    String getIsimChallengeResponse(String nonce);
 }

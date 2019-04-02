@@ -18,7 +18,8 @@ package android.support.v4.media.session;
 
 import android.media.session.PlaybackState;
 import android.os.Bundle;
-import android.support.annotation.RequiresApi;
+
+import androidx.annotation.RequiresApi;
 
 import java.util.List;
 
@@ -43,5 +44,8 @@ class PlaybackStateCompatApi22 {
         stateObj.setActiveQueueItemId(activeItemId);
         stateObj.setExtras(extras);
         return stateObj.build();
+    }
+
+    private PlaybackStateCompatApi22() {
     }
 }

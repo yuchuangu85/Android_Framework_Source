@@ -16,9 +16,9 @@
 
 package com.android.internal.telephony;
 
-import static android.telephony.RadioNetworkConstants.RadioAccessNetworks.EUTRAN;
-import static android.telephony.RadioNetworkConstants.RadioAccessNetworks.GERAN;
-import static android.telephony.RadioNetworkConstants.RadioAccessNetworks.UTRAN;
+import static android.telephony.AccessNetworkConstants.AccessNetworkType.EUTRAN;
+import static android.telephony.AccessNetworkConstants.AccessNetworkType.GERAN;
+import static android.telephony.AccessNetworkConstants.AccessNetworkType.UTRAN;
 
 import android.hardware.radio.V1_0.RadioError;
 import android.os.AsyncResult;
@@ -107,23 +107,53 @@ public final class NetworkScanRequestTracker {
     }
 
     private boolean isValidScan(NetworkScanRequestInfo nsri) {
-        if (nsri.mRequest.specifiers == null) {
+        if (nsri.mRequest == null || nsri.mRequest.getSpecifiers() == null) {
             return false;
         }
-        if (nsri.mRequest.specifiers.length > NetworkScanRequest.MAX_RADIO_ACCESS_NETWORKS) {
+        if (nsri.mRequest.getSpecifiers().length > NetworkScanRequest.MAX_RADIO_ACCESS_NETWORKS) {
             return false;
         }
-        for (RadioAccessSpecifier ras : nsri.mRequest.specifiers) {
-            if (ras.radioAccessNetwork != GERAN && ras.radioAccessNetwork != UTRAN
-                    && ras.radioAccessNetwork != EUTRAN) {
+        for (RadioAccessSpecifier ras : nsri.mRequest.getSpecifiers()) {
+            if (ras.getRadioAccessNetwork() != GERAN && ras.getRadioAccessNetwork() != UTRAN
+                    && ras.getRadioAccessNetwork() != EUTRAN) {
                 return false;
             }
-            if (ras.bands != null && ras.bands.length > NetworkScanRequest.MAX_BANDS) {
+            if (ras.getBands() != null && ras.getBands().length > NetworkScanRequest.MAX_BANDS) {
                 return false;
             }
-            if (ras.channels != null && ras.channels.length > NetworkScanRequest.MAX_CHANNELS) {
+            if (ras.getChannels() != null
+                    && ras.getChannels().length > NetworkScanRequest.MAX_CHANNELS) {
                 return false;
             }
+        }
+
+        if ((nsri.mRequest.getSearchPeriodicity() < NetworkScanRequest.MIN_SEARCH_PERIODICITY_SEC)
+                || (nsri.mRequest.getSearchPeriodicity()
+                > NetworkScanRequest.MAX_SEARCH_PERIODICITY_SEC)) {
+            return false;
+        }
+
+        if ((nsri.mRequest.getMaxSearchTime() < NetworkScanRequest.MIN_SEARCH_MAX_SEC)
+                || (nsri.mRequest.getMaxSearchTime() > NetworkScanRequest.MAX_SEARCH_MAX_SEC)) {
+            return false;
+        }
+
+        if ((nsri.mRequest.getIncrementalResultsPeriodicity()
+                < NetworkScanRequest.MIN_INCREMENTAL_PERIODICITY_SEC)
+                || (nsri.mRequest.getIncrementalResultsPeriodicity()
+                > NetworkScanRequest.MAX_INCREMENTAL_PERIODICITY_SEC)) {
+            return false;
+        }
+
+        if ((nsri.mRequest.getSearchPeriodicity() > nsri.mRequest.getMaxSearchTime())
+                || (nsri.mRequest.getIncrementalResultsPeriodicity()
+                        > nsri.mRequest.getMaxSearchTime())) {
+            return false;
+        }
+
+        if ((nsri.mRequest.getPlmns() != null)
+                && (nsri.mRequest.getPlmns().size() > NetworkScanRequest.MAX_MCC_MNC_LIST_SIZE)) {
+            return false;
         }
         return true;
     }
@@ -246,10 +276,10 @@ public final class NetworkScanRequestTracker {
                     return NetworkScan.ERROR_INVALID_SCAN;
                 case RadioError.DEVICE_IN_USE:
                     Log.e(TAG, "rilErrorToScanError: DEVICE_IN_USE");
-                    return NetworkScan.ERROR_MODEM_BUSY;
+                    return NetworkScan.ERROR_MODEM_UNAVAILABLE;
                 default:
                     Log.e(TAG, "rilErrorToScanError: Unexpected RadioError " +  rilError);
-                    return NetworkScan.ERROR_RIL_ERROR;
+                    return NetworkScan.ERROR_RADIO_INTERFACE_ERROR;
             }
         }
 
@@ -278,11 +308,11 @@ public final class NetworkScanRequestTracker {
                     return NetworkScan.ERROR_INVALID_SCAN;
                 case DEVICE_IN_USE:
                     Log.e(TAG, "commandExceptionErrorToScanError: DEVICE_IN_USE");
-                    return NetworkScan.ERROR_MODEM_BUSY;
+                    return NetworkScan.ERROR_MODEM_UNAVAILABLE;
                 default:
                     Log.e(TAG, "commandExceptionErrorToScanError: Unexpected CommandExceptionError "
                             +  error);
-                    return NetworkScan.ERROR_RIL_ERROR;
+                    return NetworkScan.ERROR_RADIO_INTERFACE_ERROR;
             }
         }
 
@@ -304,7 +334,7 @@ public final class NetworkScanRequestTracker {
                 if (!interruptLiveScan(nsri)) {
                     if (!cacheScan(nsri)) {
                         notifyMessenger(nsri, TelephonyScanManager.CALLBACK_SCAN_ERROR,
-                                NetworkScan.ERROR_MODEM_BUSY, null);
+                                NetworkScan.ERROR_MODEM_UNAVAILABLE, null);
                     }
                 }
             }
@@ -361,7 +391,7 @@ public final class NetworkScanRequestTracker {
                 }
             } else {
                 logEmptyResultOrException(ar);
-                deleteScanAndMayNotify(nsri, NetworkScan.ERROR_RIL_ERROR, true);
+                deleteScanAndMayNotify(nsri, NetworkScan.ERROR_RADIO_INTERFACE_ERROR, true);
                 nsri.mPhone.mCi.unregisterForNetworkScanResult(mHandler);
             }
         }
@@ -430,12 +460,12 @@ public final class NetworkScanRequestTracker {
         // stopped, a new scan will automatically start with nsri.
         // The new scan can interrupt the live scan only when all the below requirements are met:
         //   1. There is 1 live scan and no other pending scan
-        //   2. The new scan is requested by system process
-        //   3. The live scan is not requested by system process
+        //   2. The new scan is requested by mobile network setting menu (owned by PHONE process)
+        //   3. The live scan is not requested by mobile network setting menu
         private synchronized boolean interruptLiveScan(NetworkScanRequestInfo nsri) {
             if (mLiveRequestInfo != null && mPendingRequestInfo == null
-                    && nsri.mUid == Process.SYSTEM_UID
-                            && mLiveRequestInfo.mUid != Process.SYSTEM_UID) {
+                    && nsri.mUid == Process.PHONE_UID
+                            && mLiveRequestInfo.mUid != Process.PHONE_UID) {
                 doInterruptScan(mLiveRequestInfo.mScanId);
                 mPendingRequestInfo = nsri;
                 notifyMessenger(mLiveRequestInfo, TelephonyScanManager.CALLBACK_SCAN_ERROR,

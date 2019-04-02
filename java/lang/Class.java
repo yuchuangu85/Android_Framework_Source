@@ -2279,6 +2279,13 @@ public final class Class<T> implements java.io.Serializable,
         return null;
     }
 
+    /*
+     * Return the runtime's Class object for the named
+     * primitive type.
+     */
+    @FastNative
+    static native Class<?> getPrimitiveClass(String name);
+
     /**
      * Add a package name prefix if the name is not absolute Remove leading "/"
      * if name is absolute

@@ -24,6 +24,7 @@
  */
 
 package java.util;
+import dalvik.annotation.optimization.ReachabilitySensitive;
 import java.util.Date;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -93,11 +94,17 @@ public class Timer {
      * and the timer thread consumes, executing timer tasks as appropriate,
      * and removing them from the queue when they're obsolete.
      */
+    // Android-added: @ReachabilitySensitive
+    // Otherwise the finalizer may cancel the Timer in the middle of a
+    // sched() call.
+    @ReachabilitySensitive
     private final TaskQueue queue = new TaskQueue();
 
     /**
      * The timer thread.
      */
+    // Android-added: @ReachabilitySensitive
+    @ReachabilitySensitive
     private final TimerThread thread = new TimerThread(queue);
 
     /**

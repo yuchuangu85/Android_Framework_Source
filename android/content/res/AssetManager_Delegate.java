@@ -20,6 +20,9 @@ import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
 import android.util.SparseArray;
 
+import java.io.IOException;
+import java.io.InputStream;
+
 /**
  * Delegate used to provide implementation of a select few native methods of {@link AssetManager}
  * <p/>
@@ -28,6 +31,20 @@ import android.util.SparseArray;
  *
  */
 public class AssetManager_Delegate {
+
+    @LayoutlibDelegate
+    public static InputStream open(AssetManager mgr, String fileName) throws IOException {
+        return mgr.open_Original(fileName);
+    }
+
+    @LayoutlibDelegate
+    public static InputStream open(AssetManager mgr, String fileName, int accessMode)
+            throws IOException {
+        if (!(mgr instanceof BridgeAssetManager)) {
+            return mgr.open_Original(fileName, accessMode);
+        }
+        return ((BridgeAssetManager) mgr).getAssetRepository().openAsset(fileName, accessMode);
+    }
 
     @LayoutlibDelegate
     /*package*/ static long newTheme(AssetManager manager) {

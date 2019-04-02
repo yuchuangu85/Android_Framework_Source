@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.os.Build;
 
 /**
  * {@hide}
@@ -154,6 +155,12 @@ IccIoResult {
                             + "CHV blocked"
                             + "UNBLOCK CHV blocked";
                     case 0x50: return "increase cannot be performed, Max value reached";
+                    // The definition for these status codes can be found in TS 31.102 7.3.1
+                    case 0x62: return "authentication error, application specific";
+                    case 0x64: return "authentication error, security context not supported";
+                    case 0x65: return "key freshness failure";
+                    case 0x66: return "authentication error, no memory space available";
+                    case 0x67: return "authentication error, no memory space available in EF_MUK";
                 }
                 break;
             case 0x9E: return null; // success
@@ -181,7 +188,9 @@ IccIoResult {
     @Override
     public String toString() {
         return "IccIoResult sw1:0x" + Integer.toHexString(sw1) + " sw2:0x"
-                + Integer.toHexString(sw2) + ((!success()) ? " Error: " + getErrorString() : "");
+                + Integer.toHexString(sw2) + " Payload: "
+                + ((Build.IS_DEBUGGABLE && Build.IS_ENG) ? payload : "*******")
+                + ((!success()) ? " Error: " + getErrorString() : "");
     }
 
     /**

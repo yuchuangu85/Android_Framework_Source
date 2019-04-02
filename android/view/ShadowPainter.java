@@ -41,14 +41,16 @@ public class ShadowPainter {
      * @param source the source image
      * @param shadowSize the size of the shadow, normally {@link #SHADOW_SIZE or {@link
      * #SMALL_SHADOW_SIZE}}
+     * @param alpha alpha value to apply to the shadow
      *
      * @return an image with the shadow painted in or the source image if shadowSize <= 1
      */
     @NonNull
-    public static BufferedImage createDropShadow(BufferedImage source, int shadowSize) {
+    public static BufferedImage createDropShadow(BufferedImage source, int shadowSize, float
+            alpha) {
         shadowSize /= 2; // make shadow size have the same meaning as in the other shadow paint methods in this class
 
-        return createDropShadow(source, shadowSize, 0.7f, 0);
+        return createDropShadow(source, shadowSize, 0.7f * alpha, 0);
     }
 
     /**

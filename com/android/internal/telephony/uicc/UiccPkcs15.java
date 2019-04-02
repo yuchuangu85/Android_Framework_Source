@@ -17,24 +17,15 @@
 package com.android.internal.telephony.uicc;
 
 import android.os.AsyncResult;
-import android.os.Binder;
 import android.os.Handler;
 import android.os.Message;
 import android.telephony.Rlog;
-import android.telephony.TelephonyManager;
 
-import com.android.internal.telephony.CommandException;
-import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.UiccCarrierPrivilegeRules.TLV;
 
-import java.io.ByteArrayInputStream;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.lang.IllegalArgumentException;
-import java.lang.IndexOutOfBoundsException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
@@ -89,7 +80,7 @@ public class UiccPkcs15 extends Handler {
 
         private void selectFile() {
             if (mChannelId >= 0) {
-                mUiccCard.iccTransmitApduLogicalChannel(mChannelId, 0x00, 0xA4, 0x00, 0x04, 0x02,
+                mUiccProfile.iccTransmitApduLogicalChannel(mChannelId, 0x00, 0xA4, 0x00, 0x04, 0x02,
                         mFileId, obtainMessage(EVENT_SELECT_FILE_DONE));
             } else {
                 log("EF based");
@@ -98,7 +89,7 @@ public class UiccPkcs15 extends Handler {
 
         private void readBinary() {
             if (mChannelId >=0 ) {
-                mUiccCard.iccTransmitApduLogicalChannel(mChannelId, 0x00, 0xB0, 0x00, 0x00, 0x00,
+                mUiccProfile.iccTransmitApduLogicalChannel(mChannelId, 0x00, 0xB0, 0x00, 0x00, 0x00,
                         "", obtainMessage(EVENT_READ_BINARY_DONE));
             } else {
                 log("EF based");
@@ -146,7 +137,7 @@ public class UiccPkcs15 extends Handler {
             mCallback = callBack;
             // Specified in ISO 7816-4 clause 7.1.1 0x04 means that FCP template is requested.
             int p2 = 0x04;
-            mUiccCard.iccOpenLogicalChannel(PKCS15_AID, p2, /* supported P2 value */
+            mUiccProfile.iccOpenLogicalChannel(PKCS15_AID, p2, /* supported P2 value */
                     obtainMessage(EVENT_OPEN_LOGICAL_CHANNEL_DONE));
         }
 
@@ -176,7 +167,7 @@ public class UiccPkcs15 extends Handler {
         }
     }
 
-    private UiccCard mUiccCard;  // Parent
+    private UiccProfile mUiccProfile;  // Parent
     private Message mLoadedCallback;
     private int mChannelId = -1; // Channel Id for communicating with UICC.
     private List<String> mRules = new ArrayList<String>();
@@ -191,9 +182,9 @@ public class UiccPkcs15 extends Handler {
     private static final int EVENT_LOAD_ACCF_DONE = 6;
     private static final int EVENT_CLOSE_LOGICAL_CHANNEL_DONE = 7;
 
-    public UiccPkcs15(UiccCard uiccCard, Message loadedCallback) {
+    public UiccPkcs15(UiccProfile uiccProfile, Message loadedCallback) {
         log("Creating UiccPkcs15");
-        mUiccCard = uiccCard;
+        mUiccProfile = uiccProfile;
         mLoadedCallback = loadedCallback;
         mPkcs15Selector = new Pkcs15Selector(obtainMessage(EVENT_SELECT_PKCS15_DONE));
     }
@@ -249,7 +240,7 @@ public class UiccPkcs15 extends Handler {
     private void cleanUp() {
         log("cleanUp");
         if (mChannelId >= 0) {
-            mUiccCard.iccCloseLogicalChannel(mChannelId, obtainMessage(
+            mUiccProfile.iccCloseLogicalChannel(mChannelId, obtainMessage(
                     EVENT_CLOSE_LOGICAL_CHANNEL_DONE));
             mChannelId = -1;
         }

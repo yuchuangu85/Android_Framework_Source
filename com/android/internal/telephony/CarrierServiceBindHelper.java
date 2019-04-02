@@ -123,7 +123,7 @@ public class CarrierServiceBindHelper {
         if (!SubscriptionManager.isValidPhoneId(phoneId)) {
             return;
         }
-        if (TextUtils.isEmpty(simState)) return;
+        if (TextUtils.isEmpty(simState) || phoneId >= mLastSimState.length) return;
         if (simState.equals(mLastSimState[phoneId])) {
             // ignore consecutive duplicated events
             return;

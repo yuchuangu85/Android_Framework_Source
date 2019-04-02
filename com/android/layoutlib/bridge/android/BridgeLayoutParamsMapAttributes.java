@@ -56,6 +56,11 @@ public class BridgeLayoutParamsMapAttributes implements AttributeSet {
     }
 
     @Override
+    public String getAttributeNamespace(int index) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public String getAttributeName(int index) {
         throw new UnsupportedOperationException();
     }

@@ -88,4 +88,9 @@ public class SmsSessionEventBuilder {
         mEvent.format = format;
         return this;
     }
+
+    public SmsSessionEventBuilder setCellBroadcastMessage(SmsSession.Event.CBMessage msg) {
+        mEvent.cellBroadcastMessage = msg;
+        return this;
+    }
 }

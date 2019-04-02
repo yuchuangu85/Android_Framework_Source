@@ -21,7 +21,6 @@ import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiEnterpriseConfig;
 import android.os.Process;
 import android.util.Log;
-import android.util.Pair;
 import android.util.SparseArray;
 import android.util.Xml;
 
@@ -62,9 +61,27 @@ public class WifiBackupRestore {
     private static final String TAG = "WifiBackupRestore";
 
     /**
-     * Current backup data version. This will be incremented for any additions.
+     * Current backup data version.
+     * Note: before Android P this used to be an {@code int}, however support for minor versions
+     * has been added in Android P. Currently this field is a {@code float} representing
+     * "majorVersion.minorVersion" of the backed up data. MinorVersion starts with 0 and should
+     * be incremented when necessary. MajorVersion starts with 1 and bumping it up requires
+     * also resetting minorVersion to 0.
+     *
+     * MajorVersion will be incremented for modifications of the XML schema, excluding additive
+     * modifications in <WifiConfiguration> and/or <IpConfiguration> tags.
+     * Should the major version be bumped up, a new {@link WifiBackupDataParser} parser needs to
+     * be added and returned from {@link getWifiBackupDataParser()}.
+     * Note that bumping up the major version will result in inability to restore the backup
+     * set to those lower versions of SDK_INT that don't support the version.
+     *
+     * MinorVersion will only be incremented for addition of <WifiConfiguration> and/or
+     * <IpConfiguration> tags. Any other modifications to the schema should result in bumping up
+     * the major version and resetting the minor version to 0.
+     * Note that bumping up only the minor version will still allow restoring the backup set to
+     * lower versions of SDK_INT.
      */
-    private static final int CURRENT_BACKUP_DATA_VERSION = 1;
+    private static final float CURRENT_BACKUP_DATA_VERSION = 1.0f;
 
     /** This list of older versions will be used to restore data from older backups. */
     /**
@@ -77,10 +94,11 @@ public class WifiBackupRestore {
      */
     private static final String XML_TAG_DOCUMENT_HEADER = "WifiBackupData";
     private static final String XML_TAG_VERSION = "Version";
-    private static final String XML_TAG_SECTION_HEADER_NETWORK_LIST = "NetworkList";
-    private static final String XML_TAG_SECTION_HEADER_NETWORK = "Network";
-    private static final String XML_TAG_SECTION_HEADER_WIFI_CONFIGURATION = "WifiConfiguration";
-    private static final String XML_TAG_SECTION_HEADER_IP_CONFIGURATION = "IpConfiguration";
+
+    static final String XML_TAG_SECTION_HEADER_NETWORK_LIST = "NetworkList";
+    static final String XML_TAG_SECTION_HEADER_NETWORK = "Network";
+    static final String XML_TAG_SECTION_HEADER_WIFI_CONFIGURATION = "WifiConfiguration";
+    static final String XML_TAG_SECTION_HEADER_IP_CONFIGURATION = "IpConfiguration";
 
     /**
      * Regex to mask out passwords in backup data dump.
@@ -207,7 +225,6 @@ public class WifiBackupRestore {
             Log.e(TAG, "Invalid backup data received");
             return null;
         }
-
         try {
             if (mVerboseLoggingEnabled) {
                 mDebugLastBackupDataRestored = data;
@@ -221,111 +238,52 @@ public class WifiBackupRestore {
             XmlUtil.gotoDocumentStart(in, XML_TAG_DOCUMENT_HEADER);
             int rootTagDepth = in.getDepth();
 
-            int version = (int) XmlUtil.readNextValueWithName(in, XML_TAG_VERSION);
-            if (version < INITIAL_BACKUP_DATA_VERSION || version > CURRENT_BACKUP_DATA_VERSION) {
-                Log.e(TAG, "Invalid version of data: " + version);
-                return null;
+            int majorVersion = -1;
+            int minorVersion = -1;
+            try {
+                float version = (float) XmlUtil.readNextValueWithName(in, XML_TAG_VERSION);
+
+                // parse out major and minor versions
+                String versionStr = new Float(version).toString();
+                int separatorPos = versionStr.indexOf('.');
+                if (separatorPos == -1) {
+                    majorVersion = Integer.parseInt(versionStr);
+                    minorVersion = 0;
+                } else {
+                    majorVersion = Integer.parseInt(versionStr.substring(0, separatorPos));
+                    minorVersion = Integer.parseInt(versionStr.substring(separatorPos + 1));
+                }
+            } catch (ClassCastException cce) {
+                // Integer cannot be cast to Float for data coming from before Android P
+                majorVersion = 1;
+                minorVersion = 0;
             }
+            Log.d(TAG, "Version of backup data - major: " + majorVersion
+                    + "; minor: " + minorVersion);
 
-            return parseNetworkConfigurationsFromXml(in, rootTagDepth, version);
-        } catch (XmlPullParserException e) {
-            Log.e(TAG, "Error parsing the backup data: " + e);
-        } catch (IOException e) {
-            Log.e(TAG, "Error parsing the backup data: " + e);
-        }
-        return null;
-    }
-
-    /**
-     * Parses the list of configurations from the provided XML stream.
-     *
-     * @param in            XmlPullParser instance pointing to the XML stream.
-     * @param outerTagDepth depth of the outer tag in the XML document.
-     * @param dataVersion   version number parsed from incoming data.
-     * @return List<WifiConfiguration> object if parsing is successful, null otherwise.
-     */
-    private List<WifiConfiguration> parseNetworkConfigurationsFromXml(
-            XmlPullParser in, int outerTagDepth, int dataVersion)
-            throws XmlPullParserException, IOException {
-        // Find the configuration list section.
-        XmlUtil.gotoNextSectionWithName(in, XML_TAG_SECTION_HEADER_NETWORK_LIST, outerTagDepth);
-        // Find all the configurations within the configuration list section.
-        int networkListTagDepth = outerTagDepth + 1;
-        List<WifiConfiguration> configurations = new ArrayList<>();
-        while (XmlUtil.gotoNextSectionWithNameOrEnd(
-                in, XML_TAG_SECTION_HEADER_NETWORK, networkListTagDepth)) {
-            WifiConfiguration configuration =
-                    parseNetworkConfigurationFromXml(in, dataVersion, networkListTagDepth);
-            if (configuration != null) {
-                Log.v(TAG, "Parsed Configuration: " + configuration.configKey());
-                configurations.add(configuration);
-            }
-        }
-        return configurations;
-    }
-
-    /**
-     * Helper method to parse the WifiConfiguration object and validate the configKey parsed.
-     */
-    private WifiConfiguration parseWifiConfigurationFromXmlAndValidateConfigKey(
-            XmlPullParser in, int outerTagDepth)
-            throws XmlPullParserException, IOException {
-        Pair<String, WifiConfiguration> parsedConfig =
-                WifiConfigurationXmlUtil.parseFromXml(in, outerTagDepth);
-        if (parsedConfig == null || parsedConfig.first == null || parsedConfig.second == null) {
-            return null;
-        }
-        String configKeyParsed = parsedConfig.first;
-        WifiConfiguration configuration = parsedConfig.second;
-        String configKeyCalculated = configuration.configKey();
-        if (!configKeyParsed.equals(configKeyCalculated)) {
-            String configKeyMismatchLog =
-                    "Configuration key does not match. Retrieved: " + configKeyParsed
-                            + ", Calculated: " + configKeyCalculated;
-            if (configuration.shared) {
-                Log.e(TAG, configKeyMismatchLog);
+            WifiBackupDataParser parser = getWifiBackupDataParser(majorVersion);
+            if (parser == null) {
+                Log.w(TAG, "Major version of backup data is unknown to this Android"
+                        + " version; not restoring");
                 return null;
             } else {
-                // ConfigKey mismatches are expected for private networks because the
-                // UID is not preserved across backup/restore.
-                Log.w(TAG, configKeyMismatchLog);
+                return parser.parseNetworkConfigurationsFromXml(in, rootTagDepth, minorVersion);
             }
-        }
-       return configuration;
-    }
-
-    /**
-     * Parses the configuration data elements from the provided XML stream to a Configuration.
-     *
-     * @param in            XmlPullParser instance pointing to the XML stream.
-     * @param outerTagDepth depth of the outer tag in the XML document.
-     * @param dataVersion   version number parsed from incoming data.
-     * @return WifiConfiguration object if parsing is successful, null otherwise.
-     */
-    private WifiConfiguration parseNetworkConfigurationFromXml(XmlPullParser in, int dataVersion,
-            int outerTagDepth)
-            throws XmlPullParserException, IOException {
-        // Any version migration needs to be handled here in future.
-        if (dataVersion == INITIAL_BACKUP_DATA_VERSION) {
-            WifiConfiguration configuration = null;
-            int networkTagDepth = outerTagDepth + 1;
-            // Retrieve WifiConfiguration object first.
-            XmlUtil.gotoNextSectionWithName(
-                    in, XML_TAG_SECTION_HEADER_WIFI_CONFIGURATION, networkTagDepth);
-            int configTagDepth = networkTagDepth + 1;
-            configuration = parseWifiConfigurationFromXmlAndValidateConfigKey(in, configTagDepth);
-            if (configuration == null) {
-                return null;
-            }
-            // Now retrieve any IP configuration info.
-            XmlUtil.gotoNextSectionWithName(
-                    in, XML_TAG_SECTION_HEADER_IP_CONFIGURATION, networkTagDepth);
-            IpConfiguration ipConfiguration =
-                    IpConfigurationXmlUtil.parseFromXml(in, configTagDepth);
-            configuration.setIpConfiguration(ipConfiguration);
-            return configuration;
+        } catch (XmlPullParserException | IOException | ClassCastException
+                | IllegalArgumentException e) {
+            Log.e(TAG, "Error parsing the backup data: " + e);
         }
         return null;
+    }
+
+    private WifiBackupDataParser getWifiBackupDataParser(int majorVersion) {
+        switch (majorVersion) {
+            case INITIAL_BACKUP_DATA_VERSION:
+                return new WifiBackupDataV1Parser();
+            default:
+                Log.e(TAG, "Unrecognized majorVersion of backup data: " + majorVersion);
+                return null;
+        }
     }
 
     /**
@@ -696,8 +654,18 @@ public class WifiBackupRestore {
                         Map<String, String> extras =
                                 SupplicantStaNetworkHal.parseNetworkExtra(
                                         NativeUtil.removeEnclosingQuotes(idString));
+                        if (extras == null) {
+                            Log.e(TAG, "Error parsing network extras, ignoring network.");
+                            return null;
+                        }
                         String configKey = extras.get(
                                 SupplicantStaNetworkHal.ID_STRING_KEY_CONFIG_KEY);
+                        // No ConfigKey was passed but we need it for validating the parsed
+                        // network so we stop the restore.
+                        if (configKey == null) {
+                            Log.e(TAG, "Configuration key was not passed, ignoring network.");
+                            return null;
+                        }
                         if (!configKey.equals(configuration.configKey())) {
                             // ConfigKey mismatches are expected for private networks because the
                             // UID is not preserved across backup/restore.
@@ -738,6 +706,13 @@ public class WifiBackupRestore {
                         if (line != null) {
                             if (line.startsWith("network")) {
                                 SupplicantNetwork net = SupplicantNetwork.readNetworkFromStream(in);
+
+                                // An IOException occurred while trying to read the network.
+                                if (net == null) {
+                                    Log.e(TAG, "Error while parsing the network.");
+                                    continue;
+                                }
+
                                 // Networks that use certificates for authentication can't be
                                 // restored because the certificates they need don't get restored
                                 // (because they are stored in keystore, and can't be restored).
@@ -763,10 +738,17 @@ public class WifiBackupRestore {
             public List<WifiConfiguration> retrieveWifiConfigurations() {
                 ArrayList<WifiConfiguration> wifiConfigurations = new ArrayList<>();
                 for (SupplicantNetwork net : mNetworks) {
-                    WifiConfiguration wifiConfiguration = net.createWifiConfiguration();
-                    if (wifiConfiguration != null) {
-                        Log.v(TAG, "Parsed Configuration: " + wifiConfiguration.configKey());
-                        wifiConfigurations.add(wifiConfiguration);
+                    try {
+                        WifiConfiguration wifiConfiguration = net.createWifiConfiguration();
+                        if (wifiConfiguration != null) {
+                            Log.v(TAG, "Parsed Configuration: " + wifiConfiguration.configKey());
+                            wifiConfigurations.add(wifiConfiguration);
+                        }
+                    } catch (NumberFormatException e) {
+                        // Occurs if we are unable to parse the hidden SSID, WEP Key index or
+                        // creator UID.
+                        Log.e(TAG, "Error parsing wifi configuration: " + e);
+                        return null;
                     }
                 }
                 return wifiConfigurations;

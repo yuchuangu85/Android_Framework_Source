@@ -1241,7 +1241,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      *
      * @return the set view
      */
-    // NOTE: The upstream version of this function returns KeySetView (See http://b/28099367).
+    // Android-changed: Return type for backwards compat. Was KeySetView<K,V>. http://b/28099367
     public Set<K> keySet() {
         KeySetView<K,V> ks;
         return (ks = keySet) != null ? ks : (keySet = new KeySetView<K,V>(this, null));

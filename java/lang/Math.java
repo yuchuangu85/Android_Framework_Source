@@ -25,7 +25,7 @@
  */
 
 package java.lang;
-import dalvik.annotation.optimization.FastNative;
+import dalvik.annotation.optimization.CriticalNative;
 import java.util.Random;
 
 import sun.misc.FloatConsts;
@@ -106,6 +106,9 @@ import sun.misc.DoubleConsts;
 
 public final class Math {
 
+    // Android-changed: Numerous methods in this class are re-implemented in native for performance.
+    // Those methods are also annotated @CriticalNative.
+
     /**
      * Don't let anyone instantiate this class.
      */
@@ -137,7 +140,7 @@ public final class Math {
      * @param   a   an angle, in radians.
      * @return  the sine of the argument.
      */
-    @FastNative
+    @CriticalNative
     public static native double sin(double a);
 
     /**
@@ -151,7 +154,7 @@ public final class Math {
      * @param   a   an angle, in radians.
      * @return  the cosine of the argument.
      */
-    @FastNative
+    @CriticalNative
     public static native double cos(double a);
 
     /**
@@ -167,7 +170,7 @@ public final class Math {
      * @param   a   an angle, in radians.
      * @return  the tangent of the argument.
      */
-    @FastNative
+    @CriticalNative
     public static native double tan(double a);
 
     /**
@@ -184,7 +187,7 @@ public final class Math {
      * @param   a   the value whose arc sine is to be returned.
      * @return  the arc sine of the argument.
      */
-    @FastNative
+    @CriticalNative
     public static native double asin(double a);
 
     /**
@@ -199,7 +202,7 @@ public final class Math {
      * @param   a   the value whose arc cosine is to be returned.
      * @return  the arc cosine of the argument.
      */
-    @FastNative
+    @CriticalNative
     public static native double acos(double a);
 
     /**
@@ -215,7 +218,7 @@ public final class Math {
      * @param   a   the value whose arc tangent is to be returned.
      * @return  the arc tangent of the argument.
      */
-    @FastNative
+    @CriticalNative
     public static native double atan(double a);
 
     /**
@@ -264,7 +267,7 @@ public final class Math {
      * @return  the value <i>e</i><sup>{@code a}</sup>,
      *          where <i>e</i> is the base of the natural logarithms.
      */
-    @FastNative
+    @CriticalNative
     public static native double exp(double a);
 
     /**
@@ -284,7 +287,7 @@ public final class Math {
      * @return  the value ln&nbsp;{@code a}, the natural logarithm of
      *          {@code a}.
      */
-    @FastNative
+    @CriticalNative
     public static native double log(double a);
 
     /**
@@ -308,7 +311,7 @@ public final class Math {
      * @return  the base 10 logarithm of  {@code a}.
      * @since 1.5
      */
-    @FastNative
+    @CriticalNative
     public static native double log10(double a);
 
     /**
@@ -328,7 +331,7 @@ public final class Math {
      * @return  the positive square root of {@code a}.
      *          If the argument is NaN or less than zero, the result is NaN.
      */
-    @FastNative
+    @CriticalNative
     public static native double sqrt(double a);
 
 
@@ -358,7 +361,7 @@ public final class Math {
      * @return  the cube root of {@code a}.
      * @since 1.5
      */
-    @FastNative
+    @CriticalNative
     public static native double cbrt(double a);
 
     /**
@@ -383,7 +386,7 @@ public final class Math {
      * @return  the remainder when {@code f1} is divided by
      *          {@code f2}.
      */
-    @FastNative
+    @CriticalNative
     public static native double IEEEremainder(double f1, double f2);
 
     /**
@@ -405,7 +408,7 @@ public final class Math {
      *          floating-point value that is greater than or equal to
      *          the argument and is equal to a mathematical integer.
      */
-    @FastNative
+    @CriticalNative
     public static native double ceil(double a);
 
     /**
@@ -423,7 +426,7 @@ public final class Math {
      *          floating-point value that less than or equal to the argument
      *          and is equal to a mathematical integer.
      */
-    @FastNative
+    @CriticalNative
     public static native double floor(double a);
 
     /**
@@ -441,7 +444,7 @@ public final class Math {
      * @return  the closest floating-point value to {@code a} that is
      *          equal to a mathematical integer.
      */
-    @FastNative
+    @CriticalNative
     public static native double rint(double a);
 
     /**
@@ -496,7 +499,7 @@ public final class Math {
      *          in polar coordinates that corresponds to the point
      *          (<i>x</i>,&nbsp;<i>y</i>) in Cartesian coordinates.
      */
-    @FastNative
+    @CriticalNative
     public static native double atan2(double y, double x);
 
     /**
@@ -622,7 +625,7 @@ public final class Math {
      * @param   b   the exponent.
      * @return  the value {@code a}<sup>{@code b}</sup>.
      */
-    @FastNative
+    @CriticalNative
     public static native double pow(double a, double b);
 
     /**
@@ -754,6 +757,8 @@ public final class Math {
         return RandomNumberGeneratorHolder.randomNumberGenerator.nextDouble();
     }
 
+    // Android-added: setRandomSeedInternal(long), called after zygote forks.
+    // This allows different processes to have different random seeds.
     /**
      * Set the seed for the pseudo random generator used by {@link #random()}
      * and {@link #randomIntInternal()}.
@@ -764,6 +769,7 @@ public final class Math {
         RandomNumberGeneratorHolder.randomNumberGenerator.setSeed(seed);
     }
 
+    // Android-added: randomIntInternal() method: like random() but for int.
     /**
      * @hide for internal use only.
      */
@@ -771,6 +777,7 @@ public final class Math {
         return RandomNumberGeneratorHolder.randomNumberGenerator.nextInt();
     }
 
+    // Android-added: randomLongInternal() method: like random() but for long.
     /**
      * @hide for internal use only.
      */
@@ -1221,9 +1228,11 @@ public final class Math {
      * @return  the absolute value of the argument.
      */
     public static float abs(float a) {
+        // Android-changed: Implementation modified to exactly match ART intrinsics behavior.
         // Note, as a "quality of implementation", rather than pure "spec compliance",
         // we require that Math.abs() clears the sign bit (but changes nothing else)
         // for all numbers, including NaN (signaling NaN may become quiet though).
+        // http://b/30758343
         return Float.intBitsToFloat(0x7fffffff & Float.floatToRawIntBits(a));
     }
 
@@ -1243,9 +1252,11 @@ public final class Math {
      * @return  the absolute value of the argument.
      */
     public static double abs(double a) {
+        // Android-changed: Implementation modified to exactly match ART intrinsics behavior.
         // Note, as a "quality of implementation", rather than pure "spec compliance",
         // we require that Math.abs() clears the sign bit (but changes nothing else)
         // for all numbers, including NaN (signaling NaN may become quiet though).
+        // http://b/30758343
         return Double.longBitsToDouble(0x7fffffffffffffffL & Double.doubleToRawLongBits(a));
     }
 
@@ -1582,7 +1593,7 @@ public final class Math {
      * @return  The hyperbolic sine of {@code x}.
      * @since 1.5
      */
-    @FastNative
+    @CriticalNative
     public static native double sinh(double x);
 
     /**
@@ -1609,7 +1620,7 @@ public final class Math {
      * @return  The hyperbolic cosine of {@code x}.
      * @since 1.5
      */
-    @FastNative
+    @CriticalNative
     public static native double cosh(double x);
 
     /**
@@ -1648,7 +1659,7 @@ public final class Math {
      * @return  The hyperbolic tangent of {@code x}.
      * @since 1.5
      */
-    @FastNative
+    @CriticalNative
     public static native double tanh(double x);
 
     /**
@@ -1676,7 +1687,7 @@ public final class Math {
      * without intermediate overflow or underflow
      * @since 1.5
      */
-    @FastNative
+    @CriticalNative
     public static native double hypot(double x, double y);
 
     /**
@@ -1713,7 +1724,7 @@ public final class Math {
      * @return  the value <i>e</i><sup>{@code x}</sup>&nbsp;-&nbsp;1.
      * @since 1.5
      */
-    @FastNative
+    @CriticalNative
     public static native double expm1(double x);
 
     /**
@@ -1749,7 +1760,7 @@ public final class Math {
      * log of {@code x}&nbsp;+&nbsp;1
      * @since 1.5
      */
-    @FastNative
+    @CriticalNative
     public static native double log1p(double x);
 
     /**

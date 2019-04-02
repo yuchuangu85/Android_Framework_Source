@@ -52,12 +52,10 @@ import static com.android.layoutlib.bridge.util.ReflectionUtils.invoke;
  * the API being stable.
  */
 public class SupportPreferencesUtil {
-    private static final String PREFERENCE_PKG = "android.support.v7.preference";
-    private static final String PREFERENCE_MANAGER = PREFERENCE_PKG + ".PreferenceManager";
-    private static final String PREFERENCE_GROUP = PREFERENCE_PKG + ".PreferenceGroup";
-    private static final String PREFERENCE_GROUP_ADAPTER =
-      PREFERENCE_PKG + ".PreferenceGroupAdapter";
-    private static final String PREFERENCE_INFLATER = PREFERENCE_PKG + ".PreferenceInflater";
+    private static final String[] PREFERENCES_PKG_NAMES = {
+            "android.support.v7.preference",
+            "androidx.preference"
+    };
 
     private SupportPreferencesUtil() {
     }
@@ -79,21 +77,27 @@ public class SupportPreferencesUtil {
 
     @NonNull
     private static Object createPreferenceGroupAdapter(@NonNull LayoutlibCallback callback,
-            @NonNull Object preferenceScreen) throws ReflectionException {
-        Class<?> preferenceGroupClass = getClassInstance(preferenceScreen, PREFERENCE_GROUP);
+            @NonNull String preferenceGroupClassName,
+            @NonNull String preferenceGroupAdapterClassName, @NonNull Object preferenceScreen)
+            throws ReflectionException {
+        Class<?> preferenceGroupClass =
+                getClassInstance(preferenceScreen, preferenceGroupClassName);
 
-        return instantiateClass(callback, PREFERENCE_GROUP_ADAPTER,
+        return instantiateClass(callback, preferenceGroupAdapterClassName,
                 new Class[]{preferenceGroupClass}, new Object[]{preferenceScreen});
     }
 
     @NonNull
     private static Object createInflatedPreference(@NonNull LayoutlibCallback callback,
-      @NonNull Context context, @NonNull XmlPullParser parser, @NonNull Object preferenceScreen,
-      @NonNull Object preferenceManager) throws ReflectionException {
-        Class<?> preferenceGroupClass = getClassInstance(preferenceScreen, PREFERENCE_GROUP);
-        Object preferenceInflater = instantiateClass(callback, PREFERENCE_INFLATER,
-          new Class[]{Context.class, preferenceManager.getClass()},
-          new Object[]{context, preferenceManager});
+            @NonNull String preferenceGroupClassName, @NonNull String preferenceInflaterClassName,
+            @NonNull Context context, @NonNull XmlPullParser parser,
+            @NonNull Object preferenceScreen, @NonNull Object preferenceManager)
+            throws ReflectionException {
+        Class<?> preferenceGroupClass =
+                getClassInstance(preferenceScreen, preferenceGroupClassName);
+        Object preferenceInflater = instantiateClass(callback, preferenceInflaterClassName,
+                new Class[]{Context.class, preferenceManager.getClass()},
+                new Object[]{context, preferenceManager});
         Object inflatedPreference =
                 invoke(getAccessibleMethod(preferenceInflater.getClass(), "inflate",
                         XmlPullParser.class, preferenceGroupClass), preferenceInflater, parser,
@@ -169,8 +173,7 @@ public class SupportPreferencesUtil {
 
             // Get the type of the preference layout and bind it to a newly created view holder
             Integer type = (Integer) invoke(getItemViewType, preferenceGroupAdapter, i);
-            Object viewHolder =
-                    invoke(onCreateViewHolder, preferenceGroupAdapter, listView, type);
+            Object viewHolder = invoke(onCreateViewHolder, preferenceGroupAdapter, listView, type);
             if (viewHolder == null) {
                 continue;
             }
@@ -179,8 +182,7 @@ public class SupportPreferencesUtil {
 
             try {
                 // Get the view from the view holder and add it to our layout
-                View itemView =
-                        (View) viewHolder.getClass().getField("itemView").get(viewHolder);
+                View itemView = (View) viewHolder.getClass().getField("itemView").get(viewHolder);
 
                 int arrayPosition = id.intValue() - 1; // IDs are 1 based
                 if (arrayPosition >= 0 && arrayPosition < viewCookie.size()) {
@@ -201,6 +203,24 @@ public class SupportPreferencesUtil {
     @Nullable
     public static View inflatePreference(@NonNull BridgeContext bridgeContext,
             @NonNull XmlPullParser parser, @Nullable ViewGroup root) {
+        String preferencePackageName = null;
+        String preferenceManagerClassName = null;
+        // Find the correct package for the classes
+        for (int i = PREFERENCES_PKG_NAMES.length - 1; i >= 0; i--) {
+            preferencePackageName = PREFERENCES_PKG_NAMES[i];
+            preferenceManagerClassName = preferencePackageName + ".PreferenceManager";
+            try {
+                bridgeContext.getLayoutlibCallback().findClass(preferenceManagerClassName);
+                break;
+            } catch (ClassNotFoundException ignore) {
+            }
+        }
+
+        assert preferencePackageName != null;
+        String preferenceGroupClassName = preferencePackageName + ".PreferenceGroup";
+        String preferenceGroupAdapterClassName = preferencePackageName + ".PreferenceGroupAdapter";
+        String preferenceInflaterClassName = preferencePackageName + ".PreferenceInflater";
+
         try {
             LayoutlibCallback callback = bridgeContext.getLayoutlibCallback();
 
@@ -211,9 +231,8 @@ public class SupportPreferencesUtil {
             }
 
             // Create PreferenceManager
-            Object preferenceManager =
-                    instantiateClass(callback, PREFERENCE_MANAGER, new Class[]{Context.class},
-                            new Object[]{context});
+            Object preferenceManager = instantiateClass(callback, preferenceManagerClassName,
+                    new Class[]{Context.class}, new Object[]{context});
 
             // From this moment on, we can assume that we found the support library and that
             // nothing should fail
@@ -251,13 +270,14 @@ public class SupportPreferencesUtil {
             }
 
             // Create the PreferenceInflater
-            Object inflatedPreference =
-              createInflatedPreference(callback, context, parser, preferenceScreen,
-                preferenceManager);
+            Object inflatedPreference = createInflatedPreference(callback, preferenceGroupClassName,
+                    preferenceInflaterClassName, context, parser, preferenceScreen,
+                    preferenceManager);
 
             // Setup the RecyclerView (set adapter and layout manager)
             Object preferenceGroupAdapter =
-                    createPreferenceGroupAdapter(callback, inflatedPreference);
+                    createPreferenceGroupAdapter(callback, preferenceGroupClassName,
+                            preferenceGroupAdapterClassName, inflatedPreference);
 
             // Instead of just setting the group adapter as adapter for a RecyclerView, we manually
             // get all the items and add them to a LinearLayout. This allows us to set the view
@@ -266,8 +286,8 @@ public class SupportPreferencesUtil {
                     preferenceGroupAdapter);
 
             ScrollView scrollView = new ScrollView(context);
-            scrollView.setLayoutParams(
-              new ViewGroup.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
+            scrollView.setLayoutParams(new ViewGroup.LayoutParams(LayoutParams.WRAP_CONTENT,
+                    LayoutParams.WRAP_CONTENT));
             scrollView.addView(listView);
 
             if (root != null) {

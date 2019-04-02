@@ -150,6 +150,15 @@ class CallSetupParams extends CommandParams {
     }
 }
 
+class LanguageParams extends CommandParams {
+    String mLanguage;
+
+    LanguageParams(CommandDetails cmdDet, String lang) {
+        super(cmdDet);
+        mLanguage = lang;
+    }
+}
+
 class SelectItemParams extends CommandParams {
     Menu mMenu = null;
     boolean mLoadTitleIcon = false;

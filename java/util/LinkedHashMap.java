@@ -158,7 +158,7 @@ import java.io.IOException;
  * {@code LinkedHashMap}.
  *
  * <p>This class is a member of the
- * <a href="{@docRoot}/../technotes/guides/collections/index.html">
+ * <a href="{@docRoot}/openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
  * Java Collections Framework</a>.
  *
  * @implNote

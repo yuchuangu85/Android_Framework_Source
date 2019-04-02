@@ -452,10 +452,11 @@ public final class System {
 
     /**
      * The char[] specialized version of arraycopy().
-     *
-     * @hide internal use only
+     * Note: This method is required for runtime ART compiler optimizations.
+     * Do not remove or change the signature.
      */
-    public static void arraycopy(char[] src, int srcPos, char[] dst, int dstPos, int length) {
+    @SuppressWarnings("unused")
+    private static void arraycopy(char[] src, int srcPos, char[] dst, int dstPos, int length) {
         if (src == null) {
             throw new NullPointerException("src == null");
         }
@@ -506,9 +507,14 @@ public final class System {
 
     /**
      * The byte[] specialized version of arraycopy().
+     * Note: This method is required for runtime ART compiler optimizations.
+     * Do not remove or change the signature.
+     * Note: Unlike the others, this variant is public due to a dependency we
+     * are working on removing. b/74103559
      *
-     * @hide internal use only
+     * @hide
      */
+    @SuppressWarnings("unused")
     public static void arraycopy(byte[] src, int srcPos, byte[] dst, int dstPos, int length) {
         if (src == null) {
             throw new NullPointerException("src == null");
@@ -560,10 +566,11 @@ public final class System {
 
     /**
      * The short[] specialized version of arraycopy().
-     *
-     * @hide internal use only
+     * Note: This method is required for runtime ART compiler optimizations.
+     * Do not remove or change the signature.
      */
-    public static void arraycopy(short[] src, int srcPos, short[] dst, int dstPos, int length) {
+    @SuppressWarnings("unused")
+    private static void arraycopy(short[] src, int srcPos, short[] dst, int dstPos, int length) {
         if (src == null) {
             throw new NullPointerException("src == null");
         }
@@ -614,10 +621,11 @@ public final class System {
 
     /**
      * The int[] specialized version of arraycopy().
-     *
-     * @hide internal use only
+     * Note: This method is required for runtime ART compiler optimizations.
+     * Do not remove or change the signature.
      */
-    public static void arraycopy(int[] src, int srcPos, int[] dst, int dstPos, int length) {
+    @SuppressWarnings("unused")
+    private static void arraycopy(int[] src, int srcPos, int[] dst, int dstPos, int length) {
         if (src == null) {
             throw new NullPointerException("src == null");
         }
@@ -668,10 +676,11 @@ public final class System {
 
     /**
      * The long[] specialized version of arraycopy().
-     *
-     * @hide internal use only
+     * Note: This method is required for runtime ART compiler optimizations.
+     * Do not remove or change the signature.
      */
-    public static void arraycopy(long[] src, int srcPos, long[] dst, int dstPos, int length) {
+    @SuppressWarnings("unused")
+    private static void arraycopy(long[] src, int srcPos, long[] dst, int dstPos, int length) {
         if (src == null) {
             throw new NullPointerException("src == null");
         }
@@ -722,10 +731,11 @@ public final class System {
 
     /**
      * The float[] specialized version of arraycopy().
-     *
-     * @hide internal use only
+     * Note: This method is required for runtime ART compiler optimizations.
+     * Do not remove or change the signature.
      */
-    public static void arraycopy(float[] src, int srcPos, float[] dst, int dstPos, int length) {
+    @SuppressWarnings("unused")
+    private static void arraycopy(float[] src, int srcPos, float[] dst, int dstPos, int length) {
         if (src == null) {
             throw new NullPointerException("src == null");
         }
@@ -776,10 +786,11 @@ public final class System {
 
     /**
      * The double[] specialized version of arraycopy().
-     *
-     * @hide internal use only
+     * Note: This method is required for runtime ART compiler optimizations.
+     * Do not remove or change the signature.
      */
-    public static void arraycopy(double[] src, int srcPos, double[] dst, int dstPos, int length) {
+    @SuppressWarnings("unused")
+    private static void arraycopy(double[] src, int srcPos, double[] dst, int dstPos, int length) {
         if (src == null) {
             throw new NullPointerException("src == null");
         }
@@ -830,10 +841,11 @@ public final class System {
 
     /**
      * The boolean[] specialized version of arraycopy().
-     *
-     * @hide internal use only
+     * Note: This method is required for runtime ART compiler optimizations.
+     * Do not remove or change the signature.
      */
-    public static void arraycopy(boolean[] src, int srcPos, boolean[] dst, int dstPos, int length) {
+    @SuppressWarnings("unused")
+    private static void arraycopy(boolean[] src, int srcPos, boolean[] dst, int dstPos, int length) {
         if (src == null) {
             throw new NullPointerException("src == null");
         }

@@ -498,6 +498,8 @@ public abstract class Signature extends SignatureSpi {
             }
             return getInstanceRSA(p);
         }
+        // Android-added: Check for Bouncy Castle deprecation
+        Providers.checkBouncyCastleDeprecation(provider, "Signature", algorithm);
         Instance instance = GetInstance.getInstance
                 ("Signature", SignatureSpi.class, algorithm, provider);
         return getInstance(instance, algorithm);
@@ -541,6 +543,8 @@ public abstract class Signature extends SignatureSpi {
             }
             return getInstanceRSA(provider);
         }
+        // Android-added: Check for Bouncy Castle deprecation
+        Providers.checkBouncyCastleDeprecation(provider, "Signature", algorithm);
         Instance instance = GetInstance.getInstance
                 ("Signature", SignatureSpi.class, algorithm, provider);
         return getInstance(instance, algorithm);

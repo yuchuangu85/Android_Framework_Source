@@ -47,7 +47,6 @@ package java.lang.reflect;
  *
  * @see java.lang.reflect.Executable#getParameters
  * @since 1.8
- * @hide Hidden pending tests
  */
 public class MalformedParametersException extends RuntimeException {
 

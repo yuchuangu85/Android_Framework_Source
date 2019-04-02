@@ -18,7 +18,6 @@ package com.android.server.wifi.wificond;
 
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.util.Log;
 
 import java.util.Objects;
 
@@ -77,10 +76,6 @@ public class HiddenNetwork implements Parcelable {
         public HiddenNetwork createFromParcel(Parcel in) {
             HiddenNetwork result = new HiddenNetwork();
             result.ssid = in.createByteArray();
-            if (in.dataAvail() != 0) {
-                Log.e(TAG, "Found trailing data after parcel parsing.");
-            }
-
             return result;
         }
 

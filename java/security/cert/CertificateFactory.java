@@ -250,6 +250,8 @@ public class CertificateFactory {
             String provider) throws CertificateException,
             NoSuchProviderException {
         try {
+            // Android-added: Check for Bouncy Castle deprecation
+            Providers.checkBouncyCastleDeprecation(provider, "CertificateFactory", type);
             Instance instance = GetInstance.getInstance("CertificateFactory",
                 CertificateFactorySpi.class, type, provider);
             return new CertificateFactory((CertificateFactorySpi)instance.impl,
@@ -291,6 +293,8 @@ public class CertificateFactory {
     public static final CertificateFactory getInstance(String type,
             Provider provider) throws CertificateException {
         try {
+            // Android-added: Check for Bouncy Castle deprecation
+            Providers.checkBouncyCastleDeprecation(provider, "CertificateFactory", type);
             Instance instance = GetInstance.getInstance("CertificateFactory",
                 CertificateFactorySpi.class, type, provider);
             return new CertificateFactory((CertificateFactorySpi)instance.impl,

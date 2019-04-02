@@ -81,6 +81,7 @@ public class PasspointEventHandler {
         Pair<Set<Integer>, Set<Integer>> querySets = buildAnqpIdSet(elements);
         if (bssid == 0 || querySets == null) return false;
         if (!mSupplicantHook.requestAnqp(
+                mSupplicantHook.getClientInterfaceName(),
                 Utils.macToString(bssid), querySets.first, querySets.second)) {
             Log.d(Utils.hs2LogTag(getClass()), "ANQP failed on " + Utils.macToString(bssid));
             return false;
@@ -97,7 +98,8 @@ public class PasspointEventHandler {
      */
     public boolean requestIcon(long bssid, String fileName) {
         if (bssid == 0 || fileName == null) return false;
-        return mSupplicantHook.requestIcon(Utils.macToString(bssid), fileName);
+        return mSupplicantHook.requestIcon(
+                mSupplicantHook.getClientInterfaceName(), Utils.macToString(bssid), fileName);
     }
 
     /**

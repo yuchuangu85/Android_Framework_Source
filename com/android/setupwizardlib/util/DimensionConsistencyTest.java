@@ -25,7 +25,6 @@ import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.ContextThemeWrapper;
 
-import com.android.setupwizardlib.BuildConfig;
 import com.android.setupwizardlib.R;
 import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
 
@@ -35,7 +34,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.annotation.Config;
 
 @RunWith(SuwLibRobolectricTestRunner.class)
-@Config(constants = BuildConfig.class, sdk = Config.ALL_SDKS)
+@Config(sdk = Config.ALL_SDKS)
 public class DimensionConsistencyTest {
 
     // Visual height of the framework switch widget

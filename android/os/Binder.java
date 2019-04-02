@@ -21,19 +21,26 @@ import android.annotation.Nullable;
 import android.util.ExceptionUtils;
 import android.util.Log;
 import android.util.Slog;
+import android.util.SparseIntArray;
 
+import com.android.internal.os.BinderCallsStats;
+import com.android.internal.os.BinderInternal;
 import com.android.internal.util.FastPrintWriter;
-import com.android.internal.util.FunctionalUtils;
 import com.android.internal.util.FunctionalUtils.ThrowingRunnable;
 import com.android.internal.util.FunctionalUtils.ThrowingSupplier;
 
 import libcore.io.IoUtils;
+import libcore.util.NativeAllocationRegistry;
 
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Base class for a remotable object, the core part of a lightweight
@@ -90,6 +97,20 @@ public class Binder implements IBinder {
      * Global transaction tracker instance for this process.
      */
     private static volatile TransactionTracker sTransactionTracker = null;
+
+    /**
+     * Guestimate of native memory associated with a Binder.
+     */
+    private static final int NATIVE_ALLOCATION_SIZE = 500;
+
+    private static native long getNativeFinalizer();
+
+    // Use a Holder to allow static initialization of Binder in the boot image, and
+    // possibly to avoid some initialization ordering issues.
+    private static class NoImagePreloadHolder {
+        public static final NativeAllocationRegistry sRegistry = new NativeAllocationRegistry(
+                Binder.class.getClassLoader(), getNativeFinalizer(), NATIVE_ALLOCATION_SIZE);
+    }
 
     // Transaction tracking code.
 
@@ -168,11 +189,24 @@ public class Binder implements IBinder {
         try {
             if (binder instanceof BinderProxy) {
                 ((BinderProxy) binder).mWarnOnBlocking = false;
-            } else if (binder != null
+            } else if (binder != null && binder.getInterfaceDescriptor() != null
                     && binder.queryLocalInterface(binder.getInterfaceDescriptor()) == null) {
                 Log.w(TAG, "Unable to allow blocking on interface " + binder);
             }
         } catch (RemoteException ignored) {
+        }
+        return binder;
+    }
+
+    /**
+     * Reset the given interface back to the default blocking behavior,
+     * reverting any changes made by {@link #allowBlocking(IBinder)}.
+     *
+     * @hide
+     */
+    public static IBinder defaultBlocking(IBinder binder) {
+        if (binder instanceof BinderProxy) {
+            ((BinderProxy) binder).mWarnOnBlocking = sWarnOnBlocking;
         }
         return binder;
     }
@@ -189,8 +223,11 @@ public class Binder implements IBinder {
         }
     }
 
-    /* mObject is used by native code, do not remove or rename */
-    private long mObject;
+    /**
+     * Raw native pointer to JavaBBinderHolder object. Owned by this Java object. Not null.
+     */
+    private final long mObject;
+
     private IInterface mOwner;
     private String mDescriptor;
 
@@ -202,7 +239,7 @@ public class Binder implements IBinder {
      * then its own pid is returned.
      */
     public static final native int getCallingPid();
-    
+
     /**
      * Return the Linux uid assigned to the process that sent you the
      * current transaction that is being processed.  This uid can be used with
@@ -267,7 +304,7 @@ public class Binder implements IBinder {
         long callingIdentity = clearCallingIdentity();
         Throwable throwableToPropagate = null;
         try {
-            action.run();
+            action.runOrThrow();
         } catch (Throwable throwable) {
             throwableToPropagate = throwable;
         } finally {
@@ -291,7 +328,7 @@ public class Binder implements IBinder {
         long callingIdentity = clearCallingIdentity();
         Throwable throwableToPropagate = null;
         try {
-            return action.get();
+            return action.getOrThrow();
         } catch (Throwable throwable) {
             throwableToPropagate = throwable;
             return null; // overridden by throwing in finally block
@@ -335,12 +372,14 @@ public class Binder implements IBinder {
      * it needs to.
      */
     public static final native void flushPendingCommands();
-    
+
     /**
      * Add the calling thread to the IPC thread pool.  This function does
      * not return until the current process is exiting.
      */
-    public static final native void joinThreadPool();
+    public static final void joinThreadPool() {
+        BinderInternal.joinThreadPool();
+    }
 
     /**
      * Returns true if the specified interface is a proxy.
@@ -361,7 +400,8 @@ public class Binder implements IBinder {
      * Default constructor initializes the object.
      */
     public Binder() {
-        init();
+        mObject = getNativeBBinderHolder();
+        NoImagePreloadHolder.sRegistry.registerNativeAllocation(this, mObject);
 
         if (FIND_POTENTIAL_LEAKS) {
             final Class<? extends Binder> klass = getClass();
@@ -372,7 +412,7 @@ public class Binder implements IBinder {
             }
         }
     }
-    
+
     /**
      * Convenience method for associating a specific interface with the Binder.
      * After calling, queryLocalInterface() will be implemented for you
@@ -383,7 +423,7 @@ public class Binder implements IBinder {
         mOwner = owner;
         mDescriptor = descriptor;
     }
-    
+
     /**
      * Default implementation returns an empty interface name.
      */
@@ -408,14 +448,14 @@ public class Binder implements IBinder {
     public boolean isBinderAlive() {
         return true;
     }
-    
+
     /**
      * Use information supplied to attachInterface() to return the
      * associated IInterface if it matches the requested
      * descriptor.
      */
     public @Nullable IInterface queryLocalInterface(@NonNull String descriptor) {
-        if (mDescriptor.equals(descriptor)) {
+        if (mDescriptor != null && mDescriptor.equals(descriptor)) {
             return mOwner;
         }
         return null;
@@ -630,7 +670,7 @@ public class Binder implements IBinder {
         }
         return r;
     }
-    
+
     /**
      * Local implementation is a no-op.
      */
@@ -642,14 +682,6 @@ public class Binder implements IBinder {
      */
     public boolean unlinkToDeath(@NonNull DeathRecipient recipient, int flags) {
         return true;
-    }
-    
-    protected void finalize() throws Throwable {
-        try {
-            destroyBinder();
-        } finally {
-            super.finalize();
-        }
     }
 
     static void checkParcel(IBinder obj, int code, Parcel parcel, String msg) {
@@ -675,12 +707,14 @@ public class Binder implements IBinder {
         }
     }
 
-    private native final void init();
-    private native final void destroyBinder();
+    private static native long getNativeBBinderHolder();
+    private static native long getFinalizer();
 
     // Entry point from android_util_Binder.cpp's onTransact
     private boolean execTransact(int code, long dataObj, long replyObj,
             int flags) {
+        BinderCallsStats binderCallsStats = BinderCallsStats.getInstance();
+        BinderCallsStats.CallSession callSession = binderCallsStats.callStarted(this, code);
         Parcel data = Parcel.obtain(dataObj);
         Parcel reply = Parcel.obtain(replyObj);
         // theoretically, we should call transact, which will call onTransact,
@@ -725,14 +759,343 @@ public class Binder implements IBinder {
         // to the main transaction loop to wait for another incoming transaction.  Either
         // way, strict mode begone!
         StrictMode.clearGatheredViolations();
+        binderCallsStats.callEnded(callSession);
 
         return res;
     }
 }
 
+/**
+ * Java proxy for a native IBinder object.
+ * Allocated and constructed by the native javaObjectforIBinder function. Never allocated
+ * directly from Java code.
+ */
 final class BinderProxy implements IBinder {
+    // See android_util_Binder.cpp for the native half of this.
+
     // Assume the process-wide default value when created
     volatile boolean mWarnOnBlocking = Binder.sWarnOnBlocking;
+
+    /*
+     * Map from longs to BinderProxy, retaining only a WeakReference to the BinderProxies.
+     * We roll our own only because we need to lazily remove WeakReferences during accesses
+     * to avoid accumulating junk WeakReference objects. WeakHashMap isn't easily usable
+     * because we want weak values, not keys.
+     * Our hash table is never resized, but the number of entries is unlimited;
+     * performance degrades as occupancy increases significantly past MAIN_INDEX_SIZE.
+     * Not thread-safe. Client ensures there's a single access at a time.
+     */
+    private static final class ProxyMap {
+        private static final int LOG_MAIN_INDEX_SIZE = 8;
+        private static final int MAIN_INDEX_SIZE = 1 <<  LOG_MAIN_INDEX_SIZE;
+        private static final int MAIN_INDEX_MASK = MAIN_INDEX_SIZE - 1;
+        // Debuggable builds will throw an AssertionError if the number of map entries exceeds:
+        private static final int CRASH_AT_SIZE = 20_000;
+
+        /**
+         * We next warn when we exceed this bucket size.
+         */
+        private int mWarnBucketSize = 20;
+
+        /**
+         * Increment mWarnBucketSize by WARN_INCREMENT each time we warn.
+         */
+        private static final int WARN_INCREMENT = 10;
+
+        /**
+         * Hash function tailored to native pointers.
+         * Returns a value < MAIN_INDEX_SIZE.
+         */
+        private static int hash(long arg) {
+            return ((int) ((arg >> 2) ^ (arg >> (2 + LOG_MAIN_INDEX_SIZE)))) & MAIN_INDEX_MASK;
+        }
+
+        /**
+         * Return the total number of pairs in the map.
+         */
+        private int size() {
+            int size = 0;
+            for (ArrayList<WeakReference<BinderProxy>> a : mMainIndexValues) {
+                if (a != null) {
+                    size += a.size();
+                }
+            }
+            return size;
+        }
+
+        /**
+         * Return the total number of pairs in the map containing values that have
+         * not been cleared. More expensive than the above size function.
+         */
+        private int unclearedSize() {
+            int size = 0;
+            for (ArrayList<WeakReference<BinderProxy>> a : mMainIndexValues) {
+                if (a != null) {
+                    for (WeakReference<BinderProxy> ref : a) {
+                        if (ref.get() != null) {
+                            ++size;
+                        }
+                    }
+                }
+            }
+            return size;
+        }
+
+        /**
+         * Remove ith entry from the hash bucket indicated by hash.
+         */
+        private void remove(int hash, int index) {
+            Long[] keyArray = mMainIndexKeys[hash];
+            ArrayList<WeakReference<BinderProxy>> valueArray = mMainIndexValues[hash];
+            int size = valueArray.size();  // KeyArray may have extra elements.
+            // Move last entry into empty slot, and truncate at end.
+            if (index != size - 1) {
+                keyArray[index] = keyArray[size - 1];
+                valueArray.set(index, valueArray.get(size - 1));
+            }
+            valueArray.remove(size - 1);
+            // Just leave key array entry; it's unused. We only trust the valueArray size.
+        }
+
+        /**
+         * Look up the supplied key. If we have a non-cleared entry for it, return it.
+         */
+        BinderProxy get(long key) {
+            int myHash = hash(key);
+            Long[] keyArray = mMainIndexKeys[myHash];
+            if (keyArray == null) {
+                return null;
+            }
+            ArrayList<WeakReference<BinderProxy>> valueArray = mMainIndexValues[myHash];
+            int bucketSize = valueArray.size();
+            for (int i = 0; i < bucketSize; ++i) {
+                long foundKey = keyArray[i];
+                if (key == foundKey) {
+                    WeakReference<BinderProxy> wr = valueArray.get(i);
+                    BinderProxy bp = wr.get();
+                    if (bp != null) {
+                        return bp;
+                    } else {
+                        remove(myHash, i);
+                        return null;
+                    }
+                }
+            }
+            return null;
+        }
+
+        private int mRandom;  // A counter used to generate a "random" index. World's 2nd worst RNG.
+
+        /**
+         * Add the key-value pair to the map.
+         * Requires that the indicated key is not already in the map.
+         */
+        void set(long key, @NonNull BinderProxy value) {
+            int myHash = hash(key);
+            ArrayList<WeakReference<BinderProxy>> valueArray = mMainIndexValues[myHash];
+            if (valueArray == null) {
+                valueArray = mMainIndexValues[myHash] = new ArrayList<>();
+                mMainIndexKeys[myHash] = new Long[1];
+            }
+            int size = valueArray.size();
+            WeakReference<BinderProxy> newWr = new WeakReference<>(value);
+            // First look for a cleared reference.
+            // This ensures that ArrayList size is bounded by the maximum occupancy of
+            // that bucket.
+            for (int i = 0; i < size; ++i) {
+                if (valueArray.get(i).get() == null) {
+                    valueArray.set(i, newWr);
+                    Long[] keyArray = mMainIndexKeys[myHash];
+                    keyArray[i] = key;
+                    if (i < size - 1) {
+                        // "Randomly" check one of the remaining entries in [i+1, size), so that
+                        // needlessly long buckets are eventually pruned.
+                        int rnd = Math.floorMod(++mRandom, size - (i + 1));
+                        if (valueArray.get(i + 1 + rnd).get() == null) {
+                            remove(myHash, i + 1 + rnd);
+                        }
+                    }
+                    return;
+                }
+            }
+            valueArray.add(size, newWr);
+            Long[] keyArray = mMainIndexKeys[myHash];
+            if (keyArray.length == size) {
+                // size >= 1, since we initially allocated one element
+                Long[] newArray = new Long[size + size / 2 + 2];
+                System.arraycopy(keyArray, 0, newArray, 0, size);
+                newArray[size] = key;
+                mMainIndexKeys[myHash] = newArray;
+            } else {
+                keyArray[size] = key;
+            }
+            if (size >= mWarnBucketSize) {
+                final int totalSize = size();
+                Log.v(Binder.TAG, "BinderProxy map growth! bucket size = " + size
+                        + " total = " + totalSize);
+                mWarnBucketSize += WARN_INCREMENT;
+                if (Build.IS_DEBUGGABLE && totalSize >= CRASH_AT_SIZE) {
+                    // Use the number of uncleared entries to determine whether we should
+                    // really report a histogram and crash. We don't want to fundamentally
+                    // change behavior for a debuggable process, so we GC only if we are
+                    // about to crash.
+                    final int totalUnclearedSize = unclearedSize();
+                    if (totalUnclearedSize >= CRASH_AT_SIZE) {
+                        dumpProxyInterfaceCounts();
+                        dumpPerUidProxyCounts();
+                        Runtime.getRuntime().gc();
+                        throw new AssertionError("Binder ProxyMap has too many entries: "
+                                + totalSize + " (total), " + totalUnclearedSize + " (uncleared), "
+                                + unclearedSize() + " (uncleared after GC). BinderProxy leak?");
+                    } else if (totalSize > 3 * totalUnclearedSize / 2) {
+                        Log.v(Binder.TAG, "BinderProxy map has many cleared entries: "
+                                + (totalSize - totalUnclearedSize) + " of " + totalSize
+                                + " are cleared");
+                    }
+                }
+            }
+        }
+
+        /**
+         * Dump a histogram to the logcat. Used to diagnose abnormally large proxy maps.
+         */
+        private void dumpProxyInterfaceCounts() {
+            Map<String, Integer> counts = new HashMap<>();
+            for (ArrayList<WeakReference<BinderProxy>> a : mMainIndexValues) {
+                if (a != null) {
+                    for (WeakReference<BinderProxy> weakRef : a) {
+                        BinderProxy bp = weakRef.get();
+                        String key;
+                        if (bp == null) {
+                            key = "<cleared weak-ref>";
+                        } else {
+                            try {
+                                key = bp.getInterfaceDescriptor();
+                            } catch (Throwable t) {
+                                key = "<exception during getDescriptor>";
+                            }
+                        }
+                        Integer i = counts.get(key);
+                        if (i == null) {
+                            counts.put(key, 1);
+                        } else {
+                            counts.put(key, i + 1);
+                        }
+                    }
+                }
+            }
+            Map.Entry<String, Integer>[] sorted = counts.entrySet().toArray(
+                    new Map.Entry[counts.size()]);
+            Arrays.sort(sorted, (Map.Entry<String, Integer> a, Map.Entry<String, Integer> b)
+                    -> b.getValue().compareTo(a.getValue()));
+            Log.v(Binder.TAG, "BinderProxy descriptor histogram (top ten):");
+            int printLength = Math.min(10, sorted.length);
+            for (int i = 0; i < printLength; i++) {
+                Log.v(Binder.TAG, " #" + (i + 1) + ": " + sorted[i].getKey() + " x"
+                        + sorted[i].getValue());
+            }
+        }
+
+        /**
+         * Dump per uid binder proxy counts to the logcat.
+         */
+        private void dumpPerUidProxyCounts() {
+            SparseIntArray counts = BinderInternal.nGetBinderProxyPerUidCounts();
+            if (counts.size() == 0) return;
+            Log.d(Binder.TAG, "Per Uid Binder Proxy Counts:");
+            for (int i = 0; i < counts.size(); i++) {
+                final int uid = counts.keyAt(i);
+                final int binderCount = counts.valueAt(i);
+                Log.d(Binder.TAG, "UID : " + uid + "  count = " + binderCount);
+            }
+        }
+
+        // Corresponding ArrayLists in the following two arrays always have the same size.
+        // They contain no empty entries. However WeakReferences in the values ArrayLists
+        // may have been cleared.
+
+        // mMainIndexKeys[i][j] corresponds to mMainIndexValues[i].get(j) .
+        // The values ArrayList has the proper size(), the corresponding keys array
+        // is always at least the same size, but may be larger.
+        // If either a particular keys array, or the corresponding values ArrayList
+        // are null, then they both are.
+        private final Long[][] mMainIndexKeys = new Long[MAIN_INDEX_SIZE][];
+        private final ArrayList<WeakReference<BinderProxy>>[] mMainIndexValues =
+                new ArrayList[MAIN_INDEX_SIZE];
+    }
+
+    private static ProxyMap sProxyMap = new ProxyMap();
+
+    /**
+      * Dump proxy debug information.
+      *
+      * Note: this method is not thread-safe; callers must serialize with other
+      * accesses to sProxyMap, in particular {@link #getInstance(long, long)}.
+      *
+      * @hide
+      */
+    private static void dumpProxyDebugInfo() {
+        if (Build.IS_DEBUGGABLE) {
+            sProxyMap.dumpProxyInterfaceCounts();
+            // Note that we don't call dumpPerUidProxyCounts(); this is because this
+            // method may be called as part of the uid limit being hit, and calling
+            // back into the UID tracking code would cause us to try to acquire a mutex
+            // that is held during that callback.
+        }
+    }
+
+    /**
+     * Return a BinderProxy for IBinder.
+     * This method is thread-hostile!  The (native) caller serializes getInstance() calls using
+     * gProxyLock.
+     * If we previously returned a BinderProxy bp for the same iBinder, and bp is still
+     * in use, then we return the same bp.
+     *
+     * @param nativeData C++ pointer to (possibly still empty) BinderProxyNativeData.
+     * Takes ownership of nativeData iff <result>.mNativeData == nativeData, or if
+     * we exit via an exception.  If neither applies, it's the callers responsibility to
+     * recycle nativeData.
+     * @param iBinder C++ pointer to IBinder. Does not take ownership of referenced object.
+     */
+    private static BinderProxy getInstance(long nativeData, long iBinder) {
+        BinderProxy result;
+        try {
+            result = sProxyMap.get(iBinder);
+            if (result != null) {
+                return result;
+            }
+            result = new BinderProxy(nativeData);
+        } catch (Throwable e) {
+            // We're throwing an exception (probably OOME); don't drop nativeData.
+            NativeAllocationRegistry.applyFreeFunction(NoImagePreloadHolder.sNativeFinalizer,
+                    nativeData);
+            throw e;
+        }
+        NoImagePreloadHolder.sRegistry.registerNativeAllocation(result, nativeData);
+        // The registry now owns nativeData, even if registration threw an exception.
+        sProxyMap.set(iBinder, result);
+        return result;
+    }
+
+    private BinderProxy(long nativeData) {
+        mNativeData = nativeData;
+    }
+
+    /**
+     * Guestimate of native memory associated with a BinderProxy.
+     * This includes the underlying IBinder, associated DeathRecipientList, and KeyedVector
+     * that points back to us. We guess high since it includes a GlobalRef, which
+     * may be in short supply.
+     */
+    private static final int NATIVE_ALLOCATION_SIZE = 1000;
+
+    // Use a Holder to allow static initialization of BinderProxy in the boot image, and
+    // to avoid some initialization ordering issues.
+    private static class NoImagePreloadHolder {
+        public static final long sNativeFinalizer = getNativeFinalizer();
+        public static final NativeAllocationRegistry sRegistry = new NativeAllocationRegistry(
+                BinderProxy.class.getClassLoader(), sNativeFinalizer, NATIVE_ALLOCATION_SIZE);
+    }
 
     public native boolean pingBinder();
     public native boolean isBinderAlive();
@@ -769,6 +1132,7 @@ final class BinderProxy implements IBinder {
         }
     }
 
+    private static native long getNativeFinalizer();
     public native String getInterfaceDescriptor() throws RemoteException;
     public native boolean transactNative(int code, Parcel data, Parcel reply,
             int flags) throws RemoteException;
@@ -789,7 +1153,7 @@ final class BinderProxy implements IBinder {
             reply.recycle();
         }
     }
-    
+
     public void dumpAsync(FileDescriptor fd, String[] args) throws RemoteException {
         Parcel data = Parcel.obtain();
         Parcel reply = Parcel.obtain();
@@ -823,21 +1187,6 @@ final class BinderProxy implements IBinder {
         }
     }
 
-    BinderProxy() {
-        mSelf = new WeakReference(this);
-    }
-    
-    @Override
-    protected void finalize() throws Throwable {
-        try {
-            destroy();
-        } finally {
-            super.finalize();
-        }
-    }
-    
-    private native final void destroy();
-    
     private static final void sendDeathNotice(DeathRecipient recipient) {
         if (false) Log.v("JavaBinder", "sendDeathNotice to " + recipient);
         try {
@@ -848,8 +1197,10 @@ final class BinderProxy implements IBinder {
                     exc);
         }
     }
-    
-    final private WeakReference mSelf;
-    private long mObject;
-    private long mOrgue;
+
+    /**
+     * C++ pointer to BinderProxyNativeData. That consists of strong pointers to the
+     * native IBinder object, and a DeathRecipientList.
+     */
+    private final long mNativeData;
 }

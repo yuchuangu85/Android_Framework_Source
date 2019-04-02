@@ -16,6 +16,8 @@
 
 package com.android.server.wifi;
 
+import static android.net.wifi.WifiConfiguration.NetworkSelectionStatus.DISABLED_NO_INTERNET_TEMPORARY;
+
 import static com.android.server.wifi.WifiStateMachine.WIFI_WORK_SOURCE;
 
 import android.app.AlarmManager;
@@ -136,10 +138,13 @@ public class WifiConnectivityManager {
     private final WifiNetworkSelector mNetworkSelector;
     private final WifiLastResortWatchdog mWifiLastResortWatchdog;
     private final OpenNetworkNotifier mOpenNetworkNotifier;
+    private final CarrierNetworkNotifier mCarrierNetworkNotifier;
+    private final CarrierNetworkConfig mCarrierNetworkConfig;
     private final WifiMetrics mWifiMetrics;
     private final AlarmManager mAlarmManager;
     private final Handler mEventHandler;
     private final Clock mClock;
+    private final ScoringParams mScoringParams;
     private final LocalLog mLocalLog;
     private final LinkedList<Long> mConnectionAttemptTimeStamps;
 
@@ -160,6 +165,7 @@ public class WifiConnectivityManager {
     // Device configs
     private boolean mEnableAutoJoinWhenAssociated;
     private boolean mWaitForFullBandScanResults = false;
+    private boolean mUseSingleRadioChainScanResults = false;
     private int mFullScanMaxTxRate;
     private int mFullScanMaxRxRate;
 
@@ -250,9 +256,9 @@ public class WifiConnectivityManager {
         // Check if any blacklisted BSSIDs can be freed.
         refreshBssidBlacklist();
 
-        if (mStateMachine.isLinkDebouncing() || mStateMachine.isSupplicantTransientState()) {
-            localLog(listenerName + " onResults: No network selection because linkDebouncing is "
-                    + mStateMachine.isLinkDebouncing() + " and supplicantTransient is "
+        if (mStateMachine.isSupplicantTransientState()) {
+            localLog(listenerName
+                    + " onResults: No network selection because supplicantTransientState is "
                     + mStateMachine.isSupplicantTransientState());
             return false;
         }
@@ -274,6 +280,11 @@ public class WifiConnectivityManager {
             if (mWifiState == WIFI_STATE_DISCONNECTED) {
                 mOpenNetworkNotifier.handleScanResults(
                         mNetworkSelector.getFilteredScanDetailsForOpenUnsavedNetworks());
+                if (mCarrierNetworkConfig.isCarrierEncryptionInfoAvailable()) {
+                    mCarrierNetworkNotifier.handleScanResults(
+                            mNetworkSelector.getFilteredScanDetailsForCarrierUnsavedNetworks(
+                                    mCarrierNetworkConfig));
+                }
             }
             return false;
         }
@@ -286,9 +297,11 @@ public class WifiConnectivityManager {
     //       other modules.
     private class AllSingleScanListener implements WifiScanner.ScanListener {
         private List<ScanDetail> mScanDetails = new ArrayList<ScanDetail>();
+        private int mNumScanResultsIgnoredDueToSingleRadioChain = 0;
 
         public void clearScanDetails() {
             mScanDetails.clear();
+            mNumScanResultsIgnoredDueToSingleRadioChain = 0;
         }
 
         @Override
@@ -327,6 +340,10 @@ public class WifiConnectivityManager {
                 mWifiMetrics.incrementAvailableNetworksHistograms(mScanDetails,
                         results[0].isAllChannelsScanned());
             }
+            if (mNumScanResultsIgnoredDueToSingleRadioChain > 0) {
+                Log.i(TAG, "Number of scan results ignored due to single radio chain scan: "
+                        + mNumScanResultsIgnoredDueToSingleRadioChain);
+            }
             boolean wasConnectAttempted = handleScanResults(mScanDetails, "AllSingleScanListener");
             clearScanDetails();
 
@@ -352,6 +369,16 @@ public class WifiConnectivityManager {
             if (mDbg) {
                 localLog("AllSingleScanListener onFullResult: " + fullScanResult.SSID
                         + " capabilities " + fullScanResult.capabilities);
+            }
+
+            // When the scan result has radio chain info, ensure we throw away scan results
+            // not received with both radio chains (if |mUseSingleRadioChainScanResults| is false).
+            if (!mUseSingleRadioChainScanResults
+                    && fullScanResult.radioChainInfos != null
+                    && fullScanResult.radioChainInfos.length == 1) {
+                // Keep track of the number of dropped scan results for logging.
+                mNumScanResultsIgnoredDueToSingleRadioChain++;
+                return;
             }
 
             mScanDetails.add(ScanResultUtil.toScanDetail(fullScanResult));
@@ -519,11 +546,12 @@ public class WifiConnectivityManager {
             updatePnoScan();
         }
         @Override
-        public void onSavedNetworkTemporarilyDisabled(int networkId) {
+        public void onSavedNetworkTemporarilyDisabled(int networkId, int disableReason) {
+            if (disableReason == DISABLED_NO_INTERNET_TEMPORARY) return;
             mConnectivityHelper.removeNetworkIfCurrent(networkId);
         }
         @Override
-        public void onSavedNetworkPermanentlyDisabled(int networkId) {
+        public void onSavedNetworkPermanentlyDisabled(int networkId, int disableReason) {
             mConnectivityHelper.removeNetworkIfCurrent(networkId);
             updatePnoScan();
         }
@@ -540,13 +568,14 @@ public class WifiConnectivityManager {
     /**
      * WifiConnectivityManager constructor
      */
-    WifiConnectivityManager(Context context, WifiStateMachine stateMachine,
+    WifiConnectivityManager(Context context, ScoringParams scoringParams,
+            WifiStateMachine stateMachine,
             WifiScanner scanner, WifiConfigManager configManager, WifiInfo wifiInfo,
             WifiNetworkSelector networkSelector, WifiConnectivityHelper connectivityHelper,
-            WifiLastResortWatchdog wifiLastResortWatchdog,
-            OpenNetworkNotifier openNetworkNotifier, WifiMetrics wifiMetrics,
-            Looper looper, Clock clock, LocalLog localLog, boolean enable,
-            FrameworkFacade frameworkFacade,
+            WifiLastResortWatchdog wifiLastResortWatchdog, OpenNetworkNotifier openNetworkNotifier,
+            CarrierNetworkNotifier carrierNetworkNotifier,
+            CarrierNetworkConfig carrierNetworkConfig, WifiMetrics wifiMetrics, Looper looper,
+            Clock clock, LocalLog localLog, boolean enable, FrameworkFacade frameworkFacade,
             SavedNetworkEvaluator savedNetworkEvaluator,
             ScoredNetworkEvaluator scoredNetworkEvaluator,
             PasspointNetworkEvaluator passpointNetworkEvaluator) {
@@ -559,16 +588,18 @@ public class WifiConnectivityManager {
         mLocalLog = localLog;
         mWifiLastResortWatchdog = wifiLastResortWatchdog;
         mOpenNetworkNotifier = openNetworkNotifier;
+        mCarrierNetworkNotifier = carrierNetworkNotifier;
+        mCarrierNetworkConfig = carrierNetworkConfig;
         mWifiMetrics = wifiMetrics;
         mAlarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         mEventHandler = new Handler(looper);
         mClock = clock;
+        mScoringParams = scoringParams;
         mConnectionAttemptTimeStamps = new LinkedList<>();
 
-        mMin5GHzRssi = context.getResources().getInteger(
-                R.integer.config_wifi_framework_wifi_score_entry_rssi_threshold_5GHz);
-        mMin24GHzRssi = context.getResources().getInteger(
-                R.integer.config_wifi_framework_wifi_score_entry_rssi_threshold_24GHz);
+        //TODO(b/74793980) - handle these more dynamically
+        mMin5GHzRssi = mScoringParams.getEntryRssi(ScoringParams.BAND5);
+        mMin24GHzRssi = mScoringParams.getEntryRssi(ScoringParams.BAND2);
         mBand5GHzBonus = context.getResources().getInteger(
                 R.integer.config_wifi_framework_5GHz_preference_boost_factor);
         mCurrentConnectionBonus = context.getResources().getInteger(
@@ -577,14 +608,14 @@ public class WifiConnectivityManager {
                 R.integer.config_wifi_framework_SAME_BSSID_AWARD);
         mSecureBonus = context.getResources().getInteger(
                 R.integer.config_wifi_framework_SECURITY_AWARD);
-        int thresholdSaturatedRssi24 = context.getResources().getInteger(
-                R.integer.config_wifi_framework_wifi_score_good_rssi_threshold_24GHz);
         mEnableAutoJoinWhenAssociated = context.getResources().getBoolean(
                 R.bool.config_wifi_framework_enable_associated_network_selection);
-        mInitialScoreMax = (context.getResources().getInteger(
-                R.integer.config_wifi_framework_wifi_score_good_rssi_threshold_24GHz)
-                    + context.getResources().getInteger(
-                            R.integer.config_wifi_framework_RSSI_SCORE_OFFSET))
+        mUseSingleRadioChainScanResults = context.getResources().getBoolean(
+                R.bool.config_wifi_framework_use_single_radio_chain_scan_results_network_selection);
+        mInitialScoreMax = (Math.max(mScoringParams.getGoodRssi(ScoringParams.BAND2),
+                                     mScoringParams.getGoodRssi(ScoringParams.BAND5))
+                            + context.getResources().getInteger(
+                                    R.integer.config_wifi_framework_RSSI_SCORE_OFFSET))
                 * context.getResources().getInteger(
                         R.integer.config_wifi_framework_RSSI_SCORE_SLOPE);
         mFullScanMaxTxRate = context.getResources().getInteger(
@@ -814,24 +845,38 @@ public class WifiConnectivityManager {
             }
         }
 
+        boolean isScanNeeded = true;
         boolean isFullBandScan = true;
+        boolean isTrafficOverThreshold = mWifiInfo.txSuccessRate > mFullScanMaxTxRate
+                || mWifiInfo.rxSuccessRate > mFullScanMaxRxRate;
 
-        // If the WiFi traffic is heavy, only partial scan is initiated.
-        if (mWifiState == WIFI_STATE_CONNECTED
-                && (mWifiInfo.txSuccessRate > mFullScanMaxTxRate
-                    || mWifiInfo.rxSuccessRate > mFullScanMaxRxRate)) {
-            localLog("No full band scan due to ongoing traffic");
-            isFullBandScan = false;
+        // If the WiFi traffic is heavy, only partial scan is proposed.
+        if (mWifiState == WIFI_STATE_CONNECTED && isTrafficOverThreshold) {
+            // If only partial scan is proposed and firmware roaming control is supported,
+            // we will not issue any scan because firmware roaming will take care of
+            // intra-SSID roam.
+            if (mConnectivityHelper.isFirmwareRoamingSupported()) {
+                localLog("No partial scan because firmware roaming is supported.");
+                isScanNeeded = false;
+            } else {
+                localLog("No full band scan due to ongoing traffic");
+                isFullBandScan = false;
+            }
         }
 
-        mLastPeriodicSingleScanTimeStamp = currentTimeStamp;
-        startSingleScan(isFullBandScan, WIFI_WORK_SOURCE);
-        schedulePeriodicScanTimer(mPeriodicSingleScanInterval);
+        if (isScanNeeded) {
+            mLastPeriodicSingleScanTimeStamp = currentTimeStamp;
+            startSingleScan(isFullBandScan, WIFI_WORK_SOURCE);
+            schedulePeriodicScanTimer(mPeriodicSingleScanInterval);
 
-        // Set up the next scan interval in an exponential backoff fashion.
-        mPeriodicSingleScanInterval *= 2;
-        if (mPeriodicSingleScanInterval >  MAX_PERIODIC_SCAN_INTERVAL_MS) {
-            mPeriodicSingleScanInterval = MAX_PERIODIC_SCAN_INTERVAL_MS;
+            // Set up the next scan interval in an exponential backoff fashion.
+            mPeriodicSingleScanInterval *= 2;
+            if (mPeriodicSingleScanInterval >  MAX_PERIODIC_SCAN_INTERVAL_MS) {
+                mPeriodicSingleScanInterval = MAX_PERIODIC_SCAN_INTERVAL_MS;
+            }
+        } else {
+            // Since we already skipped this scan, keep the same scan interval for next scan.
+            schedulePeriodicScanTimer(mPeriodicSingleScanInterval);
         }
     }
 
@@ -865,6 +910,7 @@ public class WifiConnectivityManager {
                 isFullBandScan = true;
             }
         }
+        settings.type = WifiScanner.TYPE_HIGH_ACCURACY; // always do high accuracy scans.
         settings.band = getScanBand(isFullBandScan);
         settings.reportEvents = WifiScanner.REPORT_EVENT_FULL_SCAN_RESULT
                             | WifiScanner.REPORT_EVENT_AFTER_EACH_SCAN;
@@ -878,6 +924,7 @@ public class WifiConnectivityManager {
         SingleScanListener singleScanListener =
                 new SingleScanListener(isFullBandScan);
         mScanner.startScan(settings, singleScanListener, workSource);
+        mWifiMetrics.incrementConnectivityOneshotScanCount();
     }
 
     // Start a periodic scan when screen is on
@@ -1046,6 +1093,7 @@ public class WifiConnectivityManager {
         mScreenOn = screenOn;
 
         mOpenNetworkNotifier.handleScreenStateChanged(screenOn);
+        mCarrierNetworkNotifier.handleScreenStateChanged(screenOn);
 
         startConnectivityScan(SCAN_ON_SCHEDULE);
     }
@@ -1076,6 +1124,7 @@ public class WifiConnectivityManager {
 
         if (mWifiState == WIFI_STATE_CONNECTED) {
             mOpenNetworkNotifier.handleWifiConnected();
+            mCarrierNetworkNotifier.handleWifiConnected();
         }
 
         // Reset BSSID of last connection attempt and kick off
@@ -1097,6 +1146,7 @@ public class WifiConnectivityManager {
     public void handleConnectionAttemptEnded(int failureCode) {
         if (failureCode != WifiMetrics.ConnectionEvent.FAILURE_NONE) {
             mOpenNetworkNotifier.handleConnectionFailure();
+            mCarrierNetworkNotifier.handleConnectionFailure();
         }
     }
 
@@ -1323,6 +1373,7 @@ public class WifiConnectivityManager {
         clearBssidBlacklist();
         resetLastPeriodicSingleScanTimeStamp();
         mOpenNetworkNotifier.clearPendingNotification(true /* resetRepeatDelay */);
+        mCarrierNetworkNotifier.clearPendingNotification(true /* resetRepeatDelay */);
         mLastConnectionAttemptBssid = null;
         mWaitForFullBandScanResults = false;
     }
@@ -1383,5 +1434,6 @@ public class WifiConnectivityManager {
         mLocalLog.dump(fd, pw, args);
         pw.println("WifiConnectivityManager - Log End ----");
         mOpenNetworkNotifier.dump(fd, pw, args);
+        mCarrierNetworkNotifier.dump(fd, pw, args);
     }
 }

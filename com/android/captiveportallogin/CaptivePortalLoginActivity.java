@@ -16,6 +16,9 @@
 
 package com.android.captiveportallogin;
 
+import static android.net.ConnectivityManager.EXTRA_CAPTIVE_PORTAL_PROBE_SPEC;
+import static android.net.captiveportal.CaptivePortalProbeSpec.HTTP_LOCATION_HEADER_NAME;
+
 import android.app.Activity;
 import android.app.LoadedApk;
 import android.content.Context;
@@ -26,23 +29,30 @@ import android.net.ConnectivityManager;
 import android.net.ConnectivityManager.NetworkCallback;
 import android.net.Network;
 import android.net.NetworkCapabilities;
-import android.net.NetworkInfo;
 import android.net.NetworkRequest;
 import android.net.Proxy;
 import android.net.Uri;
+import android.net.captiveportal.CaptivePortalProbeSpec;
+import android.net.dns.ResolvUtil;
 import android.net.http.SslError;
+import android.net.wifi.WifiInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.support.v4.widget.SwipeRefreshLayout;
+import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.util.TypedValue;
+import android.util.SparseArray;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.webkit.CookieManager;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
+import android.webkit.WebView;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
@@ -79,6 +89,7 @@ public class CaptivePortalLoginActivity extends Activity {
     };
 
     private URL mUrl;
+    private CaptivePortalProbeSpec mProbeSpec;
     private String mUserAgent;
     private Network mNetwork;
     private CaptivePortal mCaptivePortal;
@@ -86,6 +97,7 @@ public class CaptivePortalLoginActivity extends Activity {
     private ConnectivityManager mCm;
     private boolean mLaunchBrowser = false;
     private MyWebViewClient mWebViewClient;
+    private SwipeRefreshLayout mSwipeRefreshLayout;
     // Ensures that done() happens once exactly, handling concurrent callers with atomic operations.
     private final AtomicBoolean isDone = new AtomicBoolean(false);
 
@@ -111,8 +123,18 @@ public class CaptivePortalLoginActivity extends Activity {
             Log.d(TAG, String.format("onCreate for %s", mUrl.toString()));
         }
 
+        final String spec = getIntent().getStringExtra(EXTRA_CAPTIVE_PORTAL_PROBE_SPEC);
+        try {
+            mProbeSpec = CaptivePortalProbeSpec.parseSpecOrNull(spec);
+        } catch (Exception e) {
+            // Make extra sure that invalid configurations do not cause crashes
+            mProbeSpec = null;
+        }
+
         // Also initializes proxy system properties.
         mCm.bindProcessToNetwork(mNetwork);
+        mCm.setProcessDefaultNetworkForHostResolution(
+                ResolvUtil.getNetworkWithUseLocalNameserversFlag(mNetwork));
 
         // Proxy system properties must be initialized before setContentView is called because
         // setContentView initializes the WebView logic which in turn reads the system properties.
@@ -143,6 +165,7 @@ public class CaptivePortalLoginActivity extends Activity {
 
         final WebView webview = getWebview();
         webview.clearCache(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webview, true);
         WebSettings webSettings = webview.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
@@ -157,6 +180,13 @@ public class CaptivePortalLoginActivity extends Activity {
         // Start initial page load so WebView finishes loading proxy settings.
         // Actual load of mUrl is initiated by MyWebViewClient.
         webview.loadData("", "text/html", null);
+
+        mSwipeRefreshLayout = findViewById(R.id.swipe_refresh);
+        mSwipeRefreshLayout.setOnRefreshListener(() -> {
+                webview.reload();
+                mSwipeRefreshLayout.setRefreshing(true);
+            });
+
     }
 
     // Find WebView's proxy BroadcastReceiver and prompt it to read proxy system properties.
@@ -304,6 +334,7 @@ public class CaptivePortalLoginActivity extends Activity {
         // TODO: reuse NetworkMonitor facilities for consistent captive portal detection.
         new Thread(new Runnable() {
             public void run() {
+                final Network network = ResolvUtil.makeNetworkWithPrivateDnsBypass(mNetwork);
                 // Give time for captive portal to open.
                 try {
                     Thread.sleep(1000);
@@ -311,8 +342,9 @@ public class CaptivePortalLoginActivity extends Activity {
                 }
                 HttpURLConnection urlConnection = null;
                 int httpResponseCode = 500;
+                String locationHeader = null;
                 try {
-                    urlConnection = (HttpURLConnection) mNetwork.openConnection(mUrl);
+                    urlConnection = (HttpURLConnection) network.openConnection(mUrl);
                     urlConnection.setInstanceFollowRedirects(false);
                     urlConnection.setConnectTimeout(SOCKET_TIMEOUT_MS);
                     urlConnection.setReadTimeout(SOCKET_TIMEOUT_MS);
@@ -325,6 +357,7 @@ public class CaptivePortalLoginActivity extends Activity {
 
                     urlConnection.getInputStream();
                     httpResponseCode = urlConnection.getResponseCode();
+                    locationHeader = urlConnection.getHeaderField(HTTP_LOCATION_HEADER_NAME);
                     if (DBG) {
                         Log.d(TAG, "probe at " + mUrl +
                                 " ret=" + httpResponseCode +
@@ -335,11 +368,18 @@ public class CaptivePortalLoginActivity extends Activity {
                 } finally {
                     if (urlConnection != null) urlConnection.disconnect();
                 }
-                if (httpResponseCode == 204) {
+                if (isDismissed(httpResponseCode, locationHeader, mProbeSpec)) {
                     done(Result.DISMISSED);
                 }
             }
         }).start();
+    }
+
+    private static boolean isDismissed(
+            int httpResponseCode, String locationHeader, CaptivePortalProbeSpec probeSpec) {
+        return (probeSpec != null)
+                ? probeSpec.getResult(httpResponseCode, locationHeader).isSuccessful()
+                : (httpResponseCode == 204);
     }
 
     private class MyWebViewClient extends WebViewClient {
@@ -375,7 +415,7 @@ public class CaptivePortalLoginActivity extends Activity {
                 return;
             }
             final URL url = makeURL(urlString);
-            Log.d(TAG, "onPageSarted: " + sanitizeURL(url));
+            Log.d(TAG, "onPageStarted: " + sanitizeURL(url));
             mHostname = host(url);
             // For internally generated pages, leave URL bar listing prior URL as this is the URL
             // the page refers to.
@@ -391,6 +431,7 @@ public class CaptivePortalLoginActivity extends Activity {
         public void onPageFinished(WebView view, String url) {
             mPagesLoaded++;
             getProgressBar().setVisibility(View.INVISIBLE);
+            mSwipeRefreshLayout.setRefreshing(false);
             if (mPagesLoaded == 1) {
                 // Now that WebView has loaded at least one page we know it has read in the proxy
                 // settings.  Now prompt the WebView read the Network-specific proxy settings.
@@ -426,7 +467,7 @@ public class CaptivePortalLoginActivity extends Activity {
             final URL url = makeURL(error.getUrl());
             final String host = host(url);
             Log.d(TAG, String.format("SSL error: %s, url: %s, certificate: %s",
-                    error.getPrimaryError(), sanitizeURL(url), error.getCertificate()));
+                    sslErrorName(error), sanitizeURL(url), error.getCertificate()));
             if (url == null || !Objects.equals(host, mHostname)) {
                 // Ignore ssl errors for resources coming from a different hostname than the page
                 // that we are currently loading, and only cancel the request.
@@ -516,15 +557,12 @@ public class CaptivePortalLoginActivity extends Activity {
     }
 
     private String getHeaderTitle() {
-        NetworkInfo info = mCm.getNetworkInfo(mNetwork);
-        if (info == null) {
-            return getString(R.string.action_bar_label);
-        }
         NetworkCapabilities nc = mCm.getNetworkCapabilities(mNetwork);
-        if (!nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+        if (nc == null || TextUtils.isEmpty(nc.getSSID())
+            || !nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
             return getString(R.string.action_bar_label);
         }
-        return getString(R.string.action_bar_title, info.getExtraInfo().replaceAll("^\"|\"$", ""));
+        return getString(R.string.action_bar_title, WifiInfo.removeDoubleQuotes(nc.getSSID()));
     }
 
     private String getHeaderSubtitle(URL url) {
@@ -538,5 +576,19 @@ public class CaptivePortalLoginActivity extends Activity {
 
     private void logMetricsEvent(int event) {
         MetricsLogger.action(this, event, getPackageName());
+    }
+
+    private static final SparseArray<String> SSL_ERRORS = new SparseArray<>();
+    static {
+        SSL_ERRORS.put(SslError.SSL_NOTYETVALID,  "SSL_NOTYETVALID");
+        SSL_ERRORS.put(SslError.SSL_EXPIRED,      "SSL_EXPIRED");
+        SSL_ERRORS.put(SslError.SSL_IDMISMATCH,   "SSL_IDMISMATCH");
+        SSL_ERRORS.put(SslError.SSL_UNTRUSTED,    "SSL_UNTRUSTED");
+        SSL_ERRORS.put(SslError.SSL_DATE_INVALID, "SSL_DATE_INVALID");
+        SSL_ERRORS.put(SslError.SSL_INVALID,      "SSL_INVALID");
+    }
+
+    private static String sslErrorName(SslError error) {
+        return SSL_ERRORS.get(error.getPrimaryError(), "UNKNOWN");
     }
 }

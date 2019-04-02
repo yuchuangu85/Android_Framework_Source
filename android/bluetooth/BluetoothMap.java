@@ -31,7 +31,8 @@ import java.util.List;
 /**
  * This class provides the APIs to control the Bluetooth MAP
  * Profile.
- *@hide
+ *
+ * @hide
  */
 public final class BluetoothMap implements BluetoothProfile {
 
@@ -40,7 +41,7 @@ public final class BluetoothMap implements BluetoothProfile {
     private static final boolean VDBG = false;
 
     public static final String ACTION_CONNECTION_STATE_CHANGED =
-        "android.bluetooth.map.profile.action.CONNECTION_STATE_CHANGED";
+            "android.bluetooth.map.profile.action.CONNECTION_STATE_CHANGED";
 
     private volatile IBluetoothMap mService;
     private final Context mContext;
@@ -48,41 +49,41 @@ public final class BluetoothMap implements BluetoothProfile {
     private BluetoothAdapter mAdapter;
 
     /** There was an error trying to obtain the state */
-    public static final int STATE_ERROR        = -1;
+    public static final int STATE_ERROR = -1;
 
     public static final int RESULT_FAILURE = 0;
     public static final int RESULT_SUCCESS = 1;
     /** Connection canceled before completion. */
     public static final int RESULT_CANCELED = 2;
 
-    final private IBluetoothStateChangeCallback mBluetoothStateChangeCallback =
+    private final IBluetoothStateChangeCallback mBluetoothStateChangeCallback =
             new IBluetoothStateChangeCallback.Stub() {
                 public void onBluetoothStateChange(boolean up) {
                     if (DBG) Log.d(TAG, "onBluetoothStateChange: up=" + up);
                     if (!up) {
-                        if (VDBG) Log.d(TAG,"Unbinding service...");
+                        if (VDBG) Log.d(TAG, "Unbinding service...");
                         synchronized (mConnection) {
                             try {
                                 mService = null;
                                 mContext.unbindService(mConnection);
                             } catch (Exception re) {
-                                Log.e(TAG,"",re);
+                                Log.e(TAG, "", re);
                             }
                         }
                     } else {
                         synchronized (mConnection) {
                             try {
                                 if (mService == null) {
-                                    if (VDBG) Log.d(TAG,"Binding service...");
+                                    if (VDBG) Log.d(TAG, "Binding service...");
                                     doBind();
                                 }
                             } catch (Exception re) {
-                                Log.e(TAG,"",re);
+                                Log.e(TAG, "", re);
                             }
                         }
                     }
                 }
-        };
+            };
 
     /**
      * Create a BluetoothMap proxy object.
@@ -97,7 +98,7 @@ public final class BluetoothMap implements BluetoothProfile {
             try {
                 mgr.registerStateChangeCallback(mBluetoothStateChangeCallback);
             } catch (RemoteException e) {
-                Log.e(TAG,"",e);
+                Log.e(TAG, "", e);
             }
         }
         doBind();
@@ -108,7 +109,7 @@ public final class BluetoothMap implements BluetoothProfile {
         ComponentName comp = intent.resolveSystemService(mContext.getPackageManager(), 0);
         intent.setComponent(comp);
         if (comp == null || !mContext.bindServiceAsUser(intent, mConnection, 0,
-                android.os.Process.myUserHandle())) {
+                mContext.getUser())) {
             Log.e(TAG, "Could not bind to Bluetooth MAP Service with " + intent);
             return false;
         }
@@ -135,7 +136,7 @@ public final class BluetoothMap implements BluetoothProfile {
             try {
                 mgr.unregisterStateChangeCallback(mBluetoothStateChangeCallback);
             } catch (Exception e) {
-                Log.e(TAG,"",e);
+                Log.e(TAG, "", e);
             }
         }
 
@@ -145,7 +146,7 @@ public final class BluetoothMap implements BluetoothProfile {
                     mService = null;
                     mContext.unbindService(mConnection);
                 } catch (Exception re) {
-                    Log.e(TAG,"",re);
+                    Log.e(TAG, "", re);
                 }
             }
         }
@@ -154,8 +155,9 @@ public final class BluetoothMap implements BluetoothProfile {
 
     /**
      * Get the current state of the BluetoothMap service.
-     * @return One of the STATE_ return codes, or STATE_ERROR if this proxy
-     *         object is currently not connected to the Map service.
+     *
+     * @return One of the STATE_ return codes, or STATE_ERROR if this proxy object is currently not
+     * connected to the Map service.
      */
     public int getState() {
         if (VDBG) log("getState()");
@@ -175,9 +177,9 @@ public final class BluetoothMap implements BluetoothProfile {
 
     /**
      * Get the currently connected remote Bluetooth device (PCE).
-     * @return The remote Bluetooth device, or null if not in connected or
-     *         connecting state, or if this proxy object is not connected to
-     *         the Map service.
+     *
+     * @return The remote Bluetooth device, or null if not in connected or connecting state, or if
+     * this proxy object is not connected to the Map service.
      */
     public BluetoothDevice getClient() {
         if (VDBG) log("getClient()");
@@ -229,8 +231,7 @@ public final class BluetoothMap implements BluetoothProfile {
      * Initiate disconnect.
      *
      * @param device Remote Bluetooth Device
-     * @return false on error,
-     *               true otherwise
+     * @return false on error, true otherwise
      */
     public boolean disconnect(BluetoothDevice device) {
         if (DBG) log("disconnect(" + device + ")");
@@ -239,8 +240,8 @@ public final class BluetoothMap implements BluetoothProfile {
             try {
                 return service.disconnect(device);
             } catch (RemoteException e) {
-              Log.e(TAG, Log.getStackTraceString(new Throwable()));
-              return false;
+                Log.e(TAG, Log.getStackTraceString(new Throwable()));
+                return false;
             }
         }
         if (service == null) Log.w(TAG, "Proxy not attached to service");
@@ -252,18 +253,19 @@ public final class BluetoothMap implements BluetoothProfile {
      * This is a simple heuristic that tries to guess if a device with the
      * given class bits might support Map. It is not accurate for all
      * devices. It tries to err on the side of false positives.
+     *
      * @return True if this device might support Map.
      */
     public static boolean doesClassMatchSink(BluetoothClass btClass) {
         // TODO optimize the rule
         switch (btClass.getDeviceClass()) {
-        case BluetoothClass.Device.COMPUTER_DESKTOP:
-        case BluetoothClass.Device.COMPUTER_LAPTOP:
-        case BluetoothClass.Device.COMPUTER_SERVER:
-        case BluetoothClass.Device.COMPUTER_UNCATEGORIZED:
-            return true;
-        default:
-            return false;
+            case BluetoothClass.Device.COMPUTER_DESKTOP:
+            case BluetoothClass.Device.COMPUTER_LAPTOP:
+            case BluetoothClass.Device.COMPUTER_SERVER:
+            case BluetoothClass.Device.COMPUTER_UNCATEGORIZED:
+                return true;
+            default:
+                return false;
         }
     }
 
@@ -331,7 +333,7 @@ public final class BluetoothMap implements BluetoothProfile {
      * Set priority of the profile
      *
      * <p> The device should already be paired.
-     *  Priority can be one of {@link #PRIORITY_ON} or
+     * Priority can be one of {@link #PRIORITY_ON} or
      * {@link #PRIORITY_OFF},
      *
      * @param device Paired bluetooth device
@@ -390,6 +392,7 @@ public final class BluetoothMap implements BluetoothProfile {
                 mServiceListener.onServiceConnected(BluetoothProfile.MAP, BluetoothMap.this);
             }
         }
+
         public void onServiceDisconnected(ComponentName className) {
             if (DBG) log("Proxy object disconnected");
             mService = null;
@@ -403,7 +406,7 @@ public final class BluetoothMap implements BluetoothProfile {
         Log.d(TAG, msg);
     }
 
-   private boolean isEnabled() {
+    private boolean isEnabled() {
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         if (adapter != null && adapter.getState() == BluetoothAdapter.STATE_ON) return true;
         log("Bluetooth is Not enabled");

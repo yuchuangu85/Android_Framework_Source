@@ -39,17 +39,19 @@ public class HalWifiScannerImpl extends WifiScannerImpl implements Handler.Callb
     private static final String TAG = "HalWifiScannerImpl";
     private static final boolean DBG = false;
 
+    private final String mIfaceName;
     private final WifiNative mWifiNative;
     private final ChannelHelper mChannelHelper;
     private final WificondScannerImpl mWificondScannerDelegate;
 
-    public HalWifiScannerImpl(Context context, WifiNative wifiNative, WifiMonitor wifiMonitor,
-                              Looper looper, Clock clock) {
+    public HalWifiScannerImpl(Context context, String ifaceName, WifiNative wifiNative,
+                              WifiMonitor wifiMonitor, Looper looper, Clock clock) {
+        mIfaceName = ifaceName;
         mWifiNative = wifiNative;
-        mChannelHelper = new HalChannelHelper(wifiNative);
+        mChannelHelper = new WificondChannelHelper(wifiNative);
         mWificondScannerDelegate =
-                new WificondScannerImpl(context, wifiNative, wifiMonitor, mChannelHelper,
-                        looper, clock);
+                new WificondScannerImpl(context, mIfaceName, wifiNative, wifiMonitor,
+                        mChannelHelper, looper, clock);
     }
 
     @Override
@@ -65,7 +67,8 @@ public class HalWifiScannerImpl extends WifiScannerImpl implements Handler.Callb
 
     @Override
     public boolean getScanCapabilities(WifiNative.ScanCapabilities capabilities) {
-        return mWifiNative.getBgScanCapabilities(capabilities);
+        return mWifiNative.getBgScanCapabilities(
+                mIfaceName, capabilities);
     }
 
     @Override
@@ -91,27 +94,28 @@ public class HalWifiScannerImpl extends WifiScannerImpl implements Handler.Callb
                     + ",eventHandler=" + eventHandler);
             return false;
         }
-        return mWifiNative.startBgScan(settings, eventHandler);
+        return mWifiNative.startBgScan(
+                mIfaceName, settings, eventHandler);
     }
 
     @Override
     public void stopBatchedScan() {
-        mWifiNative.stopBgScan();
+        mWifiNative.stopBgScan(mIfaceName);
     }
 
     @Override
     public void pauseBatchedScan() {
-        mWifiNative.pauseBgScan();
+        mWifiNative.pauseBgScan(mIfaceName);
     }
 
     @Override
     public void restartBatchedScan() {
-        mWifiNative.restartBgScan();
+        mWifiNative.restartBgScan(mIfaceName);
     }
 
     @Override
     public WifiScanner.ScanData[] getLatestBatchedScanResults(boolean flush) {
-        return mWifiNative.getBgScanResults();
+        return mWifiNative.getBgScanResults(mIfaceName);
     }
 
     @Override
@@ -128,11 +132,6 @@ public class HalWifiScannerImpl extends WifiScannerImpl implements Handler.Callb
     @Override
     public boolean isHwPnoSupported(boolean isConnectedPno) {
         return mWificondScannerDelegate.isHwPnoSupported(isConnectedPno);
-    }
-
-    @Override
-    public boolean shouldScheduleBackgroundScanForHwPno() {
-        return mWificondScannerDelegate.shouldScheduleBackgroundScanForHwPno();
     }
 
     @Override

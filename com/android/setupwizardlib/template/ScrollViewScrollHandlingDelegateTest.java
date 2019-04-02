@@ -23,7 +23,6 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.robolectric.RuntimeEnvironment.application;
 
-import com.android.setupwizardlib.BuildConfig;
 import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
 import com.android.setupwizardlib.view.BottomScrollView;
 import com.android.setupwizardlib.view.BottomScrollView.BottomScrollListener;
@@ -36,7 +35,7 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.annotation.Config;
 
-@Config(constants = BuildConfig.class, sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
+@Config(sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
 @RunWith(SuwLibRobolectricTestRunner.class)
 public class ScrollViewScrollHandlingDelegateTest {
 

@@ -17,36 +17,30 @@
 package android.telephony.ims;
 
 import android.annotation.SystemApi;
-import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.os.IBinder;
-import android.os.Message;
 import android.os.RemoteException;
 import android.telephony.CarrierConfigManager;
+import android.telephony.ims.aidl.IImsConfig;
+import android.telephony.ims.aidl.IImsMmTelFeature;
+import android.telephony.ims.aidl.IImsRcsFeature;
+import android.telephony.ims.aidl.IImsRegistration;
+import android.telephony.ims.aidl.IImsServiceController;
+import android.telephony.ims.aidl.IImsServiceControllerListener;
 import android.telephony.ims.feature.ImsFeature;
-import android.telephony.ims.feature.MMTelFeature;
+import android.telephony.ims.feature.MmTelFeature;
 import android.telephony.ims.feature.RcsFeature;
+import android.telephony.ims.stub.ImsConfigImplBase;
+import android.telephony.ims.stub.ImsFeatureConfiguration;
+import android.telephony.ims.stub.ImsRegistrationImplBase;
 import android.util.Log;
 import android.util.SparseArray;
 
-import com.android.ims.ImsCallProfile;
-import com.android.ims.internal.IImsCallSession;
-import com.android.ims.internal.IImsCallSessionListener;
-import com.android.ims.internal.IImsConfig;
-import com.android.ims.internal.IImsEcbm;
 import com.android.ims.internal.IImsFeatureStatusCallback;
-import com.android.ims.internal.IImsMultiEndpoint;
-import com.android.ims.internal.IImsRegistrationListener;
-import com.android.ims.internal.IImsServiceController;
-import com.android.ims.internal.IImsServiceFeatureListener;
-import com.android.ims.internal.IImsUt;
 import com.android.internal.annotations.VisibleForTesting;
 
 import static android.Manifest.permission.MODIFY_PHONE_STATE;
-import static android.Manifest.permission.READ_PHONE_STATE;
-import static android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE;
 
 /**
  * Main ImsService implementation, which binds via the Telephony ImsResolver. Services that extend
@@ -57,9 +51,7 @@ import static android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE;
  * ...
  * <service android:name=".EgImsService"
  *     android:permission="android.permission.BIND_IMS_SERVICE" >
- *     <!-- Apps must declare which features they support as metadata. The different categories are
- *     defined below. In this example, the RCS_FEATURE feature is supported. -->
- *     <meta-data android:name="android.telephony.ims.RCS_FEATURE" android:value="true" />
+ *     ...
  *     <intent-filter>
  *         <action android:name="android.telephony.ims.ImsService" />
  *     </intent-filter>
@@ -73,13 +65,31 @@ import static android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE;
  * 2) Defined as a Carrier Provided ImsService in the Carrier Configuration using
  *    {@link CarrierConfigManager#KEY_CONFIG_IMS_PACKAGE_OVERRIDE_STRING}.
  *
+ * There are two ways to define to the platform which {@link ImsFeature}s this {@link ImsService}
+ * supports, dynamic or static definitions.
+ *
+ * In the static definition, the {@link ImsFeature}s that are supported are defined in the service
+ * definition of the AndroidManifest.xml file as metadata:
+ * <!-- Apps must declare which features they support as metadata. The different categories are
+ *      defined below. In this example, the MMTEL_FEATURE feature is supported. -->
+ * <meta-data android:name="android.telephony.ims.MMTEL_FEATURE" android:value="true" />
+ *
  * The features that are currently supported in an ImsService are:
  * - RCS_FEATURE: This ImsService implements the RcsFeature class.
- * - MMTEL_FEATURE: This ImsService implements the MMTelFeature class.
- * - EMERGENCY_MMTEL_FEATURE: This ImsService implements the MMTelFeature class and will be
- *   available to place emergency calls at all times. This MUST be implemented by the default
- *   ImsService provided in the device overlay.
- *   @hide
+ * - MMTEL_FEATURE: This ImsService implements the MmTelFeature class.
+ * - EMERGENCY_MMTEL_FEATURE: This ImsService supports Emergency Calling for MMTEL, must be
+ *   declared along with the MMTEL_FEATURE. If this is not specified, the framework will use
+ *   circuit switch for emergency calling.
+ *
+ * In the dynamic definition, the supported features are not specified in the service definition
+ * of the AndroidManifest. Instead, the framework binds to this service and calls
+ * {@link #querySupportedImsFeatures()}. The {@link ImsService} then returns an
+ * {@link ImsFeatureConfiguration}, which the framework uses to initialize the supported
+ * {@link ImsFeature}s. If at any time, the list of supported {@link ImsFeature}s changes,
+ * {@link #onUpdateSupportedImsFeatures(ImsFeatureConfiguration)} can be called to tell the
+ * framework of the changes.
+ *
+ * @hide
  */
 @SystemApi
 public class ImsService extends Service {
@@ -92,247 +102,85 @@ public class ImsService extends Service {
      */
     public static final String SERVICE_INTERFACE = "android.telephony.ims.ImsService";
 
-    // A map of slot Id -> Set of features corresponding to that slot.
-    private final SparseArray<SparseArray<ImsFeature>> mFeatures = new SparseArray<>();
+    // A map of slot Id -> map of features (indexed by ImsFeature feature id) corresponding to that
+    // slot.
+    // We keep track of this to facilitate cleanup of the IImsFeatureStatusCallback and
+    // call ImsFeature#onFeatureRemoved.
+    private final SparseArray<SparseArray<ImsFeature>> mFeaturesBySlot = new SparseArray<>();
+
+    private IImsServiceControllerListener mListener;
+
+
+    /**
+     * Listener that notifies the framework of ImsService changes.
+     * @hide
+     */
+    public static class Listener extends IImsServiceControllerListener.Stub {
+        /**
+         * The IMS features that this ImsService supports has changed.
+         * @param c a new {@link ImsFeatureConfiguration} containing {@link ImsFeature.FeatureType}s
+         *   that this ImsService supports. This may trigger the addition/removal of feature
+         *   in this service.
+         */
+        public void onUpdateSupportedImsFeatures(ImsFeatureConfiguration c) {
+        }
+    }
 
     /**
      * @hide
      */
-    // Implements all supported features as a flat interface.
     protected final IBinder mImsServiceController = new IImsServiceController.Stub() {
-
         @Override
-        public void createImsFeature(int slotId, int feature, IImsFeatureStatusCallback c)
-                throws RemoteException {
-            synchronized (mFeatures) {
-                enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "createImsFeature");
-                onCreateImsFeatureInternal(slotId, feature, c);
-            }
+        public void setListener(IImsServiceControllerListener l) {
+            mListener = l;
         }
 
         @Override
-        public void removeImsFeature(int slotId, int feature,  IImsFeatureStatusCallback c)
-                throws RemoteException {
-            synchronized (mFeatures) {
-                enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "removeImsFeature");
-                onRemoveImsFeatureInternal(slotId, feature, c);
-            }
+        public IImsMmTelFeature createMmTelFeature(int slotId, IImsFeatureStatusCallback c) {
+            return createMmTelFeatureInternal(slotId, c);
         }
 
         @Override
-        public int startSession(int slotId, int featureType, PendingIntent incomingCallIntent,
-                IImsRegistrationListener listener) throws RemoteException {
-            enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "startSession");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    return feature.startSession(incomingCallIntent, listener);
-                }
-            }
-            return 0;
+        public IImsRcsFeature createRcsFeature(int slotId, IImsFeatureStatusCallback c) {
+            return createRcsFeatureInternal(slotId, c);
         }
 
         @Override
-        public void endSession(int slotId, int featureType, int sessionId) throws RemoteException {
-            synchronized (mFeatures) {
-                enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "endSession");
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    feature.endSession(sessionId);
-                }
-            }
+        public void removeImsFeature(int slotId, int featureType, IImsFeatureStatusCallback c) {
+            ImsService.this.removeImsFeature(slotId, featureType, c);
         }
 
         @Override
-        public boolean isConnected(int slotId, int featureType, int callSessionType, int callType)
-                throws RemoteException {
-            enforceReadPhoneStatePermission("isConnected");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    return feature.isConnected(callSessionType, callType);
-                }
-            }
-            return false;
+        public ImsFeatureConfiguration querySupportedImsFeatures() {
+            return ImsService.this.querySupportedImsFeatures();
         }
 
         @Override
-        public boolean isOpened(int slotId, int featureType) throws RemoteException {
-            enforceReadPhoneStatePermission("isOpened");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    return feature.isOpened();
-                }
-            }
-            return false;
+        public void notifyImsServiceReadyForFeatureCreation() {
+            ImsService.this.readyForFeatureCreation();
         }
 
         @Override
-        public int getFeatureStatus(int slotId, int featureType) throws RemoteException {
-            enforceReadPhoneStatePermission("getFeatureStatus");
-            int status = ImsFeature.STATE_NOT_AVAILABLE;
-            synchronized (mFeatures) {
-                SparseArray<ImsFeature> featureMap = mFeatures.get(slotId);
-                if (featureMap != null) {
-                    ImsFeature feature = getImsFeatureFromType(featureMap, featureType);
-                    if (feature != null) {
-                        status = feature.getFeatureState();
-                    }
-                }
-            }
-            return status;
+        public IImsConfig getConfig(int slotId) {
+            ImsConfigImplBase c = ImsService.this.getConfig(slotId);
+            return c != null ? c.getIImsConfig() : null;
         }
 
         @Override
-        public void addRegistrationListener(int slotId, int featureType,
-                IImsRegistrationListener listener) throws RemoteException {
-            enforceReadPhoneStatePermission("addRegistrationListener");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    feature.addRegistrationListener(listener);
-                }
-            }
+        public IImsRegistration getRegistration(int slotId) {
+            ImsRegistrationImplBase r = ImsService.this.getRegistration(slotId);
+            return r != null ? r.getBinder() : null;
         }
 
         @Override
-        public void removeRegistrationListener(int slotId, int featureType,
-                IImsRegistrationListener listener) throws RemoteException {
-            enforceReadPhoneStatePermission("removeRegistrationListener");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    feature.removeRegistrationListener(listener);
-                }
-            }
+        public void enableIms(int slotId) {
+            ImsService.this.enableIms(slotId);
         }
 
         @Override
-        public ImsCallProfile createCallProfile(int slotId, int featureType, int sessionId,
-                int callSessionType, int callType) throws RemoteException {
-            enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "createCallProfile");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    return feature.createCallProfile(sessionId, callSessionType,  callType);
-                }
-            }
-            return null;
+        public void disableIms(int slotId) {
+            ImsService.this.disableIms(slotId);
         }
-
-        @Override
-        public IImsCallSession createCallSession(int slotId, int featureType, int sessionId,
-                ImsCallProfile profile, IImsCallSessionListener listener) throws RemoteException {
-            enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "createCallSession");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    return feature.createCallSession(sessionId, profile, listener);
-                }
-            }
-            return null;
-        }
-
-        @Override
-        public IImsCallSession getPendingCallSession(int slotId, int featureType, int sessionId,
-                String callId) throws RemoteException {
-            enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "getPendingCallSession");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    return feature.getPendingCallSession(sessionId, callId);
-                }
-            }
-            return null;
-        }
-
-        @Override
-        public IImsUt getUtInterface(int slotId, int featureType)
-                throws RemoteException {
-            enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "getUtInterface");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    return feature.getUtInterface();
-                }
-            }
-            return null;
-        }
-
-        @Override
-        public IImsConfig getConfigInterface(int slotId, int featureType)
-                throws RemoteException {
-            enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "getConfigInterface");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    return feature.getConfigInterface();
-                }
-            }
-            return null;
-        }
-
-        @Override
-        public void turnOnIms(int slotId, int featureType) throws RemoteException {
-            enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "turnOnIms");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    feature.turnOnIms();
-                }
-            }
-        }
-
-        @Override
-        public void turnOffIms(int slotId, int featureType) throws RemoteException {
-            enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "turnOffIms");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    feature.turnOffIms();
-                }
-            }
-        }
-
-        @Override
-        public IImsEcbm getEcbmInterface(int slotId, int featureType)
-                throws RemoteException {
-            enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "getEcbmInterface");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    return feature.getEcbmInterface();
-                }
-            }
-            return null;
-        }
-
-        @Override
-        public void setUiTTYMode(int slotId, int featureType, int uiTtyMode, Message onComplete)
-                throws RemoteException {
-            enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "setUiTTYMode");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    feature.setUiTTYMode(uiTtyMode, onComplete);
-                }
-            }
-        }
-
-        @Override
-        public IImsMultiEndpoint getMultiEndpointInterface(int slotId, int featureType)
-                throws RemoteException {
-            enforceCallingOrSelfPermission(MODIFY_PHONE_STATE, "getMultiEndpointInterface");
-            synchronized (mFeatures) {
-                MMTelFeature feature = resolveMMTelFeature(slotId, featureType);
-                if (feature != null) {
-                    return feature.getMultiEndpointInterface();
-                }
-            }
-            return null;
-        }
-
     };
 
     /**
@@ -341,153 +189,183 @@ public class ImsService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         if(SERVICE_INTERFACE.equals(intent.getAction())) {
+            Log.i(LOG_TAG, "ImsService Bound.");
             return mImsServiceController;
         }
         return null;
     }
 
     /**
-     * Called from the ImsResolver to create the requested ImsFeature, as defined by the slot and
-     * featureType
-     * @param slotId An integer representing which SIM slot the ImsFeature is assigned to.
-     * @param featureType An integer representing the type of ImsFeature being created. This is
-     * defined in {@link ImsFeature}.
+     * @hide
      */
-    // Be sure to lock on mFeatures before accessing this method
-    private void onCreateImsFeatureInternal(int slotId, int featureType,
+    @VisibleForTesting
+    public SparseArray<ImsFeature> getFeatures(int slotId) {
+        return mFeaturesBySlot.get(slotId);
+    }
+
+    private IImsMmTelFeature createMmTelFeatureInternal(int slotId,
             IImsFeatureStatusCallback c) {
-        SparseArray<ImsFeature> featureMap = mFeatures.get(slotId);
-        if (featureMap == null) {
-            featureMap = new SparseArray<>();
-            mFeatures.put(slotId, featureMap);
-        }
-        ImsFeature f = makeImsFeature(slotId, featureType);
+        MmTelFeature f = createMmTelFeature(slotId);
         if (f != null) {
-            f.setContext(this);
-            f.setSlotId(slotId);
-            f.addImsFeatureStatusCallback(c);
-            featureMap.put(featureType, f);
-        }
-
-    }
-    /**
-     * Called from the ImsResolver to remove an existing ImsFeature, as defined by the slot and
-     * featureType.
-     * @param slotId An integer representing which SIM slot the ImsFeature is assigned to.
-     * @param featureType An integer representing the type of ImsFeature being removed. This is
-     * defined in {@link ImsFeature}.
-     */
-    // Be sure to lock on mFeatures before accessing this method
-    private void onRemoveImsFeatureInternal(int slotId, int featureType,
-            IImsFeatureStatusCallback c) {
-        SparseArray<ImsFeature> featureMap = mFeatures.get(slotId);
-        if (featureMap == null) {
-            return;
-        }
-
-        ImsFeature featureToRemove = getImsFeatureFromType(featureMap, featureType);
-        if (featureToRemove != null) {
-            featureMap.remove(featureType);
-            featureToRemove.notifyFeatureRemoved(slotId);
-            // Remove reference to Binder
-            featureToRemove.removeImsFeatureStatusCallback(c);
-        }
-    }
-
-    // Be sure to lock on mFeatures before accessing this method
-    private MMTelFeature resolveMMTelFeature(int slotId, int featureType) {
-        SparseArray<ImsFeature> features = getImsFeatureMap(slotId);
-        MMTelFeature feature = null;
-        if (features != null) {
-            feature = resolveImsFeature(features, featureType, MMTelFeature.class);
-        }
-        return feature;
-    }
-
-    // Be sure to lock on mFeatures before accessing this method
-    private <T extends ImsFeature> T resolveImsFeature(SparseArray<ImsFeature> set, int featureType,
-            Class<T> className) {
-        ImsFeature feature = getImsFeatureFromType(set, featureType);
-        if (feature == null) {
+            setupFeature(f, slotId, ImsFeature.FEATURE_MMTEL, c);
+            return f.getBinder();
+        } else {
+            Log.e(LOG_TAG, "createMmTelFeatureInternal: null feature returned.");
             return null;
         }
-        try {
-            return className.cast(feature);
-        } catch (ClassCastException e)
-        {
-            Log.e(LOG_TAG, "Can not cast ImsFeature! Exception: " + e.getMessage());
-        }
-        return null;
     }
 
-    /**
-     * @hide
-     */
-    @VisibleForTesting
-    // Be sure to lock on mFeatures before accessing this method
-    public SparseArray<ImsFeature> getImsFeatureMap(int slotId) {
-        return mFeatures.get(slotId);
-    }
-
-    /**
-     * @hide
-     */
-    @VisibleForTesting
-    // Be sure to lock on mFeatures before accessing this method
-    public ImsFeature getImsFeatureFromType(SparseArray<ImsFeature> set, int featureType) {
-        return set.get(featureType);
-    }
-
-    private ImsFeature makeImsFeature(int slotId, int feature) {
-        switch (feature) {
-            case ImsFeature.EMERGENCY_MMTEL: {
-                return onCreateEmergencyMMTelImsFeature(slotId);
-            }
-            case ImsFeature.MMTEL: {
-                return onCreateMMTelImsFeature(slotId);
-            }
-            case ImsFeature.RCS: {
-                return onCreateRcsFeature(slotId);
-            }
-        }
-        // Tried to create feature that is not defined.
-        return null;
-    }
-
-    /**
-     * Check for both READ_PHONE_STATE and READ_PRIVILEGED_PHONE_STATE. READ_PHONE_STATE is a
-     * public permission and READ_PRIVILEGED_PHONE_STATE is only granted to system apps.
-     */
-    private void enforceReadPhoneStatePermission(String fn) {
-        if (checkCallingOrSelfPermission(READ_PRIVILEGED_PHONE_STATE)
-                != PackageManager.PERMISSION_GRANTED) {
-            enforceCallingOrSelfPermission(READ_PHONE_STATE, fn);
+    private IImsRcsFeature createRcsFeatureInternal(int slotId,
+            IImsFeatureStatusCallback c) {
+        RcsFeature f = createRcsFeature(slotId);
+        if (f != null) {
+            setupFeature(f, slotId, ImsFeature.FEATURE_RCS, c);
+            return f.getBinder();
+        } else {
+            Log.e(LOG_TAG, "createRcsFeatureInternal: null feature returned.");
+            return null;
         }
     }
 
+    private void setupFeature(ImsFeature f, int slotId, int featureType,
+            IImsFeatureStatusCallback c) {
+        f.addImsFeatureStatusCallback(c);
+        f.initialize(this, slotId);
+        addImsFeature(slotId, featureType, f);
+    }
+
+    private void addImsFeature(int slotId, int featureType, ImsFeature f) {
+        synchronized (mFeaturesBySlot) {
+            // Get SparseArray for Features, by querying slot Id
+            SparseArray<ImsFeature> features = mFeaturesBySlot.get(slotId);
+            if (features == null) {
+                // Populate new SparseArray of features if it doesn't exist for this slot yet.
+                features = new SparseArray<>();
+                mFeaturesBySlot.put(slotId, features);
+            }
+            features.put(featureType, f);
+        }
+    }
+
+    private void removeImsFeature(int slotId, int featureType,
+            IImsFeatureStatusCallback c) {
+        synchronized (mFeaturesBySlot) {
+            // get ImsFeature associated with the slot/feature
+            SparseArray<ImsFeature> features = mFeaturesBySlot.get(slotId);
+            if (features == null) {
+                Log.w(LOG_TAG, "Can not remove ImsFeature. No ImsFeatures exist on slot "
+                        + slotId);
+                return;
+            }
+            ImsFeature f = features.get(featureType);
+            if (f == null) {
+                Log.w(LOG_TAG, "Can not remove ImsFeature. No feature with type "
+                        + featureType + " exists on slot " + slotId);
+                return;
+            }
+            f.removeImsFeatureStatusCallback(c);
+            f.onFeatureRemoved();
+            features.remove(featureType);
+        }
+    }
+
     /**
-     * @return An implementation of MMTelFeature that will be used by the system for MMTel
-     * functionality. Must be able to handle emergency calls at any time as well.
-     * @hide
+     * When called, provide the {@link ImsFeatureConfiguration} that this {@link ImsService}
+     * currently supports. This will trigger the framework to set up the {@link ImsFeature}s that
+     * correspond to the {@link ImsFeature}s configured here.
+     *
+     * Use {@link #onUpdateSupportedImsFeatures(ImsFeatureConfiguration)} to change the supported
+     * {@link ImsFeature}s.
+     *
+     * @return an {@link ImsFeatureConfiguration} containing Features this ImsService supports.
      */
-    public MMTelFeature onCreateEmergencyMMTelImsFeature(int slotId) {
+    public ImsFeatureConfiguration querySupportedImsFeatures() {
+        // Return empty for base implementation
+        return new ImsFeatureConfiguration();
+    }
+
+    /**
+     * Updates the framework with a new {@link ImsFeatureConfiguration} containing the updated
+     * features, that this {@link ImsService} supports. This may trigger the framework to add/remove
+     * new ImsFeatures, depending on the configuration.
+     */
+    public final void onUpdateSupportedImsFeatures(ImsFeatureConfiguration c)
+            throws RemoteException {
+        if (mListener == null) {
+            throw new IllegalStateException("Framework is not ready");
+        }
+        mListener.onUpdateSupportedImsFeatures(c);
+    }
+
+    /**
+     * The ImsService has been bound and is ready for ImsFeature creation based on the Features that
+     * the ImsService has registered for with the framework, either in the manifest or via
+     * {@link #querySupportedImsFeatures()}.
+     *
+     * The ImsService should use this signal instead of onCreate/onBind or similar to perform
+     * feature initialization because the framework may bind to this service multiple times to
+     * query the ImsService's {@link ImsFeatureConfiguration} via
+     * {@link #querySupportedImsFeatures()}before creating features.
+     */
+    public void readyForFeatureCreation() {
+    }
+
+    /**
+     * The framework has enabled IMS for the slot specified, the ImsService should register for IMS
+     * and perform all appropriate initialization to bring up all ImsFeatures.
+     */
+    public void enableIms(int slotId) {
+    }
+
+    /**
+     * The framework has disabled IMS for the slot specified. The ImsService must deregister for IMS
+     * and set capability status to false for all ImsFeatures.
+     */
+    public void disableIms(int slotId) {
+    }
+
+    /**
+     * When called, the framework is requesting that a new {@link MmTelFeature} is created for the
+     * specified slot.
+     *
+     * @param slotId The slot ID that the MMTEL Feature is being created for.
+     * @return The newly created {@link MmTelFeature} associated with the slot or null if the
+     * feature is not supported.
+     */
+    public MmTelFeature createMmTelFeature(int slotId) {
         return null;
     }
 
     /**
-     * @return An implementation of MMTelFeature that will be used by the system for MMTel
-     * functionality.
-     * @hide
+     * When called, the framework is requesting that a new {@link RcsFeature} is created for the
+     * specified slot.
+     *
+     * @param slotId The slot ID that the RCS Feature is being created for.
+     * @return The newly created {@link RcsFeature} associated with the slot or null if the feature
+     * is not supported.
      */
-    public MMTelFeature onCreateMMTelImsFeature(int slotId) {
+    public RcsFeature createRcsFeature(int slotId) {
         return null;
     }
 
     /**
-     * @return An implementation of RcsFeature that will be used by the system for RCS.
-     * @hide
+     * Return the {@link ImsConfigImplBase} implementation associated with the provided slot. This
+     * will be used by the platform to get/set specific IMS related configurations.
+     *
+     * @param slotId The slot that the IMS configuration is associated with.
+     * @return ImsConfig implementation that is associated with the specified slot.
      */
-    public RcsFeature onCreateRcsFeature(int slotId) {
-        return null;
+    public ImsConfigImplBase getConfig(int slotId) {
+        return new ImsConfigImplBase();
+    }
+
+    /**
+     * Return the {@link ImsRegistrationImplBase} implementation associated with the provided slot.
+     *
+     * @param slotId The slot that is associated with the IMS Registration.
+     * @return the ImsRegistration implementation associated with the slot.
+     */
+    public ImsRegistrationImplBase getRegistration(int slotId) {
+        return new ImsRegistrationImplBase();
     }
 }

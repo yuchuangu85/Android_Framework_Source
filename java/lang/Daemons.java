@@ -400,7 +400,7 @@ public final class Daemons {
             Exception syntheticException = new TimeoutException(message);
             // We use the stack from where finalize() was running to show where it was stuck.
             syntheticException.setStackTrace(FinalizerDaemon.INSTANCE.getStackTrace());
-            Thread.UncaughtExceptionHandler h = Thread.getDefaultUncaughtExceptionHandler();
+
             // Send SIGQUIT to get native stack traces.
             try {
                 Os.kill(Os.getpid(), OsConstants.SIGQUIT);
@@ -411,15 +411,29 @@ public final class Daemons {
             } catch (OutOfMemoryError ignored) {
                 // May occur while trying to allocate the exception.
             }
-            if (h == null) {
+
+            // Ideally, we'd want to do this if this Thread had no handler to dispatch to.
+            // Unfortunately, it's extremely to messy to query whether a given Thread has *some*
+            // handler to dispatch to, either via a handler set on itself, via its ThreadGroup
+            // object or via the defaultUncaughtExceptionHandler.
+            //
+            // As an approximation, we log by hand an exit if there's no pre-exception handler nor
+            // a default uncaught exception handler.
+            //
+            // Note that this condition will only ever be hit by ART host tests and standalone
+            // dalvikvm invocations. All zygote forked process *will* have a pre-handler set
+            // in RuntimeInit and they cannot subsequently override it.
+            if (Thread.getUncaughtExceptionPreHandler() == null &&
+                    Thread.getDefaultUncaughtExceptionHandler() == null) {
                 // If we have no handler, log and exit.
                 System.logE(message, syntheticException);
                 System.exit(2);
             }
+
             // Otherwise call the handler to do crash reporting.
             // We don't just throw because we're not the thread that
             // timed out; we're the thread that detected it.
-            h.uncaughtException(Thread.currentThread(), syntheticException);
+            Thread.currentThread().dispatchUncaughtException(syntheticException);
         }
     }
 

@@ -803,12 +803,22 @@ public abstract class DateFormat extends Format {
         } else {
             dateStyle = -1;
         }
-        // Android-changed: Removed used of DateFormatProvider.
+
+        // BEGIN Android-changed: Remove use of DateFormatProvider and LocaleProviderAdapter.
+        /*
+        LocaleProviderAdapter adapter = LocaleProviderAdapter.getAdapter(DateFormatProvider.class, loc);
+        DateFormat dateFormat = get(adapter, timeStyle, dateStyle, loc);
+        if (dateFormat == null) {
+            dateFormat = get(LocaleProviderAdapter.forJRE(), timeStyle, dateStyle, loc);
+        }
+        return dateFormat;
+        */
         try {
             return new SimpleDateFormat(timeStyle, dateStyle, loc);
         } catch (MissingResourceException e) {
             return new SimpleDateFormat("M/d/yy h:mm a");
         }
+        // END Android-changed: Remove use of DateFormatProvider and LocaleProviderAdapter.
     }
 
     /**

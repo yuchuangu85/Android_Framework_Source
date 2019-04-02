@@ -17,23 +17,14 @@
 package com.android.server.wifi.util;
 
 import android.Manifest;
-import android.annotation.Nullable;
 import android.app.AppOpsManager;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.pm.UserInfo;
-import android.net.ConnectivityManager;
-import android.net.NetworkScoreManager;
-import android.net.NetworkScorerAppData;
-import android.net.wifi.WifiConfiguration;
-import android.os.Binder;
 import android.os.RemoteException;
 import android.os.UserManager;
 import android.provider.Settings;
-import android.text.TextUtils;
 
-import com.android.server.wifi.FrameworkFacade;
 import com.android.server.wifi.WifiInjector;
 import com.android.server.wifi.WifiLog;
 import com.android.server.wifi.WifiSettingsStore;
@@ -51,21 +42,17 @@ public class WifiPermissionsUtil {
     private final AppOpsManager mAppOps;
     private final UserManager mUserManager;
     private final WifiSettingsStore mSettingsStore;
-    private final NetworkScoreManager mNetworkScoreManager;
-    private final FrameworkFacade mFrameworkFacade;
     private WifiLog mLog;
 
     public WifiPermissionsUtil(WifiPermissionsWrapper wifiPermissionsWrapper,
             Context context, WifiSettingsStore settingsStore, UserManager userManager,
-            NetworkScoreManager networkScoreManager, WifiInjector wifiInjector) {
+            WifiInjector wifiInjector) {
         mWifiPermissionsWrapper = wifiPermissionsWrapper;
         mContext = context;
         mUserManager = userManager;
         mAppOps = (AppOpsManager) mContext.getSystemService(Context.APP_OPS_SERVICE);
         mSettingsStore = settingsStore;
         mLog = wifiInjector.makeLog(TAG);
-        mNetworkScoreManager = networkScoreManager;
-        mFrameworkFacade = wifiInjector.getFrameworkFacade();
     }
 
     /**
@@ -101,24 +88,30 @@ public class WifiPermissionsUtil {
     }
 
     /**
-     * Check and enforce tether change permission.
+     * Checks if the app has the permission to access Wi-Fi state or not.
      *
-     * @param context Context object of the caller.
+     * @param uid uid of the app.
+     * @return true if the app does have the permission, false otherwise.
      */
-    public void enforceTetherChangePermission(Context context) {
-        String pkgName = context.getOpPackageName();
-        ConnectivityManager.enforceTetherChangePermission(context, pkgName);
+    public boolean checkWifiAccessPermission(int uid) {
+        try {
+            int permission = mWifiPermissionsWrapper.getAccessWifiStatePermission(uid);
+            return (permission == PackageManager.PERMISSION_GRANTED);
+        } catch (RemoteException e) {
+            mLog.err("Error checking for permission: %").r(e.getMessage()).flush();
+            return false;
+        }
     }
 
     /**
-     * Check and enforce Location permission.
+     * Check and enforce Coarse Location permission.
      *
      * @param pkgName PackageName of the application requesting access
      * @param uid The uid of the package
      */
     public void enforceLocationPermission(String pkgName, int uid) {
         if (!checkCallersLocationPermission(pkgName, uid)) {
-            throw new SecurityException("UID " + uid + " does not have Location permission");
+            throw new SecurityException("UID " + uid + " does not have Coarse Location permission");
         }
     }
 
@@ -131,7 +124,7 @@ public class WifiPermissionsUtil {
      * @param uid The uid of the package
      */
     public boolean checkCallersLocationPermission(String pkgName, int uid) {
-        // Coarse Permission implies Fine permission
+        // Having FINE permission implies having COARSE permission (but not the reverse)
         if ((mWifiPermissionsWrapper.getUidPermission(
                 Manifest.permission.ACCESS_COARSE_LOCATION, uid)
                 == PackageManager.PERMISSION_GRANTED)
@@ -142,116 +135,76 @@ public class WifiPermissionsUtil {
     }
 
     /**
-     * API to determine if the caller has permissions to get
-     * scan results.
+     * Check and enforce Fine Location permission.
+     *
+     * @param pkgName PackageName of the application requesting access
+     * @param uid The uid of the package
+     */
+    public void enforceFineLocationPermission(String pkgName, int uid) {
+        if (!checkCallersFineLocationPermission(pkgName, uid)) {
+            throw new SecurityException("UID " + uid + " does not have Fine Location permission");
+        }
+    }
+
+
+    /**
+     * Checks that calling process has android.Manifest.permission.ACCESS_FINE_LOCATION
+     * and a corresponding app op is allowed for this package and uid.
+     *
+     * @param pkgName PackageName of the application requesting access
+     * @param uid The uid of the package
+     */
+    public boolean checkCallersFineLocationPermission(String pkgName, int uid) {
+        // Having FINE permission implies having COARSE permission (but not the reverse)
+        if ((mWifiPermissionsWrapper.getUidPermission(
+                Manifest.permission.ACCESS_FINE_LOCATION, uid)
+                == PackageManager.PERMISSION_GRANTED)
+                && checkAppOpAllowed(AppOpsManager.OP_FINE_LOCATION, pkgName, uid)) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * API to determine if the caller has permissions to get scan results. Throws SecurityException
+     * if the caller has no permission.
      * @param pkgName package name of the application requesting access
      * @param uid The uid of the package
-     * @param minVersion Minimum app API Version number to enforce location permission
-     * @return boolean true or false if permissions is granted
      */
-    public boolean canAccessScanResults(String pkgName, int uid,
-                int minVersion) throws SecurityException {
+    public void enforceCanAccessScanResults(String pkgName, int uid) throws SecurityException {
         mAppOps.checkPackage(uid, pkgName);
-        // Check if the calling Uid has CAN_READ_PEER_MAC_ADDRESS
-        // permission or is an Active Nw scorer.
-        boolean canCallingUidAccessLocation = checkCallerHasPeersMacAddressPermission(uid)
-                || isCallerActiveNwScorer(uid);
-        // LocationAccess by App: For AppVersion older than minVersion,
-        // it is sufficient to check if the App is foreground.
-        // Otherwise, Location Mode must be enabled and caller must have
+
+        // Apps with NETWORK_SETTINGS & NETWORK_SETUP_WIZARD are granted a bypass.
+        if (checkNetworkSettingsPermission(uid) || checkNetworkSetupWizardPermission(uid)) {
+            return;
+        }
+
+        // Location mode must be enabled
+        if (!isLocationModeEnabled()) {
+            // Location mode is disabled, scan results cannot be returned
+            throw new SecurityException("Location mode is disabled for the device");
+        }
+
+        // Check if the calling Uid has CAN_READ_PEER_MAC_ADDRESS permission.
+        boolean canCallingUidAccessLocation = checkCallerHasPeersMacAddressPermission(uid);
+        // LocationAccess by App: caller must have
         // Coarse Location permission to have access to location information.
-        boolean canAppPackageUseLocation = isLegacyForeground(pkgName, minVersion)
-                || (isLocationModeEnabled(pkgName)
-                        && checkCallersLocationPermission(pkgName, uid));
+        boolean canAppPackageUseLocation = checkCallersLocationPermission(pkgName, uid);
+
         // If neither caller or app has location access, there is no need to check
         // any other permissions. Deny access to scan results.
         if (!canCallingUidAccessLocation && !canAppPackageUseLocation) {
-            mLog.tC("Denied: no location permission");
-            return false;
+            throw new SecurityException("UID " + uid + " has no location permission");
         }
         // Check if Wifi Scan request is an operation allowed for this App.
         if (!isScanAllowedbyApps(pkgName, uid)) {
-            mLog.tC("Denied: app wifi scan not allowed");
-            return false;
+            throw new SecurityException("UID " + uid + " has no wifi scan permission");
         }
         // If the User or profile is current, permission is granted
         // Otherwise, uid must have INTERACT_ACROSS_USERS_FULL permission.
-        if (!canAccessUserProfile(uid)) {
-            mLog.tC("Denied: Profile not permitted");
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * API to determine if the caller has permissions to get a {@link android.net.wifi.WifiInfo}
-     * instance containing the SSID and BSSID.
-     *
-     *
-     * @param currentConfig the currently connected WiFi config
-     * @param pkgName package name of the application requesting access
-     * @param uid The uid of the package
-     * @param minVersion Minimum app API Version number to enforce location permission
-     * @return boolean true if the SSID/BSSID can be sent to the user, false if they
-     *         should be hidden/removed.
-     */
-    public boolean canAccessFullConnectionInfo(@Nullable WifiConfiguration currentConfig,
-            String pkgName, int uid, int minVersion) throws SecurityException {
-        mAppOps.checkPackage(uid, pkgName);
-
-        // The User or profile must be current or the uid must
-        // have INTERACT_ACROSS_USERS_FULL permission.
-        if (!canAccessUserProfile(uid)) {
-            mLog.tC("Denied: Profile not permitted");
-            return false;
-        }
-
-        // If the caller has scan result access then they can also see the full connection info.
-        // Otherwise the caller must be the active use open wifi package and the current config
-        // must be for an open network.
-        return canAccessScanResults(pkgName, uid, minVersion)
-                || isUseOpenWifiPackageWithConnectionInfoAccess(currentConfig, pkgName);
-
-    }
-
-    /**
-     * Returns true if the given WiFi config is for an open network and the package is the active
-     * use open wifi app.
-     */
-    private boolean isUseOpenWifiPackageWithConnectionInfoAccess(
-            @Nullable WifiConfiguration currentConfig, String pkgName) {
-
-        // Access is only granted for open networks.
-        if (currentConfig == null) {
-            mLog.tC("Denied: WifiConfiguration is NULL.");
-            return false;
-        }
-
-        // Access is only granted for open networks.
-        if (!currentConfig.isOpenNetwork()) {
-            mLog.tC("Denied: The current config is not for an open network.");
-            return false;
-        }
-
-        // The USE_OPEN_WIFI_PACKAGE can access the full connection info details without
-        // scan result access.
-        if (!isUseOpenWifiPackage(pkgName)) {
-            mLog.tC("Denied: caller is not the current USE_OPEN_WIFI_PACKAGE");
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Returns true if the User or profile is current or the
-     * uid has the INTERACT_ACROSS_USERS_FULL permission.
-     */
-    private boolean canAccessUserProfile(int uid) {
         if (!isCurrentProfile(uid) && !checkInteractAcrossUsersFull(uid)) {
-            return false;
+            throw new SecurityException("UID " + uid + " profile not permitted");
         }
-        return true;
     }
 
     /**
@@ -261,50 +214,6 @@ public class WifiPermissionsUtil {
         return mWifiPermissionsWrapper.getUidPermission(
                 android.Manifest.permission.PEERS_MAC_ADDRESS, uid)
                 == PackageManager.PERMISSION_GRANTED;
-    }
-
-    /**
-     * Returns true if the caller is an Active Network Scorer.
-     */
-    private boolean isCallerActiveNwScorer(int uid) {
-        return mNetworkScoreManager.isCallerActiveScorer(uid);
-    }
-
-    /**
-     * Returns true if the given package is equal to the setting keyed by
-     * {@link Settings.Global#USE_OPEN_WIFI_PACKAGE} and the NetworkScoreManager
-     * has the package name set as the use open wifi package.
-     */
-    private boolean isUseOpenWifiPackage(String packageName) {
-        if (TextUtils.isEmpty(packageName)) {
-            return false;
-        }
-
-        // When the setting is enabled it's set to the package name of the use open wifi app.
-        final String useOpenWifiPkg =
-                mFrameworkFacade.getStringSetting(mContext, Settings.Global.USE_OPEN_WIFI_PACKAGE);
-        if (packageName.equals(useOpenWifiPkg)) {
-            // If the package name matches the setting then also confirm that the scorer is
-            // active and the package matches the expected use open wifi package from the scorer's
-            // perspective. The scorer can be active when the use open wifi feature is off so we
-            // can't rely on this check alone.
-            // TODO(b/67278755): Refactor this into an API similar to isCallerActiveScorer()
-            final NetworkScorerAppData appData;
-            final long token = Binder.clearCallingIdentity();
-            try {
-                appData = mNetworkScoreManager.getActiveScorer();
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
-            if (appData != null) {
-                final ComponentName enableUseOpenWifiActivity =
-                        appData.getEnableUseOpenWifiActivity();
-                return enableUseOpenWifiActivity != null
-                        && packageName.equals(enableUseOpenWifiActivity.getPackageName());
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -329,30 +238,25 @@ public class WifiPermissionsUtil {
      * current user.
      */
     private boolean isCurrentProfile(int uid) {
-        final long token = Binder.clearCallingIdentity();
-        try {
-            int currentUser = mWifiPermissionsWrapper.getCurrentUser();
-            int callingUserId = mWifiPermissionsWrapper.getCallingUserId(uid);
-            if (callingUserId == currentUser) {
-                return true;
-            } else {
-                List<UserInfo> userProfiles = mUserManager.getProfiles(currentUser);
-                for (UserInfo user : userProfiles) {
-                    if (user.id == callingUserId) {
-                        return true;
-                    }
+        int currentUser = mWifiPermissionsWrapper.getCurrentUser();
+        int callingUserId = mWifiPermissionsWrapper.getCallingUserId(uid);
+        if (callingUserId == currentUser) {
+            return true;
+        } else {
+            List<UserInfo> userProfiles = mUserManager.getProfiles(currentUser);
+            for (UserInfo user : userProfiles) {
+                if (user.id == callingUserId) {
+                    return true;
                 }
             }
-            return false;
-        } finally {
-            Binder.restoreCallingIdentity(token);
         }
+        return false;
     }
 
     /**
      * Returns true if the App version is older than minVersion.
      */
-    private boolean isLegacyVersion(String pkgName, int minVersion) {
+    public boolean isLegacyVersion(String pkgName, int minVersion) {
         try {
             if (mContext.getPackageManager().getApplicationInfo(pkgName, 0)
                     .targetSdkVersion < minVersion) {
@@ -370,16 +274,7 @@ public class WifiPermissionsUtil {
         return mAppOps.noteOp(op, uid, pkgName) == AppOpsManager.MODE_ALLOWED;
     }
 
-    private boolean isLegacyForeground(String pkgName, int version) {
-        return isLegacyVersion(pkgName, version) && isForegroundApp(pkgName);
-    }
-
-    private boolean isForegroundApp(String pkgName) {
-        return pkgName.equals(mWifiPermissionsWrapper.getTopPkgName());
-    }
-
-    private boolean isLocationModeEnabled(String pkgName) {
-        // Location mode check on applications that are later than version.
+    private boolean isLocationModeEnabled() {
         return (mSettingsStore.getLocationModeSetting(mContext)
                  != Settings.Secure.LOCATION_MODE_OFF);
     }
@@ -390,6 +285,15 @@ public class WifiPermissionsUtil {
     public boolean checkNetworkSettingsPermission(int uid) {
         return mWifiPermissionsWrapper.getUidPermission(
                 android.Manifest.permission.NETWORK_SETTINGS, uid)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /**
+     * Returns true if the |uid| holds NETWORK_SETUP_WIZARD permission.
+     */
+    public boolean checkNetworkSetupWizardPermission(int uid) {
+        return mWifiPermissionsWrapper.getUidPermission(
+                android.Manifest.permission.NETWORK_SETUP_WIZARD, uid)
                 == PackageManager.PERMISSION_GRANTED;
     }
 }

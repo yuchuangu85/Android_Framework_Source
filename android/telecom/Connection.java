@@ -23,8 +23,8 @@ import com.android.internal.telecom.IVideoProvider;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
-import android.annotation.TestApi;
 import android.app.Notification;
+import android.bluetooth.BluetoothDevice;
 import android.content.Intent;
 import android.hardware.camera2.CameraManager;
 import android.net.Uri;
@@ -40,6 +40,8 @@ import android.os.SystemClock;
 import android.util.ArraySet;
 import android.view.Surface;
 
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -327,8 +329,11 @@ public abstract class Connection extends Conferenceable {
      */
     public static final int CAPABILITY_CAN_PULL_CALL = 0x01000000;
 
+    /** Call supports the deflect feature. */
+    public static final int CAPABILITY_SUPPORT_DEFLECT = 0x02000000;
+
     //**********************************************************************************************
-    // Next CAPABILITY value: 0x02000000
+    // Next CAPABILITY value: 0x04000000
     //**********************************************************************************************
 
     /**
@@ -396,13 +401,17 @@ public abstract class Connection extends Conferenceable {
     /**
      * Set by the framework to indicate that a connection has an active RTT session associated with
      * it.
-     * @hide
      */
-    @TestApi
     public static final int PROPERTY_IS_RTT = 1 << 8;
 
+    /**
+     * Set by the framework to indicate that a connection is using assisted dialing.
+     * @hide
+     */
+    public static final int PROPERTY_ASSISTED_DIALING_USED = 1 << 9;
+
     //**********************************************************************************************
-    // Next PROPERTY value: 1<<9
+    // Next PROPERTY value: 1<<10
     //**********************************************************************************************
 
     /**
@@ -722,6 +731,9 @@ public abstract class Connection extends Conferenceable {
         if (can(capabilities, CAPABILITY_CAN_PULL_CALL)) {
             builder.append(isLong ? " CAPABILITY_CAN_PULL_CALL" : " pull");
         }
+        if (can(capabilities, CAPABILITY_SUPPORT_DEFLECT)) {
+            builder.append(isLong ? " CAPABILITY_SUPPORT_DEFLECT" : " sup_def");
+        }
 
         builder.append("]");
         return builder.toString();
@@ -783,6 +795,10 @@ public abstract class Connection extends Conferenceable {
             builder.append(isLong ? " PROPERTY_HAS_CDMA_VOICE_PRIVACY" : " priv");
         }
 
+        if (can(properties, PROPERTY_IS_RTT)) {
+            builder.append(isLong ? " PROPERTY_IS_RTT" : " rtt");
+        }
+
         builder.append("]");
         return builder.toString();
     }
@@ -819,18 +835,18 @@ public abstract class Connection extends Conferenceable {
         public void onConnectionEvent(Connection c, String event, Bundle extras) {}
         /** @hide */
         public void onConferenceSupportedChanged(Connection c, boolean isConferenceSupported) {}
-        public void onAudioRouteChanged(Connection c, int audioRoute) {}
+        public void onAudioRouteChanged(Connection c, int audioRoute, String bluetoothAddress) {}
         public void onRttInitiationSuccess(Connection c) {}
         public void onRttInitiationFailure(Connection c, int reason) {}
         public void onRttSessionRemotelyTerminated(Connection c) {}
         public void onRemoteRttRequest(Connection c) {}
+        /** @hide */
+        public void onPhoneAccountChanged(Connection c, PhoneAccountHandle pHandle) {}
     }
 
     /**
      * Provides methods to read and write RTT data to/from the in-call app.
-     * @hide
      */
-    @TestApi
     public static final class RttTextStream {
         private static final int READ_BUFFER_SIZE = 1000;
         private final InputStreamReader mPipeFromInCall;
@@ -846,18 +862,19 @@ public abstract class Connection extends Conferenceable {
             mFdFromInCall = fromInCall;
             mFdToInCall = toInCall;
             mPipeFromInCall = new InputStreamReader(
-                    new ParcelFileDescriptor.AutoCloseInputStream(fromInCall));
+                    new FileInputStream(fromInCall.getFileDescriptor()));
             mPipeToInCall = new OutputStreamWriter(
-                    new ParcelFileDescriptor.AutoCloseOutputStream(toInCall));
+                    new FileOutputStream(toInCall.getFileDescriptor()));
         }
 
         /**
          * Writes the string {@param input} into the text stream to the UI for this RTT call. Since
          * RTT transmits text in real-time, this method should be called as often as text snippets
          * are received from the remote user, even if it is only one character.
-         *
+         * <p>
          * This method is not thread-safe -- calling it from multiple threads simultaneously may
          * lead to interleaved text.
+         *
          * @param input The message to send to the in-call app.
          */
         public void write(String input) throws IOException {
@@ -870,9 +887,10 @@ public abstract class Connection extends Conferenceable {
          * Reads a string from the in-call app, blocking if there is no data available. Returns
          * {@code null} if the RTT conversation has been terminated and there is no further data
          * to read.
-         *
+         * <p>
          * This method is not thread-safe -- calling it from multiple threads simultaneously may
          * lead to interleaved text.
+         *
          * @return A string containing text entered by the user, or {@code null} if the
          * conversation has been terminated or if there was an error while reading.
          */
@@ -887,6 +905,7 @@ public abstract class Connection extends Conferenceable {
         /**
          * Non-blocking version of {@link #read()}. Returns {@code null} if there is nothing to
          * be read.
+         *
          * @return A string containing text entered by the user, or {@code null} if the user has
          * not entered any new text yet.
          */
@@ -1681,6 +1700,8 @@ public abstract class Connection extends Conferenceable {
 
     // The internal telecom call ID associated with this connection.
     private String mTelecomCallId;
+    // The PhoneAccountHandle associated with this connection.
+    private PhoneAccountHandle mPhoneAccountHandle;
     private int mState = STATE_NEW;
     private CallAudioState mCallAudioState;
     private Uri mAddress;
@@ -2283,7 +2304,7 @@ public abstract class Connection extends Conferenceable {
      *
      * @hide
      */
-    public final void setConnectElapsedTimeMillis(long connectElapsedTimeMillis) {
+    public final void setConnectionStartElapsedRealTime(long connectElapsedTimeMillis) {
         mConnectElapsedTimeMillis = connectElapsedTimeMillis;
     }
 
@@ -2574,43 +2595,55 @@ public abstract class Connection extends Conferenceable {
      */
     public final void setAudioRoute(int route) {
         for (Listener l : mListeners) {
-            l.onAudioRouteChanged(this, route);
+            l.onAudioRouteChanged(this, route, null);
+        }
+    }
+
+    /**
+     * Request audio routing to a specific bluetooth device. Calling this method may result in
+     * the device routing audio to a different bluetooth device than the one specified if the
+     * bluetooth stack is unable to route audio to the requested device.
+     * A list of available devices can be obtained via
+     * {@link CallAudioState#getSupportedBluetoothDevices()}
+     *
+     * <p>
+     * Used by self-managed {@link ConnectionService}s which wish to use bluetooth audio for a
+     * self-managed {@link Connection} (see {@link PhoneAccount#CAPABILITY_SELF_MANAGED}.)
+     * <p>
+     * See also {@link InCallService#requestBluetoothAudio(BluetoothDevice)}
+     * @param bluetoothDevice The bluetooth device to connect to.
+     */
+    public void requestBluetoothAudio(@NonNull BluetoothDevice bluetoothDevice) {
+        for (Listener l : mListeners) {
+            l.onAudioRouteChanged(this, CallAudioState.ROUTE_BLUETOOTH,
+                    bluetoothDevice.getAddress());
         }
     }
 
     /**
      * Informs listeners that a previously requested RTT session via
      * {@link ConnectionRequest#isRequestingRtt()} or
-     * {@link #onStartRtt(ParcelFileDescriptor, ParcelFileDescriptor)} has succeeded.
-     * @hide
+     * {@link #onStartRtt(RttTextStream)} has succeeded.
      */
-    @TestApi
     public final void sendRttInitiationSuccess() {
-        setRttProperty();
         mListeners.forEach((l) -> l.onRttInitiationSuccess(Connection.this));
     }
 
     /**
      * Informs listeners that a previously requested RTT session via
-     * {@link ConnectionRequest#isRequestingRtt()} or
-     * {@link #onStartRtt(ParcelFileDescriptor, ParcelFileDescriptor)}
+     * {@link ConnectionRequest#isRequestingRtt()} or {@link #onStartRtt(RttTextStream)}
      * has failed.
      * @param reason One of the reason codes defined in {@link RttModifyStatus}, with the
      *               exception of {@link RttModifyStatus#SESSION_MODIFY_REQUEST_SUCCESS}.
-     * @hide
      */
-    @TestApi
     public final void sendRttInitiationFailure(int reason) {
-        unsetRttProperty();
         mListeners.forEach((l) -> l.onRttInitiationFailure(Connection.this, reason));
     }
 
     /**
      * Informs listeners that a currently active RTT session has been terminated by the remote
      * side of the coll.
-     * @hide
      */
-    @TestApi
     public final void sendRttSessionRemotelyTerminated() {
         mListeners.forEach((l) -> l.onRttSessionRemotelyTerminated(Connection.this));
     }
@@ -2618,9 +2651,7 @@ public abstract class Connection extends Conferenceable {
     /**
      * Informs listeners that the remote side of the call has requested an upgrade to include an
      * RTT session in the call.
-     * @hide
      */
-    @TestApi
     public final void sendRemoteRttRequest() {
         mListeners.forEach((l) -> l.onRemoteRttRequest(Connection.this));
     }
@@ -2700,7 +2731,20 @@ public abstract class Connection extends Conferenceable {
     /**
      * Notifies this Connection, which is in {@link #STATE_RINGING}, of
      * a request to accept.
-     *
+     * <p>
+     * For managed {@link ConnectionService}s, this will be called when the user answers a call via
+     * the default dialer's {@link InCallService}.
+     * <p>
+     * Although a self-managed {@link ConnectionService} provides its own incoming call UI, the
+     * Telecom framework may request that the call is answered in the following circumstances:
+     * <ul>
+     *     <li>The user chooses to answer an incoming call via a Bluetooth device.</li>
+     *     <li>A car mode {@link InCallService} is in use which has declared
+     *     {@link TelecomManager#METADATA_INCLUDE_SELF_MANAGED_CALLS} in its manifest.  Such an
+     *     {@link InCallService} will be able to see calls from self-managed
+     *     {@link ConnectionService}s, and will be able to display an incoming call UI on their
+     *     behalf.</li>
+     * </ul>
      * @param videoState The video state in which to answer the connection.
      */
     public void onAnswer(int videoState) {}
@@ -2708,6 +2752,20 @@ public abstract class Connection extends Conferenceable {
     /**
      * Notifies this Connection, which is in {@link #STATE_RINGING}, of
      * a request to accept.
+     * <p>
+     * For managed {@link ConnectionService}s, this will be called when the user answers a call via
+     * the default dialer's {@link InCallService}.
+     * <p>
+     * Although a self-managed {@link ConnectionService} provides its own incoming call UI, the
+     * Telecom framework may request that the call is answered in the following circumstances:
+     * <ul>
+     *     <li>The user chooses to answer an incoming call via a Bluetooth device.</li>
+     *     <li>A car mode {@link InCallService} is in use which has declared
+     *     {@link TelecomManager#METADATA_INCLUDE_SELF_MANAGED_CALLS} in its manifest.  Such an
+     *     {@link InCallService} will be able to see calls from self-managed
+     *     {@link ConnectionService}s, and will be able to display an incoming call UI on their
+     *     behalf.</li>
+     * </ul>
      */
     public void onAnswer() {
         onAnswer(VideoProfile.STATE_AUDIO_ONLY);
@@ -2715,7 +2773,27 @@ public abstract class Connection extends Conferenceable {
 
     /**
      * Notifies this Connection, which is in {@link #STATE_RINGING}, of
+     * a request to deflect.
+     */
+    public void onDeflect(Uri address) {}
+
+    /**
+     * Notifies this Connection, which is in {@link #STATE_RINGING}, of
      * a request to reject.
+     * <p>
+     * For managed {@link ConnectionService}s, this will be called when the user rejects a call via
+     * the default dialer's {@link InCallService}.
+     * <p>
+     * Although a self-managed {@link ConnectionService} provides its own incoming call UI, the
+     * Telecom framework may request that the call is rejected in the following circumstances:
+     * <ul>
+     *     <li>The user chooses to reject an incoming call via a Bluetooth device.</li>
+     *     <li>A car mode {@link InCallService} is in use which has declared
+     *     {@link TelecomManager#METADATA_INCLUDE_SELF_MANAGED_CALLS} in its manifest.  Such an
+     *     {@link InCallService} will be able to see calls from self-managed
+     *     {@link ConnectionService}s, and will be able to display an incoming call UI on their
+     *     behalf.</li>
+     * </ul>
      */
     public void onReject() {}
 
@@ -2769,6 +2847,15 @@ public abstract class Connection extends Conferenceable {
     public void onCallEvent(String event, Bundle extras) {}
 
     /**
+     * Notifies this {@link Connection} that a handover has completed.
+     * <p>
+     * A handover is initiated with {@link android.telecom.Call#handoverTo(PhoneAccountHandle, int,
+     * Bundle)} on the initiating side of the handover, and
+     * {@link TelecomManager#acceptHandover(Uri, int, PhoneAccountHandle)}.
+     */
+    public void onHandoverComplete() {}
+
+    /**
      * Notifies this {@link Connection} of a change to the extras made outside the
      * {@link ConnectionService}.
      * <p>
@@ -2789,9 +2876,10 @@ public abstract class Connection extends Conferenceable {
      * should show its own incoming call user interface.
      * <p>
      * Where there are ongoing calls in other self-managed {@link ConnectionService}s, or in a
-     * regular {@link ConnectionService}, the Telecom framework will display its own incoming call
-     * user interface to allow the user to choose whether to answer the new incoming call and
-     * disconnect other ongoing calls, or to reject the new incoming call.
+     * regular {@link ConnectionService}, and it is not possible to hold these other calls, the
+     * Telecom framework will display its own incoming call user interface to allow the user to
+     * choose whether to answer the new incoming call and disconnect other ongoing calls, or to
+     * reject the new incoming call.
      * <p>
      * You should trigger the display of the incoming call user interface for your application by
      * showing a {@link Notification} with a full-screen {@link Intent} specified.
@@ -2837,17 +2925,13 @@ public abstract class Connection extends Conferenceable {
      * request, respectively.
      * @param rttTextStream The object that should be used to send text to or receive text from
      *                      the in-call app.
-     * @hide
      */
-    @TestApi
     public void onStartRtt(@NonNull RttTextStream rttTextStream) {}
 
     /**
      * Notifies this {@link Connection} that it should terminate any existing RTT communication
      * channel. No response to Telecom is needed for this method.
-     * @hide
      */
-    @TestApi
     public void onStopRtt() {}
 
     /**
@@ -2855,28 +2939,10 @@ public abstract class Connection extends Conferenceable {
      * request sent via {@link #sendRemoteRttRequest}. Acceptance of the request is
      * indicated by the supplied {@link RttTextStream} being non-null, and rejection is
      * indicated by {@code rttTextStream} being {@code null}
-     * @hide
      * @param rttTextStream The object that should be used to send text to or receive text from
      *                      the in-call app.
      */
-    @TestApi
     public void handleRttUpgradeResponse(@Nullable RttTextStream rttTextStream) {}
-
-    /**
-     * Internal method to set {@link #PROPERTY_IS_RTT}.
-     * @hide
-     */
-    void setRttProperty() {
-        setConnectionProperties(getConnectionProperties() | PROPERTY_IS_RTT);
-    }
-
-    /**
-     * Internal method to un-set {@link #PROPERTY_IS_RTT}.
-     * @hide
-     */
-    void unsetRttProperty() {
-        setConnectionProperties(getConnectionProperties() & (~PROPERTY_IS_RTT));
-    }
 
     static String toLogSafePhoneNumber(String number) {
         // For unknown number, log empty string.
@@ -3059,6 +3125,39 @@ public abstract class Connection extends Conferenceable {
         for (Listener l : mListeners) {
             l.onConferenceSupportedChanged(this, isConferenceSupported);
         }
+    }
+
+    /**
+     * Notifies listeners when phone account is changed. For example, when the PhoneAccount is
+     * changed due to an emergency call being redialed.
+     * @param pHandle The new PhoneAccountHandle for this connection.
+     * @hide
+     */
+    public void notifyPhoneAccountChanged(PhoneAccountHandle pHandle) {
+        for (Listener l : mListeners) {
+            l.onPhoneAccountChanged(this, pHandle);
+        }
+    }
+
+    /**
+     * Sets the {@link PhoneAccountHandle} associated with this connection.
+     *
+     * @hide
+     */
+    public void setPhoneAccountHandle(PhoneAccountHandle phoneAccountHandle) {
+        if (mPhoneAccountHandle != phoneAccountHandle) {
+            mPhoneAccountHandle = phoneAccountHandle;
+            notifyPhoneAccountChanged(phoneAccountHandle);
+        }
+    }
+
+    /**
+     * Returns the {@link PhoneAccountHandle} associated with this connection.
+     *
+     * @hide
+     */
+    public PhoneAccountHandle getPhoneAccountHandle() {
+        return mPhoneAccountHandle;
     }
 
     /**

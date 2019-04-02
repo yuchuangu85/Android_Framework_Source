@@ -254,6 +254,7 @@ public final class MessageQueue {
         } else if (record != null) {
             record.mEvents = 0;
             mFileDescriptorRecords.removeAt(index);
+            nativeSetFileDescriptorEvents(mPtr, fdNum, 0);
         }
     }
 
@@ -871,7 +872,11 @@ public final class MessageQueue {
 
         /** @hide */
         @Retention(RetentionPolicy.SOURCE)
-        @IntDef(flag=true, value={EVENT_INPUT, EVENT_OUTPUT, EVENT_ERROR})
+        @IntDef(flag = true, prefix = { "EVENT_" }, value = {
+                EVENT_INPUT,
+                EVENT_OUTPUT,
+                EVENT_ERROR
+        })
         public @interface Events {}
 
         /**

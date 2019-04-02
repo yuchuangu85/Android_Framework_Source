@@ -21,10 +21,13 @@ import android.content.ContextWrapper;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.support.annotation.Nullable;
+import android.text.Selection;
+import android.text.Spannable;
 import android.text.TextPaint;
 import android.text.style.ClickableSpan;
 import android.util.Log;
 import android.view.View;
+import android.widget.TextView;
 
 /**
  * A clickable span that will listen for click events and send it back to the context. To use this
@@ -86,10 +89,18 @@ public class LinkSpan extends ClickableSpan {
     public void onClick(View view) {
         if (dispatchClick(view)) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                // Prevent the touch event from bubbling up to the parent views.
                 view.cancelPendingInputEvents();
             }
         } else {
             Log.w(TAG, "Dropping click event. No listener attached.");
+        }
+        if (view instanceof TextView) {
+            // Remove the highlight effect when the click happens by clearing the selection
+            CharSequence text = ((TextView) view).getText();
+            if (text instanceof Spannable) {
+                Selection.setSelection((Spannable) text, 0);
+            }
         }
     }
 

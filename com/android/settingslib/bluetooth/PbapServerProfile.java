@@ -71,6 +71,11 @@ public class PbapServerProfile implements LocalBluetoothProfile {
         return mIsProfileReady;
     }
 
+    @Override
+    public int getProfileId() {
+        return BluetoothProfile.PBAP;
+    }
+
     PbapServerProfile(Context context) {
         BluetoothPbap pbap = new BluetoothPbap(context, new PbapServiceListener());
     }
@@ -91,7 +96,7 @@ public class PbapServerProfile implements LocalBluetoothProfile {
 
     public boolean disconnect(BluetoothDevice device) {
         if (mService == null) return false;
-        return mService.disconnect();
+        return mService.disconnect(device);
     }
 
     public int getConnectionStatus(BluetoothDevice device) {

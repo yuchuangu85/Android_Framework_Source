@@ -20,6 +20,7 @@ import android.net.InterfaceConfiguration;
 import android.net.ConnectivityManager;
 import android.net.LinkAddress;
 import android.net.LinkProperties;
+import android.net.NetworkInfo;
 import android.net.RouteInfo;
 import android.os.INetworkManagementService;
 import android.os.RemoteException;
@@ -44,12 +45,18 @@ public class Nat464Xlat extends BaseNetworkObserver {
     // This must match the interface prefix in clatd.c.
     private static final String CLAT_PREFIX = "v4-";
 
-    // The network types we will start clatd on,
+    // The network types on which we will start clatd,
     // allowing clat only on networks for which we can support IPv6-only.
     private static final int[] NETWORK_TYPES = {
-            ConnectivityManager.TYPE_MOBILE,
-            ConnectivityManager.TYPE_WIFI,
-            ConnectivityManager.TYPE_ETHERNET,
+        ConnectivityManager.TYPE_MOBILE,
+        ConnectivityManager.TYPE_WIFI,
+        ConnectivityManager.TYPE_ETHERNET,
+    };
+
+    // The network states in which running clatd is supported.
+    private static final NetworkInfo.State[] NETWORK_STATES = {
+        NetworkInfo.State.CONNECTED,
+        NetworkInfo.State.SUSPENDED,
     };
 
     private final INetworkManagementService mNMService;
@@ -81,11 +88,8 @@ public class Nat464Xlat extends BaseNetworkObserver {
      */
     public static boolean requiresClat(NetworkAgentInfo nai) {
         // TODO: migrate to NetworkCapabilities.TRANSPORT_*.
-        final int netType = nai.networkInfo.getType();
         final boolean supported = ArrayUtils.contains(NETWORK_TYPES, nai.networkInfo.getType());
-        // TODO: this should also consider if the network is in SUSPENDED state to avoid stopping
-        // clatd in SUSPENDED state.
-        final boolean connected = nai.networkInfo.isConnected();
+        final boolean connected = ArrayUtils.contains(NETWORK_STATES, nai.networkInfo.getState());
         // We only run clat on networks that don't have a native IPv4 address.
         final boolean hasIPv4Address =
                 (nai.linkProperties != null) && nai.linkProperties.hasIPv4Address();
@@ -148,7 +152,6 @@ public class Nat464Xlat extends BaseNetworkObserver {
      * turn ND offload off if on WiFi.
      */
     private void enterRunningState() {
-        maybeSetIpv6NdOffload(mBaseIface, false);
         mState = State.RUNNING;
     }
 
@@ -156,10 +159,6 @@ public class Nat464Xlat extends BaseNetworkObserver {
      * Stop clatd, and turn ND offload on if it had been turned off.
      */
     private void enterStoppingState() {
-        if (isRunning()) {
-            maybeSetIpv6NdOffload(mBaseIface, true);
-        }
-
         try {
             mNMService.stopClatd(mBaseIface);
         } catch(RemoteException|IllegalStateException e) {
@@ -225,15 +224,14 @@ public class Nat464Xlat extends BaseNetworkObserver {
     }
 
     /**
-     * Copies the stacked clat link in oldLp, if any, to the LinkProperties in mNetwork.
+     * Copies the stacked clat link in oldLp, if any, to the passed LinkProperties.
      * This is necessary because the LinkProperties in mNetwork come from the transport layer, which
      * has no idea that 464xlat is running on top of it.
      */
-    public void fixupLinkProperties(LinkProperties oldLp) {
+    public void fixupLinkProperties(LinkProperties oldLp, LinkProperties lp) {
         if (!isRunning()) {
             return;
         }
-        LinkProperties lp = mNetwork.linkProperties;
         if (lp == null || lp.getAllInterfaceNames().contains(mIface)) {
             return;
         }
@@ -272,19 +270,6 @@ public class Nat464Xlat extends BaseNetworkObserver {
         } catch(RemoteException|IllegalStateException e) {
             Slog.e(TAG, "Error getting link properties: " + e);
             return null;
-        }
-    }
-
-    private void maybeSetIpv6NdOffload(String iface, boolean on) {
-        // TODO: migrate to NetworkCapabilities.TRANSPORT_*.
-        if (mNetwork.networkInfo.getType() != ConnectivityManager.TYPE_WIFI) {
-            return;
-        }
-        try {
-            Slog.d(TAG, (on ? "En" : "Dis") + "abling ND offload on " + iface);
-            mNMService.setInterfaceIpv6NdOffload(iface, on);
-        } catch(RemoteException|IllegalStateException e) {
-            Slog.w(TAG, "Changing IPv6 ND offload on " + iface + "failed: " + e);
         }
     }
 

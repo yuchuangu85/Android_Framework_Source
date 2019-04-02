@@ -195,7 +195,7 @@ public class InboundSmsTracker {
         mAddress = cursor.getString(InboundSmsHandler.ADDRESS_COLUMN);
         mDisplayAddress = cursor.getString(InboundSmsHandler.DISPLAY_ADDRESS_COLUMN);
 
-        if (cursor.isNull(InboundSmsHandler.COUNT_COLUMN)) {
+        if (cursor.getInt(InboundSmsHandler.COUNT_COLUMN) == 1) {
             // single-part message
             long rowId = cursor.getLong(InboundSmsHandler.ID_COLUMN);
             mReferenceNumber = -1;
@@ -250,8 +250,8 @@ public class InboundSmsTracker {
             values.put("display_originating_addr", mDisplayAddress);
             values.put("reference_number", mReferenceNumber);
             values.put("sequence", mSequenceNumber);
-            values.put("count", mMessageCount);
         }
+        values.put("count", mMessageCount);
         values.put("message_body", mMessageBody);
         return values;
     }

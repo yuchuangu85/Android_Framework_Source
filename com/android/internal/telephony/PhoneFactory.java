@@ -35,14 +35,15 @@ import android.util.LocalLog;
 import com.android.internal.os.BackgroundThread;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.dataconnection.TelephonyNetworkFactory;
+import com.android.internal.telephony.euicc.EuiccCardController;
 import com.android.internal.telephony.euicc.EuiccController;
 import com.android.internal.telephony.ims.ImsResolver;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneFactory;
 import com.android.internal.telephony.sip.SipPhone;
 import com.android.internal.telephony.sip.SipPhoneFactory;
-import com.android.internal.telephony.uicc.IccCardProxy;
 import com.android.internal.telephony.uicc.UiccController;
+import com.android.internal.telephony.uicc.UiccProfile;
 import com.android.internal.telephony.util.NotificationChannelController;
 import com.android.internal.util.IndentingPrintWriter;
 
@@ -73,6 +74,7 @@ public class PhoneFactory {
     static private UiccController sUiccController;
     private static IntentBroadcaster sIntentBroadcaster;
     private static @Nullable EuiccController sEuiccController;
+    private static @Nullable EuiccCardController sEuiccCardController;
 
     static private CommandsInterface sCommandsInterface = null;
     static private SubscriptionInfoUpdater sSubInfoRecordUpdater = null;
@@ -138,21 +140,22 @@ public class PhoneFactory {
                 int cdmaSubscription = CdmaSubscriptionSourceManager.getDefault(context);
                 Rlog.i(LOG_TAG, "Cdma Subscription set to " + cdmaSubscription);
 
-                if (context.getPackageManager().hasSystemFeature(
-                        PackageManager.FEATURE_TELEPHONY_EUICC)) {
-                    sEuiccController = EuiccController.init(context);
-                }
-
                 /* In case of multi SIM mode two instances of Phone, RIL are created,
                    where as in single SIM mode only instance. isMultiSimEnabled() function checks
                    whether it is single SIM or multi SIM mode */
                 int numPhones = TelephonyManager.getDefault().getPhoneCount();
-                // Start ImsResolver and bind to ImsServices.
+                // Return whether or not the device should use dynamic binding or the static
+                // implementation (deprecated)
+                boolean isDynamicBinding = sContext.getResources().getBoolean(
+                        com.android.internal.R.bool.config_dynamic_bind_ims);
+                // Get the package name of the default IMS implementation.
                 String defaultImsPackage = sContext.getResources().getString(
                         com.android.internal.R.string.config_ims_package);
+                // Start ImsResolver and bind to ImsServices.
                 Rlog.i(LOG_TAG, "ImsResolver: defaultImsPackage: " + defaultImsPackage);
-                sImsResolver = new ImsResolver(sContext, defaultImsPackage, numPhones);
-                sImsResolver.populateCacheAndStartBind();
+                sImsResolver = new ImsResolver(sContext, defaultImsPackage, numPhones,
+                        isDynamicBinding);
+                sImsResolver.initPopulateCacheAndStartBind();
 
                 int[] networkModes = new int[numPhones];
                 sPhones = new Phone[numPhones];
@@ -174,6 +177,12 @@ public class PhoneFactory {
                 // Instantiate UiccController so that all other classes can just
                 // call getInstance()
                 sUiccController = UiccController.make(context, sCommandsInterfaces);
+
+                if (context.getPackageManager().hasSystemFeature(
+                        PackageManager.FEATURE_TELEPHONY_EUICC)) {
+                    sEuiccController = EuiccController.init(context);
+                    sEuiccCardController = EuiccCardController.init(context);
+                }
 
                 for (int i = 0; i < numPhones; i++) {
                     Phone phone = null;
@@ -298,6 +307,10 @@ public class PhoneFactory {
         }
     }
 
+    public static SubscriptionInfoUpdater getSubscriptionInfoUpdater() {
+        return sSubInfoRecordUpdater;
+    }
+
     public static ImsResolver getImsResolver() {
         return sImsResolver;
     }
@@ -321,9 +334,22 @@ public class PhoneFactory {
     public static int calculatePreferredNetworkType(Context context, int phoneSubId) {
         int networkType = android.provider.Settings.Global.getInt(context.getContentResolver(),
                 android.provider.Settings.Global.PREFERRED_NETWORK_MODE + phoneSubId,
-                RILConstants.PREFERRED_NETWORK_MODE);
+                -1 /* invalid network mode */);
         Rlog.d(LOG_TAG, "calculatePreferredNetworkType: phoneSubId = " + phoneSubId +
                 " networkType = " + networkType);
+
+        if (networkType == -1) {
+            networkType = RILConstants.PREFERRED_NETWORK_MODE;
+            try {
+                networkType = TelephonyManager.getIntAtIndex(context.getContentResolver(),
+                        android.provider.Settings.Global.PREFERRED_NETWORK_MODE,
+                        SubscriptionController.getInstance().getPhoneId(phoneSubId));
+            } catch (SettingNotFoundException retrySnfe) {
+                Rlog.e(LOG_TAG, "Settings Exception Reading Value At Index for "
+                        + "Settings.Global.PREFERRED_NETWORK_MODE");
+            }
+        }
+
         return networkType;
     }
 
@@ -432,7 +458,10 @@ public class PhoneFactory {
             pw.println("++++++++++++++++++++++++++++++++");
 
             try {
-                ((IccCardProxy)phone.getIccCard()).dump(fd, pw, args);
+                UiccProfile uiccProfile = (UiccProfile) phone.getIccCard();
+                if (uiccProfile != null) {
+                    uiccProfile.dump(fd, pw, args);
+                }
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -467,6 +496,7 @@ public class PhoneFactory {
             pw.increaseIndent();
             try {
                 sEuiccController.dump(fd, pw, args);
+                sEuiccCardController.dump(fd, pw, args);
             } catch (Exception e) {
                 e.printStackTrace();
             }

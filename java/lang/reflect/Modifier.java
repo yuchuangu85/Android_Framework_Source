@@ -42,6 +42,20 @@ package java.lang.reflect;
  */
 public class Modifier {
 
+    // Android-removed: ReflectionFactory bootstrapping code not used on Android.
+    /*
+    /*
+     * Bootstrapping protocol between java.lang and java.lang.reflect
+     *  packages
+     *
+    static {
+        sun.reflect.ReflectionFactory factory =
+            AccessController.doPrivileged(
+                new ReflectionFactory.GetReflectionFactoryAction());
+        factory.setLangReflectAccess(new java.lang.reflect.ReflectAccess());
+    }
+    */
+
     /**
      * Return {@code true} if the integer argument includes the
      * {@code public} modifier, {@code false} otherwise.
@@ -126,6 +140,7 @@ public class Modifier {
         return (mod & VOLATILE) != 0;
     }
 
+    // Android-added: isConstructor(int) to support DEX-defined modifier flag.
     /**
      * Returns true if the given modifiers contain {@link Modifier#CONSTRUCTOR}.
      * @hide
@@ -332,6 +347,7 @@ public class Modifier {
     // they are not Java programming language keywords
     static final int BRIDGE    = 0x00000040;
     static final int VARARGS   = 0x00000080;
+    // Android-changed: SYNTHETIC made public for use in tests.
     /**
      * @hide
      */
@@ -357,6 +373,7 @@ public class Modifier {
     // methods return an unchanging values for a given release, but a
     // value that can potentially change over time.
 
+    // Android-added: CONSTRUCTOR to support DEX-defined modifier flag.
     /**
      * Dex addition to mark instance constructors and static class
      * initializer methods.
@@ -364,6 +381,7 @@ public class Modifier {
      */
     public static final int CONSTRUCTOR = 0x10000;
 
+    // Android-added: DEFAULT to support DEX-defined modifier flag.
     /**
      * Default methods are marked with a synthetic access flag
      * to speed up class loading and invocation target lookup.

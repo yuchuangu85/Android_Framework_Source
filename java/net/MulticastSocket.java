@@ -567,6 +567,7 @@ class MulticastSocket extends DatagramSocket {
      * @since 1.4
      */
     public NetworkInterface getNetworkInterface() throws SocketException {
+        // Android-changed: Support Integer IP_MULTICAST_IF2 values for app compat.
         Integer niIndex
             = (Integer)getImpl().getOption(SocketOptions.IP_MULTICAST_IF2);
         if (niIndex == 0) {

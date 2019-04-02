@@ -124,7 +124,8 @@ public class PhoneSwitcher extends Handler {
         mCommandsInterfaces = cis;
 
         try {
-            tr.addOnSubscriptionsChangedListener("PhoneSwitcher", mSubscriptionsChangedListener);
+            tr.addOnSubscriptionsChangedListener(context.getOpPackageName(),
+                    mSubscriptionsChangedListener);
         } catch (RemoteException e) {
         }
 

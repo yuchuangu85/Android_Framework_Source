@@ -118,8 +118,7 @@ public final class Matrix_Delegate {
         return true;
     }
 
-    public static float[] makeValues(AffineTransform matrix) {
-        float[] values = new float[MATRIX_SIZE];
+    private static float[] setValues(AffineTransform matrix, float[] values) {
         values[0] = (float) matrix.getScaleX();
         values[1] = (float) matrix.getShearX();
         values[2] = (float) matrix.getTranslateX();
@@ -131,6 +130,10 @@ public final class Matrix_Delegate {
         values[8] = 1.f;
 
         return values;
+    }
+
+    public static float[] makeValues(AffineTransform matrix) {
+        return setValues(matrix, new float[MATRIX_SIZE]);
     }
 
     public static Matrix_Delegate make(AffineTransform matrix) {
@@ -616,12 +619,7 @@ public final class Matrix_Delegate {
         try {
             AffineTransform affineTransform = d.getAffineTransform();
             AffineTransform inverseTransform = affineTransform.createInverse();
-            inv_mtx.mValues[0] = (float)inverseTransform.getScaleX();
-            inv_mtx.mValues[1] = (float)inverseTransform.getShearX();
-            inv_mtx.mValues[2] = (float)inverseTransform.getTranslateX();
-            inv_mtx.mValues[3] = (float)inverseTransform.getScaleX();
-            inv_mtx.mValues[4] = (float)inverseTransform.getShearY();
-            inv_mtx.mValues[5] = (float)inverseTransform.getTranslateY();
+            setValues(inverseTransform, inv_mtx.mValues);
 
             return true;
         } catch (NoninvertibleTransformException e) {

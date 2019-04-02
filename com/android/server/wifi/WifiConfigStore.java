@@ -16,6 +16,7 @@
 
 package com.android.server.wifi;
 
+import android.annotation.Nullable;
 import android.app.AlarmManager;
 import android.content.Context;
 import android.os.Environment;
@@ -41,8 +42,11 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * This class provides the API's to save/load/modify network configurations from a persistent
@@ -341,7 +345,9 @@ public class WifiConfigStore {
     public void read() throws XmlPullParserException, IOException {
         // Reset both share and user store data.
         resetStoreData(true);
-        resetStoreData(false);
+        if (mUserStore != null) {
+            resetStoreData(false);
+        }
 
         long readStartTime = mClock.getElapsedSinceBootMillis();
         byte[] sharedDataBytes = mSharedStore.readRawData();
@@ -352,7 +358,9 @@ public class WifiConfigStore {
         long readTime = mClock.getElapsedSinceBootMillis() - readStartTime;
         Log.d(TAG, "Reading from stores completed in " + readTime + " ms.");
         deserializeData(sharedDataBytes, true);
-        deserializeData(userDataBytes, false);
+        if (mUserStore != null) {
+            deserializeData(userDataBytes, false);
+        }
     }
 
     /**
@@ -390,6 +398,14 @@ public class WifiConfigStore {
         }
     }
 
+    // Inform all the provided store data clients that there is nothing in the store for them.
+    private void indicateNoDataForStoreDatas(Collection<StoreData> storeDataSet, boolean shareData)
+            throws XmlPullParserException, IOException {
+        for (StoreData storeData : storeDataSet) {
+            storeData.deserializeData(null, 0, shareData);
+        }
+    }
+
     /**
      * Deserialize share data or user data into store data.
      *
@@ -401,6 +417,7 @@ public class WifiConfigStore {
     private void deserializeData(byte[] dataBytes, boolean shareData)
             throws XmlPullParserException, IOException {
         if (dataBytes == null) {
+            indicateNoDataForStoreDatas(mStoreDataList.values(), shareData);
             return;
         }
         final XmlPullParser in = Xml.newPullParser();
@@ -412,13 +429,20 @@ public class WifiConfigStore {
         parseDocumentStartAndVersionFromXml(in);
 
         String[] headerName = new String[1];
+        Set<StoreData> storeDatasInvoked = new HashSet<>();
         while (XmlUtil.gotoNextSectionOrEnd(in, headerName, rootTagDepth)) {
             StoreData storeData = mStoreDataList.get(headerName[0]);
             if (storeData == null) {
                 throw new XmlPullParserException("Unknown store data: " + headerName[0]);
             }
             storeData.deserializeData(in, rootTagDepth + 1, shareData);
+            storeDatasInvoked.add(storeData);
         }
+        // Inform all the other registered store data clients that there is nothing in the store
+        // for them.
+        Set<StoreData> storeDatasNotInvoked = new HashSet<>(mStoreDataList.values());
+        storeDatasNotInvoked.removeAll(storeDatasInvoked);
+        indicateNoDataForStoreDatas(storeDatasNotInvoked, shareData);
     }
 
     /**
@@ -536,6 +560,13 @@ public class WifiConfigStore {
      * Interface to be implemented by a module that contained data in the config store file.
      *
      * The module will be responsible for serializing/deserializing their own data.
+     * Whenever {@link WifiConfigStore#read()} is invoked, all registered StoreData instances will
+     * be notified that a read was performed via {@link StoreData#deserializeData(
+     * XmlPullParser, int, boolean)} regardless of whether there is any data for them or not in the
+     * store file.
+     *
+     * Note: StoreData clients that need a config store read to kick-off operations should wait
+     * for the {@link StoreData#deserializeData(XmlPullParser, int, boolean)} invocation.
      */
     public interface StoreData {
         /**
@@ -555,12 +586,16 @@ public class WifiConfigStore {
          * the shared configuration data will be overwritten by the parsed data. Otherwise,
          * the user configuration will be overwritten by the parsed data.
          *
-         * @param in The input stream to read the data from
+         * @param in The input stream to read the data from. This could be null if there is
+         *           nothing in the store.
          * @param outerTagDepth The depth of the outer tag in the XML document
          * @Param shared Flag indicating if the input stream is backed by a share store or an
          *               user store
+         * Note: This will be invoked every time a store file is read. For example: clients
+         * will get 2 invocations on bootup, one for shared store file (shared=True) &
+         * one for user store file (shared=False).
          */
-        void deserializeData(XmlPullParser in, int outerTagDepth, boolean shared)
+        void deserializeData(@Nullable XmlPullParser in, int outerTagDepth, boolean shared)
                 throws XmlPullParserException, IOException;
 
         /**

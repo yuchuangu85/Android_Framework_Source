@@ -16,10 +16,15 @@
 
 package com.android.server.lowpan;
 
+import android.content.pm.PackageManager;
 import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.ConnectivityManager.NetworkCallback;
 import android.net.lowpan.ILowpanInterface;
 import android.net.lowpan.ILowpanManager;
 import android.net.lowpan.ILowpanManagerListener;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.os.Binder;
 import android.os.HandlerThread;
 import android.os.IBinder;
@@ -27,11 +32,11 @@ import android.os.Looper;
 import android.os.RemoteException;
 import android.os.ServiceSpecificException;
 import android.util.Log;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * LowpanService handles remote LoWPAN operation requests by implementing the ILowpanManager
@@ -46,9 +51,11 @@ public class LowpanServiceImpl extends ILowpanManager.Stub {
     private final Context mContext;
     private final HandlerThread mHandlerThread = new HandlerThread("LowpanServiceThread");
     private final AtomicBoolean mStarted = new AtomicBoolean(false);
+    private final boolean mIsAndroidThings;
 
     public LowpanServiceImpl(Context context) {
         mContext = context;
+        mIsAndroidThings = context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_EMBEDDED);
     }
 
     public Looper getLooper() {
@@ -61,6 +68,25 @@ public class LowpanServiceImpl extends ILowpanManager.Stub {
         return looper;
     }
 
+    public void createOutstandingNetworkRequest() {
+        final ConnectivityManager cm =
+                (ConnectivityManager) mContext.getSystemService(Context.CONNECTIVITY_SERVICE);
+
+        if (cm == null) {
+            throw new IllegalStateException("Bad luck, ConnectivityService not started.");
+        }
+
+        NetworkRequest request = new NetworkRequest.Builder()
+                .clearCapabilities()
+                .addTransportType(NetworkCapabilities.TRANSPORT_LOWPAN)
+                .build();
+
+        // Note that this method only ever gets called once,
+        // so we don't need to bother with worrying about unregistering.
+
+        cm.requestNetwork(request, new NetworkCallback());
+    }
+
     public void checkAndStartLowpan() {
         synchronized (mInterfaceMap) {
             if (mStarted.compareAndSet(false, true)) {
@@ -70,18 +96,35 @@ public class LowpanServiceImpl extends ILowpanManager.Stub {
             }
         }
 
+        createOutstandingNetworkRequest();
+
         // TODO: Bring up any daemons(like wpantund)?
     }
 
     private void enforceAccessPermission() {
-        mContext.enforceCallingOrSelfPermission(
-                android.Manifest.permission.ACCESS_LOWPAN_STATE, "LowpanService");
+        try {
+            mContext.enforceCallingOrSelfPermission(
+                    android.Manifest.permission.ACCESS_LOWPAN_STATE, "LowpanService");
+        } catch (SecurityException x) {
+            if (!mIsAndroidThings) {
+                throw x;
+            }
+            mContext.enforceCallingOrSelfPermission(
+                    "com.google.android.things.permission.ACCESS_LOWPAN_STATE", "LowpanService");
+        }
     }
 
     private void enforceManagePermission() {
-        // TODO: Change to android.Manifest.permission.MANAGE_lowpanInterfaceS
-        mContext.enforceCallingOrSelfPermission(
-                android.Manifest.permission.CHANGE_LOWPAN_STATE, "LowpanService");
+        try {
+            mContext.enforceCallingOrSelfPermission(
+                    android.Manifest.permission.MANAGE_LOWPAN_INTERFACES, "LowpanService");
+        } catch (SecurityException x) {
+            if (!mIsAndroidThings) {
+                throw x;
+            }
+            mContext.enforceCallingOrSelfPermission(
+                    "com.google.android.things.permission.MANAGE_LOWPAN_INTERFACES", "LowpanService");
+        }
     }
 
     public ILowpanInterface getInterface(String name) {

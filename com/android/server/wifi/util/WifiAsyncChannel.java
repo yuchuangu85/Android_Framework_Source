@@ -90,10 +90,12 @@ public class WifiAsyncChannel extends AsyncChannel {
             .c(msg.what)
             .flush();
         Message replyMessage = super.sendMessageSynchronously(msg);
-        getOrInitLog().trace("sendMessageSynchronously.recv message=% sendingUid=%")
-            .c(replyMessage.what)
-            .c(replyMessage.sendingUid)
-            .flush();
+        if (replyMessage != null) {
+            getOrInitLog().trace("sendMessageSynchronously.recv message=% sendingUid=%")
+                    .c(replyMessage.what)
+                    .c(replyMessage.sendingUid)
+                    .flush();
+        }
         return replyMessage;
     }
 

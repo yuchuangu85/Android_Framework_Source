@@ -25,15 +25,15 @@ import libcore.util.Objects;
  * @hide
  */
 public final class StructGroupReq {
-  public final int gr_interface;
-  public final InetAddress gr_group;
+    public final int gr_interface;
+    public final InetAddress gr_group;
 
-  public StructGroupReq(int gr_interface, InetAddress gr_group) {
-    this.gr_interface = gr_interface;
-    this.gr_group = gr_group;
-  }
+    public StructGroupReq(int gr_interface, InetAddress gr_group) {
+        this.gr_interface = gr_interface;
+        this.gr_group = gr_group;
+    }
 
-  @Override public String toString() {
-    return Objects.toString(this);
-  }
+    @Override public String toString() {
+        return Objects.toString(this);
+    }
 }

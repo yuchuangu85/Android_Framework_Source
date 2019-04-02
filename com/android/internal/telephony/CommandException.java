@@ -16,8 +16,6 @@
 
 package com.android.internal.telephony;
 
-import com.android.internal.telephony.RILConstants;
-
 import android.telephony.Rlog;
 
 /**
@@ -52,6 +50,7 @@ public class CommandException extends RuntimeException {
         USSD_MODIFIED_TO_SS,
         USSD_MODIFIED_TO_USSD,
         SS_MODIFIED_TO_DIAL,
+        SS_MODIFIED_TO_DIAL_VIDEO,
         SS_MODIFIED_TO_USSD,
         SS_MODIFIED_TO_SS,
         SIM_ALREADY_POWERED_OFF,
@@ -260,6 +259,8 @@ public class CommandException extends RuntimeException {
                 return new CommandException(Error.DEVICE_IN_USE);
             case RILConstants.ABORTED:
                 return new CommandException(Error.ABORTED);
+            case RILConstants.INVALID_RESPONSE:
+                return new CommandException(Error.INVALID_RESPONSE);
             case RILConstants.OEM_ERROR_1:
                 return new CommandException(Error.OEM_ERROR_1);
             case RILConstants.OEM_ERROR_2:

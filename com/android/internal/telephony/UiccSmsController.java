@@ -159,6 +159,21 @@ public class UiccSmsController extends ISms.Stub {
         }
     }
 
+    @Override
+    public void sendTextForSubscriberWithOptions(int subId, String callingPackage,
+            String destAddr, String scAddr, String parts, PendingIntent sentIntents,
+            PendingIntent deliveryIntents, boolean persistMessage, int priority,
+            boolean expectMore, int validityPeriod) {
+        IccSmsInterfaceManager iccSmsIntMgr = getIccSmsInterfaceManager(subId);
+        if (iccSmsIntMgr != null ) {
+            iccSmsIntMgr.sendTextWithOptions(callingPackage, destAddr, scAddr, parts, sentIntents,
+                    deliveryIntents, persistMessage,  priority, expectMore, validityPeriod);
+        } else {
+            Rlog.e(LOG_TAG,"sendTextWithOptions iccSmsIntMgr is null for" +
+                          " Subscription: " + subId);
+        }
+    }
+
     public void sendMultipartText(String callingPackage, String destAddr, String scAddr,
             List<String> parts, List<PendingIntent> sentIntents,
             List<PendingIntent> deliveryIntents) throws android.os.RemoteException {
@@ -180,6 +195,22 @@ public class UiccSmsController extends ISms.Stub {
             Rlog.e(LOG_TAG,"sendMultipartTextForSubscriber iccSmsIntMgr is null for" +
                           " Subscription: " + subId);
             sendErrorInPendingIntents(sentIntents, SmsManager.RESULT_ERROR_GENERIC_FAILURE);
+        }
+    }
+
+    @Override
+    public void sendMultipartTextForSubscriberWithOptions(int subId, String callingPackage,
+            String destAddr, String scAddr, List<String> parts, List<PendingIntent> sentIntents,
+            List<PendingIntent> deliveryIntents, boolean persistMessage, int priority,
+            boolean expectMore, int validityPeriod) {
+        IccSmsInterfaceManager iccSmsIntMgr = getIccSmsInterfaceManager(subId);
+        if (iccSmsIntMgr != null ) {
+            iccSmsIntMgr.sendMultipartTextWithOptions(callingPackage, destAddr, scAddr, parts,
+                    sentIntents, deliveryIntents, persistMessage,  priority, expectMore,
+                    validityPeriod);
+        } else {
+            Rlog.e(LOG_TAG,"sendMultipartTextWithOptions iccSmsIntMgr is null for" +
+                          " Subscription: " + subId);
         }
     }
 
