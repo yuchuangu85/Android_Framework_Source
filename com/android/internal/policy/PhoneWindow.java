@@ -440,6 +440,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         // Note: FEATURE_CONTENT_TRANSITIONS may be set in the process of installing the window
         // decor, when theme attributes and the like are crystalized. Do not check the feature
         // before this happens.
+        // setContentView方法传递进来的View添加的父布局（FrameLayout）
         if (mContentParent == null) {// 首次为空
             installDecor();
         } else if (!hasFeature(FEATURE_CONTENT_TRANSITIONS)) {

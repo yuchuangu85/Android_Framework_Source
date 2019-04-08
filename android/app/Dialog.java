@@ -185,6 +185,7 @@ public class Dialog implements DialogInterface, Window.Callback,
         mWindow = w;
         w.setCallback(this);
         w.setOnWindowDismissedCallback(this);
+        // 创建WindowManager(实现类是WindowManagerImpl，另外一个是创建Activity时)
         w.setWindowManager(mWindowManager, null, null);
         w.setGravity(Gravity.CENTER);
 

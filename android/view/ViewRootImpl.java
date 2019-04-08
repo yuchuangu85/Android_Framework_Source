@@ -207,6 +207,7 @@ public final class ViewRootImpl implements ViewParent,
     // The view which captures mouse input, or null when no one is capturing.
     View mCapturingView;
 
+    // DecorView的可见性
     int mViewVisibility;
     boolean mAppVisible = true;
     // For recents to freeform transition we need to keep drawing after the app receives information
@@ -1551,8 +1552,8 @@ public final class ViewRootImpl implements ViewParent,
 
         // 获取DecorView的可见性
         final int viewVisibility = getHostVisibility();
-        // DecorView的可见性是否改变（第一次添加mWindow就不需要改变，如果不是第一次，那么显示状态改变了或者需要
-        // 创建新的surface那么比较可见性是改变的）或者是否需要创建新的Surface
+        // DecorView的可见性是否改变（第一次添加mWindow就不需要改变，如果不是第一次，显示状态改变了或者需要
+        // 创建新的surface说明可见性是改变的）
         final boolean viewVisibilityChanged = !mFirst
                 && (mViewVisibility != viewVisibility || mNewSurfaceNeeded);
         // mViewVisibility默认为View.GONE，执行完performTraversals方法后会变成viewVisibility（也就是

@@ -17453,17 +17453,22 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
     /**
      * Called from layout when this view should
-     * assign a size and position to each of its children.
+     * assign(分配) a size and position to each of its children.
      * <p>
-     * Derived classes with children should override
+     * Derived(派生) classes with children should override
      * this method and call layout on each of
      * their children.
      *
      * @param changed This is a new size or position for this view
+     *                该View的位置或者大小是否改变
      * @param left    Left position, relative to parent
+     *                相对于父布局的左侧位置
      * @param top     Top position, relative to parent
+     *                相对于父布局的顶部位置
      * @param right   Right position, relative to parent
+     *                相对于父布局的右侧位置
      * @param bottom  Bottom position, relative to parent
+     *                相对于父布局的底部位置
      */
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
     }

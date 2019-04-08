@@ -28,10 +28,14 @@ public interface ViewManager
      * <p>Throws {@link android.view.WindowManager.InvalidDisplayException} if the window is on a
      * secondary {@link Display} and the specified display can't be found
      * (see {@link android.app.Presentation}).
+     *
+     * 视图添加到窗口时调用（Activity视图显示或者Dialog显示时调用）
+     *
      * @param view The view to be added to this window.
      * @param params The LayoutParams to assign to view.
      */
     public void addView(View view, ViewGroup.LayoutParams params);
+    // 窗口属性改变时调用（Activity和Dialog）
     public void updateViewLayout(View view, ViewGroup.LayoutParams params);
     public void removeView(View view);
 }

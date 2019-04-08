@@ -6672,6 +6672,7 @@ public class Activity extends ContextThemeWrapper
             }
         }
 
+        // 创建WindowManager(实现类是WindowManagerImpl，另外一个是创建Dialog时)
         mWindow.setWindowManager(
                 (WindowManager)context.getSystemService(Context.WINDOW_SERVICE),
                 mToken, mComponent.flattenToString(),

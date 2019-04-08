@@ -729,6 +729,8 @@ public abstract class Window {
      * display panels.  This is <em>not</em> used for displaying the
      * Window itself -- that must be done by the client.
      *
+     * 添加窗口管理器（一个是创建Activity另一个是创建Dialog）
+     *
      * @param wm The window manager for adding new windows.
      */
     public void setWindowManager(WindowManager wm, IBinder appToken, String appName,
@@ -740,6 +742,7 @@ public abstract class Window {
         if (wm == null) {
             wm = (WindowManager)mContext.getSystemService(Context.WINDOW_SERVICE);
         }
+        // 创建WindowManager的实现类WindowManagerImpl
         mWindowManager = ((WindowManagerImpl)wm).createLocalWindowManager(this);
     }
 
