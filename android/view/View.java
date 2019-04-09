@@ -13397,6 +13397,9 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * <p>
      * This must be called from a UI thread. To call from a non-UI thread, call
      * {@link #postInvalidate()}.
+     *
+     * view的invalidate会导致当前view被重绘,由于mLayoutRequested为false，不会导致onMeasure和onLayout
+     * 被调用，而OnDraw会被调用
      */
     public void invalidate() {
         invalidate(true);
@@ -14784,6 +14787,9 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * guaranteed to be called before {@link #onDraw(android.graphics.Canvas)},
      * however it may be called any time before the first onDraw -- including
      * before or after {@link #onMeasure(int, int)}.
+     *
+     * 1.setContentView的时候，会调用host.dispatchAttachedToWindow方法，也会调用该方法
+     * 2.inflate加载视图遍历的时候会调用addView方法，会调用该方法
      *
      * @see #onDetachedFromWindow()
      */
@@ -19530,6 +19536,11 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * <p>
      * <p>Subclasses which override this method should call the superclass method to
      * handle possible request-during-layout errors correctly.</p>
+     *
+     * view的requestLayout会直接递归调用父窗口的requestLayout，直到ViewRootImpl,然后触发performTraversals，
+     * 由于mLayoutRequested为true，会导致onMeasure和onLayout被调用，不一定会触发OnDraw；requestLayout触发
+     * onDraw可能是因为在在layout过程中发现l,t,r,b和以前不一样，那就会触发一次invalidate，所以触发了onDraw
+     *
      */
     @CallSuper
     public void requestLayout() {
@@ -19553,7 +19564,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         mPrivateFlags |= PFLAG_INVALIDATED;
 
         if (mParent != null && !mParent.isLayoutRequested()) {
-            // mParent是ViewRootImpl
+            // mParent最终会到ViewRootImpl中
             mParent.requestLayout();
         }
         if (mAttachInfo != null && mAttachInfo.mViewRequestingLayout == this) {

@@ -1522,6 +1522,8 @@ public final class ViewRootImpl implements ViewParent,
      * http://www.cnblogs.com/nanxiaojue/p/3536381.html?utm_source=tuicool&utm_medium=referral
      * http://www.cnblogs.com/sueZheng/p/4046869.html
      * https://blog.csdn.net/yuanjw2014/article/details/77774408
+     * https://www.jianshu.com/p/a65861e946cb
+     * https://blog.csdn.net/qq_30993595/article/details/80931556
      */
     private void performTraversals() {
         // cache mView since it is used so much below...
@@ -1586,7 +1588,7 @@ public final class ViewRootImpl implements ViewParent,
 
         mWindowAttributesChangesFlag = 0;
 
-        Rect frame = mWinFrame;
+        Rect frame = mWinFrame;// 窗口矩形
         // ViewRootImpl初始化后mFirst是true，执行完performTraversals后设置为false
         if (mFirst) {// 第一次显示View
             // 需要设置完全重绘和重新layout
@@ -1608,10 +1610,10 @@ public final class ViewRootImpl implements ViewParent,
             // We used to use the following condition to choose 32 bits drawing caches:
             // PixelFormat.hasAlpha(lp.format) || lp.format == PixelFormat.RGBX_8888
             // However, windows are now always 32 bits by default, so choose 32 bits
-            mAttachInfo.mUse32BitDrawingCache = true;
-            mAttachInfo.mHasWindowFocus = false;
-            mAttachInfo.mWindowVisibility = viewVisibility;
-            mAttachInfo.mRecomputeGlobalAttributes = false;
+            mAttachInfo.mUse32BitDrawingCache = true;// //使用32位绘图缓存
+            mAttachInfo.mHasWindowFocus = false;// 视图窗口当前不具有焦点
+            mAttachInfo.mWindowVisibility = viewVisibility;// 当前窗口不可见
+            mAttachInfo.mRecomputeGlobalAttributes = false;// ViewAncestor应在下次执行遍历时触发全局布局更改
             mLastConfiguration.setTo(host.getResources().getConfiguration());
             mLastSystemUiVisibility = mAttachInfo.mSystemUiVisibility;
             // Set the layout direction if it has not been set before (inherit is the default)
@@ -1668,6 +1670,7 @@ public final class ViewRootImpl implements ViewParent,
         boolean insetsChanged = false;
 
         // 窗口拥有者（Activity）处于显示状态或者已经通知了即将进入绘制状态并且需要重新布局就标记需要重新布局
+        // 第一次时mLayoutRequested为true
         boolean layoutRequested = mLayoutRequested && (!mStopped || mReportNextDraw);
         if (layoutRequested) {
 

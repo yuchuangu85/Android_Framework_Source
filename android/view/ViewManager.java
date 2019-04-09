@@ -29,7 +29,7 @@ public interface ViewManager
      * secondary {@link Display} and the specified display can't be found
      * (see {@link android.app.Presentation}).
      *
-     * 视图添加到窗口时调用（Activity视图显示或者Dialog显示时调用）
+     * 视图添加到窗口时调用（Activity视图显示(onResume状态)或者Dialog显示(show方法)时调用）
      *
      * @param view The view to be added to this window.
      * @param params The LayoutParams to assign to view.

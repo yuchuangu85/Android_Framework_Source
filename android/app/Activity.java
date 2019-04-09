@@ -5144,6 +5144,7 @@ public class Activity extends ContextThemeWrapper
         }
     }
 
+    // Activity handleResumeActivity状态时调用，
     void makeVisible() {
         if (!mWindowAdded) {
             ViewManager wm = getWindowManager();
