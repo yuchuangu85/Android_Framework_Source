@@ -19548,10 +19548,11 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         if (mMeasureCache != null) mMeasureCache.clear();
 
         if (mAttachInfo != null && mAttachInfo.mViewRequestingLayout == null) {
-            // Only trigger request-during-layout logic if this is the view requesting it,
+            // Only trigger(触发) request-during-layout logic if this is the view requesting it,
             // not the views in its parent hierarchy
             ViewRootImpl viewRoot = getViewRootImpl();
             if (viewRoot != null && viewRoot.isInLayout()) {
+                // 是否layout完成
                 if (!viewRoot.requestLayoutDuringLayout(this)) {
                     return;
                 }

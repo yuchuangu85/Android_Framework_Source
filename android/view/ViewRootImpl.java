@@ -1247,7 +1247,7 @@ public final class ViewRootImpl implements ViewParent,
         }
     }
 
-    // 计划遍历
+    // 执行遍历
     void scheduleTraversals() {
         // 当mTraversalScheduled为false，也就是没有重绘请求或者没有未执行完的重绘时才开始重绘
         if (!mTraversalScheduled) {
@@ -1854,6 +1854,7 @@ public final class ViewRootImpl implements ViewParent,
                             host.getMeasuredHeight() + ", params=" + params);
                 }
 
+                // 硬件渲染器不为空
                 if (mAttachInfo.mHardwareRenderer != null) {
                     // relayoutWindow may decide to destroy mSurface. As that decision
                     // happens in WindowManager service, we need to be defensive（防御） here
@@ -2410,6 +2411,8 @@ public final class ViewRootImpl implements ViewParent,
     /**
      * Called by {@link android.view.View#isInLayout()} to determine whether the view hierarchy
      * is currently undergoing a layout pass.
+     *
+     * 是否正在layout
      *
      * @return whether the view hierarchy is currently undergoing a layout pass
      */
