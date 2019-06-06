@@ -128,7 +128,9 @@ public final class ViewRootImpl implements ViewParent,
     private static final String TAG = "ViewRootImpl";
     private static final boolean DBG = false;
     private static final boolean LOCAL_LOGV = false;
-    /** @noinspection PointlessBooleanExpression*/
+    /**
+     *
+     */
     private static final boolean DEBUG_DRAW = false || LOCAL_LOGV;
     private static final boolean DEBUG_LAYOUT = false || LOCAL_LOGV;
     private static final boolean DEBUG_DIALOG = false || LOCAL_LOGV;
@@ -2411,7 +2413,7 @@ public final class ViewRootImpl implements ViewParent,
     /**
      * Called by {@link android.view.View#isInLayout()} to determine whether the view hierarchy
      * is currently undergoing a layout pass.
-     *
+     * <p>
      * 是否正在layout
      *
      * @return whether the view hierarchy is currently undergoing a layout pass
@@ -2622,26 +2624,28 @@ public final class ViewRootImpl implements ViewParent,
      * Figures out the measure spec for the root view in a window based on it's
      * layout params.
      *
-     * @param windowSize    The available width or height of the window
+     * @param windowSize    The available width or height of the window(窗口允许的宽度或者高度)
      * @param rootDimension The layout params for one dimension (width or height) of the
-     *                      window.
+     *                      window.(窗口的布局参数（宽度或者高度）)
      *
      * @return The measure spec to use to measure the root view.
      */
     private static int getRootMeasureSpec(int windowSize, int rootDimension) {
         int measureSpec;
         switch (rootDimension) {
-
             case ViewGroup.LayoutParams.MATCH_PARENT:
                 // Window can't resize. Force root view to be windowSize.
+                // 窗口不能调整大小。root view强制为窗口大小
                 measureSpec = MeasureSpec.makeMeasureSpec(windowSize, MeasureSpec.EXACTLY);
                 break;
             case ViewGroup.LayoutParams.WRAP_CONTENT:
                 // Window can resize. Set max size for root view.
+                // 窗口可以调整大小。root view的最大尺寸为窗口尺寸
                 measureSpec = MeasureSpec.makeMeasureSpec(windowSize, MeasureSpec.AT_MOST);
                 break;
-            default:
+            default:// 具体值
                 // Window wants to be an exact size. Force root view to be that size.
+                // 窗口是一个具体尺寸。root view也是这个尺寸
                 measureSpec = MeasureSpec.makeMeasureSpec(rootDimension, MeasureSpec.EXACTLY);
                 break;
         }
@@ -2665,7 +2669,7 @@ public final class ViewRootImpl implements ViewParent,
     }
 
     /**
-     * @hide
+     *
      */
     void outputDisplayList(View view) {
         view.mRenderNode.output();
@@ -2981,6 +2985,7 @@ public final class ViewRootImpl implements ViewParent,
 
     /**
      * 软件绘制
+     *
      * @return true if drawing was successful, false if an error occurred
      */
     private boolean drawSoftware(Surface surface, AttachInfo attachInfo, int xoff, int yoff,
@@ -3282,14 +3287,14 @@ public final class ViewRootImpl implements ViewParent,
     }
 
     /**
-     * @hide
+     *
      */
     public View getAccessibilityFocusedHost() {
         return mAccessibilityFocusedHost;
     }
 
     /**
-     * @hide
+     *
      */
     public AccessibilityNodeInfo getAccessibilityFocusedVirtualView() {
         return mAccessibilityFocusedVirtualView;

@@ -13397,7 +13397,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * <p>
      * This must be called from a UI thread. To call from a non-UI thread, call
      * {@link #postInvalidate()}.
-     *
+     * <p>
      * view的invalidate会导致当前view被重绘,由于mLayoutRequested为false，不会导致onMeasure和onLayout
      * 被调用，而OnDraw会被调用
      */
@@ -14768,7 +14768,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     /*
      * Caller is responsible for calling requestLayout if necessary.
      * (This allows addViewInLayout to not request a new layout.)
-     * parent是从ViewRootImpl出入的this，说明parent是ViewRootImpl，因此mParent也是ViewRootImpl
+     * parent是从ViewRootImpl(ViewGroup)传入的this，说明parent是ViewRootImpl(ViewGroup)，
+     * 因此mParent也是ViewRootImpl(ViewGroup)
      */
     void assignParent(ViewParent parent) {
         if (mParent == null) {
@@ -14787,7 +14788,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * guaranteed to be called before {@link #onDraw(android.graphics.Canvas)},
      * however it may be called any time before the first onDraw -- including
      * before or after {@link #onMeasure(int, int)}.
-     *
+     * <p>
      * 1.setContentView的时候，会调用host.dispatchAttachedToWindow方法，也会调用该方法
      * 2.inflate加载视图遍历的时候会调用addView方法，会调用该方法
      *
@@ -17468,13 +17469,13 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @param changed This is a new size or position for this view
      *                该View的位置或者大小是否改变
      * @param left    Left position, relative to parent
-     *                相对于父布局的左侧位置
+     *                相对于父布局当前View的左侧位置
      * @param top     Top position, relative to parent
-     *                相对于父布局的顶部位置
+     *                相对于父布局当前View的顶部位置
      * @param right   Right position, relative to parent
-     *                相对于父布局的右侧位置
+     *                相对于父布局当前View的右侧位置
      * @param bottom  Bottom position, relative to parent
-     *                相对于父布局的底部位置
+     *                相对于父布局当前View的底部位置
      */
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
     }
@@ -19536,11 +19537,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * <p>
      * <p>Subclasses which override this method should call the superclass method to
      * handle possible request-during-layout errors correctly.</p>
-     *
+     * <p>
      * view的requestLayout会直接递归调用父窗口的requestLayout，直到ViewRootImpl,然后触发performTraversals，
      * 由于mLayoutRequested为true，会导致onMeasure和onLayout被调用，不一定会触发OnDraw；requestLayout触发
      * onDraw可能是因为在在layout过程中发现l,t,r,b和以前不一样，那就会触发一次invalidate，所以触发了onDraw
-     *
      */
     @CallSuper
     public void requestLayout() {
@@ -19740,11 +19740,11 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @param widthMeasureSpec  horizontal space requirements as imposed by the parent.
      *                          The requirements are encoded with
      *                          {@link android.view.View.MeasureSpec}.
-     *                          父布局横向需要的空间
+     *                          父布局强加的当前View横向需要的空间
      * @param heightMeasureSpec vertical space requirements as imposed by the parent.
      *                          The requirements are encoded with
      *                          {@link android.view.View.MeasureSpec}.
-     *                          父布局纵向需要的空间
+     *                          父布局强加的当前View纵向需要的空间
      *
      * @see #getMeasuredWidth()
      * @see #getMeasuredHeight()
@@ -19768,11 +19768,11 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @param measuredWidth  The measured width of this view.  May be a complex
      *                       bit mask as defined by {@link #MEASURED_SIZE_MASK} and
      *                       {@link #MEASURED_STATE_TOO_SMALL}.
-     *                       当前View的宽
+     *                       当前View的测量宽度
      * @param measuredHeight The measured height of this view.  May be a complex
      *                       bit mask as defined by {@link #MEASURED_SIZE_MASK} and
      *                       {@link #MEASURED_STATE_TOO_SMALL}.
-     *                       当前View的高
+     *                       当前View的测量高度
      */
     protected final void setMeasuredDimension(int measuredWidth, int measuredHeight) {
         // 是不是LAYOUT_MODE_OPTICAL_BOUNDS特殊情况
@@ -19913,8 +19913,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * }
      * ----------------------------------------------------------------------------------------
      *
-     * @param size        Default size for this view
-     * @param measureSpec Constraints imposed by the parent
+     * @param size        Default size for this view（View默认的大小）
+     * @param measureSpec Constraints imposed by the parent（父布局强加的约束）
      *
      * @return The size this view should be.
      */
@@ -22094,6 +22094,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     };
 
     /**
+     * MeasureSpec封装了从父布局传递给子布局的布局要求
      * A MeasureSpec encapsulates（封装） the layout requirements passed from parent to child.
      * Each MeasureSpec represents a requirement for either the width or the height.
      * A MeasureSpec is comprised of a size and a mode. There are three possible
@@ -22174,6 +22175,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         public static final int AT_MOST = 2 << MODE_SHIFT;
 
         /**
+         * 拼接mode和尺寸参数
          * Creates a measure specification based on the supplied size and mode.
          * <p>
          * The mode must always be one of the following:

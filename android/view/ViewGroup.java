@@ -6120,11 +6120,11 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
      * @param padding The padding of this view for the current dimension and
      *        margins, if applicable
      * @param childDimension How big the child wants to be in the current
-     *        dimension
+     *        dimension（子视图的宽高属性值）
      * @return a MeasureSpec integer for the child
      */
     public static int getChildMeasureSpec(int spec, int padding, int childDimension) {
-        // 取得SpecMode和SpecSize
+        // 父布局的SpecMode和SpecSize
         int specMode = MeasureSpec.getMode(spec);
         int specSize = MeasureSpec.getSize(spec);
 
@@ -6134,7 +6134,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         int resultSize = 0;
         int resultMode = 0;
 
-        switch (specMode) {
+        switch (specMode) {// 父布局mode
         // Parent has imposed an exact size on us
         case MeasureSpec.EXACTLY:// 父容器是EXACTLY模式，表明父容器本身的尺寸已经是确定的了
             // childDimension是子元素的属性值，如果大于等于0，就说明该子元素是指定宽/高尺寸的（比如20dp），
