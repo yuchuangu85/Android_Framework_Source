@@ -34,11 +34,13 @@ import android.view.ViewConfiguration;
  * {@link ViewCompat}, {@link ViewGroupCompat} or {@link ViewParentCompat} compatibility
  * shim static methods. This ensures interoperability with nested scrolling views on Android
  * 5.0 Lollipop and newer.</p>
+ *
+ * 嵌套滑动父View实现该接口
  */
 public interface NestedScrollingParent {
     /**
      * React to a descendant view initiating a nestable scroll operation, claiming the
-     * nested scroll operation if appropriate.
+     * nested scroll operation if appropriate(适当的).
      *
      * <p>This method will be called in response to a descendant view invoking
      * {@link ViewCompat#startNestedScroll(View, int)}. Each parent up the view hierarchy will be
@@ -51,6 +53,9 @@ public interface NestedScrollingParent {
      * of the scroll operation in progress. When the nested scroll is finished this ViewParent
      * will receive a call to {@link #onStopNestedScroll(View)}.
      * </p>
+     *
+     * 在嵌套滑动子View开始滑动前通知嵌套滑动父View，回调到嵌套滑动父View的onStartNestedScroll()，
+     * 嵌套滑动父View需要滑动则返回true.
      *
      * @param child Direct child of this ViewParent containing target
      * @param target View that initiated the nested scroll
@@ -116,7 +121,7 @@ public interface NestedScrollingParent {
             int dxUnconsumed, int dyUnconsumed);
 
     /**
-     * React to a nested scroll in progress before the target view consumes a portion of the scroll.
+     * React to a nested scroll in progress before the target view consumes a portion(部分) of the scroll.
      *
      * <p>When working with nested scrolling often the parent view may want an opportunity
      * to consume the scroll before the nested scrolling child does. An example of this is a
@@ -130,10 +135,13 @@ public interface NestedScrollingParent {
      * This parameter will never be null. Initial values for consumed[0] and consumed[1]
      * will always be 0.</p>
      *
+     * 该方法根据滑动的距离dx或者dy来计算父View在嵌套滑动消耗的距离并保存在consumed中。
+     *
      * @param target View that initiated the nested scroll
      * @param dx Horizontal scroll distance in pixels
      * @param dy Vertical scroll distance in pixels
      * @param consumed Output. The horizontal and vertical scroll distance consumed by this parent
+     *                 (记录父View滑动消耗的距离)
      */
     public void onNestedPreScroll(View target, int dx, int dy, int[] consumed);
 

@@ -32,10 +32,12 @@ import android.view.ViewParent;
  * {@link NestedScrollingChildHelper} as a field and delegate any View methods to the
  * <code>NestedScrollingChildHelper</code> methods of the same signature.</p>
  *
- * <p>Views invoking nested scrolling functionality should always do so from the relevant
+ * <p>Views invoking nested scrolling functionality should always do so from the relevant(有关的)
  * {@link ViewCompat}, {@link ViewGroupCompat} or {@link ViewParentCompat} compatibility
  * shim static methods. This ensures interoperability with nested scrolling views on Android
  * 5.0 Lollipop and newer.</p>
+ *
+ * 嵌套滑动子View实现该接口
  */
 public interface NestedScrollingChild {
     /**
@@ -46,6 +48,8 @@ public interface NestedScrollingChild {
      * view does not implement nested scrolling this will have no effect. Disabling nested scrolling
      * while a nested scroll is in progress has the effect of {@link #stopNestedScroll() stopping}
      * the nested scroll.</p>
+     *
+     * 允许嵌套滑动需要手动设置为true
      *
      * @param enabled true to enable nested scrolling, false to disable
      *
@@ -60,6 +64,8 @@ public interface NestedScrollingChild {
      * this view will act as a nested scrolling child view when applicable, forwarding data
      * about the scroll operation in progress to a compatible and cooperating nested scrolling
      * parent.</p>
+     *
+     * 判断是否允许嵌套滑动
      *
      * @return true if nested scrolling is enabled
      *
@@ -95,6 +101,8 @@ public interface NestedScrollingChild {
      * these values differently. See
      * {@link NestedScrollingParent#onNestedScroll(View, int, int, int, int)}.
      * </p>
+     *
+     * 是否开始嵌套滑动
      *
      * @param axes Flags consisting(组成) of a combination(组合) of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL}
      *             and/or {@link ViewCompat#SCROLL_AXIS_VERTICAL}.

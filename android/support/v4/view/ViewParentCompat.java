@@ -255,10 +255,11 @@ public final class ViewParentCompat {
      * will receive a call to {@link #onStopNestedScroll(ViewParent, View)}.
      * </p>
      *
-     * @param child Direct child of this ViewParent containing target
-     * @param target View that initiated the nested scroll
+     * @param parent 嵌套滑动子View的嵌套滑动父View，实现了NestedScrollingParent接口
+     * @param child Direct child of this ViewParent containing target(嵌套滑动父View的直系子View，可能是嵌套子View(target)，也可能是嵌套子View的上层View)
+     * @param target View that initiated the nested scroll(嵌套滑动的子View，实现了NestedScrollingChild接口)
      * @param nestedScrollAxes Flags consisting of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL},
-     *                         {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both
+     *                         {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both（横向嵌套滑动或者纵向嵌套滑动或者两者都有的标签）
      * @return true if this ViewParent accepts the nested scroll operation
      */
     public static boolean onStartNestedScroll(ViewParent parent, View child, View target,

@@ -473,8 +473,8 @@ public interface ViewParent {
      * will receive a call to {@link #onStopNestedScroll(View)}.
      * </p>
      *
-     * @param child Direct child of this ViewParent containing target
-     * @param target View that initiated the nested scroll
+     * @param child Direct child of this ViewParent containing target(嵌套父View的直系子View)
+     * @param target View that initiated the nested scroll(嵌套滑动子View)
      * @param nestedScrollAxes Flags consisting of {@link View#SCROLL_AXIS_HORIZONTAL},
      *                         {@link View#SCROLL_AXIS_VERTICAL} or both
      * @return true if this ViewParent accepts the nested scroll operation
@@ -483,6 +483,8 @@ public interface ViewParent {
 
     /**
      * React to the successful claiming of a nested scroll operation.
+     *
+     * 反应了一个嵌套滑动操作的成功声明(也就是允许嵌套滑动)
      *
      * <p>This method will be called after
      * {@link #onStartNestedScroll(View, View, int) onStartNestedScroll} returns true. It offers
@@ -508,6 +510,8 @@ public interface ViewParent {
      * Implementations of this method should always call their superclass's implementation of this
      * method if one is present.</p>
      *
+     * 父View的onStopNestedScroll()来对整个系列的滑动来收尾
+     *
      * @param target View that initiated the nested scroll
      */
     public void onStopNestedScroll(View target);
@@ -526,6 +530,8 @@ public interface ViewParent {
      * allow continuous dragging of multiple scrolling or draggable elements, such as scrolling
      * a list within a vertical drawer where the drawer begins dragging once the edge of inner
      * scrolling content is reached.</p>
+     *
+     * 父View在这里将最后子View滑动完后剩余的距离进行收尾处理
      *
      * @param target The descendent view controlling the nested scroll
      * @param dxConsumed Horizontal scroll distance in pixels already consumed by target
@@ -550,6 +556,8 @@ public interface ViewParent {
      * <code>consumed</code> array. Index 0 corresponds to dx and index 1 corresponds to dy.
      * This parameter will never be null. Initial values for consumed[0] and consumed[1]
      * will always be 0.</p>
+     *
+     * 计算父View滑动的距离，并将父ViewY方向消耗的距离记录下来
      *
      * @param target View that initiated the nested scroll
      * @param dx Horizontal scroll distance in pixels
