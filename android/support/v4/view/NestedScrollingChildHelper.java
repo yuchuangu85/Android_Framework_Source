@@ -125,7 +125,7 @@ public class NestedScrollingChildHelper {
             while (p != null) {// 循环查找循环滑动的父布局
                 // 重点在这------->
                 // 在子View开始滑动前通知嵌套滑动父View，回调到嵌套滑动父View的onStartNestedScroll()，
-                // 嵌套滑动父View需要滑动则返回true：
+                // 嵌套滑动父View需要嵌套滑动则返回true：
                 if (ViewParentCompat.onStartNestedScroll(p, child, mView, axes)) {
                     mNestedScrollingParent = p;
                     ViewParentCompat.onNestedScrollAccepted(p, child, mView, axes);

@@ -76,6 +76,8 @@ public class NestedScrollingParentHelper {
     /**
      * React to a nested scroll operation ending.
      *
+     * 停止嵌套滑动
+     *
      * <p>This is a delegate method. Call it from your {@link android.view.ViewGroup ViewGroup}
      * subclass method/{@link android.support.v4.view.NestedScrollingParent} interface method with
      * the same signature to implement the standard policy.</p>

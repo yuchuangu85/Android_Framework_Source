@@ -11542,6 +11542,13 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * farther left, since those are outside of the frame of your view on
      * screen.
      *
+     * X轴上滚动后的View顶部位置，如果View的原始左边位置为0，
+     * 从原始位置向左滚动100后，mScrollX==100;
+     * 从原始位置向右滚动100后，mScrollX==-100;
+     *
+     * 参看：source/images/Android/View.getScrollX.jpeg
+     *      source/images/Android/View.getScrollX2.jpeg
+     *
      * @return The left edge of the displayed part of your view, in pixels.
      */
     public final int getScrollX() {
@@ -11552,6 +11559,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * Return the scrolled top position of this view. This is the top edge of
      * the displayed part of your view. You do not need to draw any pixels above
      * it, since those are outside of the frame of your view on screen.
+     *
+     * Y轴上滚动后的View顶部位置，如果View的原始顶部位置为0，
+     * 从原始位置向上滚动100后，mScrollY==100;
+     * 从原始位置向下滚动100后，mScrollY==-100;
      *
      * @return The top edge of the displayed part of your view, in pixels.
      */

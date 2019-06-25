@@ -55,7 +55,7 @@ public interface NestedScrollingParent {
      * </p>
      * <p>
      * 在嵌套滑动子View开始滑动前通知嵌套滑动父View，回调到嵌套滑动父View的onStartNestedScroll()，
-     * 嵌套滑动父View需要滑动则返回true.
+     * 嵌套滑动父View需要嵌套滑动（一起滑动）则返回true.
      *
      * @param child            Direct child of this ViewParent containing target
      * @param target           View that initiated the nested scroll
