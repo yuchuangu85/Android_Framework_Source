@@ -2855,7 +2855,7 @@ public final class MotionEvent extends InputEvent implements Parcelable {
     }
 
     /**
-     * Adjust this event's location.
+     * Adjust(调整) this event's location.
      * @param deltaX Amount to add to the current X coordinate of the event.
      * @param deltaY Amount to add to the current Y coordinate of the event.
      */

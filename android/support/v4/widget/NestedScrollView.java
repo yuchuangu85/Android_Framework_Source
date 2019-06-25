@@ -780,7 +780,7 @@ public class NestedScrollView extends FrameLayout implements NestedScrollingPare
 
                 final int y = (int) ev.getY(activePointerIndex);
                 int deltaY = mLastMotionY - y;
-                // 通知父View准备滑动，计算父布局是否需要消费滑动事件，如果需要把滑动父View需要消耗的距离
+                // 通知父View准备滑动，计算父布局是否需要消费滑动事件，如果需要,把滑动父View需要消费的距离
                 // 保存到mScrollConsumed中，并返回true，否则返回false
                 if (dispatchNestedPreScroll(0, deltaY, mScrollConsumed, mScrollOffset)) {
                     deltaY -= mScrollConsumed[1];

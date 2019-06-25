@@ -204,7 +204,7 @@ public interface NestedScrollingParent {
      * @param velocityX Horizontal velocity in pixels per second
      * @param velocityY Vertical velocity in pixels per second
      *
-     * @return true if this parent consumed the fling ahead of the target view(父View是否在子View消耗了fling)
+     * @return true if this parent consumed the fling ahead of the target view(父View是否在子View之前消费了fling)
      */
     public boolean onNestedPreFling(View target, float velocityX, float velocityY);
 

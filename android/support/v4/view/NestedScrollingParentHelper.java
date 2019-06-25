@@ -63,7 +63,7 @@ public class NestedScrollingParentHelper {
     }
 
     /**
-     * Return the current axes of nested scrolling for this ViewGroup.
+     * Return the current axes(轴) of nested scrolling for this ViewGroup.
      *
      * <p>This is a delegate method. Call it from your {@link android.view.ViewGroup ViewGroup}
      * subclass method/{@link android.support.v4.view.NestedScrollingParent} interface method with

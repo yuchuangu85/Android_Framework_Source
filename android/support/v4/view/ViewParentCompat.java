@@ -35,19 +35,27 @@ public final class ViewParentCompat {
     interface ViewParentCompatImpl {
         public boolean requestSendAccessibilityEvent(
                 ViewParent parent, View child, AccessibilityEvent event);
+
         boolean onStartNestedScroll(ViewParent parent, View child, View target,
-                int nestedScrollAxes);
+                                    int nestedScrollAxes);
+
         void onNestedScrollAccepted(ViewParent parent, View child, View target,
-                int nestedScrollAxes);
+                                    int nestedScrollAxes);
+
         void onStopNestedScroll(ViewParent parent, View target);
+
         void onNestedScroll(ViewParent parent, View target, int dxConsumed, int dyConsumed,
-                int dxUnconsumed, int dyUnconsumed);
+                            int dxUnconsumed, int dyUnconsumed);
+
         void onNestedPreScroll(ViewParent parent, View target, int dx, int dy, int[] consumed);
+
         boolean onNestedFling(ViewParent parent, View target, float velocityX, float velocityY,
-                boolean consumed);
+                              boolean consumed);
+
         boolean onNestedPreFling(ViewParent parent, View target, float velocityX, float velocityY);
+
         void notifySubtreeAccessibilityStateChanged(ViewParent parent, View child,
-                View source, int changeType);
+                                                    View source, int changeType);
     }
 
     static class ViewParentCompatStubImpl implements ViewParentCompatImpl {
@@ -66,7 +74,7 @@ public final class ViewParentCompat {
 
         @Override
         public boolean onStartNestedScroll(ViewParent parent, View child, View target,
-                int nestedScrollAxes) {
+                                           int nestedScrollAxes) {
             if (parent instanceof NestedScrollingParent) {
                 return ((NestedScrollingParent) parent).onStartNestedScroll(child, target,
                         nestedScrollAxes);
@@ -76,7 +84,7 @@ public final class ViewParentCompat {
 
         @Override
         public void onNestedScrollAccepted(ViewParent parent, View child, View target,
-                int nestedScrollAxes) {
+                                           int nestedScrollAxes) {
             if (parent instanceof NestedScrollingParent) {
                 ((NestedScrollingParent) parent).onNestedScrollAccepted(child, target,
                         nestedScrollAxes);
@@ -92,7 +100,7 @@ public final class ViewParentCompat {
 
         @Override
         public void onNestedScroll(ViewParent parent, View target, int dxConsumed, int dyConsumed,
-                int dxUnconsumed, int dyUnconsumed) {
+                                   int dxUnconsumed, int dyUnconsumed) {
             if (parent instanceof NestedScrollingParent) {
                 ((NestedScrollingParent) parent).onNestedScroll(target, dxConsumed, dyConsumed,
                         dxUnconsumed, dyUnconsumed);
@@ -101,7 +109,7 @@ public final class ViewParentCompat {
 
         @Override
         public void onNestedPreScroll(ViewParent parent, View target, int dx, int dy,
-                int[] consumed) {
+                                      int[] consumed) {
             if (parent instanceof NestedScrollingParent) {
                 ((NestedScrollingParent) parent).onNestedPreScroll(target, dx, dy, consumed);
             }
@@ -109,7 +117,7 @@ public final class ViewParentCompat {
 
         @Override
         public boolean onNestedFling(ViewParent parent, View target, float velocityX,
-                float velocityY, boolean consumed) {
+                                     float velocityY, boolean consumed) {
             if (parent instanceof NestedScrollingParent) {
                 return ((NestedScrollingParent) parent).onNestedFling(target, velocityX, velocityY,
                         consumed);
@@ -119,7 +127,7 @@ public final class ViewParentCompat {
 
         @Override
         public boolean onNestedPreFling(ViewParent parent, View target, float velocityX,
-                float velocityY) {
+                                        float velocityY) {
             if (parent instanceof NestedScrollingParent) {
                 return ((NestedScrollingParent) parent).onNestedPreFling(target, velocityX,
                         velocityY);
@@ -129,7 +137,7 @@ public final class ViewParentCompat {
 
         @Override
         public void notifySubtreeAccessibilityStateChanged(ViewParent parent, View child,
-                View source, int changeType) {
+                                                           View source, int changeType) {
         }
     }
 
@@ -145,7 +153,7 @@ public final class ViewParentCompat {
 
         @Override
         public void notifySubtreeAccessibilityStateChanged(ViewParent parent, View child,
-                View source, int changeType) {
+                                                           View source, int changeType) {
             ViewParentCompatKitKat.notifySubtreeAccessibilityStateChanged(parent, child,
                     source, changeType);
         }
@@ -154,14 +162,14 @@ public final class ViewParentCompat {
     static class ViewParentCompatLollipopImpl extends ViewParentCompatKitKatImpl {
         @Override
         public boolean onStartNestedScroll(ViewParent parent, View child, View target,
-                int nestedScrollAxes) {
+                                           int nestedScrollAxes) {
             return ViewParentCompatLollipop.onStartNestedScroll(parent, child, target,
                     nestedScrollAxes);
         }
 
         @Override
         public void onNestedScrollAccepted(ViewParent parent, View child, View target,
-                int nestedScrollAxes) {
+                                           int nestedScrollAxes) {
             ViewParentCompatLollipop.onNestedScrollAccepted(parent, child, target,
                     nestedScrollAxes);
         }
@@ -173,32 +181,33 @@ public final class ViewParentCompat {
 
         @Override
         public void onNestedScroll(ViewParent parent, View target, int dxConsumed, int dyConsumed,
-                int dxUnconsumed, int dyUnconsumed) {
+                                   int dxUnconsumed, int dyUnconsumed) {
             ViewParentCompatLollipop.onNestedScroll(parent, target, dxConsumed, dyConsumed,
                     dxUnconsumed, dyUnconsumed);
         }
 
         @Override
         public void onNestedPreScroll(ViewParent parent, View target, int dx, int dy,
-                int[] consumed) {
+                                      int[] consumed) {
             ViewParentCompatLollipop.onNestedPreScroll(parent, target, dx, dy, consumed);
         }
 
         @Override
         public boolean onNestedFling(ViewParent parent, View target, float velocityX,
-                float velocityY, boolean consumed) {
+                                     float velocityY, boolean consumed) {
             return ViewParentCompatLollipop.onNestedFling(parent, target, velocityX, velocityY,
                     consumed);
         }
 
         @Override
         public boolean onNestedPreFling(ViewParent parent, View target, float velocityX,
-                float velocityY) {
+                                        float velocityY) {
             return ViewParentCompatLollipop.onNestedPreFling(parent, target, velocityX, velocityY);
         }
     }
 
     static final ViewParentCompatImpl IMPL;
+
     static {
         final int version = Build.VERSION.SDK_INT;
         if (version >= 21) {
@@ -215,7 +224,8 @@ public final class ViewParentCompat {
     /*
      * Hide the constructor.
      */
-    private ViewParentCompat() {}
+    private ViewParentCompat() {
+    }
 
     /**
      * Called by a child to request from its parent to send an {@link AccessibilityEvent}.
@@ -223,15 +233,16 @@ public final class ViewParentCompat {
      * to its parent to send the event. The parent can optionally add a record for itself.
      * <p>
      * Note: An accessibility event is fired by an individual view which populates the
-     *       event with a record for its state and requests from its parent to perform
-     *       the sending. The parent can optionally add a record for itself before
-     *       dispatching the request to its parent. A parent can also choose not to
-     *       respect the request for sending the event. The accessibility event is sent
-     *       by the topmost view in the view tree.</p>
+     * event with a record for its state and requests from its parent to perform
+     * the sending. The parent can optionally add a record for itself before
+     * dispatching the request to its parent. A parent can also choose not to
+     * respect the request for sending the event. The accessibility event is sent
+     * by the topmost view in the view tree.</p>
      *
      * @param parent The parent whose method to invoke.
-     * @param child The child which requests sending the event.
-     * @param event The event to be sent.
+     * @param child  The child which requests sending the event.
+     * @param event  The event to be sent.
+     *
      * @return True if the event was sent.
      */
     public static boolean requestSendAccessibilityEvent(
@@ -240,8 +251,8 @@ public final class ViewParentCompat {
     }
 
     /**
-     * React to a descendant view initiating a nestable scroll operation, claiming the
-     * nested scroll operation if appropriate.
+     * React to a descendant(子) view initiating a nestable scroll operation, claiming the
+     * nested scroll operation if appropriate（适当的）.
      *
      * <p>This method will be called in response to a descendant view invoking
      * {@link ViewCompat#startNestedScroll(View, int)}. Each parent up the view hierarchy will be
@@ -255,15 +266,17 @@ public final class ViewParentCompat {
      * will receive a call to {@link #onStopNestedScroll(ViewParent, View)}.
      * </p>
      *
-     * @param parent 嵌套滑动子View的嵌套滑动父View，实现了NestedScrollingParent接口
-     * @param child Direct child of this ViewParent containing target(嵌套滑动父View的直系子View，可能是嵌套子View(target)，也可能是嵌套子View的上层View)
-     * @param target View that initiated the nested scroll(嵌套滑动的子View，实现了NestedScrollingChild接口)
+     * @param parent           嵌套滑动子View的嵌套滑动父View，实现了NestedScrollingParent接口
+     * @param child            Direct child of this ViewParent containing target(嵌套滑动父View的直系子View，可能是嵌套子View(target)，也可能是嵌套子View的上层View)
+     * @param target           View that initiated the nested scroll(嵌套滑动的子View，实现了NestedScrollingChild接口)
      * @param nestedScrollAxes Flags consisting of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL},
      *                         {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both（横向嵌套滑动或者纵向嵌套滑动或者两者都有的标签）
+     *
      * @return true if this ViewParent accepts the nested scroll operation
+     * 嵌套滑动父布局接嵌套滑动返回true
      */
     public static boolean onStartNestedScroll(ViewParent parent, View child, View target,
-            int nestedScrollAxes) {
+                                              int nestedScrollAxes) {
         return IMPL.onStartNestedScroll(parent, child, target, nestedScrollAxes);
     }
 
@@ -276,15 +289,16 @@ public final class ViewParentCompat {
      * for the nested scroll. Implementations of this method should always call their superclass's
      * implementation of this method if one is present.</p>
      *
-     * @param child Direct child of this ViewParent containing target
-     * @param target View that initiated the nested scroll
+     * @param child            Direct child of this ViewParent containing target
+     * @param target           View that initiated the nested scroll
      * @param nestedScrollAxes Flags consisting of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL},
      *                         {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both
+     *
      * @see #onStartNestedScroll(ViewParent, View, View, int)
      * @see #onStopNestedScroll(ViewParent, View)
      */
     public static void onNestedScrollAccepted(ViewParent parent, View child, View target,
-            int nestedScrollAxes) {
+                                              int nestedScrollAxes) {
         IMPL.onNestedScrollAccepted(parent, child, target, nestedScrollAxes);
     }
 
@@ -318,14 +332,19 @@ public final class ViewParentCompat {
      * a list within a vertical drawer where the drawer begins dragging once the edge of inner
      * scrolling content is reached.</p>
      *
-     * @param target The descendent view controlling the nested scroll
-     * @param dxConsumed Horizontal scroll distance in pixels already consumed by target
-     * @param dyConsumed Vertical scroll distance in pixels already consumed by target
+     * @param target       The descendent view controlling the nested scroll
+     *                     实现嵌套滑动的子View
+     * @param dxConsumed   Horizontal scroll distance in pixels already consumed by target
+     *                     水平方向上嵌套滑动的子View消耗(滑动)的距离
+     * @param dyConsumed   Vertical scroll distance in pixels already consumed by target
+     *                     竖直方向上嵌套滑动的子View消耗(滑动)的距离
      * @param dxUnconsumed Horizontal scroll distance in pixels not consumed by target
+     *                     水平方向上嵌套滑动的子View未消耗(未滑动)的距离
      * @param dyUnconsumed Vertical scroll distance in pixels not consumed by target
+     *                     竖直方向上嵌套滑动的子View未消耗(未滑动)的距离
      */
     public static void onNestedScroll(ViewParent parent, View target, int dxConsumed,
-            int dyConsumed, int dxUnconsumed, int dyUnconsumed) {
+                                      int dyConsumed, int dxUnconsumed, int dyUnconsumed) {
         IMPL.onNestedScroll(parent, target, dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed);
     }
 
@@ -344,13 +363,13 @@ public final class ViewParentCompat {
      * This parameter will never be null. Initial values for consumed[0] and consumed[1]
      * will always be 0.</p>
      *
-     * @param target View that initiated the nested scroll
-     * @param dx Horizontal scroll distance in pixels
-     * @param dy Vertical scroll distance in pixels
+     * @param target   View that initiated the nested scroll
+     * @param dx       Horizontal scroll distance in pixels
+     * @param dy       Vertical scroll distance in pixels
      * @param consumed Output. The horizontal and vertical scroll distance consumed by this parent
      */
     public static void onNestedPreScroll(ViewParent parent, View target, int dx, int dy,
-            int[] consumed) {
+                                         int[] consumed) {
         IMPL.onNestedPreScroll(parent, target, dx, dy, consumed);
     }
 
@@ -367,14 +386,15 @@ public final class ViewParentCompat {
      * its own content, it can use this method to delegate the fling to its nested scrolling
      * parent instead. The parent may optionally consume the fling or observe a child fling.</p>
      *
-     * @param target View that initiated the nested scroll
+     * @param target    View that initiated the nested scroll
      * @param velocityX Horizontal velocity in pixels per second
      * @param velocityY Vertical velocity in pixels per second
-     * @param consumed true if the child consumed the fling, false otherwise
+     * @param consumed  true if the child consumed the fling, false otherwise
+     *
      * @return true if this parent consumed or otherwise reacted to the fling
      */
     public static boolean onNestedFling(ViewParent parent, View target, float velocityX,
-            float velocityY, boolean consumed) {
+                                        float velocityY, boolean consumed) {
         return IMPL.onNestedFling(parent, target, velocityX, velocityY, consumed);
     }
 
@@ -393,13 +413,14 @@ public final class ViewParentCompat {
      * <code>true</code> from this method, the parent indicates that the child should not
      * fling its own internal content as well.</p>
      *
-     * @param target View that initiated the nested scroll
+     * @param target    View that initiated the nested scroll
      * @param velocityX Horizontal velocity in pixels per second
      * @param velocityY Vertical velocity in pixels per second
+     *
      * @return true if this parent consumed the fling ahead of the target view
      */
     public static boolean onNestedPreFling(ViewParent parent, View target, float velocityX,
-            float velocityY) {
+                                           float velocityY) {
         return IMPL.onNestedPreFling(parent, target, velocityX, velocityY);
     }
 
@@ -407,19 +428,20 @@ public final class ViewParentCompat {
      * Notifies a view parent that the accessibility state of one of its
      * descendants has changed and that the structure of the subtree is
      * different.
-     * @param child The direct child whose subtree has changed.
-     * @param source The descendant view that changed.
+     *
+     * @param child      The direct child whose subtree has changed.
+     * @param source     The descendant view that changed.
      * @param changeType A bit mask of the types of changes that occurred. One
-     *            or more of:
-     *            <ul>
-     *            <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION}
-     *            <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_SUBTREE}
-     *            <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_TEXT}
-     *            <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_UNDEFINED}
-     *            </ul>
+     *                   or more of:
+     *                   <ul>
+     *                   <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION}
+     *                   <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_SUBTREE}
+     *                   <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_TEXT}
+     *                   <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_UNDEFINED}
+     *                   </ul>
      */
     public static void notifySubtreeAccessibilityStateChanged(ViewParent parent, View child,
-            View source, int changeType) {
+                                                              View source, int changeType) {
         IMPL.notifySubtreeAccessibilityStateChanged(parent, child, source, changeType);
     }
 
