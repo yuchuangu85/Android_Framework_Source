@@ -34,7 +34,7 @@ import android.view.ViewConfiguration;
  * {@link ViewCompat}, {@link ViewGroupCompat} or {@link ViewParentCompat} compatibility
  * shim static methods. This ensures interoperability with nested scrolling views on Android
  * 5.0 Lollipop and newer.</p>
- *
+ * <p>
  * 嵌套滑动父View实现该接口
  */
 public interface NestedScrollingParent {
@@ -53,20 +53,24 @@ public interface NestedScrollingParent {
      * of the scroll operation in progress. When the nested scroll is finished this ViewParent
      * will receive a call to {@link #onStopNestedScroll(View)}.
      * </p>
-     *
+     * <p>
      * 在嵌套滑动子View开始滑动前通知嵌套滑动父View，回调到嵌套滑动父View的onStartNestedScroll()，
      * 嵌套滑动父View需要滑动则返回true.
      *
-     * @param child Direct child of this ViewParent containing target
-     * @param target View that initiated the nested scroll
+     * @param child            Direct child of this ViewParent containing target
+     * @param target           View that initiated the nested scroll
      * @param nestedScrollAxes Flags consisting of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL},
      *                         {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both
+     *
      * @return true if this ViewParent accepts the nested scroll operation
      */
     public boolean onStartNestedScroll(View child, View target, int nestedScrollAxes);
 
     /**
      * React to the successful claiming of a nested scroll operation.
+     * <p>
+     * 反应嵌套滑动的成功声明
+     * onStartNestedScroll()方法返回true会调用该函数，参数与onStartNestedScroll一致
      *
      * <p>This method will be called after
      * {@link #onStartNestedScroll(View, View, int) onStartNestedScroll} returns true. It offers
@@ -74,10 +78,11 @@ public interface NestedScrollingParent {
      * for the nested scroll. Implementations of this method should always call their superclass's
      * implementation of this method if one is present.</p>
      *
-     * @param child Direct child of this ViewParent containing target
-     * @param target View that initiated the nested scroll
+     * @param child            Direct child of this ViewParent containing target
+     * @param target           View that initiated the nested scroll
      * @param nestedScrollAxes Flags consisting of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL},
      *                         {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both
+     *
      * @see #onStartNestedScroll(View, View, int)
      * @see #onStopNestedScroll(View)
      */
@@ -98,6 +103,8 @@ public interface NestedScrollingParent {
 
     /**
      * React to a nested scroll in progress.
+     * <p>
+     * 反应嵌套滑动进程
      *
      * <p>This method will be called when the ViewParent's current nested scrolling child view
      * dispatches a nested scroll event. To receive calls to this method the ViewParent must have
@@ -111,17 +118,24 @@ public interface NestedScrollingParent {
      * a list within a vertical drawer where the drawer begins dragging once the edge of inner
      * scrolling content is reached.</p>
      *
-     * @param target The descendent view controlling the nested scroll
-     * @param dxConsumed Horizontal scroll distance in pixels already consumed by target
-     * @param dyConsumed Vertical scroll distance in pixels already consumed by target
+     * @param target       The descendent view controlling the nested scroll
+     *                     实现嵌套滑动的子View
+     * @param dxConsumed   Horizontal scroll distance in pixels already consumed by target
+     *                     水平方向上嵌套滑动的子View消耗(滑动)的距离
+     * @param dyConsumed   Vertical scroll distance in pixels already consumed by target
+     *                     竖直方向上嵌套滑动的子View消耗(滑动)的距离
      * @param dxUnconsumed Horizontal scroll distance in pixels not consumed by target
+     *                     水平方向上嵌套滑动的子View未消耗(未滑动)的距离
      * @param dyUnconsumed Vertical scroll distance in pixels not consumed by target
+     *                     竖直方向上嵌套滑动的子View未消耗(未滑动)的距离
      */
     public void onNestedScroll(View target, int dxConsumed, int dyConsumed,
-            int dxUnconsumed, int dyUnconsumed);
+                               int dxUnconsumed, int dyUnconsumed);
 
     /**
      * React to a nested scroll in progress before the target view consumes a portion(部分) of the scroll.
+     *
+     * 在嵌套滑动子View消费部分滑动之前的嵌套滑动进程，也就是嵌套父View在子View嵌套滑动前的消费处理
      *
      * <p>When working with nested scrolling often the parent view may want an opportunity
      * to consume the scroll before the nested scrolling child does. An example of this is a
@@ -134,12 +148,12 @@ public interface NestedScrollingParent {
      * <code>consumed</code> array. Index 0 corresponds to dx and index 1 corresponds to dy.
      * This parameter will never be null. Initial values for consumed[0] and consumed[1]
      * will always be 0.</p>
-     *
+     * <p>
      * 该方法根据滑动的距离dx或者dy来计算父View在嵌套滑动消耗的距离并保存在consumed中。
      *
-     * @param target View that initiated the nested scroll
-     * @param dx Horizontal scroll distance in pixels
-     * @param dy Vertical scroll distance in pixels
+     * @param target   View that initiated the nested scroll
+     * @param dx       Horizontal scroll distance in pixels
+     * @param dy       Vertical scroll distance in pixels
      * @param consumed Output. The horizontal and vertical scroll distance consumed by this parent
      *                 (记录父View滑动消耗的距离)
      */
@@ -147,6 +161,8 @@ public interface NestedScrollingParent {
 
     /**
      * Request a fling from a nested scroll.
+     *
+     * 嵌套滑动子View的fling(惯性滑行)情况
      *
      * <p>This method signifies that a nested scrolling child has detected suitable conditions
      * for a fling. Generally this means that a touch scroll has ended with a
@@ -158,16 +174,19 @@ public interface NestedScrollingParent {
      * its own content, it can use this method to delegate the fling to its nested scrolling
      * parent instead. The parent may optionally consume the fling or observe a child fling.</p>
      *
-     * @param target View that initiated the nested scroll
+     * @param target    View that initiated the nested scroll
      * @param velocityX Horizontal velocity in pixels per second
      * @param velocityY Vertical velocity in pixels per second
-     * @param consumed true if the child consumed the fling, false otherwise
-     * @return true if this parent consumed or otherwise reacted to the fling
+     * @param consumed  true if the child consumed the fling, false otherwise(子View是否消耗fling)
+     *
+     * @return true if this parent consumed or otherwise reacted to the fling(父View是否消耗了fling)
      */
     public boolean onNestedFling(View target, float velocityX, float velocityY, boolean consumed);
 
     /**
      * React to a nested fling before the target view consumes it.
+     *
+     * 嵌套滑动子View fling(滑行)前的准备工作
      *
      * <p>This method siginfies that a nested scrolling child has detected a fling with the given
      * velocity along each axis. Generally this means that a touch scroll has ended with a
@@ -181,10 +200,11 @@ public interface NestedScrollingParent {
      * <code>true</code> from this method, the parent indicates that the child should not
      * fling its own internal content as well.</p>
      *
-     * @param target View that initiated the nested scroll
+     * @param target    View that initiated the nested scroll
      * @param velocityX Horizontal velocity in pixels per second
      * @param velocityY Vertical velocity in pixels per second
-     * @return true if this parent consumed the fling ahead of the target view
+     *
+     * @return true if this parent consumed the fling ahead of the target view(父View是否在子View消耗了fling)
      */
     public boolean onNestedPreFling(View target, float velocityX, float velocityY);
 
@@ -196,6 +216,7 @@ public interface NestedScrollingParent {
      * the hierarchy.</p>
      *
      * @return Flags indicating the current axes of nested scrolling
+     *
      * @see ViewCompat#SCROLL_AXIS_HORIZONTAL
      * @see ViewCompat#SCROLL_AXIS_VERTICAL
      * @see ViewCompat#SCROLL_AXIS_NONE
