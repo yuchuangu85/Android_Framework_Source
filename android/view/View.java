@@ -11542,6 +11542,13 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * farther left, since those are outside of the frame of your view on
      * screen.
      *
+     * X轴上滚动后的View顶部位置，如果View的原始左边位置为0，
+     * 从原始位置向左滚动100后，mScrollX==100;
+     * 从原始位置向右滚动100后，mScrollX==-100;
+     *
+     * 参看：source/images/Android/View.getScrollX.jpeg
+     *      source/images/Android/View.getScrollX2.jpeg
+     *
      * @return The left edge of the displayed part of your view, in pixels.
      */
     public final int getScrollX() {
@@ -11552,6 +11559,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * Return the scrolled top position of this view. This is the top edge of
      * the displayed part of your view. You do not need to draw any pixels above
      * it, since those are outside of the frame of your view on screen.
+     *
+     * Y轴上滚动后的View顶部位置，如果View的原始顶部位置为0，
+     * 从原始位置向上滚动100后，mScrollY==100;
+     * 从原始位置向下滚动100后，mScrollY==-100;
      *
      * @return The top edge of the displayed part of your view, in pixels.
      */
@@ -21211,7 +21222,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     }
 
     /**
-     * Dispatch one step of a nested scroll in progress before this view consumes any portion of it.
+     * Dispatch(调度) one step of a nested scroll in progress before this view consumes any portion of it.
      * <p>
      * <p>Nested pre-scroll events are to nested scroll events what touch intercept is to touch.
      * <code>dispatchNestedPreScroll</code> offers an opportunity for the parent view in a nested
@@ -21221,7 +21232,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * @param dx             Horizontal scroll distance in pixels
      * @param dy             Vertical scroll distance in pixels
      * @param consumed       Output. If not null, consumed[0] will contain the consumed component of dx
-     *                       and consumed[1] the consumed dy.
+     *                       and consumed[1] the consumed dy.(记录父View滑动消耗的距离)
      * @param offsetInWindow Optional. If not null, on return this will contain the offset
      *                       in local view coordinates of this view from before this operation
      *                       to after it completes. View implementations may use this to adjust
@@ -21249,8 +21260,11 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                     }
                     consumed = mTempNestedScrollConsumed;
                 }
+                // 重点在这--------->，首先把consume封装好，consumed[0]表示X方向父View消耗的距离，
+                // consumed[1]表示Y方向上父View消耗的距离，在父View处理前当然都是0
                 consumed[0] = 0;
                 consumed[1] = 0;
+                // 然后调用父View的onNestedPreScroll并把当前的dx，dy以及消耗距离的consumed传递过去
                 mNestedScrollingParent.onNestedPreScroll(this, dx, dy, consumed);
 
                 if (offsetInWindow != null) {

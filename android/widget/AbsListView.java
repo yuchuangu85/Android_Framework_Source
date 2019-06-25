@@ -6559,6 +6559,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
 
         /**
          * The position of the first view stored in mActiveViews.
+         * 第一个可见的View位置
          */
         private int mFirstActivePosition;
 
@@ -6567,14 +6568,17 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
          * layout, and at the end of layout all view in mActiveViews are moved to mScrapViews.
          * Views in mActiveViews represent a contiguous range of Views, with position of the first
          * view store in mFirstActivePosition.
+         * 列表中可见视图的数组
          */
         private View[] mActiveViews = new View[0];
 
         /**
          * Unsorted views that can be used by the adapter as a convert view.
+         * 不可见的的View数组,是一个集合数组，每一种type的item都有一个集合来缓存
          */
         private ArrayList<View>[] mScrapViews;
 
+        // type个数
         private int mViewTypeCount;
 
         private ArrayList<View> mCurrentScrap;
