@@ -102,7 +102,8 @@ public interface NestedScrollingChild {
      * {@link NestedScrollingParent#onNestedScroll(View, int, int, int, int)}.
      * </p>
      * <p>
-     * 是否开始嵌套滑动
+     * 是否开始嵌套滑动，如果开启嵌套滑动，要通知嵌套滑动父View，调用父View的startNestedScroll方法，
+     * 告诉父View需要父View配合子View处理onTouchEvent事件
      *
      * @param axes Flags consisting(组成) of a combination(组合) of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL}
      *             and/or {@link ViewCompat#SCROLL_AXIS_VERTICAL}.
@@ -140,7 +141,10 @@ public interface NestedScrollingChild {
     /**
      * Dispatch(调度) one step of a nested scroll in progress.
      * <p>
-     * 调度嵌套滑动操作
+     * 调度嵌套滑动的操作:
+     * 向父View汇报滚动情况，包括子view消费的部分和子view没有消费的部分。
+     *
+     * 父View消费子View剩余滚动后是否还有剩余。return true代表还有剩余
      *
      * <p>Implementations of views that support nested scrolling should call this to report
      * info about a scroll in progress to the current nested scrolling parent. If a nested scroll
@@ -166,7 +170,7 @@ public interface NestedScrollingChild {
      *                       offsetInWindow 窗体偏移量
      *
      * @return true if the event was dispatched, false if it could not be dispatched.
-     * true表示事件已经分发，false表示没有分发
+     * 如果父view接受了它的滚动参数，进行了部分消费，则这个函数返回true，否则为false。
      *
      * @see #dispatchNestedPreScroll(int, int, int[], int[])
      */
@@ -176,7 +180,12 @@ public interface NestedScrollingChild {
     /**
      * Dispatch one step of a nested scroll in progress before this view consumes any portion of it.
      * <p>
-     * 处理滑动事件前的准备工作
+     * 处理滑动事件前的准备工作：
+     * 该方法的第三（consumed）第四个参数（offsetInWindow）返回父view消费掉的scroll长度和子View的窗体偏移量。
+     * 如果这个scroll没有被消费完，则子view进行处理剩下的一些距离，由于窗体进行了移动，如果你记录了手指最后的位置，
+     * 需要根据第四个参数offsetInWindow计算偏移量，才能保证下一次的touch事件的计算是正确的。
+     *
+     * 消费滑动时间前，先让嵌套滑动父View消费
      *
      * <p>Nested pre-scroll events are to nested scroll events what touch intercept is to touch.
      * <code>dispatchNestedPreScroll</code> offers an opportunity for the parent view in a nested
@@ -194,7 +203,7 @@ public interface NestedScrollingChild {
      *                       expected input coordinate tracking.
      *
      * @return true if the parent consumed some or all of the scroll delta
-     * 父View是否处理了嵌套滑动
+     * 如果父view接受了它的滚动参数，进行了部分消费，则这个函数返回true，否则为false。
      *
      * @see #dispatchNestedScroll(int, int, int, int, int[])
      */
@@ -203,7 +212,7 @@ public interface NestedScrollingChild {
     /**
      * Dispatch a fling to a nested scrolling parent.
      * <p>
-     * fling(滑行)时调用
+     * fling(滑行)时调用：父View消费子View消费后的速度之后是否还有剩余。return true代表还有剩余
      *
      * <p>This method should be used to indicate that a nested scrolling child has detected
      * suitable conditions for a fling. Generally this means that a touch scroll has ended with a
@@ -227,7 +236,7 @@ public interface NestedScrollingChild {
     /**
      * Dispatch a fling to a nested scrolling parent before it is processed by this view.
      * <p>
-     * fling(滑行)前的准备工作
+     * fling(滑行)前的准备工作:消费fly速度前，先让父View消费
      *
      * <p>Nested pre-fling events are to nested fling events what touch intercept is to touch
      * and what nested pre-scroll is to nested scroll. <code>dispatchNestedPreFling</code>

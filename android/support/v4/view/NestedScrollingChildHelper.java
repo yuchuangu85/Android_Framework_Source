@@ -21,6 +21,19 @@ import android.view.View;
 import android.view.ViewParent;
 
 /**
+ * Google从逻辑上区分了滑动的两个角色：NestedScrollingParent简称ns parent，NestedScrollingChild简称ns child。对应了滑动布局中的外层滑动容器和内部滑动容器。
+ * ns child在收到DOWN事件时，找到离自己最近的ns parent，与它进行绑定并关闭它的事件拦截机制。
+ * ns child会在接下来的MOVE事件中判定出用户触发了滑动手势，并把事件拦截下来给自己消费。
+ * 消费MOVE事件流时，对于每一个MOVE事件增加的滑动距离：
+ * 4.1. ns child并不是直接自己消费，而是先将它交给ns parent，让ns parent可以在ns child滑动前进行消费。
+ * 4.2. 如果ns parent没有消费或者滑动没消费完，ns child再消费剩下的滑动。
+ * 4.3. 如果ns child消费后滑动还是有剩余，会把剩下的滑动距离再交给ns parent消费。
+ * 4.4. 最后如果ns parent消费滑动后还有剩余，ns child可以做最终处理。
+ * ns child在收到UP事件时，可以计算出需要滚动的速度，ns child对于速度的消费流程是：
+ * 5.1 ns child在进行flying操作前，先询问ns parent是否需要消费该速度。如果ns parent消费该速度，后续就由ns parent带飞，自己就不消费该速度了。如果ns parent不消费，则ns child进行自己的flying操作。
+ * 5.2 ns child在flying过程中，如果已经滚动到阈值速度仍没有消费完，会再次将速度分发给ns parent，将ns parent进行消费。
+ *
+ *
  * Helper class for implementing nested scrolling child views compatible with Android platform
  * versions earlier than Android 5.0 Lollipop (API 21).
  *
@@ -36,6 +49,13 @@ import android.view.ViewParent;
  * 5.0 Lollipop and newer.</p>
  * <p>
  * 嵌套滑动子View的帮助类
+ *
+ * 参考：
+ * https://segmentfault.com/a/1190000019272870
+ * https://segmentfault.com/a/1190000019272870
+ * https://blog.csdn.net/lmj623565791/article/details/52204039
+ * https://juejin.im/entry/5ccf9c2451882541332f5a9c
+ *
  */
 public class NestedScrollingChildHelper {
     private final View mView;
@@ -175,6 +195,7 @@ public class NestedScrollingChildHelper {
                     startY = offsetInWindow[1];
                 }
 
+                // 然后调用父View的onNestedScroll
                 ViewParentCompat.onNestedScroll(mNestedScrollingParent, mView, dxConsumed,
                         dyConsumed, dxUnconsumed, dyUnconsumed);
 
@@ -224,7 +245,7 @@ public class NestedScrollingChildHelper {
                 // consumed[1]表示Y方向上父View消耗的距离，在父View处理前当然都是0
                 consumed[0] = 0;
                 consumed[1] = 0;
-                // 然后调用父View的onNestedPreScroll并把当前的dx，dy以及消耗距离的consumed传递过去
+                // 然后调用父View的onNestedPreScroll并把当前的dx，dy以及用来保存父View需要消耗距离的consumed传递过去
                 ViewParentCompat.onNestedPreScroll(mNestedScrollingParent, mView, dx, dy, consumed);
 
                 if (offsetInWindow != null) {

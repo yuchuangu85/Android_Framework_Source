@@ -790,7 +790,7 @@ public class NestedScrollView extends FrameLayout implements NestedScrollingPare
                 }
                 if (!mIsBeingDragged && Math.abs(deltaY) > mTouchSlop) {
                     final ViewParent parent = getParent();
-                    if (parent != null) {
+                    if (parent != null) {// 告诉父View不要拦截事件
                         parent.requestDisallowInterceptTouchEvent(true);
                     }
                     mIsBeingDragged = true;
