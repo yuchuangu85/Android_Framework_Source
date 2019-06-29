@@ -716,7 +716,7 @@ public final class PowerManager {
     }
 
     /**
-     * Forces the device to start napping.
+     * Forces the device to start napping(小憩).
      * <p>
      * If the device is currently awake, starts dreaming, otherwise does nothing.
      * When the dream ends or if the dream cannot be started, the device will

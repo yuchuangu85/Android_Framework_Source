@@ -297,7 +297,7 @@ public final class SystemServer {
             // 访问环境变量前，需要明确地指定用户
             Environment.setUserRequired(true);
 
-            // Within the system server, any incoming Bundles should be defused
+            // Within the system se,rver, any incoming Bundles should be defused
             // to avoid throwing BadParcelableException.
             BaseBundle.setShouldDefuse(true);
 
