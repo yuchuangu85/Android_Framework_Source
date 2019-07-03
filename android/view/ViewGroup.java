@@ -2438,6 +2438,8 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
 
     /**
      * Cancels and clears all touch targets.
+     *
+     * 取消清理所有的触摸目标
      */
     private void cancelAndClearTouchTargets(MotionEvent event) {
         if (mFirstTouchTarget != null) {// 有过触摸目标，也就是已经发生过触摸事件
