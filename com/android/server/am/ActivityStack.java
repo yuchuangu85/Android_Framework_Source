@@ -16,6 +16,69 @@
 
 package com.android.server.am;
 
+import android.app.Activity;
+import android.app.ActivityManager;
+import android.app.ActivityOptions;
+import android.app.AppGlobals;
+import android.app.IActivityController;
+import android.app.ResultInfo;
+import android.app.WindowConfiguration.ActivityType;
+import android.app.WindowConfiguration.WindowingMode;
+import android.app.servertransaction.ActivityResultItem;
+import android.app.servertransaction.ClientTransaction;
+import android.app.servertransaction.DestroyActivityItem;
+import android.app.servertransaction.NewIntentItem;
+import android.app.servertransaction.PauseActivityItem;
+import android.app.servertransaction.ResumeActivityItem;
+import android.app.servertransaction.StopActivityItem;
+import android.app.servertransaction.WindowVisibilityItem;
+import android.content.ComponentName;
+import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
+import android.content.res.Configuration;
+import android.graphics.Rect;
+import android.net.Uri;
+import android.os.Binder;
+import android.os.Debug;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
+import android.os.Message;
+import android.os.RemoteException;
+import android.os.SystemClock;
+import android.os.UserHandle;
+import android.service.voice.IVoiceInteractionSession;
+import android.util.ArraySet;
+import android.util.EventLog;
+import android.util.EventLogTags;
+import android.util.IntArray;
+import android.util.Log;
+import android.util.Slog;
+import android.util.SparseArray;
+import android.util.proto.ProtoOutputStream;
+import android.view.Display;
+
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.app.IVoiceInteractor;
+import com.android.internal.os.BatteryStatsImpl;
+import com.android.server.Watchdog;
+import com.android.server.am.ActivityManagerService.ItemMatcher;
+import com.android.server.wm.ConfigurationContainer;
+import com.android.server.wm.StackWindowController;
+import com.android.server.wm.StackWindowListener;
+import com.android.server.wm.WindowManagerService;
+
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+
 import static android.app.ITaskStackListener.FORCED_RESIZEABLE_REASON_SPLIT_SCREEN;
 import static android.app.WindowConfiguration.ACTIVITY_TYPE_ASSISTANT;
 import static android.app.WindowConfiguration.ACTIVITY_TYPE_HOME;
@@ -36,7 +99,15 @@ import static android.content.pm.ActivityInfo.FLAG_SHOW_FOR_ALL_USERS;
 import static android.view.Display.DEFAULT_DISPLAY;
 import static android.view.Display.FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD;
 import static android.view.Display.INVALID_DISPLAY;
-
+import static android.view.WindowManager.TRANSIT_ACTIVITY_CLOSE;
+import static android.view.WindowManager.TRANSIT_ACTIVITY_OPEN;
+import static android.view.WindowManager.TRANSIT_CRASHING_ACTIVITY_CLOSE;
+import static android.view.WindowManager.TRANSIT_NONE;
+import static android.view.WindowManager.TRANSIT_TASK_CLOSE;
+import static android.view.WindowManager.TRANSIT_TASK_OPEN;
+import static android.view.WindowManager.TRANSIT_TASK_OPEN_BEHIND;
+import static android.view.WindowManager.TRANSIT_TASK_TO_BACK;
+import static android.view.WindowManager.TRANSIT_TASK_TO_FRONT;
 import static com.android.server.am.ActivityDisplay.POSITION_BOTTOM;
 import static com.android.server.am.ActivityDisplay.POSITION_TOP;
 import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_ADD_REMOVE;
@@ -80,10 +151,6 @@ import static com.android.server.am.ActivityStack.ActivityState.PAUSING;
 import static com.android.server.am.ActivityStack.ActivityState.RESUMED;
 import static com.android.server.am.ActivityStack.ActivityState.STOPPED;
 import static com.android.server.am.ActivityStack.ActivityState.STOPPING;
-import static com.android.server.am.ActivityStackSupervisor.FindTaskResult;
-import static com.android.server.am.ActivityStackSupervisor.PAUSE_IMMEDIATELY;
-import static com.android.server.am.ActivityStackSupervisor.PRESERVE_WINDOWS;
-import static com.android.server.am.ActivityStackSupervisor.REMOVE_FROM_RECENTS;
 import static com.android.server.am.ActivityStackProto.BOUNDS;
 import static com.android.server.am.ActivityStackProto.CONFIGURATION_CONTAINER;
 import static com.android.server.am.ActivityStackProto.DISPLAY_ID;
@@ -91,79 +158,11 @@ import static com.android.server.am.ActivityStackProto.FULLSCREEN;
 import static com.android.server.am.ActivityStackProto.ID;
 import static com.android.server.am.ActivityStackProto.RESUMED_ACTIVITY;
 import static com.android.server.am.ActivityStackProto.TASKS;
-import static android.view.WindowManager.TRANSIT_ACTIVITY_CLOSE;
-import static android.view.WindowManager.TRANSIT_ACTIVITY_OPEN;
-import static android.view.WindowManager.TRANSIT_CRASHING_ACTIVITY_CLOSE;
-import static android.view.WindowManager.TRANSIT_NONE;
-import static android.view.WindowManager.TRANSIT_TASK_CLOSE;
-import static android.view.WindowManager.TRANSIT_TASK_OPEN;
-import static android.view.WindowManager.TRANSIT_TASK_OPEN_BEHIND;
-import static android.view.WindowManager.TRANSIT_TASK_TO_BACK;
-import static android.view.WindowManager.TRANSIT_TASK_TO_FRONT;
-
+import static com.android.server.am.ActivityStackSupervisor.FindTaskResult;
+import static com.android.server.am.ActivityStackSupervisor.PAUSE_IMMEDIATELY;
+import static com.android.server.am.ActivityStackSupervisor.PRESERVE_WINDOWS;
+import static com.android.server.am.ActivityStackSupervisor.REMOVE_FROM_RECENTS;
 import static java.lang.Integer.MAX_VALUE;
-
-import android.app.Activity;
-import android.app.ActivityManager;
-import android.app.ActivityOptions;
-import android.app.AppGlobals;
-import android.app.IActivityController;
-import android.app.ResultInfo;
-import android.app.WindowConfiguration.ActivityType;
-import android.app.WindowConfiguration.WindowingMode;
-import android.app.servertransaction.ActivityResultItem;
-import android.app.servertransaction.ClientTransaction;
-import android.app.servertransaction.NewIntentItem;
-import android.app.servertransaction.WindowVisibilityItem;
-import android.app.servertransaction.DestroyActivityItem;
-import android.app.servertransaction.PauseActivityItem;
-import android.app.servertransaction.ResumeActivityItem;
-import android.app.servertransaction.StopActivityItem;
-import android.content.ComponentName;
-import android.content.Intent;
-import android.content.pm.ActivityInfo;
-import android.content.pm.ApplicationInfo;
-import android.content.res.Configuration;
-import android.graphics.Rect;
-import android.net.Uri;
-import android.os.Binder;
-import android.os.Debug;
-import android.os.Handler;
-import android.os.IBinder;
-import android.os.Looper;
-import android.os.Message;
-import android.os.RemoteException;
-import android.os.SystemClock;
-import android.os.UserHandle;
-import android.service.voice.IVoiceInteractionSession;
-import android.util.ArraySet;
-import android.util.EventLog;
-import android.util.IntArray;
-import android.util.Log;
-import android.util.Slog;
-import android.util.SparseArray;
-import android.util.proto.ProtoOutputStream;
-import android.view.Display;
-
-import com.android.internal.annotations.GuardedBy;
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.app.IVoiceInteractor;
-import com.android.internal.os.BatteryStatsImpl;
-import com.android.server.Watchdog;
-import com.android.server.am.ActivityManagerService.ItemMatcher;
-import com.android.server.wm.ConfigurationContainer;
-import com.android.server.wm.StackWindowController;
-import com.android.server.wm.StackWindowListener;
-import com.android.server.wm.WindowManagerService;
-
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
-import java.lang.ref.WeakReference;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
 
 /**
  * State and management of a single stack of activities.
@@ -241,15 +240,15 @@ class ActivityStack<T extends StackWindowController> extends ConfigurationContai
     }
 
     enum ActivityState {
-        INITIALIZING,
-        RESUMED,
-        PAUSING,
-        PAUSED,
-        STOPPING,
-        STOPPED,
-        FINISHING,
-        DESTROYING,
-        DESTROYED
+        INITIALIZING,   // 正在初始化
+        RESUMED,        // 恢复
+        PAUSING,        // 正在暂停
+        PAUSED,         // 已经暂停
+        STOPPING,       // 正在停止
+        STOPPED,        // 已经停止
+        FINISHING,      // 正在完成
+        DESTROYING,     // 正在销毁
+        DESTROYED       // 已经销毁
     }
 
     @VisibleForTesting

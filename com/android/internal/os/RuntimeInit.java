@@ -298,6 +298,7 @@ public class RuntimeInit {
 
         Method m;
         try {
+            // 获取它的静态成员函数main，并且保存在Method对象m中
             m = cl.getMethod("main", new Class[] { String[].class });
         } catch (NoSuchMethodException ex) {
             throw new RuntimeException(
@@ -318,8 +319,25 @@ public class RuntimeInit {
          * by invoking the exception's run() method. This arrangement
          * clears up all the stack frames that were required in setting
          * up the process.
+         * 将这个Method对象封装在一个MethodAndArgsCaller对象中，并且将这个MethodAndArgsCaller对象作为
+         * 一个异常对象抛出来给当前应用程序处理
          */
         return new MethodAndArgsCaller(m, argv);
+      /**
+         *
+         * 新创建的应用程序进程复制了Zygote进程的地址空间，因此，当前新创建的应用程序进程的调用栈与Zygote
+         * 进程的调用堆栈是一致的。Zygote进程最开始执行的是应用程序app_process的入口函数main，接着再调用
+         * ZygoteInit类的静态成员函数main，最后进入到ZygoteInit类的静态成员函数runSelectLoopMode来循环
+         * 等待Activity管理服务AMS发送过来的创建新的应用进程的请求。当Zygote进程收到AMS发送过来的创建新的
+         * 应用程序进程的请求之后，它就会创建一个新的应用程序进程，并且让这个新创建的应用程序进程沿着
+         * ZygoteInit类的静态函数runSelectLoopModel一直执行到RuntimeInit类的静态成员函数
+         * invokeStaticMain。因此，当RuntimeInit类的静态成员函数invokeStaticMain抛出一个类型为
+         * MethodAndArgsCaller的常时，系统就会沿着这个调用过程往后找到一个适合的代码块来捕获它。
+         * 由于ZygoteInit函数main捕获了类型为MethodAndArgsCaller的异常，因此，接下来它就会被调用，以便
+         * 可以处理这里抛出的一个MethodAndArgsCaller异常。因此，抛出这个异常后，会执行ZygoteInit中main
+         * 函数中的catch来捕获异常。
+         *
+         */
     }
 
     public static final void main(String[] argv) {
@@ -361,6 +379,8 @@ public class RuntimeInit {
         // The end of of the RuntimeInit event (see #zygoteInit).
         Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
 
+	// 我们知道AMS指定了新创建的应用程序进程的入口函数为ActivityThread类的静态成员函数main。实际是
+        // 通过下面方法进入到ActivityThread类的静态成员函数main中的
         // Remaining arguments are passed to the start class's static main
         return findStaticMain(args.startClass, args.startArgs, classLoader);
     }
@@ -483,11 +503,24 @@ public class RuntimeInit {
         /** argument array */
         private final String[] mArgs;
 
+        /**
+         * @param method 指向ActivityThread的main函数
+         * @param args   新创建应用程序进程的启动参数
+         */
         public MethodAndArgsCaller(Method method, String[] args) {
             mMethod = method;
             mArgs = args;
         }
 
+        /**
+         * 注释来自Android系统源代码情景分析
+         * 这里开始调用ActivityThread.main方法，为什么要绕这么远呢，前面提到，AMS请求Zygote进程创建的应用
+         * 程序进程的入口函数为ActivityThread的main函数，但是由于新创建的应用程序进程一开始就需要再内部初始
+         * 化运行时库，以及启动Binder线程池，因此，ActivityThread的main函数被调用时，新创建的应用程序进程
+         * 实际上已经执行了相当多的代码，为了使得西创建的应用程序的进程觉得它的入口函数就是ActivityThread类
+         * 的main函数，系统就不能直接调用，而是抛出异常回到ZygoteInit的main函数中，然后间接调用它，这样就
+         * 可以巧妙的利用Java语言的异常处理来清理它前面调用的堆栈了
+         */
         public void run() {
             try {
                 mMethod.invoke(null, new Object[] { mArgs });

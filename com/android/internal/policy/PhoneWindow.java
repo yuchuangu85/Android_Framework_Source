@@ -141,6 +141,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     TypedValue mFixedHeightMinor;
 
     // This is the top-level view of the window, containing the window decor.
+    // 继承FrameLayout，是窗口顶级视图，也就是Activity显示View的根View，包含一个TitleView和一个ContentView
     private DecorView mDecor;
 
     // When we reuse decor views, we need to recreate the content root. This happens when the decor
@@ -149,6 +150,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
     // This is the view in which the window contents are placed. It is either
     // mDecor itself, or a child of mDecor where the contents go.
+    // 根据layout的id加载一个布局，然后通过findViewById(R.id.content)加载出布局中id为content
+    // 的FrameLayout赋值给mContentParent，并且将该view添加到mDecor（DecorView）中
     ViewGroup mContentParent;
     // Whether the client has explicitly set the content view. If false and mContentParent is not
     // null, then the content parent was set due to window preservation.
@@ -406,19 +409,25 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         // Note: FEATURE_CONTENT_TRANSITIONS may be set in the process of installing the window
         // decor, when theme attributes and the like are crystalized. Do not check the feature
         // before this happens.
-        if (mContentParent == null) {
+        // 根据layout的id加载一个布局，然后通过findViewById(R.id.content)加载出布局中id为content
+        // 的FrameLayout赋值给mContentParent，并且将该view添加到mDecor（DecorView）中
+        if (mContentParent == null) {// 第一次是空
             installDecor();
         } else if (!hasFeature(FEATURE_CONTENT_TRANSITIONS)) {
+            // 没有过度效果，并且不是第一次setContentView，那么要先移除盛放setContentView传递进来
+            // 的View的父容器中的所有子view
             mContentParent.removeAllViews();
         }
 
+        // 窗口是否需要过度显示
         if (hasFeature(FEATURE_CONTENT_TRANSITIONS)) {
             final Scene newScene = Scene.getSceneForLayout(mContentParent, layoutResID,
                     getContext());
             transitionTo(newScene);
-        } else {
+        } else {// 不需要过度，加载id为layoutResID的视图并且添加到mContentParent中
             mLayoutInflater.inflate(layoutResID, mContentParent);
         }
+        // 绘制视图
         mContentParent.requestApplyInsets();
         final Callback cb = getCallback();
         if (cb != null && !isDestroyed()) {
@@ -437,17 +446,20 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         // Note: FEATURE_CONTENT_TRANSITIONS may be set in the process of installing the window
         // decor, when theme attributes and the like are crystalized. Do not check the feature
         // before this happens.
-        if (mContentParent == null) {
+        // setContentView方法传递进来的View添加的父布局（FrameLayout）
+        if (mContentParent == null) {// 首次为空
             installDecor();
         } else if (!hasFeature(FEATURE_CONTENT_TRANSITIONS)) {
             mContentParent.removeAllViews();
         }
 
+        // 是否有窗口动画
         if (hasFeature(FEATURE_CONTENT_TRANSITIONS)) {
             view.setLayoutParams(params);
             final Scene newScene = new Scene(mContentParent, view);
             transitionTo(newScene);
         } else {
+            // 将Activity中的View添加到mContentParent
             mContentParent.addView(view, params);
         }
         mContentParent.requestApplyInsets();
@@ -2294,13 +2306,14 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         // the context we have. Otherwise we want the application context, so we don't cling to the
         // activity.
         Context context;
-        if (mUseDecorContext) {
+        if (mUseDecorContext) {// 从Activity的setContentView方法调用则为true
             Context applicationContext = getContext().getApplicationContext();
-            if (applicationContext == null) {
+            if (applicationContext == null) {// 系统进程时没有Application的context，所以就用现有的context
                 context = getContext();
-            } else {
+            } else {// 应用有application的Context
                 context = new DecorContext(applicationContext, getContext());
                 if (mTheme != -1) {
+                    // 设置主题
                     context.setTheme(mTheme);
                 }
             }
@@ -2310,6 +2323,25 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         return new DecorView(context, featureId, this, getAttributes());
     }
 
+    /**
+     * 因为setContentView要初始化ActionBar，所以设置NoTittle要在setContentView之前
+     * <p>
+     * 这里返回的是frameworks\base\core\res\res\layout\目录下layout布局中id为content的FrameLayout布局
+     * 用来放置setContentView中传递进来的View
+     * <p>
+     * 可能的Layout：
+     * R.layout.screen_swipe_dismiss
+     * R.layout.screen_title_icons
+     * R.layout.screen_progress
+     * R.layout.screen_custom_title
+     * R.layout.screen_title
+     * R.layout.screen_simple_overlay_action_mode
+     * R.layout.screen_simple
+     *
+     * @param decor
+     *
+     * @return
+     */
     protected ViewGroup generateLayout(DecorView decor) {
         // Apply data from current theme.
 
@@ -2335,6 +2367,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             setFlags(FLAG_LAYOUT_IN_SCREEN|FLAG_LAYOUT_INSET_DECOR, flagsToUpdate);
         }
 
+        // 根据Window的属性调用相应的requestFeature
         if (a.getBoolean(R.styleable.Window_windowNoTitle, false)) {
             requestFeature(FEATURE_NO_TITLE);
         } else if (a.getBoolean(R.styleable.Window_windowActionBar, false)) {
@@ -2354,6 +2387,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             requestFeature(FEATURE_SWIPE_TO_DISMISS);
         }
 
+        // 获取Window的各种属性来设置flag和参数
         if (a.getBoolean(R.styleable.Window_windowFullscreen, false)) {
             setFlags(FLAG_FULLSCREEN, FLAG_FULLSCREEN & (~getForcedWindowFlags()));
         }
@@ -2533,7 +2567,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         }
 
         // Inflate the window decor.
-
+        // 根据之前的flag和feature来加载一个layout资源到DecorView中，并把可以作为容器的View返回
+        // 这个layout布局文件在frameworks\base\core\res\res\layout\目录下
         int layoutResource;
         int features = getLocalFeatures();
         // System.out.println("Features: 0x" + Integer.toHexString(features));
@@ -2590,14 +2625,41 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         } else if ((features & (1 << FEATURE_ACTION_MODE_OVERLAY)) != 0) {
             layoutResource = R.layout.screen_simple_overlay_action_mode;
         } else {
+            /**
+             * 这个就是screen_simple.xml布局中的代码，后面的就是id为content的FrameLayout布局
+             *
+             * <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+             *      android:layout_width="match_parent"
+             *      android:layout_height="match_parent"
+             *      android:fitsSystemWindows="true"
+             *      android:orientation="vertical">
+             *      <ViewStub android:id="@+id/action_mode_bar_stub"
+             *          android:inflatedId="@+id/action_mode_bar"
+             *          android:layout="@layout/action_mode_bar"
+             *          android:layout_width="match_parent"
+             *          android:layout_height="wrap_content"
+             *          android:theme="?attr/actionBarTheme" />
+             *      <!---->
+             *      <FrameLayout
+             *          android:id="@android:id/content"
+             *          android:layout_width="match_parent"
+             *          android:layout_height="match_parent"
+             *          android:foregroundInsidePadding="false"
+             *          android:foregroundGravity="fill_horizontal|top"
+             *          android:foreground="?android:attr/windowContentOverlay" />
+             * </LinearLayout>
+             */
             // Embedded, so no decoration is needed.
             layoutResource = R.layout.screen_simple;
             // System.out.println("Simple!");
         }
 
         mDecor.startChanging();
+        // 根据layoutResource（布局id）加载系统中布局文件（Layout）并添加到DecorView中
         mDecor.onResourcesLoaded(mLayoutInflater, layoutResource);
 
+	// contentParent是用来添加Activity中布局的父布局（FrameLayout），并带有相关主题样式，就是上面
+        // 提到的id为content的FrameLayout，返回后会赋值给PhoneWindow中的mContentParent
         ViewGroup contentParent = (ViewGroup)findViewById(ID_ANDROID_CONTENT);
         if (contentParent == null) {
             throw new RuntimeException("Window couldn't find content container view");
@@ -2616,6 +2678,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
         // Remaining setup -- of background and title -- that only applies
         // to top-level windows.
+        // 设置mDecor背景之类
         if (getContainer() == null) {
             final Drawable background;
             if (mBackgroundResource != 0) {
@@ -2658,7 +2721,9 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
     private void installDecor() {
         mForceDecorInstall = false;
-        if (mDecor == null) {
+        // 继承FrameLayout，是窗口顶级视图，也就是Activity显示View的根View，包含一个TitleView和一个ContentView
+        if (mDecor == null) {// 首次为空
+            // 创建DecorView（FrameLayout）
             mDecor = generateDecor(-1);
             mDecor.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
             mDecor.setIsRootNamespace(true);
@@ -2668,12 +2733,16 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         } else {
             mDecor.setWindow(this);
         }
-        if (mContentParent == null) {
+        if (mContentParent == null) {// 第一次setContentView时为空
+            // 这个mContentParent就是后面从系统的frameworks\base\core\res\res\layout\目录下加载出来
+            // 的layout布局（这个Layout布局加载完成后会添加到mDecor（DecorView）中）中的一个id为content的
+            // FrameLayout控件，这个FrameLayout控件用来盛放setContentView传递进来的View
             mContentParent = generateLayout(mDecor);
 
             // Set up decor part of UI to ignore fitsSystemWindows if appropriate.
             mDecor.makeOptionalFitsSystemWindows();
 
+            // 判断是否存在id为decor_content_parent的view（我只看到screen_action_bar.xml这个里面有这个id）
             final DecorContentParent decorContentParent = (DecorContentParent) mDecor.findViewById(
                     R.id.decor_content_parent);
 
@@ -2717,8 +2786,11 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                     invalidatePanelMenu(FEATURE_ACTION_BAR);
                 }
             } else {
+ 		// 标题视图
                 mTitleView = findViewById(R.id.title);
+		 // 有的布局中是没有id为title的控件的，也就是不显示标题
                 if (mTitleView != null) {
+                    // 判断是否有不显示标题的特性
                     if ((getLocalFeatures() & (1 << FEATURE_NO_TITLE)) != 0) {
                         final View titleContainer = findViewById(R.id.title_container);
                         if (titleContainer != null) {
@@ -2727,18 +2799,19 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                             mTitleView.setVisibility(View.GONE);
                         }
                         mContentParent.setForeground(null);
-                    } else {
+                    } else {// 显示标题
                         mTitleView.setText(mTitle);
                     }
                 }
             }
 
+            // 背景
             if (mDecor.getBackground() == null && mBackgroundFallbackResource != 0) {
                 mDecor.setBackgroundFallback(mBackgroundFallbackResource);
             }
 
             // Only inflate or create a new TransitionManager if the caller hasn't
-            // already set a custom one.
+            // already set a custom one.（过度效果）
             if (hasFeature(FEATURE_ACTIVITY_TRANSITIONS)) {
                 if (mTransitionManager == null) {
                     final int transitionRes = getWindowStyle().getResourceId(

@@ -49,6 +49,7 @@ import android.os.UserHandle;
 import android.os.storage.IStorageManager;
 import android.util.DisplayMetrics;
 import android.util.EventLog;
+import android.util.EventLogTags;
 import android.util.Slog;
 import android.util.TimingsTraceLog;
 import android.view.WindowManager;
@@ -81,8 +82,8 @@ import com.android.server.job.JobSchedulerService;
 import com.android.server.lights.LightsService;
 import com.android.server.media.MediaResourceMonitorService;
 import com.android.server.media.MediaRouterService;
-import com.android.server.media.MediaUpdateService;
 import com.android.server.media.MediaSessionService;
+import com.android.server.media.MediaUpdateService;
 import com.android.server.media.projection.MediaProjectionManagerService;
 import com.android.server.net.NetworkPolicyManagerService;
 import com.android.server.net.NetworkStatsService;
@@ -121,14 +122,14 @@ import com.android.server.vr.VrManagerService;
 import com.android.server.webkit.WebViewUpdateService;
 import com.android.server.wm.WindowManagerService;
 
-import dalvik.system.VMRuntime;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.Locale;
 import java.util.Timer;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
+
+import dalvik.system.VMRuntime;
 
 import static android.os.IServiceManager.DUMP_FLAG_PRIORITY_CRITICAL;
 import static android.os.IServiceManager.DUMP_FLAG_PRIORITY_HIGH;
@@ -367,10 +368,12 @@ public final class SystemServer {
             SystemProperties.set("persist.sys.dalvik.vm.lib.2", VMRuntime.getRuntime().vmLibrary());
 
             // Mmmmmm... more memory!
+            // 清除vm内存增长上限，由于启动过程需要较多的虚拟机内存空间
             VMRuntime.getRuntime().clearGrowthLimit();
 
             // The system server has to run all of the time, so it needs to be
             // as efficient as possible with its memory usage.
+            // 设置内存的可能有效使用率为0.8
             VMRuntime.getRuntime().setTargetHeapUtilization(0.8f);
 
             // Some devices rely on runtime fingerprint generation, so make sure
@@ -379,6 +382,7 @@ public final class SystemServer {
 
             // Within the system server, it is an error to access Environment paths without
             // explicitly specifying a user.
+            // 访问环境变量前，需要明确地指定用户
             Environment.setUserRequired(true);
 
             // Within the system server, any incoming Bundles should be defused
@@ -389,6 +393,7 @@ public final class SystemServer {
             Parcel.setStackTraceParceling(true);
 
             // Ensure binder calls into the system always run at foreground priority.
+            // 确保当前系统进程的binder调用，总是运行在前台优先级(foreground priority)
             BinderInternal.disableBackgroundScheduling(true);
 
             // Increase the number of binder threads in system_server
@@ -398,11 +403,14 @@ public final class SystemServer {
             android.os.Process.setThreadPriority(
                 android.os.Process.THREAD_PRIORITY_FOREGROUND);
             android.os.Process.setCanSelfBackground(false);
+
+            // 准备主线程的Looper(当前线程为系统的主线程)
             Looper.prepareMainLooper();
             Looper.getMainLooper().setSlowLogThresholdMs(
                     SLOW_DISPATCH_THRESHOLD_MS, SLOW_DELIVERY_THRESHOLD_MS);
 
             // Initialize native services.
+            // 加载android_servers.so库，该库包含的源码在frameworks/base/services/目录下
             System.loadLibrary("android_servers");
 
             // Check whether we failed to shut down last time we tried.
@@ -410,12 +418,14 @@ public final class SystemServer {
             performPendingShutdown();
 
             // Initialize the system context.
+            // 初始化系统上下文(包括系统进程的ActivityThread)
             createSystemContext();
 
             // Create the system service manager.
             mSystemServiceManager = new SystemServiceManager(mSystemContext);
             mSystemServiceManager.setStartInfo(mRuntimeRestart,
                     mRuntimeStartElapsedTime, mRuntimeStartUptime);
+	    //将mSystemServiceManager添加到本地服务的成员sLocalServiceObjects
             LocalServices.addService(SystemServiceManager.class, mSystemServiceManager);
             // Prepare the thread pool for init tasks that can be parallelized
             SystemServerInitThreadPool.get();
@@ -426,9 +436,9 @@ public final class SystemServer {
         // Start services.
         try {
             traceBeginAndSlog("StartServices");
-            startBootstrapServices();
-            startCoreServices();
-            startOtherServices();
+            startBootstrapServices();// 启动引导服务
+            startCoreServices(); // 启动核心服务
+            startOtherServices();// 启动其他服务
             SystemServerInitThreadPool.shutdown();
         } catch (Throwable ex) {
             Slog.e("System", "******************************************");
@@ -450,7 +460,7 @@ public final class SystemServer {
             }
         }
 
-        // Loop forever.
+        // Loop（循环） forever.
         Looper.loop();
         throw new RuntimeException("Main thread loop unexpectedly exited");
     }
@@ -464,6 +474,7 @@ public final class SystemServer {
         Slog.wtf(TAG, "BOOT FAILURE " + msg, e);
     }
 
+    // 等待关机
     private void performPendingShutdown() {
         final String shutdownAction = SystemProperties.get(
                 ShutdownThread.SHUTDOWN_ACTION_PROPERTY, "");
@@ -518,7 +529,9 @@ public final class SystemServer {
         }
     }
 
+    // 初始化系统上下文
     private void createSystemContext() {
+        // 初始化ActivityThread，并设置默认主题
         ActivityThread activityThread = ActivityThread.systemMain();
         mSystemContext = activityThread.getSystemContext();
         mSystemContext.setTheme(DEFAULT_SYSTEM_THEME);

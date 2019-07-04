@@ -855,6 +855,8 @@ public class ZygoteInit {
         // We're in the child process and have exited the select loop. Proceed to execute the
         // command.
         if (caller != null) {
+            // 调用RuntimeInit#MethodAndArgsCaller的run函数
+            // ActivityThread.main
             caller.run();
         }
     }
@@ -907,7 +909,9 @@ public class ZygoteInit {
         Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "ZygoteInit");
         RuntimeInit.redirectLogStreams();
 
+        // 首先调用下面函数来设置新创建的应用程序进程的时区和键盘布局等通用信息
         RuntimeInit.commonInit();
+        // 然后调用下面Native函数在新创建的应用程序进程中启动一个Binder线程池
         ZygoteInit.nativeZygoteInit();
         return RuntimeInit.applicationInit(targetSdkVersion, argv, classLoader);
     }

@@ -480,6 +480,7 @@ public abstract class LayoutInflater {
                     System.out.println("**************************");
                 }
 
+                // 要加载的布局根标签是merge，那么必须传递ViewGroup进来，并且要添加到该ViewGroup上
                 if (TAG_MERGE.equals(name)) {
                     if (root == null || !attachToRoot) {
                         throw new InflateException("<merge /> can be used only with a valid "
@@ -487,19 +488,23 @@ public abstract class LayoutInflater {
                     }
 
                     rInflate(parser, root, inflaterContext, attrs, false);
-                } else {
+                } else {// 根标签不是merge
                     // Temp is the root view that was found in the xml
+                    // temp是要解析的xml布局中的根布局视图
                     final View temp = createViewFromTag(root, name, inflaterContext, attrs);
 
                     ViewGroup.LayoutParams params = null;
 
+                    // 1.root不为空会解析宽、高属性（如果不添加的话，那么会将属性设置给xml的根布局）
                     if (root != null) {
                         if (DEBUG) {
                             System.out.println("Creating params from root: " +
                                     root);
                         }
                         // Create layout params that match root, if supplied
+                        // root存在才会解析xml根布局的宽高（如果xml文件中设置的话）
                         params = root.generateLayoutParams(attrs);
+                        // 不将该xml布局添加到root上的话
                         if (!attachToRoot) {
                             // Set the layout params for temp if we are not
                             // attaching. (If we are, we use addView, below)
@@ -512,6 +517,7 @@ public abstract class LayoutInflater {
                     }
 
                     // Inflate all children under temp against its context.
+                    // 递归解析temp（xml文件中的根布局）下所有视图，并按树形结构添加到temp中
                     rInflateChildren(parser, temp, attrs, true);
 
                     if (DEBUG) {
@@ -520,12 +526,15 @@ public abstract class LayoutInflater {
 
                     // We are supposed to attach all the views we found (int temp)
                     // to root. Do that now.
+                    // 2.root视图不为空，并且需要添加到root上面，那么调用addView方法并且设置LayoutParams属性
                     if (root != null && attachToRoot) {
                         root.addView(temp, params);
                     }
 
                     // Decide whether to return the root that was passed in or the
                     // top view found in xml.
+                    // 3.root为空，或者不添加到root上，那么就会将该xml的根布局赋值给result返回，
+                    //   但是这里是没有解析也没有设置宽高的
                     if (root == null || !attachToRoot) {
                         result = temp;
                     }
@@ -700,6 +709,7 @@ public abstract class LayoutInflater {
      */
     protected View onCreateView(String name, AttributeSet attrs)
             throws ClassNotFoundException {
+        // 系统正常View要添加前缀，比如：LinearLayout，添加完前缀就是android.view.LinearLayout
         return createView(name, "android.view.", attrs);
     }
 
@@ -784,9 +794,10 @@ public abstract class LayoutInflater {
                 final Object lastContext = mConstructorArgs[0];
                 mConstructorArgs[0] = context;
                 try {
+                    // 系统自带的View（直接使用名字，不用带包名，所以没有"."）
                     if (-1 == name.indexOf('.')) {
                         view = onCreateView(parent, name, attrs);
-                    } else {
+                    } else {// 带有包名的View（例如自定义的View，或者引用的support包中的View）
                         view = createView(name, null, attrs);
                     }
                 } finally {
@@ -847,23 +858,27 @@ public abstract class LayoutInflater {
 
             final String name = parser.getName();
 
-            if (TAG_REQUEST_FOCUS.equals(name)) {
+            if (TAG_REQUEST_FOCUS.equals(name)) { // requestFocus
                 pendingRequestFocus = true;
                 consumeChildElements(parser);
-            } else if (TAG_TAG.equals(name)) {
+            } else if (TAG_TAG.equals(name)) {// tag
                 parseViewTag(parser, parent, attrs);
-            } else if (TAG_INCLUDE.equals(name)) {
+            } else if (TAG_INCLUDE.equals(name)) {// include不能是根标签
                 if (parser.getDepth() == 0) {
                     throw new InflateException("<include /> cannot be the root element");
                 }
                 parseInclude(parser, context, parent, attrs);
-            } else if (TAG_MERGE.equals(name)) {
+            } else if (TAG_MERGE.equals(name)) { // merge
+		// merge必须是根标签
                 throw new InflateException("<merge /> must be the root element");
-            } else {
+            } else {// 正常View
                 final View view = createViewFromTag(parent, name, context, attrs);
                 final ViewGroup viewGroup = (ViewGroup) parent;
+                // 解析宽高属性
                 final ViewGroup.LayoutParams params = viewGroup.generateLayoutParams(attrs);
+                // 递归解析
                 rInflateChildren(parser, view, attrs, true);
+                // parent下的所有view解析完成就会添加到parent上
                 viewGroup.addView(view, params);
             }
         }
@@ -872,6 +887,7 @@ public abstract class LayoutInflater {
             parent.restoreDefaultFocus();
         }
 
+// parent下所有视图解析并add完成就会调用onFinishInflate方法，所以我们可以根据这个方法判断是否解析完成
         if (finishInflate) {
             parent.onFinishInflate();
         }
@@ -893,10 +909,12 @@ public abstract class LayoutInflater {
         consumeChildElements(parser);
     }
 
+    // 解析include标签布局
     private void parseInclude(XmlPullParser parser, Context context, View parent,
             AttributeSet attrs) throws XmlPullParserException, IOException {
         int type;
 
+        // include标签必须在ViewGroup使用，所以这里parent必须是ViewGroup
         if (parent instanceof ViewGroup) {
             // Apply a theme wrapper, if requested. This is sort of a weird
             // edge case, since developers think the <include> overwrites
@@ -939,7 +957,7 @@ public abstract class LayoutInflater {
                 final String value = attrs.getAttributeValue(null, ATTR_LAYOUT);
                 throw new InflateException("You must specify a valid layout "
                         + "reference. The layout ID " + value + " is not valid.");
-            } else {
+            } else {// include中layout的指向id必须有效
                 final XmlResourceParser childParser = context.getResources().getLayout(layout);
 
                 try {
@@ -957,11 +975,11 @@ public abstract class LayoutInflater {
 
                     final String childName = childParser.getName();
 
-                    if (TAG_MERGE.equals(childName)) {
+                    if (TAG_MERGE.equals(childName)) {// merge
                         // The <merge> tag doesn't support android:theme, so
                         // nothing special to do here.
                         rInflate(childParser, parent, context, childAttrs, false);
-                    } else {
+                    } else {// 正常View
                         final View view = createViewFromTag(parent, childName,
                                 context, childAttrs, hasThemeOverride);
                         final ViewGroup group = (ViewGroup) parent;
@@ -982,10 +1000,12 @@ public abstract class LayoutInflater {
                         // tag, false means we need to rely on the included layout params.
                         ViewGroup.LayoutParams params = null;
                         try {
+                            // include是否设置了宽高
                             params = group.generateLayoutParams(attrs);
                         } catch (RuntimeException e) {
                             // Ignore, just fail over to child attrs.
                         }
+                        // 如果include没有设置宽高，则获取layout指向的布局中的宽高
                         if (params == null) {
                             params = group.generateLayoutParams(childAttrs);
                         }
@@ -1016,7 +1036,7 @@ public abstract class LayoutInflater {
                     childParser.close();
                 }
             }
-        } else {
+        } else {// include必须在ViewGroup中使用
             throw new InflateException("<include /> can only be used inside of a ViewGroup");
         }
 

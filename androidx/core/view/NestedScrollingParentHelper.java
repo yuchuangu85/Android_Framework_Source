@@ -67,6 +67,9 @@ public class NestedScrollingParentHelper {
     /**
      * Called when a nested scrolling operation initiated by a descendant view is accepted
      * by this ViewGroup.
+
+     * 嵌套滑动父View在收到嵌套滑动子View开始滑动通知后，保存该嵌套滑动方向.
+     * 这样父View和子View的第一次合作关系就结束了
      *
      * <p>This is a delegate method. Call it from your {@link android.view.ViewGroup ViewGroup}
      * subclass method/{@link androidx.core.view.NestedScrollingParent2} interface method with
@@ -78,7 +81,7 @@ public class NestedScrollingParentHelper {
     }
 
     /**
-     * Return the current axes of nested scrolling for this ViewGroup.
+     * Return the current axes(轴) of nested scrolling for this ViewGroup.
      *
      * <p>This is a delegate method. Call it from your {@link android.view.ViewGroup ViewGroup}
      * subclass method/{@link androidx.core.view.NestedScrollingParent} interface method with
@@ -102,6 +105,7 @@ public class NestedScrollingParentHelper {
 
     /**
      * React to a nested scroll operation ending.
+     * 停止嵌套滑动
      *
      * <p>This is a delegate method. Call it from your {@link android.view.ViewGroup ViewGroup}
      * subclass method/{@link androidx.core.view.NestedScrollingParent2} interface method with
