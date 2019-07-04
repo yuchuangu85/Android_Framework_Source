@@ -16,58 +16,68 @@
 
 package com.android.systemui.statusbar.notification;
 
+import com.android.internal.widget.MessagingLayout;
 import com.android.internal.widget.MessagingLinearLayout;
+import com.android.systemui.R;
 import com.android.systemui.statusbar.ExpandableNotificationRow;
 import com.android.systemui.statusbar.TransformableView;
 
 import android.content.Context;
-import android.service.notification.StatusBarNotification;
+import android.text.TextUtils;
 import android.view.View;
+import android.widget.TextView;
+
+import java.util.ArrayList;
 
 /**
  * Wraps a notification containing a messaging template
  */
 public class NotificationMessagingTemplateViewWrapper extends NotificationTemplateViewWrapper {
 
-    private View mContractedMessage;
+    private final int mMinHeightWithActions;
+    private MessagingLayout mMessagingLayout;
+    private MessagingLinearLayout mMessagingLinearLayout;
 
     protected NotificationMessagingTemplateViewWrapper(Context ctx, View view,
             ExpandableNotificationRow row) {
         super(ctx, view, row);
+        mMessagingLayout = (MessagingLayout) view;
+        mMinHeightWithActions = NotificationUtils.getFontScaledHeight(ctx,
+                R.dimen.notification_messaging_actions_min_height);
     }
 
     private void resolveViews() {
-        mContractedMessage = null;
-
-        View container = mView.findViewById(com.android.internal.R.id.notification_messaging);
-        if (container instanceof MessagingLinearLayout
-                && ((MessagingLinearLayout) container).getChildCount() > 0) {
-            MessagingLinearLayout messagingContainer = (MessagingLinearLayout) container;
-
-            // Only consider the first child - transforming to a position other than the first
-            // looks bad because we have to move across other messages that are fading in.
-            View child = messagingContainer.getChildAt(0);
-            if (child.getId() == messagingContainer.getContractedChildId()) {
-                mContractedMessage = child;
-            }
-        }
+        mMessagingLinearLayout = mMessagingLayout.getMessagingLinearLayout();
     }
 
     @Override
-    public void notifyContentUpdated(StatusBarNotification notification) {
+    public void onContentUpdated(ExpandableNotificationRow row) {
         // Reinspect the notification. Before the super call, because the super call also updates
         // the transformation types and we need to have our values set by then.
         resolveViews();
-        super.notifyContentUpdated(notification);
+        super.onContentUpdated(row);
     }
 
     @Override
     protected void updateTransformedTypes() {
         // This also clears the existing types
         super.updateTransformedTypes();
-        if (mContractedMessage != null) {
-            mTransformationHelper.addTransformedView(TransformableView.TRANSFORMING_VIEW_TEXT,
-                    mContractedMessage);
+        if (mMessagingLinearLayout != null) {
+            mTransformationHelper.addTransformedView(mMessagingLinearLayout.getId(),
+                    mMessagingLinearLayout);
         }
+    }
+
+    @Override
+    public void setRemoteInputVisible(boolean visible) {
+        mMessagingLayout.showHistoricMessages(visible);
+    }
+
+    @Override
+    public int getMinLayoutHeight() {
+        if (mActionsContainer != null && mActionsContainer.getVisibility() != View.GONE) {
+            return mMinHeightWithActions;
+        }
+        return super.getMinLayoutHeight();
     }
 }

@@ -16,6 +16,8 @@
 
 package com.android.server.usb;
 
+import static com.android.internal.util.dump.DumpUtils.writeStringIfNotNull;
+
 import android.app.ActivityManager;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
@@ -35,20 +37,19 @@ import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.os.UserManager;
+import android.service.usb.UsbDebuggingManagerProto;
 import android.util.Base64;
 import android.util.Slog;
 
 import com.android.internal.R;
-import com.android.internal.util.IndentingPrintWriter;
+import com.android.internal.util.dump.DualDumpOutputStream;
 import com.android.server.FgThread;
 
 import java.io.File;
-import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.PrintWriter;
 import java.security.MessageDigest;
 import java.util.Arrays;
 
@@ -56,10 +57,10 @@ public class UsbDebuggingManager {
     private static final String TAG = "UsbDebuggingManager";
     private static final boolean DEBUG = false;
 
-    private final String ADBD_SOCKET = "adbd";
-    private final String ADB_DIRECTORY = "misc/adb";
-    private final String ADB_KEYS_FILE = "adb_keys";
-    private final int BUFFER_SIZE = 4096;
+    private static final String ADBD_SOCKET = "adbd";
+    private static final String ADB_DIRECTORY = "misc/adb";
+    private static final String ADB_KEYS_FILE = "adb_keys";
+    private static final int BUFFER_SIZE = 4096;
 
     private final Context mContext;
     private final Handler mHandler;
@@ -346,7 +347,7 @@ public class UsbDebuggingManager {
     }
 
     /**
-     * @returns true if the componentName led to an Activity that was started.
+     * @return true if the componentName led to an Activity that was started.
      */
     private boolean startConfirmationActivity(ComponentName componentName, UserHandle userHandle,
             String key, String fingerprints) {
@@ -365,7 +366,7 @@ public class UsbDebuggingManager {
     }
 
     /**
-     * @returns true if the componentName led to a Service that was started.
+     * @return true if the componentName led to a Service that was started.
      */
     private boolean startConfirmationService(ComponentName componentName, UserHandle userHandle,
             String key, String fingerprints) {
@@ -453,21 +454,30 @@ public class UsbDebuggingManager {
         mHandler.sendEmptyMessage(UsbDebuggingHandler.MESSAGE_ADB_CLEAR);
     }
 
-    public void dump(IndentingPrintWriter pw) {
-        pw.println("USB Debugging State:");
-        pw.println("  Connected to adbd: " + (mThread != null));
-        pw.println("  Last key received: " + mFingerprints);
-        pw.println("  User keys:");
+    /**
+     * Dump the USB debugging state.
+     */
+    public void dump(DualDumpOutputStream dump, String idName, long id) {
+        long token = dump.start(idName, id);
+
+        dump.write("connected_to_adb", UsbDebuggingManagerProto.CONNECTED_TO_ADB, mThread != null);
+        writeStringIfNotNull(dump, "last_key_received", UsbDebuggingManagerProto.LAST_KEY_RECEIVED,
+                mFingerprints);
+
         try {
-            pw.println(FileUtils.readTextFile(new File("/data/misc/adb/adb_keys"), 0, null));
+            dump.write("user_keys", UsbDebuggingManagerProto.USER_KEYS,
+                    FileUtils.readTextFile(new File("/data/misc/adb/adb_keys"), 0, null));
         } catch (IOException e) {
-            pw.println("IOException: " + e);
+            Slog.e(TAG, "Cannot read user keys", e);
         }
-        pw.println("  System keys:");
+
         try {
-            pw.println(FileUtils.readTextFile(new File("/adb_keys"), 0, null));
+            dump.write("system_keys", UsbDebuggingManagerProto.SYSTEM_KEYS,
+                    FileUtils.readTextFile(new File("/adb_keys"), 0, null));
         } catch (IOException e) {
-            pw.println("IOException: " + e);
+            Slog.e(TAG, "Cannot read system keys", e);
         }
+
+        dump.end(token);
     }
 }

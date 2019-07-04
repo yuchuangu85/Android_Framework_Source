@@ -23,9 +23,11 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.Cursor;
 import android.database.SQLException;
-import android.os.UserHandle;
+import android.os.PersistableBundle;
 import android.os.UserManager;
+import android.telephony.CarrierConfigManager;
 import android.telephony.Rlog;
+import android.telephony.SubscriptionManager;
 
 import com.android.internal.telephony.cdma.CdmaInboundSmsHandler;
 import com.android.internal.telephony.gsm.GsmInboundSmsHandler;
@@ -45,7 +47,7 @@ public class SmsBroadcastUndelivered {
     private static final boolean DBG = InboundSmsHandler.DBG;
 
     /** Delete any partial message segments older than 30 days. */
-    static final long PARTIAL_SEGMENT_EXPIRE_AGE = (long) (60 * 60 * 1000) * 24 * 30;
+    static final long DEFAULT_PARTIAL_SEGMENT_EXPIRE_AGE = (long) (60 * 60 * 1000) * 24 * 30;
 
     /**
      * Query projection for dispatching pending messages at boot time.
@@ -60,7 +62,8 @@ public class SmsBroadcastUndelivered {
             "count",
             "address",
             "_id",
-            "message_body"
+            "message_body",
+            "display_originating_addr"
     };
 
     private static SmsBroadcastUndelivered instance;
@@ -96,7 +99,7 @@ public class SmsBroadcastUndelivered {
 
         @Override
         public void run() {
-            scanRawTable();
+            scanRawTable(context);
             InboundSmsHandler.cancelNewMessageNotification(context);
         }
     }
@@ -139,7 +142,7 @@ public class SmsBroadcastUndelivered {
     /**
      * Scan the raw table for complete SMS messages to broadcast, and old PDUs to delete.
      */
-    private void scanRawTable() {
+    private void scanRawTable(Context context) {
         if (DBG) Rlog.d(TAG, "scanning raw table for undelivered messages");
         long startTime = System.nanoTime();
         HashMap<SmsReferenceKey, Integer> multiPartReceivedCount =
@@ -175,8 +178,9 @@ public class SmsBroadcastUndelivered {
                     Integer receivedCount = multiPartReceivedCount.get(reference);
                     if (receivedCount == null) {
                         multiPartReceivedCount.put(reference, 1);    // first segment seen
+                        long expirationTime = getUndeliveredSmsExpirationTime(context);
                         if (tracker.getTimestamp() <
-                                (System.currentTimeMillis() - PARTIAL_SEGMENT_EXPIRE_AGE)) {
+                                (System.currentTimeMillis() - expirationTime)) {
                             // older than 30 days; delete if we don't find all the segments
                             oldMultiPartMessages.add(reference);
                         }
@@ -199,7 +203,7 @@ public class SmsBroadcastUndelivered {
             for (SmsReferenceKey message : oldMultiPartMessages) {
                 // delete permanently
                 int rows = mResolver.delete(InboundSmsHandler.sRawUriPermanentDelete,
-                        InboundSmsHandler.SELECT_BY_REFERENCE, message.getDeleteWhereArgs());
+                        message.getDeleteWhere(), message.getDeleteWhereArgs());
                 if (rows == 0) {
                     Rlog.e(TAG, "No rows were deleted from raw table!");
                 } else if (DBG) {
@@ -235,6 +239,20 @@ public class SmsBroadcastUndelivered {
         }
     }
 
+    private long getUndeliveredSmsExpirationTime(Context context) {
+        int subId = SubscriptionManager.getDefaultSmsSubscriptionId();
+        CarrierConfigManager configManager =
+                (CarrierConfigManager) context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        PersistableBundle bundle = configManager.getConfigForSubId(subId);
+
+        if (bundle != null) {
+            return bundle.getLong(CarrierConfigManager.KEY_UNDELIVERED_SMS_MESSAGE_EXPIRATION_TIME,
+                    DEFAULT_PARTIAL_SEGMENT_EXPIRE_AGE);
+        } else {
+            return DEFAULT_PARTIAL_SEGMENT_EXPIRE_AGE;
+        }
+    }
+
     /**
      * Used as the HashMap key for matching concatenated message segments.
      */
@@ -242,16 +260,23 @@ public class SmsBroadcastUndelivered {
         final String mAddress;
         final int mReferenceNumber;
         final int mMessageCount;
+        final String mQuery;
 
         SmsReferenceKey(InboundSmsTracker tracker) {
             mAddress = tracker.getAddress();
             mReferenceNumber = tracker.getReferenceNumber();
             mMessageCount = tracker.getMessageCount();
+            mQuery = tracker.getQueryForSegments();
+
         }
 
         String[] getDeleteWhereArgs() {
             return new String[]{mAddress, Integer.toString(mReferenceNumber),
                     Integer.toString(mMessageCount)};
+        }
+
+        String getDeleteWhere() {
+            return mQuery;
         }
 
         @Override

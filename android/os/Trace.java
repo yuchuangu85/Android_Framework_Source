@@ -16,6 +16,10 @@
 
 package android.os;
 
+import com.android.internal.os.Zygote;
+
+import dalvik.annotation.optimization.FastNative;
+
 /**
  * Writes trace events to the system trace buffer.  These trace events can be
  * collected and visualized using the Systrace tool.
@@ -83,6 +87,12 @@ public final class Trace {
     public static final long TRACE_TAG_DATABASE = 1L << 20;
     /** @hide */
     public static final long TRACE_TAG_NETWORK = 1L << 21;
+    /** @hide */
+    public static final long TRACE_TAG_ADB = 1L << 22;
+    /** @hide */
+    public static final long TRACE_TAG_VIBRATOR = 1L << 23;
+    /** @hide */
+    public static final long TRACE_TAG_AIDL = 1L << 24;
 
     private static final long TRACE_TAG_NOT_READY = 1L << 63;
     private static final int MAX_SECTION_NAME_LEN = 127;
@@ -90,14 +100,22 @@ public final class Trace {
     // Must be volatile to avoid word tearing.
     private static volatile long sEnabledTags = TRACE_TAG_NOT_READY;
 
+    private static int sZygoteDebugFlags = 0;
+
     private static native long nativeGetEnabledTags();
-    private static native void nativeTraceCounter(long tag, String name, int value);
-    private static native void nativeTraceBegin(long tag, String name);
-    private static native void nativeTraceEnd(long tag);
-    private static native void nativeAsyncTraceBegin(long tag, String name, int cookie);
-    private static native void nativeAsyncTraceEnd(long tag, String name, int cookie);
     private static native void nativeSetAppTracingAllowed(boolean allowed);
     private static native void nativeSetTracingEnabled(boolean allowed);
+
+    @FastNative
+    private static native void nativeTraceCounter(long tag, String name, int value);
+    @FastNative
+    private static native void nativeTraceBegin(long tag, String name);
+    @FastNative
+    private static native void nativeTraceEnd(long tag);
+    @FastNative
+    private static native void nativeAsyncTraceBegin(long tag, String name, int cookie);
+    @FastNative
+    private static native void nativeAsyncTraceEnd(long tag, String name, int cookie);
 
     static {
         // We configure two separate change callbacks, one in Trace.cpp and one here.  The
@@ -108,9 +126,10 @@ public final class Trace {
         // The system provides ordering through a priority level.  Callbacks made through
         // SystemProperties.addChangeCallback currently have a negative priority, while
         // our native code is using a priority of zero.
-        SystemProperties.addChangeCallback(new Runnable() {
-            @Override public void run() {
-                cacheEnabledTags();
+        SystemProperties.addChangeCallback(() -> {
+            cacheEnabledTags();
+            if ((sZygoteDebugFlags & Zygote.DEBUG_JAVA_DEBUGGABLE) != 0) {
+                traceCounter(TRACE_TAG_ALWAYS, "java_debuggable", 1);
             }
         });
     }
@@ -191,8 +210,9 @@ public final class Trace {
      *
      * @hide
      */
-    public static void setTracingEnabled(boolean enabled) {
+    public static void setTracingEnabled(boolean enabled, int debugFlags) {
         nativeSetTracingEnabled(enabled);
+        sZygoteDebugFlags = debugFlags;
 
         // Setting whether tracing is enabled may change the tags, so we update the cached tags
         // here.

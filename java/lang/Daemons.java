@@ -46,6 +46,13 @@ public final class Daemons {
         HeapTaskDaemon.INSTANCE.start();
     }
 
+    public static void startPostZygoteFork() {
+        ReferenceQueueDaemon.INSTANCE.startPostZygoteFork();
+        FinalizerDaemon.INSTANCE.startPostZygoteFork();
+        FinalizerWatchdogDaemon.INSTANCE.startPostZygoteFork();
+        HeapTaskDaemon.INSTANCE.startPostZygoteFork();
+    }
+
     public static void stop() {
         HeapTaskDaemon.INSTANCE.stop();
         ReferenceQueueDaemon.INSTANCE.stop();
@@ -61,12 +68,22 @@ public final class Daemons {
     private static abstract class Daemon implements Runnable {
         private Thread thread;
         private String name;
+        private boolean postZygoteFork;
 
         protected Daemon(String name) {
             this.name = name;
         }
 
         public synchronized void start() {
+            startInternal();
+        }
+
+        public synchronized void startPostZygoteFork() {
+            postZygoteFork = true;
+            startInternal();
+        }
+
+        public void startInternal() {
             if (thread != null) {
                 throw new IllegalStateException("already running");
             }
@@ -75,7 +92,18 @@ public final class Daemons {
             thread.start();
         }
 
-        public abstract void run();
+        public void run() {
+            if (postZygoteFork) {
+                // We don't set the priority before the Thread.start() call above because
+                // Thread.start() will call SetNativePriority and overwrite the desired native
+                // priority. We (may) use a native priority that doesn't have a corresponding
+                // java.lang.Thread-level priority (native priorities are more coarse-grained.)
+                VMRuntime.getRuntime().setSystemDaemonThreadPriority();
+            }
+            runInternal();
+        }
+
+        public abstract void runInternal();
 
         /**
          * Returns true while the current thread should continue to run; false
@@ -141,7 +169,7 @@ public final class Daemons {
             super("ReferenceQueueDaemon");
         }
 
-        @Override public void run() {
+        @Override public void runInternal() {
             while (isRunning()) {
                 Reference<?> list;
                 try {
@@ -173,7 +201,7 @@ public final class Daemons {
             super("FinalizerDaemon");
         }
 
-        @Override public void run() {
+        @Override public void runInternal() {
             // This loop may be performance critical, since we need to keep up with mutator
             // generation of finalizable objects.
             // We minimize the amount of work we do per finalizable object. For example, we avoid
@@ -244,7 +272,7 @@ public final class Daemons {
             super("FinalizerWatchdogDaemon");
         }
 
-        @Override public void run() {
+        @Override public void runInternal() {
             while (isRunning()) {
                 if (!sleepUntilNeeded()) {
                     // We have been interrupted, need to see if this daemon has been stopped.
@@ -372,7 +400,7 @@ public final class Daemons {
             Exception syntheticException = new TimeoutException(message);
             // We use the stack from where finalize() was running to show where it was stuck.
             syntheticException.setStackTrace(FinalizerDaemon.INSTANCE.getStackTrace());
-            Thread.UncaughtExceptionHandler h = Thread.getDefaultUncaughtExceptionHandler();
+
             // Send SIGQUIT to get native stack traces.
             try {
                 Os.kill(Os.getpid(), OsConstants.SIGQUIT);
@@ -383,15 +411,29 @@ public final class Daemons {
             } catch (OutOfMemoryError ignored) {
                 // May occur while trying to allocate the exception.
             }
-            if (h == null) {
+
+            // Ideally, we'd want to do this if this Thread had no handler to dispatch to.
+            // Unfortunately, it's extremely to messy to query whether a given Thread has *some*
+            // handler to dispatch to, either via a handler set on itself, via its ThreadGroup
+            // object or via the defaultUncaughtExceptionHandler.
+            //
+            // As an approximation, we log by hand an exit if there's no pre-exception handler nor
+            // a default uncaught exception handler.
+            //
+            // Note that this condition will only ever be hit by ART host tests and standalone
+            // dalvikvm invocations. All zygote forked process *will* have a pre-handler set
+            // in RuntimeInit and they cannot subsequently override it.
+            if (Thread.getUncaughtExceptionPreHandler() == null &&
+                    Thread.getDefaultUncaughtExceptionHandler() == null) {
                 // If we have no handler, log and exit.
                 System.logE(message, syntheticException);
                 System.exit(2);
             }
+
             // Otherwise call the handler to do crash reporting.
             // We don't just throw because we're not the thread that
             // timed out; we're the thread that detected it.
-            h.uncaughtException(Thread.currentThread(), syntheticException);
+            Thread.currentThread().dispatchUncaughtException(syntheticException);
         }
     }
 
@@ -419,7 +461,7 @@ public final class Daemons {
             VMRuntime.getRuntime().stopHeapTaskProcessor();
         }
 
-        @Override public void run() {
+        @Override public void runInternal() {
             synchronized (this) {
                 if (isRunning()) {
                   // Needs to be synchronized or else we there is a race condition where we start

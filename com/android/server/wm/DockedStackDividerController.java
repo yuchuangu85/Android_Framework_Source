@@ -16,23 +16,25 @@
 
 package com.android.server.wm;
 
-import static android.app.ActivityManager.StackId.DOCKED_STACK_ID;
-import static android.app.ActivityManager.StackId.FULLSCREEN_WORKSPACE_STACK_ID;
-import static android.app.ActivityManager.StackId.INVALID_STACK_ID;
+import static android.app.WindowConfiguration.WINDOWING_MODE_SPLIT_SCREEN_SECONDARY;
+import static android.app.WindowConfiguration.WINDOWING_MODE_UNDEFINED;
 import static android.content.res.Configuration.ORIENTATION_LANDSCAPE;
 import static android.content.res.Configuration.ORIENTATION_PORTRAIT;
 import static android.view.Surface.ROTATION_270;
 import static android.view.Surface.ROTATION_90;
 import static android.view.WindowManager.DOCKED_BOTTOM;
+import static android.view.WindowManager.DOCKED_INVALID;
 import static android.view.WindowManager.DOCKED_LEFT;
 import static android.view.WindowManager.DOCKED_RIGHT;
 import static android.view.WindowManager.DOCKED_TOP;
 import static com.android.server.wm.AppTransition.DEFAULT_APP_TRANSITION_DURATION;
 import static com.android.server.wm.AppTransition.TOUCH_RESPONSE_INTERPOLATOR;
-import static com.android.server.wm.AppTransition.TRANSIT_NONE;
+import static android.view.WindowManager.TRANSIT_NONE;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WITH_CLASS_NAME;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
 import static com.android.server.wm.WindowManagerService.H.NOTIFY_DOCKED_STACK_MINIMIZED_CHANGED;
+import static com.android.server.wm.WindowManagerService.LAYER_OFFSET_DIM;
+import static com.android.server.wm.DockedStackDividerControllerProto.MINIMIZED_DOCK;
 
 import android.content.Context;
 import android.content.res.Configuration;
@@ -41,9 +43,10 @@ import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.util.ArraySet;
 import android.util.Slog;
+import android.util.proto.ProtoOutputStream;
+import android.view.DisplayCutout;
 import android.view.DisplayInfo;
 import android.view.IDockedStackListener;
-import android.view.SurfaceControl;
 import android.view.animation.AnimationUtils;
 import android.view.animation.Interpolator;
 import android.view.animation.PathInterpolator;
@@ -52,16 +55,14 @@ import android.view.inputmethod.InputMethodManagerInternal;
 import com.android.internal.policy.DividerSnapAlgorithm;
 import com.android.internal.policy.DockedDividerUtils;
 import com.android.server.LocalServices;
-import com.android.server.wm.DimLayer.DimLayerUser;
 import com.android.server.wm.WindowManagerService.H;
 
 import java.io.PrintWriter;
-import java.util.ArrayList;
 
 /**
  * Keeps information about the docked stack divider.
  */
-public class DockedStackDividerController implements DimLayerUser {
+public class DockedStackDividerController {
 
     private static final String TAG = TAG_WITH_CLASS_NAME ? "DockedStackDividerController" : TAG_WM;
 
@@ -103,6 +104,7 @@ public class DockedStackDividerController implements DimLayerUser {
     private int mDividerWindowWidth;
     private int mDividerWindowWidthInactive;
     private int mDividerInsets;
+    private int mTaskHeightInMinimizedMode;
     private boolean mResizing;
     private WindowState mWindow;
     private final Rect mTmpRect = new Rect();
@@ -112,9 +114,9 @@ public class DockedStackDividerController implements DimLayerUser {
     private boolean mLastVisibility = false;
     private final RemoteCallbackList<IDockedStackListener> mDockedStackListeners
             = new RemoteCallbackList<>();
-    private final DimLayer mDimLayer;
 
     private boolean mMinimizedDock;
+    private int mOriginalDockedSide = DOCKED_INVALID;
     private boolean mAnimatingForMinimizedDockedStack;
     private boolean mAnimationStarted;
     private long mAnimationStartTime;
@@ -132,17 +134,18 @@ public class DockedStackDividerController implements DimLayerUser {
     private boolean mAdjustedForDivider;
     private float mDividerAnimationStart;
     private float mDividerAnimationTarget;
-    private float mLastAnimationProgress;
-    private float mLastDividerProgress;
+    float mLastAnimationProgress;
+    float mLastDividerProgress;
     private final DividerSnapAlgorithm[] mSnapAlgorithmForRotation = new DividerSnapAlgorithm[4];
     private boolean mImeHideRequested;
+    private final Rect mLastDimLayerRect = new Rect();
+    private float mLastDimLayerAlpha;
+    private TaskStack mDimmedStack;
 
     DockedStackDividerController(WindowManagerService service, DisplayContent displayContent) {
         mService = service;
         mDisplayContent = displayContent;
         final Context context = service.mContext;
-        mDimLayer = new DimLayer(displayContent.mService, this, displayContent.getDisplayId(),
-                "DockedStackDim");
         mMinimizedDockInterpolator = AnimationUtils.loadInterpolator(
                 context, android.R.interpolator.fast_out_slow_in);
         loadDimens();
@@ -151,11 +154,6 @@ public class DockedStackDividerController implements DimLayerUser {
     int getSmallestWidthDpForBounds(Rect bounds) {
         final DisplayInfo di = mDisplayContent.getDisplayInfo();
 
-        // If the bounds are fullscreen, return the value of the fullscreen configuration
-        if (bounds == null || (bounds.left == 0 && bounds.top == 0
-                && bounds.right == di.logicalWidth && bounds.bottom == di.logicalHeight)) {
-            return mService.mCurConfiguration.smallestScreenWidthDp;
-        }
         final int baseDisplayWidth = mDisplayContent.mBaseDisplayWidth;
         final int baseDisplayHeight = mDisplayContent.mBaseDisplayHeight;
         int minWidth = Integer.MAX_VALUE;
@@ -172,9 +170,12 @@ public class DockedStackDividerController implements DimLayerUser {
             final int orientation = mTmpRect2.width() <= mTmpRect2.height()
                     ? ORIENTATION_PORTRAIT
                     : ORIENTATION_LANDSCAPE;
-            final int dockSide = TaskStack.getDockSideUnchecked(mTmpRect, mTmpRect2, orientation);
+            final int dockSide = getDockSide(mTmpRect, mTmpRect2, orientation);
             final int position = DockedDividerUtils.calculatePositionForBounds(mTmpRect, dockSide,
                     getContentWidth());
+
+            final DisplayCutout displayCutout = mDisplayContent.calculateDisplayCutoutForRotation(
+                    rotation).getDisplayCutout();
 
             // Since we only care about feasible states, snap to the closest snap target, like it
             // would happen when actually rotating the screen.
@@ -183,15 +184,86 @@ public class DockedStackDividerController implements DimLayerUser {
             DockedDividerUtils.calculateBoundsForPosition(snappedPosition, dockSide, mTmpRect,
                     mTmpRect2.width(), mTmpRect2.height(), getContentWidth());
             mService.mPolicy.getStableInsetsLw(rotation, mTmpRect2.width(), mTmpRect2.height(),
-                    mTmpRect3);
-            mService.subtractInsets(mTmpRect2, mTmpRect3, mTmpRect);
+                    displayCutout, mTmpRect3);
+            mService.intersectDisplayInsetBounds(mTmpRect2, mTmpRect3, mTmpRect);
             minWidth = Math.min(mTmpRect.width(), minWidth);
         }
         return (int) (minWidth / mDisplayContent.getDisplayMetrics().density);
     }
 
+    /**
+     * Get the current docked side. Determined by its location of {@param bounds} within
+     * {@param displayRect} but if both are the same, it will try to dock to each side and determine
+     * if allowed in its respected {@param orientation}.
+     *
+     * @param bounds bounds of the docked task to get which side is docked
+     * @param displayRect bounds of the display that contains the docked task
+     * @param orientation the origination of device
+     * @return current docked side
+     */
+    int getDockSide(Rect bounds, Rect displayRect, int orientation) {
+        if (orientation == Configuration.ORIENTATION_PORTRAIT) {
+            // Portrait mode, docked either at the top or the bottom.
+            final int diff = (displayRect.bottom - bounds.bottom) - (bounds.top - displayRect.top);
+            if (diff > 0) {
+                return DOCKED_TOP;
+            } else if (diff < 0) {
+                return DOCKED_BOTTOM;
+            }
+            return canPrimaryStackDockTo(DOCKED_TOP) ? DOCKED_TOP : DOCKED_BOTTOM;
+        } else if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            // Landscape mode, docked either on the left or on the right.
+            final int diff = (displayRect.right - bounds.right) - (bounds.left - displayRect.left);
+            if (diff > 0) {
+                return DOCKED_LEFT;
+            } else if (diff < 0) {
+                return DOCKED_RIGHT;
+            }
+            return canPrimaryStackDockTo(DOCKED_LEFT) ? DOCKED_LEFT : DOCKED_RIGHT;
+        }
+        return DOCKED_INVALID;
+    }
+
+    void getHomeStackBoundsInDockedMode(Rect outBounds) {
+        final DisplayInfo di = mDisplayContent.getDisplayInfo();
+        mService.mPolicy.getStableInsetsLw(di.rotation, di.logicalWidth, di.logicalHeight,
+                di.displayCutout, mTmpRect);
+        int dividerSize = mDividerWindowWidth - 2 * mDividerInsets;
+        Configuration configuration = mDisplayContent.getConfiguration();
+        // The offset in the left (landscape)/top (portrait) is calculated with the minimized
+        // offset value with the divider size and any system insets in that direction.
+        if (configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
+            outBounds.set(0, mTaskHeightInMinimizedMode + dividerSize + mTmpRect.top,
+                    di.logicalWidth, di.logicalHeight);
+        } else {
+            // In landscape also inset the left/right side with the statusbar height to match the
+            // minimized size height in portrait mode.
+            final TaskStack stack = mDisplayContent.getSplitScreenPrimaryStackIgnoringVisibility();
+            final int primaryTaskWidth = mTaskHeightInMinimizedMode + dividerSize + mTmpRect.top;
+            int left = mTmpRect.left;
+            int right = di.logicalWidth - mTmpRect.right;
+            if (stack != null) {
+                if (stack.getDockSide() == DOCKED_LEFT) {
+                    left += primaryTaskWidth;
+                } else if (stack.getDockSide() == DOCKED_RIGHT) {
+                    right -= primaryTaskWidth;
+                }
+            }
+            outBounds.set(left, 0, right, di.logicalHeight);
+        }
+    }
+
+    boolean isHomeStackResizable() {
+        final TaskStack homeStack = mDisplayContent.getHomeStack();
+        if (homeStack == null) {
+            return false;
+        }
+        final Task homeTask = homeStack.findHomeTask();
+        return homeTask != null && homeTask.isResizeable();
+    }
+
     private void initSnapAlgorithmForRotations() {
-        final Configuration baseConfig = mService.mCurConfiguration;
+        final Configuration baseConfig = mDisplayContent.getConfiguration();
 
         // Initialize the snap algorithms for all 4 screen orientations.
         final Configuration config = new Configuration();
@@ -203,15 +275,29 @@ public class DockedStackDividerController implements DimLayerUser {
             final int dh = rotated
                     ? mDisplayContent.mBaseDisplayWidth
                     : mDisplayContent.mBaseDisplayHeight;
-            mService.mPolicy.getStableInsetsLw(rotation, dw, dh, mTmpRect);
-            config.setToDefaults();
+            final DisplayCutout displayCutout =
+                    mDisplayContent.calculateDisplayCutoutForRotation(rotation).getDisplayCutout();
+            mService.mPolicy.getStableInsetsLw(rotation, dw, dh, displayCutout, mTmpRect);
+            config.unset();
             config.orientation = (dw <= dh) ? ORIENTATION_PORTRAIT : ORIENTATION_LANDSCAPE;
-            config.screenWidthDp = (int)
-                    (mService.mPolicy.getConfigDisplayWidth(dw, dh, rotation, baseConfig.uiMode) /
-                            mDisplayContent.getDisplayMetrics().density);
-            config.screenHeightDp = (int)
-                    (mService.mPolicy.getConfigDisplayHeight(dw, dh, rotation, baseConfig.uiMode) /
-                            mDisplayContent.getDisplayMetrics().density);
+
+            final int displayId = mDisplayContent.getDisplayId();
+            final int appWidth = mService.mPolicy.getNonDecorDisplayWidth(dw, dh, rotation,
+                baseConfig.uiMode, displayId, displayCutout);
+            final int appHeight = mService.mPolicy.getNonDecorDisplayHeight(dw, dh, rotation,
+                baseConfig.uiMode, displayId, displayCutout);
+            mService.mPolicy.getNonDecorInsetsLw(rotation, dw, dh, displayCutout, mTmpRect);
+            final int leftInset = mTmpRect.left;
+            final int topInset = mTmpRect.top;
+
+            config.windowConfiguration.setAppBounds(leftInset /*left*/, topInset /*top*/,
+                    leftInset + appWidth /*right*/, topInset + appHeight /*bottom*/);
+
+            final float density = mDisplayContent.getDisplayMetrics().density;
+            config.screenWidthDp = (int) (mService.mPolicy.getConfigDisplayWidth(dw, dh,
+                    rotation, baseConfig.uiMode, displayId, displayCutout) / density);
+            config.screenHeightDp = (int) (mService.mPolicy.getConfigDisplayHeight(dw, dh,
+                    rotation, baseConfig.uiMode, displayId, displayCutout) / density);
             final Context rotationContext = mService.mContext.createConfigurationContext(config);
             mSnapAlgorithmForRotation[rotation] = new DividerSnapAlgorithm(
                     rotationContext.getResources(), dw, dh, getContentWidth(),
@@ -227,6 +313,8 @@ public class DockedStackDividerController implements DimLayerUser {
                 com.android.internal.R.dimen.docked_stack_divider_insets);
         mDividerWindowWidthInactive = WindowManagerService.dipToPixel(
                 DIVIDER_WIDTH_INACTIVE_DP, mDisplayContent.getDisplayMetrics());
+        mTaskHeightInMinimizedMode = context.getResources().getDimensionPixelSize(
+                com.android.internal.R.dimen.task_height_of_minimized_mode);
         initSnapAlgorithmForRotations();
     }
 
@@ -267,10 +355,8 @@ public class DockedStackDividerController implements DimLayerUser {
     }
 
     private void resetDragResizingChangeReported() {
-        final WindowList windowList = mDisplayContent.getWindowList();
-        for (int i = windowList.size() - 1; i >= 0; i--) {
-            windowList.get(i).resetDragResizingChangeReported();
-        }
+        mDisplayContent.forAllWindows(WindowState::resetDragResizingChangeReported,
+                true /* traverseTopToBottom */ );
     }
 
     void setWindow(WindowState window) {
@@ -282,7 +368,7 @@ public class DockedStackDividerController implements DimLayerUser {
         if (mWindow == null) {
             return;
         }
-        TaskStack stack = mDisplayContent.mService.mStackIdToStack.get(DOCKED_STACK_ID);
+        TaskStack stack = mDisplayContent.getSplitScreenPrimaryStackIgnoringVisibility();
 
         // If the stack is invisible, we policy force hide it in WindowAnimator.shouldForceHide
         final boolean visible = stack != null;
@@ -292,11 +378,11 @@ public class DockedStackDividerController implements DimLayerUser {
         mLastVisibility = visible;
         notifyDockedDividerVisibilityChanged(visible);
         if (!visible) {
-            setResizeDimLayer(false, INVALID_STACK_ID, 0f);
+            setResizeDimLayer(false, WINDOWING_MODE_UNDEFINED, 0f);
         }
     }
 
-    boolean wasVisible() {
+    private boolean wasVisible() {
         return mLastVisibility;
     }
 
@@ -322,7 +408,7 @@ public class DockedStackDividerController implements DimLayerUser {
     }
 
     void positionDockedStackedDivider(Rect frame) {
-        TaskStack stack = mDisplayContent.getDockedStackLocked();
+        TaskStack stack = mDisplayContent.getSplitScreenPrimaryStackIgnoringVisibility();
         if (stack == null) {
             // Unfortunately we might end up with still having a divider, even though the underlying
             // stack was already removed. This is because we are on AM thread and the removal of the
@@ -356,7 +442,7 @@ public class DockedStackDividerController implements DimLayerUser {
         mLastRect.set(frame);
     }
 
-    void notifyDockedDividerVisibilityChanged(boolean visible) {
+    private void notifyDockedDividerVisibilityChanged(boolean visible) {
         final int size = mDockedStackListeners.beginBroadcast();
         for (int i = 0; i < size; ++i) {
             final IDockedStackListener listener = mDockedStackListeners.getBroadcastItem(i);
@@ -369,7 +455,21 @@ public class DockedStackDividerController implements DimLayerUser {
         mDockedStackListeners.finishBroadcast();
     }
 
+    /**
+     * Checks if the primary stack is allowed to dock to a specific side based on its original dock
+     * side.
+     *
+     * @param dockSide the side to see if it is valid
+     * @return true if the side provided is valid
+     */
+    boolean canPrimaryStackDockTo(int dockSide) {
+        final DisplayInfo di = mDisplayContent.getDisplayInfo();
+        return mService.mPolicy.isDockSideAllowed(dockSide, mOriginalDockedSide, di.logicalWidth,
+                di.logicalHeight, di.rotation);
+    }
+
     void notifyDockedStackExistsChanged(boolean exists) {
+        // TODO(multi-display): Perform all actions only for current display.
         final int size = mDockedStackListeners.beginBroadcast();
         for (int i = 0; i < size; ++i) {
             final IDockedStackListener listener = mDockedStackListeners.getBroadcastItem(i);
@@ -390,8 +490,19 @@ public class DockedStackDividerController implements DimLayerUser {
                 inputMethodManagerInternal.hideCurrentInputMethod();
                 mImeHideRequested = true;
             }
-        } else if (setMinimizedDockedStack(false)) {
-            mService.mWindowPlacerLocked.performSurfacePlacement();
+
+            // If a primary stack was just created, it will not have access to display content at
+            // this point so pass it from here to get a valid dock side.
+            final TaskStack stack = mDisplayContent.getSplitScreenPrimaryStackIgnoringVisibility();
+            mOriginalDockedSide = stack.getDockSideForDisplay(mDisplayContent);
+            return;
+        }
+        mOriginalDockedSide = DOCKED_INVALID;
+        setMinimizedDockedStack(false /* minimizedDock */, false /* animate */);
+
+        if (mDimmedStack != null) {
+            mDimmedStack.stopDimming();
+            mDimmedStack = null;
         }
     }
 
@@ -413,7 +524,20 @@ public class DockedStackDividerController implements DimLayerUser {
         return mImeHideRequested;
     }
 
-    void notifyDockedStackMinimizedChanged(boolean minimizedDock, long animDuration) {
+    private void notifyDockedStackMinimizedChanged(boolean minimizedDock, boolean animate,
+            boolean isHomeStackResizable) {
+        long animDuration = 0;
+        if (animate) {
+            final TaskStack stack =
+                    mDisplayContent.getSplitScreenPrimaryStackIgnoringVisibility();
+            final long transitionDuration = isAnimationMaximizing()
+                    ? mService.mAppTransition.getLastClipRevealTransitionDuration()
+                    : DEFAULT_APP_TRANSITION_DURATION;
+            mAnimationDuration = (long)
+                    (transitionDuration * mService.getTransitionAnimationScaleLocked());
+            mMaximizeMeetFraction = getClipRevealMeetFraction(stack);
+            animDuration = (long) (mAnimationDuration * mMaximizeMeetFraction);
+        }
         mService.mH.removeMessages(NOTIFY_DOCKED_STACK_MINIMIZED_CHANGED);
         mService.mH.obtainMessage(NOTIFY_DOCKED_STACK_MINIMIZED_CHANGED,
                 minimizedDock ? 1 : 0, 0).sendToTarget();
@@ -421,7 +545,8 @@ public class DockedStackDividerController implements DimLayerUser {
         for (int i = 0; i < size; ++i) {
             final IDockedStackListener listener = mDockedStackListeners.getBroadcastItem(i);
             try {
-                listener.onDockedStackMinimizedChanged(minimizedDock, animDuration);
+                listener.onDockedStackMinimizedChanged(minimizedDock, animDuration,
+                        isHomeStackResizable);
             } catch (RemoteException e) {
                 Slog.e(TAG_WM, "Error delivering minimized dock changed event.", e);
             }
@@ -442,7 +567,7 @@ public class DockedStackDividerController implements DimLayerUser {
         mDockedStackListeners.finishBroadcast();
     }
 
-    void notifyAdjustedForImeChanged(boolean adjustedForIme, long animDuration) {
+    private void notifyAdjustedForImeChanged(boolean adjustedForIme, long animDuration) {
         final int size = mDockedStackListeners.beginBroadcast();
         for (int i = 0; i < size; ++i) {
             final IDockedStackListener listener = mDockedStackListeners.getBroadcastItem(i);
@@ -459,31 +584,50 @@ public class DockedStackDividerController implements DimLayerUser {
         mDockedStackListeners.register(listener);
         notifyDockedDividerVisibilityChanged(wasVisible());
         notifyDockedStackExistsChanged(
-                mDisplayContent.mService.mStackIdToStack.get(DOCKED_STACK_ID) != null);
-        notifyDockedStackMinimizedChanged(mMinimizedDock, 0 /* animDuration */);
+                mDisplayContent.getSplitScreenPrimaryStackIgnoringVisibility() != null);
+        notifyDockedStackMinimizedChanged(mMinimizedDock, false /* animate */,
+                isHomeStackResizable());
         notifyAdjustedForImeChanged(mAdjustedForIme, 0 /* animDuration */);
 
     }
 
-    void setResizeDimLayer(boolean visible, int targetStackId, float alpha) {
-        SurfaceControl.openTransaction();
-        final TaskStack stack = mDisplayContent.mService.mStackIdToStack.get(targetStackId);
-        final TaskStack dockedStack = mDisplayContent.getDockedStackLocked();
+    /**
+     * Shows a dim layer with {@param alpha} if {@param visible} is true and
+     * {@param targetWindowingMode} isn't
+     * {@link android.app.WindowConfiguration#WINDOWING_MODE_UNDEFINED} and there is a stack on the
+     * display in that windowing mode.
+     */
+    void setResizeDimLayer(boolean visible, int targetWindowingMode, float alpha) {
+        // TODO: Maybe only allow split-screen windowing modes?
+        final TaskStack stack = targetWindowingMode != WINDOWING_MODE_UNDEFINED
+                ? mDisplayContent.getTopStackInWindowingMode(targetWindowingMode)
+                : null;
+        final TaskStack dockedStack = mDisplayContent.getSplitScreenPrimaryStack();
         boolean visibleAndValid = visible && stack != null && dockedStack != null;
+
+        // Ensure an old dim that was shown for the docked stack divider is removed so we don't end
+        // up with dim layers that can no longer be removed.
+        if (mDimmedStack != null && mDimmedStack != stack) {
+            mDimmedStack.stopDimming();
+            mDimmedStack = null;
+        }
+
         if (visibleAndValid) {
-            stack.getDimBounds(mTmpRect);
-            if (mTmpRect.height() > 0 && mTmpRect.width() > 0) {
-                mDimLayer.setBounds(mTmpRect);
-                mDimLayer.show(mService.mLayersController.getResizeDimLayer(),
-                        alpha, 0 /* duration */);
-            } else {
-                visibleAndValid = false;
-            }
+            mDimmedStack = stack;
+            stack.dim(alpha);
         }
-        if (!visibleAndValid) {
-            mDimLayer.hide();
+        if (!visibleAndValid && stack != null) {
+            mDimmedStack = null;
+            stack.stopDimming();
         }
-        SurfaceControl.closeTransaction();
+    }
+
+    /**
+     * @return The layer used for dimming the apps when dismissing docked/fullscreen stack. Just
+     *         above all application surfaces.
+     */
+    private int getResizeDimLayer() {
+        return (mWindow != null) ? mWindow.mLayer - 1 : LAYER_OFFSET_DIM;
     }
 
     /**
@@ -499,13 +643,20 @@ public class DockedStackDividerController implements DimLayerUser {
         checkMinimizeChanged(true /* animate */);
 
         // We were minimized, and now we are still minimized, but somebody is trying to launch an
-        // app in docked stack, better show recent apps so we actually get unminimized! This catches
+        // app in docked stack, better show recent apps so we actually get unminimized! However do
+        // not do this if keyguard is dismissed such as when the device is unlocking. This catches
         // any case that was missed in ActivityStarter.postStartActivityUncheckedProcessing because
         // we couldn't retrace the launch of the app in the docked stack to the launch from
         // homescreen.
         if (wasMinimized && mMinimizedDock && containsAppInDockedStack(openingApps)
-                && appTransition != TRANSIT_NONE) {
-            mService.showRecentApps(true /* fromHome */);
+                && appTransition != TRANSIT_NONE &&
+                !AppTransition.isKeyguardGoingAwayTransit(appTransition)) {
+            if (mService.mAmInternal.isRecentsComponentHomeActivity(mService.mCurrentUserId)) {
+                // When the home activity is the recents component and we are already minimized,
+                // then there is nothing to do here since home is already visible
+            } else {
+                mService.showRecentApps();
+            }
         }
     }
 
@@ -515,7 +666,7 @@ public class DockedStackDividerController implements DimLayerUser {
     private boolean containsAppInDockedStack(ArraySet<AppWindowToken> apps) {
         for (int i = apps.size() - 1; i >= 0; i--) {
             final AppWindowToken token = apps.valueAt(i);
-            if (token.mTask != null && token.mTask.mStack.mStackId == DOCKED_STACK_ID) {
+            if (token.getTask() != null && token.inSplitScreenPrimaryWindowingMode()) {
                 return true;
             }
         }
@@ -526,8 +677,8 @@ public class DockedStackDividerController implements DimLayerUser {
         return mMinimizedDock;
     }
 
-    private void checkMinimizeChanged(boolean animate) {
-        if (mDisplayContent.getDockedStackVisibleForUserLocked() == null) {
+    void checkMinimizeChanged(boolean animate) {
+        if (mDisplayContent.getSplitScreenPrimaryStackIgnoringVisibility() == null) {
             return;
         }
         final TaskStack homeStack = mDisplayContent.getHomeStack();
@@ -538,19 +689,29 @@ public class DockedStackDividerController implements DimLayerUser {
         if (homeTask == null || !isWithinDisplay(homeTask)) {
             return;
         }
-        final TaskStack fullscreenStack
-                = mService.mStackIdToStack.get(FULLSCREEN_WORKSPACE_STACK_ID);
-        final ArrayList<Task> homeStackTasks = homeStack.getTasks();
-        final Task topHomeStackTask = homeStackTasks.get(homeStackTasks.size() - 1);
-        final boolean homeVisible = homeTask.getTopVisibleAppToken() != null;
-        final boolean homeBehind = (fullscreenStack != null && fullscreenStack.isVisibleLocked())
-                || (homeStackTasks.size() > 1 && topHomeStackTask != homeTask);
-        setMinimizedDockedStack(homeVisible && !homeBehind, animate);
+
+        // Do not minimize when dock is already minimized while keyguard is showing and not
+        // occluded such as unlocking the screen
+        if (mMinimizedDock && mService.mKeyguardOrAodShowingOnDefaultDisplay) {
+            return;
+        }
+        final TaskStack topSecondaryStack = mDisplayContent.getTopStackInWindowingMode(
+                WINDOWING_MODE_SPLIT_SCREEN_SECONDARY);
+        final RecentsAnimationController recentsAnim = mService.getRecentsAnimationController();
+        final boolean minimizedForRecentsAnimation = recentsAnim != null &&
+                recentsAnim.isSplitScreenMinimized();
+        boolean homeVisible = homeTask.getTopVisibleAppToken() != null;
+        if (homeVisible && topSecondaryStack != null) {
+            // Home should only be considered visible if it is greater or equal to the top secondary
+            // stack in terms of z-order.
+            homeVisible = homeStack.compareTo(topSecondaryStack) >= 0;
+        }
+        setMinimizedDockedStack(homeVisible || minimizedForRecentsAnimation, animate);
     }
 
     private boolean isWithinDisplay(Task task) {
-        task.mStack.getBounds(mTmpRect);
-        mDisplayContent.getLogicalDisplayRect(mTmpRect2);
+        task.getBounds(mTmpRect);
+        mDisplayContent.getBounds(mTmpRect2);
         return mTmpRect.intersect(mTmpRect2);
     }
 
@@ -570,17 +731,23 @@ public class DockedStackDividerController implements DimLayerUser {
 
         final boolean imeChanged = clearImeAdjustAnimation();
         boolean minimizedChange = false;
-        if (minimizedDock) {
-            if (animate) {
-                startAdjustAnimation(0f, 1f);
-            } else {
-                minimizedChange |= setMinimizedDockedStack(true);
-            }
+        if (isHomeStackResizable()) {
+            notifyDockedStackMinimizedChanged(minimizedDock, animate,
+                    true /* isHomeStackResizable */);
+            minimizedChange = true;
         } else {
-            if (animate) {
-                startAdjustAnimation(1f, 0f);
+            if (minimizedDock) {
+                if (animate) {
+                    startAdjustAnimation(0f, 1f);
+                } else {
+                    minimizedChange |= setMinimizedDockedStack(true);
+                }
             } else {
-                minimizedChange |= setMinimizedDockedStack(false);
+                if (animate) {
+                    startAdjustAnimation(1f, 0f);
+                } else {
+                    minimizedChange |= setMinimizedDockedStack(false);
+                }
             }
         }
         if (imeChanged || minimizedChange) {
@@ -594,15 +761,7 @@ public class DockedStackDividerController implements DimLayerUser {
     }
 
     private boolean clearImeAdjustAnimation() {
-        boolean changed = false;
-        final ArrayList<TaskStack> stacks = mDisplayContent.getStacks();
-        for (int i = stacks.size() - 1; i >= 0; --i) {
-            final TaskStack stack = stacks.get(i);
-            if (stack != null && stack.isAdjustedForIme()) {
-                stack.resetAdjustedForIme(true /* adjustBoundsNow */);
-                changed  = true;
-            }
-        }
+        final boolean changed = mDisplayContent.clearImeAdjustAnimation();
         mAnimatingForIme = false;
         return changed;
     }
@@ -634,13 +793,7 @@ public class DockedStackDividerController implements DimLayerUser {
         mAnimationTarget = adjustedForIme ? 1 : 0;
         mDividerAnimationTarget = adjustedForDivider ? 1 : 0;
 
-        final ArrayList<TaskStack> stacks = mDisplayContent.getStacks();
-        for (int i = stacks.size() - 1; i >= 0; --i) {
-            final TaskStack stack = stacks.get(i);
-            if (stack.isVisibleLocked() && stack.isAdjustedForIme()) {
-                stack.beginImeAdjustAnimation();
-            }
-        }
+        mDisplayContent.beginImeAdjustAnimation();
 
         // We put all tasks into drag resizing mode - wait until all of them have completed the
         // drag resizing switch.
@@ -653,31 +806,41 @@ public class DockedStackDividerController implements DimLayerUser {
 
                 // There might be an old window delaying the animation start - clear it.
                 if (mDelayedImeWin != null) {
-                    mDelayedImeWin.mWinAnimator.endDelayingAnimationStart();
+                    mDelayedImeWin.endDelayingAnimationStart();
                 }
                 mDelayedImeWin = imeWin;
-                imeWin.mWinAnimator.startDelayingAnimationStart();
+                imeWin.startDelayingAnimationStart();
+            }
+
+            // If we are already waiting for something to be drawn, clear out the old one so it
+            // still gets executed.
+            // TODO: Have a real system where we can wait on different windows to be drawn with
+            // different callbacks.
+            if (mService.mWaitingForDrawnCallback != null) {
+                mService.mWaitingForDrawnCallback.run();
             }
             mService.mWaitingForDrawnCallback = () -> {
-                mAnimationStartDelayed = false;
-                if (mDelayedImeWin != null) {
-                    mDelayedImeWin.mWinAnimator.endDelayingAnimationStart();
+                synchronized (mService.mWindowMap) {
+                    mAnimationStartDelayed = false;
+                    if (mDelayedImeWin != null) {
+                        mDelayedImeWin.endDelayingAnimationStart();
+                    }
+                    // If the adjust status changed since this was posted, only notify
+                    // the new states and don't animate.
+                    long duration = 0;
+                    if (mAdjustedForIme == adjustedForIme
+                            && mAdjustedForDivider == adjustedForDivider) {
+                        duration = IME_ADJUST_ANIM_DURATION;
+                    } else {
+                        Slog.w(TAG, "IME adjust changed while waiting for drawn:"
+                                + " adjustedForIme=" + adjustedForIme
+                                + " adjustedForDivider=" + adjustedForDivider
+                                + " mAdjustedForIme=" + mAdjustedForIme
+                                + " mAdjustedForDivider=" + mAdjustedForDivider);
+                    }
+                    notifyAdjustedForImeChanged(
+                            mAdjustedForIme || mAdjustedForDivider, duration);
                 }
-                // If the adjust status changed since this was posted, only notify
-                // the new states and don't animate.
-                long duration = 0;
-                if (mAdjustedForIme == adjustedForIme
-                        && mAdjustedForDivider == adjustedForDivider) {
-                    duration = IME_ADJUST_ANIM_DURATION;
-                } else {
-                    Slog.w(TAG, "IME adjust changed while waiting for drawn:"
-                            + " adjustedForIme=" + adjustedForIme
-                            + " adjustedForDivider=" + adjustedForDivider
-                            + " mAdjustedForIme=" + mAdjustedForIme
-                            + " mAdjustedForDivider=" + mAdjustedForDivider);
-                }
-                notifyAdjustedForImeChanged(
-                        mAdjustedForIme || mAdjustedForDivider, duration);
             };
         } else {
             notifyAdjustedForImeChanged(
@@ -686,8 +849,8 @@ public class DockedStackDividerController implements DimLayerUser {
     }
 
     private boolean setMinimizedDockedStack(boolean minimized) {
-        final TaskStack stack = mDisplayContent.getDockedStackVisibleForUserLocked();
-        notifyDockedStackMinimizedChanged(minimized, 0);
+        final TaskStack stack = mDisplayContent.getSplitScreenPrimaryStackIgnoringVisibility();
+        notifyDockedStackMinimizedChanged(minimized, false /* animate */, isHomeStackResizable());
         return stack != null && stack.setAdjustedForMinimizedDock(minimized ? 1f : 0f);
     }
 
@@ -703,12 +866,8 @@ public class DockedStackDividerController implements DimLayerUser {
             return animateForMinimizedDockedStack(now);
         } else if (mAnimatingForIme) {
             return animateForIme(now);
-        } else {
-            if (mDimLayer != null && mDimLayer.isDimming()) {
-                mDimLayer.setLayer(mService.mLayersController.getResizeDimLayer());
-            }
-            return false;
         }
+        return false;
     }
 
     private boolean animateForIme(long now) {
@@ -721,27 +880,8 @@ public class DockedStackDividerController implements DimLayerUser {
         float t = Math.min(1f, (float) (now - mAnimationStartTime) / mAnimationDuration);
         t = (mAnimationTarget == 1f ? IME_ADJUST_ENTRY_INTERPOLATOR : TOUCH_RESPONSE_INTERPOLATOR)
                 .getInterpolation(t);
-        final ArrayList<TaskStack> stacks = mDisplayContent.getStacks();
-        boolean updated = false;
-        for (int i = stacks.size() - 1; i >= 0; --i) {
-            final TaskStack stack = stacks.get(i);
-            if (stack != null && stack.isAdjustedForIme()) {
-                if (t >= 1f && mAnimationTarget == 0f && mDividerAnimationTarget == 0f) {
-                    stack.resetAdjustedForIme(true /* adjustBoundsNow */);
-                    updated = true;
-                } else {
-                    mLastAnimationProgress = getInterpolatedAnimationValue(t);
-                    mLastDividerProgress = getInterpolatedDividerValue(t);
-                    updated |= stack.updateAdjustForIme(
-                            mLastAnimationProgress,
-                            mLastDividerProgress,
-                            false /* force */);
-                }
-                if (t >= 1f) {
-                    stack.endImeAdjustAnimation();
-                }
-            }
-        }
+        final boolean updated =
+                mDisplayContent.animateForIme(t, mAnimationTarget, mDividerAnimationTarget);
         if (updated) {
             mService.mWindowPlacerLocked.performSurfacePlacement();
         }
@@ -756,18 +896,12 @@ public class DockedStackDividerController implements DimLayerUser {
     }
 
     private boolean animateForMinimizedDockedStack(long now) {
-        final TaskStack stack = mService.mStackIdToStack.get(DOCKED_STACK_ID);
+        final TaskStack stack = mDisplayContent.getSplitScreenPrimaryStackIgnoringVisibility();
         if (!mAnimationStarted) {
             mAnimationStarted = true;
             mAnimationStartTime = now;
-            final long transitionDuration = isAnimationMaximizing()
-                    ? mService.mAppTransition.getLastClipRevealTransitionDuration()
-                    : DEFAULT_APP_TRANSITION_DURATION;
-            mAnimationDuration = (long)
-                    (transitionDuration * mService.getTransitionAnimationScaleLocked());
-            mMaximizeMeetFraction = getClipRevealMeetFraction(stack);
-            notifyDockedStackMinimizedChanged(mMinimizedDock,
-                    (long) (mAnimationDuration * mMaximizeMeetFraction));
+            notifyDockedStackMinimizedChanged(mMinimizedDock, true /* animate */,
+                    isHomeStackResizable() /* isHomeStackResizable */);
         }
         float t = Math.min(1f, (float) (now - mAnimationStartTime) / mAnimationDuration);
         t = (isAnimationMaximizing() ? TOUCH_RESPONSE_INTERPOLATOR : mMinimizedDockInterpolator)
@@ -785,11 +919,11 @@ public class DockedStackDividerController implements DimLayerUser {
         }
     }
 
-    private float getInterpolatedAnimationValue(float t) {
+    float getInterpolatedAnimationValue(float t) {
         return t * mAnimationTarget + (1 - t) * mAnimationStart;
     }
 
-    private float getInterpolatedDividerValue(float t) {
+    float getInterpolatedDividerValue(float t) {
         return t * mDividerAnimationTarget + (1 - t) * mDividerAnimationStart;
     }
 
@@ -841,22 +975,6 @@ public class DockedStackDividerController implements DimLayerUser {
                 + (1 - t) * (CLIP_REVEAL_MEET_LAST - CLIP_REVEAL_MEET_EARLIEST);
     }
 
-    @Override
-    public boolean dimFullscreen() {
-        return false;
-    }
-
-    @Override
-    public DisplayInfo getDisplayInfo() {
-        return mDisplayContent.getDisplayInfo();
-    }
-
-    @Override
-    public void getDimBounds(Rect outBounds) {
-        // This dim layer user doesn't need this.
-    }
-
-    @Override
     public String toShortString() {
         return TAG;
     }
@@ -871,9 +989,11 @@ public class DockedStackDividerController implements DimLayerUser {
         pw.println(prefix + "  mMinimizedDock=" + mMinimizedDock);
         pw.println(prefix + "  mAdjustedForIme=" + mAdjustedForIme);
         pw.println(prefix + "  mAdjustedForDivider=" + mAdjustedForDivider);
-        if (mDimLayer.isDimming()) {
-            pw.println(prefix + "  Dim layer is dimming: ");
-            mDimLayer.printTo(prefix + "    ", pw);
-        }
+    }
+
+    void writeToProto(ProtoOutputStream proto, long fieldId) {
+        final long token = proto.start(fieldId);
+        proto.write(MINIMIZED_DOCK, mMinimizedDock);
+        proto.end(token);
     }
 }

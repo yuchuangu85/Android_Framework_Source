@@ -17,9 +17,15 @@
 package android.hardware.hdmi;
 
 import android.annotation.Nullable;
+import android.annotation.RequiresFeature;
+import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.SuppressLint;
+import android.content.Context;
+import android.content.pm.PackageManager;
 import android.annotation.SystemApi;
+import android.annotation.SystemService;
 import android.os.RemoteException;
 import android.util.ArrayMap;
 import android.util.Log;
@@ -37,6 +43,8 @@ import android.util.Log;
  * @hide
  */
 @SystemApi
+@SystemService(Context.HDMI_CONTROL_SERVICE)
+@RequiresFeature(PackageManager.FEATURE_HDMI_CEC)
 public final class HdmiControlManager {
     private static final String TAG = "HdmiControlManager";
 
@@ -295,6 +303,7 @@ public final class HdmiControlManager {
      * See {@link HdmiDeviceInfo#DEVICE_TV}
      */
     @Nullable
+    @SuppressLint("Doclava125")
     public HdmiClient getClient(int type) {
         if (mService == null) {
             return null;
@@ -319,6 +328,7 @@ public final class HdmiControlManager {
      * @return {@link HdmiPlaybackClient} instance. {@code null} on failure.
      */
     @Nullable
+    @SuppressLint("Doclava125")
     public HdmiPlaybackClient getPlaybackClient() {
         return (HdmiPlaybackClient) getClient(HdmiDeviceInfo.DEVICE_PLAYBACK);
     }
@@ -333,8 +343,24 @@ public final class HdmiControlManager {
      * @return {@link HdmiTvClient} instance. {@code null} on failure.
      */
     @Nullable
+    @SuppressLint("Doclava125")
     public HdmiTvClient getTvClient() {
         return (HdmiTvClient) getClient(HdmiDeviceInfo.DEVICE_TV);
+    }
+
+    /**
+     * Controls standby mode of the system. It will also try to turn on/off the connected devices if
+     * necessary.
+     *
+     * @param isStandbyModeOn target status of the system's standby mode
+     */
+    @RequiresPermission(android.Manifest.permission.HDMI_CEC)
+    public void setStandbyMode(boolean isStandbyModeOn) {
+        try {
+            mService.setStandbyMode(isStandbyModeOn);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
     }
 
     /**
@@ -389,6 +415,7 @@ public final class HdmiControlManager {
      * @param listener {@link HotplugEventListener} instance
      * @see HdmiControlManager#removeHotplugEventListener(HotplugEventListener)
      */
+    @RequiresPermission(android.Manifest.permission.HDMI_CEC)
     public void addHotplugEventListener(HotplugEventListener listener) {
         if (mService == null) {
             Log.e(TAG, "HdmiControlService is not available");
@@ -412,6 +439,7 @@ public final class HdmiControlManager {
      *
      * @param listener {@link HotplugEventListener} instance to be removed
      */
+    @RequiresPermission(android.Manifest.permission.HDMI_CEC)
     public void removeHotplugEventListener(HotplugEventListener listener) {
         if (mService == null) {
             Log.e(TAG, "HdmiControlService is not available");

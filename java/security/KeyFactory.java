@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,7 +37,7 @@ import sun.security.jca.GetInstance.Instance;
 
 /**
  * Key factories are used to convert <I>keys</I> (opaque
- * cryptographic keys of type <code>Key</code>) into <I>key specifications</I>
+ * cryptographic keys of type {@code Key}) into <I>key specifications</I>
  * (transparent representations of the underlying key material), and vice
  * versa.
  *
@@ -47,8 +47,8 @@ import sun.security.jca.GetInstance.Instance;
  *
  * <P> Multiple compatible key specifications may exist for the same key.
  * For example, a DSA public key may be specified using
- * <code>DSAPublicKeySpec</code> or
- * <code>X509EncodedKeySpec</code>. A key factory can be used to translate
+ * {@code DSAPublicKeySpec} or
+ * {@code X509EncodedKeySpec}. A key factory can be used to translate
  * between compatible key specifications.
  *
  * <P> The following is an example of how to use a key factory in order to
@@ -69,34 +69,34 @@ import sun.security.jca.GetInstance.Instance;
  *
  * <p> Android provides the following <code>KeyFactory</code> algorithms:
  * <table>
- *     <thead>
- *         <tr>
- *             <th>Name</th>
- *             <th>Supported (API Levels)</th>
- *         </tr>
- *     </thead>
- *     <tbody>
- *         <tr>
- *             <td>DH</td>
- *             <td>1+</td>
- *         </tr>
- *         <tr>
- *             <td>DSA</td>
- *             <td>1+</td>
- *         </tr>
- *         <tr>
- *             <td>EC</td>
- *             <td>11+</td>
- *         </tr>
- *         <tr>
- *             <td>RSA</td>
- *             <td>1+</td>
- *         </tr>
- *         <tr>
- *             <td>X.509</td>
- *             <td>1&ndash;8</td>
- *         </tr>
- *     </tbody>
+ *   <thead>
+ *     <tr>
+ *       <th>Algorithm</th>
+ *       <th>Supported API Levels</th>
+ *     </tr>
+ *   </thead>
+ *   <tbody>
+ *     <tr>
+ *       <td>DH</td>
+ *       <td>1+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>DSA</td>
+ *       <td>1+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>EC</td>
+ *       <td>11+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>RSA</td>
+ *       <td>1+</td>
+ *     </tr>
+ *     <tr class="deprecated">
+ *       <td>X.509</td>
+ *       <td>1-8</td>
+ *     </tr>
+ *   </tbody>
  * </table>
  *
  * These algorithms are described in the <a href=
@@ -143,7 +143,7 @@ public class KeyFactory {
      * @param keyFacSpi the delegate
      * @param provider the provider
      * @param algorithm the name of the algorithm
-     * to associate with this <tt>KeyFactory</tt>
+     * to associate with this {@code KeyFactory}
      */
     protected KeyFactory(KeyFactorySpi keyFacSpi, Provider provider,
                          String algorithm) {
@@ -231,6 +231,8 @@ public class KeyFactory {
      */
     public static KeyFactory getInstance(String algorithm, String provider)
             throws NoSuchAlgorithmException, NoSuchProviderException {
+        // Android-added: Check for Bouncy Castle deprecation
+        Providers.checkBouncyCastleDeprecation(provider, "KeyFactory", algorithm);
         Instance instance = GetInstance.getInstance("KeyFactory",
             KeyFactorySpi.class, algorithm, provider);
         return new KeyFactory((KeyFactorySpi)instance.impl,
@@ -268,6 +270,8 @@ public class KeyFactory {
      */
     public static KeyFactory getInstance(String algorithm, Provider provider)
             throws NoSuchAlgorithmException {
+        // Android-added: Check for Bouncy Castle deprecation
+        Providers.checkBouncyCastleDeprecation(provider, "KeyFactory", algorithm);
         Instance instance = GetInstance.getInstance("KeyFactory",
             KeyFactorySpi.class, algorithm, provider);
         return new KeyFactory((KeyFactorySpi)instance.impl,
@@ -289,10 +293,10 @@ public class KeyFactory {
 
     /**
      * Gets the name of the algorithm
-     * associated with this <tt>KeyFactory</tt>.
+     * associated with this {@code KeyFactory}.
      *
      * @return the name of the algorithm associated with this
-     * <tt>KeyFactory</tt>
+     * {@code KeyFactory}
      */
     public final String getAlgorithm() {
         return this.algorithm;
@@ -412,11 +416,13 @@ public class KeyFactory {
 
     /**
      * Returns a specification (key material) of the given key object.
-     * <code>keySpec</code> identifies the specification class in which
+     * {@code keySpec} identifies the specification class in which
      * the key material should be returned. It could, for example, be
-     * <code>DSAPublicKeySpec.class</code>, to indicate that the
+     * {@code DSAPublicKeySpec.class}, to indicate that the
      * key material should be returned in an instance of the
-     * <code>DSAPublicKeySpec</code> class.
+     * {@code DSAPublicKeySpec} class.
+     *
+     * @param <T> the type of the key specification to be returned
      *
      * @param key the key.
      *

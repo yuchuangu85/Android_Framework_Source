@@ -16,21 +16,14 @@
 
 package android.telephony;
 
+import android.annotation.NonNull;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
-import android.telephony.SubscriptionManager;
-import android.telephony.CellLocation;
-import android.telephony.CellInfo;
-import android.telephony.VoLteServiceState;
-import android.telephony.Rlog;
-import android.telephony.ServiceState;
-import android.telephony.SignalStrength;
-import android.telephony.PreciseCallState;
-import android.telephony.PreciseDataConnectionState;
 
 import com.android.internal.telephony.IPhoneStateListener;
+
 import java.util.List;
 import java.lang.ref.WeakReference;
 
@@ -69,9 +62,6 @@ public class PhoneStateListener {
     /**
      * Listen for changes to the network signal strength (cellular).
      * {@more}
-     * Requires Permission: {@link android.Manifest.permission#READ_PHONE_STATE
-     * READ_PHONE_STATE}
-     * <p>
      *
      * @see #onSignalStrengthChanged
      *
@@ -84,7 +74,8 @@ public class PhoneStateListener {
      * Listen for changes to the message-waiting indicator.
      * {@more}
      * Requires Permission: {@link android.Manifest.permission#READ_PHONE_STATE
-     * READ_PHONE_STATE}
+     * READ_PHONE_STATE} or that the calling app has carrier privileges (see
+     * {@link TelephonyManager#hasCarrierPrivileges}).
      * <p>
      * Example: The status bar uses this to determine when to display the
      * voicemail icon.
@@ -97,7 +88,9 @@ public class PhoneStateListener {
      * Listen for changes to the call-forwarding indicator.
      * {@more}
      * Requires Permission: {@link android.Manifest.permission#READ_PHONE_STATE
-     * READ_PHONE_STATE}
+     * READ_PHONE_STATE} or that the calling app has carrier privileges (see
+     * {@link TelephonyManager#hasCarrierPrivileges}).
+     *
      * @see #onCallForwardingIndicatorChanged
      */
     public static final int LISTEN_CALL_FORWARDING_INDICATOR                = 0x00000008;
@@ -216,7 +209,9 @@ public class PhoneStateListener {
      *
      * @see #onOemHookRawEvent
      * @hide
+     * @deprecated OEM needs a vendor-extension hal and their apps should use that instead
      */
+    @Deprecated
     public static final int LISTEN_OEM_HOOK_RAW_EVENT                       = 0x00008000;
 
     /**
@@ -228,12 +223,59 @@ public class PhoneStateListener {
      */
     public static final int LISTEN_CARRIER_NETWORK_CHANGE                   = 0x00010000;
 
-     /*
+    /**
+     *  Listen for changes to the sim voice activation state
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATING
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_DEACTIVATED
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_RESTRICTED
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_UNKNOWN
+     *  {@more}
+     *  Example: TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED indicates voice service has been
+     *  fully activated
+     *
+     *  @see #onVoiceActivationStateChanged
+     *  @hide
+     */
+    public static final int LISTEN_VOICE_ACTIVATION_STATE                   = 0x00020000;
+
+    /**
+     *  Listen for changes to the sim data activation state
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATING
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_DEACTIVATED
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_RESTRICTED
+     *  @see TelephonyManager#SIM_ACTIVATION_STATE_UNKNOWN
+     *  {@more}
+     *  Example: TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED indicates data service has been
+     *  fully activated
+     *
+     *  @see #onDataActivationStateChanged
+     *  @hide
+     */
+    public static final int LISTEN_DATA_ACTIVATION_STATE                   = 0x00040000;
+
+    /**
+     *  Listen for changes to the user mobile data state
+     *
+     *  @see #onUserMobileDataStateChanged
+     */
+    public static final int LISTEN_USER_MOBILE_DATA_STATE                  = 0x00080000;
+
+    /**
+     *  Listen for changes to the physical channel configuration.
+     *
+     *  @see #onPhysicalChannelConfigurationChanged
+     *  @hide
+     */
+    public static final int LISTEN_PHYSICAL_CHANNEL_CONFIGURATION          = 0x00100000;
+
+    /*
      * Subscription used to listen to the phone state changes
      * @hide
      */
     /** @hide */
-    protected int mSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
+    protected Integer mSubId;
 
     private final Handler mHandler;
 
@@ -242,7 +284,7 @@ public class PhoneStateListener {
      * This class requires Looper.myLooper() not return null.
      */
     public PhoneStateListener() {
-        this(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID, Looper.myLooper());
+        this(null, Looper.myLooper());
     }
 
     /**
@@ -251,7 +293,7 @@ public class PhoneStateListener {
      * @hide
      */
     public PhoneStateListener(Looper looper) {
-        this(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID, looper);
+        this(null, looper);
     }
 
     /**
@@ -260,7 +302,7 @@ public class PhoneStateListener {
      * own non-null Looper use PhoneStateListener(int subId, Looper looper) below.
      * @hide
      */
-    public PhoneStateListener(int subId) {
+    public PhoneStateListener(Integer subId) {
         this(subId, Looper.myLooper());
     }
 
@@ -269,7 +311,7 @@ public class PhoneStateListener {
      * and non-null Looper.
      * @hide
      */
-    public PhoneStateListener(int subId, Looper looper) {
+    public PhoneStateListener(Integer subId, Looper looper) {
         if (DBG) log("ctor: subId=" + subId + " looper=" + looper);
         mSubId = subId;
         mHandler = new Handler(looper) {
@@ -327,13 +369,25 @@ public class PhoneStateListener {
                     case LISTEN_VOLTE_STATE:
                         PhoneStateListener.this.onVoLteServiceStateChanged((VoLteServiceState)msg.obj);
                         break;
+                    case LISTEN_VOICE_ACTIVATION_STATE:
+                        PhoneStateListener.this.onVoiceActivationStateChanged((int)msg.obj);
+                        break;
+                    case LISTEN_DATA_ACTIVATION_STATE:
+                        PhoneStateListener.this.onDataActivationStateChanged((int)msg.obj);
+                        break;
+                    case LISTEN_USER_MOBILE_DATA_STATE:
+                        PhoneStateListener.this.onUserMobileDataStateChanged((boolean)msg.obj);
+                        break;
                     case LISTEN_OEM_HOOK_RAW_EVENT:
                         PhoneStateListener.this.onOemHookRawEvent((byte[])msg.obj);
                         break;
                     case LISTEN_CARRIER_NETWORK_CHANGE:
                         PhoneStateListener.this.onCarrierNetworkChange((boolean)msg.obj);
                         break;
-
+                    case LISTEN_PHYSICAL_CHANNEL_CONFIGURATION:
+                        PhoneStateListener.this.onPhysicalChannelConfigurationChanged(
+                                (List<PhysicalChannelConfig>)msg.obj);
+                        break;
                 }
             }
         };
@@ -389,15 +443,16 @@ public class PhoneStateListener {
     /**
      * Callback invoked when device call state changes.
      * @param state call state
-     * @param incomingNumber incoming call phone number. If application does not have
-     * {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE} permission, an empty
-     * string will be passed as an argument.
+     * @param phoneNumber call phone number. If application does not have
+     * {@link android.Manifest.permission#READ_CALL_LOG READ_CALL_LOG} permission or carrier
+     * privileges (see {@link TelephonyManager#hasCarrierPrivileges}), an empty string will be
+     * passed as an argument.
      *
      * @see TelephonyManager#CALL_STATE_IDLE
      * @see TelephonyManager#CALL_STATE_RINGING
      * @see TelephonyManager#CALL_STATE_OFFHOOK
      */
-    public void onCallStateChanged(int state, String incomingNumber) {
+    public void onCallStateChanged(int state, String phoneNumber) {
         // default implementation empty
     }
 
@@ -503,6 +558,43 @@ public class PhoneStateListener {
      * @hide
      */
     public void onVoLteServiceStateChanged(VoLteServiceState stateInfo) {
+    }
+
+    /**
+     * Callback invoked when the SIM voice activation state has changed
+     * @param state is the current SIM voice activation state
+     * @hide
+     */
+    public void onVoiceActivationStateChanged(int state) {
+
+    }
+
+    /**
+     * Callback invoked when the SIM data activation state has changed
+     * @param state is the current SIM data activation state
+     * @hide
+     */
+    public void onDataActivationStateChanged(int state) {
+
+    }
+
+    /**
+     * Callback invoked when the user mobile data state has changed
+     * @param enabled indicates whether the current user mobile data state is enabled or disabled.
+     */
+    public void onUserMobileDataStateChanged(boolean enabled) {
+        // default implementation empty
+    }
+
+    /**
+     * Callback invoked when the current physical channel configuration has changed
+     *
+     * @param configs List of the current {@link PhysicalChannelConfig}s
+     * @hide
+     */
+    public void onPhysicalChannelConfigurationChanged(
+            @NonNull List<PhysicalChannelConfig> configs) {
+        // default implementation empty
     }
 
     /**
@@ -619,12 +711,28 @@ public class PhoneStateListener {
             send(LISTEN_VOLTE_STATE, 0, 0, lteState);
         }
 
+        public void onVoiceActivationStateChanged(int activationState) {
+            send(LISTEN_VOICE_ACTIVATION_STATE, 0, 0, activationState);
+        }
+
+        public void onDataActivationStateChanged(int activationState) {
+            send(LISTEN_DATA_ACTIVATION_STATE, 0, 0, activationState);
+        }
+
+        public void onUserMobileDataStateChanged(boolean enabled) {
+            send(LISTEN_USER_MOBILE_DATA_STATE, 0, 0, enabled);
+        }
+
         public void onOemHookRawEvent(byte[] rawData) {
             send(LISTEN_OEM_HOOK_RAW_EVENT, 0, 0, rawData);
         }
 
         public void onCarrierNetworkChange(boolean active) {
             send(LISTEN_CARRIER_NETWORK_CHANGE, 0, 0, active);
+        }
+
+        public void onPhysicalChannelConfigurationChanged(List<PhysicalChannelConfig> configs) {
+            send(LISTEN_PHYSICAL_CHANNEL_CONFIGURATION, 0, 0, configs);
         }
     }
 

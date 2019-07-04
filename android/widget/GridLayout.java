@@ -16,6 +16,20 @@
 
 package android.widget;
 
+import static android.view.Gravity.AXIS_PULL_AFTER;
+import static android.view.Gravity.AXIS_PULL_BEFORE;
+import static android.view.Gravity.AXIS_SPECIFIED;
+import static android.view.Gravity.AXIS_X_SHIFT;
+import static android.view.Gravity.AXIS_Y_SHIFT;
+import static android.view.Gravity.HORIZONTAL_GRAVITY_MASK;
+import static android.view.Gravity.RELATIVE_LAYOUT_DIRECTION;
+import static android.view.Gravity.VERTICAL_GRAVITY_MASK;
+import static android.view.View.MeasureSpec.EXACTLY;
+import static android.view.View.MeasureSpec.makeMeasureSpec;
+
+import static java.lang.Math.max;
+import static java.lang.Math.min;
+
 import android.annotation.IntDef;
 import android.content.Context;
 import android.content.res.TypedArray;
@@ -32,6 +46,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.RemoteViews.RemoteView;
+
 import com.android.internal.R;
 
 import java.lang.annotation.Retention;
@@ -42,12 +57,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import static android.view.Gravity.*;
-import static android.view.View.MeasureSpec.EXACTLY;
-import static android.view.View.MeasureSpec.makeMeasureSpec;
-import static java.lang.Math.max;
-import static java.lang.Math.min;
 
 /**
  * A layout that places its children in a rectangular <em>grid</em>.
@@ -163,7 +172,10 @@ public class GridLayout extends ViewGroup {
     // Public constants
 
     /** @hide */
-    @IntDef({HORIZONTAL, VERTICAL})
+    @IntDef(prefix = { "HORIZONTAL", "VERTICAL" }, value = {
+            HORIZONTAL,
+            VERTICAL
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Orientation {}
 
@@ -189,7 +201,10 @@ public class GridLayout extends ViewGroup {
     public static final int UNDEFINED = Integer.MIN_VALUE;
 
     /** @hide */
-    @IntDef({ALIGN_BOUNDS, ALIGN_MARGINS})
+    @IntDef(prefix = { "ALIGN_" }, value = {
+            ALIGN_BOUNDS,
+            ALIGN_MARGINS
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface AlignmentMode {}
 

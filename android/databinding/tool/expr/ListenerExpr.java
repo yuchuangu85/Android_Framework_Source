@@ -54,7 +54,7 @@ public class ListenerExpr extends Expr {
         return mMethod;
     }
 
-    public Expr getChild() {
+    public Expr getTarget() {
         return getChildren().get(0);
     }
 
@@ -64,24 +64,24 @@ public class ListenerExpr extends Expr {
 
     @Override
     public boolean isDynamic() {
-        return getChild().isDynamic();
+        return getTarget().isDynamic();
     }
 
     @Override
     protected List<Dependency> constructDependencies() {
         final List<Dependency> dependencies = new ArrayList<Dependency>();
-        Dependency dependency = new Dependency(this, getChild());
+        Dependency dependency = new Dependency(this, getTarget());
         dependency.setMandatory(true);
         dependencies.add(dependency);
         return dependencies;
     }
 
     protected String computeUniqueKey() {
-        return join(getResolvedType().getCanonicalName(), getChild().computeUniqueKey(), mName);
+        return join(getResolvedType().getCanonicalName(), getTarget().computeUniqueKey(), mName);
     }
 
     @Override
-    public KCode generateCode(boolean expand) {
+    public KCode generateCode() {
         KCode code = new KCode("(");
         final int minApi = Math.max(mListenerType.getMinApi(), mMethod.getMinApi());
         if (minApi > 1) {
@@ -89,7 +89,7 @@ public class ListenerExpr extends Expr {
         }
         final String fieldName = LayoutBinderWriterKt.getFieldName(this);
         final String listenerClassName = LayoutBinderWriterKt.getListenerClassName(this);
-        final KCode value = getChild().toCode();
+        final KCode value = getTarget().toCode();
             code.app("((")
                     .app(fieldName)
                     .app(" == null) ? (")
@@ -99,7 +99,7 @@ public class ListenerExpr extends Expr {
                     .app("()) : ")
                     .app(fieldName)
                     .app(")");
-        if (getChild().isDynamic()) {
+        if (getTarget().isDynamic()) {
             code.app(".setValue(", value)
                     .app(")");
         }
@@ -108,7 +108,17 @@ public class ListenerExpr extends Expr {
     }
 
     @Override
+    public Expr cloneToModel(ExprModel model) {
+        return model.listenerExpr(getTarget().cloneToModel(model), mName, mListenerType, mMethod);
+    }
+
+    @Override
     public String getInvertibleError() {
         return "Listeners cannot be the target of a two-way binding";
+    }
+
+    @Override
+    public String toString() {
+        return getTarget().toString() + "::" + mName;
     }
 }

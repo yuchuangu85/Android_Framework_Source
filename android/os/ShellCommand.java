@@ -17,6 +17,7 @@
 package android.os;
 
 import android.util.Slog;
+
 import com.android.internal.util.FastPrintWriter;
 
 import java.io.BufferedInputStream;
@@ -40,6 +41,7 @@ public abstract class ShellCommand {
     private FileDescriptor mOut;
     private FileDescriptor mErr;
     private String[] mArgs;
+    private ShellCallback mShellCallback;
     private ResultReceiver mResultReceiver;
 
     private String mCmd;
@@ -55,12 +57,13 @@ public abstract class ShellCommand {
     private InputStream mInputStream;
 
     public void init(Binder target, FileDescriptor in, FileDescriptor out, FileDescriptor err,
-            String[] args, int firstArgPos) {
+            String[] args, ShellCallback callback, int firstArgPos) {
         mTarget = target;
         mIn = in;
         mOut = out;
         mErr = err;
         mArgs = args;
+        mShellCallback = callback;
         mResultReceiver = null;
         mCmd = null;
         mArgPos = firstArgPos;
@@ -74,7 +77,7 @@ public abstract class ShellCommand {
     }
 
     public int exec(Binder target, FileDescriptor in, FileDescriptor out, FileDescriptor err,
-            String[] args, ResultReceiver resultReceiver) {
+            String[] args, ShellCallback callback, ResultReceiver resultReceiver) {
         String cmd;
         int start;
         if (args != null && args.length > 0) {
@@ -84,11 +87,17 @@ public abstract class ShellCommand {
             cmd = null;
             start = 0;
         }
-        init(target, in, out, err, args, start);
+        init(target, in, out, err, args, callback, start);
         mCmd = cmd;
         mResultReceiver = resultReceiver;
 
-        if (DEBUG) Slog.d(TAG, "Starting command " + mCmd + " on " + mTarget);
+        if (DEBUG) {
+            RuntimeException here = new RuntimeException("here");
+            here.fillInStackTrace();
+            Slog.d(TAG, "Starting command " + mCmd + " on " + mTarget, here);
+            Slog.d(TAG, "Calling uid=" + Binder.getCallingUid()
+                    + " pid=" + Binder.getCallingPid() + " ShellCallback=" + getShellCallback());
+        }
         int res = -1;
         try {
             res = onCommand(mCmd);
@@ -105,7 +114,7 @@ public abstract class ShellCommand {
             // go.
             PrintWriter eout = getErrPrintWriter();
             eout.println();
-            eout.println("Exception occurred while dumping:");
+            eout.println("Exception occurred while executing:");
             e.printStackTrace(eout);
         } finally {
             if (DEBUG) Slog.d(TAG, "Flushing output streams on " + mTarget);
@@ -116,10 +125,30 @@ public abstract class ShellCommand {
                 mErrPrintWriter.flush();
             }
             if (DEBUG) Slog.d(TAG, "Sending command result on " + mTarget);
-            mResultReceiver.send(res, null);
+            if (mResultReceiver != null) {
+                mResultReceiver.send(res, null);
+            }
         }
         if (DEBUG) Slog.d(TAG, "Finished command " + mCmd + " on " + mTarget);
         return res;
+    }
+
+    /**
+     * Adopt the ResultReceiver that was given to this shell command from it, taking
+     * it over.  Primarily used to dispatch to another shell command.  Once called,
+     * this shell command will no longer return its own result when done.
+     */
+    public ResultReceiver adoptResultReceiver() {
+        ResultReceiver rr = mResultReceiver;
+        mResultReceiver = null;
+        return rr;
+    }
+
+    /**
+     * Return the raw FileDescriptor for the output stream.
+     */
+    public FileDescriptor getOutFileDescriptor() {
+        return mOut;
     }
 
     /**
@@ -140,6 +169,13 @@ public abstract class ShellCommand {
             mOutPrintWriter = new FastPrintWriter(getRawOutputStream());
         }
         return mOutPrintWriter;
+    }
+
+    /**
+     * Return the raw FileDescriptor for the error stream.
+     */
+    public FileDescriptor getErrFileDescriptor() {
+        return mErr;
     }
 
     /**
@@ -166,6 +202,13 @@ public abstract class ShellCommand {
     }
 
     /**
+     * Return the raw FileDescriptor for the input stream.
+     */
+    public FileDescriptor getInFileDescriptor() {
+        return mIn;
+    }
+
+    /**
      * Return direct raw access (not buffered) to the command's input data stream.
      */
     public InputStream getRawInputStream() {
@@ -183,6 +226,29 @@ public abstract class ShellCommand {
             mInputStream = new BufferedInputStream(getRawInputStream());
         }
         return mInputStream;
+    }
+
+    /**
+     * Helper for just system services to ask the shell to open an output file.
+     * @hide
+     */
+    public ParcelFileDescriptor openFileForSystem(String path, String mode) {
+        if (DEBUG) Slog.d(TAG, "openFileForSystem: " + path + " mode=" + mode);
+        try {
+            ParcelFileDescriptor pfd = getShellCallback().openFile(path,
+                    "u:r:system_server:s0", mode);
+            if (pfd != null) {
+                if (DEBUG) Slog.d(TAG, "Got file: " + pfd);
+                return pfd;
+            }
+        } catch (RuntimeException e) {
+            if (DEBUG) Slog.d(TAG, "Failure opening file: " + e.getMessage());
+            getErrPrintWriter().println("Failure opening file: " + e.getMessage());
+        }
+        if (DEBUG) Slog.d(TAG, "Error: Unable to open file: " + path);
+        getErrPrintWriter().println("Error: Unable to open file: " + path);
+        getErrPrintWriter().println("Consider using a file under /data/local/tmp/");
+        return null;
     }
 
     /**
@@ -257,6 +323,13 @@ public abstract class ShellCommand {
         return arg;
     }
 
+    /**
+     * Return the {@link ShellCallback} for communicating back with the calling shell.
+     */
+    public ShellCallback getShellCallback() {
+        return mShellCallback;
+    }
+
     public int handleDefaultCommands(String cmd) {
         if ("dump".equals(cmd)) {
             String[] newArgs = new String[mArgs.length-1];
@@ -274,7 +347,7 @@ public abstract class ShellCommand {
     /**
      * Implement parsing and execution of a command.  If it isn't a command you understand,
      * call {@link #handleDefaultCommands(String)} and return its result as a last resort.
-     * User {@link #getNextOption()}, {@link #getNextArg()}, and {@link #getNextArgRequired()}
+     * Use {@link #getNextOption()}, {@link #getNextArg()}, and {@link #getNextArgRequired()}
      * to process additional command line arguments.  Command output can be written to
      * {@link #getOutPrintWriter()} and errors to {@link #getErrPrintWriter()}.
      *

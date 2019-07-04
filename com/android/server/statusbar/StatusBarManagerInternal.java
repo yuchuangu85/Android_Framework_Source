@@ -23,9 +23,6 @@ import com.android.server.notification.NotificationDelegate;
 
 public interface StatusBarManagerInternal {
     void setNotificationDelegate(NotificationDelegate delegate);
-    void buzzBeepBlinked();
-    void notificationLightPulse(int argb, int onMillis, int offMillis);
-    void notificationLightOff();
     void showScreenPinningRequest(int taskId);
     void showAssistDisclosure();
 
@@ -33,17 +30,19 @@ public interface StatusBarManagerInternal {
 
     void cancelPreloadRecentApps();
 
-    void showRecentApps(boolean triggeredFromAltTab, boolean fromHome);
+    void showRecentApps(boolean triggeredFromAltTab);
 
     void hideRecentApps(boolean triggeredFromAltTab, boolean triggeredFromHomeKey);
 
     void dismissKeyboardShortcutsMenu();
     void toggleKeyboardShortcutsMenu(int deviceId);
 
+    void showChargingAnimation(int batteryLevel);
+
     /**
-     * Show TV picture-in-picture menu.
+     * Show picture-in-picture menu.
      */
-    void showTvPictureInPictureMenu();
+    void showPictureInPictureMenu();
 
     void setWindowState(int window, int state);
 
@@ -79,4 +78,20 @@ public interface StatusBarManagerInternal {
     void toggleRecentApps();
 
     void setCurrentUser(int newUserId);
+
+    /**
+     * Set whether the top app currently hides the statusbar.
+     *
+     * @param hidesStatusBar whether it is being hidden
+     */
+    void setTopAppHidesStatusBar(boolean hidesStatusBar);
+
+    boolean showShutdownUi(boolean isReboot, String requestString);
+
+    /**
+     * Show a rotation suggestion that a user may approve to rotate the screen.
+     *
+     * @param rotation rotation suggestion
+     */
+    void onProposedRotationChanged(int rotation, boolean isValid);
 }

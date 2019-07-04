@@ -16,18 +16,18 @@
 
 package android.net;
 
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.InputStream;
-import java.io.FileDescriptor;
-import java.net.SocketOptions;
-
 import android.system.ErrnoException;
+import android.system.Int32Ref;
 import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructLinger;
 import android.system.StructTimeval;
-import android.util.MutableInt;
+
+import java.io.FileDescriptor;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.SocketOptions;
 
 /**
  * Socket implementation used for android.net.LocalSocket and
@@ -62,7 +62,7 @@ class LocalSocketImpl
             FileDescriptor myFd = fd;
             if (myFd == null) throw new IOException("socket closed");
 
-            MutableInt avail = new MutableInt(0);
+            Int32Ref avail = new Int32Ref(0);
             try {
                 Os.ioctlInt(myFd, OsConstants.FIONREAD, avail);
             } catch (ErrnoException e) {
@@ -167,7 +167,7 @@ class LocalSocketImpl
             if (myFd == null) throw new IOException("socket closed");
 
             // Loop until the output buffer is empty.
-            MutableInt pending = new MutableInt(0);
+            Int32Ref pending = new Int32Ref(0);
             while (true) {
                 try {
                     // See linux/net/unix/af_unix.c
@@ -218,7 +218,7 @@ class LocalSocketImpl
      *
      * @param fd non-null; bound file descriptor
      */
-    /*package*/ LocalSocketImpl(FileDescriptor fd) throws IOException
+    /*package*/ LocalSocketImpl(FileDescriptor fd)
     {
         this.fd = fd;
     }
@@ -235,29 +235,29 @@ class LocalSocketImpl
      * @throws IOException
      */
     public void create(int sockType) throws IOException {
-        // no error if socket already created
-        // need this for LocalServerSocket.accept()
-        if (fd == null) {
-            int osType;
-            switch (sockType) {
-                case LocalSocket.SOCKET_DGRAM:
-                    osType = OsConstants.SOCK_DGRAM;
-                    break;
-                case LocalSocket.SOCKET_STREAM:
-                    osType = OsConstants.SOCK_STREAM;
-                    break;
-                case LocalSocket.SOCKET_SEQPACKET:
-                    osType = OsConstants.SOCK_SEQPACKET;
-                    break;
-                default:
-                    throw new IllegalStateException("unknown sockType");
-            }
-            try {
-                fd = Os.socket(OsConstants.AF_UNIX, osType, 0);
-                mFdCreatedInternally = true;
-            } catch (ErrnoException e) {
-                e.rethrowAsIOException();
-            }
+        if (fd != null) {
+            throw new IOException("LocalSocketImpl already has an fd");
+        }
+
+        int osType;
+        switch (sockType) {
+            case LocalSocket.SOCKET_DGRAM:
+                osType = OsConstants.SOCK_DGRAM;
+                break;
+            case LocalSocket.SOCKET_STREAM:
+                osType = OsConstants.SOCK_STREAM;
+                break;
+            case LocalSocket.SOCKET_SEQPACKET:
+                osType = OsConstants.SOCK_SEQPACKET;
+                break;
+            default:
+                throw new IllegalStateException("unknown sockType");
+        }
+        try {
+            fd = Os.socket(OsConstants.AF_UNIX, osType, 0);
+            mFdCreatedInternally = true;
+        } catch (ErrnoException e) {
+            e.rethrowAsIOException();
         }
     }
 

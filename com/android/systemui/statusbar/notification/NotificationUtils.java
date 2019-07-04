@@ -16,7 +16,10 @@
 
 package com.android.systemui.statusbar.notification;
 
+import android.content.Context;
 import android.graphics.Color;
+import android.os.UserHandle;
+import android.provider.Settings;
 import android.view.View;
 import android.widget.ImageView;
 
@@ -56,5 +59,16 @@ public class NotificationUtils {
         baseView.getLocationOnScreen(sLocationBase);
         offsetView.getLocationOnScreen(sLocationOffset);
         return sLocationOffset[1] - sLocationBase[1];
+    }
+
+    /**
+     * @param dimenId the dimen to look up
+     * @return the font scaled dimen as if it were in sp but doesn't shrink sizes below dp
+     */
+    public static int getFontScaledHeight(Context context, int dimenId) {
+        int dimensionPixelSize = context.getResources().getDimensionPixelSize(dimenId);
+        float factor = Math.max(1.0f, context.getResources().getDisplayMetrics().scaledDensity /
+                context.getResources().getDisplayMetrics().density);
+        return (int) (dimensionPixelSize * factor);
     }
 }

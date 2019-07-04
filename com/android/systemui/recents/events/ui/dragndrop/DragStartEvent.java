@@ -19,7 +19,7 @@ package com.android.systemui.recents.events.ui.dragndrop;
 import android.graphics.Point;
 
 import com.android.systemui.recents.events.EventBus;
-import com.android.systemui.recents.model.Task;
+import com.android.systemui.shared.recents.model.Task;
 import com.android.systemui.recents.views.TaskView;
 
 /**
@@ -30,10 +30,17 @@ public class DragStartEvent extends EventBus.Event {
     public final Task task;
     public final TaskView taskView;
     public final Point tlOffset;
+    public final boolean isUserTouchInitiated;
 
     public DragStartEvent(Task task, TaskView taskView, Point tlOffset) {
+        this(task, taskView, tlOffset, true);
+    }
+
+    public DragStartEvent(Task task, TaskView taskView, Point tlOffset,
+            boolean isUserTouchInitiated) {
         this.task = task;
         this.taskView = taskView;
         this.tlOffset = tlOffset;
+        this.isUserTouchInitiated = isUserTouchInitiated;
     }
 }

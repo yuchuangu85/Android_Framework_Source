@@ -16,9 +16,16 @@
 
 package com.android.server.voiceinteraction;
 
+import static android.app.ActivityManager.START_ASSISTANT_HIDDEN_SESSION;
+import static android.app.ActivityManager.START_ASSISTANT_NOT_ACTIVE_SESSION;
+import static android.app.ActivityManager.START_VOICE_HIDDEN_SESSION;
+import static android.app.ActivityManager.START_VOICE_NOT_ACTIVE_SESSION;
+import static android.app.WindowConfiguration.ACTIVITY_TYPE_ASSISTANT;
+
 import android.app.ActivityManager;
+import android.app.ActivityManager.StackId;
 import android.app.ActivityManagerInternal;
-import android.app.ActivityManagerNative;
+import android.app.ActivityOptions;
 import android.app.IActivityManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -48,6 +55,7 @@ import com.android.server.LocalServices;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.List;
 
 class VoiceInteractionManagerServiceImpl implements VoiceInteractionSessionConnection.Callback {
@@ -117,7 +125,7 @@ class VoiceInteractionManagerServiceImpl implements VoiceInteractionSessionConne
         mServiceStub = stub;
         mUser = userHandle;
         mComponent = service;
-        mAm = ActivityManagerNative.getDefault();
+        mAm = ActivityManager.getService();
         VoiceInteractionServiceInfo info;
         try {
             info = new VoiceInteractionServiceInfo(context.getPackageManager(), service, mUser);
@@ -155,13 +163,16 @@ class VoiceInteractionManagerServiceImpl implements VoiceInteractionSessionConne
                     mInfo.getServiceInfo().applicationInfo.uid, mHandler);
         }
         List<IBinder> activityTokens = null;
-        if (activityToken == null) {
+        if (activityToken != null) {
+            activityTokens = new ArrayList<>();
+            activityTokens.add(activityToken);
+        } else {
             // Let's get top activities from all visible stacks
             activityTokens = LocalServices.getService(ActivityManagerInternal.class)
                     .getTopVisibleActivities();
         }
         return mActiveSession.showLocked(args, flags, mDisabledShowContext, showCallback,
-                activityToken, activityTokens);
+                activityTokens);
     }
 
     public boolean hideSessionLocked() {
@@ -186,11 +197,11 @@ class VoiceInteractionManagerServiceImpl implements VoiceInteractionSessionConne
         try {
             if (mActiveSession == null || token != mActiveSession.mToken) {
                 Slog.w(TAG, "startVoiceActivity does not match active session");
-                return ActivityManager.START_VOICE_NOT_ACTIVE_SESSION;
+                return START_VOICE_NOT_ACTIVE_SESSION;
             }
             if (!mActiveSession.mShown) {
                 Slog.w(TAG, "startVoiceActivity not allowed on hidden session");
-                return ActivityManager.START_VOICE_HIDDEN_SESSION;
+                return START_VOICE_HIDDEN_SESSION;
             }
             intent = new Intent(intent);
             intent.addCategory(Intent.CATEGORY_VOICE);
@@ -198,6 +209,28 @@ class VoiceInteractionManagerServiceImpl implements VoiceInteractionSessionConne
             return mAm.startVoiceActivity(mComponent.getPackageName(), callingPid, callingUid,
                     intent, resolvedType, mActiveSession.mSession, mActiveSession.mInteractor,
                     0, null, null, mUser);
+        } catch (RemoteException e) {
+            throw new IllegalStateException("Unexpected remote error", e);
+        }
+    }
+
+    public int startAssistantActivityLocked(int callingPid, int callingUid, IBinder token,
+            Intent intent, String resolvedType) {
+        try {
+            if (mActiveSession == null || token != mActiveSession.mToken) {
+                Slog.w(TAG, "startAssistantActivity does not match active session");
+                return START_ASSISTANT_NOT_ACTIVE_SESSION;
+            }
+            if (!mActiveSession.mShown) {
+                Slog.w(TAG, "startAssistantActivity not allowed on hidden session");
+                return START_ASSISTANT_HIDDEN_SESSION;
+            }
+            intent = new Intent(intent);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            final ActivityOptions options = ActivityOptions.makeBasic();
+            options.setLaunchActivityType(ACTIVITY_TYPE_ASSISTANT);
+            return mAm.startAssistantActivity(mComponent.getPackageName(), callingPid, callingUid,
+                    intent, resolvedType, options.toBundle(), mUser);
         } catch (RemoteException e) {
             throw new IllegalStateException("Unexpected remote error", e);
         }

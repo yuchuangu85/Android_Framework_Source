@@ -16,8 +16,7 @@
 
 package android.nfc;
 
-import java.util.HashMap;
-
+import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
@@ -42,6 +41,7 @@ import android.os.ServiceManager;
 import android.util.Log;
 
 import java.io.IOException;
+import java.util.HashMap;
 
 /**
  * Represents the local NFC adapter.
@@ -147,6 +147,19 @@ public final class NfcAdapter {
     public static final String ACTION_TAG_DISCOVERED = "android.nfc.action.TAG_DISCOVERED";
 
     /**
+     * Broadcast Action: Intent to notify an application that an transaction event has occurred
+     * on the Secure Element.
+     *
+     * <p>This intent will only be sent if the application has requested permission for
+     * {@link android.Manifest.permission#NFC_TRANSACTION_EVENT} and if the application has the
+     * necessary access to Secure Element which witnessed the particular event.
+     */
+    @RequiresPermission(android.Manifest.permission.NFC_TRANSACTION_EVENT)
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+    public static final String ACTION_TRANSACTION_DETECTED =
+            "android.nfc.action.TRANSACTION_DETECTED";
+
+    /**
      * Broadcast to only the activity that handles ACTION_TAG_DISCOVERED
      * @hide
      */
@@ -196,6 +209,23 @@ public final class NfcAdapter {
      * {@link #STATE_TURNING_OFF},
      */
     public static final String EXTRA_ADAPTER_STATE = "android.nfc.extra.ADAPTER_STATE";
+
+    /**
+     * Mandatory byte[] extra field in {@link #ACTION_TRANSACTION_DETECTED}
+     */
+    public static final String EXTRA_AID = "android.nfc.extra.AID";
+
+    /**
+     * Optional byte[] extra field in {@link #ACTION_TRANSACTION_DETECTED}
+     */
+    public static final String EXTRA_DATA = "android.nfc.extra.DATA";
+
+    /**
+     * Mandatory String extra field in {@link #ACTION_TRANSACTION_DETECTED}
+     * Indicates the Secure Element on which the transaction occurred.
+     * eSE1...eSEn for Embedded Secure Elements, SIM1...SIMn for UICC, etc.
+     */
+    public static final String EXTRA_SECURE_ELEMENT_NAME = "android.nfc.extra.SECURE_ELEMENT_NAME";
 
     public static final int STATE_OFF = 1;
     public static final int STATE_TURNING_ON = 2;
@@ -626,6 +656,23 @@ public final class NfcAdapter {
     }
 
     /**
+     * Returns the binder interface to the NFC-DTA test interface.
+     * @hide
+     */
+    public INfcDta getNfcDtaInterface() {
+        if (mContext == null) {
+            throw new UnsupportedOperationException("You need a context on NfcAdapter to use the "
+                    + " NFC extras APIs");
+        }
+        try {
+            return sService.getNfcDtaInterface(mContext.getPackageName());
+        } catch (RemoteException e) {
+            attemptDeadServiceRecovery(e);
+            return null;
+        }
+    }
+
+    /**
      * NFC service dead - attempt best effort recovery
      * @hide
      */
@@ -725,6 +772,7 @@ public final class NfcAdapter {
      * @hide
      */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean enable() {
         try {
             return sService.enable();
@@ -753,6 +801,7 @@ public final class NfcAdapter {
      * @hide
      */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean disable() {
         try {
             return sService.disable(true);
@@ -767,6 +816,7 @@ public final class NfcAdapter {
      * @hide
     */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean disable(boolean persist) {
         try {
             return sService.disable(persist);
@@ -1552,6 +1602,7 @@ public final class NfcAdapter {
      * @hide
      */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean enableNdefPush() {
         if (!sHasNfcFeature) {
             throw new UnsupportedOperationException();
@@ -1570,6 +1621,7 @@ public final class NfcAdapter {
      * @hide
      */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean disableNdefPush() {
         synchronized (NfcAdapter.class) {
             if (!sHasNfcFeature) {
@@ -1736,6 +1788,7 @@ public final class NfcAdapter {
      * @hide
      */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean addNfcUnlockHandler(final NfcUnlockHandler unlockHandler,
                                        String[] tagTechnologies) {
         synchronized (NfcAdapter.class) {
@@ -1785,6 +1838,7 @@ public final class NfcAdapter {
      * @hide
      */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean removeNfcUnlockHandler(NfcUnlockHandler unlockHandler) {
         synchronized (NfcAdapter.class) {
             if (!sHasNfcFeature) {

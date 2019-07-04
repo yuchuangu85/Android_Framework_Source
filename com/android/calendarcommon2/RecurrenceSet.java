@@ -91,45 +91,43 @@ public class RecurrenceSet {
                       String exruleStr, String exdateStr)
             throws EventRecurrence.InvalidFormatException {
         if (!TextUtils.isEmpty(rruleStr) || !TextUtils.isEmpty(rdateStr)) {
+            rrules = parseMultiLineRecurrenceRules(rruleStr);
+            rdates = parseMultiLineRecurrenceDates(rdateStr);
+            exrules = parseMultiLineRecurrenceRules(exruleStr);
+            exdates = parseMultiLineRecurrenceDates(exdateStr);
+        }
+    }
 
-            if (!TextUtils.isEmpty(rruleStr)) {
-                String[] rruleStrs = rruleStr.split(RULE_SEPARATOR);
-                rrules = new EventRecurrence[rruleStrs.length];
-                for (int i = 0; i < rruleStrs.length; ++i) {
-                    EventRecurrence rrule = new EventRecurrence();
-                    rrule.parse(rruleStrs[i]);
-                    rrules[i] = rrule;
-                }
-            }
+    private EventRecurrence[] parseMultiLineRecurrenceRules(String ruleStr) {
+        if (TextUtils.isEmpty(ruleStr)) {
+            return null;
+        }
+        String[] ruleStrs = ruleStr.split(RULE_SEPARATOR);
+        final EventRecurrence[] rules = new EventRecurrence[ruleStrs.length];
+        for (int i = 0; i < ruleStrs.length; ++i) {
+            EventRecurrence rule = new EventRecurrence();
+            rule.parse(ruleStrs[i]);
+            rules[i] = rule;
+        }
+        return rules;
+    }
 
-            if (!TextUtils.isEmpty(rdateStr)) {
-                rdates = parseRecurrenceDates(rdateStr);
-            }
-
-            if (!TextUtils.isEmpty(exruleStr)) {
-                String[] exruleStrs = exruleStr.split(RULE_SEPARATOR);
-                exrules = new EventRecurrence[exruleStrs.length];
-                for (int i = 0; i < exruleStrs.length; ++i) {
-                    EventRecurrence exrule = new EventRecurrence();
-                    exrule.parse(exruleStr);
-                    exrules[i] = exrule;
-                }
-            }
-
-            if (!TextUtils.isEmpty(exdateStr)) {
-                final List<Long> list = new ArrayList<Long>();
-                for (String exdate : exdateStr.split(RULE_SEPARATOR)) {
-                    final long[] dates = parseRecurrenceDates(exdate);
-                    for (long date : dates) {
-                        list.add(date);
-                    }
-                }
-                exdates = new long[list.size()];
-                for (int i = 0, n = list.size(); i < n; i++) {
-                    exdates[i] = list.get(i);
-                }
+    private long[] parseMultiLineRecurrenceDates(String dateStr) {
+        if (TextUtils.isEmpty(dateStr)) {
+            return null;
+        }
+        final List<Long> list = new ArrayList<>();
+        for (String date : dateStr.split(RULE_SEPARATOR)) {
+            final long[] parsedDates = parseRecurrenceDates(date);
+            for (long parsedDate : parsedDates) {
+                list.add(parsedDate);
             }
         }
+        final long[] result = new long[list.size()];
+        for (int i = 0, n = list.size(); i < n; i++) {
+            result[i] = list.get(i);
+        }
+        return result;
     }
 
     /**

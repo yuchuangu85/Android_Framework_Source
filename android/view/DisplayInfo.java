@@ -16,16 +16,23 @@
 
 package android.view;
 
+import static android.view.DisplayInfoProto.APP_HEIGHT;
+import static android.view.DisplayInfoProto.APP_WIDTH;
+import static android.view.DisplayInfoProto.LOGICAL_HEIGHT;
+import static android.view.DisplayInfoProto.LOGICAL_WIDTH;
+import static android.view.DisplayInfoProto.NAME;
+
 import android.content.res.CompatibilityInfo;
 import android.content.res.Configuration;
+import android.graphics.Rect;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.ArraySet;
 import android.util.DisplayMetrics;
+import android.util.proto.ProtoOutputStream;
 
 import java.util.Arrays;
-
-import libcore.util.Objects;
+import java.util.Objects;
 
 /**
  * Describes the characteristics of a particular logical display.
@@ -142,6 +149,13 @@ public final class DisplayInfo implements Parcelable {
     public int overscanBottom;
 
     /**
+     * The {@link DisplayCutout} if present, otherwise {@code null}.
+     *
+     * @hide
+     */
+    public DisplayCutout displayCutout;
+
+    /**
      * The rotation of the display relative to its natural orientation.
      * May be one of {@link android.view.Surface#ROTATION_0},
      * {@link android.view.Surface#ROTATION_90}, {@link android.view.Surface#ROTATION_180},
@@ -238,6 +252,15 @@ public final class DisplayInfo implements Parcelable {
      */
     public String ownerPackageName;
 
+    /**
+     * @hide
+     * Get current remove mode of the display - what actions should be performed with the display's
+     * content when it is removed.
+     *
+     * @see Display#getRemoveMode()
+     */
+    public int removeMode = Display.REMOVE_MODE_MOVE_CONTENT_TO_PRIMARY;
+
     public static final Creator<DisplayInfo> CREATOR = new Creator<DisplayInfo>() {
         @Override
         public DisplayInfo createFromParcel(Parcel source) {
@@ -271,8 +294,8 @@ public final class DisplayInfo implements Parcelable {
                 && layerStack == other.layerStack
                 && flags == other.flags
                 && type == other.type
-                && Objects.equal(address, other.address)
-                && Objects.equal(uniqueId, other.uniqueId)
+                && Objects.equals(address, other.address)
+                && Objects.equals(uniqueId, other.uniqueId)
                 && appWidth == other.appWidth
                 && appHeight == other.appHeight
                 && smallestNominalAppWidth == other.smallestNominalAppWidth
@@ -285,12 +308,13 @@ public final class DisplayInfo implements Parcelable {
                 && overscanTop == other.overscanTop
                 && overscanRight == other.overscanRight
                 && overscanBottom == other.overscanBottom
+                && Objects.equals(displayCutout, other.displayCutout)
                 && rotation == other.rotation
                 && modeId == other.modeId
                 && defaultModeId == other.defaultModeId
                 && colorMode == other.colorMode
                 && Arrays.equals(supportedColorModes, other.supportedColorModes)
-                && Objects.equal(hdrCapabilities, other.hdrCapabilities)
+                && Objects.equals(hdrCapabilities, other.hdrCapabilities)
                 && logicalDensityDpi == other.logicalDensityDpi
                 && physicalXDpi == other.physicalXDpi
                 && physicalYDpi == other.physicalYDpi
@@ -298,7 +322,8 @@ public final class DisplayInfo implements Parcelable {
                 && presentationDeadlineNanos == other.presentationDeadlineNanos
                 && state == other.state
                 && ownerUid == other.ownerUid
-                && Objects.equal(ownerPackageName, other.ownerPackageName);
+                && Objects.equals(ownerPackageName, other.ownerPackageName)
+                && removeMode == other.removeMode;
     }
 
     @Override
@@ -325,6 +350,7 @@ public final class DisplayInfo implements Parcelable {
         overscanTop = other.overscanTop;
         overscanRight = other.overscanRight;
         overscanBottom = other.overscanBottom;
+        displayCutout = other.displayCutout;
         rotation = other.rotation;
         modeId = other.modeId;
         defaultModeId = other.defaultModeId;
@@ -341,6 +367,7 @@ public final class DisplayInfo implements Parcelable {
         state = other.state;
         ownerUid = other.ownerUid;
         ownerPackageName = other.ownerPackageName;
+        removeMode = other.removeMode;
     }
 
     public void readFromParcel(Parcel source) {
@@ -361,6 +388,7 @@ public final class DisplayInfo implements Parcelable {
         overscanTop = source.readInt();
         overscanRight = source.readInt();
         overscanBottom = source.readInt();
+        displayCutout = DisplayCutout.ParcelableWrapper.readCutoutFromParcel(source);
         rotation = source.readInt();
         modeId = source.readInt();
         defaultModeId = source.readInt();
@@ -385,6 +413,7 @@ public final class DisplayInfo implements Parcelable {
         ownerUid = source.readInt();
         ownerPackageName = source.readString();
         uniqueId = source.readString();
+        removeMode = source.readInt();
     }
 
     @Override
@@ -406,6 +435,7 @@ public final class DisplayInfo implements Parcelable {
         dest.writeInt(overscanTop);
         dest.writeInt(overscanRight);
         dest.writeInt(overscanBottom);
+        DisplayCutout.ParcelableWrapper.writeCutoutToParcel(displayCutout, dest, flags);
         dest.writeInt(rotation);
         dest.writeInt(modeId);
         dest.writeInt(defaultModeId);
@@ -428,6 +458,7 @@ public final class DisplayInfo implements Parcelable {
         dest.writeInt(ownerUid);
         dest.writeString(ownerPackageName);
         dest.writeString(uniqueId);
+        dest.writeInt(removeMode);
     }
 
     @Override
@@ -519,6 +550,20 @@ public final class DisplayInfo implements Parcelable {
                 logicalHeight : logicalWidth;
     }
 
+    public boolean isHdr() {
+        int[] types = hdrCapabilities != null ? hdrCapabilities.getSupportedHdrTypes() : null;
+        return types != null && types.length > 0;
+    }
+
+    public boolean isWideColorGamut() {
+        for (int colorMode : supportedColorModes) {
+            if (colorMode == Display.COLOR_MODE_DCI_P3 || colorMode > Display.COLOR_MODE_SRGB) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Returns true if the specified UID has access to this display.
      */
@@ -535,12 +580,10 @@ public final class DisplayInfo implements Parcelable {
         outMetrics.xdpi = outMetrics.noncompatXdpi = physicalXDpi;
         outMetrics.ydpi = outMetrics.noncompatYdpi = physicalYDpi;
 
-        width = (configuration != null
-                && configuration.screenWidthDp != Configuration.SCREEN_WIDTH_DP_UNDEFINED)
-                ? (int)((configuration.screenWidthDp * outMetrics.density) + 0.5f) : width;
-        height = (configuration != null
-                && configuration.screenHeightDp != Configuration.SCREEN_HEIGHT_DP_UNDEFINED)
-                ? (int)((configuration.screenHeightDp * outMetrics.density) + 0.5f) : height;
+        final Rect appBounds = configuration != null
+                ? configuration.windowConfiguration.getAppBounds() : null;
+        width = appBounds != null ? appBounds.width() : width;
+        height = appBounds != null ? appBounds.height() : height;
 
         outMetrics.noncompatWidthPixels  = outMetrics.widthPixels = width;
         outMetrics.noncompatHeightPixels = outMetrics.heightPixels = height;
@@ -623,8 +666,27 @@ public final class DisplayInfo implements Parcelable {
             sb.append(" (uid ").append(ownerUid).append(")");
         }
         sb.append(flagsToString(flags));
+        sb.append(", removeMode ");
+        sb.append(removeMode);
         sb.append("}");
         return sb.toString();
+    }
+
+    /**
+     * Write to a protocol buffer output stream.
+     * Protocol buffer message definition at {@link android.view.DisplayInfoProto}
+     *
+     * @param protoOutputStream Stream to write the Rect object to.
+     * @param fieldId           Field Id of the DisplayInfoProto as defined in the parent message
+     */
+    public void writeToProto(ProtoOutputStream protoOutputStream, long fieldId) {
+        final long token = protoOutputStream.start(fieldId);
+        protoOutputStream.write(LOGICAL_WIDTH, logicalWidth);
+        protoOutputStream.write(LOGICAL_HEIGHT, logicalHeight);
+        protoOutputStream.write(APP_WIDTH, appWidth);
+        protoOutputStream.write(APP_HEIGHT, appHeight);
+        protoOutputStream.write(NAME, name);
+        protoOutputStream.end(token);
     }
 
     private static String flagsToString(int flags) {

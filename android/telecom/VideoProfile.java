@@ -62,6 +62,7 @@ public class VideoProfile implements Parcelable {
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(
             flag = true,
+            prefix = { "STATE_" },
             value = {STATE_AUDIO_ONLY, STATE_TX_ENABLED, STATE_RX_ENABLED, STATE_BIDIRECTIONAL,
                     STATE_PAUSED})
     public @interface VideoState {}
@@ -235,7 +236,7 @@ public class VideoProfile implements Parcelable {
         StringBuilder sb = new StringBuilder();
         sb.append("Audio");
 
-        if (isAudioOnly(videoState)) {
+        if (videoState == STATE_AUDIO_ONLY) {
             sb.append(" Only");
         } else {
             if (isTransmissionEnabled(videoState)) {
@@ -256,6 +257,9 @@ public class VideoProfile implements Parcelable {
 
     /**
      * Indicates whether the video state is audio only.
+     * <p>
+     * Note: Considers only whether either both the {@link #STATE_RX_ENABLED} or
+     * {@link #STATE_TX_ENABLED} bits are off, but not {@link #STATE_PAUSED}.
      *
      * @param videoState The video state.
      * @return {@code True} if the video state is audio only, {@code false} otherwise.

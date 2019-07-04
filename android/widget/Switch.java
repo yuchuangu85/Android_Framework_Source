@@ -30,9 +30,10 @@ import android.graphics.Insets;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
-import android.graphics.Typeface;
 import android.graphics.Region.Op;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
+import android.os.Build.VERSION_CODES;
 import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
@@ -46,8 +47,8 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.SoundEffectConstants;
 import android.view.VelocityTracker;
-import android.view.ViewStructure;
 import android.view.ViewConfiguration;
+import android.view.ViewStructure;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 
@@ -111,6 +112,7 @@ public class Switch extends CompoundButton {
     private CharSequence mTextOn;
     private CharSequence mTextOff;
     private boolean mShowText;
+    private boolean mUseFallbackLineSpacing;
 
     private int mTouchMode;
     private int mTouchSlop;
@@ -245,6 +247,8 @@ public class Switch extends CompoundButton {
         mSwitchPadding = a.getDimensionPixelSize(
                 com.android.internal.R.styleable.Switch_switchPadding, 0);
         mSplitTrack = a.getBoolean(com.android.internal.R.styleable.Switch_splitTrack, false);
+
+        mUseFallbackLineSpacing = context.getApplicationInfo().targetSdkVersion >= VERSION_CODES.P;
 
         ColorStateList thumbTintList = a.getColorStateList(
                 com.android.internal.R.styleable.Switch_thumbTint);
@@ -892,9 +896,11 @@ public class Switch extends CompoundButton {
                     ? mSwitchTransformationMethod.getTransformation(text, this)
                     : text;
 
-        return new StaticLayout(transformed, mTextPaint,
-                (int) Math.ceil(Layout.getDesiredWidth(transformed, mTextPaint)),
-                Layout.Alignment.ALIGN_NORMAL, 1.f, 0, true);
+        int width = (int) Math.ceil(Layout.getDesiredWidth(transformed, 0,
+                transformed.length(), mTextPaint, getTextDirectionHeuristic()));
+        return StaticLayout.Builder.obtain(transformed, 0, transformed.length(), mTextPaint, width)
+                .setUseLineSpacingFromFallbacks(mUseFallbackLineSpacing)
+                .build();
     }
 
     /**
@@ -1405,6 +1411,17 @@ public class Switch extends CompoundButton {
     @Override
     public void onProvideStructure(ViewStructure structure) {
         super.onProvideStructure(structure);
+        onProvideAutoFillStructureForAssistOrAutofill(structure);
+    }
+
+    @Override
+    public void onProvideAutofillStructure(ViewStructure structure, int flags) {
+        super.onProvideAutofillStructure(structure, flags);
+        onProvideAutoFillStructureForAssistOrAutofill(structure);
+    }
+
+    // NOTE: currently there is no difference for Assist or AutoFill, so it doesn't take flags
+    private void onProvideAutoFillStructureForAssistOrAutofill(ViewStructure structure) {
         CharSequence switchText = isChecked() ? mTextOn : mTextOff;
         if (!TextUtils.isEmpty(switchText)) {
             CharSequence oldText = structure.getText();

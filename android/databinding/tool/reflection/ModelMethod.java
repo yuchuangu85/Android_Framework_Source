@@ -32,6 +32,8 @@ public abstract class ModelMethod {
 
     public abstract boolean isPublic();
 
+    public abstract boolean isProtected();
+
     public abstract boolean isStatic();
 
     public abstract boolean isAbstract();
@@ -76,6 +78,9 @@ public abstract class ModelMethod {
         for (int i = 0; i < args.size(); i++) {
             ModelClass parameterType = getParameter(i, parameterTypes);
             ModelClass arg = args.get(i);
+            if (parameterType.isIncomplete()) {
+                parameterType = parameterType.erasure();
+            }
             if (!parameterType.isAssignableFrom(arg) && !isImplicitConversion(arg, parameterType)) {
                 parametersMatch = false;
                 break;
@@ -91,12 +96,19 @@ public abstract class ModelMethod {
             final ModelClass arg = args.get(i);
             final ModelClass thisParameter = getParameter(i, parameterTypes);
             final ModelClass thatParameter = other.getParameter(i, otherParameterTypes);
+            if (thisParameter.equals(thatParameter)) {
+                continue;
+            }
             final int diff = compareParameter(arg, thisParameter, thatParameter);
             if (diff != 0) {
                 return diff < 0;
             }
         }
         return false;
+    }
+
+    public ModelClass getReturnType() {
+        return getReturnType(null);
     }
 
     private ModelClass getParameter(int index, ModelClass[] parameterTypes) {

@@ -16,9 +16,13 @@
 
 package com.android.server.policy;
 
+import static android.app.ActivityManager.LOCK_TASK_MODE_LOCKED;
+import static android.app.ActivityManager.LOCK_TASK_MODE_NONE;
+
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.app.ActivityManager;
+import android.app.ActivityThread;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -77,9 +81,10 @@ public class ImmersiveModeConfirmation {
     // Local copy of vr mode enabled state, to avoid calling into VrManager with
     // the lock held.
     boolean mVrModeEnabled = false;
+    private int mLockTaskState = LOCK_TASK_MODE_NONE;
 
     public ImmersiveModeConfirmation(Context context) {
-        mContext = context;
+        mContext = ActivityThread.currentActivityThread().getSystemUiContext();
         mHandler = new H();
         mShowDelayMs = getNavBarExitDuration() * 3;
         mPanicThresholdMs = context.getResources()
@@ -125,7 +130,7 @@ public class ImmersiveModeConfirmation {
 
     void systemReady() {
         IVrManager vrManager = IVrManager.Stub.asInterface(
-                ServiceManager.getService(VrManagerService.VR_MANAGER_BINDER_SERVICE));
+                ServiceManager.getService(Context.VR_SERVICE));
         if (vrManager != null) {
             try {
                 vrManager.registerListener(mVrStateCallbacks);
@@ -147,7 +152,8 @@ public class ImmersiveModeConfirmation {
                     && userSetupComplete
                     && !mVrModeEnabled
                     && !navBarEmpty
-                    && !UserManager.isDeviceInDemoMode(mContext)) {
+                    && !UserManager.isDeviceInDemoMode(mContext)
+                    && (mLockTaskState != LOCK_TASK_MODE_LOCKED)) {
                 mHandler.sendEmptyMessageDelayed(H.SHOW, mShowDelayMs);
             }
         } else {
@@ -193,6 +199,7 @@ public class ImmersiveModeConfirmation {
                 0
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                         | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                 ,
                 PixelFormat.TRANSLUCENT);
         lp.privateFlags |= WindowManager.LayoutParams.PRIVATE_FLAG_SHOW_FOR_ALL_USERS;
@@ -399,4 +406,8 @@ public class ImmersiveModeConfirmation {
             }
         }
     };
+
+    void onLockTaskModeChangedLw(int lockTaskState) {
+        mLockTaskState = lockTaskState;
+    }
 }

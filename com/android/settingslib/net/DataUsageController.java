@@ -16,6 +16,14 @@
 
 package com.android.settingslib.net;
 
+import static android.net.ConnectivityManager.TYPE_MOBILE;
+import static android.net.NetworkStatsHistory.FIELD_RX_BYTES;
+import static android.net.NetworkStatsHistory.FIELD_TX_BYTES;
+import static android.net.TrafficStats.MB_IN_BYTES;
+import static android.telephony.TelephonyManager.SIM_STATE_READY;
+import static android.text.format.DateUtils.FORMAT_ABBREV_MONTH;
+import static android.text.format.DateUtils.FORMAT_SHOW_DATE;
+
 import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.INetworkStatsService;
@@ -29,21 +37,14 @@ import android.os.ServiceManager;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.text.format.DateUtils;
-import android.text.format.Time;
 import android.util.Log;
+import android.util.Pair;
 
-import com.android.settingslib.R;
+import com.android.internal.R;
 
+import java.time.ZonedDateTime;
 import java.util.Date;
 import java.util.Locale;
-
-import static android.net.ConnectivityManager.TYPE_MOBILE;
-import static android.net.NetworkStatsHistory.FIELD_RX_BYTES;
-import static android.net.NetworkStatsHistory.FIELD_TX_BYTES;
-import static android.telephony.TelephonyManager.SIM_STATE_READY;
-import static android.text.format.DateUtils.FORMAT_ABBREV_MONTH;
-import static android.text.format.DateUtils.FORMAT_SHOW_DATE;
-import static android.net.TrafficStats.MB_IN_BYTES;
 
 public class DataUsageController {
 
@@ -107,13 +108,6 @@ public class DataUsageController {
         return null;
     }
 
-    private static Time addMonth(Time t, int months) {
-        final Time rt = new Time(t);
-        rt.set(t.monthDay, t.month + months, t.year);
-        rt.normalize(false);
-        return rt;
-    }
-
     public DataUsageInfo getDataUsageInfo() {
         final String subscriberId = getActiveSubscriberId(mContext);
         if (subscriberId == null) {
@@ -140,22 +134,11 @@ public class DataUsageController {
             final NetworkStatsHistory history = session.getHistoryForNetwork(template, FIELDS);
             final long now = System.currentTimeMillis();
             final long start, end;
-            if (policy != null && policy.cycleDay > 0) {
-                // period = determined from cycleDay
-                if (DEBUG) Log.d(TAG, "Cycle day=" + policy.cycleDay + " tz="
-                        + policy.cycleTimezone);
-                final Time nowTime = new Time(policy.cycleTimezone);
-                nowTime.setToNow();
-                final Time policyTime = new Time(nowTime);
-                policyTime.set(policy.cycleDay, policyTime.month, policyTime.year);
-                policyTime.normalize(false);
-                if (nowTime.after(policyTime)) {
-                    start = policyTime.toMillis(false);
-                    end = addMonth(policyTime, 1).toMillis(false);
-                } else {
-                    start = addMonth(policyTime, -1).toMillis(false);
-                    end = policyTime.toMillis(false);
-                }
+            if (policy != null) {
+                final Pair<ZonedDateTime, ZonedDateTime> cycle = NetworkPolicyManager
+                        .cycleIterator(policy).next();
+                start = cycle.first.toInstant().toEpochMilli();
+                end = cycle.second.toInstant().toEpochMilli();
             } else {
                 // period = last 4 wks
                 end = now;
@@ -175,6 +158,9 @@ public class DataUsageController {
             usage.startDate = start;
             usage.usageLevel = totalBytes;
             usage.period = formatDateRange(start, end);
+            usage.cycleStart = start;
+            usage.cycleEnd = end;
+
             if (policy != null) {
                 usage.limitLevel = policy.limitBytes > 0 ? policy.limitBytes : 0;
                 usage.warningLevel = policy.warningBytes > 0 ? policy.warningBytes : 0;
@@ -262,6 +248,8 @@ public class DataUsageController {
         public long limitLevel;
         public long warningLevel;
         public long usageLevel;
+        public long cycleStart;
+        public long cycleEnd;
     }
 
     public interface Callback {

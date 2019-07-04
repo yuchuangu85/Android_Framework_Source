@@ -16,8 +16,10 @@
 
 package com.android.systemui;
 
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.systemui.util.Assert;
+
 import android.os.Handler;
-import android.os.Looper;
 import android.view.Choreographer;
 
 import java.util.ArrayList;
@@ -29,8 +31,12 @@ public class DejankUtils {
 
     private static final Choreographer sChoreographer = Choreographer.getInstance();
     private static final Handler sHandler = new Handler();
-
     private static final ArrayList<Runnable> sPendingRunnables = new ArrayList<>();
+
+    /**
+     * Only for testing.
+     */
+    private static boolean sImmediate;
 
     private static final Runnable sAnimationCallbackRunnable = new Runnable() {
         @Override
@@ -50,7 +56,11 @@ public class DejankUtils {
      * <p>Needs to be called from the main thread.
      */
     public static void postAfterTraversal(Runnable r) {
-        throwIfNotCalledOnMainThread();
+        if (sImmediate) {
+            r.run();
+            return;
+        }
+        Assert.isMainThread();
         sPendingRunnables.add(r);
         postAnimationCallback();
     }
@@ -61,7 +71,7 @@ public class DejankUtils {
      * <p>Needs to be called from the main thread.
      */
     public static void removeCallbacks(Runnable r) {
-        throwIfNotCalledOnMainThread();
+        Assert.isMainThread();
         sPendingRunnables.remove(r);
         sHandler.removeCallbacks(r);
     }
@@ -71,9 +81,8 @@ public class DejankUtils {
                 null);
     }
 
-    private static void throwIfNotCalledOnMainThread() {
-        if (!Looper.getMainLooper().isCurrentThread()) {
-            throw new IllegalStateException("should be called from the main thread.");
-        }
+    @VisibleForTesting
+    public static void setImmediate(boolean immediate) {
+        sImmediate = immediate;
     }
 }

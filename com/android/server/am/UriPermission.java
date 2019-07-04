@@ -16,7 +16,9 @@
 
 package com.android.server.am;
 
+import android.app.GrantedUriPermission;
 import android.content.Intent;
+import android.os.Binder;
 import android.os.UserHandle;
 import android.util.ArraySet;
 import android.util.Log;
@@ -101,7 +103,8 @@ final class UriPermission {
             Slog.d(TAG,
                     "Permission for " + targetPkg + " to " + uri + " is changing from 0x"
                             + Integer.toHexString(oldModeFlags) + " to 0x"
-                            + Integer.toHexString(modeFlags),
+                            + Integer.toHexString(modeFlags) + " via calling UID "
+                            + Binder.getCallingUid() + " PID " + Binder.getCallingPid(),
                     new Throwable());
         }
     }
@@ -384,5 +387,9 @@ final class UriPermission {
 
     public android.content.UriPermission buildPersistedPublicApiObject() {
         return new android.content.UriPermission(uri.uri, persistedModeFlags, persistedCreateTime);
+    }
+
+    public GrantedUriPermission buildGrantedUriPermission() {
+        return new GrantedUriPermission(uri.uri, targetPkg);
     }
 }

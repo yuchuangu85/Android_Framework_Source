@@ -19,6 +19,9 @@ package com.android.server.wifi;
 import android.text.TextUtils;
 import android.util.Log;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+
 /**
  * Provide functions for making changes to WiFi country code.
  * This Country Code is from MCC or phone default setting. This class sends Country Code
@@ -42,15 +45,12 @@ public class WifiCountryCode {
     public WifiCountryCode(
             WifiNative wifiNative,
             String oemDefaultCountryCode,
-            String persistentCountryCode,
             boolean revertCountryCodeOnCellularLoss) {
 
         mWifiNative = wifiNative;
         mRevertCountryCodeOnCellularLoss = revertCountryCodeOnCellularLoss;
 
-        if (!TextUtils.isEmpty(persistentCountryCode)) {
-            mDefaultCountryCode = persistentCountryCode.toUpperCase();
-        } else if (!TextUtils.isEmpty(oemDefaultCountryCode)) {
+        if (!TextUtils.isEmpty(oemDefaultCountryCode)) {
             mDefaultCountryCode = oemDefaultCountryCode.toUpperCase();
         } else {
             if (mRevertCountryCodeOnCellularLoss) {
@@ -79,34 +79,15 @@ public class WifiCountryCode {
     }
 
     /**
-     * This is called when sim card is removed.
-     * In this case we should invalid all other country codes except the
-     * phone default one.
-     */
-    public synchronized void simCardRemoved() {
-        if (DBG) Log.d(TAG, "SIM Card Removed");
-        // SIM card is removed, we need to reset the country code to phone default.
-        if (mRevertCountryCodeOnCellularLoss) {
-            mTelephonyCountryCode = null;
-            if (mReady) {
-                updateCountryCode();
-            }
-        }
-    }
-
-    /**
      * This is called when airplane mode is enabled.
      * In this case we should invalidate all other country code except the
      * phone default one.
      */
     public synchronized void airplaneModeEnabled() {
         if (DBG) Log.d(TAG, "Airplane Mode Enabled");
-        mTelephonyCountryCode = null;
         // Airplane mode is enabled, we need to reset the country code to phone default.
-        if (mRevertCountryCodeOnCellularLoss) {
-            mTelephonyCountryCode = null;
-            // Country code will be set upon when wpa_supplicant starts next time.
-        }
+        // Country code will be set upon when wpa_supplicant starts next time.
+        mTelephonyCountryCode = null;
     }
 
     /**
@@ -132,17 +113,17 @@ public class WifiCountryCode {
      * otherwise we think it is from other applications.
      * @return Returns true if the country code passed in is acceptable.
      */
-    public synchronized boolean setCountryCode(String countryCode, boolean persist) {
+    public synchronized boolean setCountryCode(String countryCode) {
         if (DBG) Log.d(TAG, "Receive set country code request: " + countryCode);
-        // Ignore empty country code.
+        // Empty country code.
         if (TextUtils.isEmpty(countryCode)) {
-            if (DBG) Log.d(TAG, "Ignore empty country code");
-            return false;
+            if (mRevertCountryCodeOnCellularLoss) {
+                if (DBG) Log.d(TAG, "Received empty country code, reset to default country code");
+                mTelephonyCountryCode = null;
+            }
+        } else {
+            mTelephonyCountryCode = countryCode.toUpperCase();
         }
-        if (persist) {
-            mDefaultCountryCode = countryCode;
-        }
-        mTelephonyCountryCode = countryCode.toUpperCase();
         // If wpa_supplicant is ready we set the country code now, otherwise it will be
         // set once wpa_supplicant is ready.
         if (mReady) {
@@ -175,6 +156,21 @@ public class WifiCountryCode {
         return pickCountryCode();
     }
 
+    /**
+     * Method to dump the current state of this WifiCounrtyCode object.
+     */
+    public synchronized void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        if (mCurrentCountryCode != null) {
+            pw.println("CountryCode sent to driver: " + mCurrentCountryCode);
+        } else {
+            if (pickCountryCode() != null) {
+                pw.println("CountryCode: " + pickCountryCode() + " was not sent to driver");
+            } else {
+                pw.println("CountryCode was not initialized");
+            }
+        }
+    }
+
     private void updateCountryCode() {
         if (DBG) Log.d(TAG, "Update country code");
         String country = pickCountryCode();
@@ -203,7 +199,7 @@ public class WifiCountryCode {
     }
 
     private boolean setCountryCodeNative(String country) {
-        if (mWifiNative.setCountryCode(country)) {
+        if (mWifiNative.setCountryCode(mWifiNative.getClientInterfaceName(), country)) {
             Log.d(TAG, "Succeeded to set country code to: " + country);
             mCurrentCountryCode = country;
             return true;

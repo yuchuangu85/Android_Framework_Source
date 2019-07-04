@@ -16,6 +16,8 @@
 
 package android.content;
 
+import android.annotation.IntDef;
+import android.annotation.SystemApi;
 import android.net.Uri;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -24,6 +26,7 @@ import android.text.TextUtils;
 import android.util.AndroidException;
 import android.util.Log;
 import android.util.Printer;
+import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.util.XmlUtils;
 
@@ -32,6 +35,8 @@ import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
 
 import java.io.IOException;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Set;
@@ -138,6 +143,7 @@ import java.util.Set;
  * will only match an Intent that does not have any categories.
  */
 public class IntentFilter implements Parcelable {
+    private static final String AGLOB_STR = "aglob";
     private static final String SGLOB_STR = "sglob";
     private static final String PREFIX_STR = "prefix";
     private static final String LITERAL_STR = "literal";
@@ -281,7 +287,22 @@ public class IntentFilter implements Parcelable {
     private static final int STATE_VERIFIED            = 0x00001000;
 
     private int mVerifyState;
-
+    /** @hide */
+    public static final int VISIBILITY_NONE = 0;
+    /** @hide */
+    public static final int VISIBILITY_EXPLICIT = 1;
+    /** @hide */
+    public static final int VISIBILITY_IMPLICIT = 2;
+    /** @hide */
+    @IntDef(prefix = { "VISIBILITY_" }, value = {
+            VISIBILITY_NONE,
+            VISIBILITY_EXPLICIT,
+            VISIBILITY_IMPLICIT,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface InstantAppVisibility {}
+    /** Whether or not the intent filter is visible to instant apps. */
+    private @InstantAppVisibility int mInstantAppVisibility;
     // These functions are the start of more optimized code for managing
     // the string sets...  not yet implemented.
 
@@ -448,6 +469,7 @@ public class IntentFilter implements Parcelable {
         }
         mHasPartialTypes = o.mHasPartialTypes;
         mVerifyState = o.mVerifyState;
+        mInstantAppVisibility = o.mInstantAppVisibility;
     }
 
     /**
@@ -480,11 +502,13 @@ public class IntentFilter implements Parcelable {
     }
 
     /** @hide */
+    @SystemApi
     public final void setOrder(int order) {
         mOrder = order;
     }
 
     /** @hide */
+    @SystemApi
     public final int getOrder() {
         return mOrder;
     }
@@ -527,7 +551,7 @@ public class IntentFilter implements Parcelable {
      * @hide
      */
     public final boolean getAutoVerify() {
-        return ((mVerifyState & STATE_VERIFY_AUTO) == 1);
+        return ((mVerifyState & STATE_VERIFY_AUTO) == STATE_VERIFY_AUTO);
     }
 
     /**
@@ -645,6 +669,27 @@ public class IntentFilter implements Parcelable {
         mVerifyState |= STATE_NEED_VERIFY_CHECKED;
         mVerifyState &= ~STATE_VERIFIED;
         if (verified) mVerifyState |= STATE_VERIFIED;
+    }
+
+    /** @hide */
+    public void setVisibilityToInstantApp(@InstantAppVisibility int visibility) {
+        mInstantAppVisibility = visibility;
+    }
+    /** @hide */
+    public @InstantAppVisibility int getVisibilityToInstantApp() {
+        return mInstantAppVisibility;
+    }
+    /** @hide */
+    public boolean isVisibleToInstantApp() {
+        return mInstantAppVisibility != VISIBILITY_NONE;
+    }
+    /** @hide */
+    public boolean isExplicitlyVisibleToInstantApp() {
+        return mInstantAppVisibility == VISIBILITY_EXPLICIT;
+    }
+    /** @hide */
+    public boolean isImplicitlyVisibleToInstantApp() {
+        return mInstantAppVisibility == VISIBILITY_IMPLICIT;
     }
 
     /**
@@ -872,6 +917,15 @@ public class IntentFilter implements Parcelable {
             dest.writeString(mHost);
             dest.writeInt(mWild ? 1 : 0);
             dest.writeInt(mPort);
+        }
+
+        void writeToProto(ProtoOutputStream proto, long fieldId) {
+            long token = proto.start(fieldId);
+            // The original host information is already contained in host and wild, no output now.
+            proto.write(AuthorityEntryProto.HOST, mHost);
+            proto.write(AuthorityEntryProto.WILD, mWild);
+            proto.write(AuthorityEntryProto.PORT, mPort);
+            proto.end(token);
         }
 
         public String getHost() {
@@ -1583,6 +1637,9 @@ public class IntentFilter implements Parcelable {
                 case PatternMatcher.PATTERN_SIMPLE_GLOB:
                     serializer.attribute(null, SGLOB_STR, pe.getPath());
                     break;
+                case PatternMatcher.PATTERN_ADVANCED_GLOB:
+                    serializer.attribute(null, AGLOB_STR, pe.getPath());
+                    break;
             }
             serializer.endTag(null, SSP_STR);
         }
@@ -1609,6 +1666,9 @@ public class IntentFilter implements Parcelable {
                     break;
                 case PatternMatcher.PATTERN_SIMPLE_GLOB:
                     serializer.attribute(null, SGLOB_STR, pe.getPath());
+                    break;
+                case PatternMatcher.PATTERN_ADVANCED_GLOB:
+                    serializer.attribute(null, AGLOB_STR, pe.getPath());
                     break;
             }
             serializer.endTag(null, PATH_STR);
@@ -1662,6 +1722,8 @@ public class IntentFilter implements Parcelable {
                     addDataSchemeSpecificPart(ssp, PatternMatcher.PATTERN_PREFIX);
                 } else if ((ssp=parser.getAttributeValue(null, SGLOB_STR)) != null) {
                     addDataSchemeSpecificPart(ssp, PatternMatcher.PATTERN_SIMPLE_GLOB);
+                } else if ((ssp=parser.getAttributeValue(null, AGLOB_STR)) != null) {
+                    addDataSchemeSpecificPart(ssp, PatternMatcher.PATTERN_ADVANCED_GLOB);
                 }
             } else if (tagName.equals(AUTH_STR)) {
                 String host = parser.getAttributeValue(null, HOST_STR);
@@ -1677,12 +1739,67 @@ public class IntentFilter implements Parcelable {
                     addDataPath(path, PatternMatcher.PATTERN_PREFIX);
                 } else if ((path=parser.getAttributeValue(null, SGLOB_STR)) != null) {
                     addDataPath(path, PatternMatcher.PATTERN_SIMPLE_GLOB);
+                } else if ((path=parser.getAttributeValue(null, AGLOB_STR)) != null) {
+                    addDataPath(path, PatternMatcher.PATTERN_ADVANCED_GLOB);
                 }
             } else {
                 Log.w("IntentFilter", "Unknown tag parsing IntentFilter: " + tagName);
             }
             XmlUtils.skipCurrentTag(parser);
         }
+    }
+
+    /** @hide */
+    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+        long token = proto.start(fieldId);
+        if (mActions.size() > 0) {
+            Iterator<String> it = mActions.iterator();
+            while (it.hasNext()) {
+                proto.write(IntentFilterProto.ACTIONS, it.next());
+            }
+        }
+        if (mCategories != null) {
+            Iterator<String> it = mCategories.iterator();
+            while (it.hasNext()) {
+                proto.write(IntentFilterProto.CATEGORIES, it.next());
+            }
+        }
+        if (mDataSchemes != null) {
+            Iterator<String> it = mDataSchemes.iterator();
+            while (it.hasNext()) {
+                proto.write(IntentFilterProto.DATA_SCHEMES, it.next());
+            }
+        }
+        if (mDataSchemeSpecificParts != null) {
+            Iterator<PatternMatcher> it = mDataSchemeSpecificParts.iterator();
+            while (it.hasNext()) {
+                it.next().writeToProto(proto, IntentFilterProto.DATA_SCHEME_SPECS);
+            }
+        }
+        if (mDataAuthorities != null) {
+            Iterator<AuthorityEntry> it = mDataAuthorities.iterator();
+            while (it.hasNext()) {
+                it.next().writeToProto(proto, IntentFilterProto.DATA_AUTHORITIES);
+            }
+        }
+        if (mDataPaths != null) {
+            Iterator<PatternMatcher> it = mDataPaths.iterator();
+            while (it.hasNext()) {
+                it.next().writeToProto(proto, IntentFilterProto.DATA_PATHS);
+            }
+        }
+        if (mDataTypes != null) {
+            Iterator<String> it = mDataTypes.iterator();
+            while (it.hasNext()) {
+                proto.write(IntentFilterProto.DATA_TYPES, it.next());
+            }
+        }
+        if (mPriority != 0 || mHasPartialTypes) {
+            proto.write(IntentFilterProto.PRIORITY, mPriority);
+            proto.write(IntentFilterProto.HAS_PARTIAL_TYPES, mHasPartialTypes);
+        }
+        proto.write(IntentFilterProto.GET_AUTO_VERIFY, getAutoVerify());
+        proto.end(token);
     }
 
     public void dump(Printer du, String prefix) {
@@ -1755,13 +1872,14 @@ public class IntentFilter implements Parcelable {
                 du.println(sb.toString());
             }
         }
-        if (mPriority != 0 || mHasPartialTypes) {
+        if (mPriority != 0 || mOrder != 0 || mHasPartialTypes) {
             sb.setLength(0);
             sb.append(prefix); sb.append("mPriority="); sb.append(mPriority);
+                    sb.append(", mOrder="); sb.append(mOrder);
                     sb.append(", mHasPartialTypes="); sb.append(mHasPartialTypes);
             du.println(sb.toString());
         }
-        {
+        if (getAutoVerify()) {
             sb.setLength(0);
             sb.append(prefix); sb.append("AutoVerify="); sb.append(getAutoVerify());
             du.println(sb.toString());
@@ -1833,6 +1951,8 @@ public class IntentFilter implements Parcelable {
         dest.writeInt(mPriority);
         dest.writeInt(mHasPartialTypes ? 1 : 0);
         dest.writeInt(getAutoVerify() ? 1 : 0);
+        dest.writeInt(mInstantAppVisibility);
+        dest.writeInt(mOrder);
     }
 
     /**
@@ -1861,7 +1981,8 @@ public class IntentFilter implements Parcelable {
         */
     }
 
-    private IntentFilter(Parcel source) {
+    /** @hide */
+    public IntentFilter(Parcel source) {
         mActions = new ArrayList<String>();
         source.readStringList(mActions);
         if (source.readInt() != 0) {
@@ -1900,6 +2021,8 @@ public class IntentFilter implements Parcelable {
         mPriority = source.readInt();
         mHasPartialTypes = source.readInt() > 0;
         setAutoVerify(source.readInt() > 0);
+        setVisibilityToInstantApp(source.readInt());
+        mOrder = source.readInt();
     }
 
     private final boolean findMimeType(String type) {

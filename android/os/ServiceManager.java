@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007 The Android Open Source Project
+ * Copyright (C) 2009 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,98 +16,44 @@
 
 package android.os;
 
-import com.android.internal.os.BinderInternal;
-
-import android.util.Log;
-
-import java.util.HashMap;
 import java.util.Map;
 
-/** @hide */
 public final class ServiceManager {
-    private static final String TAG = "ServiceManager";
-
-    private static IServiceManager sServiceManager;
-    private static HashMap<String, IBinder> sCache = new HashMap<String, IBinder>();
-
-    private static IServiceManager getIServiceManager() {
-        if (sServiceManager != null) {
-            return sServiceManager;
-        }
-
-        // Find the service manager
-        sServiceManager = ServiceManagerNative.asInterface(BinderInternal.getContextObject());
-        return sServiceManager;
-    }
 
     /**
      * Returns a reference to a service with the given name.
-     * 
+     *
      * @param name the name of the service to get
      * @return a reference to the service, or <code>null</code> if the service doesn't exist
      */
     public static IBinder getService(String name) {
-        try {
-            IBinder service = sCache.get(name);
-            if (service != null) {
-                return service;
-            } else {
-                return getIServiceManager().getService(name);
-            }
-        } catch (RemoteException e) {
-            Log.e(TAG, "error in getService", e);
-        }
         return null;
     }
 
     /**
-     * Place a new @a service called @a name into the service
-     * manager.
-     * 
-     * @param name the name of the new service
-     * @param service the service object
+     * Is not supposed to return null, but that is fine for layoutlib.
      */
-    public static void addService(String name, IBinder service) {
-        try {
-            getIServiceManager().addService(name, service, false);
-        } catch (RemoteException e) {
-            Log.e(TAG, "error in addService", e);
-        }
+    public static IBinder getServiceOrThrow(String name) throws ServiceNotFoundException {
+        throw new ServiceNotFoundException(name);
     }
 
     /**
      * Place a new @a service called @a name into the service
      * manager.
-     * 
+     *
      * @param name the name of the new service
      * @param service the service object
-     * @param allowIsolated set to true to allow isolated sandboxed processes
-     * to access this service
      */
-    public static void addService(String name, IBinder service, boolean allowIsolated) {
-        try {
-            getIServiceManager().addService(name, service, allowIsolated);
-        } catch (RemoteException e) {
-            Log.e(TAG, "error in addService", e);
-        }
+    public static void addService(String name, IBinder service) {
+        // pass
     }
-    
+
     /**
      * Retrieve an existing service called @a name from the
      * service manager.  Non-blocking.
      */
     public static IBinder checkService(String name) {
-        try {
-            IBinder service = sCache.get(name);
-            if (service != null) {
-                return service;
-            } else {
-                return getIServiceManager().checkService(name);
-            }
-        } catch (RemoteException e) {
-            Log.e(TAG, "error in checkService", e);
-            return null;
-        }
+        return null;
     }
 
     /**
@@ -116,26 +62,34 @@ public final class ServiceManager {
      * case of an exception
      */
     public static String[] listServices() {
-        try {
-            return getIServiceManager().listServices();
-        } catch (RemoteException e) {
-            Log.e(TAG, "error in listServices", e);
-            return null;
-        }
+        // actual implementation returns null sometimes, so it's ok
+        // to return null instead of an empty list.
+        return null;
     }
 
     /**
      * This is only intended to be called when the process is first being brought
      * up and bound by the activity manager. There is only one thread in the process
      * at that time, so no locking is done.
-     * 
+     *
      * @param cache the cache of service references
      * @hide
      */
     public static void initServiceCache(Map<String, IBinder> cache) {
-        if (sCache.size() != 0) {
-            throw new IllegalStateException("setServiceCache may only be called once");
+        // pass
+    }
+
+    /**
+     * Exception thrown when no service published for given name. This might be
+     * thrown early during boot before certain services have published
+     * themselves.
+     *
+     * @hide
+     */
+    public static class ServiceNotFoundException extends Exception {
+        // identical to the original implementation
+        public ServiceNotFoundException(String name) {
+            super("No service published for: " + name);
         }
-        sCache.putAll(cache);
     }
 }

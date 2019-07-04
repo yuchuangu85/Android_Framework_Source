@@ -23,7 +23,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.media.AudioManager;
-import android.media.session.MediaSessionLegacyHelper;
+import android.media.session.MediaSessionManager;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
@@ -48,6 +48,7 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
     KeyguardManager mKeyguardManager;
     SearchManager mSearchManager;
     TelephonyManager mTelephonyManager;
+    MediaSessionManager mMediaSessionManager;
 
     public PhoneFallbackEventHandler(Context context) {
         mContext = context;
@@ -84,7 +85,7 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
             case KeyEvent.KEYCODE_VOLUME_UP:
             case KeyEvent.KEYCODE_VOLUME_DOWN:
             case KeyEvent.KEYCODE_VOLUME_MUTE: {
-                MediaSessionLegacyHelper.getHelper(mContext).sendVolumeKeyEvent(event, false);
+                handleVolumeKeyEvent(event);
                 return true;
             }
 
@@ -111,7 +112,7 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
             }
 
             case KeyEvent.KEYCODE_CALL: {
-                if (getKeyguardManager().inKeyguardRestrictedInputMode() || dispatcher == null) {
+                if (isNotInstantAppAndKeyguardRestricted(dispatcher)) {
                     break;
                 }
                 if (event.getRepeatCount() == 0) {
@@ -138,7 +139,7 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
             }
 
             case KeyEvent.KEYCODE_CAMERA: {
-                if (getKeyguardManager().inKeyguardRestrictedInputMode() || dispatcher == null) {
+                if (isNotInstantAppAndKeyguardRestricted(dispatcher)) {
                     break;
                 }
                 if (event.getRepeatCount() == 0) {
@@ -163,7 +164,7 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
             }
 
             case KeyEvent.KEYCODE_SEARCH: {
-                if (getKeyguardManager().inKeyguardRestrictedInputMode() || dispatcher == null) {
+                if (isNotInstantAppAndKeyguardRestricted(dispatcher)) {
                     break;
                 }
                 if (event.getRepeatCount() == 0) {
@@ -201,6 +202,11 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
         return false;
     }
 
+    private boolean isNotInstantAppAndKeyguardRestricted(KeyEvent.DispatcherState dispatcher) {
+        return !mContext.getPackageManager().isInstantApp()
+                && (getKeyguardManager().inKeyguardRestrictedInputMode() || dispatcher == null);
+    }
+
     boolean onKeyUp(int keyCode, KeyEvent event) {
         if (DEBUG) {
             Log.d(TAG, "up " + keyCode);
@@ -215,7 +221,7 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
             case KeyEvent.KEYCODE_VOLUME_DOWN:
             case KeyEvent.KEYCODE_VOLUME_MUTE: {
                 if (!event.isCanceled()) {
-                    MediaSessionLegacyHelper.getHelper(mContext).sendVolumeKeyEvent(event, false);
+                    handleVolumeKeyEvent(event);
                 }
                 return true;
             }
@@ -237,7 +243,7 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
             }
 
             case KeyEvent.KEYCODE_CAMERA: {
-                if (getKeyguardManager().inKeyguardRestrictedInputMode()) {
+                if (isNotInstantAppAndKeyguardRestricted(dispatcher)) {
                     break;
                 }
                 if (event.isTracking() && !event.isCanceled()) {
@@ -247,7 +253,7 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
             }
 
             case KeyEvent.KEYCODE_CALL: {
-                if (getKeyguardManager().inKeyguardRestrictedInputMode()) {
+                if (isNotInstantAppAndKeyguardRestricted(dispatcher)) {
                     break;
                 }
                 if (event.isTracking() && !event.isCanceled()) {
@@ -304,12 +310,25 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
         return mAudioManager;
     }
 
+    MediaSessionManager getMediaSessionManager() {
+        if (mMediaSessionManager == null) {
+            mMediaSessionManager =
+                    (MediaSessionManager) mContext.getSystemService(Context.MEDIA_SESSION_SERVICE);
+        }
+        return mMediaSessionManager;
+    }
+
     void sendCloseSystemWindows() {
         PhoneWindow.sendCloseSystemWindows(mContext, null);
     }
 
+    private void handleVolumeKeyEvent(KeyEvent keyEvent) {
+        getMediaSessionManager().dispatchVolumeKeyEventAsSystemService(keyEvent,
+                AudioManager.USE_DEFAULT_STREAM_TYPE);
+    }
+
     private void handleMediaKeyEvent(KeyEvent keyEvent) {
-        MediaSessionLegacyHelper.getHelper(mContext).sendMediaButtonEvent(keyEvent, false);
+        getMediaSessionManager().dispatchMediaKeyEventAsSystemService(keyEvent);
     }
 
     private boolean isUserSetupComplete() {

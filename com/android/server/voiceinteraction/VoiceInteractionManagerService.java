@@ -30,6 +30,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.PackageManagerInternal;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
+import android.content.pm.ShortcutServiceInternal;
 import android.content.res.Resources;
 import android.database.ContentObserver;
 import android.hardware.soundtrigger.IRecognitionStatusCallback;
@@ -44,6 +45,7 @@ import android.os.Parcel;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.UserHandle;
+import android.os.UserManager;
 import android.provider.Settings;
 import android.service.voice.IVoiceInteractionService;
 import android.service.voice.IVoiceInteractionSession;
@@ -53,6 +55,7 @@ import android.service.voice.VoiceInteractionServiceInfo;
 import android.service.voice.VoiceInteractionSession;
 import android.speech.RecognitionService;
 import android.text.TextUtils;
+import android.util.ArraySet;
 import android.util.Log;
 import android.util.Slog;
 
@@ -62,6 +65,9 @@ import com.android.internal.app.IVoiceInteractionSessionShowCallback;
 import com.android.internal.app.IVoiceInteractor;
 import com.android.internal.content.PackageMonitor;
 import com.android.internal.os.BackgroundThread;
+import com.android.internal.util.DumpUtils;
+import com.android.internal.util.Preconditions;
+import com.android.server.FgThread;
 import com.android.server.LocalServices;
 import com.android.server.SystemService;
 import com.android.server.UiThread;
@@ -70,7 +76,6 @@ import com.android.server.soundtrigger.SoundTriggerInternal;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.List;
-import java.util.TreeSet;
 
 /**
  * SystemService that publishes an IVoiceInteractionManagerService.
@@ -83,7 +88,9 @@ public class VoiceInteractionManagerService extends SystemService {
     final ContentResolver mResolver;
     final DatabaseHelper mDbHelper;
     final ActivityManagerInternal mAmInternal;
-    final TreeSet<Integer> mLoadedKeyphraseIds;
+    final UserManager mUserManager;
+    final ArraySet<Integer> mLoadedKeyphraseIds = new ArraySet<>();
+    ShortcutServiceInternal mShortcutServiceInternal;
     SoundTriggerInternal mSoundTriggerInternal;
 
     private final RemoteCallbackList<IVoiceInteractionSessionListener>
@@ -95,8 +102,10 @@ public class VoiceInteractionManagerService extends SystemService {
         mResolver = context.getContentResolver();
         mDbHelper = new DatabaseHelper(context);
         mServiceStub = new VoiceInteractionManagerServiceStub();
-        mAmInternal = LocalServices.getService(ActivityManagerInternal.class);
-        mLoadedKeyphraseIds = new TreeSet<Integer>();
+        mAmInternal = Preconditions.checkNotNull(
+                LocalServices.getService(ActivityManagerInternal.class));
+        mUserManager = Preconditions.checkNotNull(
+                context.getSystemService(UserManager.class));
 
         PackageManagerInternal packageManagerInternal = LocalServices.getService(
                 PackageManagerInternal.class);
@@ -123,6 +132,8 @@ public class VoiceInteractionManagerService extends SystemService {
     @Override
     public void onBootPhase(int phase) {
         if (PHASE_SYSTEM_SERVICES_READY == phase) {
+            mShortcutServiceInternal = Preconditions.checkNotNull(
+                    LocalServices.getService(ShortcutServiceInternal.class));
             mSoundTriggerInternal = LocalServices.getService(SoundTriggerInternal.class);
         } else if (phase == PHASE_THIRD_PARTY_APPS_CAN_START) {
             mServiceStub.systemRunning(isSafeMode());
@@ -179,10 +190,11 @@ public class VoiceInteractionManagerService extends SystemService {
 
         private boolean mSafeMode;
         private int mCurUser;
+        private boolean mCurUserUnlocked;
         private final boolean mEnableService;
 
         VoiceInteractionManagerServiceStub() {
-            mEnableService = shouldEnableService(mContext.getResources());
+            mEnableService = shouldEnableService(mContext);
         }
 
         // TODO: VI Make sure the caller is the current user or profile
@@ -301,9 +313,13 @@ public class VoiceInteractionManagerService extends SystemService {
                 ComponentName curInteractor = !TextUtils.isEmpty(curInteractorStr)
                         ? ComponentName.unflattenFromString(curInteractorStr) : null;
                 try {
-                    recognizerInfo = pm.getServiceInfo(curRecognizer, 0, userHandle);
+                    recognizerInfo = pm.getServiceInfo(curRecognizer,
+                            PackageManager.MATCH_DIRECT_BOOT_AWARE
+                                    | PackageManager.MATCH_DIRECT_BOOT_UNAWARE, userHandle);
                     if (curInteractor != null) {
-                        interactorInfo = pm.getServiceInfo(curInteractor, 0, userHandle);
+                        interactorInfo = pm.getServiceInfo(curInteractor,
+                                PackageManager.MATCH_DIRECT_BOOT_AWARE
+                                        | PackageManager.MATCH_DIRECT_BOOT_UNAWARE, userHandle);
                     }
                 } catch (RemoteException e) {
                 }
@@ -343,10 +359,15 @@ public class VoiceInteractionManagerService extends SystemService {
             }
         }
 
-        private boolean shouldEnableService(Resources res) {
-            // VoiceInteractionService should not be enabled on low ram devices unless it has the config flag.
-            return !ActivityManager.isLowRamDeviceStatic() ||
-                    getForceVoiceInteractionServicePackage(res) != null;
+        private boolean shouldEnableService(Context context) {
+            // VoiceInteractionService should not be enabled on any low RAM devices
+            // or devices that have not declared the recognition feature, unless the
+            // device's configuration has explicitly set the config flag for a fixed
+            // voice interaction service.
+            return (!ActivityManager.isLowRamDeviceStatic()
+                            && context.getPackageManager().hasSystemFeature(
+                                    PackageManager.FEATURE_VOICE_RECOGNIZERS)) ||
+                    getForceVoiceInteractionServicePackage(context.getResources()) != null;
         }
 
         private String getForceVoiceInteractionServicePackage(Resources res) {
@@ -369,10 +390,13 @@ public class VoiceInteractionManagerService extends SystemService {
         }
 
         public void switchUser(int userHandle) {
-            synchronized (this) {
-                mCurUser = userHandle;
-                switchImplementationIfNeededLocked(false);
-            }
+            FgThread.getHandler().post(() -> {
+                synchronized (this) {
+                    mCurUser = userHandle;
+                    mCurUserUnlocked = false;
+                    switchImplementationIfNeededLocked(false);
+                }
+            });
         }
 
         void switchImplementationIfNeeded(boolean force) {
@@ -399,18 +423,32 @@ public class VoiceInteractionManagerService extends SystemService {
                     }
                 }
 
+                final boolean hasComponent = serviceComponent != null && serviceInfo != null;
+
+                if (mUserManager.isUserUnlockingOrUnlocked(mCurUser)) {
+                    if (hasComponent) {
+                        mShortcutServiceInternal.setShortcutHostPackage(TAG,
+                                serviceComponent.getPackageName(), mCurUser);
+                        mAmInternal.setAllowAppSwitches(TAG,
+                                serviceInfo.applicationInfo.uid, mCurUser);
+                    } else {
+                        mShortcutServiceInternal.setShortcutHostPackage(TAG, null, mCurUser);
+                        mAmInternal.setAllowAppSwitches(TAG, -1, mCurUser);
+                    }
+                }
+
                 if (force || mImpl == null || mImpl.mUser != mCurUser
                         || !mImpl.mComponent.equals(serviceComponent)) {
                     unloadAllKeyphraseModels();
                     if (mImpl != null) {
                         mImpl.shutdownLocked();
                     }
-                    if (serviceComponent != null && serviceInfo != null) {
-                        mImpl = new VoiceInteractionManagerServiceImpl(mContext,
-                                UiThread.getHandler(), this, mCurUser, serviceComponent);
+                    if (hasComponent) {
+                        setImplLocked(new VoiceInteractionManagerServiceImpl(mContext,
+                                UiThread.getHandler(), this, mCurUser, serviceComponent));
                         mImpl.startLocked();
                     } else {
-                        mImpl = null;
+                        setImplLocked(null);
                     }
                 }
             }
@@ -491,7 +529,9 @@ public class VoiceInteractionManagerService extends SystemService {
         ComponentName findAvailRecognizer(String prefPackage, int userHandle) {
             List<ResolveInfo> available =
                     mContext.getPackageManager().queryIntentServicesAsUser(
-                            new Intent(RecognitionService.SERVICE_INTERFACE), 0, userHandle);
+                            new Intent(RecognitionService.SERVICE_INTERFACE),
+                            PackageManager.MATCH_DIRECT_BOOT_AWARE
+                                    | PackageManager.MATCH_DIRECT_BOOT_UNAWARE, userHandle);
             int numAvailable = available.size();
 
             if (numAvailable == 0) {
@@ -630,6 +670,25 @@ public class VoiceInteractionManagerService extends SystemService {
                 final long caller = Binder.clearCallingIdentity();
                 try {
                     return mImpl.startVoiceActivityLocked(callingPid, callingUid, token,
+                            intent, resolvedType);
+                } finally {
+                    Binder.restoreCallingIdentity(caller);
+                }
+            }
+        }
+
+        @Override
+        public int startAssistantActivity(IBinder token, Intent intent, String resolvedType) {
+            synchronized (this) {
+                if (mImpl == null) {
+                    Slog.w(TAG, "startAssistantActivity without running voice interaction service");
+                    return ActivityManager.START_CANCELED;
+                }
+                final int callingPid = Binder.getCallingPid();
+                final int callingUid = Binder.getCallingUid();
+                final long caller = Binder.clearCallingIdentity();
+                try {
+                    return mImpl.startAssistantActivityLocked(callingPid, callingUid, token,
                             intent, resolvedType);
                 } finally {
                     Binder.restoreCallingIdentity(caller);
@@ -922,12 +981,14 @@ public class VoiceInteractionManagerService extends SystemService {
         }
 
         private synchronized void unloadAllKeyphraseModels() {
-            for (int keyphraseId : mLoadedKeyphraseIds) {
+            for (int i = 0; i < mLoadedKeyphraseIds.size(); i++) {
                 final long caller = Binder.clearCallingIdentity();
                 try {
-                    int status = mSoundTriggerInternal.unloadKeyphraseModel(keyphraseId);
+                    int status = mSoundTriggerInternal.unloadKeyphraseModel(
+                            mLoadedKeyphraseIds.valueAt(i));
                     if (status != SoundTriggerInternal.STATUS_OK) {
-                        Slog.w(TAG, "Failed to unload keyphrase " + keyphraseId + ":" + status);
+                        Slog.w(TAG, "Failed to unload keyphrase " + mLoadedKeyphraseIds.valueAt(i)
+                                + ":" + status);
                     }
                 } finally {
                     Binder.restoreCallingIdentity(caller);
@@ -1098,13 +1159,7 @@ public class VoiceInteractionManagerService extends SystemService {
 
         @Override
         public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-            if (mContext.checkCallingOrSelfPermission(Manifest.permission.DUMP)
-                    != PackageManager.PERMISSION_GRANTED) {
-                pw.println("Permission Denial: can't dump PowerManager from from pid="
-                        + Binder.getCallingPid()
-                        + ", uid=" + Binder.getCallingUid());
-                return;
-            }
+            if (!DumpUtils.checkDumpPermission(mContext, TAG, pw)) return;
             synchronized (this) {
                 pw.println("VOICE INTERACTION MANAGER (dumpsys voiceinteraction)");
                 pw.println("  mEnableService: " + mEnableService);
@@ -1122,6 +1177,12 @@ public class VoiceInteractionManagerService extends SystemService {
                     != PackageManager.PERMISSION_GRANTED) {
                 throw new SecurityException("Caller does not hold the permission " + permission);
             }
+        }
+
+        private void setImplLocked(VoiceInteractionManagerServiceImpl impl) {
+            mImpl = impl;
+            mAmInternal.notifyActiveVoiceInteractionServiceChanged(
+                    getActiveServiceComponentName());
         }
 
         class SettingsObserver extends ContentObserver {
@@ -1166,7 +1227,7 @@ public class VoiceInteractionManagerService extends SystemService {
                         unloadAllKeyphraseModels();
                         if (mImpl != null) {
                             mImpl.shutdownLocked();
-                            mImpl = null;
+                            setImplLocked(null);
                         }
                         setCurInteractor(null, userHandle);
                         setCurRecognizer(null, userHandle);
@@ -1180,6 +1241,50 @@ public class VoiceInteractionManagerService extends SystemService {
 
             @Override
             public void onHandleUserStop(Intent intent, int userHandle) {
+            }
+
+            @Override
+            public void onPackageModified(String pkgName) {
+                // If the package modified is not in the current user, then don't bother making
+                // any changes as we are going to do any initialization needed when we switch users.
+                if (mCurUser != getChangingUserId()) {
+                    return;
+                }
+                // Package getting updated will be handled by {@link #onSomePackagesChanged}.
+                if (isPackageAppearing(pkgName) != PACKAGE_UNCHANGED) {
+                    return;
+                }
+                final ComponentName curInteractor = getCurInteractor(mCurUser);
+                if (curInteractor == null) {
+                    final VoiceInteractionServiceInfo availInteractorInfo
+                            = findAvailInteractor(mCurUser, pkgName);
+                    if (availInteractorInfo != null) {
+                        final ComponentName availInteractor = new ComponentName(
+                                availInteractorInfo.getServiceInfo().packageName,
+                                availInteractorInfo.getServiceInfo().name);
+                        setCurInteractor(availInteractor, mCurUser);
+                        if (getCurRecognizer(mCurUser) == null &&
+                                availInteractorInfo.getRecognitionService() != null) {
+                            setCurRecognizer(new ComponentName(
+                                    availInteractorInfo.getServiceInfo().packageName,
+                                    availInteractorInfo.getRecognitionService()), mCurUser);
+                        }
+                    }
+                } else {
+                    if (didSomePackagesChange()) {
+                        // Package is changed
+                        if (curInteractor != null && pkgName.equals(
+                                curInteractor.getPackageName())) {
+                            switchImplementationIfNeeded(true);
+                        }
+                    } else {
+                        // Only some components are changed
+                        if (curInteractor != null
+                                && isComponentModified(curInteractor.getClassName())) {
+                            switchImplementationIfNeeded(true);
+                        }
+                    }
+                }
             }
 
             @Override

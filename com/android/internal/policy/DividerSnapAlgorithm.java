@@ -16,12 +16,15 @@
 
 package com.android.internal.policy;
 
+import static android.view.WindowManager.DOCKED_INVALID;
+import static android.view.WindowManager.DOCKED_LEFT;
+import static android.view.WindowManager.DOCKED_RIGHT;
+
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
-import android.util.Log;
 import android.view.Display;
 import android.view.DisplayInfo;
 
@@ -53,6 +56,11 @@ public class DividerSnapAlgorithm {
      */
     private static final int SNAP_ONLY_1_1 = 2;
 
+    /**
+     * 1 snap target: minimized height, (1 - minimized height)
+     */
+    private static final int SNAP_MODE_MINIMIZED = 3;
+
     private final float mMinFlingVelocityPxPerSecond;
     private final float mMinDismissVelocityPxPerSecond;
     private final int mDisplayWidth;
@@ -62,6 +70,7 @@ public class DividerSnapAlgorithm {
     private final Rect mInsets = new Rect();
     private final int mSnapMode;
     private final int mMinimalSizeResizableTask;
+    private final int mTaskHeightInMinimizedMode;
     private final float mFixedRatio;
     private boolean mIsHorizontalDivision;
 
@@ -93,6 +102,18 @@ public class DividerSnapAlgorithm {
 
     public DividerSnapAlgorithm(Resources res, int displayWidth, int displayHeight, int dividerSize,
             boolean isHorizontalDivision, Rect insets) {
+        this(res, displayWidth, displayHeight, dividerSize, isHorizontalDivision, insets,
+                DOCKED_INVALID, false);
+    }
+
+    public DividerSnapAlgorithm(Resources res, int displayWidth, int displayHeight, int dividerSize,
+        boolean isHorizontalDivision, Rect insets, int dockSide) {
+        this(res, displayWidth, displayHeight, dividerSize, isHorizontalDivision, insets,
+            dockSide, false);
+    }
+
+    public DividerSnapAlgorithm(Resources res, int displayWidth, int displayHeight, int dividerSize,
+            boolean isHorizontalDivision, Rect insets, int dockSide, boolean isMinimizedMode) {
         mMinFlingVelocityPxPerSecond =
                 MIN_FLING_VELOCITY_DP_PER_SECOND * res.getDisplayMetrics().density;
         mMinDismissVelocityPxPerSecond =
@@ -102,13 +123,15 @@ public class DividerSnapAlgorithm {
         mDisplayHeight = displayHeight;
         mIsHorizontalDivision = isHorizontalDivision;
         mInsets.set(insets);
-        mSnapMode = res.getInteger(
-                com.android.internal.R.integer.config_dockedStackDividerSnapMode);
+        mSnapMode = isMinimizedMode ? SNAP_MODE_MINIMIZED :
+                res.getInteger(com.android.internal.R.integer.config_dockedStackDividerSnapMode);
         mFixedRatio = res.getFraction(
                 com.android.internal.R.fraction.docked_stack_divider_fixed_ratio, 1, 1);
         mMinimalSizeResizableTask = res.getDimensionPixelSize(
                 com.android.internal.R.dimen.default_minimal_size_resizable_task);
-        calculateTargets(isHorizontalDivision);
+        mTaskHeightInMinimizedMode = res.getDimensionPixelSize(
+                com.android.internal.R.dimen.task_height_of_minimized_mode);
+        calculateTargets(isHorizontalDivision, dockSide);
         mFirstSplitTarget = mTargets.get(1);
         mLastSplitTarget = mTargets.get(mTargets.size() - 2);
         mDismissStartTarget = mTargets.get(0);
@@ -241,12 +264,17 @@ public class DividerSnapAlgorithm {
         return mTargets.get(minIndex);
     }
 
-    private void calculateTargets(boolean isHorizontalDivision) {
+    private void calculateTargets(boolean isHorizontalDivision, int dockedSide) {
         mTargets.clear();
         int dividerMax = isHorizontalDivision
                 ? mDisplayHeight
                 : mDisplayWidth;
-        mTargets.add(new SnapTarget(-mDividerSize, -mDividerSize, SnapTarget.FLAG_DISMISS_START,
+        int navBarSize = isHorizontalDivision ? mInsets.bottom : mInsets.right;
+        int startPos = -mDividerSize;
+        if (dockedSide == DOCKED_RIGHT) {
+            startPos += mInsets.left;
+        }
+        mTargets.add(new SnapTarget(startPos, startPos, SnapTarget.FLAG_DISMISS_START,
                 0.35f));
         switch (mSnapMode) {
             case SNAP_MODE_16_9:
@@ -258,8 +286,10 @@ public class DividerSnapAlgorithm {
             case SNAP_ONLY_1_1:
                 addMiddleTarget(isHorizontalDivision);
                 break;
+            case SNAP_MODE_MINIMIZED:
+                addMinimizedTarget(isHorizontalDivision, dockedSide);
+                break;
         }
-        int navBarSize = isHorizontalDivision ? mInsets.bottom : mInsets.right;
         mTargets.add(new SnapTarget(dividerMax - navBarSize, dividerMax,
                 SnapTarget.FLAG_DISMISS_END, 0.35f));
     }
@@ -315,6 +345,20 @@ public class DividerSnapAlgorithm {
         mTargets.add(new SnapTarget(position, position, SnapTarget.FLAG_NONE));
     }
 
+    private void addMinimizedTarget(boolean isHorizontalDivision, int dockedSide) {
+        // In portrait offset the position by the statusbar height, in landscape add the statusbar
+        // height as well to match portrait offset
+        int position = mTaskHeightInMinimizedMode + mInsets.top;
+        if (!isHorizontalDivision) {
+            if (dockedSide == DOCKED_LEFT) {
+                position += mInsets.left;
+            } else if (dockedSide == DOCKED_RIGHT) {
+                position = mDisplayWidth - position - mInsets.right - mDividerSize;
+            }
+        }
+        mTargets.add(new SnapTarget(position, position, SnapTarget.FLAG_NONE));
+    }
+
     public SnapTarget getMiddleTarget() {
         return mMiddleTarget;
     }
@@ -333,6 +377,14 @@ public class DividerSnapAlgorithm {
             return mTargets.get(index - 1);
         }
         return snapTarget;
+    }
+
+    /**
+     * @return whether or not there are more than 1 split targets that do not include the two
+     * dismiss targets, used in deciding to display the middle target for accessibility
+     */
+    public boolean showMiddleSplitTargetForAccessibility() {
+        return (mTargets.size() - 2) > 1;
     }
 
     public boolean isFirstSplitTargetAvailable() {

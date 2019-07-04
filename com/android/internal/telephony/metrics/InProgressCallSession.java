@@ -18,7 +18,7 @@ package com.android.internal.telephony.metrics;
 
 import android.os.SystemClock;
 
-import com.android.internal.telephony.TelephonyProto.TelephonyCallSession;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -46,6 +46,9 @@ public class InProgressCallSession {
 
     /** Indicating events dropped */
     private boolean mEventsDropped = false;
+
+    /** Last known phone state */
+    private int mLastKnownPhoneState;
 
     /** Check if events dropped */
     public boolean isEventsDropped() { return mEventsDropped; }
@@ -90,5 +93,35 @@ public class InProgressCallSession {
 
         events.add(builder.build());
         mLastElapsedTimeMs = timestamp;
+    }
+
+    /**
+     * Check if the Call Session contains CS calls
+     * @return true if there are CS calls in the call list
+     */
+    public boolean containsCsCalls() {
+        for (TelephonyCallSession.Event event : events) {
+            if (event.type == TelephonyCallSession.Event.Type.RIL_CALL_LIST_CHANGED) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Set Phone State
+     * @param state
+     */
+    public void setLastKnownPhoneState(int state) {
+        mLastKnownPhoneState = state;
+    }
+
+    /**
+     * Checks if Phone is in Idle state
+     * @return true if device is in Phone is idle state.
+     *
+     */
+    public boolean isPhoneIdle() {
+        return (mLastKnownPhoneState == TelephonyCallSession.Event.PhoneState.STATE_IDLE);
     }
 }

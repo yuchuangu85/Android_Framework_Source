@@ -25,9 +25,10 @@ import java.util.HashSet;
 import java.util.UUID;
 
 /**
-* Static helper methods and constants to decode the ParcelUuid of remote devices.
-*  @hide
-*/
+ * Static helper methods and constants to decode the ParcelUuid of remote devices.
+ *
+ * @hide
+ */
 public final class BluetoothUuid {
 
     /* See Bluetooth Assigned Numbers document - SDP section, to get the values of UUIDs
@@ -76,9 +77,11 @@ public final class BluetoothUuid {
             ParcelUuid.fromString("00001133-0000-1000-8000-00805F9B34FB");
     public static final ParcelUuid MAS =
             ParcelUuid.fromString("00001132-0000-1000-8000-00805F9B34FB");
-  public static final ParcelUuid SAP =
+    public static final ParcelUuid SAP =
             ParcelUuid.fromString("0000112D-0000-1000-8000-00805F9B34FB");
-			
+    public static final ParcelUuid HearingAid =
+            ParcelUuid.fromString("0000FDF0-0000-1000-8000-00805f9b34fb");
+
     public static final ParcelUuid BASE_UUID =
             ParcelUuid.fromString("00000000-0000-1000-8000-00805F9B34FB");
 
@@ -90,8 +93,8 @@ public final class BluetoothUuid {
     public static final int UUID_BYTES_128_BIT = 16;
 
     public static final ParcelUuid[] RESERVED_UUIDS = {
-        AudioSink, AudioSource, AdvAudioDist, HSP, Handsfree, AvrcpController, AvrcpTarget,
-        ObexObjectPush, PANU, NAP, MAP, MNS, MAS, SAP};
+            AudioSink, AudioSource, AdvAudioDist, HSP, Handsfree, AvrcpController, AvrcpTarget,
+            ObexObjectPush, PANU, NAP, MAP, MNS, MAS, SAP};
 
     public static boolean isAudioSource(ParcelUuid uuid) {
         return uuid.equals(AudioSource);
@@ -136,15 +139,19 @@ public final class BluetoothUuid {
     public static boolean isBnep(ParcelUuid uuid) {
         return uuid.equals(BNEP);
     }
+
     public static boolean isMap(ParcelUuid uuid) {
         return uuid.equals(MAP);
     }
+
     public static boolean isMns(ParcelUuid uuid) {
         return uuid.equals(MNS);
     }
+
     public static boolean isMas(ParcelUuid uuid) {
         return uuid.equals(MAS);
     }
+
     public static boolean isSap(ParcelUuid uuid) {
         return uuid.equals(SAP);
     }
@@ -156,13 +163,15 @@ public final class BluetoothUuid {
      * @param uuid
      */
     public static boolean isUuidPresent(ParcelUuid[] uuidArray, ParcelUuid uuid) {
-        if ((uuidArray == null || uuidArray.length == 0) && uuid == null)
+        if ((uuidArray == null || uuidArray.length == 0) && uuid == null) {
             return true;
+        }
 
-        if (uuidArray == null)
+        if (uuidArray == null) {
             return false;
+        }
 
-        for (ParcelUuid element: uuidArray) {
+        for (ParcelUuid element : uuidArray) {
             if (element.equals(uuid)) return true;
         }
         return false;
@@ -173,21 +182,20 @@ public final class BluetoothUuid {
      *
      * @param uuidA - List of ParcelUuids
      * @param uuidB - List of ParcelUuids
-     *
      */
     public static boolean containsAnyUuid(ParcelUuid[] uuidA, ParcelUuid[] uuidB) {
         if (uuidA == null && uuidB == null) return true;
 
         if (uuidA == null) {
-            return uuidB.length == 0 ? true : false;
+            return uuidB.length == 0;
         }
 
         if (uuidB == null) {
-            return uuidA.length == 0 ? true : false;
+            return uuidA.length == 0;
         }
 
-        HashSet<ParcelUuid> uuidSet = new HashSet<ParcelUuid> (Arrays.asList(uuidA));
-        for (ParcelUuid uuid: uuidB) {
+        HashSet<ParcelUuid> uuidSet = new HashSet<ParcelUuid>(Arrays.asList(uuidA));
+        for (ParcelUuid uuid : uuidB) {
             if (uuidSet.contains(uuid)) return true;
         }
         return false;
@@ -199,19 +207,18 @@ public final class BluetoothUuid {
      *
      * @param uuidA - Array of ParcelUuidsA
      * @param uuidB - Array of ParcelUuidsB
-     *
      */
     public static boolean containsAllUuids(ParcelUuid[] uuidA, ParcelUuid[] uuidB) {
         if (uuidA == null && uuidB == null) return true;
 
         if (uuidA == null) {
-            return uuidB.length == 0 ? true : false;
+            return uuidB.length == 0;
         }
 
         if (uuidB == null) return true;
 
-        HashSet<ParcelUuid> uuidSet = new HashSet<ParcelUuid> (Arrays.asList(uuidA));
-        for (ParcelUuid uuid: uuidB) {
+        HashSet<ParcelUuid> uuidSet = new HashSet<ParcelUuid>(Arrays.asList(uuidA));
+        for (ParcelUuid uuid : uuidB) {
             if (!uuidSet.contains(uuid)) return false;
         }
         return true;
@@ -221,13 +228,14 @@ public final class BluetoothUuid {
      * Extract the Service Identifier or the actual uuid from the Parcel Uuid.
      * For example, if 0000110B-0000-1000-8000-00805F9B34FB is the parcel Uuid,
      * this function will return 110B
+     *
      * @param parcelUuid
      * @return the service identifier.
      */
     public static int getServiceIdentifierFromParcelUuid(ParcelUuid parcelUuid) {
         UUID uuid = parcelUuid.getUuid();
-        long value = (uuid.getMostSignificantBits() & 0x0000FFFF00000000L) >>> 32;
-        return (int)value;
+        long value = (uuid.getMostSignificantBits() & 0xFFFFFFFF00000000L) >>> 32;
+        return (int) value;
     }
 
     /**
@@ -244,8 +252,8 @@ public final class BluetoothUuid {
             throw new IllegalArgumentException("uuidBytes cannot be null");
         }
         int length = uuidBytes.length;
-        if (length != UUID_BYTES_16_BIT && length != UUID_BYTES_32_BIT &&
-                length != UUID_BYTES_128_BIT) {
+        if (length != UUID_BYTES_16_BIT && length != UUID_BYTES_32_BIT
+                && length != UUID_BYTES_128_BIT) {
             throw new IllegalArgumentException("uuidBytes length invalid - " + length);
         }
 
@@ -264,7 +272,7 @@ public final class BluetoothUuid {
             shortUuid = uuidBytes[0] & 0xFF;
             shortUuid += (uuidBytes[1] & 0xFF) << 8;
         } else {
-            shortUuid = uuidBytes[0] & 0xFF ;
+            shortUuid = uuidBytes[0] & 0xFF;
             shortUuid += (uuidBytes[1] & 0xFF) << 8;
             shortUuid += (uuidBytes[2] & 0xFF) << 16;
             shortUuid += (uuidBytes[3] & 0xFF) << 24;
@@ -272,6 +280,48 @@ public final class BluetoothUuid {
         long msb = BASE_UUID.getUuid().getMostSignificantBits() + (shortUuid << 32);
         long lsb = BASE_UUID.getUuid().getLeastSignificantBits();
         return new ParcelUuid(new UUID(msb, lsb));
+    }
+
+    /**
+     * Parse UUID to bytes. The returned value is shortest representation, a 16-bit, 32-bit or
+     * 128-bit UUID, Note returned value is little endian (Bluetooth).
+     *
+     * @param uuid uuid to parse.
+     * @return shortest representation of {@code uuid} as bytes.
+     * @throws IllegalArgumentException If the {@code uuid} is null.
+     */
+    public static byte[] uuidToBytes(ParcelUuid uuid) {
+        if (uuid == null) {
+            throw new IllegalArgumentException("uuid cannot be null");
+        }
+
+        if (is16BitUuid(uuid)) {
+            byte[] uuidBytes = new byte[UUID_BYTES_16_BIT];
+            int uuidVal = getServiceIdentifierFromParcelUuid(uuid);
+            uuidBytes[0] = (byte) (uuidVal & 0xFF);
+            uuidBytes[1] = (byte) ((uuidVal & 0xFF00) >> 8);
+            return uuidBytes;
+        }
+
+        if (is32BitUuid(uuid)) {
+            byte[] uuidBytes = new byte[UUID_BYTES_32_BIT];
+            int uuidVal = getServiceIdentifierFromParcelUuid(uuid);
+            uuidBytes[0] = (byte) (uuidVal & 0xFF);
+            uuidBytes[1] = (byte) ((uuidVal & 0xFF00) >> 8);
+            uuidBytes[2] = (byte) ((uuidVal & 0xFF0000) >> 16);
+            uuidBytes[3] = (byte) ((uuidVal & 0xFF000000) >> 24);
+            return uuidBytes;
+        }
+
+        // Construct a 128 bit UUID.
+        long msb = uuid.getUuid().getMostSignificantBits();
+        long lsb = uuid.getUuid().getLeastSignificantBits();
+
+        byte[] uuidBytes = new byte[UUID_BYTES_128_BIT];
+        ByteBuffer buf = ByteBuffer.wrap(uuidBytes).order(ByteOrder.LITTLE_ENDIAN);
+        buf.putLong(8, msb);
+        buf.putLong(0, lsb);
+        return uuidBytes;
     }
 
     /**

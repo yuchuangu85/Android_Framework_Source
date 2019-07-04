@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -169,11 +169,27 @@ public final class StackTraceElement implements java.io.Serializable {
      * @see    Throwable#printStackTrace()
      */
     public String toString() {
-        return getClassName() + "." + methodName +
-            (isNativeMethod() ? "(Native Method)" :
-             (fileName != null && lineNumber >= 0 ?
-              "(" + fileName + ":" + lineNumber + ")" :
-              (fileName != null ?  "("+fileName+")" : "(Unknown Source)")));
+        // Android-changed: When ART cannot find a line number, the lineNumber field is set
+        // to the dex_pc and the fileName field is set to null.
+        StringBuilder result = new StringBuilder();
+        result.append(getClassName()).append(".").append(methodName);
+        if (isNativeMethod()) {
+            result.append("(Native Method)");
+        } else if (fileName != null) {
+            if (lineNumber >= 0) {
+                result.append("(").append(fileName).append(":").append(lineNumber).append(")");
+            } else {
+                result.append("(").append(fileName).append(")");
+            }
+        } else {
+            if (lineNumber >= 0) {
+                // The line number is actually the dex pc.
+                result.append("(Unknown Source:").append(lineNumber).append(")");
+            } else {
+                result.append("(Unknown Source)");
+            }
+        }
+        return result.toString();
     }
 
     /**
@@ -181,12 +197,12 @@ public final class StackTraceElement implements java.io.Serializable {
      * {@code StackTraceElement} instance representing the same execution
      * point as this instance.  Two stack trace elements {@code a} and
      * {@code b} are equal if and only if:
-     * <pre>
+     * <pre>{@code
      *     equals(a.getFileName(), b.getFileName()) &&
      *     a.getLineNumber() == b.getLineNumber()) &&
      *     equals(a.getClassName(), b.getClassName()) &&
      *     equals(a.getMethodName(), b.getMethodName())
-     * </pre>
+     * }</pre>
      * where {@code equals} has the semantics of {@link
      * java.util.Objects#equals(Object, Object) Objects.equals}.
      *

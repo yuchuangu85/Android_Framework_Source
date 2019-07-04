@@ -16,6 +16,7 @@
 
 package android.text.method;
 
+import android.os.Build;
 import android.text.Layout;
 import android.text.NoCopySpan;
 import android.text.Selection;
@@ -24,6 +25,7 @@ import android.text.style.ClickableSpan;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.textclassifier.TextLinks.TextLinkSpan;
 import android.widget.TextView;
 
 /**
@@ -34,6 +36,8 @@ public class LinkMovementMethod extends ScrollingMovementMethod {
     private static final int CLICK = 1;
     private static final int UP = 2;
     private static final int DOWN = 3;
+
+    private static final int HIDE_FLOATING_TOOLBAR_DELAY_MS = 200;
 
     @Override
     public boolean canSelectArbitrarily() {
@@ -65,7 +69,7 @@ public class LinkMovementMethod extends ScrollingMovementMethod {
 
         return super.up(widget, buffer);
     }
-        
+
     @Override
     protected boolean down(TextView widget, Spannable buffer) {
         if (action(DOWN, widget, buffer)) {
@@ -98,14 +102,14 @@ public class LinkMovementMethod extends ScrollingMovementMethod {
 
         int padding = widget.getTotalPaddingTop() +
                       widget.getTotalPaddingBottom();
-        int areatop = widget.getScrollY();
-        int areabot = areatop + widget.getHeight() - padding;
+        int areaTop = widget.getScrollY();
+        int areaBot = areaTop + widget.getHeight() - padding;
 
-        int linetop = layout.getLineForVertical(areatop);
-        int linebot = layout.getLineForVertical(areabot);
+        int lineTop = layout.getLineForVertical(areaTop);
+        int lineBot = layout.getLineForVertical(areaBot);
 
-        int first = layout.getLineStart(linetop);
-        int last = layout.getLineEnd(linebot);
+        int first = layout.getLineStart(lineTop);
+        int last = layout.getLineEnd(lineBot);
 
         ClickableSpan[] candidates = buffer.getSpans(first, last, ClickableSpan.class);
 
@@ -127,64 +131,70 @@ public class LinkMovementMethod extends ScrollingMovementMethod {
             selStart = selEnd = -1;
 
         switch (what) {
-        case CLICK:
-            if (selStart == selEnd) {
-                return false;
-            }
+            case CLICK:
+                if (selStart == selEnd) {
+                    return false;
+                }
 
-            ClickableSpan[] link = buffer.getSpans(selStart, selEnd, ClickableSpan.class);
+                ClickableSpan[] links = buffer.getSpans(selStart, selEnd, ClickableSpan.class);
 
-            if (link.length != 1)
-                return false;
+                if (links.length != 1) {
+                    return false;
+                }
 
-            link[0].onClick(widget);
-            break;
+                ClickableSpan link = links[0];
+                if (link instanceof TextLinkSpan) {
+                    ((TextLinkSpan) link).onClick(widget, TextLinkSpan.INVOCATION_METHOD_KEYBOARD);
+                } else {
+                    link.onClick(widget);
+                }
+                break;
 
-        case UP:
-            int beststart, bestend;
+            case UP:
+                int bestStart, bestEnd;
 
-            beststart = -1;
-            bestend = -1;
+                bestStart = -1;
+                bestEnd = -1;
 
-            for (int i = 0; i < candidates.length; i++) {
-                int end = buffer.getSpanEnd(candidates[i]);
+                for (int i = 0; i < candidates.length; i++) {
+                    int end = buffer.getSpanEnd(candidates[i]);
 
-                if (end < selEnd || selStart == selEnd) {
-                    if (end > bestend) {
-                        beststart = buffer.getSpanStart(candidates[i]);
-                        bestend = end;
+                    if (end < selEnd || selStart == selEnd) {
+                        if (end > bestEnd) {
+                            bestStart = buffer.getSpanStart(candidates[i]);
+                            bestEnd = end;
+                        }
                     }
                 }
-            }
 
-            if (beststart >= 0) {
-                Selection.setSelection(buffer, bestend, beststart);
-                return true;
-            }
+                if (bestStart >= 0) {
+                    Selection.setSelection(buffer, bestEnd, bestStart);
+                    return true;
+                }
 
-            break;
+                break;
 
-        case DOWN:
-            beststart = Integer.MAX_VALUE;
-            bestend = Integer.MAX_VALUE;
+            case DOWN:
+                bestStart = Integer.MAX_VALUE;
+                bestEnd = Integer.MAX_VALUE;
 
-            for (int i = 0; i < candidates.length; i++) {
-                int start = buffer.getSpanStart(candidates[i]);
+                for (int i = 0; i < candidates.length; i++) {
+                    int start = buffer.getSpanStart(candidates[i]);
 
-                if (start > selStart || selStart == selEnd) {
-                    if (start < beststart) {
-                        beststart = start;
-                        bestend = buffer.getSpanEnd(candidates[i]);
+                    if (start > selStart || selStart == selEnd) {
+                        if (start < bestStart) {
+                            bestStart = start;
+                            bestEnd = buffer.getSpanEnd(candidates[i]);
+                        }
                     }
                 }
-            }
 
-            if (bestend < Integer.MAX_VALUE) {
-                Selection.setSelection(buffer, beststart, bestend);
-                return true;
-            }
+                if (bestEnd < Integer.MAX_VALUE) {
+                    Selection.setSelection(buffer, bestStart, bestEnd);
+                    return true;
+                }
 
-            break;
+                break;
         }
 
         return false;
@@ -195,8 +205,7 @@ public class LinkMovementMethod extends ScrollingMovementMethod {
                                 MotionEvent event) {
         int action = event.getAction();
 
-        if (action == MotionEvent.ACTION_UP ||
-            action == MotionEvent.ACTION_DOWN) {
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_DOWN) {
             int x = (int) event.getX();
             int y = (int) event.getY();
 
@@ -210,17 +219,28 @@ public class LinkMovementMethod extends ScrollingMovementMethod {
             int line = layout.getLineForVertical(y);
             int off = layout.getOffsetForHorizontal(line, x);
 
-            ClickableSpan[] link = buffer.getSpans(off, off, ClickableSpan.class);
+            ClickableSpan[] links = buffer.getSpans(off, off, ClickableSpan.class);
 
-            if (link.length != 0) {
+            if (links.length != 0) {
+                ClickableSpan link = links[0];
                 if (action == MotionEvent.ACTION_UP) {
-                    link[0].onClick(widget);
+                    if (link instanceof TextLinkSpan) {
+                        ((TextLinkSpan) link).onClick(
+                                widget, TextLinkSpan.INVOCATION_METHOD_TOUCH);
+                    } else {
+                        link.onClick(widget);
+                    }
                 } else if (action == MotionEvent.ACTION_DOWN) {
+                    if (widget.getContext().getApplicationInfo().targetSdkVersion
+                            >= Build.VERSION_CODES.P) {
+                        // Selection change will reposition the toolbar. Hide it for a few ms for a
+                        // smoother transition.
+                        widget.hideFloatingToolbar(HIDE_FLOATING_TOOLBAR_DELAY_MS);
+                    }
                     Selection.setSelection(buffer,
-                                           buffer.getSpanStart(link[0]),
-                                           buffer.getSpanEnd(link[0]));
+                            buffer.getSpanStart(link),
+                            buffer.getSpanEnd(link));
                 }
-
                 return true;
             } else {
                 Selection.removeSelection(buffer);

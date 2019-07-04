@@ -16,22 +16,21 @@
 
 package android.content;
 
-import android.content.Context;
-import android.os.Message;
-import android.os.RemoteException;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemService;
 import android.os.Handler;
-import android.os.IBinder;
+import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.os.ServiceManager.ServiceNotFoundException;
+
+import com.android.internal.util.Preconditions;
 
 import java.util.ArrayList;
 
 /**
  * Interface to the clipboard service, for placing and retrieving text in
  * the global clipboard.
- *
- * <p>
- * You do not instantiate this class directly; instead, retrieve it through
- * {@link android.content.Context#getSystemService}.
  *
  * <p>
  * The ClipboardManager API itself is very simple: it consists of methods
@@ -45,34 +44,23 @@ import java.util.ArrayList;
  * <a href="{@docRoot}guide/topics/clipboard/copy-paste.html">Copy and Paste</a>
  * developer guide.</p>
  * </div>
- *
- * @see android.content.Context#getSystemService
  */
+@SystemService(Context.CLIPBOARD_SERVICE)
 public class ClipboardManager extends android.text.ClipboardManager {
-    private final static Object sStaticLock = new Object();
-    private static IClipboard sService;
-
     private final Context mContext;
+    private final Handler mHandler;
+    private final IClipboard mService;
 
     private final ArrayList<OnPrimaryClipChangedListener> mPrimaryClipChangedListeners
              = new ArrayList<OnPrimaryClipChangedListener>();
 
     private final IOnPrimaryClipChangedListener.Stub mPrimaryClipChangedServiceListener
             = new IOnPrimaryClipChangedListener.Stub() {
-        public void dispatchPrimaryClipChanged() {
-            mHandler.sendEmptyMessage(MSG_REPORT_PRIMARY_CLIP_CHANGED);
-        }
-    };
-
-    static final int MSG_REPORT_PRIMARY_CLIP_CHANGED = 1;
-
-    private final Handler mHandler = new Handler() {
         @Override
-        public void handleMessage(Message msg) {
-            switch (msg.what) {
-                case MSG_REPORT_PRIMARY_CLIP_CHANGED:
-                    reportPrimaryClipChanged();
-            }
+        public void dispatchPrimaryClipChanged() {
+            mHandler.post(() -> {
+                reportPrimaryClipChanged();
+            });
         }
     };
 
@@ -93,20 +81,12 @@ public class ClipboardManager extends android.text.ClipboardManager {
         void onPrimaryClipChanged();
     }
 
-    static private IClipboard getService() {
-        synchronized (sStaticLock) {
-            if (sService != null) {
-                return sService;
-            }
-            IBinder b = ServiceManager.getService("clipboard");
-            sService = IClipboard.Stub.asInterface(b);
-            return sService;
-        }
-    }
-
     /** {@hide} */
-    public ClipboardManager(Context context, Handler handler) {
+    public ClipboardManager(Context context, Handler handler) throws ServiceNotFoundException {
         mContext = context;
+        mHandler = handler;
+        mService = IClipboard.Stub.asInterface(
+                ServiceManager.getServiceOrThrow(Context.CLIPBOARD_SERVICE));
     }
 
     /**
@@ -114,13 +94,27 @@ public class ClipboardManager extends android.text.ClipboardManager {
      * is involved in normal cut and paste operations.
      *
      * @param clip The clipped data item to set.
+     * @see #getPrimaryClip()
+     * @see #clearPrimaryClip()
      */
-    public void setPrimaryClip(ClipData clip) {
+    public void setPrimaryClip(@NonNull ClipData clip) {
         try {
-            if (clip != null) {
-                clip.prepareToLeaveProcess(true);
-            }
-            getService().setPrimaryClip(clip, mContext.getOpPackageName());
+            Preconditions.checkNotNull(clip);
+            clip.prepareToLeaveProcess(true);
+            mService.setPrimaryClip(clip, mContext.getOpPackageName());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Clears any current primary clip on the clipboard.
+     *
+     * @see #setPrimaryClip(ClipData)
+     */
+    public void clearPrimaryClip() {
+        try {
+            mService.clearPrimaryClip(mContext.getOpPackageName());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -128,10 +122,12 @@ public class ClipboardManager extends android.text.ClipboardManager {
 
     /**
      * Returns the current primary clip on the clipboard.
+     *
+     * @see #setPrimaryClip(ClipData)
      */
-    public ClipData getPrimaryClip() {
+    public @Nullable ClipData getPrimaryClip() {
         try {
-            return getService().getPrimaryClip(mContext.getOpPackageName());
+            return mService.getPrimaryClip(mContext.getOpPackageName());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -140,10 +136,12 @@ public class ClipboardManager extends android.text.ClipboardManager {
     /**
      * Returns a description of the current primary clip on the clipboard
      * but not a copy of its data.
+     *
+     * @see #setPrimaryClip(ClipData)
      */
-    public ClipDescription getPrimaryClipDescription() {
+    public @Nullable ClipDescription getPrimaryClipDescription() {
         try {
-            return getService().getPrimaryClipDescription(mContext.getOpPackageName());
+            return mService.getPrimaryClipDescription(mContext.getOpPackageName());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -154,7 +152,7 @@ public class ClipboardManager extends android.text.ClipboardManager {
      */
     public boolean hasPrimaryClip() {
         try {
-            return getService().hasPrimaryClip(mContext.getOpPackageName());
+            return mService.hasPrimaryClip(mContext.getOpPackageName());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -162,9 +160,9 @@ public class ClipboardManager extends android.text.ClipboardManager {
 
     public void addPrimaryClipChangedListener(OnPrimaryClipChangedListener what) {
         synchronized (mPrimaryClipChangedListeners) {
-            if (mPrimaryClipChangedListeners.size() == 0) {
+            if (mPrimaryClipChangedListeners.isEmpty()) {
                 try {
-                    getService().addPrimaryClipChangedListener(
+                    mService.addPrimaryClipChangedListener(
                             mPrimaryClipChangedServiceListener, mContext.getOpPackageName());
                 } catch (RemoteException e) {
                     throw e.rethrowFromSystemServer();
@@ -177,9 +175,9 @@ public class ClipboardManager extends android.text.ClipboardManager {
     public void removePrimaryClipChangedListener(OnPrimaryClipChangedListener what) {
         synchronized (mPrimaryClipChangedListeners) {
             mPrimaryClipChangedListeners.remove(what);
-            if (mPrimaryClipChangedListeners.size() == 0) {
+            if (mPrimaryClipChangedListeners.isEmpty()) {
                 try {
-                    getService().removePrimaryClipChangedListener(
+                    mService.removePrimaryClipChangedListener(
                             mPrimaryClipChangedServiceListener);
                 } catch (RemoteException e) {
                     throw e.rethrowFromSystemServer();
@@ -192,6 +190,7 @@ public class ClipboardManager extends android.text.ClipboardManager {
      * @deprecated Use {@link #getPrimaryClip()} instead.  This retrieves
      * the primary clip and tries to coerce it to a string.
      */
+    @Deprecated
     public CharSequence getText() {
         ClipData clip = getPrimaryClip();
         if (clip != null && clip.getItemCount() > 0) {
@@ -205,6 +204,7 @@ public class ClipboardManager extends android.text.ClipboardManager {
      * creates a ClippedItem holding the given text and sets it as the
      * primary clip.  It has no label or icon.
      */
+    @Deprecated
     public void setText(CharSequence text) {
         setPrimaryClip(ClipData.newPlainText(null, text));
     }
@@ -212,9 +212,10 @@ public class ClipboardManager extends android.text.ClipboardManager {
     /**
      * @deprecated Use {@link #hasPrimaryClip()} instead.
      */
+    @Deprecated
     public boolean hasText() {
         try {
-            return getService().hasClipboardText(mContext.getOpPackageName());
+            return mService.hasClipboardText(mContext.getOpPackageName());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

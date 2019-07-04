@@ -20,23 +20,29 @@ import java.lang.annotation.Target;
 
 import static java.lang.annotation.ElementType.CONSTRUCTOR;
 import static java.lang.annotation.ElementType.METHOD;
+import static java.lang.annotation.ElementType.PARAMETER;
 import static java.lang.annotation.ElementType.TYPE;
 import static java.lang.annotation.RetentionPolicy.SOURCE;
 
 /**
  * Denotes that the annotated method should only be called on a worker thread.
- * If the annotated element is a class, then all methods in the class should be called
- * on a worker thread.
+ * If the annotated element is a class, then all methods in the class should be
+ * called on a worker thread.
  * <p>
  * Example:
- * <pre><code>
+ *
+ * <pre>
+ * <code>
  *  &#64;WorkerThread
  *  protected abstract FilterResults performFiltering(CharSequence constraint);
- * </code></pre>
+ * </code>
+ * </pre>
  *
- * {@hide}
+ * @memberDoc This method may take several seconds to complete, so it should
+ *            only be called from a worker thread.
+ * @hide
  */
 @Retention(SOURCE)
-@Target({METHOD,CONSTRUCTOR,TYPE})
+@Target({METHOD,CONSTRUCTOR,TYPE,PARAMETER})
 public @interface WorkerThread {
 }

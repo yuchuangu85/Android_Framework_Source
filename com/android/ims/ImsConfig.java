@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014 The Android Open Source Project
+ * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -11,7 +11,7 @@
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
- * limitations under the License.
+ * limitations under the License
  */
 
 package com.android.ims;
@@ -19,10 +19,9 @@ package com.android.ims;
 import android.content.Context;
 import android.os.RemoteException;
 import android.telephony.Rlog;
-
-import com.android.ims.ImsConfigListener;
-import com.android.ims.ImsReasonInfo;
-import com.android.ims.internal.IImsConfig;
+import android.telephony.ims.ImsReasonInfo;
+import android.telephony.ims.aidl.IImsConfig;
+import android.telephony.ims.stub.ImsConfigImplBase;
 
 /**
  * Provides APIs to get/set the IMS service feature/capability/parameters.
@@ -36,7 +35,6 @@ public class ImsConfig {
     private static final String TAG = "ImsConfig";
     private boolean DBG = true;
     private final IImsConfig miConfig;
-    private Context mContext;
 
     /**
      * Broadcast action: the feature enable status was changed
@@ -48,7 +46,7 @@ public class ImsConfig {
 
     /**
      * Broadcast action: the configuration was changed
-     *
+     * @deprecated Use {@link ImsConfig#addConfigCallback(ImsConfigImplBase.Callback)} instead.
      * @hide
      */
     public static final String ACTION_IMS_CONFIG_CHANGED =
@@ -72,6 +70,8 @@ public class ImsConfig {
 
     /**
     * Defines IMS service/capability feature constants.
+    * @deprecated Use
+     * {@link android.telephony.ims.feature.MmTelFeature.MmTelCapabilities.MmTelCapability} instead.
     */
     public static class FeatureConstants {
         public static final int FEATURE_TYPE_UNKNOWN = -1;
@@ -251,7 +251,8 @@ public class ImsConfig {
          */
         public static final int MAX_NUMENTRIES_IN_RCL = 22;
         /**
-         * Expiration timer for subscription of a Request Contained List, used in capability polling.
+         * Expiration timer for subscription of a Request Contained List, used in capability
+         * polling.
          * Value is in Integer format.
          */
         public static final int CAPAB_POLL_LIST_SUB_EXP = 23;
@@ -476,9 +477,15 @@ public class ImsConfig {
          */
         public static final int VICE_SETTING_ENABLED = 65;
 
+        /**
+         * RTT status: Enabled (1), or Disabled (0).
+         * Value is in Integer format.
+         */
+        public static final int RTT_SETTING_ENABLED = 66;
+
         // Expand the operator config items as needed here, need to change
         // PROVISIONED_CONFIG_END after that.
-        public static final int PROVISIONED_CONFIG_END = VICE_SETTING_ENABLED;
+        public static final int PROVISIONED_CONFIG_END = RTT_SETTING_ENABLED;
 
         // Expand the operator config items as needed here.
     }
@@ -519,6 +526,7 @@ public class ImsConfig {
     * Defines IMS feature value.
     */
     public static class FeatureValueConstants {
+        public static final int ERROR = -1;
         public static final int OFF = 0;
         public static final int ON = 1;
     }
@@ -532,164 +540,173 @@ public class ImsConfig {
         public static final int WIFI_PREFERRED = 2;
     }
 
-    public ImsConfig(IImsConfig iconfig, Context context) {
-        if (DBG) Rlog.d(TAG, "ImsConfig creates");
+    public ImsConfig(IImsConfig iconfig) {
         miConfig = iconfig;
-        mContext = context;
     }
 
     /**
-     * Gets the provisioned value for IMS service/capabilities parameters used by IMS stack.
-     * This function should not be called from the mainthread as it could block the
-     * mainthread.
+     * @deprecated see {@link #getConfigInt(int)} instead.
+     */
+    public int getProvisionedValue(int item) throws ImsException {
+        return getConfigInt(item);
+    }
+
+    /**
+     * Gets the configuration value for IMS service/capabilities parameters used by IMS stack.
      *
      * @param item, as defined in com.android.ims.ImsConfig#ConfigConstants.
      * @return the value in Integer format.
-     *
-     * @throws ImsException if calling the IMS service results in an error.
+     * @throws ImsException if the ImsService is unavailable.
      */
-    public int getProvisionedValue(int item) throws ImsException {
+    public int getConfigInt(int item) throws ImsException {
         int ret = 0;
         try {
-            ret = miConfig.getProvisionedValue(item);
+            ret = miConfig.getConfigInt(item);
         }  catch (RemoteException e) {
-            throw new ImsException("getValue()", e,
+            throw new ImsException("getInt()", e,
                     ImsReasonInfo.CODE_LOCAL_SERVICE_UNAVAILABLE);
         }
-        if (DBG) Rlog.d(TAG, "getProvisionedValue(): item = " + item + ", ret =" + ret);
+        if (DBG) Rlog.d(TAG, "getInt(): item = " + item + ", ret =" + ret);
 
         return ret;
     }
 
     /**
-     * Gets the provisioned value for IMS service/capabilities parameters used by IMS stack.
-     * This function should not be called from the mainthread as it could block the
-     * mainthread.
+     * @deprecated see {@link #getConfigString(int)} instead
+     */
+    public String getProvisionedStringValue(int item) throws ImsException {
+        return getConfigString(item);
+    }
+
+    /**
+     * Gets the configuration value for IMS service/capabilities parameters used by IMS stack.
      *
      * @param item, as defined in com.android.ims.ImsConfig#ConfigConstants.
      * @return value in String format.
      *
-     * @throws ImsException if calling the IMS service results in an error.
+     * @throws ImsException if the ImsService is unavailable.
      */
-    public String getProvisionedStringValue(int item) throws ImsException {
+    public String getConfigString(int item) throws ImsException {
         String ret = "Unknown";
         try {
-            ret = miConfig.getProvisionedStringValue(item);
+            ret = miConfig.getConfigString(item);
         }  catch (RemoteException e) {
-            throw new ImsException("getProvisionedStringValue()", e,
+            throw new ImsException("getConfigString()", e,
                     ImsReasonInfo.CODE_LOCAL_SERVICE_UNAVAILABLE);
         }
-        if (DBG) Rlog.d(TAG, "getProvisionedStringValue(): item = " + item + ", ret =" + ret);
+        if (DBG) Rlog.d(TAG, "getConfigString(): item = " + item + ", ret =" + ret);
 
         return ret;
     }
 
     /**
-     * Sets the value for IMS service/capabilities parameters by
-     * the operator device management entity.
-     * This function should not be called from main thread as it could block
-     * mainthread.
+     * @deprecated see {@link #setConfig(int, int)} instead.
+     */
+    public int setProvisionedValue(int item, int value) throws ImsException {
+        return setConfig(item, value);
+    }
+
+    /**
+     * @deprecated see {@link #setConfig(int, String)} instead.
+     */
+    public int setProvisionedStringValue(int item, String value) throws ImsException {
+        return setConfig(item, value);
+    }
+
+    /**
+     * Sets the value for ImsService configuration item.
      *
      * @param item, as defined in com.android.ims.ImsConfig#ConfigConstants.
      * @param value in Integer format.
      * @return as defined in com.android.ims.ImsConfig#OperationStatusConstants
      *
-     * @throws ImsException if calling the IMS service results in an error.
+     * @throws ImsException if the ImsService is unavailable.
      */
-    public int setProvisionedValue(int item, int value)
-            throws ImsException {
-        int ret = ImsConfig.OperationStatusConstants.UNKNOWN;
+    public int setConfig(int item, int value) throws ImsException {
+        int ret = OperationStatusConstants.UNKNOWN;
         if (DBG) {
-            Rlog.d(TAG, "setProvisionedValue(): item = " + item +
+            Rlog.d(TAG, "setConfig(): item = " + item +
                     "value = " + value);
         }
         try {
-            ret = miConfig.setProvisionedValue(item, value);
+            ret = miConfig.setConfigInt(item, value);
         }  catch (RemoteException e) {
-            throw new ImsException("setProvisionedValue()", e,
+            throw new ImsException("setConfig()", e,
                     ImsReasonInfo.CODE_LOCAL_SERVICE_UNAVAILABLE);
         }
         if (DBG) {
-            Rlog.d(TAG, "setProvisionedValue(): item = " + item +
+            Rlog.d(TAG, "setConfig(): item = " + item +
                     " value = " + value + " ret = " + ret);
         }
+
         return ret;
+
     }
 
     /**
-     * Sets the value for IMS service/capabilities parameters by
-     * the operator device management entity.
-     * This function should not be called from main thread as it could block
-     * mainthread.
+     * Sets the value for ImsService configuration item.
      *
      * @param item, as defined in com.android.ims.ImsConfig#ConfigConstants.
-     * @param value in String format.
+     * @param value in Integer format.
      * @return as defined in com.android.ims.ImsConfig#OperationStatusConstants
      *
-     * @throws ImsException if calling the IMS service results in an error.
+     * @throws ImsException if the ImsService is unavailable.
      */
-    public int setProvisionedStringValue(int item, String value)
-            throws ImsException {
-        int ret = ImsConfig.OperationStatusConstants.UNKNOWN;
+    public int setConfig(int item, String value) throws ImsException {
+        int ret = OperationStatusConstants.UNKNOWN;
+        if (DBG) {
+            Rlog.d(TAG, "setConfig(): item = " + item +
+                    "value = " + value);
+        }
         try {
-            ret = miConfig.setProvisionedStringValue(item, value);
+            ret = miConfig.setConfigString(item, value);
         }  catch (RemoteException e) {
-            throw new ImsException("setProvisionedStringValue()", e,
+            throw new ImsException("setConfig()", e,
                     ImsReasonInfo.CODE_LOCAL_SERVICE_UNAVAILABLE);
         }
         if (DBG) {
-            Rlog.d(TAG, "setProvisionedStringValue(): item = " + item +
-                    ", value =" + value);
+            Rlog.d(TAG, "setConfig(): item = " + item +
+                    " value = " + value + " ret = " + ret);
         }
+
         return ret;
     }
 
     /**
-     * Gets the value for IMS feature item for specified network type.
+     * Adds a {@link ImsConfigImplBase.Callback} to the ImsService to notify when a Configuration
+     * item has changed.
      *
-     * @param feature, defined as in FeatureConstants.
-     * @param network, defined as in android.telephony.TelephonyManager#NETWORK_TYPE_XXX.
-     * @param listener, provided to be notified for the feature on/off status.
-     * @return void
-     *
-     * @throws ImsException if calling the IMS service results in an error.
+     * Make sure to call {@link #removeConfigCallback(ImsConfigImplBase.Callback)} when finished
+     * using this callback.
      */
-    public void getFeatureValue(int feature, int network,
-            ImsConfigListener listener) throws ImsException {
-        if (DBG) {
-            Rlog.d(TAG, "getFeatureValue: feature = " + feature + ", network =" + network +
-                    ", listener =" + listener);
-        }
+    public void addConfigCallback(ImsConfigImplBase.Callback callback) throws ImsException {
+        if (DBG) Rlog.d(TAG, "addConfigCallback: " + callback);
         try {
-            miConfig.getFeatureValue(feature, network, listener);
-        } catch (RemoteException e) {
-            throw new ImsException("getFeatureValue()", e,
+            miConfig.addImsConfigCallback(callback);
+        }  catch (RemoteException e) {
+            throw new ImsException("addConfigCallback()", e,
                     ImsReasonInfo.CODE_LOCAL_SERVICE_UNAVAILABLE);
         }
     }
 
     /**
-     * Sets the value for IMS feature item for specified network type.
-     *
-     * @param feature, as defined in FeatureConstants.
-     * @param network, as defined in android.telephony.TelephonyManager#NETWORK_TYPE_XXX.
-     * @param value, as defined in FeatureValueConstants.
-     * @param listener, provided if caller needs to be notified for set result.
-     * @return void
-     *
-     * @throws ImsException if calling the IMS service results in an error.
+     * Removes a {@link ImsConfigImplBase.Callback} from the ImsService that was previously added
+     * by {@link #addConfigCallback(ImsConfigImplBase.Callback)}.
      */
-    public void setFeatureValue(int feature, int network, int value,
-            ImsConfigListener listener) throws ImsException {
-        if (DBG) {
-            Rlog.d(TAG, "setFeatureValue: feature = " + feature + ", network =" + network +
-                    ", value =" + value + ", listener =" + listener);
-        }
+    public void removeConfigCallback(ImsConfigImplBase.Callback callback) throws ImsException {
+        if (DBG) Rlog.d(TAG, "removeConfigCallback: " + callback);
         try {
-            miConfig.setFeatureValue(feature, network, value, listener);
-        } catch (RemoteException e) {
-            throw new ImsException("setFeatureValue()", e,
+            miConfig.removeImsConfigCallback(callback);
+        }  catch (RemoteException e) {
+            throw new ImsException("removeConfigCallback()", e,
                     ImsReasonInfo.CODE_LOCAL_SERVICE_UNAVAILABLE);
         }
+    }
+
+    /**
+     * @return true if the binder connection is alive, false otherwise.
+     */
+    public boolean isBinderAlive() {
+        return miConfig.asBinder().isBinderAlive();
     }
 }

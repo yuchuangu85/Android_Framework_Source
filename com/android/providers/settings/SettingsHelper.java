@@ -16,7 +16,13 @@
 
 package com.android.providers.settings;
 
-import android.app.ActivityManagerNative;
+import android.os.Process;
+import com.android.internal.R;
+import com.android.internal.app.LocalePicker;
+import com.android.internal.annotations.VisibleForTesting;
+
+import android.annotation.NonNull;
+import android.app.ActivityManager;
 import android.app.IActivityManager;
 import android.app.backup.IBackupManager;
 import android.content.ContentResolver;
@@ -24,11 +30,14 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
+import android.hardware.display.DisplayManager;
+import android.icu.util.ULocale;
 import android.location.LocationManager;
 import android.media.AudioManager;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.IPowerManager;
+import android.os.LocaleList;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.UserHandle;
@@ -37,10 +46,15 @@ import android.provider.Settings;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.ArraySet;
+import android.util.Slog;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 
 public class SettingsHelper {
+    private static final String TAG = "SettingsHelper";
     private static final String SILENT_RINGTONE = "_silent";
     private Context mContext;
     private AudioManager mAudioManager;
@@ -66,7 +80,7 @@ public class SettingsHelper {
         sBroadcastOnRestore.add(Settings.Secure.ENABLED_NOTIFICATION_LISTENERS);
         sBroadcastOnRestore.add(Settings.Secure.ENABLED_VR_LISTENERS);
         sBroadcastOnRestore.add(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        sBroadcastOnRestore.add(Settings.Secure.ENABLED_INPUT_METHODS);
+        sBroadcastOnRestore.add(Settings.Global.BLUETOOTH_ON);
     }
 
     private interface SettingsLookup {
@@ -109,7 +123,7 @@ public class SettingsHelper {
      * and in some cases the property value needs to be modified before setting.
      */
     public void restoreValue(Context context, ContentResolver cr, ContentValues contentValues,
-            Uri destination, String name, String value) {
+            Uri destination, String name, String value, int restoredFromSdkInt) {
         // Will we need a post-restore broadcast for this element?
         String oldValue = null;
         boolean sendBroadcast = false;
@@ -130,10 +144,7 @@ public class SettingsHelper {
         }
 
         try {
-            if (Settings.System.SCREEN_BRIGHTNESS.equals(name)) {
-                setBrightness(Integer.parseInt(value));
-                // fall through to the ordinary write to settings
-            } else if (Settings.System.SOUND_EFFECTS_ENABLED.equals(name)) {
+            if (Settings.System.SOUND_EFFECTS_ENABLED.equals(name)) {
                 setSoundEffects(Integer.parseInt(value) == 1);
                 // fall through to the ordinary write to settings
             } else if (Settings.Secure.LOCATION_PROVIDERS_ALLOWED.equals(name)) {
@@ -166,7 +177,8 @@ public class SettingsHelper {
                         .setPackage("android").addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY)
                         .putExtra(Intent.EXTRA_SETTING_NAME, name)
                         .putExtra(Intent.EXTRA_SETTING_NEW_VALUE, value)
-                        .putExtra(Intent.EXTRA_SETTING_PREVIOUS_VALUE, oldValue);
+                        .putExtra(Intent.EXTRA_SETTING_PREVIOUS_VALUE, oldValue)
+                        .putExtra(Intent.EXTRA_SETTING_RESTORED_FROM_SDK_INT, restoredFromSdkInt);
                 context.sendBroadcastAsUser(intent, UserHandle.SYSTEM, null);
             }
         }
@@ -238,11 +250,11 @@ public class SettingsHelper {
         // these features working after the restore.
         switch (name) {
             case Settings.Secure.ACCESSIBILITY_ENABLED:
-            case Settings.Secure.ACCESSIBILITY_SCRIPT_INJECTION:
             case Settings.Secure.ACCESSIBILITY_SPEAK_PASSWORD:
             case Settings.Secure.TOUCH_EXPLORATION_ENABLED:
             case Settings.Secure.ACCESSIBILITY_DISPLAY_DALTONIZER_ENABLED:
             case Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_ENABLED:
+            case Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_NAVBAR_ENABLED:
             case Settings.Secure.UI_NIGHT_MODE:
                 return Settings.Secure.getInt(mContext.getContentResolver(), name, 0) != 0;
             case Settings.Secure.TOUCH_EXPLORATION_GRANTED_ACCESSIBILITY_SERVICES:
@@ -275,12 +287,12 @@ public class SettingsHelper {
         }
         final String GPS = LocationManager.GPS_PROVIDER;
         boolean enabled =
-                GPS.equals(value) ||
+            GPS.equals(value) ||
                 value.startsWith(GPS + ",") ||
                 value.endsWith("," + GPS) ||
                 value.contains("," + GPS + ",");
-        Settings.Secure.setLocationProviderEnabled(
-                mContext.getContentResolver(), GPS, enabled);
+        LocationManager lm = (LocationManager) mContext.getSystemService(Context.LOCATION_SERVICE);
+        lm.setProviderEnabledForUser(GPS, enabled, Process.myUserHandle());
     }
 
     private void setSoundEffects(boolean enable) {
@@ -291,65 +303,106 @@ public class SettingsHelper {
         }
     }
 
-    private void setBrightness(int brightness) {
-        try {
-            IPowerManager power = IPowerManager.Stub.asInterface(
-                    ServiceManager.getService("power"));
-            if (power != null) {
-                power.setTemporaryScreenBrightnessSettingOverride(brightness);
-            }
-        } catch (RemoteException doe) {
-
-        }
+    /* package */ byte[] getLocaleData() {
+        Configuration conf = mContext.getResources().getConfiguration();
+        return conf.getLocales().toLanguageTags().getBytes();
     }
 
-    byte[] getLocaleData() {
-        Configuration conf = mContext.getResources().getConfiguration();
-        final Locale loc = conf.locale;
-        String localeString = loc.getLanguage();
-        String country = loc.getCountry();
-        if (!TextUtils.isEmpty(country)) {
-            localeString += "-" + country;
+    private static Locale toFullLocale(@NonNull Locale locale) {
+        if (locale.getScript().isEmpty() || locale.getCountry().isEmpty()) {
+            return ULocale.addLikelySubtags(ULocale.forLocale(locale)).toLocale();
         }
-        return localeString.getBytes();
+        return locale;
     }
 
     /**
-     * Sets the locale specified. Input data is the byte representation of a
-     * BCP-47 language tag. For backwards compatibility, strings of the form
+     * Merging the locale came from backup server and current device locale.
+     *
+     * Merge works with following rules.
+     * - The backup locales are appended to the current locale with keeping order.
+     *   e.g. current locale "en-US,zh-CN" and backup locale "ja-JP,ko-KR" are merged to
+     *   "en-US,zh-CH,ja-JP,ko-KR".
+     *
+     * - Duplicated locales are dropped.
+     *   e.g. current locale "en-US,zh-CN" and backup locale "ja-JP,zh-Hans-CN,en-US" are merged to
+     *   "en-US,zh-CN,ja-JP".
+     *
+     * - Unsupported locales are dropped.
+     *   e.g. current locale "en-US" and backup locale "ja-JP,zh-CN" but the supported locales
+     *   are "en-US,zh-CN", the merged locale list is "en-US,zh-CN".
+     *
+     * - The final result locale list only contains the supported locales.
+     *   e.g. current locale "en-US" and backup locale "zh-Hans-CN" and supported locales are
+     *   "en-US,zh-CN", the merged locale list is "en-US,zh-CN".
+     *
+     * @param restore The locale list that came from backup server.
+     * @param current The device's locale setting.
+     * @param supportedLocales The list of language tags supported by this device.
+     */
+    @VisibleForTesting
+    public static LocaleList resolveLocales(LocaleList restore, LocaleList current,
+            String[] supportedLocales) {
+        final HashMap<Locale, Locale> allLocales = new HashMap<>(supportedLocales.length);
+        for (String supportedLocaleStr : supportedLocales) {
+            final Locale locale = Locale.forLanguageTag(supportedLocaleStr);
+            allLocales.put(toFullLocale(locale), locale);
+        }
+
+        final ArrayList<Locale> filtered = new ArrayList<>(current.size());
+        for (int i = 0; i < current.size(); i++) {
+            final Locale locale = current.get(i);
+            allLocales.remove(toFullLocale(locale));
+            filtered.add(locale);
+        }
+
+        for (int i = 0; i < restore.size(); i++) {
+            final Locale locale = allLocales.remove(toFullLocale(restore.get(i)));
+            if (locale != null) {
+                filtered.add(locale);
+            }
+        }
+
+        if (filtered.size() == current.size()) {
+            return current;  // Nothing added to current locale list.
+        }
+
+        return new LocaleList(filtered.toArray(new Locale[filtered.size()]));
+    }
+
+    /**
+     * Sets the locale specified. Input data is the byte representation of comma separated
+     * multiple BCP-47 language tags. For backwards compatibility, strings of the form
      * {@code ll_CC} are also accepted, where {@code ll} is a two letter language
      * code and {@code CC} is a two letter country code.
      *
-     * @param data the locale string in bytes.
+     * @param data the comma separated BCP-47 language tags in bytes.
      */
-    void setLocaleData(byte[] data, int size) {
-        // Check if locale was set by the user:
-        Configuration conf = mContext.getResources().getConfiguration();
-        // TODO: The following is not working as intended because the network is forcing a locale
-        // change after registering. Need to find some other way to detect if the user manually
-        // changed the locale
-        if (conf.userSetLocale) return; // Don't change if user set it in the SetupWizard
+    /* package */ void setLocaleData(byte[] data, int size) {
+        final Configuration conf = mContext.getResources().getConfiguration();
 
-        final String[] availableLocales = mContext.getAssets().getLocales();
         // Replace "_" with "-" to deal with older backups.
-        String localeCode = new String(data, 0, size).replace('_', '-');
-        Locale loc = null;
-        for (int i = 0; i < availableLocales.length; i++) {
-            if (availableLocales[i].equals(localeCode)) {
-                loc = Locale.forLanguageTag(localeCode);
-                break;
-            }
+        final String localeCodes = new String(data, 0, size).replace('_', '-');
+        final LocaleList localeList = LocaleList.forLanguageTags(localeCodes);
+        if (localeList.isEmpty()) {
+            return;
         }
-        if (loc == null) return; // Couldn't find the saved locale in this version of the software
+
+        final String[] supportedLocales = LocalePicker.getSupportedLocales(mContext);
+        final LocaleList currentLocales = conf.getLocales();
+
+        final LocaleList merged = resolveLocales(localeList, currentLocales, supportedLocales);
+        if (merged.equals(currentLocales)) {
+            return;
+        }
 
         try {
-            IActivityManager am = ActivityManagerNative.getDefault();
+            IActivityManager am = ActivityManager.getService();
             Configuration config = am.getConfiguration();
-            config.locale = loc;
+            config.setLocales(merged);
             // indicate this isn't some passing default - the user wants this remembered
             config.userSetLocale = true;
 
-            am.updateConfiguration(config);
+            am.updatePersistentConfiguration(config);
         } catch (RemoteException e) {
             // Intentionally left blank
         }

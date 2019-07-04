@@ -23,6 +23,7 @@ import android.content.Intent;
 import android.content.IntentSender;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -36,7 +37,11 @@ import java.io.PrintWriter;
  * Fragments may be hosted by any object; such as an {@link Activity}. In order to
  * host fragments, implement {@link FragmentHostCallback}, overriding the methods
  * applicable to the host.
+ *
+ * @deprecated Use the <a href="{@docRoot}tools/extras/support-library.html">Support Library</a>
+ *      {@link android.support.v4.app.FragmentHostCallback}
  */
+@Deprecated
 public abstract class FragmentHostCallback<E> extends FragmentContainer {
     private final Activity mActivity;
     final Context mContext;
@@ -54,7 +59,8 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
     private boolean mLoadersStarted;
 
     public FragmentHostCallback(Context context, Handler handler, int windowAnimations) {
-        this(null /*activity*/, context, handler, windowAnimations);
+        this((context instanceof Activity) ? (Activity)context : null, context,
+                chooseHandler(context, handler), windowAnimations);
     }
 
     FragmentHostCallback(Activity activity) {
@@ -67,6 +73,19 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
         mContext = context;
         mHandler = handler;
         mWindowAnimations = windowAnimations;
+    }
+
+    /**
+     * Used internally in {@link #FragmentHostCallback(Context, Handler, int)} to choose
+     * the Activity's handler or the provided handler.
+     */
+    private static Handler chooseHandler(Context context, Handler handler) {
+        if (handler == null && context instanceof Activity) {
+            Activity activity = (Activity) context;
+            return activity.mHandler;
+        } else {
+            return handler;
+        }
     }
 
     /**
@@ -132,6 +151,20 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
     }
 
     /**
+     * @hide
+     * Starts a new {@link Activity} from the given fragment.
+     * See {@link Activity#startActivityForResult(Intent, int)}.
+     */
+    public void onStartActivityAsUserFromFragment(Fragment fragment, Intent intent, int requestCode,
+            Bundle options, UserHandle userHandle) {
+        if (requestCode != -1) {
+            throw new IllegalStateException(
+                    "Starting activity with a requestCode requires a FragmentActivity host");
+        }
+        mContext.startActivityAsUser(intent, userHandle);
+    }
+
+    /**
      * Starts a new {@link IntentSender} from the given fragment.
      * See {@link Activity#startIntentSender(IntentSender, Intent, int, int, int, Bundle)}.
      */
@@ -178,7 +211,7 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
 
     @Nullable
     @Override
-    public View onFindViewById(int id) {
+    public <T extends View> T onFindViewById(int id) {
         return null;
     }
 
@@ -294,13 +327,11 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
             mAllLoaderManagers = new ArrayMap<String, LoaderManager>();
         }
         LoaderManagerImpl lm = (LoaderManagerImpl) mAllLoaderManagers.get(who);
-        if (lm == null) {
-            if (create) {
-                lm = new LoaderManagerImpl(who, this, started);
-                mAllLoaderManagers.put(who, lm);
-            }
-        } else {
-            lm.updateHostController(this);
+        if (lm == null && create) {
+            lm = new LoaderManagerImpl(who, this, started);
+            mAllLoaderManagers.put(who, lm);
+        } else if (started && lm != null && !lm.mStarted){
+            lm.doStart();
         }
         return lm;
     }

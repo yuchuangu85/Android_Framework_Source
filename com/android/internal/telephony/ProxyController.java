@@ -16,9 +16,6 @@
 
 package com.android.internal.telephony;
 
-import java.util.ArrayList;
-import java.util.Random;
-
 import android.content.Context;
 import android.content.Intent;
 import android.os.AsyncResult;
@@ -31,13 +28,12 @@ import android.telephony.Rlog;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 
-import com.android.internal.telephony.PhoneSwitcher;
 import com.android.internal.telephony.uicc.UiccController;
 
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ProxyController {
     static final String LOG_TAG = "ProxyController";
@@ -130,7 +126,7 @@ public class ProxyController {
 
         mUiccPhoneBookController = new UiccPhoneBookController(mPhones);
         mPhoneSubInfoController = new PhoneSubInfoController(mContext, mPhones);
-        mUiccSmsController = new UiccSmsController(mPhones);
+        mUiccSmsController = new UiccSmsController();
         mSetRadioAccessFamilyStatus = new int[mPhones.length];
         mNewRadioAccessFamily = new int[mPhones.length];
         mOldRadioAccessFamily = new int[mPhones.length];
@@ -339,7 +335,10 @@ public class ProxyController {
     private void onStartRadioCapabilityResponse(Message msg) {
         synchronized (mSetRadioAccessFamilyStatus) {
             AsyncResult ar = (AsyncResult)msg.obj;
-            if (ar.exception != null) {
+            // Abort here only in Single SIM case, in Multi SIM cases
+            // send FINISH with failure so that below layers can re-bind
+            // old logical modems.
+            if ((TelephonyManager.getDefault().getPhoneCount() == 1) && (ar.exception != null)) {
                 // just abort now.  They didn't take our start so we don't have to revert
                 logd("onStartRadioCapabilityResponse got exception=" + ar.exception);
                 mRadioCapabilitySessionId = mUniqueIdGenerator.getAndIncrement();
@@ -505,10 +504,14 @@ public class ProxyController {
 
             // Increment the sessionId as we are completing the transaction below
             // so we don't want it completed when the FINISH phase is done.
-            int uniqueDifferentId = mUniqueIdGenerator.getAndIncrement();
+            mRadioCapabilitySessionId = mUniqueIdGenerator.getAndIncrement();
+
+            // Reset the status counter as existing session failed
+            mRadioAccessFamilyStatusCounter = 0;
+
             // send FINISH request with fail status and then uniqueDifferentId
             mTransactionFailed = true;
-            issueFinish(uniqueDifferentId);
+            issueFinish(mRadioCapabilitySessionId);
         }
     }
 
@@ -523,8 +526,10 @@ public class ProxyController {
                         i,
                         sessionId,
                         RadioCapability.RC_PHASE_FINISH,
-                        mOldRadioAccessFamily[i],
-                        mCurrentLogicalModemIds[i],
+                        (mTransactionFailed ? mOldRadioAccessFamily[i] :
+                        mNewRadioAccessFamily[i]),
+                        (mTransactionFailed ? mCurrentLogicalModemIds[i] :
+                        mNewLogicalModemIds[i]),
                         (mTransactionFailed ? RadioCapability.RC_STATUS_FAIL :
                         RadioCapability.RC_STATUS_SUCCESS),
                         EVENT_FINISH_RC_RESPONSE);

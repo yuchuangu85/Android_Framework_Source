@@ -17,7 +17,6 @@
 package android.net.metrics;
 
 import android.annotation.IntDef;
-import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.SparseArray;
@@ -30,7 +29,6 @@ import java.lang.annotation.RetentionPolicy;
 /**
  * {@hide}
  */
-@SystemApi
 public final class NetworkEvent implements Parcelable {
 
     public static final int NETWORK_CONNECTED            = 1;
@@ -41,7 +39,11 @@ public final class NetworkEvent implements Parcelable {
     public static final int NETWORK_UNLINGER             = 6;
     public static final int NETWORK_DISCONNECTED         = 7;
 
-    /** {@hide} */
+    public static final int NETWORK_FIRST_VALIDATION_SUCCESS      = 8;
+    public static final int NETWORK_REVALIDATION_SUCCESS          = 9;
+    public static final int NETWORK_FIRST_VALIDATION_PORTAL_FOUND = 10;
+    public static final int NETWORK_REVALIDATION_PORTAL_FOUND     = 11;
+
     @IntDef(value = {
             NETWORK_CONNECTED,
             NETWORK_VALIDATED,
@@ -50,35 +52,33 @@ public final class NetworkEvent implements Parcelable {
             NETWORK_LINGER,
             NETWORK_UNLINGER,
             NETWORK_DISCONNECTED,
+            NETWORK_FIRST_VALIDATION_SUCCESS,
+            NETWORK_REVALIDATION_SUCCESS,
+            NETWORK_FIRST_VALIDATION_PORTAL_FOUND,
+            NETWORK_REVALIDATION_PORTAL_FOUND,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface EventType {}
 
-    public final int netId;
     public final @EventType int eventType;
     public final long durationMs;
 
-    /** {@hide} */
-    public NetworkEvent(int netId, @EventType int eventType, long durationMs) {
-        this.netId = netId;
+    public NetworkEvent(@EventType int eventType, long durationMs) {
         this.eventType = eventType;
         this.durationMs = durationMs;
     }
 
-    /** {@hide} */
-    public NetworkEvent(int netId, @EventType int eventType) {
-        this(netId, eventType, 0);
+    public NetworkEvent(@EventType int eventType) {
+        this(eventType, 0);
     }
 
     private NetworkEvent(Parcel in) {
-        netId = in.readInt();
         eventType = in.readInt();
         durationMs = in.readLong();
     }
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        out.writeInt(netId);
         out.writeInt(eventType);
         out.writeLong(durationMs);
     }
@@ -99,19 +99,10 @@ public final class NetworkEvent implements Parcelable {
         }
     };
 
-    public static void logEvent(int netId, int eventType) {
-    }
-
-    public static void logValidated(int netId, long durationMs) {
-    }
-
-    public static void logCaptivePortalFound(int netId, long durationMs) {
-    }
-
     @Override
     public String toString() {
-        return String.format("NetworkEvent(%d, %s, %dms)",
-                netId, Decoder.constants.get(eventType), durationMs);
+        return String.format("NetworkEvent(%s, %dms)",
+                Decoder.constants.get(eventType), durationMs);
     }
 
     final static class Decoder {

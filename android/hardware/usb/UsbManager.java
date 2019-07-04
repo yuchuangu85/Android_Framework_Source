@@ -17,28 +17,35 @@
 
 package android.hardware.usb;
 
-import com.android.internal.util.Preconditions;
-
+import android.Manifest;
+import android.annotation.Nullable;
+import android.annotation.RequiresFeature;
+import android.annotation.RequiresPermission;
+import android.annotation.SdkConstant;
+import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.SystemApi;
+import android.annotation.SystemService;
 import android.app.PendingIntent;
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
+import android.hardware.usb.gadget.V1_0.GadgetFunction;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.RemoteException;
 import android.util.Log;
 
+import com.android.internal.util.Preconditions;
+
 import java.util.HashMap;
+import java.util.Map;
+import java.util.StringJoiner;
 
 /**
  * This class allows you to access the state of USB and communicate with USB devices.
  * Currently only host mode is supported in the public API.
- *
- * <p>You can obtain an instance of this class by calling
- * {@link android.content.Context#getSystemService(java.lang.String) Context.getSystemService()}.
- *
- * {@samplecode
- * UsbManager manager = (UsbManager) getSystemService(Context.USB_SERVICE);}
  *
  * <div class="special reference">
  * <h3>Developer Guides</h3>
@@ -46,6 +53,7 @@ import java.util.HashMap;
  * <a href="{@docRoot}guide/topics/connectivity/usb/index.html">USB developer guide</a>.</p>
  * </div>
  */
+@SystemService(Context.USB_SERVICE)
 public class UsbManager {
     private static final String TAG = "UsbManager";
 
@@ -67,7 +75,7 @@ public class UsbManager {
      * MTP function is enabled
      * <li> {@link #USB_FUNCTION_PTP} boolean extra indicating whether the
      * PTP function is enabled
-     * <li> {@link #USB_FUNCTION_PTP} boolean extra indicating whether the
+     * <li> {@link #USB_FUNCTION_ACCESSORY} boolean extra indicating whether the
      * accessory function is enabled
      * <li> {@link #USB_FUNCTION_AUDIO_SOURCE} boolean extra indicating whether the
      * audio source function is enabled
@@ -99,7 +107,7 @@ public class UsbManager {
             "android.hardware.usb.action.USB_PORT_CHANGED";
 
    /**
-     * Broadcast Action:  A broadcast for USB device attached event.
+     * Activity intent sent when user attaches a USB device.
      *
      * This intent is sent when a USB device is attached to the USB bus when in host mode.
      * <ul>
@@ -107,6 +115,7 @@ public class UsbManager {
      * for the attached device
      * </ul>
      */
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_USB_DEVICE_ATTACHED =
             "android.hardware.usb.action.USB_DEVICE_ATTACHED";
 
@@ -119,18 +128,19 @@ public class UsbManager {
      * for the detached device
      * </ul>
      */
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_USB_DEVICE_DETACHED =
             "android.hardware.usb.action.USB_DEVICE_DETACHED";
 
    /**
-     * Broadcast Action:  A broadcast for USB accessory attached event.
+     * Activity intent sent when user attaches a USB accessory.
      *
-     * This intent is sent when a USB accessory is attached.
      * <ul>
      * <li> {@link #EXTRA_ACCESSORY} containing the {@link android.hardware.usb.UsbAccessory}
      * for the attached accessory
      * </ul>
      */
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_USB_ACCESSORY_ATTACHED =
             "android.hardware.usb.action.USB_ACCESSORY_ATTACHED";
 
@@ -143,6 +153,7 @@ public class UsbManager {
      * for the attached accessory that was detached
      * </ul>
      */
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_USB_ACCESSORY_DETACHED =
             "android.hardware.usb.action.USB_ACCESSORY_DETACHED";
 
@@ -182,8 +193,7 @@ public class UsbManager {
 
     /**
      * A placeholder indicating that no USB function is being specified.
-     * Used to distinguish between selecting no function vs. the default function in
-     * {@link #setCurrentFunction(String)}.
+     * Used for compatibility with old init scripts to indicate no functions vs. charging function.
      *
      * {@hide}
      */
@@ -284,6 +294,69 @@ public class UsbManager {
      */
     public static final String EXTRA_PERMISSION_GRANTED = "permission";
 
+    /**
+     * Code for the charging usb function. Passed into {@link #setCurrentFunctions(long)}
+     * {@hide}
+     */
+    public static final long FUNCTION_NONE = 0;
+
+    /**
+     * Code for the mtp usb function. Passed as a mask into {@link #setCurrentFunctions(long)}
+     * {@hide}
+     */
+    public static final long FUNCTION_MTP = GadgetFunction.MTP;
+
+    /**
+     * Code for the ptp usb function. Passed as a mask into {@link #setCurrentFunctions(long)}
+     * {@hide}
+     */
+    public static final long FUNCTION_PTP = GadgetFunction.PTP;
+
+    /**
+     * Code for the rndis usb function. Passed as a mask into {@link #setCurrentFunctions(long)}
+     * {@hide}
+     */
+    public static final long FUNCTION_RNDIS = GadgetFunction.RNDIS;
+
+    /**
+     * Code for the midi usb function. Passed as a mask into {@link #setCurrentFunctions(long)}
+     * {@hide}
+     */
+    public static final long FUNCTION_MIDI = GadgetFunction.MIDI;
+
+    /**
+     * Code for the accessory usb function.
+     * {@hide}
+     */
+    public static final long FUNCTION_ACCESSORY = GadgetFunction.ACCESSORY;
+
+    /**
+     * Code for the audio source usb function.
+     * {@hide}
+     */
+    public static final long FUNCTION_AUDIO_SOURCE = GadgetFunction.AUDIO_SOURCE;
+
+    /**
+     * Code for the adb usb function.
+     * {@hide}
+     */
+    public static final long FUNCTION_ADB = GadgetFunction.ADB;
+
+    private static final long SETTABLE_FUNCTIONS = FUNCTION_MTP | FUNCTION_PTP | FUNCTION_RNDIS
+            | FUNCTION_MIDI;
+
+    private static final Map<String, Long> FUNCTION_NAME_TO_CODE = new HashMap<>();
+
+    static {
+        FUNCTION_NAME_TO_CODE.put(UsbManager.USB_FUNCTION_MTP, FUNCTION_MTP);
+        FUNCTION_NAME_TO_CODE.put(UsbManager.USB_FUNCTION_PTP, FUNCTION_PTP);
+        FUNCTION_NAME_TO_CODE.put(UsbManager.USB_FUNCTION_RNDIS, FUNCTION_RNDIS);
+        FUNCTION_NAME_TO_CODE.put(UsbManager.USB_FUNCTION_MIDI, FUNCTION_MIDI);
+        FUNCTION_NAME_TO_CODE.put(UsbManager.USB_FUNCTION_ACCESSORY, FUNCTION_ACCESSORY);
+        FUNCTION_NAME_TO_CODE.put(UsbManager.USB_FUNCTION_AUDIO_SOURCE, FUNCTION_AUDIO_SOURCE);
+        FUNCTION_NAME_TO_CODE.put(UsbManager.USB_FUNCTION_ADB, FUNCTION_ADB);
+    }
+
     private final Context mContext;
     private final IUsbManager mService;
 
@@ -303,11 +376,15 @@ public class UsbManager {
      *
      * @return HashMap containing all connected USB devices.
      */
+    @RequiresFeature(PackageManager.FEATURE_USB_HOST)
     public HashMap<String,UsbDevice> getDeviceList() {
+        HashMap<String,UsbDevice> result = new HashMap<String,UsbDevice>();
+        if (mService == null) {
+            return result;
+        }
         Bundle bundle = new Bundle();
         try {
             mService.getDeviceList(bundle);
-            HashMap<String,UsbDevice> result = new HashMap<String,UsbDevice>();
             for (String name : bundle.keySet()) {
                 result.put(name, (UsbDevice)bundle.get(name));
             }
@@ -324,10 +401,11 @@ public class UsbManager {
      * @param device the device to open
      * @return a {@link UsbDeviceConnection}, or {@code null} if open failed
      */
+    @RequiresFeature(PackageManager.FEATURE_USB_HOST)
     public UsbDeviceConnection openDevice(UsbDevice device) {
         try {
             String deviceName = device.getDeviceName();
-            ParcelFileDescriptor pfd = mService.openDevice(deviceName);
+            ParcelFileDescriptor pfd = mService.openDevice(deviceName, mContext.getPackageName());
             if (pfd != null) {
                 UsbDeviceConnection connection = new UsbDeviceConnection(device);
                 boolean result = connection.open(deviceName, pfd, mContext);
@@ -348,7 +426,11 @@ public class UsbManager {
      *
      * @return list of USB accessories, or null if none are attached.
      */
+    @RequiresFeature(PackageManager.FEATURE_USB_ACCESSORY)
     public UsbAccessory[] getAccessoryList() {
+        if (mService == null) {
+            return null;
+        }
         try {
             UsbAccessory accessory = mService.getCurrentAccessory();
             if (accessory == null) {
@@ -364,12 +446,36 @@ public class UsbManager {
     /**
      * Opens a file descriptor for reading and writing data to the USB accessory.
      *
+     * <p>If data is read from the {@link java.io.InputStream} created from this file descriptor all
+     * data of a USB transfer should be read at once. If only a partial request is read the rest of
+     * the transfer is dropped.
+     *
      * @param accessory the USB accessory to open
-     * @return file descriptor, or null if the accessor could not be opened.
+     * @return file descriptor, or null if the accessory could not be opened.
      */
+    @RequiresFeature(PackageManager.FEATURE_USB_ACCESSORY)
     public ParcelFileDescriptor openAccessory(UsbAccessory accessory) {
         try {
             return mService.openAccessory(accessory);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Gets the functionfs control file descriptor for the given function, with
+     * the usb descriptors and strings already written. The file descriptor is used
+     * by the function implementation to handle events and control requests.
+     *
+     * @param function to get control fd for. Currently {@link #FUNCTION_MTP} and
+     * {@link #FUNCTION_PTP} are supported.
+     * @return A ParcelFileDescriptor holding the valid fd, or null if the fd was not found.
+     *
+     * {@hide}
+     */
+    public ParcelFileDescriptor getControlFd(long function) {
+        try {
+            return mService.getControlFd(function);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -380,13 +486,20 @@ public class UsbManager {
      * Permission might have been granted temporarily via
      * {@link #requestPermission(UsbDevice, PendingIntent)} or
      * by the user choosing the caller as the default application for the device.
+     * Permission for USB devices of class {@link UsbConstants#USB_CLASS_VIDEO} for clients that
+     * target SDK {@link android.os.Build.VERSION_CODES#P} and above can be granted only if they
+     * have additionally the {@link android.Manifest.permission#CAMERA} permission.
      *
      * @param device to check permissions for
      * @return true if caller has permission
      */
+    @RequiresFeature(PackageManager.FEATURE_USB_HOST)
     public boolean hasPermission(UsbDevice device) {
+        if (mService == null) {
+            return false;
+        }
         try {
-            return mService.hasDevicePermission(device);
+            return mService.hasDevicePermission(device, mContext.getPackageName());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -401,7 +514,11 @@ public class UsbManager {
      * @param accessory to check permissions for
      * @return true if caller has permission
      */
+    @RequiresFeature(PackageManager.FEATURE_USB_ACCESSORY)
     public boolean hasPermission(UsbAccessory accessory) {
+        if (mService == null) {
+            return false;
+        }
         try {
             return mService.hasAccessoryPermission(accessory);
         } catch (RemoteException e) {
@@ -424,9 +541,14 @@ public class UsbManager {
      * permission was granted by the user
      * </ul>
      *
+     * Permission for USB devices of class {@link UsbConstants#USB_CLASS_VIDEO} for clients that
+     * target SDK {@link android.os.Build.VERSION_CODES#P} and above can be granted only if they
+     * have additionally the {@link android.Manifest.permission#CAMERA} permission.
+     *
      * @param device to request permissions for
      * @param pi PendingIntent for returning result
      */
+    @RequiresFeature(PackageManager.FEATURE_USB_HOST)
     public void requestPermission(UsbDevice device, PendingIntent pi) {
         try {
             mService.requestDevicePermission(device, mContext.getPackageName(), pi);
@@ -453,6 +575,7 @@ public class UsbManager {
      * @param accessory to request permissions for
      * @param pi PendingIntent for returning result
      */
+    @RequiresFeature(PackageManager.FEATURE_USB_ACCESSORY)
     public void requestPermission(UsbAccessory accessory, PendingIntent pi) {
         try {
             mService.requestAccessoryPermission(accessory, mContext.getPackageName(), pi);
@@ -469,8 +592,20 @@ public class UsbManager {
      * {@hide}
      */
     public void grantPermission(UsbDevice device) {
+        grantPermission(device, Process.myUid());
+    }
+
+    /**
+     * Grants permission for USB device to given uid without showing system dialog.
+     * Only system components can call this function.
+     * @param device to request permissions for
+     * @uid uid to give permission
+     *
+     * {@hide}
+     */
+    public void grantPermission(UsbDevice device, int uid) {
         try {
-            mService.grantDevicePermission(device, Process.myUid());
+            mService.grantDevicePermission(device, uid);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -484,15 +619,15 @@ public class UsbManager {
      *
      * {@hide}
      */
+    @SystemApi
+    @RequiresPermission(Manifest.permission.MANAGE_USB)
     public void grantPermission(UsbDevice device, String packageName) {
         try {
             int uid = mContext.getPackageManager()
                 .getPackageUidAsUser(packageName, mContext.getUserId());
-            mService.grantDevicePermission(device, uid);
+            grantPermission(device, uid);
         } catch (NameNotFoundException e) {
             Log.e(TAG, "Package " + packageName + " not found.", e);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
         }
     }
 
@@ -503,11 +638,13 @@ public class UsbManager {
      * services offered by the device.
      * </p>
      *
+     * @deprecated use getCurrentFunctions() instead.
      * @param function name of the USB function
      * @return true if the USB function is enabled
      *
      * {@hide}
      */
+    @Deprecated
     public boolean isFunctionEnabled(String function) {
         try {
             return mService.isFunctionEnabled(function);
@@ -517,7 +654,7 @@ public class UsbManager {
     }
 
     /**
-     * Sets the current USB function when in device mode.
+     * Sets the current USB functions when in device mode.
      * <p>
      * USB functions represent interfaces which are published to the host to access
      * services offered by the device.
@@ -526,37 +663,99 @@ public class UsbManager {
      * automatically activate additional functions such as {@link #USB_FUNCTION_ADB}
      * or {@link #USB_FUNCTION_ACCESSORY} based on other settings and states.
      * </p><p>
-     * The allowed values are: {@link #USB_FUNCTION_NONE}, {@link #USB_FUNCTION_AUDIO_SOURCE},
-     * {@link #USB_FUNCTION_MIDI}, {@link #USB_FUNCTION_MTP}, {@link #USB_FUNCTION_PTP},
-     * or {@link #USB_FUNCTION_RNDIS}.
+     * An argument of 0 indicates that the device is charging, and can pick any
+     * appropriate function for that purpose.
      * </p><p>
      * Note: This function is asynchronous and may fail silently without applying
      * the requested changes.
      * </p>
      *
-     * @param function name of the USB function, or null to restore the default function
+     * @param functions the USB function(s) to set, as a bitwise mask.
+     *                  Must satisfy {@link UsbManager#areSettableFunctions}
      *
      * {@hide}
      */
-    public void setCurrentFunction(String function) {
+    public void setCurrentFunctions(long functions) {
         try {
-            mService.setCurrentFunction(function);
+            mService.setCurrentFunctions(functions);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
     }
 
     /**
-     * Sets whether USB data (for example, MTP exposed pictures) should be made available
-     * on the USB connection when in device mode. Unlocking usb data should only be done with
-     * user involvement, since exposing pictures or other data could leak sensitive
-     * user information.
+     * Sets the current USB functions when in device mode.
+     *
+     * @deprecated use setCurrentFunctions(long) instead.
+     * @param functions the USB function(s) to set.
+     * @param usbDataUnlocked unused
+
+     * {@hide}
+     */
+    @Deprecated
+    public void setCurrentFunction(String functions, boolean usbDataUnlocked) {
+        try {
+            mService.setCurrentFunction(functions, usbDataUnlocked);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Returns the current USB functions in device mode.
+     * <p>
+     * This function returns the state of primary USB functions and can return a
+     * mask containing any usb function(s) except for ADB.
+     * </p>
+     *
+     * @return The currently enabled functions, in a bitwise mask.
+     * A zero mask indicates that the current function is the charging function.
      *
      * {@hide}
      */
-    public void setUsbDataUnlocked(boolean unlocked) {
+    public long getCurrentFunctions() {
         try {
-            mService.setUsbDataUnlocked(unlocked);
+            return mService.getCurrentFunctions();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Sets the screen unlocked functions, which are persisted and set as the current functions
+     * whenever the screen is unlocked.
+     * <p>
+     * A zero mask has the effect of switching off this feature, so functions
+     * no longer change on screen unlock.
+     * </p><p>
+     * Note: When the screen is on, this method will apply given functions as current functions,
+     * which is asynchronous and may fail silently without applying the requested changes.
+     * </p>
+     *
+     * @param functions functions to set, in a bitwise mask.
+     *                  Must satisfy {@link UsbManager#areSettableFunctions}
+     *
+     * {@hide}
+     */
+    public void setScreenUnlockedFunctions(long functions) {
+        try {
+            mService.setScreenUnlockedFunctions(functions);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Gets the current screen unlocked functions.
+     *
+     * @return The currently set screen enabled functions.
+     * A zero mask indicates that the screen unlocked functions feature is not enabled.
+     *
+     * {@hide}
+     */
+    public long getScreenUnlockedFunctions() {
+        try {
+            return mService.getScreenUnlockedFunctions();
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -576,6 +775,9 @@ public class UsbManager {
      * @hide
      */
     public UsbPort[] getPorts() {
+        if (mService == null) {
+            return null;
+        }
         try {
             return mService.getPorts();
         } catch (RemoteException e) {
@@ -624,6 +826,7 @@ public class UsbManager {
         Preconditions.checkNotNull(port, "port must not be null");
         UsbPort.checkRoles(powerRole, dataRole);
 
+        Log.d(TAG, "setPortRoles Package:" + mContext.getPackageName());
         try {
             mService.setPortRoles(port.getId(), powerRole, dataRole);
         } catch (RemoteException e) {
@@ -631,51 +834,91 @@ public class UsbManager {
         }
     }
 
-    /** @hide */
-    public static String addFunction(String functions, String function) {
-        if (USB_FUNCTION_NONE.equals(functions)) {
-            return function;
+    /**
+     * Sets the component that will handle USB device connection.
+     * <p>
+     * Setting component allows to specify external USB host manager to handle use cases, where
+     * selection dialog for an activity that will handle USB device is undesirable.
+     * Only system components can call this function, as it requires the MANAGE_USB permission.
+     *
+     * @param usbDeviceConnectionHandler The component to handle usb connections,
+     * {@code null} to unset.
+     *
+     * {@hide}
+     */
+    public void setUsbDeviceConnectionHandler(@Nullable ComponentName usbDeviceConnectionHandler) {
+        try {
+            mService.setUsbDeviceConnectionHandler(usbDeviceConnectionHandler);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
         }
-        if (!containsFunction(functions, function)) {
-            if (functions.length() > 0) {
-                functions += ",";
-            }
-            functions += function;
-        }
-        return functions;
     }
 
-    /** @hide */
-    public static String removeFunction(String functions, String function) {
-        String[] split = functions.split(",");
-        for (int i = 0; i < split.length; i++) {
-            if (function.equals(split[i])) {
-                split[i] = null;
-            }
-        }
-        if (split.length == 1 && split[0] == null) {
-            return USB_FUNCTION_NONE;
-        }
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < split.length; i++) {
-            String s = split[i];
-            if (s != null) {
-                if (builder.length() > 0) {
-                    builder.append(",");
-                }
-                builder.append(s);
-            }
-        }
-        return builder.toString();
+    /**
+     * Returns whether the given functions are valid inputs to UsbManager.
+     * Currently the empty functions or any of MTP, PTP, RNDIS, MIDI are accepted.
+     *
+     * @return Whether the mask is settable.
+     *
+     * {@hide}
+     */
+    public static boolean areSettableFunctions(long functions) {
+        return functions == FUNCTION_NONE
+                || ((~SETTABLE_FUNCTIONS & functions) == 0 && Long.bitCount(functions) == 1);
     }
 
-    /** @hide */
-    public static boolean containsFunction(String functions, String function) {
-        int index = functions.indexOf(function);
-        if (index < 0) return false;
-        if (index > 0 && functions.charAt(index - 1) != ',') return false;
-        int charAfter = index + function.length();
-        if (charAfter < functions.length() && functions.charAt(charAfter) != ',') return false;
-        return true;
+    /**
+     * Converts the given function mask to string. Maintains ordering with respect to init scripts.
+     *
+     * @return String representation of given mask
+     *
+     * {@hide}
+     */
+    public static String usbFunctionsToString(long functions) {
+        StringJoiner joiner = new StringJoiner(",");
+        if ((functions & FUNCTION_MTP) != 0) {
+            joiner.add(UsbManager.USB_FUNCTION_MTP);
+        }
+        if ((functions & FUNCTION_PTP) != 0) {
+            joiner.add(UsbManager.USB_FUNCTION_PTP);
+        }
+        if ((functions & FUNCTION_RNDIS) != 0) {
+            joiner.add(UsbManager.USB_FUNCTION_RNDIS);
+        }
+        if ((functions & FUNCTION_MIDI) != 0) {
+            joiner.add(UsbManager.USB_FUNCTION_MIDI);
+        }
+        if ((functions & FUNCTION_ACCESSORY) != 0) {
+            joiner.add(UsbManager.USB_FUNCTION_ACCESSORY);
+        }
+        if ((functions & FUNCTION_AUDIO_SOURCE) != 0) {
+            joiner.add(UsbManager.USB_FUNCTION_AUDIO_SOURCE);
+        }
+        if ((functions & FUNCTION_ADB) != 0) {
+            joiner.add(UsbManager.USB_FUNCTION_ADB);
+        }
+        return joiner.toString();
+    }
+
+    /**
+     * Parses a string of usb functions that are comma separated.
+     *
+     * @return A mask of all valid functions in the string
+     *
+     * {@hide}
+     */
+    public static long usbFunctionsFromString(String functions) {
+        if (functions == null || functions.equals(USB_FUNCTION_NONE)) {
+            return FUNCTION_NONE;
+        }
+        long ret = 0;
+        for (String function : functions.split(",")) {
+            if (FUNCTION_NAME_TO_CODE.containsKey(function)) {
+                ret |= FUNCTION_NAME_TO_CODE.get(function);
+            } else if (function.length() > 0) {
+                throw new IllegalArgumentException("Invalid usb function " + functions);
+            }
+        }
+        return ret;
     }
 }

@@ -25,6 +25,7 @@
  */
 
 package java.lang;
+import dalvik.annotation.optimization.FastNative;
 import  java.io.*;
 import  java.util.*;
 
@@ -203,7 +204,7 @@ public class Throwable implements Serializable {
      * @serial
      * @since 1.4
      */
-    // Android changed.
+    // Android-changed.
     private StackTraceElement[] stackTrace = libcore.util.EmptyArray.STACK_TRACE_ELEMENT;
 
     /**
@@ -618,7 +619,7 @@ public class Throwable implements Serializable {
      *          at Resource2.close(Resource2.java:20)
      *          at Foo4.main(Foo4.java:5)
      *  Caused by: java.lang.Exception: Rats, you caught me
-     *          at Resource2$CloseFailException.<init>(Resource2.java:45)
+     *          at Resource2$CloseFailException.&lt;init&gt;(Resource2.java:45)
      *          ... 2 more
      * </pre>
      */
@@ -777,6 +778,7 @@ public class Throwable implements Serializable {
         return this;
     }
 
+    @FastNative
     private static native Object nativeFillInStackTrace();
 
     /**
@@ -811,7 +813,7 @@ public class Throwable implements Serializable {
         // Initialize stack trace field with information from
         // backtrace if this is the first call to this method
         //
-        // Android changed - test explicitly for equality with
+        // Android-changed: test explicitly for equality with
         // STACK_TRACE_ELEMENT
         if (stackTrace == libcore.util.EmptyArray.STACK_TRACE_ELEMENT ||
             (stackTrace == null && backtrace != null) /* Out of protocol state */) {
@@ -819,7 +821,7 @@ public class Throwable implements Serializable {
             backtrace = null;
         }
 
-        // Android changed : Return an empty element both when the stack trace
+        // Android-changed: Return an empty element both when the stack trace
         // isn't writeable and also when nativeGetStackTrace returns null.
         if (stackTrace == null) {
             return libcore.util.EmptyArray.STACK_TRACE_ELEMENT;
@@ -881,6 +883,7 @@ public class Throwable implements Serializable {
      * @throws IndexOutOfBoundsException if {@code index < 0 ||
      *         index >= getStackTraceDepth() }
      */
+    @FastNative
     private static native StackTraceElement[] nativeGetStackTrace(Object stackState);
 
 

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1999, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,7 @@
 
 package java.util.regex;
 
+import dalvik.annotation.optimization.ReachabilitySensitive;
 import libcore.util.NativeAllocationRegistry;
 
 /**
@@ -107,12 +108,17 @@ public final class Matcher implements MatchResult {
     /**
      * The Pattern object that created this Matcher.
      */
+    // Patterns also contain cleanup code and a ReachabilitySensitive field.
+    // This ensures that "this" and pattern remain reachable while we're using pattern.address
+    // directly.
+    @ReachabilitySensitive
     private Pattern pattern;
 
     /**
      * The address of the native peer.
      * Uses of this must be manually synchronized to avoid native crashes.
      */
+    @ReachabilitySensitive
     private long address;
 
     /**
@@ -122,6 +128,13 @@ public final class Matcher implements MatchResult {
 
     private static final NativeAllocationRegistry registry = new NativeAllocationRegistry(
             Matcher.class.getClassLoader(), getNativeFinalizer(), nativeSize());
+
+    /**
+     * Holds the original CharSequence for use in {@link #reset}. {@link #input} is used during
+     * matching. Note that CharSequence is mutable while String is not, so reset can cause the input
+     * to match to change.
+     */
+    private CharSequence originalInput;
 
     /**
      * Holds the input text.
@@ -281,6 +294,33 @@ public final class Matcher implements MatchResult {
     }
 
     /**
+     * Returns the offset after the last character of the subsequence
+     * captured by the given <a href="Pattern.html#groupname">named-capturing
+     * group</a> during the previous match operation.
+     *
+     * @param  name
+     *         The name of a named-capturing group in this matcher's pattern
+     *
+     * @return  The offset after the last character captured by the group,
+     *          or {@code -1} if the match was successful
+     *          but the group itself did not match anything
+     *
+     * @throws  IllegalStateException
+     *          If no match has yet been attempted,
+     *          or if the previous match operation failed
+     *
+     * @throws  IllegalArgumentException
+     *          If there is no capturing group in the pattern
+     *          with the given name
+     * @since 1.8
+     */
+    public int end(String name) {
+        ensureMatch();
+        return matchOffsets[getMatchedGroupIndex(pattern.address, name) * 2 + 1];
+    }
+
+
+    /**
      * Returns the input subsequence matched by the previous match.
      *
      * <p> For a matcher <i>m</i> with input sequence <i>s</i>,
@@ -375,12 +415,17 @@ public final class Matcher implements MatchResult {
      *          If there is no capturing group in the pattern
      *          with the given name
      * @since 1.7
-     *
-     * @hide
      */
     public String group(String name) {
-        // TODO: Implement this - ICU55 supports named regex groups.
-        throw new UnsupportedOperationException();
+        ensureMatch();
+        int group = getMatchedGroupIndex(pattern.address, name);
+        int from = matchOffsets[group * 2];
+        int to = matchOffsets[(group * 2) + 1];
+        if (from == -1 || to == -1) {
+            return null;
+        } else {
+            return input.substring(from, to);
+        }
     }
 
     /**
@@ -412,7 +457,7 @@ public final class Matcher implements MatchResult {
      */
     public boolean matches() {
         synchronized (this) {
-            matchFound = matchesImpl(address, input, matchOffsets);
+            matchFound = matchesImpl(address, matchOffsets);
         }
         return matchFound;
     }
@@ -434,7 +479,7 @@ public final class Matcher implements MatchResult {
      */
     public boolean find() {
         synchronized (this) {
-            matchFound = findNextImpl(address, input, matchOffsets);
+            matchFound = findNextImpl(address, matchOffsets);
         }
         return matchFound;
     }
@@ -458,12 +503,13 @@ public final class Matcher implements MatchResult {
      *          pattern
      */
     public boolean find(int start) {
+        reset();
         if (start < 0 || start > input.length()) {
             throw new IndexOutOfBoundsException("start=" + start + "; length=" + input.length());
         }
 
         synchronized (this) {
-            matchFound = findImpl(address, input, start, matchOffsets);
+            matchFound = findImpl(address, start, matchOffsets);
         }
         return matchFound;
     }
@@ -484,7 +530,7 @@ public final class Matcher implements MatchResult {
      */
     public boolean lookingAt() {
         synchronized (this) {
-            matchFound = lookingAtImpl(address, input, matchOffsets);
+            matchFound = lookingAtImpl(address, matchOffsets);
         }
         return matchFound;
     }
@@ -615,6 +661,8 @@ public final class Matcher implements MatchResult {
     private void appendEvaluated(StringBuffer buffer, String s) {
         boolean escape = false;
         boolean dollar = false;
+        boolean escapeNamedGroup = false;
+        int escapeNamedGroupStart = -1;
 
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
@@ -625,11 +673,27 @@ public final class Matcher implements MatchResult {
             } else if (c >= '0' && c <= '9' && dollar) {
                 buffer.append(group(c - '0'));
                 dollar = false;
+            } else if (c == '{' && dollar) {
+                escapeNamedGroup = true;
+                escapeNamedGroupStart = i;
+            } else if (c == '}' && dollar && escapeNamedGroup) {
+                String namedGroupName =
+                    s.substring(escapeNamedGroupStart + 1, i);
+                buffer.append(group(namedGroupName));
+                dollar = false;
+                escapeNamedGroup = false;
+            } else if (c != '}' && dollar && escapeNamedGroup) {
+                continue;
             } else {
                 buffer.append(c);
                 dollar = false;
                 escape = false;
+                escapeNamedGroup = false;
             }
+        }
+
+        if (escapeNamedGroup) {
+            throw new IllegalArgumentException("Missing ending brace '}' from replacement string");
         }
 
         if (escape) {
@@ -770,7 +834,7 @@ public final class Matcher implements MatchResult {
      * @since 1.5
      */
     public Matcher region(int start, int end) {
-        return reset(input, start, end);
+        return reset(originalInput, start, end);
     }
 
     /**
@@ -974,7 +1038,7 @@ public final class Matcher implements MatchResult {
      * @return  This matcher
      */
     public Matcher reset() {
-        return reset(input, 0, input.length());
+        return reset(originalInput, 0, originalInput.length());
     }
 
     /**
@@ -1020,6 +1084,7 @@ public final class Matcher implements MatchResult {
             throw new IndexOutOfBoundsException();
         }
 
+        this.originalInput = input;
         this.input = input.toString();
         this.regionStart = start;
         this.regionEnd = end;
@@ -1094,13 +1159,50 @@ public final class Matcher implements MatchResult {
         return matchOffsets[group * 2];
     }
 
-    private static native boolean findImpl(long addr, String s, int startIndex, int[] offsets);
-    private static native boolean findNextImpl(long addr, String s, int[] offsets);
+
+    /**
+     * Returns the start index of the subsequence captured by the given
+     * <a href="Pattern.html#groupname">named-capturing group</a> during the
+     * previous match operation.
+     *
+     * @param  name
+     *         The name of a named-capturing group in this matcher's pattern
+     *
+     * @return  The index of the first character captured by the group,
+     *          or {@code -1} if the match was successful but the group
+     *          itself did not match anything
+     *
+     * @throws  IllegalStateException
+     *          If no match has yet been attempted,
+     *          or if the previous match operation failed
+     *
+     * @throws  IllegalArgumentException
+     *          If there is no capturing group in the pattern
+     *          with the given name
+     * @since 1.8
+     */
+    public int start(String name) {
+        ensureMatch();
+        return matchOffsets[getMatchedGroupIndex(pattern.address, name) * 2];
+    }
+
+    private static int getMatchedGroupIndex(long patternAddr, String name) {
+        int result = getMatchedGroupIndex0(patternAddr, name);
+        if (result < 0) {
+            throw new IllegalArgumentException("No capturing group in the pattern " +
+                                               "with the name " + name);
+        }
+        return result;
+    }
+
+    private static native int getMatchedGroupIndex0(long patternAddr, String name);
+    private static native boolean findImpl(long addr, int startIndex, int[] offsets);
+    private static native boolean findNextImpl(long addr, int[] offsets);
     private static native long getNativeFinalizer();
     private static native int groupCountImpl(long addr);
     private static native boolean hitEndImpl(long addr);
-    private static native boolean lookingAtImpl(long addr, String s, int[] offsets);
-    private static native boolean matchesImpl(long addr, String s, int[] offsets);
+    private static native boolean lookingAtImpl(long addr, int[] offsets);
+    private static native boolean matchesImpl(long addr, int[] offsets);
     private static native int nativeSize();
     private static native long openImpl(long patternAddr);
     private static native boolean requireEndImpl(long addr);

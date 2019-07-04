@@ -76,6 +76,12 @@ public final class ProviderInfo extends ComponentInfo
     public int initOrder = 0;
 
     /**
+     * Bit in {@link #flags} indicating if the provider is visible to ephemeral applications.
+     * @hide
+     */
+    public static final int FLAG_VISIBLE_TO_INSTANT_APP = 0x100000;
+
+    /**
      * Bit in {@link #flags}: If set, a single instance of the provider will
      * run for all users on the device.  Set from the
      * {@link android.R.attr#singleUser} attribute.
@@ -119,11 +125,11 @@ public final class ProviderInfo extends ComponentInfo
     }
 
     /** @hide */
-    public void dump(Printer pw, String prefix, int flags) {
+    public void dump(Printer pw, String prefix, int dumpFlags) {
         super.dumpFront(pw, prefix);
         pw.println(prefix + "authority=" + authority);
         pw.println(prefix + "flags=0x" + Integer.toHexString(flags));
-        super.dumpBack(pw, prefix, flags);
+        super.dumpBack(pw, prefix, dumpFlags);
     }
 
     public int describeContents() {

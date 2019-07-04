@@ -16,11 +16,19 @@
 
 package com.android.server.am;
 
+import android.content.pm.IPackageManager;
+import android.content.pm.PermissionInfo;
+import android.os.Trace;
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.Set;
+
 import android.app.ActivityManager;
-import android.app.ActivityThread;
 import android.app.AppGlobals;
 import android.app.AppOpsManager;
-import android.app.ApplicationThreadNative;
 import android.app.BroadcastOptions;
 import android.app.PendingIntent;
 import android.content.ComponentName;
@@ -31,7 +39,6 @@ import android.content.IntentSender;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -42,30 +49,16 @@ import android.os.RemoteException;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.util.EventLog;
-import android.util.EventLogTags;
 import android.util.Slog;
 import android.util.TimeUtils;
+import android.util.proto.ProtoOutputStream;
 
-import com.android.server.DeviceIdleController;
-
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.Set;
-
-import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_BROADCAST;
-import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_BROADCAST_LIGHT;
-import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_MU;
-import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_PERMISSIONS_REVIEW;
-import static com.android.server.am.ActivityManagerDebugConfig.POSTFIX_BROADCAST;
-import static com.android.server.am.ActivityManagerDebugConfig.POSTFIX_MU;
+import static com.android.server.am.ActivityManagerDebugConfig.*;
 
 /**
  * BROADCASTS
- * <p>
- * We keep two broadcast queues and associated bookkeeping（记账）, one for those at
+ *
+ * We keep two broadcast queues and associated bookkeeping, one for those at
  * foreground priority, and one for normal (background-priority) broadcasts.
  */
 public final class BroadcastQueue {
@@ -132,9 +125,9 @@ public final class BroadcastQueue {
      * buffer, also tracked via the mSummaryHistoryNext index.  These are all in wall
      * clock time, not elapsed.
      */
-    final long[] mSummaryHistoryEnqueueTime = new long[MAX_BROADCAST_SUMMARY_HISTORY];
-    final long[] mSummaryHistoryDispatchTime = new long[MAX_BROADCAST_SUMMARY_HISTORY];
-    final long[] mSummaryHistoryFinishTime = new long[MAX_BROADCAST_SUMMARY_HISTORY];
+    final long[] mSummaryHistoryEnqueueTime = new  long[MAX_BROADCAST_SUMMARY_HISTORY];
+    final long[] mSummaryHistoryDispatchTime = new  long[MAX_BROADCAST_SUMMARY_HISTORY];
+    final long[] mSummaryHistoryFinishTime = new  long[MAX_BROADCAST_SUMMARY_HISTORY];
 
     /**
      * Set when we current have a BROADCAST_INTENT_MSG in flight.
@@ -163,8 +156,6 @@ public final class BroadcastQueue {
 
     static final int BROADCAST_INTENT_MSG = ActivityManagerService.FIRST_BROADCAST_QUEUE_MSG;
     static final int BROADCAST_TIMEOUT_MSG = ActivityManagerService.FIRST_BROADCAST_QUEUE_MSG + 1;
-    static final int SCHEDULE_TEMP_WHITELIST_MSG
-            = ActivityManagerService.FIRST_BROADCAST_QUEUE_MSG + 2;
 
     final BroadcastHandler mHandler;
 
@@ -180,22 +171,12 @@ public final class BroadcastQueue {
                     if (DEBUG_BROADCAST) Slog.v(
                             TAG_BROADCAST, "Received BROADCAST_INTENT_MSG");
                     processNextBroadcast(true);
-                }
-                break;
+                } break;
                 case BROADCAST_TIMEOUT_MSG: {
                     synchronized (mService) {
                         broadcastTimeoutLocked(true);
                     }
-                }
-                break;
-                case SCHEDULE_TEMP_WHITELIST_MSG: {
-                    DeviceIdleController.LocalService dic = mService.mLocalDeviceIdleController;
-                    if (dic != null) {
-                        dic.addPowerSaveTempWhitelistAppDirect(UserHandle.getAppId(msg.arg1),
-                                msg.arg2, true, (String) msg.obj);
-                    }
-                }
-                break;
+                } break;
             }
         }
     }
@@ -216,12 +197,17 @@ public final class BroadcastQueue {
     }
 
     BroadcastQueue(ActivityManagerService service, Handler handler,
-                   String name, long timeoutPeriod, boolean allowDelayBehindServices) {
+            String name, long timeoutPeriod, boolean allowDelayBehindServices) {
         mService = service;
         mHandler = new BroadcastHandler(handler.getLooper());
         mQueueName = name;
         mTimeoutPeriod = timeoutPeriod;
         mDelayBehindServices = allowDelayBehindServices;
+    }
+
+    @Override
+    public String toString() {
+        return mQueueName;
     }
 
     public boolean isPendingBroadcastProcessLocked(int pid) {
@@ -230,47 +216,66 @@ public final class BroadcastQueue {
 
     public void enqueueParallelBroadcastLocked(BroadcastRecord r) {
         mParallelBroadcasts.add(r);
-        r.enqueueClockTime = System.currentTimeMillis();
+        enqueueBroadcastHelper(r);
     }
 
     public void enqueueOrderedBroadcastLocked(BroadcastRecord r) {
         mOrderedBroadcasts.add(r);
+        enqueueBroadcastHelper(r);
+    }
+
+    /**
+     * Don't call this method directly; call enqueueParallelBroadcastLocked or
+     * enqueueOrderedBroadcastLocked.
+     */
+    private void enqueueBroadcastHelper(BroadcastRecord r) {
         r.enqueueClockTime = System.currentTimeMillis();
-    }
 
+        if (Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
+            Trace.asyncTraceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER,
+                createBroadcastTraceTitle(r, BroadcastRecord.DELIVERY_PENDING),
+                System.identityHashCode(r));
+        }
+    }
     // 检测广播列表对象mParallelBroadcasts中是否存在相同的广播，如果存在替换该广播
-    public final boolean replaceParallelBroadcastLocked(BroadcastRecord r) {
-        for (int i = mParallelBroadcasts.size() - 1; i >= 0; i--) {
-            final Intent curIntent = mParallelBroadcasts.get(i).intent;
-            if (r.intent.filterEquals(curIntent)) {
-                if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
-                        "***** DROPPING PARALLEL ["
-                                + mQueueName + "]: " + r.intent);
-                mParallelBroadcasts.set(i, r);
-                return true;
-            }
-        }
-        return false;
+    /**
+     * Find the same intent from queued parallel broadcast, replace with a new one and return
+     * the old one.
+     */
+    public final BroadcastRecord replaceParallelBroadcastLocked(BroadcastRecord r) {
+        return replaceBroadcastLocked(mParallelBroadcasts, r, "PARALLEL");
     }
 
-    public final boolean replaceOrderedBroadcastLocked(BroadcastRecord r) {
-        for (int i = mOrderedBroadcasts.size() - 1; i > 0; i--) {
-            if (r.intent.filterEquals(mOrderedBroadcasts.get(i).intent)) {
-                if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
-                        "***** DROPPING ORDERED ["
-                                + mQueueName + "]: " + r.intent);
-                mOrderedBroadcasts.set(i, r);
-                return true;
+    /**
+     * Find the same intent from queued ordered broadcast, replace with a new one and return
+     * the old one.
+     */
+    public final BroadcastRecord replaceOrderedBroadcastLocked(BroadcastRecord r) {
+        return replaceBroadcastLocked(mOrderedBroadcasts, r, "ORDERED");
+    }
+
+    private BroadcastRecord replaceBroadcastLocked(ArrayList<BroadcastRecord> queue,
+            BroadcastRecord r, String typeForLogging) {
+        final Intent intent = r.intent;
+        for (int i = queue.size() - 1; i > 0; i--) {
+            final BroadcastRecord old = queue.get(i);
+            if (old.userId == r.userId && intent.filterEquals(old.intent)) {
+                if (DEBUG_BROADCAST) {
+                    Slog.v(TAG_BROADCAST, "***** DROPPING "
+                            + typeForLogging + " [" + mQueueName + "]: " + intent);
+                }
+                queue.set(i, r);
+                return old;
             }
         }
-        return false;
+        return null;
     }
 
     // 这里只是将广播发送到接收者进程，需要一直等待接收者进程处理完广播后返回，AMS才能处理当前BroadcastRecord
     // 里面的下一个receiver，所以直接返回就行了，反正需要等待的。
     private final void processCurBroadcastLocked(BroadcastRecord r,
-                                                 ProcessRecord app) throws RemoteException {
-        if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
+            ProcessRecord app, boolean skipOomAdj) throws RemoteException {
+        if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
                 "Process cur broadcast " + r + " for app " + app);
         if (app.thread == null) {
             throw new RemoteException();
@@ -283,10 +288,12 @@ public final class BroadcastQueue {
         // 将进程的相关信息写入当前BroadcastRecord中相关的接收者
         r.receiver = app.thread.asBinder();
         r.curApp = app;
-        app.curReceiver = r;
+        app.curReceivers.add(r);
         app.forceProcessStateUpTo(ActivityManager.PROCESS_STATE_RECEIVER);
         mService.updateLruProcessLocked(app, false, null);
-        mService.updateOomAdjLocked();
+        if (!skipOomAdj) {
+            mService.updateOomAdjLocked();
+        }
 
         // Tell the application to launch this receiver.
         r.intent.setComponent(r.curComponent);
@@ -295,7 +302,7 @@ public final class BroadcastQueue {
         try {
             if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST,
                     "Delivering to component " + r.curComponent
-                            + ": " + r);
+                    + ": " + r);
             mService.notifyPackageUse(r.intent.getComponent().getPackageName(),
                     PackageManager.NOTIFY_PACKAGE_USE_BROADCAST_RECEIVER);
             // 处理广播，等待接收进程的返回
@@ -303,16 +310,16 @@ public final class BroadcastQueue {
                     mService.compatibilityInfoForPackageLocked(r.curReceiver.applicationInfo),
                     r.resultCode, r.resultData, r.resultExtras, r.ordered, r.userId,
                     app.repProcState);
-            if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
+            if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
                     "Process cur broadcast " + r + " DELIVERED for app " + app);
             started = true;
         } finally {
             if (!started) {
-                if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
+                if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
                         "Process cur broadcast " + r + ": NOT STARTED!");
                 r.receiver = null;
                 r.curApp = null;
-                app.curReceiver = null;
+                app.curReceivers.remove(r);
             }
         }
     }
@@ -322,7 +329,7 @@ public final class BroadcastQueue {
         boolean didSomething = false;
         // 前面分析mPendingBroadcast用于存储当前正在等待进程启动的BroadcastRecord
         final BroadcastRecord br = mPendingBroadcast;
-        if (br != null && br.curApp.pid == app.pid) {
+        if (br != null && br.curApp.pid > 0 && br.curApp.pid == app.pid) {
             if (br.curApp != app) {
                 Slog.e(TAG, "App mismatch when sending pending broadcast to "
                         + app.processName + ", intended target is " + br.curApp.processName);
@@ -331,7 +338,7 @@ public final class BroadcastQueue {
             try {
                 // 启动完成设置为null
                 mPendingBroadcast = null;
-                processCurBroadcastLocked(br, app);
+                processCurBroadcastLocked(br, app, false);
                 didSomething = true;
             } catch (Exception e) {
                 Slog.w(TAG, "Exception in new application when starting receiver "
@@ -413,7 +420,7 @@ public final class BroadcastQueue {
     }
 
     public boolean finishReceiverLocked(BroadcastRecord r, int resultCode,
-                                        String resultData, Bundle resultExtras, boolean resultAbort, boolean waitForServices) {
+            String resultData, Bundle resultExtras, boolean resultAbort, boolean waitForServices) {
         final int state = r.state;
         final ActivityInfo receiver = r.curReceiver;
         r.state = BroadcastRecord.IDLE;
@@ -422,8 +429,8 @@ public final class BroadcastQueue {
         }
         r.receiver = null;
         r.intent.setComponent(null);
-        if (r.curApp != null && r.curApp.curReceiver == r) {
-            r.curApp.curReceiver = null;
+        if (r.curApp != null && r.curApp.curReceivers.contains(r)) {
+            r.curApp.curReceivers.remove(r);
         }
         if (r.curFilter != null) {
             r.curFilter.receiverList.curBroadcast = null;
@@ -436,7 +443,7 @@ public final class BroadcastQueue {
         r.resultCode = resultCode;
         r.resultData = resultData;
         r.resultExtras = resultExtras;
-        if (resultAbort && (r.intent.getFlags() & Intent.FLAG_RECEIVER_NO_ABORT) == 0) {
+        if (resultAbort && (r.intent.getFlags()&Intent.FLAG_RECEIVER_NO_ABORT) == 0) {
             r.resultAbort = resultAbort;
         } else {
             r.resultAbort = false;
@@ -448,7 +455,7 @@ public final class BroadcastQueue {
             ActivityInfo nextReceiver;
             if (r.nextReceiver < r.receivers.size()) {
                 Object obj = r.receivers.get(r.nextReceiver);
-                nextReceiver = (obj instanceof ActivityInfo) ? (ActivityInfo) obj : null;
+                nextReceiver = (obj instanceof ActivityInfo) ? (ActivityInfo)obj : null;
             } else {
                 nextReceiver = null;
             }
@@ -460,7 +467,7 @@ public final class BroadcastQueue {
                 // but are on a queue that would like to wait for services to finish before moving
                 // on.  If there are background services currently starting, then we will go into a
                 // special state where we hold off on continuing this broadcast until they are done.
-                if (mService.mServices.hasBackgroundServices(r.userId)) {
+                if (mService.mServices.hasBackgroundServicesLocked(r.userId)) {
                     Slog.i(TAG, "Delay finish: " + r.curComponent.flattenToShortString());
                     r.state = BroadcastRecord.WAITING_SERVICES;
                     return false;
@@ -513,8 +520,8 @@ public final class BroadcastQueue {
      * @throws RemoteException
      */
     void performReceiveLocked(ProcessRecord app, IIntentReceiver receiver,
-                              Intent intent, int resultCode, String data, Bundle extras,
-                              boolean ordered, boolean sticky, int sendingUser) throws RemoteException {
+            Intent intent, int resultCode, String data, Bundle extras,
+            boolean ordered, boolean sticky, int sendingUser) throws RemoteException {
         // Send the intent to the receiver asynchronously using one-way binder calls.
         // app不为空，表示进程已经启动，调用ActivityThread.scheduleRegisteredReceiver发送当前广播
         if (app != null) {
@@ -535,11 +542,11 @@ public final class BroadcastQueue {
                     // 调用ApplicationThread对象的Binder代理对象的函数来向它发送广播
                     app.thread.scheduleRegisteredReceiver(receiver, intent, resultCode,
                             data, extras, ordered, sticky, sendingUser, app.repProcState);
-                    // TODO: Uncomment this when (b/28322359) is fixed and we aren't getting
-                    // DeadObjectException when the process isn't actually dead.
-                    //} catch (DeadObjectException ex) {
-                    // Failed to call into the process.  It's dying so just let it die and move on.
-                    //    throw ex;
+                // TODO: Uncomment this when (b/28322359) is fixed and we aren't getting
+                // DeadObjectException when the process isn't actually dead.
+                //} catch (DeadObjectException ex) {
+                // Failed to call into the process.  It's dying so just let it die and move on.
+                //    throw ex;
                 } catch (RemoteException ex) {
                     // Failed to call into the process. It's either dying or wedged. Kill it gently.
                     synchronized (mService) {
@@ -583,13 +590,13 @@ public final class BroadcastQueue {
                 final int opCode = AppOpsManager.permissionToOpCode(filter.requiredPermission);
                 if (opCode != AppOpsManager.OP_NONE
                         && mService.mAppOpsService.noteOperation(opCode, r.callingUid,
-                        r.callerPackage) != AppOpsManager.MODE_ALLOWED) {
+                                r.callerPackage) != AppOpsManager.MODE_ALLOWED) {
                     Slog.w(TAG, "Appop Denial: broadcasting "
                             + r.intent.toString()
                             + " from " + r.callerPackage + " (pid="
                             + r.callingPid + ", uid=" + r.callingUid + ")"
                             + " requires appop " + AppOpsManager.permissionToOp(
-                            filter.requiredPermission)
+                                    filter.requiredPermission)
                             + " due to registered receiver " + filter);
                     skip = true;
                 }
@@ -660,27 +667,47 @@ public final class BroadcastQueue {
                     + " (uid " + r.callingUid + ")");
             skip = true;
         }
-        if (!skip) {
-            final int allowed = mService.checkAllowBackgroundLocked(filter.receiverList.uid,
-                    filter.packageName, -1, true);
-            if (allowed == ActivityManager.APP_START_MODE_DISABLED) {
-                Slog.w(TAG, "Background execution not allowed: receiving "
-                        + r.intent
-                        + " to " + filter.receiverList.app
-                        + " (pid=" + filter.receiverList.pid
-                        + ", uid=" + filter.receiverList.uid + ")");
-                skip = true;
-            }
-        }
 
         if (!mService.mIntentFirewall.checkBroadcast(r.intent, r.callingUid,
                 r.callingPid, r.resolvedType, filter.receiverList.uid)) {
             skip = true;
         }
 
-        if (!skip && (filter.receiverList.app == null || filter.receiverList.app.crashing)) {
+        if (!skip && (filter.receiverList.app == null || filter.receiverList.app.killed
+                || filter.receiverList.app.crashing)) {
             Slog.w(TAG, "Skipping deliver [" + mQueueName + "] " + r
-                    + " to " + filter.receiverList + ": process crashing");
+                    + " to " + filter.receiverList + ": process gone or crashing");
+            skip = true;
+        }
+
+        // Ensure that broadcasts are only sent to other Instant Apps if they are marked as
+        // visible to Instant Apps.
+        final boolean visibleToInstantApps =
+                (r.intent.getFlags() & Intent.FLAG_RECEIVER_VISIBLE_TO_INSTANT_APPS) != 0;
+
+        if (!skip && !visibleToInstantApps && filter.instantApp
+                && filter.receiverList.uid != r.callingUid) {
+            Slog.w(TAG, "Instant App Denial: receiving "
+                    + r.intent.toString()
+                    + " to " + filter.receiverList.app
+                    + " (pid=" + filter.receiverList.pid
+                    + ", uid=" + filter.receiverList.uid + ")"
+                    + " due to sender " + r.callerPackage
+                    + " (uid " + r.callingUid + ")"
+                    + " not specifying FLAG_RECEIVER_VISIBLE_TO_INSTANT_APPS");
+            skip = true;
+        }
+
+        if (!skip && !filter.visibleToInstantApp && r.callerInstantApp
+                && filter.receiverList.uid != r.callingUid) {
+            Slog.w(TAG, "Instant App Denial: receiving "
+                    + r.intent.toString()
+                    + " to " + filter.receiverList.app
+                    + " (pid=" + filter.receiverList.pid
+                    + ", uid=" + filter.receiverList.uid + ")"
+                    + " requires receiver be visible to instant apps"
+                    + " due to sender " + r.callerPackage
+                    + " (uid " + r.callingUid + ")");
             skip = true;
         }
 
@@ -694,7 +721,7 @@ public final class BroadcastQueue {
         // the broadcast and if the calling app is in the foreground and the broadcast is
         // explicit we launch the review UI passing it a pending intent to send the skipped
         // broadcast.
-        if (Build.PERMISSIONS_REVIEW_REQUIRED) {
+        if (mService.mPermissionReviewRequired) {
             if (!requestStartTargetPermissionsReviewIfNeededLocked(r, filter.packageName,
                     filter.owningUserId)) {
                 r.delivery[index] = BroadcastRecord.DELIVERY_SKIPPED;
@@ -723,8 +750,8 @@ public final class BroadcastQueue {
                 // things that directly call the IActivityManager API, which
                 // are already core system stuff so don't matter for this.
                 r.curApp = filter.receiverList.app;
-                filter.receiverList.app.curReceiver = r;
-                mService.updateOomAdjLocked(r.curApp);
+                filter.receiverList.app.curReceivers.add(r);
+                mService.updateOomAdjLocked(r.curApp, true);
             }
         }
         try {
@@ -754,7 +781,7 @@ public final class BroadcastQueue {
                 r.curFilter = null;
                 filter.receiverList.curBroadcast = null;
                 if (filter.receiverList.app != null) {
-                    filter.receiverList.app.curReceiver = null;
+                    filter.receiverList.app.curReceivers.remove(r);
                 }
             }
         }
@@ -825,160 +852,205 @@ public final class BroadcastQueue {
         if (r.intent.getAction() != null) {
             b.append(r.intent.getAction());
         } else if (r.intent.getComponent() != null) {
-            b.append(r.intent.getComponent().flattenToShortString());
+            r.intent.getComponent().appendShortString(b);
         } else if (r.intent.getData() != null) {
             b.append(r.intent.getData());
         }
-        mHandler.obtainMessage(SCHEDULE_TEMP_WHITELIST_MSG, uid, (int) duration, b.toString())
-                .sendToTarget();
+        mService.tempWhitelistUidLocked(uid, duration, b.toString());
     }
 
-    // 广播的核心部分，参数fromMsg是用来描述AMS类的成员函数processNextBroadcast是否是用来处理类型为
+    /**
+     * Return true if all given permissions are signature-only perms.
+     */
+    final boolean isSignaturePerm(String[] perms) {
+        if (perms == null) {
+            return false;
+        }
+        IPackageManager pm = AppGlobals.getPackageManager();
+        for (int i = perms.length-1; i >= 0; i--) {
+            try {
+                PermissionInfo pi = pm.getPermissionInfo(perms[i], "android", 0);
+                if ((pi.protectionLevel & (PermissionInfo.PROTECTION_MASK_BASE
+                        | PermissionInfo.PROTECTION_FLAG_PRIVILEGED))
+                        != PermissionInfo.PROTECTION_SIGNATURE) {
+                    // If this a signature permission and NOT allowed for privileged apps, it
+                    // is okay...  otherwise, nope!
+                    return false;
+                }
+            } catch (RemoteException e) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+   // 广播的核心部分，参数fromMsg是用来描述AMS类的成员函数processNextBroadcast是否是用来处理类型为
     // BROADCAST_INTENT_MSG的消息的
     final void processNextBroadcast(boolean fromMsg) {
         synchronized (mService) {
-            BroadcastRecord r;
+            processNextBroadcastLocked(fromMsg, false);
+        }
+    }
 
-            if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST, "processNextBroadcast ["
-                    + mQueueName + "]: "
-                    + mParallelBroadcasts.size() + " broadcasts, "
-                    + mOrderedBroadcasts.size() + " ordered broadcasts");
+    final void processNextBroadcastLocked(boolean fromMsg, boolean skipOomAdj) {
+        BroadcastRecord r;
 
-            mService.updateCpuStats();
+        if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST, "processNextBroadcast ["
+                + mQueueName + "]: "
+                + mParallelBroadcasts.size() + " parallel broadcasts, "
+                + mOrderedBroadcasts.size() + " ordered broadcasts");
+
+        mService.updateCpuStats();
 
             if (fromMsg) {// 从msg过来的时候为true
                 // 前面说到，如果消息队列里面有BROADCAST_INTENT_MSG消息，该标记为true，
                 // 阻止新的消息加入队列，这里开始处理这个消息的时候，将mBroadcastsScheduled变量设置为false，
                 // 开始允许新的消息加入。
-                mBroadcastsScheduled = false;
-            }
+            mBroadcastsScheduled = false;
+        }
 
             // First, deliver（分发，交付） any non-serialized broadcasts right away（马上）.
             // 无序广播之间不存在相互等待，这里处理的是所有非order的动态广播
             // 处理保存在无序广播调度队列mParallelBroadcasts中的广播发送任务，即把保存在无序广播调度
             // 队列mParallelBroadcasts中的广播发送给它的目标广播接收者处理
-            while (mParallelBroadcasts.size() > 0) {
+        while (mParallelBroadcasts.size() > 0) {
                 // 首先保存无序广播调度队列mParallelBroadcasts中的每一个BroadcastRecord对象
-                r = mParallelBroadcasts.remove(0);
-                r.dispatchTime = SystemClock.uptimeMillis();
-                r.dispatchClockTime = System.currentTimeMillis();
+            r = mParallelBroadcasts.remove(0);
+            r.dispatchTime = SystemClock.uptimeMillis();
+            r.dispatchClockTime = System.currentTimeMillis();
                 // 调用deliverToRegisteredReceiverLocked向所有的receivers发送广播
-                final int N = r.receivers.size();
-                if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST, "Processing parallel broadcast ["
-                        + mQueueName + "] " + r);
-                // 将它所描述的每一个无序广播发送给每一个广播接收者
-                for (int i = 0; i < N; i++) {
-                    Object target = r.receivers.get(i);
-                    if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
-                            "Delivering non-ordered on [" + mQueueName + "] to registered "
-                                    + target + ": " + r);
-                    deliverToRegisteredReceiverLocked(r, (BroadcastFilter) target, false, i);
-                }
-                addBroadcastToHistoryLocked(r);
-                if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST, "Done with parallel broadcast ["
-                        + mQueueName + "] " + r);
+            if (Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
+                Trace.asyncTraceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER,
+                    createBroadcastTraceTitle(r, BroadcastRecord.DELIVERY_PENDING),
+                    System.identityHashCode(r));
+                Trace.asyncTraceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER,
+                    createBroadcastTraceTitle(r, BroadcastRecord.DELIVERY_DELIVERED),
+                    System.identityHashCode(r));
             }
 
-            // Now take care of the next serialized one...
+            final int N = r.receivers.size();
+            if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST, "Processing parallel broadcast ["
+                    + mQueueName + "] " + r);
+                // 将它所描述的每一个无序广播发送给每一个广播接收者
+            for (int i=0; i<N; i++) {
+                Object target = r.receivers.get(i);
+                if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
+                        "Delivering non-ordered on [" + mQueueName + "] to registered "
+                        + target + ": " + r);
+                deliverToRegisteredReceiverLocked(r, (BroadcastFilter)target, false, i);
+            }
+            addBroadcastToHistoryLocked(r);
+            if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST, "Done with parallel broadcast ["
+                    + mQueueName + "] " + r);
+        }
 
-            // If we are waiting for a process to come up to handle the next
-            // broadcast, then do nothing at this point.  Just in case, we
-            // check that the process we're waiting for still exists.
+        // Now take care of the next serialized one...
+
+        // If we are waiting for a process to come up to handle the next
+        // broadcast, then do nothing at this point.  Just in case, we
+        // check that the process we're waiting for still exists.
             // 接下来处理保存在有序广播调度队列mPendingBroadcast中的广播转发任务。有前面可知，有序广播
             // 调度队列mOrderedBroadcast描述的目标广播接收者有可能是静态注册的，而这些静态注册的目标广
             // 播接收者可能还没有启动起来，因此AMS将一个广播发送给它们处理时，首先将它们启动起来。事实上，
             // AMS只需要将他们所运行在的进程启动起来就可以了，因为当这些进程接收到AMS发送的广播后，就会
             // 主动将目标广播接收者启动起来
             // mPendingBroadcast对象是用来描述一个正在等待静态注册的目标广播接收者启动起来的广播转发任务的
-            if (mPendingBroadcast != null) {
-                if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST,
-                        "processNextBroadcast [" + mQueueName + "]: waiting for "
-                                + mPendingBroadcast.curApp);
+        if (mPendingBroadcast != null) {
+            if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST,
+                    "processNextBroadcast [" + mQueueName + "]: waiting for "
+                    + mPendingBroadcast.curApp);
 
-                boolean isDead;
+            boolean isDead;
+            if (mPendingBroadcast.curApp.pid > 0) {
                 synchronized (mService.mPidsSelfLocked) {
                     // 检查目标广播接收者所在进程是否已经启动
-                    ProcessRecord proc = mService.mPidsSelfLocked.get(mPendingBroadcast.curApp.pid);
+                    ProcessRecord proc = mService.mPidsSelfLocked.get(
+                            mPendingBroadcast.curApp.pid);
                     isDead = proc == null || proc.crashing;
                 }
-                if (!isDead) {// 如果正在启动，等待
-                    // It's still alive, so keep waiting
-                    return;
-                } else {// 已经启动准备发送广播
-                    Slog.w(TAG, "pending app  ["
-                            + mQueueName + "]" + mPendingBroadcast.curApp
-                            + " died before responding to broadcast");
-                    mPendingBroadcast.state = BroadcastRecord.IDLE;
-                    mPendingBroadcast.nextReceiver = mPendingBroadcastRecvIndex;
-                    mPendingBroadcast = null;
-                }
+            } else {
+                final ProcessRecord proc = mService.mProcessNames.get(
+                        mPendingBroadcast.curApp.processName, mPendingBroadcast.curApp.uid);
+                isDead = proc == null || !proc.pendingStart;
             }
+            if (!isDead) {// 如果正在启动，等待
+                // It's still alive, so keep waiting
+                return;
+            } else {// 已经启动准备发送广播
+                Slog.w(TAG, "pending app  ["
+                        + mQueueName + "]" + mPendingBroadcast.curApp
+                        + " died before responding to broadcast");
+                mPendingBroadcast.state = BroadcastRecord.IDLE;
+                mPendingBroadcast.nextReceiver = mPendingBroadcastRecvIndex;
+                mPendingBroadcast = null;
+            }
+        }
 
-            boolean looped = false;
+        boolean looped = false;
 
             // 逐条处理有序广播列表mOrderedBroadcasts中的BroadcastRecord
-            do {
+        do {
                 // 判断有序广播调度队列mOrderedBroadcasts是否还有需要处理的广播
-                if (mOrderedBroadcasts.size() == 0) {// 没有，说明调度队列中的广播已经处理完成
-                    // No more broadcasts pending（等待）, so all done!
-                    mService.scheduleAppGcsLocked();
-                    if (looped) {
-                        // If we had finished the last ordered broadcast, then
-                        // make sure all processes have correct oom and schedule（计划）
-                        // adjustments（调整）.
-                        mService.updateOomAdjLocked();
-                    }
-                    return;
+            if (mOrderedBroadcasts.size() == 0) {// 没有，说明调度队列中的广播已经处理完成
+                // No more broadcasts pending, so all done!
+                mService.scheduleAppGcsLocked();
+                if (looped) {
+                    // If we had finished the last ordered broadcast, then
+                    // make sure all processes have correct oom and sched
+                    // adjustments.
+                    mService.updateOomAdjLocked();
                 }
+                return;
+            }
                 // 如果没有处理完成，取出下一个马上要处理的广播BroadcastRecord
-                r = mOrderedBroadcasts.get(0);
-                boolean forceReceive = false;
+            r = mOrderedBroadcasts.get(0);
+            boolean forceReceive = false;
 
-                // Ensure that even if something goes awry with the timeout
-                // detection, we catch "hung" broadcasts here, discard them,
-                // and continue to make progress.
-                //
-                // This is only done if the system is ready so that PRE_BOOT_COMPLETED
-                // receivers don't get executed with timeouts. They're intended for
-                // one time heavy lifting after system upgrades and can take
-                // significant amounts of time.
+            // Ensure that even if something goes awry with the timeout
+            // detection, we catch "hung" broadcasts here, discard them,
+            // and continue to make progress.
+            //
+            // This is only done if the system is ready so that PRE_BOOT_COMPLETED
+            // receivers don't get executed with timeouts. They're intended for
+            // one time heavy lifting after system upgrades and can take
+            // significant amounts of time.
                 // 获取广播转发任务的目标广播接收者的个数
-                int numReceivers = (r.receivers != null) ? r.receivers.size() : 0;
+            int numReceivers = (r.receivers != null) ? r.receivers.size() : 0;
                 // 检查前一个目标广播接收者是否在规定的时间内处理完成AMS给它发送的一个有序广播。AMS处理
                 // BroadcastRecord对象r所描述的一个广播转发任务时，会将当前时间记录在这个BroadcastRecord
                 // 对象中，如果这个广播任务不能在（2*BROADCAST_TIMEOUT*numReceivers）毫秒内完成，即它的目
                 // 标广播接收者不能在（2*BROADCAST_TIMEOUT*numReceivers）毫秒内完成AMS给它们发送的一个有
                 // 序广播，那么会调用broadcastTimeoutLocked函数来强制结束这个广播转发任务，
-                if (mService.mProcessesReady && r.dispatchTime > 0) {
-                    long now = SystemClock.uptimeMillis();
-                    if ((numReceivers > 0) &&
-                            (now > r.dispatchTime + (2 * mTimeoutPeriod * numReceivers))) {
-                        Slog.w(TAG, "Hung broadcast ["
-                                + mQueueName + "] discarded after timeout failure:"
-                                + " now=" + now
-                                + " dispatchTime=" + r.dispatchTime
-                                + " startTime=" + r.receiverTime
-                                + " intent=" + r.intent
-                                + " numReceivers=" + numReceivers
-                                + " nextReceiver=" + r.nextReceiver
-                                + " state=" + r.state);
+            if (mService.mProcessesReady && r.dispatchTime > 0) {
+                long now = SystemClock.uptimeMillis();
+                if ((numReceivers > 0) &&
+                        (now > r.dispatchTime + (2*mTimeoutPeriod*numReceivers))) {
+                    Slog.w(TAG, "Hung broadcast ["
+                            + mQueueName + "] discarded after timeout failure:"
+                            + " now=" + now
+                            + " dispatchTime=" + r.dispatchTime
+                            + " startTime=" + r.receiverTime
+                            + " intent=" + r.intent
+                            + " numReceivers=" + numReceivers
+                            + " nextReceiver=" + r.nextReceiver
+                            + " state=" + r.state);
                         // 出现超时，强制结束
-                        broadcastTimeoutLocked(false); // forcibly finish this broadcast
+                    broadcastTimeoutLocked(false); // forcibly finish this broadcast
                         // 重置参数，继续处理有序广播调度队列mOrderedBroadcasts的下一个广播转发任务
-                        forceReceive = true;
-                        r.state = BroadcastRecord.IDLE;
-                    }
+                    forceReceive = true;
+                    r.state = BroadcastRecord.IDLE;
                 }
+            }
 
                 // 检测广播转发任务是否正在处理中，即AMS正在将一个有序广播转发给它的前一个目标广播接收处理者，
                 // 如果是，AMS就会等待这个目标广播接收者处理完该有序广播，然后再转发给下一个广播接收者处理
-                if (r.state != BroadcastRecord.IDLE) {
-                    if (DEBUG_BROADCAST) Slog.d(TAG_BROADCAST,
-                            "processNextBroadcast("
-                                    + mQueueName + ") called when not idle (state="
-                                    + r.state + ")");
-                    return;
-                }
+            if (r.state != BroadcastRecord.IDLE) {
+                if (DEBUG_BROADCAST) Slog.d(TAG_BROADCAST,
+                        "processNextBroadcast("
+                        + mQueueName + ") called when not idle (state="
+                        + r.state + ")");
+                return;
+            }
 
                 // 表示广播已经向所有的receiver发送结束或者中途被取消, 如果r.resultAbort为true，会停止处理
                 // 当前正在发送的BroadcastRecord，这样优先级比较低的接收者也就收不到这个广播了
@@ -986,458 +1058,493 @@ public final class BroadcastQueue {
                 // 如果是，那么调用函数cancelBroadcastTimeoutLocked来删除前面发送到AMS所运行在的线程的消息
                 // 队列中的一个BROADCAST_TIMEOUT_MSG消息,表示BroadcastRecord对象r所描述的广播转发任务已经
                 // 在规定时间内处理完成了。接下来就将该广播BroadcastRecord对象从队列中删除，然后赋值为null
-                if (r.receivers == null || r.nextReceiver >= numReceivers
-                        || r.resultAbort || forceReceive) {
-                    // No more receivers for this broadcast!  Send the final
-                    // result if requested...
-                    if (r.resultTo != null) {
-                        try {
-                            if (DEBUG_BROADCAST) Slog.i(TAG_BROADCAST,
-                                    "Finishing broadcast [" + mQueueName + "] "
-                                            + r.intent.getAction() + " app=" + r.callerApp);
-                            performReceiveLocked(r.callerApp, r.resultTo,
-                                    new Intent(r.intent), r.resultCode,
-                                    r.resultData, r.resultExtras, false, false, r.userId);
-                            // Set this to null so that the reference
-                            // (local and remote) isn't kept in the mBroadcastHistory.
-                            r.resultTo = null;
-                        } catch (RemoteException e) {
-                            r.resultTo = null;
-                            Slog.w(TAG, "Failure ["
-                                    + mQueueName + "] sending broadcast result of "
-                                    + r.intent, e);
+            if (r.receivers == null || r.nextReceiver >= numReceivers
+                    || r.resultAbort || forceReceive) {
+                // No more receivers for this broadcast!  Send the final
+                // result if requested...
+                if (r.resultTo != null) {
+                    try {
+                        if (DEBUG_BROADCAST) Slog.i(TAG_BROADCAST,
+                                "Finishing broadcast [" + mQueueName + "] "
+                                + r.intent.getAction() + " app=" + r.callerApp);
+                        performReceiveLocked(r.callerApp, r.resultTo,
+                            new Intent(r.intent), r.resultCode,
+                            r.resultData, r.resultExtras, false, false, r.userId);
+                        // Set this to null so that the reference
+                        // (local and remote) isn't kept in the mBroadcastHistory.
+                        r.resultTo = null;
+                    } catch (RemoteException e) {
+                        r.resultTo = null;
+                        Slog.w(TAG, "Failure ["
+                                + mQueueName + "] sending broadcast result of "
+                                + r.intent, e);
 
-                        }
                     }
-
-                    if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST, "Cancelling BROADCAST_TIMEOUT_MSG");
-                    cancelBroadcastTimeoutLocked();
-
-                    if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST,
-                            "Finished with ordered broadcast " + r);
-
-                    // ... and on to the next...
-                    addBroadcastToHistoryLocked(r);
-                    if (r.intent.getComponent() == null && r.intent.getPackage() == null
-                            && (r.intent.getFlags() & Intent.FLAG_RECEIVER_REGISTERED_ONLY) == 0) {
-                        // This was an implicit broadcast... let's record it for posterity.
-                        mService.addBroadcastStatLocked(r.intent.getAction(), r.callerPackage,
-                                r.manifestCount, r.manifestSkipCount, r.finishTime - r.dispatchTime);
-                    }
-                    // BroadcastRecord处理完移除
-                    mOrderedBroadcasts.remove(0);
-                    r = null;
-                    looped = true;
-                    continue;
                 }
-            } while (r == null);// 如果第一次取出的r不为空，则退出循环
 
-            // Get the next receiver...（获取下一个将要处理的广播接收者在其列表中的位置）
-            int recIdx = r.nextReceiver++;
+                if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST, "Cancelling BROADCAST_TIMEOUT_MSG");
+                cancelBroadcastTimeoutLocked();
 
-            // Keep track of when this receiver started, and make sure there
-            // is a timeout message pending to kill it if need be.
+                if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST,
+                        "Finished with ordered broadcast " + r);
+
+                // ... and on to the next...
+                addBroadcastToHistoryLocked(r);
+                if (r.intent.getComponent() == null && r.intent.getPackage() == null
+                        && (r.intent.getFlags()&Intent.FLAG_RECEIVER_REGISTERED_ONLY) == 0) {
+                    // This was an implicit broadcast... let's record it for posterity.
+                    mService.addBroadcastStatLocked(r.intent.getAction(), r.callerPackage,
+                            r.manifestCount, r.manifestSkipCount, r.finishTime-r.dispatchTime);
+                }
+                    // BroadcastRecord处理完移除
+                mOrderedBroadcasts.remove(0);
+                r = null;
+                looped = true;
+                continue;
+            }
+        } while (r == null);// 如果第一次取出的r不为空，则退出循环
+
+        // Get the next receiver...//（获取下一个将要处理的广播接收者在其列表中的位置）
+        int recIdx = r.nextReceiver++;
+
+        // Keep track of when this receiver started, and make sure there
+        // is a timeout message pending to kill it if need be.
             // 保存当前时间，
-            r.receiverTime = SystemClock.uptimeMillis();
-            if (recIdx == 0) {// 表示第一个开始处理的接收者，也就是BroadcastRecord对象r所描述的广播任务刚被处理
+        r.receiverTime = SystemClock.uptimeMillis();
+        if (recIdx == 0) {// 表示第一个开始处理的接收者，也就是BroadcastRecord对象r所描述的广播任务刚被处理
                 // 接收者开始处理的时间戳，也就是这个接收者开始处理了，要记录开始时间来计算是否超过超时时间
                 // 也就是说这是BroadcastRecord中第一个接收者开始被处理的时间戳，也就是上面BroadcastRecord
                 // 超时的起点，可以看到上面超时比较的时候用的就是r.dispatchTime
-                r.dispatchTime = r.receiverTime;
-                r.dispatchClockTime = System.currentTimeMillis();
-                if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST, "Processing ordered broadcast ["
-                        + mQueueName + "] " + r);
+            r.dispatchTime = r.receiverTime;
+            r.dispatchClockTime = System.currentTimeMillis();
+            if (Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
+                Trace.asyncTraceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER,
+                    createBroadcastTraceTitle(r, BroadcastRecord.DELIVERY_PENDING),
+                    System.identityHashCode(r));
+                Trace.asyncTraceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER,
+                    createBroadcastTraceTitle(r, BroadcastRecord.DELIVERY_DELIVERED),
+                    System.identityHashCode(r));
             }
+            if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST, "Processing ordered broadcast ["
+                    + mQueueName + "] " + r);
+        }
             // 检查AMS是否已经向它所在的线程的消息队列发送了类型为BROADCAST_TIMEOUT_MSG的消息，如果没有发送，
             // 那么会调用setBroadcastTimeoutLocked函数向这个线程发送一个类型为setBroadcastTimeoutLocked
             // 的消息，并且制定在timeoutTime毫秒后处理。上面指定了r.receiverTime为当前时间表示AMS将一个有序
             // 广播发送给BroadcastRecord对象r所描述的广播转发任务的下一个目标广播接收者处理的时间。如果这个
             // 广播接收者不能再timeoutTime之内完成这个有序广播，AMS就会任务它超时。
-            if (!mPendingBroadcastTimeoutMessage) {
-                long timeoutTime = r.receiverTime + mTimeoutPeriod;
-                if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
-                        "Submitting BROADCAST_TIMEOUT_MSG ["
-                                + mQueueName + "] for " + r + " at " + timeoutTime);
+        if (! mPendingBroadcastTimeoutMessage) {
+            long timeoutTime = r.receiverTime + mTimeoutPeriod;
+            if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
+                    "Submitting BROADCAST_TIMEOUT_MSG ["
+                    + mQueueName + "] for " + r + " at " + timeoutTime);
                 // 设置超时，传入参数是r.receiverTime + mTimeoutPeriod，也就是开始时间加上超时时间
                 // mTimeoutPeriod，mTimeoutPeriod初始化是在BroadcastQueue初始化的时候传入的，
                 // 也就是在AMS（AMS构造函数中）中初始化mFgBroadcastQueue和mBgBroadcastQueue时传入的
                 // BROADCAST_FG_TIMEOUT = 10 * 1000和BROADCAST_BG_TIMEOUT = 60 * 1000，
                 // 这里开始埋了ANR的雷
-                setBroadcastTimeoutLocked(timeoutTime);
-            }
+            setBroadcastTimeoutLocked(timeoutTime);
+        }
 
             // 上面分析的时候对于BroadcastRecord.receivers里面包含两种receiver接收者：order广播下的
             // 动态注册接收者和静态接收者，这两种receiver处理的方式是不一样的，对于order广播下的动态注册
             // receiver而言，接收者进程一定是已经启动的，但是对于静态接收者receiver而言，当前的receiver进程
             // 可能还没有启动，因此动态和静态的receiver处理的逻辑不一样，需要分开处理，而静态接收者又分为进程
             // 已经启动和尚未启动两种情况。
-
-            final BroadcastOptions brOptions = r.options;
+        final BroadcastOptions brOptions = r.options;
             // 得到下一个广播接收者
-            final Object nextReceiver = r.receivers.get(recIdx);
+        final Object nextReceiver = r.receivers.get(recIdx);
 
             // 如果当前nextReceiver是一个BroadcastFilter类型，说名是一个动态注册接收者，不需要启动一个进程,
             // 直接调用deliverToRegisteredReceiverLocked函数发送广播
-            if (nextReceiver instanceof BroadcastFilter) {
-                // Simple case: this is a registered receiver who gets
-                // a direct call.
-                BroadcastFilter filter = (BroadcastFilter) nextReceiver;
-                if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
-                        "Delivering ordered ["
-                                + mQueueName + "] to registered "
-                                + filter + ": " + r);
+        if (nextReceiver instanceof BroadcastFilter) {
+            // Simple case: this is a registered receiver who gets
+            // a direct call.
+            BroadcastFilter filter = (BroadcastFilter)nextReceiver;
+            if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
+                    "Delivering ordered ["
+                    + mQueueName + "] to registered "
+                    + filter + ": " + r);
                 // 上面已经分析
-                deliverToRegisteredReceiverLocked(r, filter, r.ordered, recIdx);
+            deliverToRegisteredReceiverLocked(r, filter, r.ordered, recIdx);
                 // 检查BroadcastRecord对象r所描述的广播转发任务是否用来转发无序广播的。
-                if (r.receiver == null || !r.ordered) {// 如果是
-                    // The receiver has already finished, so schedule to
-                    // process the next one.
-                    if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST, "Quick finishing ["
-                            + mQueueName + "]: ordered="
-                            + r.ordered + " receiver=" + r.receiver);
+            if (r.receiver == null || !r.ordered) {// 如果是
+                // The receiver has already finished, so schedule to
+                // process the next one.
+                if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST, "Quick finishing ["
+                        + mQueueName + "]: ordered="
+                        + r.ordered + " receiver=" + r.receiver);
                     // 设置IDLE状态，表示AMS不需要等待它的前一个目标广播接收者处理完成一个广播就可以将该广播
                     // 继续发送给它的下一个目标广播接收者处理
-                    r.state = BroadcastRecord.IDLE;
+                r.state = BroadcastRecord.IDLE;
                     // 调用下面函数就是为了将一个广播继续发送给BroadcastRecord对象r所描述的广播转发任务的
                     // 下一个目标广播接收者处理的
-                    scheduleBroadcastsLocked();
-                } else {
-                    if (brOptions != null && brOptions.getTemporaryAppWhitelistDuration() > 0) {
-                        scheduleTempWhitelistLocked(filter.owningUid,
-                                brOptions.getTemporaryAppWhitelistDuration(), r);
-                    }
+                scheduleBroadcastsLocked();
+            } else {
+                if (brOptions != null && brOptions.getTemporaryAppWhitelistDuration() > 0) {
+                    scheduleTempWhitelistLocked(filter.owningUid,
+                            brOptions.getTemporaryAppWhitelistDuration(), r);
                 }
-                return;
             }
+            return;
+        }
 
-            // Hard case: need to instantiate the receiver, possibly
-            // starting its application process to host it.
+        // Hard case: need to instantiate the receiver, possibly
+        // starting its application process to host it.
             // 如果不是动态的说明是一个静态注册接收者（如果动态的上面if中处理并进行拦截），此时进程可能没有启动
-            ResolveInfo info =
-                    (ResolveInfo) nextReceiver;
-            ComponentName component = new ComponentName(
-                    info.activityInfo.applicationInfo.packageName,
-                    info.activityInfo.name);
+        ResolveInfo info =
+            (ResolveInfo)nextReceiver;
+        ComponentName component = new ComponentName(
+                info.activityInfo.applicationInfo.packageName,
+                info.activityInfo.name);
 
             // 是否跳过该广播接收者不处理
-            boolean skip = false;
-            if (brOptions != null &&
-                    (info.activityInfo.applicationInfo.targetSdkVersion
-                            < brOptions.getMinManifestReceiverApiLevel() ||
-                            info.activityInfo.applicationInfo.targetSdkVersion
-                                    > brOptions.getMaxManifestReceiverApiLevel())) {
-                skip = true;// 跳过不处理
+        boolean skip = false;
+        if (brOptions != null &&
+                (info.activityInfo.applicationInfo.targetSdkVersion
+                        < brOptions.getMinManifestReceiverApiLevel() ||
+                info.activityInfo.applicationInfo.targetSdkVersion
+                        > brOptions.getMaxManifestReceiverApiLevel())) {
+            skip = true;// 跳过不处理
+        }
+        int perm = mService.checkComponentPermission(info.activityInfo.permission,
+                r.callingPid, r.callingUid, info.activityInfo.applicationInfo.uid,
+                info.activityInfo.exported);
+        if (!skip && perm != PackageManager.PERMISSION_GRANTED) {
+            if (!info.activityInfo.exported) {
+                Slog.w(TAG, "Permission Denial: broadcasting "
+                        + r.intent.toString()
+                        + " from " + r.callerPackage + " (pid=" + r.callingPid
+                        + ", uid=" + r.callingUid + ")"
+                        + " is not exported from uid " + info.activityInfo.applicationInfo.uid
+                        + " due to receiver " + component.flattenToShortString());
+            } else {
+                Slog.w(TAG, "Permission Denial: broadcasting "
+                        + r.intent.toString()
+                        + " from " + r.callerPackage + " (pid=" + r.callingPid
+                        + ", uid=" + r.callingUid + ")"
+                        + " requires " + info.activityInfo.permission
+                        + " due to receiver " + component.flattenToShortString());
             }
-            int perm = mService.checkComponentPermission(info.activityInfo.permission,
-                    r.callingPid, r.callingUid, info.activityInfo.applicationInfo.uid,
-                    info.activityInfo.exported);
-            if (!skip && perm != PackageManager.PERMISSION_GRANTED) {
-                if (!info.activityInfo.exported) {
-                    Slog.w(TAG, "Permission Denial: broadcasting "
-                            + r.intent.toString()
-                            + " from " + r.callerPackage + " (pid=" + r.callingPid
-                            + ", uid=" + r.callingUid + ")"
-                            + " is not exported from uid " + info.activityInfo.applicationInfo.uid
-                            + " due to receiver " + component.flattenToShortString());
-                } else {
-                    Slog.w(TAG, "Permission Denial: broadcasting "
-                            + r.intent.toString()
-                            + " from " + r.callerPackage + " (pid=" + r.callingPid
-                            + ", uid=" + r.callingUid + ")"
-                            + " requires " + info.activityInfo.permission
-                            + " due to receiver " + component.flattenToShortString());
-                }
+            skip = true;
+        } else if (!skip && info.activityInfo.permission != null) {
+            final int opCode = AppOpsManager.permissionToOpCode(info.activityInfo.permission);
+            if (opCode != AppOpsManager.OP_NONE
+                    && mService.mAppOpsService.noteOperation(opCode, r.callingUid,
+                            r.callerPackage) != AppOpsManager.MODE_ALLOWED) {
+                Slog.w(TAG, "Appop Denial: broadcasting "
+                        + r.intent.toString()
+                        + " from " + r.callerPackage + " (pid="
+                        + r.callingPid + ", uid=" + r.callingUid + ")"
+                        + " requires appop " + AppOpsManager.permissionToOp(
+                                info.activityInfo.permission)
+                        + " due to registered receiver "
+                        + component.flattenToShortString());
                 skip = true;
-            } else if (!skip && info.activityInfo.permission != null) {
-                final int opCode = AppOpsManager.permissionToOpCode(info.activityInfo.permission);
-                if (opCode != AppOpsManager.OP_NONE
-                        && mService.mAppOpsService.noteOperation(opCode, r.callingUid,
-                        r.callerPackage) != AppOpsManager.MODE_ALLOWED) {
-                    Slog.w(TAG, "Appop Denial: broadcasting "
-                            + r.intent.toString()
-                            + " from " + r.callerPackage + " (pid="
-                            + r.callingPid + ", uid=" + r.callingUid + ")"
+            }
+        }
+        if (!skip && info.activityInfo.applicationInfo.uid != Process.SYSTEM_UID &&
+            r.requiredPermissions != null && r.requiredPermissions.length > 0) {
+            for (int i = 0; i < r.requiredPermissions.length; i++) {
+                String requiredPermission = r.requiredPermissions[i];
+                try {
+                    perm = AppGlobals.getPackageManager().
+                            checkPermission(requiredPermission,
+                                    info.activityInfo.applicationInfo.packageName,
+                                    UserHandle
+                                            .getUserId(info.activityInfo.applicationInfo.uid));
+                } catch (RemoteException e) {
+                    perm = PackageManager.PERMISSION_DENIED;
+                }
+                if (perm != PackageManager.PERMISSION_GRANTED) {
+                    Slog.w(TAG, "Permission Denial: receiving "
+                            + r.intent + " to "
+                            + component.flattenToShortString()
+                            + " requires " + requiredPermission
+                            + " due to sender " + r.callerPackage
+                            + " (uid " + r.callingUid + ")");
+                    skip = true;
+                    break;
+                }
+                int appOp = AppOpsManager.permissionToOpCode(requiredPermission);
+                if (appOp != AppOpsManager.OP_NONE && appOp != r.appOp
+                        && mService.mAppOpsService.noteOperation(appOp,
+                        info.activityInfo.applicationInfo.uid, info.activityInfo.packageName)
+                        != AppOpsManager.MODE_ALLOWED) {
+                    Slog.w(TAG, "Appop Denial: receiving "
+                            + r.intent + " to "
+                            + component.flattenToShortString()
                             + " requires appop " + AppOpsManager.permissionToOp(
-                            info.activityInfo.permission)
-                            + " due to registered receiver "
+                            requiredPermission)
+                            + " due to sender " + r.callerPackage
+                            + " (uid " + r.callingUid + ")");
+                    skip = true;
+                    break;
+                }
+            }
+        }
+        if (!skip && r.appOp != AppOpsManager.OP_NONE
+                && mService.mAppOpsService.noteOperation(r.appOp,
+                info.activityInfo.applicationInfo.uid, info.activityInfo.packageName)
+                != AppOpsManager.MODE_ALLOWED) {
+            Slog.w(TAG, "Appop Denial: receiving "
+                    + r.intent + " to "
+                    + component.flattenToShortString()
+                    + " requires appop " + AppOpsManager.opToName(r.appOp)
+                    + " due to sender " + r.callerPackage
+                    + " (uid " + r.callingUid + ")");
+            skip = true;
+        }
+        if (!skip) {
+            skip = !mService.mIntentFirewall.checkBroadcast(r.intent, r.callingUid,
+                    r.callingPid, r.resolvedType, info.activityInfo.applicationInfo.uid);
+        }
+        boolean isSingleton = false;
+        try {
+            isSingleton = mService.isSingleton(info.activityInfo.processName,
+                    info.activityInfo.applicationInfo,
+                    info.activityInfo.name, info.activityInfo.flags);
+        } catch (SecurityException e) {
+            Slog.w(TAG, e.getMessage());
+            skip = true;
+        }
+        if ((info.activityInfo.flags&ActivityInfo.FLAG_SINGLE_USER) != 0) {
+            if (ActivityManager.checkUidPermission(
+                    android.Manifest.permission.INTERACT_ACROSS_USERS,
+                    info.activityInfo.applicationInfo.uid)
+                            != PackageManager.PERMISSION_GRANTED) {
+                Slog.w(TAG, "Permission Denial: Receiver " + component.flattenToShortString()
+                        + " requests FLAG_SINGLE_USER, but app does not hold "
+                        + android.Manifest.permission.INTERACT_ACROSS_USERS);
+                skip = true;
+            }
+        }
+        if (!skip && info.activityInfo.applicationInfo.isInstantApp()
+                && r.callingUid != info.activityInfo.applicationInfo.uid) {
+            Slog.w(TAG, "Instant App Denial: receiving "
+                    + r.intent
+                    + " to " + component.flattenToShortString()
+                    + " due to sender " + r.callerPackage
+                    + " (uid " + r.callingUid + ")"
+                    + " Instant Apps do not support manifest receivers");
+            skip = true;
+        }
+        if (!skip && r.callerInstantApp
+                && (info.activityInfo.flags & ActivityInfo.FLAG_VISIBLE_TO_INSTANT_APP) == 0
+                && r.callingUid != info.activityInfo.applicationInfo.uid) {
+            Slog.w(TAG, "Instant App Denial: receiving "
+                    + r.intent
+                    + " to " + component.flattenToShortString()
+                    + " requires receiver have visibleToInstantApps set"
+                    + " due to sender " + r.callerPackage
+                    + " (uid " + r.callingUid + ")");
+            skip = true;
+        }
+        if (r.curApp != null && r.curApp.crashing) {
+            // If the target process is crashing, just skip it.
+            Slog.w(TAG, "Skipping deliver ordered [" + mQueueName + "] " + r
+                    + " to " + r.curApp + ": process crashing");
+            skip = true;
+        }
+        if (!skip) {
+            boolean isAvailable = false;
+            try {
+                isAvailable = AppGlobals.getPackageManager().isPackageAvailable(
+                        info.activityInfo.packageName,
+                        UserHandle.getUserId(info.activityInfo.applicationInfo.uid));
+            } catch (Exception e) {
+                // all such failures mean we skip this receiver
+                Slog.w(TAG, "Exception getting recipient info for "
+                        + info.activityInfo.packageName, e);
+            }
+            if (!isAvailable) {
+                if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
+                        "Skipping delivery to " + info.activityInfo.packageName + " / "
+                        + info.activityInfo.applicationInfo.uid
+                        + " : package no longer available");
+                skip = true;
+            }
+        }
+
+        // If permissions need a review before any of the app components can run, we drop
+        // the broadcast and if the calling app is in the foreground and the broadcast is
+        // explicit we launch the review UI passing it a pending intent to send the skipped
+        // broadcast.
+        if (mService.mPermissionReviewRequired && !skip) {
+            if (!requestStartTargetPermissionsReviewIfNeededLocked(r,
+                    info.activityInfo.packageName, UserHandle.getUserId(
+                            info.activityInfo.applicationInfo.uid))) {
+                skip = true;
+            }
+        }
+
+        // This is safe to do even if we are skipping the broadcast, and we need
+        // this information now to evaluate whether it is going to be allowed to run.
+        final int receiverUid = info.activityInfo.applicationInfo.uid;
+        // If it's a singleton, it needs to be the same app or a special app
+        if (r.callingUid != Process.SYSTEM_UID && isSingleton
+                && mService.isValidSingletonCall(r.callingUid, receiverUid)) {
+            info.activityInfo = mService.getActivityInfoForUser(info.activityInfo, 0);
+        }
+            // 得到ResolveInfo对象info所描述的广播接收者的android:process属性值，即它需要运行在的应用程序
+            // 进程的名称，并且保存在变量targetProcess中
+        String targetProcess = info.activityInfo.processName;
+            // 获取当前广播接收者的进程记录，也就是该静态广播接收者是否已经运行
+        ProcessRecord app = mService.getProcessRecordLocked(targetProcess,
+                info.activityInfo.applicationInfo.uid, false);
+
+        if (!skip) {
+            final int allowed = mService.getAppStartModeLocked(
+                    info.activityInfo.applicationInfo.uid, info.activityInfo.packageName,
+                    info.activityInfo.applicationInfo.targetSdkVersion, -1, true, false, false);
+            if (allowed != ActivityManager.APP_START_MODE_NORMAL) {
+                // We won't allow this receiver to be launched if the app has been
+                // completely disabled from launches, or it was not explicitly sent
+                // to it and the app is in a state that should not receive it
+                // (depending on how getAppStartModeLocked has determined that).
+                if (allowed == ActivityManager.APP_START_MODE_DISABLED) {
+                    Slog.w(TAG, "Background execution disabled: receiving "
+                            + r.intent + " to "
+                            + component.flattenToShortString());
+                    skip = true;
+                } else if (((r.intent.getFlags()&Intent.FLAG_RECEIVER_EXCLUDE_BACKGROUND) != 0)
+                        || (r.intent.getComponent() == null
+                            && r.intent.getPackage() == null
+                            && ((r.intent.getFlags()
+                                    & Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND) == 0)
+                            && !isSignaturePerm(r.requiredPermissions))) {
+                    mService.addBackgroundCheckViolationLocked(r.intent.getAction(),
+                            component.getPackageName());
+                    Slog.w(TAG, "Background execution not allowed: receiving "
+                            + r.intent + " to "
                             + component.flattenToShortString());
                     skip = true;
                 }
             }
-            if (!skip && info.activityInfo.applicationInfo.uid != Process.SYSTEM_UID &&
-                    r.requiredPermissions != null && r.requiredPermissions.length > 0) {
-                for (int i = 0; i < r.requiredPermissions.length; i++) {
-                    String requiredPermission = r.requiredPermissions[i];
-                    try {
-                        perm = AppGlobals.getPackageManager().
-                                checkPermission(requiredPermission,
-                                        info.activityInfo.applicationInfo.packageName,
-                                        UserHandle
-                                                .getUserId(info.activityInfo.applicationInfo.uid));
-                    } catch (RemoteException e) {
-                        perm = PackageManager.PERMISSION_DENIED;
-                    }
-                    if (perm != PackageManager.PERMISSION_GRANTED) {
-                        Slog.w(TAG, "Permission Denial: receiving "
-                                + r.intent + " to "
-                                + component.flattenToShortString()
-                                + " requires " + requiredPermission
-                                + " due to sender " + r.callerPackage
-                                + " (uid " + r.callingUid + ")");
-                        skip = true;
-                        break;
-                    }
-                    int appOp = AppOpsManager.permissionToOpCode(requiredPermission);
-                    if (appOp != AppOpsManager.OP_NONE && appOp != r.appOp
-                            && mService.mAppOpsService.noteOperation(appOp,
-                            info.activityInfo.applicationInfo.uid, info.activityInfo.packageName)
-                            != AppOpsManager.MODE_ALLOWED) {
-                        Slog.w(TAG, "Appop Denial: receiving "
-                                + r.intent + " to "
-                                + component.flattenToShortString()
-                                + " requires appop " + AppOpsManager.permissionToOp(
-                                requiredPermission)
-                                + " due to sender " + r.callerPackage
-                                + " (uid " + r.callingUid + ")");
-                        skip = true;
-                        break;
-                    }
-                }
-            }
-            if (!skip && r.appOp != AppOpsManager.OP_NONE
-                    && mService.mAppOpsService.noteOperation(r.appOp,
-                    info.activityInfo.applicationInfo.uid, info.activityInfo.packageName)
-                    != AppOpsManager.MODE_ALLOWED) {
-                Slog.w(TAG, "Appop Denial: receiving "
-                        + r.intent + " to "
-                        + component.flattenToShortString()
-                        + " requires appop " + AppOpsManager.opToName(r.appOp)
-                        + " due to sender " + r.callerPackage
-                        + " (uid " + r.callingUid + ")");
-                skip = true;
-            }
-            if (!skip) {
-                skip = !mService.mIntentFirewall.checkBroadcast(r.intent, r.callingUid,
-                        r.callingPid, r.resolvedType, info.activityInfo.applicationInfo.uid);
-            }
-            boolean isSingleton = false;
-            try {
-                isSingleton = mService.isSingleton(info.activityInfo.processName,
-                        info.activityInfo.applicationInfo,
-                        info.activityInfo.name, info.activityInfo.flags);
-            } catch (SecurityException e) {
-                Slog.w(TAG, e.getMessage());
-                skip = true;
-            }
-            if ((info.activityInfo.flags & ActivityInfo.FLAG_SINGLE_USER) != 0) {
-                if (ActivityManager.checkUidPermission(
-                        android.Manifest.permission.INTERACT_ACROSS_USERS,
-                        info.activityInfo.applicationInfo.uid)
-                        != PackageManager.PERMISSION_GRANTED) {
-                    Slog.w(TAG, "Permission Denial: Receiver " + component.flattenToShortString()
-                            + " requests FLAG_SINGLE_USER, but app does not hold "
-                            + android.Manifest.permission.INTERACT_ACROSS_USERS);
-                    skip = true;
-                }
-            }
-            if (!skip) {
-                r.manifestCount++;
-            } else {
-                r.manifestSkipCount++;
-            }
-            if (r.curApp != null && r.curApp.crashing) {
-                // If the target process is crashing, just skip it.
-                Slog.w(TAG, "Skipping deliver ordered [" + mQueueName + "] " + r
-                        + " to " + r.curApp + ": process crashing");
-                skip = true;
-            }
-            if (!skip) {
-                boolean isAvailable = false;
-                try {
-                    isAvailable = AppGlobals.getPackageManager().isPackageAvailable(
-                            info.activityInfo.packageName,
-                            UserHandle.getUserId(info.activityInfo.applicationInfo.uid));
-                } catch (Exception e) {
-                    // all such failures mean we skip this receiver
-                    Slog.w(TAG, "Exception getting recipient info for "
-                            + info.activityInfo.packageName, e);
-                }
-                if (!isAvailable) {
-                    if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
-                            "Skipping delivery to " + info.activityInfo.packageName + " / "
-                                    + info.activityInfo.applicationInfo.uid
-                                    + " : package no longer available");
-                    skip = true;
-                }
-            }
+        }
 
-            // If permissions need a review before any of the app components can run, we drop
-            // the broadcast and if the calling app is in the foreground and the broadcast is
-            // explicit we launch the review UI passing it a pending intent to send the skipped
-            // broadcast.
-            if (Build.PERMISSIONS_REVIEW_REQUIRED && !skip) {
-                if (!requestStartTargetPermissionsReviewIfNeededLocked(r,
-                        info.activityInfo.packageName, UserHandle.getUserId(
-                                info.activityInfo.applicationInfo.uid))) {
-                    skip = true;
-                }
-            }
-
-            // This is safe to do even if we are skipping the broadcast, and we need
-            // this information now to evaluate whether it is going to be allowed to run.
-            final int receiverUid = info.activityInfo.applicationInfo.uid;
-            // If it's a singleton, it needs to be the same app or a special app
-            if (r.callingUid != Process.SYSTEM_UID && isSingleton
-                    && mService.isValidSingletonCall(r.callingUid, receiverUid)) {
-                info.activityInfo = mService.getActivityInfoForUser(info.activityInfo, 0);
-            }
-            // 得到ResolveInfo对象info所描述的广播接收者的android:process属性值，即它需要运行在的应用程序
-            // 进程的名称，并且保存在变量targetProcess中
-            String targetProcess = info.activityInfo.processName;
-            // 获取当前广播接收者的进程记录，也就是该静态广播接收者是否已经运行
-            ProcessRecord app = mService.getProcessRecordLocked(targetProcess,
-                    info.activityInfo.applicationInfo.uid, false);
-
-            if (!skip) {
-                final int allowed = mService.checkAllowBackgroundLocked(
-                        info.activityInfo.applicationInfo.uid, info.activityInfo.packageName, -1,
-                        false);
-                if (allowed != ActivityManager.APP_START_MODE_NORMAL) {
-                    // We won't allow this receiver to be launched if the app has been
-                    // completely disabled from launches, or it was not explicitly sent
-                    // to it and the app is in a state that should not receive it
-                    // (depending on how checkAllowBackgroundLocked has determined that).
-                    if (allowed == ActivityManager.APP_START_MODE_DISABLED) {
-                        Slog.w(TAG, "Background execution disabled: receiving "
-                                + r.intent + " to "
-                                + component.flattenToShortString());
-                        skip = true;
-                    } else if (((r.intent.getFlags() & Intent.FLAG_RECEIVER_EXCLUDE_BACKGROUND) != 0)
-                            || (r.intent.getComponent() == null
-                            && r.intent.getPackage() == null
-                            && ((r.intent.getFlags()
-                            & Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND) == 0))) {
-                        Slog.w(TAG, "Background execution not allowed: receiving "
-                                + r.intent + " to "
-                                + component.flattenToShortString());
-                        skip = true;
-                    }
-                }
-            }
-
+        if (!skip && !Intent.ACTION_SHUTDOWN.equals(r.intent.getAction())
+                && !mService.mUserController
+                .isUserRunning(UserHandle.getUserId(info.activityInfo.applicationInfo.uid),
+                        0 /* flags */)) {
+            skip = true;
+            Slog.w(TAG,
+                    "Skipping delivery to " + info.activityInfo.packageName + " / "
+                            + info.activityInfo.applicationInfo.uid + " : user is not running");
+        }
             // 跳过，恢复初始状态，开始下一个广播接收者的处理
-            if (skip) {
-                if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
-                        "Skipping delivery of ordered [" + mQueueName + "] "
-                                + r + " for whatever reason");
-                r.delivery[recIdx] = BroadcastRecord.DELIVERY_SKIPPED;
-                r.receiver = null;
-                r.curFilter = null;
-                r.state = BroadcastRecord.IDLE;
+        if (skip) {
+            if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
+                    "Skipping delivery of ordered [" + mQueueName + "] "
+                    + r + " for whatever reason");
+            r.delivery[recIdx] = BroadcastRecord.DELIVERY_SKIPPED;
+            r.receiver = null;
+            r.curFilter = null;
+            r.state = BroadcastRecord.IDLE;
+            r.manifestSkipCount++;
+            scheduleBroadcastsLocked();
+            return;
+        }
+        r.manifestCount++;
+
+        r.delivery[recIdx] = BroadcastRecord.DELIVERY_DELIVERED;
+        r.state = BroadcastRecord.APP_RECEIVE;
+        r.curComponent = component;
+        r.curReceiver = info.activityInfo;
+        if (DEBUG_MU && r.callingUid > UserHandle.PER_USER_RANGE) {
+            Slog.v(TAG_MU, "Updated broadcast record activity info for secondary user, "
+                    + info.activityInfo + ", callingUid = " + r.callingUid + ", uid = "
+                    + receiverUid);
+        }
+
+        if (brOptions != null && brOptions.getTemporaryAppWhitelistDuration() > 0) {
+            scheduleTempWhitelistLocked(receiverUid,
+                    brOptions.getTemporaryAppWhitelistDuration(), r);
+        }
+
+        // Broadcast is being executed, its package can't be stopped.
+        try {
+            AppGlobals.getPackageManager().setPackageStoppedState(
+                    r.curComponent.getPackageName(), false, UserHandle.getUserId(r.callingUid));
+        } catch (RemoteException e) {
+        } catch (IllegalArgumentException e) {
+            Slog.w(TAG, "Failed trying to unstop package "
+                    + r.curComponent.getPackageName() + ": " + e);
+        }
+
+        // Is this receiver's application already running?
+            // 如果当前进程已经运行，则直接发给该进程，然后返回
+        if (app != null && app.thread != null && !app.killed) {
+            try {
+                app.addPackage(info.activityInfo.packageName,
+                        info.activityInfo.applicationInfo.versionCode, mService.mProcessStats);
+                    // 将广播发送给该进程处理
+                processCurBroadcastLocked(r, app, skipOomAdj);
+                    // order广播是一种同步处理方式，因此处理完可以直接return
+                return;
+            } catch (RemoteException e) {
+                Slog.w(TAG, "Exception when sending broadcast to "
+                      + r.curComponent, e);
+            } catch (RuntimeException e) {
+                Slog.wtf(TAG, "Failed sending broadcast to "
+                        + r.curComponent + " with " + r.intent, e);
+                // If some unexpected exception happened, just skip
+                // this broadcast.  At this point we are not in the call
+                // from a client, so throwing an exception out from here
+                // will crash the entire system instead of just whoever
+                // sent the broadcast.
+                logBroadcastReceiverDiscardLocked(r);
+                finishReceiverLocked(r, r.resultCode, r.resultData,
+                        r.resultExtras, r.resultAbort, false);
                 scheduleBroadcastsLocked();
+                // We need to reset the state if we failed to start the receiver.
+                r.state = BroadcastRecord.IDLE;
                 return;
             }
 
-            r.delivery[recIdx] = BroadcastRecord.DELIVERY_DELIVERED;
-            r.state = BroadcastRecord.APP_RECEIVE;
-            r.curComponent = component;
-            r.curReceiver = info.activityInfo;
-            if (DEBUG_MU && r.callingUid > UserHandle.PER_USER_RANGE) {
-                Slog.v(TAG_MU, "Updated broadcast record activity info for secondary user, "
-                        + info.activityInfo + ", callingUid = " + r.callingUid + ", uid = "
-                        + info.activityInfo.applicationInfo.uid);
-            }
+            // If a dead object exception was thrown -- fall through to
+            // restart the application.
+        }
 
-            if (brOptions != null && brOptions.getTemporaryAppWhitelistDuration() > 0) {
-                scheduleTempWhitelistLocked(receiverUid,
-                        brOptions.getTemporaryAppWhitelistDuration(), r);
-            }
-
-            // Broadcast is being executed, its package can't be stopped.
-            try {
-                AppGlobals.getPackageManager().setPackageStoppedState(
-                        r.curComponent.getPackageName(), false, UserHandle.getUserId(r.callingUid));
-            } catch (RemoteException e) {
-            } catch (IllegalArgumentException e) {
-                Slog.w(TAG, "Failed trying to unstop package "
-                        + r.curComponent.getPackageName() + ": " + e);
-            }
-
-            // Is this receiver's application already running?
-            // 如果当前进程已经运行，则直接发给该进程，然后返回
-            if (app != null && app.thread != null) {
-                try {
-                    app.addPackage(info.activityInfo.packageName,
-                            info.activityInfo.applicationInfo.versionCode, mService.mProcessStats);
-                    // 将广播发送给该进程处理
-                    processCurBroadcastLocked(r, app);
-                    // order广播是一种同步处理方式，因此处理完可以直接return
-                    return;
-                } catch (RemoteException e) {
-                    Slog.w(TAG, "Exception when sending broadcast to "
-                            + r.curComponent, e);
-                } catch (RuntimeException e) {
-                    Slog.wtf(TAG, "Failed sending broadcast to "
-                            + r.curComponent + " with " + r.intent, e);
-                    // If some unexpected exception happened, just skip
-                    // this broadcast.  At this point we are not in the call
-                    // from a client, so throwing an exception out from here
-                    // will crash the entire system instead of just whoever
-                    // sent the broadcast.
-                    logBroadcastReceiverDiscardLocked(r);
-                    finishReceiverLocked(r, r.resultCode, r.resultData,
-                            r.resultExtras, r.resultAbort, false);
-                    scheduleBroadcastsLocked();
-                    // We need to reset the state if we failed to start the receiver.
-                    r.state = BroadcastRecord.IDLE;
-                    return;
-                }
-
-                // If a dead object exception was thrown -- fall through to
-                // restart the application.
-            }
-
-            // Not running -- get it started, to be executed when the app comes up.
-            if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
-                    "Need to start app ["
-                            + mQueueName + "] " + targetProcess + " for broadcast " + r);
-
+        // Not running -- get it started, to be executed when the app comes up.
+        if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
+                "Need to start app ["
+                + mQueueName + "] " + targetProcess + " for broadcast " + r);
             // 静态接收者进程尚未启动，调用AMS的startProcessLocked函数启动该接收者进程，并将当前正在等待进程
             // 启动的BroadcastRecord存储到mPendingBroadcast里面，这个就是静态广播拉起应用的原理，如果应用
             // 没有启动，注册一个静态广播（一般厂商会修改只能启动自己的应用）。到这里又开始进入等待进程启动的
             // 过程，进程启动完成后才能处理广播
-            if ((r.curApp = mService.startProcessLocked(targetProcess,
-                    info.activityInfo.applicationInfo, true,
-                    r.intent.getFlags() | Intent.FLAG_FROM_BACKGROUND,
-                    "broadcast", r.curComponent,
-                    (r.intent.getFlags() & Intent.FLAG_RECEIVER_BOOT_UPGRADE) != 0, false, false))
-                    == null) {// 如果启动失败
-                // Ah, this recipient is unavailable.  Finish it if necessary,
-                // and mark the broadcast record as ready for the next.
-                Slog.w(TAG, "Unable to launch app "
-                        + info.activityInfo.applicationInfo.packageName + "/"
-                        + info.activityInfo.applicationInfo.uid + " for broadcast "
-                        + r.intent + ": process is bad");
-                logBroadcastReceiverDiscardLocked(r);
+        if ((r.curApp=mService.startProcessLocked(targetProcess,
+                info.activityInfo.applicationInfo, true,
+                r.intent.getFlags() | Intent.FLAG_FROM_BACKGROUND,
+                "broadcast", r.curComponent,
+                (r.intent.getFlags()&Intent.FLAG_RECEIVER_BOOT_UPGRADE) != 0, false, false))
+                        == null) {// 如果启动失败
+            // Ah, this recipient is unavailable.  Finish it if necessary,
+            // and mark the broadcast record as ready for the next.
+            Slog.w(TAG, "Unable to launch app "
+                    + info.activityInfo.applicationInfo.packageName + "/"
+                    + receiverUid + " for broadcast "
+                    + r.intent + ": process is bad");
+            logBroadcastReceiverDiscardLocked(r);
                 // 结束广播发送任务
-                finishReceiverLocked(r, r.resultCode, r.resultData,
-                        r.resultExtras, r.resultAbort, false);
-                scheduleBroadcastsLocked();
-                r.state = BroadcastRecord.IDLE;
-                return;
-            }
+            finishReceiverLocked(r, r.resultCode, r.resultData,
+                    r.resultExtras, r.resultAbort, false);
+            scheduleBroadcastsLocked();
+            r.state = BroadcastRecord.IDLE;
+            return;
+        }
 
             // 正在启动接收者进程，将正在启动的BroadcastRecord记录存储到mPendingBroadcast中，同时将当前正在
             // 启动的接收者进程在所有接收者中的索引存储到mPendingBroadcastRecvIndex，如果当前广播接收者处理
             // 完，需要继续从mPendingBroadcastRecvIndex计算到下一个接收者发送当前广播
-            mPendingBroadcast = r;
-            mPendingBroadcastRecvIndex = recIdx;
-        }
+        mPendingBroadcast = r;
+        mPendingBroadcastRecvIndex = recIdx;
     }
 
     // 设置超时时间
     final void setBroadcastTimeoutLocked(long timeoutTime) {
-        if (!mPendingBroadcastTimeoutMessage) {
+        if (! mPendingBroadcastTimeoutMessage) {
             Message msg = mHandler.obtainMessage(BROADCAST_TIMEOUT_MSG, this);
             mHandler.sendMessageAtTime(msg, timeoutTime);
             mPendingBroadcastTimeoutMessage = true;
@@ -1487,13 +1594,6 @@ public final class BroadcastQueue {
         long now = SystemClock.uptimeMillis();
         BroadcastRecord r = mOrderedBroadcasts.get(0);
         if (fromMsg) {
-            if (mService.mDidDexOpt) {
-                // Delay timeouts until dexopt finishes.
-                mService.mDidDexOpt = false;
-                long timeoutTime = SystemClock.uptimeMillis() + mTimeoutPeriod;
-                setBroadcastTimeoutLocked(timeoutTime);
-                return;
-            }
             if (!mService.mProcessesReady) {
                 // Only process broadcast timeouts if the system is ready. That way
                 // PRE_BOOT_COMPLETED broadcasts can't timeout as they are intended
@@ -1519,8 +1619,8 @@ public final class BroadcastQueue {
                 // 设置一个初始超时时间点，然后每次出现超时事件的时候根据需要进行处理或者调整超时机制。
                 if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
                         "Premature timeout ["
-                                + mQueueName + "] @ " + now + ": resetting BROADCAST_TIMEOUT_MSG for "
-                                + timeoutTime);
+                        + mQueueName + "] @ " + now + ": resetting BROADCAST_TIMEOUT_MSG for "
+                        + timeoutTime);
                 setBroadcastTimeoutLocked(timeoutTime);
                 return;
             }
@@ -1540,26 +1640,32 @@ public final class BroadcastQueue {
             return;
         }
 
+        // If the receiver app is being debugged we quietly ignore unresponsiveness, just
+        // tidying up and moving on to the next broadcast without crashing or ANRing this
+        // app just because it's stopped at a breakpoint.
+        final boolean debugging = (r.curApp != null && r.curApp.debugging);
+
         Slog.w(TAG, "Timeout of broadcast " + r + " - receiver=" + r.receiver
                 + ", started " + (now - r.receiverTime) + "ms ago");
         r.receiverTime = now;
-        r.anrCount++;
-
-        // Current receiver has passed its expiration date.
-        if (r.nextReceiver <= 0) {
-            Slog.w(TAG, "Timeout on receiver with nextReceiver <= 0");
-            return;
+        if (!debugging) {
+            r.anrCount++;
         }
 
         ProcessRecord app = null;
         String anrMessage = null;
 
-        Object curReceiver = r.receivers.get(r.nextReceiver - 1);
-        r.delivery[r.nextReceiver - 1] = BroadcastRecord.DELIVERY_TIMEOUT;
-        Slog.w(TAG, "Receiver during timeout: " + curReceiver);
+        Object curReceiver;
+        if (r.nextReceiver > 0) {
+            curReceiver = r.receivers.get(r.nextReceiver-1);
+            r.delivery[r.nextReceiver-1] = BroadcastRecord.DELIVERY_TIMEOUT;
+        } else {
+            curReceiver = r.curReceiver;
+        }
+        Slog.w(TAG, "Receiver during timeout of " + r + " : " + curReceiver);
         logBroadcastReceiverDiscardLocked(r);
-        if (curReceiver instanceof BroadcastFilter) {
-            BroadcastFilter bf = (BroadcastFilter) curReceiver;
+        if (curReceiver != null && curReceiver instanceof BroadcastFilter) {
+            BroadcastFilter bf = (BroadcastFilter)curReceiver;
             if (bf.receiverList.pid != 0
                     && bf.receiverList.pid != ActivityManagerService.MY_PID) {
                 synchronized (mService.mPidsSelfLocked) {
@@ -1584,7 +1690,7 @@ public final class BroadcastQueue {
                 r.resultExtras, r.resultAbort, false);
         scheduleBroadcastsLocked();
 
-        if (anrMessage != null) {
+        if (!debugging && anrMessage != null) {
             // Post the ANR to the handler since we do not want to process ANRs while
             // potentially holding our lock.
             mHandler.post(new AppNotResponding(app, anrMessage));
@@ -1598,19 +1704,29 @@ public final class BroadcastQueue {
         else return x;
     }
 
-    private final void addBroadcastToHistoryLocked(BroadcastRecord r) {
-        if (r.callingUid < 0) {
+    private final void addBroadcastToHistoryLocked(BroadcastRecord original) {
+        if (original.callingUid < 0) {
             // This was from a registerReceiver() call; ignore it.
             return;
         }
-        r.finishTime = SystemClock.uptimeMillis();
+        original.finishTime = SystemClock.uptimeMillis();
 
-        mBroadcastHistory[mHistoryNext] = r;
+        if (Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
+            Trace.asyncTraceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER,
+                createBroadcastTraceTitle(original, BroadcastRecord.DELIVERY_DELIVERED),
+                System.identityHashCode(original));
+        }
+
+        // Note sometimes (only for sticky broadcasts?) we reuse BroadcastRecords,
+        // So don't change the incoming record directly.
+        final BroadcastRecord historyRecord = original.maybeStripForHistory();
+
+        mBroadcastHistory[mHistoryNext] = historyRecord;
         mHistoryNext = ringAdvance(mHistoryNext, 1, MAX_BROADCAST_HISTORY);
 
-        mBroadcastSummaryHistory[mSummaryHistoryNext] = r.intent;
-        mSummaryHistoryEnqueueTime[mSummaryHistoryNext] = r.enqueueClockTime;
-        mSummaryHistoryDispatchTime[mSummaryHistoryNext] = r.dispatchClockTime;
+        mBroadcastSummaryHistory[mSummaryHistoryNext] = historyRecord.intent;
+        mSummaryHistoryEnqueueTime[mSummaryHistoryNext] = historyRecord.enqueueClockTime;
+        mSummaryHistoryDispatchTime[mSummaryHistoryNext] = historyRecord.dispatchClockTime;
         mSummaryHistoryFinishTime[mSummaryHistoryNext] = System.currentTimeMillis();
         mSummaryHistoryNext = ringAdvance(mSummaryHistoryNext, 1, MAX_BROADCAST_SUMMARY_HISTORY);
     }
@@ -1663,8 +1779,70 @@ public final class BroadcastQueue {
         }
     }
 
+    private String createBroadcastTraceTitle(BroadcastRecord record, int state) {
+        return String.format("Broadcast %s from %s (%s) %s",
+                state == BroadcastRecord.DELIVERY_PENDING ? "in queue" : "dispatched",
+                record.callerPackage == null ? "" : record.callerPackage,
+                record.callerApp == null ? "process unknown" : record.callerApp.toShortString(),
+                record.intent == null ? "" : record.intent.getAction());
+    }
+
+    final boolean isIdle() {
+        return mParallelBroadcasts.isEmpty() && mOrderedBroadcasts.isEmpty()
+                && (mPendingBroadcast == null);
+    }
+
+    void writeToProto(ProtoOutputStream proto, long fieldId) {
+        long token = proto.start(fieldId);
+        proto.write(BroadcastQueueProto.QUEUE_NAME, mQueueName);
+        int N;
+        N = mParallelBroadcasts.size();
+        for (int i = N - 1; i >= 0; i--) {
+            mParallelBroadcasts.get(i).writeToProto(proto, BroadcastQueueProto.PARALLEL_BROADCASTS);
+        }
+        N = mOrderedBroadcasts.size();
+        for (int i = N - 1; i >= 0; i--) {
+            mOrderedBroadcasts.get(i).writeToProto(proto, BroadcastQueueProto.ORDERED_BROADCASTS);
+        }
+        if (mPendingBroadcast != null) {
+            mPendingBroadcast.writeToProto(proto, BroadcastQueueProto.PENDING_BROADCAST);
+        }
+
+        int lastIndex = mHistoryNext;
+        int ringIndex = lastIndex;
+        do {
+            // increasing index = more recent entry, and we want to print the most
+            // recent first and work backwards, so we roll through the ring backwards.
+            ringIndex = ringAdvance(ringIndex, -1, MAX_BROADCAST_HISTORY);
+            BroadcastRecord r = mBroadcastHistory[ringIndex];
+            if (r != null) {
+                r.writeToProto(proto, BroadcastQueueProto.HISTORICAL_BROADCASTS);
+            }
+        } while (ringIndex != lastIndex);
+
+        lastIndex = ringIndex = mSummaryHistoryNext;
+        do {
+            ringIndex = ringAdvance(ringIndex, -1, MAX_BROADCAST_SUMMARY_HISTORY);
+            Intent intent = mBroadcastSummaryHistory[ringIndex];
+            if (intent == null) {
+                continue;
+            }
+            long summaryToken = proto.start(BroadcastQueueProto.HISTORICAL_BROADCASTS_SUMMARY);
+            intent.writeToProto(proto, BroadcastQueueProto.BroadcastSummary.INTENT,
+                    false, true, true, false);
+            proto.write(BroadcastQueueProto.BroadcastSummary.ENQUEUE_CLOCK_TIME_MS,
+                    mSummaryHistoryEnqueueTime[ringIndex]);
+            proto.write(BroadcastQueueProto.BroadcastSummary.DISPATCH_CLOCK_TIME_MS,
+                    mSummaryHistoryDispatchTime[ringIndex]);
+            proto.write(BroadcastQueueProto.BroadcastSummary.FINISH_CLOCK_TIME_MS,
+                    mSummaryHistoryFinishTime[ringIndex]);
+            proto.end(summaryToken);
+        } while (ringIndex != lastIndex);
+        proto.end(token);
+    }
+
     final boolean dumpLocked(FileDescriptor fd, PrintWriter pw, String[] args,
-                             int opti, boolean dumpAll, String dumpPackage, boolean needSep) {
+            int opti, boolean dumpAll, String dumpPackage, boolean needSep) {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         if (mParallelBroadcasts.size() > 0 || mOrderedBroadcasts.size() > 0
                 || mPendingBroadcast != null) {
@@ -1747,24 +1925,18 @@ public final class BroadcastQueue {
             }
             if (dumpAll) {
                 pw.print("  Historical Broadcast " + mQueueName + " #");
-                pw.print(i);
-                pw.println(":");
+                        pw.print(i); pw.println(":");
                 r.dump(pw, "    ", sdf);
             } else {
-                pw.print("  #");
-                pw.print(i);
-                pw.print(": ");
-                pw.println(r);
+                pw.print("  #"); pw.print(i); pw.print(": "); pw.println(r);
                 pw.print("    ");
                 pw.println(r.intent.toShortString(false, true, true, false));
                 if (r.targetComp != null && r.targetComp != r.intent.getComponent()) {
-                    pw.print("    targetComp: ");
-                    pw.println(r.targetComp.toShortString());
+                    pw.print("    targetComp: "); pw.println(r.targetComp.toShortString());
                 }
                 Bundle bundle = r.intent.getExtras();
                 if (bundle != null) {
-                    pw.print("    extras: ");
-                    pw.println(bundle.toString());
+                    pw.print("    extras: "); pw.println(bundle.toString());
                 }
             }
         } while (ringIndex != lastIndex);
@@ -1777,7 +1949,7 @@ public final class BroadcastQueue {
             } else {
                 // roll over the 'i' full dumps that have already been issued
                 for (int j = i;
-                     j > 0 && ringIndex != lastIndex; ) {
+                        j > 0 && ringIndex != lastIndex;) {
                     ringIndex = ringAdvance(ringIndex, -1, MAX_BROADCAST_SUMMARY_HISTORY);
                     BroadcastRecord r = mBroadcastHistory[ringIndex];
                     if (r == null) {
@@ -1807,9 +1979,7 @@ public final class BroadcastQueue {
                     break;
                 }
                 i++;
-                pw.print("  #");
-                pw.print(i);
-                pw.print(": ");
+                pw.print("  #"); pw.print(i); pw.print(": ");
                 pw.println(intent.toShortString(false, true, true, false));
                 pw.print("    ");
                 TimeUtils.formatDuration(mSummaryHistoryDispatchTime[ringIndex]
@@ -1826,8 +1996,7 @@ public final class BroadcastQueue {
                 pw.println(sdf.format(new Date(mSummaryHistoryFinishTime[ringIndex])));
                 Bundle bundle = intent.getExtras();
                 if (bundle != null) {
-                    pw.print("    extras: ");
-                    pw.println(bundle.toString());
+                    pw.print("    extras: "); pw.println(bundle.toString());
                 }
             } while (ringIndex != lastIndex);
         }

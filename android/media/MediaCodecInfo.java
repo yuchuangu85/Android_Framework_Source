@@ -460,6 +460,11 @@ public final class MediaCodecInfo {
         public static final String FEATURE_TunneledPlayback       = "tunneled-playback";
 
         /**
+         * <b>video decoder only</b>: codec supports queuing partial frames.
+         */
+        public static final String FEATURE_PartialFrame = "partial-frame";
+
+        /**
          * <b>video encoder only</b>: codec supports intra refresh.
          */
         public static final String FEATURE_IntraRefresh = "intra-refresh";
@@ -489,6 +494,7 @@ public final class MediaCodecInfo {
             new Feature(FEATURE_AdaptivePlayback, (1 << 0), true),
             new Feature(FEATURE_SecurePlayback,   (1 << 1), false),
             new Feature(FEATURE_TunneledPlayback, (1 << 2), false),
+            new Feature(FEATURE_PartialFrame,     (1 << 3), false),
         };
 
         private static final Feature[] encoderFeatures = {
@@ -823,14 +829,24 @@ public final class MediaCodecInfo {
 
         /** @hide */
         public CodecCapabilities dup() {
-            return new CodecCapabilities(
-                // clone writable arrays
-                Arrays.copyOf(profileLevels, profileLevels.length),
-                Arrays.copyOf(colorFormats, colorFormats.length),
-                isEncoder(),
-                mFlagsVerified,
-                mDefaultFormat,
-                mCapabilitiesInfo);
+            CodecCapabilities caps = new CodecCapabilities();
+
+            // profileLevels and colorFormats may be modified by client.
+            caps.profileLevels = Arrays.copyOf(profileLevels, profileLevels.length);
+            caps.colorFormats = Arrays.copyOf(colorFormats, colorFormats.length);
+
+            caps.mMime = mMime;
+            caps.mMaxSupportedInstances = mMaxSupportedInstances;
+            caps.mFlagsRequired = mFlagsRequired;
+            caps.mFlagsSupported = mFlagsSupported;
+            caps.mFlagsVerified = mFlagsVerified;
+            caps.mAudioCaps = mAudioCaps;
+            caps.mVideoCaps = mVideoCaps;
+            caps.mEncoderCaps = mEncoderCaps;
+            caps.mDefaultFormat = mDefaultFormat;
+            caps.mCapabilitiesInfo = mCapabilitiesInfo;
+
+            return caps;
         }
 
         /**
@@ -892,13 +908,14 @@ public final class MediaCodecInfo {
 
             if (mMime.toLowerCase().startsWith("audio/")) {
                 mAudioCaps = AudioCapabilities.create(info, this);
-                mAudioCaps.setDefaultFormat(mDefaultFormat);
-            } else if (mMime.toLowerCase().startsWith("video/")) {
+                mAudioCaps.getDefaultFormat(mDefaultFormat);
+            } else if (mMime.toLowerCase().startsWith("video/")
+                    || mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_IMAGE_ANDROID_HEIC)) {
                 mVideoCaps = VideoCapabilities.create(info, this);
             }
             if (encoder) {
                 mEncoderCaps = EncoderCapabilities.create(info, this);
-                mEncoderCaps.setDefaultFormat(mDefaultFormat);
+                mEncoderCaps.getDefaultFormat(mDefaultFormat);
             }
 
             final Map<String, Object> global = MediaCodecList.getGlobalSettings();
@@ -984,8 +1001,7 @@ public final class MediaCodecInfo {
             return caps;
         }
 
-        /** @hide */
-        public void init(MediaFormat info, CodecCapabilities parent) {
+        private void init(MediaFormat info, CodecCapabilities parent) {
             mParent = parent;
             initWithPlatformLimits();
             applyLevelLimits();
@@ -1061,7 +1077,7 @@ public final class MediaCodecInfo {
         private void applyLevelLimits() {
             int[] sampleRates = null;
             Range<Integer> sampleRateRange = null, bitRates = null;
-            int maxChannels = 0;
+            int maxChannels = MAX_INPUT_CHANNEL_COUNT;
             String mime = mParent.getMimeType();
 
             if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_MPEG)) {
@@ -1113,6 +1129,10 @@ public final class MediaCodecInfo {
                 sampleRates = new int[] { 8000 };
                 bitRates = Range.create(13000, 13000);
                 maxChannels = 1;
+            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AC3)) {
+                maxChannels = 6;
+            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_EAC3)) {
+                maxChannels = 16;
             } else {
                 Log.w(TAG, "Unsupported mime " + mime);
                 mParent.mError |= ERROR_UNSUPPORTED;
@@ -1150,6 +1170,8 @@ public final class MediaCodecInfo {
             if (info.containsKey("max-channel-count")) {
                 maxInputChannels = Utils.parseIntSafely(
                         info.getString("max-channel-count"), maxInputChannels);
+            } else if ((mParent.mError & ERROR_UNSUPPORTED) != 0) {
+                maxInputChannels = 0;
             }
             if (info.containsKey("bitrate-range")) {
                 bitRates = bitRates.intersect(
@@ -1159,7 +1181,7 @@ public final class MediaCodecInfo {
         }
 
         /** @hide */
-        public void setDefaultFormat(MediaFormat format) {
+        public void getDefaultFormat(MediaFormat format) {
             // report settings that have only a single choice
             if (mBitrateRange.getLower().equals(mBitrateRange.getUpper())) {
                 format.setInteger(MediaFormat.KEY_BIT_RATE, mBitrateRange.getLower());
@@ -1573,8 +1595,7 @@ public final class MediaCodecInfo {
             return caps;
         }
 
-        /** @hide */
-        public void init(MediaFormat info, CodecCapabilities parent) {
+        private void init(MediaFormat info, CodecCapabilities parent) {
             mParent = parent;
             initWithPlatformLimits();
             applyLevelLimits();
@@ -2083,6 +2104,7 @@ public final class MediaCodecInfo {
                             errors |= ERROR_UNRECOGNIZED;
                     }
                     switch (profileLevel.profile) {
+                        case CodecProfileLevel.AVCProfileConstrainedHigh:
                         case CodecProfileLevel.AVCProfileHigh:
                             BR *= 1250; break;
                         case CodecProfileLevel.AVCProfileHigh10:
@@ -2095,6 +2117,7 @@ public final class MediaCodecInfo {
                             errors |= ERROR_UNSUPPORTED;
                             supported = false;
                             // fall through - treat as base profile
+                        case CodecProfileLevel.AVCProfileConstrainedBaseline:
                         case CodecProfileLevel.AVCProfileBaseline:
                         case CodecProfileLevel.AVCProfileMain:
                             BR *= 1000; break;
@@ -2625,7 +2648,8 @@ public final class MediaCodecInfo {
         /**
          * Returns the supported range of quality values.
          *
-         * @hide
+         * Quality is implementation-specific. As a general rule, a higher quality
+         * setting results in a better image quality and a lower compression ratio.
          */
         public Range<Integer> getQualityRange() {
             return mQualityRange;
@@ -2692,8 +2716,7 @@ public final class MediaCodecInfo {
             return caps;
         }
 
-        /** @hide */
-        public void init(MediaFormat info, CodecCapabilities parent) {
+        private void init(MediaFormat info, CodecCapabilities parent) {
             // no support for complexity or quality yet
             mParent = parent;
             mComplexityRange = Range.create(0, 0);
@@ -2735,9 +2758,9 @@ public final class MediaCodecInfo {
                 mQualityRange = Utils
                         .parseIntRange(info.getString("quality-range"), mQualityRange);
             }
-            if (info.containsKey("feature-bitrate-control")) {
-                for (String mode: info.getString("feature-bitrate-control").split(",")) {
-                    mBitControl |= parseBitrateMode(mode);
+            if (info.containsKey("feature-bitrate-modes")) {
+                for (String mode: info.getString("feature-bitrate-modes").split(",")) {
+                    mBitControl |= (1 << parseBitrateMode(mode));
                 }
             }
 
@@ -2774,7 +2797,7 @@ public final class MediaCodecInfo {
         }
 
         /** @hide */
-        public void setDefaultFormat(MediaFormat format) {
+        public void getDefaultFormat(MediaFormat format) {
             // don't list trivial quality/complexity as default for now
             if (!mQualityRange.getUpper().equals(mQualityRange.getLower())
                     && mDefaultQuality != null) {
@@ -2849,6 +2872,8 @@ public final class MediaCodecInfo {
         public static final int AVCProfileHigh10   = 0x10;
         public static final int AVCProfileHigh422  = 0x20;
         public static final int AVCProfileHigh444  = 0x40;
+        public static final int AVCProfileConstrainedBaseline = 0x10000;
+        public static final int AVCProfileConstrainedHigh     = 0x80000;
 
         // from OMX_VIDEO_AVCLEVELTYPE
         public static final int AVCLevel1       = 0x01;
@@ -2943,9 +2968,12 @@ public final class MediaCodecInfo {
         public static final int AACObjectHE         = 5;
         public static final int AACObjectScalable   = 6;
         public static final int AACObjectERLC       = 17;
+        public static final int AACObjectERScalable = 20;
         public static final int AACObjectLD         = 23;
         public static final int AACObjectHE_PS      = 29;
         public static final int AACObjectELD        = 39;
+        /** xHE-AAC (includes USAC) */
+        public static final int AACObjectXHE        = 42;
 
         // from OMX_VIDEO_VP8LEVELTYPE
         public static final int VP8Level_Version0 = 0x01;
@@ -2984,6 +3012,7 @@ public final class MediaCodecInfo {
         // from OMX_VIDEO_HEVCPROFILETYPE
         public static final int HEVCProfileMain        = 0x01;
         public static final int HEVCProfileMain10      = 0x02;
+        public static final int HEVCProfileMainStill   = 0x04;
         public static final int HEVCProfileMain10HDR10 = 0x1000;
 
         // from OMX_VIDEO_HEVCLEVELTYPE
@@ -3029,6 +3058,8 @@ public final class MediaCodecInfo {
         public static final int DolbyVisionProfileDvheStn = 0x20;
         public static final int DolbyVisionProfileDvheDth = 0x40;
         public static final int DolbyVisionProfileDvheDtb = 0x80;
+        public static final int DolbyVisionProfileDvheSt = 0x100;
+        public static final int DolbyVisionProfileDvavSe = 0x200;
 
         // from OMX_VIDEO_DOLBYVISIONLEVELTYPE
         public static final int DolbyVisionLevelHd24    = 0x1;
@@ -3058,6 +3089,23 @@ public final class MediaCodecInfo {
          * {@link VideoCapabilities} to determine the codec capabilities.
          */
         public int level;
+
+        @Override
+        public boolean equals(Object obj) {
+            if (obj == null) {
+                return false;
+            }
+            if (obj instanceof CodecProfileLevel) {
+                CodecProfileLevel other = (CodecProfileLevel)obj;
+                return other.profile == profile && other.level == level;
+            }
+            return false;
+        }
+
+        @Override
+        public int hashCode() {
+            return Long.hashCode(((long)profile << Integer.SIZE) | level);
+        }
     };
 
     /**

@@ -30,6 +30,7 @@ import android.os.SystemClock;
 import android.os.UserHandle;
 import android.util.PrintWriterPrinter;
 import android.util.TimeUtils;
+import android.util.proto.ProtoOutputStream;
 
 import java.io.PrintWriter;
 import java.text.SimpleDateFormat;
@@ -48,6 +49,7 @@ final class BroadcastRecord extends Binder {
     final String callerPackage; // who sent this
     final int callingPid;   // the pid of who sent this
     final int callingUid;   // the uid of who sent this
+    final boolean callerInstantApp; // caller is an Instant App?
     final boolean ordered;  // serialize the send to receivers?
     final boolean sticky;   // originated from existing sticky data?
     final boolean initialSticky; // initial broadcast from register to sticky?
@@ -214,11 +216,10 @@ final class BroadcastRecord extends Binder {
 
     BroadcastRecord(BroadcastQueue _queue,
             Intent _intent, ProcessRecord _callerApp, String _callerPackage,
-            int _callingPid, int _callingUid, String _resolvedType, String[] _requiredPermissions,
-            int _appOp, BroadcastOptions _options, List _receivers, IIntentReceiver _resultTo,
-            int _resultCode, String _resultData, Bundle _resultExtras, boolean _serialized,
-            boolean _sticky, boolean _initialSticky,
-            int _userId) {
+            int _callingPid, int _callingUid, boolean _callerInstantApp, String _resolvedType,
+            String[] _requiredPermissions, int _appOp, BroadcastOptions _options, List _receivers,
+            IIntentReceiver _resultTo, int _resultCode, String _resultData, Bundle _resultExtras,
+            boolean _serialized, boolean _sticky, boolean _initialSticky, int _userId) {
         if (_intent == null) {
             throw new NullPointerException("Can't construct with a null intent");
         }
@@ -229,6 +230,7 @@ final class BroadcastRecord extends Binder {
         callerPackage = _callerPackage;
         callingPid = _callingPid;
         callingUid = _callingUid;
+        callerInstantApp = _callerInstantApp;
         resolvedType = _resolvedType;
         requiredPermissions = _requiredPermissions;
         appOp = _appOp;
@@ -245,6 +247,55 @@ final class BroadcastRecord extends Binder {
         userId = _userId;
         nextReceiver = 0;
         state = IDLE;
+    }
+
+    /**
+     * Copy constructor which takes a different intent.
+     * Only used by {@link #maybeStripForHistory}.
+     */
+    private BroadcastRecord(BroadcastRecord from, Intent newIntent) {
+        intent = newIntent;
+        targetComp = newIntent.getComponent();
+
+        callerApp = from.callerApp;
+        callerPackage = from.callerPackage;
+        callingPid = from.callingPid;
+        callingUid = from.callingUid;
+        callerInstantApp = from.callerInstantApp;
+        ordered = from.ordered;
+        sticky = from.sticky;
+        initialSticky = from.initialSticky;
+        userId = from.userId;
+        resolvedType = from.resolvedType;
+        requiredPermissions = from.requiredPermissions;
+        appOp = from.appOp;
+        options = from.options;
+        receivers = from.receivers;
+        delivery = from.delivery;
+        resultTo = from.resultTo;
+        enqueueClockTime = from.enqueueClockTime;
+        dispatchTime = from.dispatchTime;
+        dispatchClockTime = from.dispatchClockTime;
+        receiverTime = from.receiverTime;
+        finishTime = from.finishTime;
+        resultCode = from.resultCode;
+        resultData = from.resultData;
+        resultExtras = from.resultExtras;
+        resultAbort = from.resultAbort;
+        nextReceiver = from.nextReceiver;
+        receiver = from.receiver;
+        state = from.state;
+        anrCount = from.anrCount;
+        manifestCount = from.manifestCount;
+        manifestSkipCount = from.manifestSkipCount;
+        queue = from.queue;
+    }
+
+    public BroadcastRecord maybeStripForHistory() {
+        if (!intent.canStripForHistory()) {
+            return this;
+        }
+        return new BroadcastRecord(this, intent.maybeStripForHistory());
     }
 
     boolean cleanupDisabledPackageReceiversLocked(
@@ -281,9 +332,17 @@ final class BroadcastRecord extends Binder {
         return didSomething;
     }
 
+    @Override
     public String toString() {
         return "BroadcastRecord{"
             + Integer.toHexString(System.identityHashCode(this))
             + " u" + userId + " " + intent.getAction() + "}";
+    }
+
+    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+        long token = proto.start(fieldId);
+        proto.write(BroadcastRecordProto.USER_ID, userId);
+        proto.write(BroadcastRecordProto.INTENT_ACTION, intent.getAction());
+        proto.end(token);
     }
 }

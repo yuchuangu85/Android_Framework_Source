@@ -17,15 +17,16 @@
 package com.android.server.display;
 
 import android.graphics.Rect;
+import android.hardware.display.DisplayManagerInternal;
 import android.view.Display;
 import android.view.DisplayInfo;
 import android.view.Surface;
+import android.view.SurfaceControl;
 
 import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.List;
-
-import libcore.util.Objects;
+import java.util.Objects;
 
 /**
  * Describes how a logical display is configured.
@@ -62,7 +63,18 @@ final class LogicalDisplay {
 
     private final int mDisplayId;
     private final int mLayerStack;
-    private DisplayInfo mOverrideDisplayInfo; // set by the window manager
+    /**
+     * Override information set by the window manager. Will be reported instead of {@link #mInfo}
+     * if not null.
+     * @see #setDisplayInfoOverrideFromWindowManagerLocked(DisplayInfo)
+     * @see #getDisplayInfoLocked()
+     */
+    private DisplayInfo mOverrideDisplayInfo;
+    /**
+     * Current display info. Initialized with {@link #mBaseDisplayInfo}. Set to {@code null} if
+     * needs to be updated.
+     * @see #getDisplayInfoLocked()
+     */
     private DisplayInfo mInfo;
 
     // The display device that this logical display is based on and which
@@ -133,12 +145,20 @@ final class LogicalDisplay {
                 mInfo.overscanRight = mOverrideDisplayInfo.overscanRight;
                 mInfo.overscanBottom = mOverrideDisplayInfo.overscanBottom;
                 mInfo.rotation = mOverrideDisplayInfo.rotation;
+                mInfo.displayCutout = mOverrideDisplayInfo.displayCutout;
                 mInfo.logicalDensityDpi = mOverrideDisplayInfo.logicalDensityDpi;
                 mInfo.physicalXDpi = mOverrideDisplayInfo.physicalXDpi;
                 mInfo.physicalYDpi = mOverrideDisplayInfo.physicalYDpi;
             }
         }
         return mInfo;
+    }
+
+    /**
+     * @see DisplayManagerInternal#getNonOverrideDisplayInfo(int, DisplayInfo)
+     */
+    void getNonOverrideDisplayInfoLocked(DisplayInfo outInfo) {
+        outInfo.copyFrom(mBaseDisplayInfo);
     }
 
     /**
@@ -205,7 +225,7 @@ final class LogicalDisplay {
         // logical display that they are sharing.  (eg. Adjust size for pixel-perfect
         // mirroring over HDMI.)
         DisplayDeviceInfo deviceInfo = mPrimaryDisplayDevice.getDisplayDeviceInfoLocked();
-        if (!Objects.equal(mPrimaryDisplayDeviceInfo, deviceInfo)) {
+        if (!Objects.equals(mPrimaryDisplayDeviceInfo, deviceInfo)) {
             mBaseDisplayInfo.layerStack = mLayerStack;
             mBaseDisplayInfo.flags = 0;
             if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_SUPPORTS_PROTECTED_BUFFERS) != 0) {
@@ -216,12 +236,20 @@ final class LogicalDisplay {
             }
             if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_PRIVATE) != 0) {
                 mBaseDisplayInfo.flags |= Display.FLAG_PRIVATE;
+                // For private displays by default content is destroyed on removal.
+                mBaseDisplayInfo.removeMode = Display.REMOVE_MODE_DESTROY_CONTENT;
+            }
+            if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_DESTROY_CONTENT_ON_REMOVAL) != 0) {
+                mBaseDisplayInfo.removeMode = Display.REMOVE_MODE_DESTROY_CONTENT;
             }
             if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_PRESENTATION) != 0) {
                 mBaseDisplayInfo.flags |= Display.FLAG_PRESENTATION;
             }
             if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_ROUND) != 0) {
                 mBaseDisplayInfo.flags |= Display.FLAG_ROUND;
+            }
+            if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD) != 0) {
+                mBaseDisplayInfo.flags |= Display.FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD;
             }
             mBaseDisplayInfo.type = deviceInfo.type;
             mBaseDisplayInfo.address = deviceInfo.address;
@@ -253,6 +281,7 @@ final class LogicalDisplay {
             mBaseDisplayInfo.largestNominalAppHeight = deviceInfo.height;
             mBaseDisplayInfo.ownerUid = deviceInfo.ownerUid;
             mBaseDisplayInfo.ownerPackageName = deviceInfo.ownerPackageName;
+            mBaseDisplayInfo.displayCutout = deviceInfo.displayCutout;
 
             mPrimaryDisplayDeviceInfo = deviceInfo;
             mInfo = null;
@@ -276,17 +305,18 @@ final class LogicalDisplay {
      * @param device The display device to modify.
      * @param isBlanked True if the device is being blanked.
      */
-    public void configureDisplayInTransactionLocked(DisplayDevice device,
+    public void configureDisplayLocked(SurfaceControl.Transaction t,
+            DisplayDevice device,
             boolean isBlanked) {
         // Set the layer stack.
-        device.setLayerStackInTransactionLocked(isBlanked ? BLANK_LAYER_STACK : mLayerStack);
+        device.setLayerStackLocked(t, isBlanked ? BLANK_LAYER_STACK : mLayerStack);
 
         // Set the color mode and mode.
         if (device == mPrimaryDisplayDevice) {
-            device.requestDisplayModesInTransactionLocked(
+            device.requestDisplayModesLocked(
                     mRequestedColorMode, mRequestedModeId);
         } else {
-            device.requestDisplayModesInTransactionLocked(0, 0);  // Revert to default.
+            device.requestDisplayModesLocked(0, 0);  // Revert to default.
         }
 
         // Only grab the display info now as it may have been changed based on the requests above.
@@ -349,7 +379,7 @@ final class LogicalDisplay {
         mTempDisplayRect.right += mDisplayOffsetX;
         mTempDisplayRect.top += mDisplayOffsetY;
         mTempDisplayRect.bottom += mDisplayOffsetY;
-        device.setProjectionInTransactionLocked(orientation, mTempLayerStackRect, mTempDisplayRect);
+        device.setProjectionLocked(t, orientation, mTempLayerStackRect, mTempDisplayRect);
     }
 
     /**

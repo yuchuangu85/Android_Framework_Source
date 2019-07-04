@@ -15,8 +15,13 @@
  */
 package com.android.internal.telephony.dataconnection;
 
+import android.content.Context;
 import android.content.res.Resources;
+import android.os.PersistableBundle;
+import android.telephony.CarrierConfigManager;
+
 import java.util.HashMap;
+import java.util.HashSet;
 
 /**
  * Returned as the reason for a connection failure as defined
@@ -102,8 +107,8 @@ public enum DcFailCause {
     // specified in ril.h
     REGISTRATION_FAIL(-1),
     GPRS_REGISTRATION_FAIL(-2),
-    SIGNAL_LOST(-3),
-    PREF_RADIO_TECH_CHANGED(-4),            /* no retry */
+    SIGNAL_LOST(-3),                        /* no retry */
+    PREF_RADIO_TECH_CHANGED(-4),
     RADIO_POWER_OFF(-5),                    /* no retry */
     TETHERED_CALL_ACTIVE(-6),               /* no retry */
     ERROR_UNSPECIFIED(0xFFFF),
@@ -117,8 +122,6 @@ public enum DcFailCause {
     LOST_CONNECTION(0x10004),
     RESET_BY_FRAMEWORK(0x10005);
 
-    private final boolean mRestartRadioOnRegularDeactivation = Resources.getSystem().getBoolean(
-            com.android.internal.R.bool.config_restart_radio_on_pdp_fail_regular_deactivation);
     private final int mErrorCode;
     private static final HashMap<Integer, DcFailCause> sErrorCodeToFailCauseMap;
     static {
@@ -128,6 +131,12 @@ public enum DcFailCause {
         }
     }
 
+    /**
+     * Map of subId -> set of data call setup permanent failure for the carrier.
+     */
+    private static final HashMap<Integer, HashSet<DcFailCause>> sPermanentFailureCache =
+            new HashMap<>();
+
     DcFailCause(int errorCode) {
         mErrorCode = errorCode;
     }
@@ -136,21 +145,85 @@ public enum DcFailCause {
         return mErrorCode;
     }
 
-    /** Radio has failed such that the radio should be restarted */
-    public boolean isRestartRadioFail() {
-        return (this == REGULAR_DEACTIVATION && mRestartRadioOnRegularDeactivation);
+    /**
+     * Returns whether or not the radio has failed and also needs to be restarted.
+     * By default, we do not restart radio on REGULAR_DEACTIVATION.
+     *
+     * @param context device context
+     * @param subId subscription id
+     * @return true if the radio has failed and the carrier requres restart, otherwise false
+     */
+    public boolean isRestartRadioFail(Context context, int subId) {
+        if (this == REGULAR_DEACTIVATION) {
+            CarrierConfigManager configManager = (CarrierConfigManager)
+                    context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
+            if (configManager != null) {
+                PersistableBundle b = configManager.getConfigForSubId(subId);
+                if (b != null) {
+                    return b.getBoolean(CarrierConfigManager.
+                            KEY_RESTART_RADIO_ON_PDP_FAIL_REGULAR_DEACTIVATION_BOOL);
+                }
+            }
+        }
+        return false;
     }
 
-    public boolean isPermanentFail() {
-        return (this == OPERATOR_BARRED) || (this == MISSING_UNKNOWN_APN) ||
-                (this == UNKNOWN_PDP_ADDRESS_TYPE) || (this == USER_AUTHENTICATION) ||
-                (this == ACTIVATION_REJECT_GGSN) || (this == SERVICE_OPTION_NOT_SUPPORTED) ||
-                (this == SERVICE_OPTION_NOT_SUBSCRIBED) || (this == NSAPI_IN_USE) ||
-                (this == ONLY_IPV4_ALLOWED) || (this == ONLY_IPV6_ALLOWED) ||
-                (this == PROTOCOL_ERRORS) ||
-                (this == RADIO_POWER_OFF) || (this == TETHERED_CALL_ACTIVE) ||
-                (this == RADIO_NOT_AVAILABLE) || (this == UNACCEPTABLE_NETWORK_PARAMETER) ||
-                (this == SIGNAL_LOST);
+    public boolean isPermanentFailure(Context context, int subId) {
+
+        synchronized (sPermanentFailureCache) {
+
+            HashSet<DcFailCause> permanentFailureSet = sPermanentFailureCache.get(subId);
+
+            // In case of cache miss, we need to look up the settings from carrier config.
+            if (permanentFailureSet == null) {
+                // Retrieve the permanent failure from carrier config
+                CarrierConfigManager configManager = (CarrierConfigManager)
+                        context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
+                if (configManager != null) {
+                    PersistableBundle b = configManager.getConfigForSubId(subId);
+                    if (b != null) {
+                        String[] permanentFailureStrings = b.getStringArray(CarrierConfigManager.
+                                KEY_CARRIER_DATA_CALL_PERMANENT_FAILURE_STRINGS);
+
+                        if (permanentFailureStrings != null) {
+                            permanentFailureSet = new HashSet<>();
+                            for (String failure : permanentFailureStrings) {
+                                permanentFailureSet.add(DcFailCause.valueOf(failure));
+                            }
+                        }
+                    }
+                }
+
+                // If we are not able to find the configuration from carrier config, use the default
+                // ones.
+                if (permanentFailureSet == null) {
+                    permanentFailureSet = new HashSet<DcFailCause>() {
+                        {
+                            add(OPERATOR_BARRED);
+                            add(MISSING_UNKNOWN_APN);
+                            add(UNKNOWN_PDP_ADDRESS_TYPE);
+                            add(USER_AUTHENTICATION);
+                            add(ACTIVATION_REJECT_GGSN);
+                            add(SERVICE_OPTION_NOT_SUPPORTED);
+                            add(SERVICE_OPTION_NOT_SUBSCRIBED);
+                            add(NSAPI_IN_USE);
+                            add(ONLY_IPV4_ALLOWED);
+                            add(ONLY_IPV6_ALLOWED);
+                            add(PROTOCOL_ERRORS);
+                            add(RADIO_POWER_OFF);
+                            add(TETHERED_CALL_ACTIVE);
+                            add(RADIO_NOT_AVAILABLE);
+                            add(UNACCEPTABLE_NETWORK_PARAMETER);
+                            add(SIGNAL_LOST);
+                        }
+                    };
+                }
+
+                sPermanentFailureCache.put(subId, permanentFailureSet);
+            }
+
+            return permanentFailureSet.contains(this);
+        }
     }
 
     public boolean isEventLoggable() {

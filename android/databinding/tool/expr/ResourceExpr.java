@@ -15,9 +15,11 @@
  */
 package android.databinding.tool.expr;
 
+import android.databinding.tool.BindingTarget;
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
 import android.databinding.tool.writer.KCode;
+import android.databinding.tool.writer.LayoutBinderWriterKt;
 
 import java.util.HashMap;
 import java.util.List;
@@ -45,9 +47,12 @@ public class ResourceExpr extends Expr {
 
     protected final String mResourceId;
 
-    public ResourceExpr(String packageName, String resourceType, String resourceName,
-            List<Expr> args) {
+    protected final BindingTarget mTarget;
+
+    public ResourceExpr(BindingTarget target, String packageName, String resourceType,
+            String resourceName, List<Expr> args) {
         super(args);
+        mTarget = target;
         if ("android".equals(packageName)) {
             mPackage = "android.";
         } else {
@@ -120,18 +125,24 @@ public class ResourceExpr extends Expr {
 
     @Override
     protected String computeUniqueKey() {
-        String base;
-        if (mPackage == null) {
-            base = "@" + mResourceType + "/" + mResourceId;
-        } else {
-            base = "@" + "android:" + mResourceType + "/" + mResourceId;
+        String base = toString();
+        String view = "";
+        if (requiresView()) {
+            view = LayoutBinderWriterKt.getFieldName(mTarget);
         }
-        return join(base, computeChildrenKey());
+        return join(base, view, computeChildrenKey());
     }
 
     @Override
-    protected KCode generateCode(boolean expand) {
+    protected KCode generateCode() {
         return new KCode(toJava());
+    }
+
+    @Override
+    public Expr cloneToModel(ExprModel model) {
+        String pkg = mPackage.isEmpty() ? "" : "android";
+        return model.resourceExpr(mTarget, pkg, mResourceType, mResourceId,
+                cloneToModel(model, getChildren()));
     }
 
     public String getResourceId() {
@@ -144,19 +155,31 @@ public class ResourceExpr extends Expr {
                 computeUniqueKey();
     }
 
+    private boolean requiresView() {
+        return !mTarget.isBinder() && !("anim".equals(mResourceType) ||
+                "animator".equals(mResourceType) ||
+                "id".equals(mResourceType) ||
+                "interpolator".equals(mResourceType) ||
+                "layout".equals(mResourceType) ||
+                "stateListAnimator".equals(mResourceType) ||
+                "transition".equals(mResourceType));
+    }
+
     public String toJava() {
         final String context = "getRoot().getContext()";
-        final String resources = "getRoot().getResources()";
+        final String viewName = requiresView() ? LayoutBinderWriterKt.getFieldName(mTarget) :
+                "getRoot()";
+        final String resources = viewName + ".getResources()";
         final String resourceName = mPackage + "R." + getResourceObject() + "." + mResourceId;
         if ("anim".equals(mResourceType)) return "android.view.animation.AnimationUtils.loadAnimation(" + context + ", " + resourceName + ")";
         if ("animator".equals(mResourceType)) return "android.animation.AnimatorInflater.loadAnimator(" + context + ", " + resourceName + ")";
         if ("bool".equals(mResourceType)) return resources + ".getBoolean(" + resourceName + ")";
-        if ("color".equals(mResourceType)) return "android.databinding.DynamicUtil.getColorFromResource(getRoot(), " + resourceName + ")";
-        if ("colorStateList".equals(mResourceType)) return "getColorStateListFromResource(" + resourceName + ")";
+        if ("color".equals(mResourceType)) return "android.databinding.DynamicUtil.getColorFromResource(" + viewName + ", " + resourceName + ")";
+        if ("colorStateList".equals(mResourceType)) return "android.databinding.DynamicUtil.getColorStateListFromResource(" + viewName + ", " + resourceName + ")";
         if ("dimen".equals(mResourceType)) return resources + ".getDimension(" + resourceName + ")";
         if ("dimenOffset".equals(mResourceType)) return resources + ".getDimensionPixelOffset(" + resourceName + ")";
         if ("dimenSize".equals(mResourceType)) return resources + ".getDimensionPixelSize(" + resourceName + ")";
-        if ("drawable".equals(mResourceType)) return "getDrawableFromResource(" + resourceName + ")";
+        if ("drawable".equals(mResourceType)) return "android.databinding.DynamicUtil.getDrawableFromResource(" + viewName + ", " + resourceName + ")";
         if ("fraction".equals(mResourceType)) {
             String base = getChildCode(0, "1");
             String pbase = getChildCode(1, "1");
@@ -172,11 +195,11 @@ public class ResourceExpr extends Expr {
             if (getChildren().isEmpty()) {
                 return resourceName;
             } else {
-                return makeParameterCall(resourceName, "getQuantityString");
+                return makeParameterCall(resources, resourceName, "getQuantityString");
             }
         }
         if ("stateListAnimator".equals(mResourceType)) return "android.animation.AnimatorInflater.loadStateListAnimator(" + context + ", " + resourceName + ")";
-        if ("string".equals(mResourceType)) return makeParameterCall(resourceName, "getString");
+        if ("string".equals(mResourceType)) return makeParameterCall(resources, resourceName, "getString");
         if ("stringArray".equals(mResourceType)) return resources + ".getStringArray(" + resourceName + ")";
         if ("transition".equals(mResourceType)) return "android.transition.TransitionInflater.from(" + context + ").inflateTransition(" + resourceName + ")";
         if ("typedArray".equals(mResourceType)) return resources + ".obtainTypedArray(" + resourceName + ")";
@@ -194,9 +217,9 @@ public class ResourceExpr extends Expr {
         }
     }
 
-    private String makeParameterCall(String resourceName, String methodCall) {
-        StringBuilder sb = new StringBuilder("getRoot().getResources().");
-        sb.append(methodCall).append("(").append(resourceName);
+    private String makeParameterCall(String resources, String resourceName, String methodCall) {
+        StringBuilder sb = new StringBuilder(resources);
+        sb.append('.').append(methodCall).append("(").append(resourceName);
         for (Expr expr : getChildren()) {
             sb.append(", ").append(expr.toCode().generate());
         }
@@ -210,5 +233,14 @@ public class ResourceExpr extends Expr {
             rFileObject = mResourceType;
         }
         return rFileObject;
+    }
+
+    @Override
+    public String toString() {
+        if (mPackage == null) {
+            return "@" + mResourceType + "/" + mResourceId;
+        } else {
+            return "@" + "android:" + mResourceType + "/" + mResourceId;
+        }
     }
 }

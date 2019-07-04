@@ -16,8 +16,6 @@
 
 package com.android.internal.telephony.imsphone;
 
-import com.android.ims.ImsCallProfile;
-
 /**
  * Interface implemented by modules which are capable of performing a pull of an external call.
  * This is used to break the dependency between {@link ImsExternalCallTracker} and

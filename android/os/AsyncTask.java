@@ -17,14 +17,14 @@
 package android.os;
 
 import android.annotation.MainThread;
+import android.annotation.Nullable;
 import android.annotation.WorkerThread;
-
 import java.util.ArrayDeque;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
@@ -240,6 +240,8 @@ public abstract class AsyncTask<Params, Progress, Result> {
     private final AtomicBoolean mCancelled = new AtomicBoolean();
     private final AtomicBoolean mTaskInvoked = new AtomicBoolean();
 
+    private final Handler mHandler;
+
     private static class SerialExecutor implements Executor {
         final ArrayDeque<Runnable> mTasks = new ArrayDeque<Runnable>();
         Runnable mActive;
@@ -290,13 +292,17 @@ public abstract class AsyncTask<Params, Progress, Result> {
         FINISHED,
     }
 
-    private static Handler getHandler() {
+    private static Handler getMainHandler() {
         synchronized (AsyncTask.class) {
             if (sHandler == null) {
-                sHandler = new InternalHandler();
+                sHandler = new InternalHandler(Looper.getMainLooper());
             }
             return sHandler;
         }
+    }
+
+    private Handler getHandler() {
+        return mHandler;
     }
 
     /** @hide */
@@ -310,6 +316,28 @@ public abstract class AsyncTask<Params, Progress, Result> {
      * 构造函数，初始化mWorker和mFuture参数，
      */
     public AsyncTask() {
+        this((Looper) null);
+    }
+
+    /**
+     * Creates a new asynchronous task. This constructor must be invoked on the UI thread.
+     *
+     * @hide
+     */
+    public AsyncTask(@Nullable Handler handler) {
+        this(handler != null ? handler.getLooper() : null);
+    }
+
+    /**
+     * Creates a new asynchronous task. This constructor must be invoked on the UI thread.
+     *
+     * @hide
+     */
+    public AsyncTask(@Nullable Looper callbackLooper) {
+        mHandler = callbackLooper == null || callbackLooper == Looper.getMainLooper()
+            ? getMainHandler()
+            : new Handler(callbackLooper);
+
         mWorker = new WorkerRunnable<Params, Result>() {
             public Result call() throws Exception {// 从线程池中调用该方法
                 mTaskInvoked.set(true);
@@ -693,8 +721,8 @@ public abstract class AsyncTask<Params, Progress, Result> {
     }
 
     private static class InternalHandler extends Handler {
-        public InternalHandler() {
-            super(Looper.getMainLooper());
+        public InternalHandler(Looper looper) {
+            super(looper);
         }
 
         @SuppressWarnings({"unchecked", "RawUseOfParameterizedType"})

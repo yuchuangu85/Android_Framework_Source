@@ -28,11 +28,9 @@ import android.content.Context;
 import android.net.Uri;
 import android.telecom.PhoneAccount;
 import android.telephony.PhoneNumberUtils;
-import android.telephony.Rlog;
-import android.util.Log;
+import android.telephony.ims.ImsExternalCallState;
 
 import java.util.Collections;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -42,7 +40,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Package.
  *
  * Dialog event package information is received from the IMS framework via
- * {@link com.android.ims.ImsExternalCallState} instances.
+ * {@link ImsExternalCallState} instances.
  *
  * @hide
  */
@@ -126,6 +124,12 @@ public class ImsExternalConnection extends Connection {
     @Override
     public void hangup() throws CallStateException {
         // No-op - Hangup is not supported for external calls.
+    }
+
+    @Override
+    public void deflect(String number) throws CallStateException {
+        // Deflect is not supported for external calls.
+        throw new CallStateException ("Deflect is not supported for external calls");
     }
 
     @Override

@@ -42,6 +42,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.SweepGradient;
+import android.graphics.Xfermode;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -282,10 +283,11 @@ public class GradientDrawable extends Drawable {
     }
 
     /**
-     * Returns the radius for the corners of the gradient.
+     * Returns the radius for the corners of the gradient, that was previously set with
+     * {@link #setCornerRadius(float)}.
      * <p>
-     * If the radius was previously set with {@link #setCornerRadii(float[])},
-     * or if the corners are not rounded, this method will return {@code null}.
+     * If the radius was previously cleared via passing {@code null}
+     * to {@link #setCornerRadii(float[])}, this method will return 0.
      *
      * @return the radius in pixels of the corners of the rectangle shape, or 0
      * @see #setCornerRadius
@@ -813,6 +815,24 @@ public class GradientDrawable extends Drawable {
         }
     }
 
+    /**
+     * @param mode to draw this drawable with
+     * @hide
+     */
+    @Override
+    public void setXfermode(@Nullable Xfermode mode) {
+        super.setXfermode(mode);
+        mFillPaint.setXfermode(mode);
+    }
+
+    /**
+     * @param aa to draw this drawable with
+     * @hide
+     */
+    public void setAntiAlias(boolean aa) {
+        mFillPaint.setAntiAlias(aa);
+    }
+
     private void buildPathIfDirty() {
         final GradientState st = mGradientState;
         if (mPathIsDirty) {
@@ -984,6 +1004,15 @@ public class GradientDrawable extends Drawable {
                 || (s.mSolidColors != null && s.mSolidColors.isStateful())
                 || (s.mStrokeColors != null && s.mStrokeColors.isStateful())
                 || (s.mTint != null && s.mTint.isStateful());
+    }
+
+    /** @hide */
+    @Override
+    public boolean hasFocusStateSpecified() {
+        final GradientState s = mGradientState;
+        return (s.mSolidColors != null && s.mSolidColors.hasFocusStateSpecified())
+                || (s.mStrokeColors != null && s.mStrokeColors.hasFocusStateSpecified())
+                || (s.mTint != null && s.mTint.hasFocusStateSpecified());
     }
 
     @Override
@@ -2064,6 +2093,7 @@ public class GradientDrawable extends Drawable {
             }
             mRadius = radius;
             mRadiusArray = null;
+            computeOpacity();
         }
 
         public void setCornerRadii(float[] radii) {
@@ -2071,6 +2101,7 @@ public class GradientDrawable extends Drawable {
             if (radii == null) {
                 mRadius = 0;
             }
+            computeOpacity();
         }
 
         public void setSize(int width, int height) {

@@ -25,7 +25,7 @@ import android.util.Log;
  * if there is no Bluetooth adapter on this device, and callers must be
  * prepared to handle this case.
  */
-public final class LocalBluetoothManager {
+public class LocalBluetoothManager {
     private static final String TAG = "LocalBluetoothManager";
 
     /** Singleton instance. */
@@ -73,6 +73,7 @@ public final class LocalBluetoothManager {
                 mCachedDeviceManager, context);
         mProfileManager = new LocalBluetoothProfileManager(context,
                 mLocalAdapter, mCachedDeviceManager, mEventManager);
+        mEventManager.readPairedDevices();
     }
 
     public LocalBluetoothAdapter getBluetoothAdapter() {

@@ -104,34 +104,43 @@ public class WifiInfo implements Parcelable {
     private boolean mEphemeral;
 
     /**
+     * Running total count of lost (not ACKed) transmitted unicast data packets.
      * @hide
      */
     public long txBad;
     /**
+     * Running total count of transmitted unicast data retry packets.
      * @hide
      */
     public long txRetries;
     /**
+     * Running total count of successfully transmitted (ACKed) unicast data packets.
      * @hide
      */
     public long txSuccess;
     /**
+     * Running total count of received unicast data packets.
      * @hide
      */
     public long rxSuccess;
+
     /**
+     * Average rate of lost transmitted packets, in units of packets per second.
      * @hide
      */
     public double txBadRate;
     /**
+     * Average rate of transmitted retry packets, in units of packets per second.
      * @hide
      */
     public double txRetriesRate;
     /**
+     * Average rate of successfully transmitted unicast packets, in units of packets per second.
      * @hide
      */
     public double txSuccessRate;
     /**
+     * Average rate of received unicast data packets, in units of packets per second.
      * @hide
      */
     public double rxSuccessRate;
@@ -139,99 +148,12 @@ public class WifiInfo implements Parcelable {
     /**
      * @hide
      */
-    public int badRssiCount;
-
-    /**
-     * @hide
-     */
-    public int linkStuckCount;
-
-    /**
-     * @hide
-     */
-    public int lowRssiCount;
-
-    /**
-     * @hide
-     */
     public int score;
 
     /**
-     * TODO: get actual timestamp and calculate true rates
-     * @hide
+     * Flag indicating that AP has hinted that upstream connection is metered,
+     * and sensitive to heavy data transfers.
      */
-    public void updatePacketRates(WifiLinkLayerStats stats) {
-        if (stats != null) {
-            long txgood = stats.txmpdu_be + stats.txmpdu_bk + stats.txmpdu_vi + stats.txmpdu_vo;
-            long txretries = stats.retries_be + stats.retries_bk
-                    + stats.retries_vi + stats.retries_vo;
-            long rxgood = stats.rxmpdu_be + stats.rxmpdu_bk + stats.rxmpdu_vi + stats.rxmpdu_vo;
-            long txbad = stats.lostmpdu_be + stats.lostmpdu_bk
-                    + stats.lostmpdu_vi + stats.lostmpdu_vo;
-
-            if (txBad <= txbad
-                    && txSuccess <= txgood
-                    && rxSuccess <= rxgood
-                    && txRetries <= txretries) {
-                txBadRate = (txBadRate * 0.5)
-                        + ((double) (txbad - txBad) * 0.5);
-                txSuccessRate = (txSuccessRate * 0.5)
-                        + ((double) (txgood - txSuccess) * 0.5);
-                rxSuccessRate = (rxSuccessRate * 0.5)
-                        + ((double) (rxgood - rxSuccess) * 0.5);
-                txRetriesRate = (txRetriesRate * 0.5)
-                        + ((double) (txretries - txRetries) * 0.5);
-            } else {
-                txBadRate = 0;
-                txSuccessRate = 0;
-                rxSuccessRate = 0;
-                txRetriesRate = 0;
-            }
-            txBad = txbad;
-            txSuccess = txgood;
-            rxSuccess = rxgood;
-            txRetries = txretries;
-        } else {
-            txBad = 0;
-            txSuccess = 0;
-            rxSuccess = 0;
-            txRetries = 0;
-            txBadRate = 0;
-            txSuccessRate = 0;
-            rxSuccessRate = 0;
-            txRetriesRate = 0;
-        }
-    }
-
-
-    /**
-     * This function is less powerful and used if the WifiLinkLayerStats API is not implemented
-     * at the Wifi HAL
-     * @hide
-     */
-    public void updatePacketRates(long txPackets, long rxPackets) {
-        //paranoia
-        txBad = 0;
-        txRetries = 0;
-        txBadRate = 0;
-        txRetriesRate = 0;
-        if (txSuccess <= txPackets && rxSuccess <= rxPackets) {
-            txSuccessRate = (txSuccessRate * 0.5)
-                    + ((double) (txPackets - txSuccess) * 0.5);
-            rxSuccessRate = (rxSuccessRate * 0.5)
-                    + ((double) (rxPackets - rxSuccess) * 0.5);
-        } else {
-            txBadRate = 0;
-            txRetriesRate = 0;
-        }
-        txSuccess = txPackets;
-        rxSuccess = rxPackets;
-    }
-
-        /**
-         * Flag indicating that AP has hinted that upstream connection is metered,
-         * and sensitive to heavy data transfers.
-         */
     private boolean mMeteredHint;
 
     /** @hide */
@@ -264,9 +186,6 @@ public class WifiInfo implements Parcelable {
         txSuccessRate = 0;
         rxSuccessRate = 0;
         txRetriesRate = 0;
-        lowRssiCount = 0;
-        badRssiCount = 0;
-        linkStuckCount = 0;
         score = 0;
     }
 
@@ -296,9 +215,6 @@ public class WifiInfo implements Parcelable {
             txSuccessRate = source.txSuccessRate;
             rxSuccessRate = source.rxSuccessRate;
             score = source.score;
-            badRssiCount = source.badRssiCount;
-            lowRssiCount = source.lowRssiCount;
-            linkStuckCount = source.linkStuckCount;
         }
     }
 
@@ -311,7 +227,11 @@ public class WifiInfo implements Parcelable {
      * Returns the service set identifier (SSID) of the current 802.11 network.
      * If the SSID can be decoded as UTF-8, it will be returned surrounded by double
      * quotation marks. Otherwise, it is returned as a string of hex digits. The
-     * SSID may be &lt;unknown ssid&gt; if there is no network currently connected.
+     * SSID may be &lt;unknown ssid&gt; if there is no network currently connected,
+     * or if the caller has insufficient permissions to access the SSID.
+     *
+     * Prior to {@link android.os.Build.VERSION_CODES#JELLY_BEAN_MR1}, this method
+     * always returned the SSID with no quotes around it.
      * @return the SSID
      */
     public String getSSID() {
@@ -434,7 +354,13 @@ public class WifiInfo implements Parcelable {
         return mMacAddress != null && !DEFAULT_MAC_ADDRESS.equals(mMacAddress);
     }
 
-    /** {@hide} */
+    /**
+     * Indicates if we've dynamically detected this active network connection as
+     * being metered.
+     *
+     * @see WifiConfiguration#isMetered(WifiConfiguration, WifiInfo)
+     * @hide
+     */
     public void setMeteredHint(boolean meteredHint) {
         mMeteredHint = meteredHint;
     }
@@ -597,8 +523,6 @@ public class WifiInfo implements Parcelable {
         dest.writeDouble(txRetriesRate);
         dest.writeDouble(txBadRate);
         dest.writeDouble(rxSuccessRate);
-        dest.writeInt(badRssiCount);
-        dest.writeInt(lowRssiCount);
         mSupplicantState.writeToParcel(dest, flags);
     }
 
@@ -628,8 +552,6 @@ public class WifiInfo implements Parcelable {
                 info.txRetriesRate = in.readDouble();
                 info.txBadRate = in.readDouble();
                 info.rxSuccessRate = in.readDouble();
-                info.badRssiCount = in.readInt();
-                info.lowRssiCount = in.readInt();
                 info.mSupplicantState = SupplicantState.CREATOR.createFromParcel(in);
                 return info;
             }

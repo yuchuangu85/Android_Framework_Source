@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2001, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,7 +37,7 @@ public class PortUnreachableException extends SocketException {
     private static final long serialVersionUID = 8462541992376507323L;
 
     /**
-     * Constructs a new <code>PortUnreachableException</code> with a
+     * Constructs a new {@code PortUnreachableException} with a
      * detail message.
      * @param msg the detail message
      */
@@ -46,11 +46,12 @@ public class PortUnreachableException extends SocketException {
     }
 
     /**
-     * Construct a new <code>PortUnreachableException</code> with no
+     * Construct a new {@code PortUnreachableException} with no
      * detailed message.
      */
     public PortUnreachableException() {}
 
+    // Android-added: PortUnreachableException ctor used by IoBridge.
     /** @hide */
     public PortUnreachableException(String msg, Throwable cause) {
         super(msg, cause);

@@ -16,6 +16,7 @@
 
 package android.view;
 
+import android.annotation.TestApi;
 import android.app.AppGlobals;
 import android.content.Context;
 import android.content.res.Configuration;
@@ -34,7 +35,7 @@ public class ViewConfiguration {
      * Defines the width of the horizontal scrollbar and the height of the vertical scrollbar in
      * dips
      */
-    private static final int SCROLL_BAR_SIZE = 10;
+    private static final int SCROLL_BAR_SIZE = 4;
 
     /**
      * Duration of the fade when scrollbars fade away in milliseconds
@@ -64,6 +65,12 @@ public class ViewConfiguration {
     private static final int DEFAULT_LONG_PRESS_TIMEOUT = 500;
 
     /**
+     * Defines the default duration in milliseconds between the first tap's up event and the second
+     * tap's down event for an interaction to be considered part of the same multi-press.
+     */
+    private static final int DEFAULT_MULTI_PRESS_TIMEOUT = 300;
+
+    /**
      * Defines the time between successive key repeats in milliseconds.
      */
     private static final int KEY_REPEAT_DELAY = 50;
@@ -74,6 +81,18 @@ public class ViewConfiguration {
      * lock screen, etc).
      */
     private static final int GLOBAL_ACTIONS_KEY_TIMEOUT = 500;
+
+    /**
+     * Defines the duration in milliseconds a user needs to hold down the
+     * appropriate button to bring up the accessibility shortcut for the first time
+     */
+    private static final int A11Y_SHORTCUT_KEY_TIMEOUT = 3000;
+
+    /**
+     * Defines the duration in milliseconds a user needs to hold down the
+     * appropriate button to enable the accessibility shortcut once it's configured.
+     */
+    private static final int A11Y_SHORTCUT_KEY_TIMEOUT_AFTER_CONFIRMATION = 1000;
 
     /**
      * Defines the duration in milliseconds we will wait to see if a touch event
@@ -140,6 +159,11 @@ public class ViewConfiguration {
      * the characteristics of the touch panel and firmware.
      */
     private static final int TOUCH_SLOP = 8;
+
+    /**
+     * Defines the minimum size of the touch target for a scrollbar in dips
+     */
+    private static final int MIN_SCROLLBAR_TOUCH_TARGET = 48;
 
     /**
      * Distance the first touch can wander before we stop considering this event a double tap
@@ -213,9 +237,44 @@ public class ViewConfiguration {
     private static final int OVERFLING_DISTANCE = 6;
 
     /**
+     * Amount to scroll in response to a horizontal {@link MotionEvent#ACTION_SCROLL} event,
+     * in dips per axis value.
+     */
+    private static final float HORIZONTAL_SCROLL_FACTOR = 64;
+
+    /**
+     * Amount to scroll in response to a vertical {@link MotionEvent#ACTION_SCROLL} event,
+     * in dips per axis value.
+     */
+    private static final float VERTICAL_SCROLL_FACTOR = 64;
+
+    /**
      * Default duration to hide an action mode for.
      */
     private static final long ACTION_MODE_HIDE_DURATION_DEFAULT = 2000;
+
+    /**
+     * Defines the duration in milliseconds before an end of a long press causes a tooltip to be
+     * hidden.
+     */
+    private static final int LONG_PRESS_TOOLTIP_HIDE_TIMEOUT = 1500;
+
+    /**
+     * Defines the duration in milliseconds before a hover event causes a tooltip to be shown.
+     */
+    private static final int HOVER_TOOLTIP_SHOW_TIMEOUT = 500;
+
+    /**
+     * Defines the duration in milliseconds before mouse inactivity causes a tooltip to be hidden.
+     * (default variant to be used when {@link View#SYSTEM_UI_FLAG_LOW_PROFILE} is not set).
+     */
+    private static final int HOVER_TOOLTIP_HIDE_TIMEOUT = 15000;
+
+    /**
+     * Defines the duration in milliseconds before mouse inactivity causes a tooltip to be hidden
+     * (short version to be used when {@link View#SYSTEM_UI_FLAG_LOW_PROFILE} is set).
+     */
+    private static final int HOVER_TOOLTIP_HIDE_SHORT_TIMEOUT = 3000;
 
     /**
      * Configuration values for overriding {@link #hasPermanentMenuKey()} behavior.
@@ -231,6 +290,8 @@ public class ViewConfiguration {
     private final int mMaximumFlingVelocity;
     private final int mScrollbarSize;
     private final int mTouchSlop;
+    private final int mHoverSlop;
+    private final int mMinScrollbarTouchTarget;
     private final int mDoubleTapTouchSlop;
     private final int mPagingTouchSlop;
     private final int mDoubleTapSlop;
@@ -240,6 +301,9 @@ public class ViewConfiguration {
     private final int mOverflingDistance;
     private final boolean mFadingMarqueeEnabled;
     private final long mGlobalActionsKeyTimeout;
+    private final float mVerticalScrollFactor;
+    private final float mHorizontalScrollFactor;
+    private final boolean mShowMenuShortcutsWhenKeyboardPresent;
 
     private boolean sHasPermanentMenuKey;
     private boolean sHasPermanentMenuKeySet;
@@ -258,6 +322,8 @@ public class ViewConfiguration {
         mMaximumFlingVelocity = MAXIMUM_FLING_VELOCITY;
         mScrollbarSize = SCROLL_BAR_SIZE;
         mTouchSlop = TOUCH_SLOP;
+        mHoverSlop = TOUCH_SLOP / 2;
+        mMinScrollbarTouchTarget = MIN_SCROLLBAR_TOUCH_TARGET;
         mDoubleTapTouchSlop = DOUBLE_TAP_TOUCH_SLOP;
         mPagingTouchSlop = PAGING_TOUCH_SLOP;
         mDoubleTapSlop = DOUBLE_TAP_SLOP;
@@ -268,6 +334,9 @@ public class ViewConfiguration {
         mOverflingDistance = OVERFLING_DISTANCE;
         mFadingMarqueeEnabled = true;
         mGlobalActionsKeyTimeout = GLOBAL_ACTIONS_KEY_TIMEOUT;
+        mHorizontalScrollFactor = HORIZONTAL_SCROLL_FACTOR;
+        mVerticalScrollFactor = VERTICAL_SCROLL_FACTOR;
+        mShowMenuShortcutsWhenKeyboardPresent = false;
     }
 
     /**
@@ -294,7 +363,8 @@ public class ViewConfiguration {
 
         mEdgeSlop = (int) (sizeAndDensity * EDGE_SLOP + 0.5f);
         mFadingEdgeLength = (int) (sizeAndDensity * FADING_EDGE_LENGTH + 0.5f);
-        mScrollbarSize = (int) (density * SCROLL_BAR_SIZE + 0.5f);
+        mScrollbarSize = res.getDimensionPixelSize(
+                com.android.internal.R.dimen.config_scrollbarSize);
         mDoubleTapSlop = (int) (sizeAndDensity * DOUBLE_TAP_SLOP + 0.5f);
         mWindowTouchSlop = (int) (sizeAndDensity * WINDOW_TOUCH_SLOP + 0.5f);
 
@@ -341,6 +411,10 @@ public class ViewConfiguration {
                 com.android.internal.R.bool.config_ui_enableFadingMarquee);
         mTouchSlop = res.getDimensionPixelSize(
                 com.android.internal.R.dimen.config_viewConfigurationTouchSlop);
+        mHoverSlop = res.getDimensionPixelSize(
+                com.android.internal.R.dimen.config_viewConfigurationHoverSlop);
+        mMinScrollbarTouchTarget = res.getDimensionPixelSize(
+                com.android.internal.R.dimen.config_minScrollbarTouchTarget);
         mPagingTouchSlop = mTouchSlop * 2;
 
         mDoubleTapTouchSlop = mTouchSlop;
@@ -351,6 +425,15 @@ public class ViewConfiguration {
                 com.android.internal.R.dimen.config_viewMaxFlingVelocity);
         mGlobalActionsKeyTimeout = res.getInteger(
                 com.android.internal.R.integer.config_globalActionsKeyTimeout);
+
+        mHorizontalScrollFactor = res.getDimensionPixelSize(
+                com.android.internal.R.dimen.config_horizontalScrollFactor);
+        mVerticalScrollFactor = res.getDimensionPixelSize(
+                com.android.internal.R.dimen.config_verticalScrollFactor);
+
+        mShowMenuShortcutsWhenKeyboardPresent = res.getBoolean(
+            com.android.internal.R.bool.config_showMenuShortcutsWhenKeyboardPresent);
+
     }
 
     /**
@@ -390,6 +473,14 @@ public class ViewConfiguration {
      */
     public int getScaledScrollBarSize() {
         return mScrollbarSize;
+    }
+
+    /**
+     * @return the minimum size of the scrollbar thumb's touch target in pixels
+     * @hide
+     */
+    public int getScaledMinScrollbarTouchTarget() {
+        return mMinScrollbarTouchTarget;
     }
 
     /**
@@ -438,6 +529,16 @@ public class ViewConfiguration {
     public static int getLongPressTimeout() {
         return AppGlobals.getIntCoreSetting(Settings.Secure.LONG_PRESS_TIMEOUT,
                 DEFAULT_LONG_PRESS_TIMEOUT);
+    }
+
+    /**
+     * @return the duration in milliseconds between the first tap's up event and the second tap's
+     * down event for an interaction to be considered part of the same multi-press.
+     * @hide
+     */
+    public static int getMultiPressTimeout() {
+        return AppGlobals.getIntCoreSetting(Settings.Secure.MULTI_PRESS_TIMEOUT,
+                DEFAULT_MULTI_PRESS_TIMEOUT);
     }
 
     /**
@@ -549,6 +650,14 @@ public class ViewConfiguration {
     }
 
     /**
+     * @return Distance in pixels a hover can wander while it is still considered "stationary".
+     *
+     */
+    public int getScaledHoverSlop() {
+        return mHoverSlop;
+    }
+
+    /**
      * @return Distance in pixels the first touch can wander before we do not consider this a
      * potential double tap event
      * @hide
@@ -653,6 +762,32 @@ public class ViewConfiguration {
     }
 
     /**
+     * @return Amount to scroll in response to a {@link MotionEvent#ACTION_SCROLL} event. Multiply
+     * this by the event's axis value to obtain the number of pixels to be scrolled.
+     *
+     * @removed
+     */
+    public int getScaledScrollFactor() {
+        return (int) mVerticalScrollFactor;
+    }
+
+    /**
+     * @return Amount to scroll in response to a horizontal {@link MotionEvent#ACTION_SCROLL} event.
+     * Multiply this by the event's axis value to obtain the number of pixels to be scrolled.
+     */
+    public float getScaledHorizontalScrollFactor() {
+        return mHorizontalScrollFactor;
+    }
+
+    /**
+     * @return Amount to scroll in response to a vertical {@link MotionEvent#ACTION_SCROLL} event.
+     * Multiply this by the event's axis value to obtain the number of pixels to be scrolled.
+     */
+    public float getScaledVerticalScrollFactor() {
+        return mVerticalScrollFactor;
+    }
+
+    /**
      * The maximum drawing cache size expressed in bytes.
      *
      * @return the maximum size of View's drawing cache expressed in bytes
@@ -727,6 +862,27 @@ public class ViewConfiguration {
     }
 
     /**
+     * The amount of time a user needs to press the relevant keys to activate the accessibility
+     * shortcut.
+     *
+     * @return how long a user needs to press the relevant keys to activate the accessibility
+     *   shortcut.
+     * @hide
+     */
+    public long getAccessibilityShortcutKeyTimeout() {
+        return A11Y_SHORTCUT_KEY_TIMEOUT;
+    }
+
+    /**
+     * @return The amount of time a user needs to press the relevant keys to activate the
+     *   accessibility shortcut after it's confirmed that accessibility shortcut is used.
+     * @hide
+     */
+    public long getAccessibilityShortcutKeyTimeoutAfterConfirmation() {
+        return A11Y_SHORTCUT_KEY_TIMEOUT_AFTER_CONFIRMATION;
+    }
+
+    /**
      * The amount of friction applied to scrolls and flings.
      *
      * @return A scalar dimensionless value representing the coefficient of
@@ -760,10 +916,58 @@ public class ViewConfiguration {
     }
 
     /**
+     * Check if shortcuts should be displayed in menus.
+     *
+     * @return {@code True} if shortcuts should be displayed in menus.
+     */
+    public boolean shouldShowMenuShortcutsWhenKeyboardPresent() {
+        return mShowMenuShortcutsWhenKeyboardPresent;
+    }
+
+    /**
      * @hide
      * @return Whether or not marquee should use fading edges.
      */
     public boolean isFadingMarqueeEnabled() {
         return mFadingMarqueeEnabled;
+    }
+
+    /**
+     * @return the duration in milliseconds before an end of a long press causes a tooltip to be
+     * hidden
+     * @hide
+     */
+    @TestApi
+    public static int getLongPressTooltipHideTimeout() {
+        return LONG_PRESS_TOOLTIP_HIDE_TIMEOUT;
+    }
+
+    /**
+     * @return the duration in milliseconds before a hover event causes a tooltip to be shown
+     * @hide
+     */
+    @TestApi
+    public static int getHoverTooltipShowTimeout() {
+        return HOVER_TOOLTIP_SHOW_TIMEOUT;
+    }
+
+    /**
+     * @return the duration in milliseconds before mouse inactivity causes a tooltip to be hidden
+     * (default variant to be used when {@link View#SYSTEM_UI_FLAG_LOW_PROFILE} is not set).
+     * @hide
+     */
+    @TestApi
+    public static int getHoverTooltipHideTimeout() {
+        return HOVER_TOOLTIP_HIDE_TIMEOUT;
+    }
+
+    /**
+     * @return the duration in milliseconds before mouse inactivity causes a tooltip to be hidden
+     * (shorter variant to be used when {@link View#SYSTEM_UI_FLAG_LOW_PROFILE} is set).
+     * @hide
+     */
+    @TestApi
+    public static int getHoverTooltipHideShortTimeout() {
+        return HOVER_TOOLTIP_HIDE_SHORT_TIMEOUT;
     }
 }

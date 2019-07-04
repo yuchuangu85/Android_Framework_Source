@@ -18,11 +18,12 @@ package android.support.v4.media.session;
 
 import android.media.session.PlaybackState;
 import android.os.Bundle;
-import android.os.SystemClock;
 
-import java.util.ArrayList;
+import androidx.annotation.RequiresApi;
+
 import java.util.List;
 
+@RequiresApi(21)
 class PlaybackStateCompatApi21 {
     public static int getState(Object stateObj) {
         return ((PlaybackState)stateObj).getState();
@@ -99,5 +100,11 @@ class PlaybackStateCompatApi21 {
             customActionObj.setExtras(extras);
             return customActionObj.build();
         }
+
+        private CustomAction() {
+        }
+    }
+
+    private PlaybackStateCompatApi21() {
     }
 }

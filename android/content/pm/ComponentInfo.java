@@ -45,6 +45,12 @@ public class ComponentInfo extends PackageItemInfo {
     public String processName;
 
     /**
+     * The name of the split in which this component is declared.
+     * Null if the component was declared in the base APK.
+     */
+    public String splitName;
+
+    /**
      * A string resource identifier (in the package's resources) containing
      * a user-readable description of the component.  From the "description"
      * attribute or, if not set, 0.
@@ -53,7 +59,7 @@ public class ComponentInfo extends PackageItemInfo {
     
     /**
      * Indicates whether or not this component may be instantiated.  Note that this value can be
-     * overriden by the one in its parent {@link ApplicationInfo}.
+     * overridden by the one in its parent {@link ApplicationInfo}.
      */
     public boolean enabled = true;
 
@@ -83,13 +89,15 @@ public class ComponentInfo extends PackageItemInfo {
         super(orig);
         applicationInfo = orig.applicationInfo;
         processName = orig.processName;
+        splitName = orig.splitName;
         descriptionRes = orig.descriptionRes;
         enabled = orig.enabled;
         exported = orig.exported;
         encryptionAware = directBootAware = orig.directBootAware;
     }
 
-    @Override public CharSequence loadLabel(PackageManager pm) {
+    /** @hide */
+    @Override public CharSequence loadUnsafeLabel(PackageManager pm) {
         if (nonLocalizedLabel != null) {
             return nonLocalizedLabel;
         }
@@ -163,6 +171,9 @@ public class ComponentInfo extends PackageItemInfo {
         if (processName != null && !packageName.equals(processName)) {
             pw.println(prefix + "processName=" + processName);
         }
+        if (splitName != null) {
+            pw.println(prefix + "splitName=" + splitName);
+        }
         pw.println(prefix + "enabled=" + enabled + " exported=" + exported
                 + " directBootAware=" + directBootAware);
         if (descriptionRes != 0) {
@@ -173,12 +184,12 @@ public class ComponentInfo extends PackageItemInfo {
     protected void dumpBack(Printer pw, String prefix) {
         dumpBack(pw, prefix, DUMP_FLAG_ALL);
     }
-    
-    void dumpBack(Printer pw, String prefix, int flags) {
-        if ((flags&DUMP_FLAG_APPLICATION) != 0) {
+
+    void dumpBack(Printer pw, String prefix, int dumpFlags) {
+        if ((dumpFlags & DUMP_FLAG_APPLICATION) != 0) {
             if (applicationInfo != null) {
                 pw.println(prefix + "ApplicationInfo:");
-                applicationInfo.dump(pw, prefix + "  ", flags);
+                applicationInfo.dump(pw, prefix + "  ", dumpFlags);
             } else {
                 pw.println(prefix + "ApplicationInfo: null");
             }
@@ -195,6 +206,7 @@ public class ComponentInfo extends PackageItemInfo {
             applicationInfo.writeToParcel(dest, parcelableFlags);
         }
         dest.writeString(processName);
+        dest.writeString(splitName);
         dest.writeInt(descriptionRes);
         dest.writeInt(enabled ? 1 : 0);
         dest.writeInt(exported ? 1 : 0);
@@ -208,6 +220,7 @@ public class ComponentInfo extends PackageItemInfo {
             applicationInfo = ApplicationInfo.CREATOR.createFromParcel(source);
         }
         processName = source.readString();
+        splitName = source.readString();
         descriptionRes = source.readInt();
         enabled = (source.readInt() != 0);
         exported = (source.readInt() != 0);

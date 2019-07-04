@@ -28,10 +28,15 @@ import android.util.Log;
  * Nano apps are expected to be used only by bundled apps only
  * at this time.
  *
+ * @deprecated Use {@link android.hardware.location.NanoAppBinary} instead to load a nanoapp with
+ *             {@link android.hardware.location.ContextHubManager#loadNanoApp(
+ *             ContextHubInfo, NanoAppBinary)}.
+ *
  * @hide
  */
 @SystemApi
-public class NanoApp {
+@Deprecated
+public class NanoApp implements Parcelable {
     private final String TAG = "NanoApp";
 
     private final String UNKNOWN = "Unknown";
@@ -39,7 +44,7 @@ public class NanoApp {
     private String mPublisher;
     private String mName;
 
-    private int mAppId;
+    private long mAppId;
     private boolean mAppIdSet;
     private int mAppVersion;
 
@@ -53,13 +58,13 @@ public class NanoApp {
 
     /**
      * If this version of the constructor is used, the methods
-     * {@link #setAppBinary(byte[])} and {@link #setAppId(int)} must be called
+     * {@link #setAppBinary(byte[])} and {@link #setAppId(long)} must be called
      * prior to passing this object to any managers.
      *
-     * @see #NanoApp(int, byte[])
+     * @see #NanoApp(long, byte[])
      */
     public NanoApp() {
-        this(0, null);
+        this(0L, null);
         mAppIdSet = false;
     }
 
@@ -77,8 +82,29 @@ public class NanoApp {
      * @see #setNeededExecMemBytes(int)
      * @see #setNeededSensors(int[])
      * @see #setOutputEvents(int[])
+     *
+     * @deprecated Use NanoApp(long, byte[]) instead
      */
-    public NanoApp(int appId, byte[] appBinary) {
+    @Deprecated public NanoApp(int appId, byte[] appBinary) {
+        Log.w(TAG, "NanoApp(int, byte[]) is deprecated, please use NanoApp(long, byte[]) instead.");
+    }
+
+    /**
+     * Initialize a NanoApp with the given id and binary.
+     *
+     * While this sets defaults for other fields, users will want to provide
+     * other values for those fields in most cases.
+     *
+     * @see #setPublisher(String)
+     * @see #setName(String)
+     * @see #setAppVersion(int)
+     * @see #setNeededReadMemBytes(int)
+     * @see #setNeededWriteMemBytes(int)
+     * @see #setNeededExecMemBytes(int)
+     * @see #setNeededSensors(int[])
+     * @see #setOutputEvents(int[])
+     */
+    public NanoApp(long appId, byte[] appBinary) {
         mPublisher = UNKNOWN;
         mName = UNKNOWN;
 
@@ -116,9 +142,9 @@ public class NanoApp {
     /**
      * set the app identifier
      *
-     * @param appId  add identifier
+     * @param appId  app identifier
      */
-    public void setAppId(int appId) {
+    public void setAppId(long appId) {
         mAppId = appId;
         mAppIdSet = true;
     }
@@ -209,7 +235,7 @@ public class NanoApp {
      *
      * @return identifier for this app
      */
-    public int getAppId() {
+    public long getAppId() {
         return mAppId;
     }
 
@@ -280,7 +306,7 @@ public class NanoApp {
         mPublisher = in.readString();
         mName = in.readString();
 
-        mAppId = in.readInt();
+        mAppId = in.readLong();
         mAppVersion = in.readInt();
         mNeededReadMemBytes = in.readInt();
         mNeededWriteMemBytes = in.readInt();
@@ -313,7 +339,7 @@ public class NanoApp {
 
         out.writeString(mPublisher);
         out.writeString(mName);
-        out.writeInt(mAppId);
+        out.writeLong(mAppId);
         out.writeInt(mAppVersion);
         out.writeInt(mNeededReadMemBytes);
         out.writeInt(mNeededWriteMemBytes);

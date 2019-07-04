@@ -21,18 +21,14 @@ import android.view.Display;
 import android.view.View;
 
 public interface RecentsComponent {
-    void showRecents(boolean triggeredFromAltTab, boolean fromHome);
-    void hideRecents(boolean triggeredFromAltTab, boolean triggeredFromHomeKey);
-    void toggleRecents(Display display);
-    void preloadRecents();
-    void cancelPreloadingRecents();
+    void showRecentApps(boolean triggeredFromAltTab);
     void showNextAffiliatedTask();
     void showPrevAffiliatedTask();
 
     /**
      * Docks the top-most task and opens recents.
      */
-    boolean dockTopTask(int dragMode, int stackCreateMode, Rect initialBounds,
+    boolean splitPrimaryTask(int dragMode, int stackCreateMode, Rect initialBounds,
             int metricsDockAction);
 
     /**

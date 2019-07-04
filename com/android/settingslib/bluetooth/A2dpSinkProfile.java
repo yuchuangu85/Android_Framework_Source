@@ -85,6 +85,11 @@ final class A2dpSinkProfile implements LocalBluetoothProfile {
         return mIsProfileReady;
     }
 
+    @Override
+    public int getProfileId() {
+        return BluetoothProfile.A2DP_SINK;
+    }
+
     A2dpSinkProfile(Context context, LocalBluetoothAdapter adapter,
             CachedBluetoothDeviceManager deviceManager,
             LocalBluetoothProfileManager profileManager) {
@@ -121,9 +126,6 @@ final class A2dpSinkProfile implements LocalBluetoothProfile {
                     Log.d(TAG,"Ignoring Connect");
                     return true;
                 }
-            }
-            for (BluetoothDevice src : srcs) {
-                mService.disconnect(src);
             }
         }
         return mService.connect(device);

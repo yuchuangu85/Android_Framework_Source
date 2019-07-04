@@ -16,6 +16,9 @@
 
 package com.android.internal.inputmethod;
 
+import static android.view.inputmethod.InputMethodManager.CONTROL_WINDOW_IS_TEXT_EDITOR;
+import static android.view.inputmethod.InputMethodManager.CONTROL_WINDOW_VIEW_HAS_FOCUS;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.UserIdInt;
@@ -26,6 +29,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
+import android.os.Build;
 import android.os.LocaleList;
 import android.os.RemoteException;
 import android.provider.Settings;
@@ -33,6 +37,7 @@ import android.text.TextUtils;
 import android.text.TextUtils.SimpleStringSplitter;
 import android.util.ArrayMap;
 import android.util.ArraySet;
+import android.util.Log;
 import android.util.Pair;
 import android.util.Printer;
 import android.util.Slog;
@@ -266,43 +271,6 @@ public class InputMethodUtils {
         }
     }
 
-    private static InputMethodListBuilder getMinimumKeyboardSetWithoutSystemLocale(
-            final ArrayList<InputMethodInfo> imis, final Context context,
-            @Nullable final Locale fallbackLocale) {
-        // Before the system becomes ready, we pick up at least one keyboard in the following order.
-        // The first user (device owner) falls into this category.
-        // 1. checkDefaultAttribute: true, locale: fallbackLocale, checkCountry: true
-        // 2. checkDefaultAttribute: false, locale: fallbackLocale, checkCountry: true
-        // 3. checkDefaultAttribute: true, locale: fallbackLocale, checkCountry: false
-        // 4. checkDefaultAttribute: false, locale: fallbackLocale, checkCountry: false
-        // TODO: We should check isAsciiCapable instead of relying on fallbackLocale.
-
-        final InputMethodListBuilder builder = new InputMethodListBuilder();
-        builder.fillImes(imis, context, true /* checkDefaultAttribute */, fallbackLocale,
-                true /* checkCountry */, SUBTYPE_MODE_KEYBOARD);
-        if (!builder.isEmpty()) {
-            return builder;
-        }
-        builder.fillImes(imis, context, false /* checkDefaultAttribute */, fallbackLocale,
-                true /* checkCountry */, SUBTYPE_MODE_KEYBOARD);
-        if (!builder.isEmpty()) {
-            return builder;
-        }
-        builder.fillImes(imis, context, true /* checkDefaultAttribute */, fallbackLocale,
-                false /* checkCountry */, SUBTYPE_MODE_KEYBOARD);
-        if (!builder.isEmpty()) {
-            return builder;
-        }
-        builder.fillImes(imis, context, false /* checkDefaultAttribute */, fallbackLocale,
-                false /* checkCountry */, SUBTYPE_MODE_KEYBOARD);
-        if (!builder.isEmpty()) {
-            return builder;
-        }
-        Slog.w(TAG, "No software keyboard is found. imis=" + Arrays.toString(imis.toArray())
-                + " fallbackLocale=" + fallbackLocale);
-        return builder;
-    }
-
     private static InputMethodListBuilder getMinimumKeyboardSetWithSystemLocale(
             final ArrayList<InputMethodInfo> imis, final Context context,
             @Nullable final Locale systemLocale, @Nullable final Locale fallbackLocale) {
@@ -352,31 +320,28 @@ public class InputMethodUtils {
         return builder;
     }
 
-    public static ArrayList<InputMethodInfo> getDefaultEnabledImes(final Context context,
-            final boolean isSystemReady, final ArrayList<InputMethodInfo> imis) {
+    public static ArrayList<InputMethodInfo> getDefaultEnabledImes(
+            Context context, ArrayList<InputMethodInfo> imis, boolean onlyMinimum) {
         final Locale fallbackLocale = getFallbackLocaleForDefaultIme(imis, context);
-        if (!isSystemReady) {
-            // When the system is not ready, the system locale is not stable and reliable. Hence
-            // we will pick up IMEs that support software keyboard based on the fallback locale.
-            // Also pick up suitable IMEs regardless of the software keyboard support.
-            // (e.g. Voice IMEs)
-            return getMinimumKeyboardSetWithoutSystemLocale(imis, context, fallbackLocale)
-                    .fillImes(imis, context, true /* checkDefaultAttribute */, fallbackLocale,
-                            true /* checkCountry */, SUBTYPE_MODE_ANY)
-                    .build();
-        }
-
-        // When the system is ready, we will primarily rely on the system locale, but also keep
-        // relying on the fallback locale as a last resort.
+        // We will primarily rely on the system locale, but also keep relying on the fallback locale
+        // as a last resort.
         // Also pick up suitable IMEs regardless of the software keyboard support (e.g. Voice IMEs),
         // then pick up suitable auxiliary IMEs when necessary (e.g. Voice IMEs with "automatic"
         // subtype)
         final Locale systemLocale = getSystemLocaleFromContext(context);
-        return getMinimumKeyboardSetWithSystemLocale(imis, context, systemLocale, fallbackLocale)
-                .fillImes(imis, context, true /* checkDefaultAttribute */, systemLocale,
-                        true /* checkCountry */, SUBTYPE_MODE_ANY)
-                .fillAuxiliaryImes(imis, context)
-                .build();
+        final InputMethodListBuilder builder =
+                getMinimumKeyboardSetWithSystemLocale(imis, context, systemLocale, fallbackLocale);
+        if (!onlyMinimum) {
+            builder.fillImes(imis, context, true /* checkDefaultAttribute */, systemLocale,
+                    true /* checkCountry */, SUBTYPE_MODE_ANY)
+                    .fillAuxiliaryImes(imis, context);
+        }
+        return builder.build();
+    }
+
+    public static ArrayList<InputMethodInfo> getDefaultEnabledImes(
+            Context context, ArrayList<InputMethodInfo> imis) {
+        return getDefaultEnabledImes(context, imis, false /* onlyMinimum */);
     }
 
     public static Locale constructLocaleFromString(String localeStr) {
@@ -884,7 +849,6 @@ public class InputMethodUtils {
         private final Resources mRes;
         private final ContentResolver mResolver;
         private final HashMap<String, InputMethodInfo> mMethodMap;
-        private final ArrayList<InputMethodInfo> mMethodList;
 
         /**
          * On-memory data store to emulate when {@link #mCopyOnWrite} is {@code true}.
@@ -954,7 +918,6 @@ public class InputMethodUtils {
             mRes = res;
             mResolver = resolver;
             mMethodMap = methodMap;
-            mMethodList = methodList;
             switchCurrentUser(userId, copyOnWrite);
         }
 
@@ -1080,22 +1043,6 @@ public class InputMethodUtils {
             return enabledSubtypes;
         }
 
-        // At the initial boot, the settings for input methods are not set,
-        // so we need to enable IME in that case.
-        public void enableAllIMEsIfThereIsNoEnabledIME() {
-            if (TextUtils.isEmpty(getEnabledInputMethodsStr())) {
-                StringBuilder sb = new StringBuilder();
-                final int N = mMethodList.size();
-                for (int i = 0; i < N; i++) {
-                    InputMethodInfo imi = mMethodList.get(i);
-                    Slog.i(TAG, "Adding: " + imi.getId());
-                    if (i > 0) sb.append(':');
-                    sb.append(imi.getId());
-                }
-                putEnabledInputMethodsStr(sb.toString());
-            }
-        }
-
         public List<Pair<String, ArrayList<String>>> getEnabledInputMethodsAndSubtypeListLocked() {
             return buildInputMethodsAndSubtypeList(getEnabledInputMethodsStr(),
                     mInputMethodSplitter,
@@ -1151,7 +1098,7 @@ public class InputMethodUtils {
             final ArrayList<InputMethodInfo> res = new ArrayList<>();
             for (Pair<String, ArrayList<String>> ims: imsList) {
                 InputMethodInfo info = mMethodMap.get(ims.first);
-                if (info != null) {
+                if (info != null && !info.isVrOnly()) {
                     res.add(info);
                 }
             }
@@ -1576,4 +1523,20 @@ public class InputMethodUtils {
         }
         return locales;
     }
+
+    public static boolean isSoftInputModeStateVisibleAllowed(
+            int targetSdkVersion, int controlFlags) {
+        if (targetSdkVersion < Build.VERSION_CODES.P) {
+            // for compatibility.
+            return true;
+        }
+        if ((controlFlags & CONTROL_WINDOW_VIEW_HAS_FOCUS) == 0) {
+            return false;
+        }
+        if ((controlFlags & CONTROL_WINDOW_IS_TEXT_EDITOR) == 0) {
+            return false;
+        }
+        return true;
+    }
+
 }

@@ -30,7 +30,7 @@ import android.view.RemotableViewMethod;
 import android.widget.ImageView;
 import android.widget.RemoteViews;
 
-import libcore.util.Objects;
+import java.util.Objects;
 
 /**
  * An ImageView for displaying an Icon. Avoids reloading the Icon when possible.
@@ -41,6 +41,8 @@ public class CachingIconView extends ImageView {
     private String mLastPackage;
     private int mLastResId;
     private boolean mInternalSetDrawable;
+    private boolean mForceHidden;
+    private int mDesiredVisibility;
 
     public CachingIconView(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
@@ -124,7 +126,7 @@ public class CachingIconView extends ImageView {
 
             boolean isCached = mLastResId != 0
                     && icon.getResId() == mLastResId
-                    && Objects.equal(iconPackage, mLastPackage);
+                    && Objects.equals(iconPackage, mLastPackage);
 
             mLastPackage = iconPackage;
             mLastResId = icon.getResId();
@@ -174,5 +176,26 @@ public class CachingIconView extends ImageView {
     private synchronized void resetCache() {
         mLastResId = 0;
         mLastPackage = null;
+    }
+
+    /**
+     * Set the icon to be forcibly hidden, even when it's visibility is changed to visible.
+     */
+    public void setForceHidden(boolean forceHidden) {
+        mForceHidden = forceHidden;
+        updateVisibility();
+    }
+
+    @Override
+    @RemotableViewMethod
+    public void setVisibility(int visibility) {
+        mDesiredVisibility = visibility;
+        updateVisibility();
+    }
+
+    private void updateVisibility() {
+        int visibility = mDesiredVisibility == VISIBLE && mForceHidden ? INVISIBLE
+                : mDesiredVisibility;
+        super.setVisibility(visibility);
     }
 }

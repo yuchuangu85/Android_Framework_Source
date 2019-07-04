@@ -18,6 +18,9 @@ package android.net;
 
 import android.os.SystemProperties;
 import android.util.Log;
+
+import com.android.internal.os.RoSystemProperties;
+import com.android.org.conscrypt.Conscrypt;
 import com.android.org.conscrypt.OpenSSLContextImpl;
 import com.android.org.conscrypt.OpenSSLSocketImpl;
 import com.android.org.conscrypt.SSLClientSessionCache;
@@ -60,7 +63,12 @@ import javax.net.ssl.X509TrustManager;
  * This implementation does check the server's certificate hostname, but only
  * for createSocket variants that specify a hostname.  When using methods that
  * use {@link InetAddress} or which return an unconnected socket, you MUST
- * verify the server's identity yourself to ensure a secure connection.</p>
+ * verify the server's identity yourself to ensure a secure connection.
+ *
+ * Refer to
+ * <a href="https://developer.android.com/training/articles/security-gms-provider.html">
+ * Updating Your Security Provider to Protect Against SSL Exploits</a>
+ * for further information.</p>
  *
  * <p>One way to verify the server's identity is to use
  * {@link HttpsURLConnection#getDefaultHostnameVerifier()} to get a
@@ -210,7 +218,7 @@ public class SSLCertificateSocketFactory extends SSLSocketFactory {
     private SSLSocketFactory makeSocketFactory(
             KeyManager[] keyManagers, TrustManager[] trustManagers) {
         try {
-            OpenSSLContextImpl sslContext = OpenSSLContextImpl.getPreferred();
+            OpenSSLContextImpl sslContext =  (OpenSSLContextImpl) Conscrypt.newPreferredSSLContextSpi();
             sslContext.engineInit(keyManagers, trustManagers, null);
             sslContext.engineGetClientSessionContext().setPersistentCache(mSessionCache);
             return sslContext.engineGetSocketFactory();
@@ -221,8 +229,8 @@ public class SSLCertificateSocketFactory extends SSLSocketFactory {
     }
 
     private static boolean isSslCheckRelaxed() {
-        return "1".equals(SystemProperties.get("ro.debuggable")) &&
-            "yes".equals(SystemProperties.get("socket.relaxsslcheck"));
+        return RoSystemProperties.DEBUGGABLE &&
+            SystemProperties.getBoolean("socket.relaxsslcheck", false);
     }
 
     private synchronized SSLSocketFactory getDelegate() {

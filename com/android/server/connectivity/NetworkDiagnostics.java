@@ -23,6 +23,8 @@ import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkUtils;
 import android.net.RouteInfo;
+import android.net.TrafficStats;
+import android.net.util.NetworkConstants;
 import android.os.SystemClock;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -381,7 +383,12 @@ public class NetworkDiagnostics {
         protected void setupSocket(
                 int sockType, int protocol, long writeTimeout, long readTimeout, int dstPort)
                 throws ErrnoException, IOException {
-            mFileDescriptor = Os.socket(mAddressFamily, sockType, protocol);
+            final int oldTag = TrafficStats.getAndSetThreadStatsTag(TrafficStats.TAG_SYSTEM_PROBE);
+            try {
+                mFileDescriptor = Os.socket(mAddressFamily, sockType, protocol);
+            } finally {
+                TrafficStats.setThreadStatsTag(oldTag);
+            }
             // Setting SNDTIMEO is purely for defensive purposes.
             Os.setsockoptTimeval(mFileDescriptor,
                     SOL_SOCKET, SO_SNDTIMEO, StructTimeval.fromMillis(writeTimeout));
@@ -415,8 +422,6 @@ public class NetworkDiagnostics {
     private class IcmpCheck extends SimpleSocketCheck implements Runnable {
         private static final int TIMEOUT_SEND = 100;
         private static final int TIMEOUT_RECV = 300;
-        private static final int ICMPV4_ECHO_REQUEST = 8;
-        private static final int ICMPV6_ECHO_REQUEST = 128;
         private static final int PACKET_BUFSIZE = 512;
         private final int mProtocol;
         private final int mIcmpType;
@@ -426,11 +431,11 @@ public class NetworkDiagnostics {
 
             if (mAddressFamily == AF_INET6) {
                 mProtocol = IPPROTO_ICMPV6;
-                mIcmpType = ICMPV6_ECHO_REQUEST;
+                mIcmpType = NetworkConstants.ICMPV6_ECHO_REQUEST_TYPE;
                 mMeasurement.description = "ICMPv6";
             } else {
                 mProtocol = IPPROTO_ICMP;
-                mIcmpType = ICMPV4_ECHO_REQUEST;
+                mIcmpType = NetworkConstants.ICMPV4_ECHO_REQUEST_TYPE;
                 mMeasurement.description = "ICMPv4";
             }
 
@@ -498,7 +503,6 @@ public class NetworkDiagnostics {
     private class DnsUdpCheck extends SimpleSocketCheck implements Runnable {
         private static final int TIMEOUT_SEND = 100;
         private static final int TIMEOUT_RECV = 500;
-        private static final int DNS_SERVER_PORT = 53;
         private static final int RR_TYPE_A = 1;
         private static final int RR_TYPE_AAAA = 28;
         private static final int PACKET_BUFSIZE = 512;
@@ -540,7 +544,8 @@ public class NetworkDiagnostics {
             }
 
             try {
-                setupSocket(SOCK_DGRAM, IPPROTO_UDP, TIMEOUT_SEND, TIMEOUT_RECV, DNS_SERVER_PORT);
+                setupSocket(SOCK_DGRAM, IPPROTO_UDP, TIMEOUT_SEND, TIMEOUT_RECV,
+                        NetworkConstants.DNS_SERVER_PORT);
             } catch (ErrnoException | IOException e) {
                 mMeasurement.recordFailure(e.toString());
                 return;

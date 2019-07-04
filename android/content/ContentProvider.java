@@ -39,10 +39,11 @@ import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.IBinder;
 import android.os.ICancellationSignal;
-import android.os.OperationCanceledException;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
+import android.os.RemoteException;
 import android.os.UserHandle;
+import android.os.storage.StorageManager;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -56,7 +57,7 @@ import java.util.Arrays;
 
 /**
  * Content providers are one of the primary building blocks of Android applications, providing
- * content to applications. They encapsulate（封装） data and provide it to applications through the single
+ * content to applications. They encapsulate data and provide it to applications through the single
  * {@link ContentResolver} interface. A content provider is only required if you need to share
  * data between multiple applications. For example, the contacts data is used by multiple
  * applications and must be stored in a content provider. If you don't need to share data amongst
@@ -64,8 +65,8 @@ import java.util.Arrays;
  * {@link android.database.sqlite.SQLiteDatabase}.
  *
  * <p>When a request is made via
- * a {@link ContentResolver} the system inspects（检查） the authority（认证） of the given URI and passes the
- * request to the content provider registered with the authority. The content provider can interpret（解释）
+ * a {@link ContentResolver} the system inspects the authority of the given URI and passes the
+ * request to the content provider registered with the authority. The content provider can interpret
  * the rest of the URI however it wants. The {@link UriMatcher} class is helpful for parsing
  * URIs.</p>
  *
@@ -113,6 +114,7 @@ import java.util.Arrays;
  *
  */
 public abstract class ContentProvider implements ComponentCallbacks2 {
+
     private static final String TAG = "ContentProvider";
 
     /*
@@ -134,7 +136,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
     private boolean mNoPerms;
     private boolean mSingleUser;
 
-    private final ThreadLocal<String> mCallingPackage = new ThreadLocal<String>();
+    private final ThreadLocal<String> mCallingPackage = new ThreadLocal<>();
 
     private Transport mTransport = new Transport();
 
@@ -221,11 +223,10 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
         }
 
         @Override
-        public Cursor query(String callingPkg, Uri uri, String[] projection,
-                String selection, String[] selectionArgs, String sortOrder,
-                ICancellationSignal cancellationSignal) {
+        public Cursor query(String callingPkg, Uri uri, @Nullable String[] projection,
+                @Nullable Bundle queryArgs, @Nullable ICancellationSignal cancellationSignal) {
             validateIncomingUri(uri);
-            uri = getUriWithoutUserId(uri);
+            uri = maybeGetUriWithoutUserId(uri);
             if (enforceReadPermission(callingPkg, uri, null) != AppOpsManager.MODE_ALLOWED) {
                 // The caller has no access to the data, so return an empty cursor with
                 // the columns in the requested order. The caller may ask for an invalid
@@ -241,10 +242,9 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
                 // However, the caller may be expecting to access them my index. Hence,
                 // we have to execute the query as if allowed to get a cursor with the
                 // columns. We then use the column names to return an empty cursor.
-                // 回调目标ContentProvider所定义的query方法
-                Cursor cursor = ContentProvider.this.query(uri, projection, selection,
-                        selectionArgs, sortOrder, CancellationSignal.fromTransport(
-                                cancellationSignal));
+                Cursor cursor = ContentProvider.this.query(
+                        uri, projection, queryArgs,
+                        CancellationSignal.fromTransport(cancellationSignal));
                 if (cursor == null) {
                     return null;
                 }
@@ -255,7 +255,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
             final String original = setCallingPackage(callingPkg);
             try {
                 return ContentProvider.this.query(
-                        uri, projection, selection, selectionArgs, sortOrder,
+                        uri, projection, queryArgs,
                         CancellationSignal.fromTransport(cancellationSignal));
             } finally {
                 setCallingPackage(original);
@@ -265,7 +265,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
         @Override
         public String getType(Uri uri) {
             validateIncomingUri(uri);
-            uri = getUriWithoutUserId(uri);
+            uri = maybeGetUriWithoutUserId(uri);
             return ContentProvider.this.getType(uri);
         }
 
@@ -273,7 +273,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
         public Uri insert(String callingPkg, Uri uri, ContentValues initialValues) {
             validateIncomingUri(uri);
             int userId = getUserIdFromUri(uri);
-            uri = getUriWithoutUserId(uri);
+            uri = maybeGetUriWithoutUserId(uri);
             if (enforceWritePermission(callingPkg, uri, null) != AppOpsManager.MODE_ALLOWED) {
                 return rejectInsert(uri, initialValues);
             }
@@ -288,7 +288,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
         @Override
         public int bulkInsert(String callingPkg, Uri uri, ContentValues[] initialValues) {
             validateIncomingUri(uri);
-            uri = getUriWithoutUserId(uri);
+            uri = maybeGetUriWithoutUserId(uri);
             if (enforceWritePermission(callingPkg, uri, null) != AppOpsManager.MODE_ALLOWED) {
                 return 0;
             }
@@ -349,7 +349,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
         @Override
         public int delete(String callingPkg, Uri uri, String selection, String[] selectionArgs) {
             validateIncomingUri(uri);
-            uri = getUriWithoutUserId(uri);
+            uri = maybeGetUriWithoutUserId(uri);
             if (enforceWritePermission(callingPkg, uri, null) != AppOpsManager.MODE_ALLOWED) {
                 return 0;
             }
@@ -365,7 +365,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
         public int update(String callingPkg, Uri uri, ContentValues values, String selection,
                 String[] selectionArgs) {
             validateIncomingUri(uri);
-            uri = getUriWithoutUserId(uri);
+            uri = maybeGetUriWithoutUserId(uri);
             if (enforceWritePermission(callingPkg, uri, null) != AppOpsManager.MODE_ALLOWED) {
                 return 0;
             }
@@ -382,7 +382,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
                 String callingPkg, Uri uri, String mode, ICancellationSignal cancellationSignal,
                 IBinder callerToken) throws FileNotFoundException {
             validateIncomingUri(uri);
-            uri = getUriWithoutUserId(uri);
+            uri = maybeGetUriWithoutUserId(uri);
             enforceFilePermission(callingPkg, uri, mode, callerToken);
             final String original = setCallingPackage(callingPkg);
             try {
@@ -398,7 +398,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
                 String callingPkg, Uri uri, String mode, ICancellationSignal cancellationSignal)
                 throws FileNotFoundException {
             validateIncomingUri(uri);
-            uri = getUriWithoutUserId(uri);
+            uri = maybeGetUriWithoutUserId(uri);
             enforceFilePermission(callingPkg, uri, mode, null);
             final String original = setCallingPackage(callingPkg);
             try {
@@ -424,7 +424,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
         @Override
         public String[] getStreamTypes(Uri uri, String mimeTypeFilter) {
             validateIncomingUri(uri);
-            uri = getUriWithoutUserId(uri);
+            uri = maybeGetUriWithoutUserId(uri);
             return ContentProvider.this.getStreamTypes(uri, mimeTypeFilter);
         }
 
@@ -433,7 +433,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
                 Bundle opts, ICancellationSignal cancellationSignal) throws FileNotFoundException {
             Bundle.setDefusable(opts, true);
             validateIncomingUri(uri);
-            uri = getUriWithoutUserId(uri);
+            uri = maybeGetUriWithoutUserId(uri);
             enforceFilePermission(callingPkg, uri, "r", null);
             final String original = setCallingPackage(callingPkg);
             try {
@@ -476,6 +476,23 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
             final String original = setCallingPackage(callingPkg);
             try {
                 return maybeAddUserId(ContentProvider.this.uncanonicalize(uri), userId);
+            } finally {
+                setCallingPackage(original);
+            }
+        }
+
+        @Override
+        public boolean refresh(String callingPkg, Uri uri, Bundle args,
+                ICancellationSignal cancellationSignal) throws RemoteException {
+            validateIncomingUri(uri);
+            uri = getUriWithoutUserId(uri);
+            if (enforceReadPermission(callingPkg, uri, null) != AppOpsManager.MODE_ALLOWED) {
+                return false;
+            }
+            final String original = setCallingPackage(callingPkg);
+            try {
+                return ContentProvider.this.refresh(uri, args,
+                        CancellationSignal.fromTransport(cancellationSignal));
             } finally {
                 setCallingPackage(original);
             }
@@ -620,12 +637,17 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
             return MODE_IGNORED;
         }
 
-        final String failReason = mExported
-                ? " requires " + missingPerm + ", or grantUriPermission()"
-                : " requires the provider be exported, or grantUriPermission()";
+        final String suffix;
+        if (android.Manifest.permission.MANAGE_DOCUMENTS.equals(mReadPermission)) {
+            suffix = " requires that you obtain access using ACTION_OPEN_DOCUMENT or related APIs";
+        } else if (mExported) {
+            suffix = " requires " + missingPerm + ", or grantUriPermission()";
+        } else {
+            suffix = " requires the provider be exported, or grantUriPermission()";
+        }
         throw new SecurityException("Permission Denial: reading "
                 + ContentProvider.this.getClass().getName() + " uri " + uri + " from pid=" + pid
-                + ", uid=" + uid + failReason);
+                + ", uid=" + uid + suffix);
     }
 
     /** {@hide} */
@@ -893,6 +915,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
      * (Content providers do not usually care about things like screen
      * orientation, but may want to know about locale changes.)
      */
+    @Override
     public void onConfigurationChanged(Configuration newConfig) {
     }
 
@@ -904,15 +927,22 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
      * <p>The default content provider implementation does nothing.
      * Subclasses may override this method to take appropriate action.
      */
+    @Override
     public void onLowMemory() {
     }
 
+    @Override
     public void onTrimMemory(int level) {
     }
 
     /**
      * Implement this to handle query requests from clients.
-     * This method can be called from multiple threads, as described in
+     *
+     * <p>Apps targeting {@link android.os.Build.VERSION_CODES#O} or higher should override
+     * {@link #query(Uri, String[], Bundle, CancellationSignal)} and provide a stub
+     * implementation of this method.
+     *
+     * <p>This method can be called from multiple threads, as described in
      * <a href="{@docRoot}guide/topics/fundamentals/processes-and-threads.html#Threads">Processes
      * and Threads</a>.
      * <p>
@@ -971,7 +1001,11 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
 
     /**
      * Implement this to handle query requests from clients with support for cancellation.
-     * This method can be called from multiple threads, as described in
+     *
+     * <p>Apps targeting {@link android.os.Build.VERSION_CODES#O} or higher should override
+     * {@link #query(Uri, String[], Bundle, CancellationSignal)} instead of this method.
+     *
+     * <p>This method can be called from multiple threads, as described in
      * <a href="{@docRoot}guide/topics/fundamentals/processes-and-threads.html#Threads">Processes
      * and Threads</a>.
      * <p>
@@ -1028,7 +1062,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
      * @param sortOrder How the rows in the cursor should be sorted.
      *      If {@code null} then the provider is free to define the sort order.
      * @param cancellationSignal A signal to cancel the operation in progress, or {@code null} if none.
-     * If the operation is canceled, then {@link OperationCanceledException} will be thrown
+     * If the operation is canceled, then {@link android.os.OperationCanceledException} will be thrown
      * when the query is executed.
      * @return a Cursor or {@code null}.
      */
@@ -1036,6 +1070,104 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
             @Nullable String selection, @Nullable String[] selectionArgs,
             @Nullable String sortOrder, @Nullable CancellationSignal cancellationSignal) {
         return query(uri, projection, selection, selectionArgs, sortOrder);
+    }
+
+    /**
+     * Implement this to handle query requests where the arguments are packed into a {@link Bundle}.
+     * Arguments may include traditional SQL style query arguments. When present these
+     * should be handled  according to the contract established in
+     * {@link #query(Uri, String[], String, String[], String, CancellationSignal).
+     *
+     * <p>Traditional SQL arguments can be found in the bundle using the following keys:
+     * <li>{@link ContentResolver#QUERY_ARG_SQL_SELECTION}
+     * <li>{@link ContentResolver#QUERY_ARG_SQL_SELECTION_ARGS}
+     * <li>{@link ContentResolver#QUERY_ARG_SQL_SORT_ORDER}
+     *
+     * <p>This method can be called from multiple threads, as described in
+     * <a href="{@docRoot}guide/topics/fundamentals/processes-and-threads.html#Threads">Processes
+     * and Threads</a>.
+     *
+     * <p>
+     * Example client call:<p>
+     * <pre>// Request 20 records starting at row index 30.
+       Bundle queryArgs = new Bundle();
+       queryArgs.putInt(ContentResolver.QUERY_ARG_OFFSET, 30);
+       queryArgs.putInt(ContentResolver.QUERY_ARG_LIMIT, 20);
+
+       Cursor cursor = getContentResolver().query(
+                contentUri,    // Content Uri is specific to individual content providers.
+                projection,    // String[] describing which columns to return.
+                queryArgs,     // Query arguments.
+                null);         // Cancellation signal.</pre>
+     *
+     * Example implementation:<p>
+     * <pre>
+
+        int recordsetSize = 0x1000;  // Actual value is implementation specific.
+        queryArgs = queryArgs != null ? queryArgs : Bundle.EMPTY;  // ensure queryArgs is non-null
+
+        int offset = queryArgs.getInt(ContentResolver.QUERY_ARG_OFFSET, 0);
+        int limit = queryArgs.getInt(ContentResolver.QUERY_ARG_LIMIT, Integer.MIN_VALUE);
+
+        MatrixCursor c = new MatrixCursor(PROJECTION, limit);
+
+        // Calculate the number of items to include in the cursor.
+        int numItems = MathUtils.constrain(recordsetSize - offset, 0, limit);
+
+        // Build the paged result set....
+        for (int i = offset; i < offset + numItems; i++) {
+            // populate row from your data.
+        }
+
+        Bundle extras = new Bundle();
+        c.setExtras(extras);
+
+        // Any QUERY_ARG_* key may be included if honored.
+        // In an actual implementation, include only keys that are both present in queryArgs
+        // and reflected in the Cursor output. For example, if QUERY_ARG_OFFSET were included
+        // in queryArgs, but was ignored because it contained an invalid value (like –273),
+        // then QUERY_ARG_OFFSET should be omitted.
+        extras.putStringArray(ContentResolver.EXTRA_HONORED_ARGS, new String[] {
+            ContentResolver.QUERY_ARG_OFFSET,
+            ContentResolver.QUERY_ARG_LIMIT
+        });
+
+        extras.putInt(ContentResolver.EXTRA_TOTAL_COUNT, recordsetSize);
+
+        cursor.setNotificationUri(getContext().getContentResolver(), uri);
+
+        return cursor;</pre>
+     * <p>
+     * @see #query(Uri, String[], String, String[], String, CancellationSignal) for
+     *     implementation details.
+     *
+     * @param uri The URI to query. This will be the full URI sent by the client.
+     * @param projection The list of columns to put into the cursor.
+     *            If {@code null} provide a default set of columns.
+     * @param queryArgs A Bundle containing all additional information necessary for the query.
+     *            Values in the Bundle may include SQL style arguments.
+     * @param cancellationSignal A signal to cancel the operation in progress,
+     *            or {@code null}.
+     * @return a Cursor or {@code null}.
+     */
+    public @Nullable Cursor query(@NonNull Uri uri, @Nullable String[] projection,
+            @Nullable Bundle queryArgs, @Nullable CancellationSignal cancellationSignal) {
+        queryArgs = queryArgs != null ? queryArgs : Bundle.EMPTY;
+
+        // if client doesn't supply an SQL sort order argument, attempt to build one from
+        // QUERY_ARG_SORT* arguments.
+        String sortClause = queryArgs.getString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER);
+        if (sortClause == null && queryArgs.containsKey(ContentResolver.QUERY_ARG_SORT_COLUMNS)) {
+            sortClause = ContentResolver.createSqlSortClause(queryArgs);
+        }
+
+        return query(
+                uri,
+                projection,
+                queryArgs.getString(ContentResolver.QUERY_ARG_SQL_SELECTION),
+                queryArgs.getStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS),
+                sortClause,
+                cancellationSignal);
     }
 
     /**
@@ -1108,6 +1240,33 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
      */
     public @Nullable Uri uncanonicalize(@NonNull Uri url) {
         return url;
+    }
+
+    /**
+     * Implement this to support refresh of content identified by {@code uri}. By default, this
+     * method returns false; providers who wish to implement this should return true to signal the
+     * client that the provider has tried refreshing with its own implementation.
+     * <p>
+     * This allows clients to request an explicit refresh of content identified by {@code uri}.
+     * <p>
+     * Client code should only invoke this method when there is a strong indication (such as a user
+     * initiated pull to refresh gesture) that the content is stale.
+     * <p>
+     * Remember to send {@link ContentResolver#notifyChange(Uri, android.database.ContentObserver)}
+     * notifications when content changes.
+     *
+     * @param uri The Uri identifying the data to refresh.
+     * @param args Additional options from the client. The definitions of these are specific to the
+     *            content provider being called.
+     * @param cancellationSignal A signal to cancel the operation in progress, or {@code null} if
+     *            none. For example, if you called refresh on a particular uri, you should call
+     *            {@link CancellationSignal#throwIfCanceled()} to check whether the client has
+     *            canceled the refresh request.
+     * @return true if the provider actually tried refreshing.
+     */
+    public boolean refresh(Uri uri, @Nullable Bundle args,
+            @Nullable CancellationSignal cancellationSignal) {
+        return false;
     }
 
     /**
@@ -1233,6 +1392,12 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
      * android.os.Handler, android.os.ParcelFileDescriptor.OnCloseListener)},
      * {@link ParcelFileDescriptor#createReliablePipe()}, or
      * {@link ParcelFileDescriptor#createReliableSocketPair()}.
+     * <p>
+     * If you need to return a large file that isn't backed by a real file on
+     * disk, such as a file on a network share or cloud storage service,
+     * consider using
+     * {@link StorageManager#openProxyFileDescriptor(int, android.os.ProxyFileDescriptorCallback, android.os.Handler)}
+     * which will let you to stream the content on-demand.
      *
      * <p class="note">For use in Intents, you will want to implement {@link #getType}
      * to return the appropriate MIME type for the data returned here with
@@ -1385,7 +1550,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
      * no file associated with the given URI or the mode is invalid.
      * @throws SecurityException Throws SecurityException if the caller does
      * not have permission to access the file.
-     * 
+     *
      * @see #openFile(Uri, String)
      * @see #openFileHelper(Uri, String)
      * @see #getType(android.net.Uri)
@@ -1824,7 +1989,7 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
     /**
      * Implement this to shut down the ContentProvider instance. You can then
      * invoke this method in unit tests.
-     * 
+     *
      * <p>
      * Android normally handles ContentProvider startup and shutdown
      * automatically. You do not need to start up or shut down a
@@ -1864,10 +2029,12 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
     /** @hide */
     private void validateIncomingUri(Uri uri) throws SecurityException {
         String auth = uri.getAuthority();
-        int userId = getUserIdFromAuthority(auth, UserHandle.USER_CURRENT);
-        if (userId != UserHandle.USER_CURRENT && userId != mContext.getUserId()) {
-            throw new SecurityException("trying to query a ContentProvider in user "
-                    + mContext.getUserId() + " with a uri belonging to user " + userId);
+        if (!mSingleUser) {
+            int userId = getUserIdFromAuthority(auth, UserHandle.USER_CURRENT);
+            if (userId != UserHandle.USER_CURRENT && userId != mContext.getUserId()) {
+                throw new SecurityException("trying to query a ContentProvider in user "
+                        + mContext.getUserId() + " with a uri belonging to user " + userId);
+            }
         }
         if (!matchesOurAuthorities(getAuthorityWithoutUserId(auth))) {
             String message = "The authority of the uri " + uri + " does not match the one of the "
@@ -1879,6 +2046,14 @@ public abstract class ContentProvider implements ComponentCallbacks2 {
             }
             throw new SecurityException(message);
         }
+    }
+
+    /** @hide */
+    private Uri maybeGetUriWithoutUserId(Uri uri) {
+        if (mSingleUser) {
+            return uri;
+        }
+        return getUriWithoutUserId(uri);
     }
 
     /** @hide */

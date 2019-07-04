@@ -16,8 +16,8 @@
 
 package com.android.internal.telephony.imsphone;
 
-import com.android.ims.ImsCallProfile;
-import com.android.ims.ImsExternalCallState;
+import android.telephony.ims.ImsCallProfile;
+import android.telephony.ims.ImsExternalCallState;
 import com.android.ims.ImsExternalCallStateListener;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Call;
@@ -31,7 +31,6 @@ import android.os.Handler;
 import android.os.Message;
 import android.telecom.PhoneAccountHandle;
 import android.telecom.VideoProfile;
-import android.telephony.TelephonyManager;
 import android.util.ArrayMap;
 import android.util.Log;
 

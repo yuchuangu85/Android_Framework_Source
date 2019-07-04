@@ -88,7 +88,7 @@ public class XmlSerializeBenchmark {
         String[] splitted = datasetAsString.split(" ");
         dataset = new double[splitted.length];
         for (int i = 0; i < splitted.length; i++) {
-            dataset[i] = Double.valueOf(splitted[i]);
+            dataset[i] = Double.parseDouble(splitted[i]);
         }
     }
 

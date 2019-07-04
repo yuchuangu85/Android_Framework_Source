@@ -19,11 +19,18 @@ package com.android.ims;
 import java.util.HashMap;
 import java.util.Map;
 
+import android.content.res.Resources;
 import android.os.AsyncResult;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.Message;
+import android.os.Registrant;
 import android.os.RemoteException;
 import android.telephony.Rlog;
+import android.telephony.ims.ImsCallForwardInfo;
+import android.telephony.ims.ImsReasonInfo;
+import android.telephony.ims.ImsSsData;
+import android.telephony.ims.ImsSsInfo;
 
 import com.android.ims.internal.IImsUt;
 import com.android.ims.internal.IImsUtListener;
@@ -66,11 +73,16 @@ public class ImsUt implements ImsUtInterface {
     private static final String TAG = "ImsUt";
     private static final boolean DBG = true;
 
+    //These service class values are same as the one in CommandsInterface.java
+    private static final int SERVICE_CLASS_NONE = 0;
+    private static final int SERVICE_CLASS_VOICE = (1 << 0);
+
     // For synchronization of private variables
     private Object mLockObj = new Object();
     private final IImsUt miUt;
     private HashMap<Integer, Message> mPendingCmds =
             new HashMap<Integer, Message>();
+    private Registrant mSsIndicationRegistrant;
 
     public ImsUt(IImsUt iUt) {
         miUt = iUt;
@@ -107,6 +119,23 @@ public class ImsUt implements ImsUtInterface {
     }
 
     /**
+     * Registers a handler for Supplementary Service Indications. The
+     * result is returned in the {@link AsyncResult#result) field
+     * of the {@link AsyncResult} object returned by {@link Message.obj}.
+     * Value of ((AsyncResult)result.obj) is of {@link ImsSsData}.
+     */
+    public void registerForSuppServiceIndication(Handler h, int what, Object obj) {
+        mSsIndicationRegistrant = new Registrant (h, what, obj);
+    }
+
+    /**
+     * UnRegisters a handler for Supplementary Service Indications.
+     */
+    public void unregisterForSuppServiceIndication(Handler h) {
+        mSsIndicationRegistrant.clear();
+    }
+
+    /**
      * Operations for the supplementary service configuration
      */
 
@@ -116,16 +145,31 @@ public class ImsUt implements ImsUtInterface {
      * @param cbType type of call barring to be queried; ImsUtInterface#CB_XXX
      * @param result message to pass the result of this operation
      *      The return value of ((AsyncResult)result.obj) is an array of {@link ImsSsInfo}.
+     * @deprecated Use {@link #queryCallBarring(int, Message, int)} instead.
      */
     @Override
     public void queryCallBarring(int cbType, Message result) {
+        queryCallBarring(cbType, result, SERVICE_CLASS_NONE);
+    }
+
+    /**
+     * Retrieves the configuration of the call barring for specified service class.
+     *
+     * @param cbType type of call barring to be queried; ImsUtInterface#CB_XXX
+     * @param result message to pass the result of this operation
+     *      The return value of ((AsyncResult)result.obj) is an array of {@link ImsSsInfo}.
+     * @param serviceClass service class for e.g. voice/video
+     */
+    @Override
+    public void queryCallBarring(int cbType, Message result, int serviceClass) {
         if (DBG) {
-            log("queryCallBarring :: Ut=" + miUt + ", cbType=" + cbType);
+            log("queryCallBarring :: Ut=" + miUt + ", cbType=" + cbType + ", serviceClass="
+                    + serviceClass);
         }
 
         synchronized(mLockObj) {
             try {
-                int id = miUt.queryCallBarring(cbType);
+                int id = miUt.queryCallBarringForServiceClass(cbType, serviceClass);
 
                 if (id < 0) {
                     sendFailureReport(result,
@@ -149,7 +193,7 @@ public class ImsUt implements ImsUtInterface {
     public void queryCallForward(int condition, String number, Message result) {
         if (DBG) {
             log("queryCallForward :: Ut=" + miUt + ", condition=" + condition
-                    + ", number=" + number);
+                    + ", number=" + Rlog.pii(TAG, number));
         }
 
         synchronized(mLockObj) {
@@ -305,9 +349,19 @@ public class ImsUt implements ImsUtInterface {
 
     /**
      * Modifies the configuration of the call barring.
+     * @deprecated Use {@link #updateCallBarring(int, int, Message, String[], int)} instead.
      */
     @Override
     public void updateCallBarring(int cbType, int action, Message result, String[] barrList) {
+        updateCallBarring(cbType, action, result, barrList, SERVICE_CLASS_NONE);
+    }
+
+    /**
+     * Modifies the configuration of the call barring for specified service class.
+     */
+    @Override
+    public void updateCallBarring(int cbType, int action, Message result,
+            String[] barrList, int serviceClass) {
         if (DBG) {
             if (barrList != null) {
                 String bList = new String();
@@ -315,17 +369,19 @@ public class ImsUt implements ImsUtInterface {
                     bList.concat(barrList[i] + " ");
                 }
                 log("updateCallBarring :: Ut=" + miUt + ", cbType=" + cbType
-                        + ", action=" + action + ", barrList=" + bList);
+                        + ", action=" + action + ", serviceClass=" + serviceClass
+                        + ", barrList=" + bList);
             }
             else {
                 log("updateCallBarring :: Ut=" + miUt + ", cbType=" + cbType
-                        + ", action=" + action);
+                        + ", action=" + action + ", serviceClass=" + serviceClass);
             }
         }
 
         synchronized(mLockObj) {
             try {
-                int id = miUt.updateCallBarring(cbType, action, barrList);
+                int id = miUt.updateCallBarringForServiceClass(cbType, action,
+                        barrList, serviceClass);
 
                 if (id < 0) {
                     sendFailureReport(result,
@@ -349,8 +405,8 @@ public class ImsUt implements ImsUtInterface {
             int serviceClass, int timeSeconds, Message result) {
         if (DBG) {
             log("updateCallForward :: Ut=" + miUt + ", action=" + action
-                    + ", condition=" + condition + ", number=" + number
-                    +  ", serviceClass=" + serviceClass + ", timeSeconds=" + timeSeconds);
+                    + ", condition=" + condition + ", number=" + Rlog.pii(TAG, number)
+                    + ", serviceClass=" + serviceClass + ", timeSeconds=" + timeSeconds);
         }
 
         synchronized(mLockObj) {
@@ -507,6 +563,13 @@ public class ImsUt implements ImsUtInterface {
         }
     }
 
+    /**
+     * @return returns true if the binder is alive, false otherwise.
+     */
+    public boolean isBinderAlive() {
+        return miUt.asBinder().isBinderAlive();
+    }
+
     public void transact(Bundle ssInfo, Message result) {
         if (DBG) {
             log("transact :: Ut=" + miUt + ", ssInfo=" + ssInfo);
@@ -539,7 +602,8 @@ public class ImsUt implements ImsUtInterface {
         // If ImsReasonInfo object does not have a String error code, use a
         // default error string.
         if (error.mExtraMessage == null) {
-            errorString = new String("IMS UT exception");
+            errorString = Resources.getSystem().getString(
+                    com.android.internal.R.string.mmiError);
         }
         else {
             errorString = new String(error.mExtraMessage);
@@ -667,6 +731,16 @@ public class ImsUt implements ImsUtInterface {
             synchronized(mLockObj) {
                 sendSuccessReport(mPendingCmds.get(key), cwInfo);
                 mPendingCmds.remove(key);
+            }
+        }
+
+        /**
+         * Notifies client when Supplementary Service indication is received
+         */
+        @Override
+        public void onSupplementaryServiceIndication(ImsSsData ssData) {
+            if (mSsIndicationRegistrant != null) {
+                mSsIndicationRegistrant.notifyResult(ssData);
             }
         }
     }

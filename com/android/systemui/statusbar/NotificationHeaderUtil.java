@@ -75,7 +75,7 @@ public class NotificationHeaderUtil {
                 if (shouldApply) {
                     // lets gray it out
                     int grey = view.getContext().getColor(
-                            com.android.internal.R.color.notification_icon_default_color);
+                            com.android.internal.R.color.notification_default_color_light);
                     imageView.getDrawable().setColorFilter(grey, PorterDuff.Mode.SRC_ATOP);
                 } else {
                     // lets reset it
@@ -128,6 +128,7 @@ public class NotificationHeaderUtil {
         mComparators.add(HeaderProcessor.forTextView(mRow,
                 com.android.internal.R.id.header_text));
         mDividers.add(com.android.internal.R.id.header_text_divider);
+        mDividers.add(com.android.internal.R.id.header_text_secondary_divider);
         mDividers.add(com.android.internal.R.id.time_divider);
     }
 
@@ -267,9 +268,10 @@ public class NotificationHeaderUtil {
             if (!mApply) {
                 return;
             }
-            NotificationHeaderView header = row.getNotificationHeader();
+            NotificationHeaderView header = row.getContractedNotificationHeader();
             if (header == null) {
-                mApply = false;
+                // No header found. We still consider this to be the same to avoid weird flickering
+                // when for example showing an undo notification
                 return;
             }
             Object childData = mExtractor == null ? null : mExtractor.extractData(row);

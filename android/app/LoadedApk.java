@@ -16,6 +16,8 @@
 
 package android.app;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -25,11 +27,14 @@ import android.content.ServiceConnection;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
+import android.content.pm.dex.ArtManager;
+import android.content.pm.split.SplitDependencyLoader;
 import android.content.res.AssetManager;
 import android.content.res.CompatibilityInfo;
 import android.content.res.Resources;
+import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.FileUtils;
 import android.os.Handler;
 import android.os.IBinder;
@@ -39,9 +44,6 @@ import android.os.StrictMode;
 import android.os.SystemProperties;
 import android.os.Trace;
 import android.os.UserHandle;
-import android.system.Os;
-import android.system.OsConstants;
-import android.system.ErrnoException;
 import android.text.TextUtils;
 import android.util.AndroidRuntimeException;
 import android.util.ArrayMap;
@@ -51,23 +53,24 @@ import android.util.SparseArray;
 import android.view.Display;
 import android.view.DisplayAdjustments;
 
+import com.android.internal.util.ArrayUtils;
+
 import dalvik.system.VMRuntime;
 
 import java.io.File;
-import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Objects;
-
-import libcore.io.IoUtils;
 
 final class IntentReceiverLeaked extends AndroidRuntimeException {
     public IntentReceiverLeaked(String msg) {
@@ -83,20 +86,19 @@ final class ServiceConnectionLeaked extends AndroidRuntimeException {
 
 /**
  * Local state maintained about a currently loaded .apk.
+ * @hide
  */
 public final class LoadedApk {
-
-    private static final String TAG = "LoadedApk";
+    static final String TAG = "LoadedApk";
+    static final boolean DEBUG = false;
+    private static final String PROPERTY_NAME_APPEND_NATIVE = "pi.append_native_lib_paths";
 
     private final ActivityThread mActivityThread;
     final String mPackageName;
     private ApplicationInfo mApplicationInfo;
     private String mAppDir;
     private String mResDir;
-    private String[] mSplitAppDirs;
-    private String[] mSplitResDirs;
     private String[] mOverlayDirs;
-    private String[] mSharedLibraries;
     private String mDataDir;
     private String mLibDir;
     private File mDataDirFile;
@@ -107,23 +109,25 @@ public final class LoadedApk {
     private final boolean mIncludeCode;
     private final boolean mRegisterPackage;
     private final DisplayAdjustments mDisplayAdjustments = new DisplayAdjustments();
-    /**
-     * WARNING: This may change. Don't hold external references to it.
-     */
+    /** WARNING: This may change. Don't hold external references to it. */
     Resources mResources;
     private ClassLoader mClassLoader;
     private Application mApplication;
 
-    private final ArrayMap<Context, ArrayMap<BroadcastReceiver, ReceiverDispatcher>> mReceivers
-            = new ArrayMap<Context, ArrayMap<BroadcastReceiver, LoadedApk.ReceiverDispatcher>>();
-    private final ArrayMap<Context, ArrayMap<BroadcastReceiver, LoadedApk.ReceiverDispatcher>> mUnregisteredReceivers
-            = new ArrayMap<Context, ArrayMap<BroadcastReceiver, LoadedApk.ReceiverDispatcher>>();
-    private final ArrayMap<Context, ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher>> mServices
-            = new ArrayMap<Context, ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher>>();
-    private final ArrayMap<Context, ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher>> mUnboundServices
-            = new ArrayMap<Context, ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher>>();
+    private String[] mSplitNames;
+    private String[] mSplitAppDirs;
+    private String[] mSplitResDirs;
+    private String[] mSplitClassLoaderNames;
 
-    int mClientCount = 0;
+    private final ArrayMap<Context, ArrayMap<BroadcastReceiver, ReceiverDispatcher>> mReceivers
+        = new ArrayMap<>();
+    private final ArrayMap<Context, ArrayMap<BroadcastReceiver, LoadedApk.ReceiverDispatcher>> mUnregisteredReceivers
+        = new ArrayMap<>();
+    private final ArrayMap<Context, ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher>> mServices
+        = new ArrayMap<>();
+    private final ArrayMap<Context, ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher>> mUnboundServices
+        = new ArrayMap<>();
+    private AppComponentFactory mAppComponentFactory;
 
     Application getApplication() {
         return mApplication;
@@ -131,13 +135,13 @@ public final class LoadedApk {
 
     /**
      * Create information about a new .apk
-     * <p>
+     *
      * NOTE: This constructor is called with ActivityThread's lock held,
      * so MUST NOT call back out to the activity manager.
      */
     public LoadedApk(ActivityThread activityThread, ApplicationInfo aInfo,
-                     CompatibilityInfo compatInfo, ClassLoader baseLoader,
-                     boolean securityViolation, boolean includeCode, boolean registerPackage) {
+            CompatibilityInfo compatInfo, ClassLoader baseLoader,
+            boolean securityViolation, boolean includeCode, boolean registerPackage) {
 
         mActivityThread = activityThread;
         setApplicationInfo(aInfo);
@@ -147,6 +151,7 @@ public final class LoadedApk {
         mIncludeCode = includeCode;
         mRegisterPackage = registerPackage;
         mDisplayAdjustments.setCompatibilityInfo(compatInfo);
+        mAppComponentFactory = createAppFactory(mApplicationInfo, mBaseClassLoader);
     }
 
     private static ApplicationInfo adjustNativeLibraryPaths(ApplicationInfo info) {
@@ -189,8 +194,8 @@ public final class LoadedApk {
         mResDir = null;
         mSplitAppDirs = null;
         mSplitResDirs = null;
+        mSplitClassLoaderNames = null;
         mOverlayDirs = null;
-        mSharedLibraries = null;
         mDataDir = null;
         mDataDirFile = null;
         mDeviceProtectedDataDirFile = null;
@@ -202,6 +207,7 @@ public final class LoadedApk {
         mRegisterPackage = false;
         mClassLoader = ClassLoader.getSystemClassLoader();
         mResources = Resources.getSystem();
+        mAppComponentFactory = createAppFactory(mApplicationInfo, mClassLoader);
     }
 
     /**
@@ -211,6 +217,23 @@ public final class LoadedApk {
         assert info.packageName.equals("android");
         mApplicationInfo = info;
         mClassLoader = classLoader;
+        mAppComponentFactory = createAppFactory(info, classLoader);
+    }
+
+    private AppComponentFactory createAppFactory(ApplicationInfo appInfo, ClassLoader cl) {
+        if (appInfo.appComponentFactory != null && cl != null) {
+            try {
+                return (AppComponentFactory) cl.loadClass(appInfo.appComponentFactory)
+                        .newInstance();
+            } catch (InstantiationException | IllegalAccessException | ClassNotFoundException e) {
+                Slog.e(TAG, "Unable to instantiate appComponentFactory", e);
+            }
+        }
+        return AppComponentFactory.DEFAULT;
+    }
+
+    public AppComponentFactory getAppFactory() {
+        return mAppComponentFactory;
     }
 
     public String getPackageName() {
@@ -242,8 +265,7 @@ public final class LoadedApk {
      * used by the given package.
      *
      * @param packageName the name of the package (note: not its
-     *                    file name)
-     *
+     * file name)
      * @return null-ok; the array of shared libraries, each one
      * a fully-qualified path
      */
@@ -263,11 +285,19 @@ public final class LoadedApk {
         return ai.sharedLibraryFiles;
     }
 
-    public void updateApplicationInfo(ApplicationInfo aInfo, List<String> oldPaths) {
+    /**
+     * Update the ApplicationInfo for an app. If oldPaths is null, all the paths are considered
+     * new.
+     * @param aInfo The new ApplicationInfo to use for this LoadedApk
+     * @param oldPaths The code paths for the old ApplicationInfo object. null means no paths can
+     *                 be reused.
+     */
+    public void updateApplicationInfo(@NonNull ApplicationInfo aInfo,
+            @Nullable List<String> oldPaths) {
         setApplicationInfo(aInfo);
 
         final List<String> newPaths = new ArrayList<>();
-        makePaths(mActivityThread, aInfo, newPaths, null /*libPaths*/);
+        makePaths(mActivityThread, aInfo, newPaths);
         final List<String> addedPaths = new ArrayList<>(newPaths.size());
 
         if (oldPaths != null) {
@@ -275,7 +305,7 @@ public final class LoadedApk {
                 final String apkName = path.substring(path.lastIndexOf(File.separator));
                 boolean match = false;
                 for (String oldPath : oldPaths) {
-                    final String oldApkName = oldPath.substring(path.lastIndexOf(File.separator));
+                    final String oldApkName = oldPath.substring(oldPath.lastIndexOf(File.separator));
                     if (apkName.equals(oldApkName)) {
                         match = true;
                         break;
@@ -291,11 +321,21 @@ public final class LoadedApk {
         synchronized (this) {
             createOrUpdateClassLoaderLocked(addedPaths);
             if (mResources != null) {
-                mResources = mActivityThread.getTopLevelResources(mResDir, mSplitResDirs,
-                        mOverlayDirs, mApplicationInfo.sharedLibraryFiles, Display.DEFAULT_DISPLAY,
-                        this);
+                final String[] splitPaths;
+                try {
+                    splitPaths = getSplitPaths(null);
+                } catch (NameNotFoundException e) {
+                    // This should NEVER fail.
+                    throw new AssertionError("null split not found");
+                }
+
+                mResources = ResourcesManager.getInstance().getResources(null, mResDir,
+                        splitPaths, mOverlayDirs, mApplicationInfo.sharedLibraryFiles,
+                        Display.DEFAULT_DISPLAY, null, getCompatibilityInfo(),
+                        getClassLoader());
             }
         }
+        mAppComponentFactory = createAppFactory(aInfo, mClassLoader);
     }
 
     private void setApplicationInfo(ApplicationInfo aInfo) {
@@ -304,28 +344,44 @@ public final class LoadedApk {
         mApplicationInfo = aInfo;
         mAppDir = aInfo.sourceDir;
         mResDir = aInfo.uid == myUid ? aInfo.sourceDir : aInfo.publicSourceDir;
-        mSplitAppDirs = aInfo.splitSourceDirs;
-        mSplitResDirs = aInfo.uid == myUid ? aInfo.splitSourceDirs : aInfo.splitPublicSourceDirs;
         mOverlayDirs = aInfo.resourceDirs;
-        mSharedLibraries = aInfo.sharedLibraryFiles;
         mDataDir = aInfo.dataDir;
         mLibDir = aInfo.nativeLibraryDir;
         mDataDirFile = FileUtils.newFileOrNull(aInfo.dataDir);
         mDeviceProtectedDataDirFile = FileUtils.newFileOrNull(aInfo.deviceProtectedDataDir);
         mCredentialProtectedDataDirFile = FileUtils.newFileOrNull(aInfo.credentialProtectedDataDir);
+
+        mSplitNames = aInfo.splitNames;
+        mSplitAppDirs = aInfo.splitSourceDirs;
+        mSplitResDirs = aInfo.uid == myUid ? aInfo.splitSourceDirs : aInfo.splitPublicSourceDirs;
+        mSplitClassLoaderNames = aInfo.splitClassLoaderNames;
+
+        if (aInfo.requestsIsolatedSplitLoading() && !ArrayUtils.isEmpty(mSplitNames)) {
+            mSplitLoader = new SplitDependencyLoaderImpl(aInfo.splitDependencies);
+        }
     }
 
-    public static void makePaths(ActivityThread activityThread, ApplicationInfo aInfo,
-                                 List<String> outZipPaths, List<String> outLibPaths) {
+    public static void makePaths(ActivityThread activityThread,
+                                 ApplicationInfo aInfo,
+                                 List<String> outZipPaths) {
+        makePaths(activityThread, false, aInfo, outZipPaths, null);
+    }
+
+    public static void makePaths(ActivityThread activityThread,
+                                 boolean isBundledApp,
+                                 ApplicationInfo aInfo,
+                                 List<String> outZipPaths,
+                                 List<String> outLibPaths) {
         final String appDir = aInfo.sourceDir;
-        final String[] splitAppDirs = aInfo.splitSourceDirs;
         final String libDir = aInfo.nativeLibraryDir;
         final String[] sharedLibraries = aInfo.sharedLibraryFiles;
 
         outZipPaths.clear();
         outZipPaths.add(appDir);
-        if (splitAppDirs != null) {
-            Collections.addAll(outZipPaths, splitAppDirs);
+
+        // Do not load all available splits if the app requested isolated split loading.
+        if (aInfo.splitSourceDirs != null && !aInfo.requestsIsolatedSplitLoading()) {
+            Collections.addAll(outZipPaths, aInfo.splitSourceDirs);
         }
 
         if (outLibPaths != null) {
@@ -341,39 +397,48 @@ public final class LoadedApk {
          * concatenation of both apps' shared library lists.
          */
 
-        String instrumentationPackageName = activityThread.mInstrumentationPackageName;
-        String instrumentationAppDir = activityThread.mInstrumentationAppDir;
-        String[] instrumentationSplitAppDirs = activityThread.mInstrumentationSplitAppDirs;
-        String instrumentationLibDir = activityThread.mInstrumentationLibDir;
-
-        String instrumentedAppDir = activityThread.mInstrumentedAppDir;
-        String[] instrumentedSplitAppDirs = activityThread.mInstrumentedSplitAppDirs;
-        String instrumentedLibDir = activityThread.mInstrumentedLibDir;
         String[] instrumentationLibs = null;
+        // activityThread will be null when called from the WebView zygote; just assume
+        // no instrumentation applies in this case.
+        if (activityThread != null) {
+            String instrumentationPackageName = activityThread.mInstrumentationPackageName;
+            String instrumentationAppDir = activityThread.mInstrumentationAppDir;
+            String[] instrumentationSplitAppDirs = activityThread.mInstrumentationSplitAppDirs;
+            String instrumentationLibDir = activityThread.mInstrumentationLibDir;
 
-        if (appDir.equals(instrumentationAppDir)
-                || appDir.equals(instrumentedAppDir)) {
-            outZipPaths.clear();
-            outZipPaths.add(instrumentationAppDir);
-            if (instrumentationSplitAppDirs != null) {
-                Collections.addAll(outZipPaths, instrumentationSplitAppDirs);
-            }
-            if (!instrumentationAppDir.equals(instrumentedAppDir)) {
-                outZipPaths.add(instrumentedAppDir);
-                if (instrumentedSplitAppDirs != null) {
-                    Collections.addAll(outZipPaths, instrumentedSplitAppDirs);
+            String instrumentedAppDir = activityThread.mInstrumentedAppDir;
+            String[] instrumentedSplitAppDirs = activityThread.mInstrumentedSplitAppDirs;
+            String instrumentedLibDir = activityThread.mInstrumentedLibDir;
+
+            if (appDir.equals(instrumentationAppDir)
+                    || appDir.equals(instrumentedAppDir)) {
+                outZipPaths.clear();
+                outZipPaths.add(instrumentationAppDir);
+
+                // Only add splits if the app did not request isolated split loading.
+                if (!aInfo.requestsIsolatedSplitLoading()) {
+                    if (instrumentationSplitAppDirs != null) {
+                        Collections.addAll(outZipPaths, instrumentationSplitAppDirs);
+                    }
+
+                    if (!instrumentationAppDir.equals(instrumentedAppDir)) {
+                        outZipPaths.add(instrumentedAppDir);
+                        if (instrumentedSplitAppDirs != null) {
+                            Collections.addAll(outZipPaths, instrumentedSplitAppDirs);
+                        }
+                    }
                 }
-            }
 
-            if (outLibPaths != null) {
-                outLibPaths.add(instrumentationLibDir);
-                if (!instrumentationLibDir.equals(instrumentedLibDir)) {
-                    outLibPaths.add(instrumentedLibDir);
+                if (outLibPaths != null) {
+                    outLibPaths.add(instrumentationLibDir);
+                    if (!instrumentationLibDir.equals(instrumentedLibDir)) {
+                        outLibPaths.add(instrumentedLibDir);
+                    }
                 }
-            }
 
-            if (!instrumentedAppDir.equals(instrumentationAppDir)) {
-                instrumentationLibs = getLibrariesFor(instrumentationPackageName);
+                if (!instrumentedAppDir.equals(instrumentationAppDir)) {
+                    instrumentationLibs = getLibrariesFor(instrumentationPackageName);
+                }
             }
         }
 
@@ -386,16 +451,16 @@ public final class LoadedApk {
             // will be added to zipPaths that shouldn't be part of the library path.
             if (aInfo.primaryCpuAbi != null) {
                 // Add fake libs into the library search path if we target prior to N.
-                if (aInfo.targetSdkVersion <= 23) {
+                if (aInfo.targetSdkVersion < Build.VERSION_CODES.N) {
                     outLibPaths.add("/system/fake-libs" +
-                            (VMRuntime.is64BitAbi(aInfo.primaryCpuAbi) ? "64" : ""));
+                        (VMRuntime.is64BitAbi(aInfo.primaryCpuAbi) ? "64" : ""));
                 }
                 for (String apk : outZipPaths) {
                     outLibPaths.add(apk + "!/lib/" + aInfo.primaryCpuAbi);
                 }
             }
 
-            if (aInfo.isSystemApp() && !aInfo.isUpdatedSystemApp()) {
+            if (isBundledApp) {
                 // Add path to system libraries to libPaths;
                 // Access to system libs should be limited
                 // to bundled applications; this is why updated
@@ -404,10 +469,14 @@ public final class LoadedApk {
             }
         }
 
+        // Prepend the shared libraries, maintaining their original order where possible.
         if (sharedLibraries != null) {
+            int index = 0;
             for (String lib : sharedLibraries) {
                 if (!outZipPaths.contains(lib)) {
-                    outZipPaths.add(0, lib);
+                    outZipPaths.add(index, lib);
+                    index++;
+                    appendApkLibPathIfNeeded(lib, aInfo, outLibPaths);
                 }
             }
         }
@@ -416,9 +485,120 @@ public final class LoadedApk {
             for (String lib : instrumentationLibs) {
                 if (!outZipPaths.contains(lib)) {
                     outZipPaths.add(0, lib);
+                    appendApkLibPathIfNeeded(lib, aInfo, outLibPaths);
                 }
             }
         }
+    }
+
+    /**
+     * This method appends a path to the appropriate native library folder of a
+     * library if this library is hosted in an APK. This allows support for native
+     * shared libraries. The library API is determined based on the application
+     * ABI.
+     *
+     * @param path Path to the library.
+     * @param applicationInfo The application depending on the library.
+     * @param outLibPaths List to which to add the native lib path if needed.
+     */
+    private static void appendApkLibPathIfNeeded(@NonNull String path,
+            @NonNull ApplicationInfo applicationInfo, @Nullable List<String> outLibPaths) {
+        // Looking at the suffix is a little hacky but a safe and simple solution.
+        // We will be revisiting code in the next release and clean this up.
+        if (outLibPaths != null && applicationInfo.primaryCpuAbi != null && path.endsWith(".apk")) {
+            if (applicationInfo.targetSdkVersion >= Build.VERSION_CODES.O) {
+                outLibPaths.add(path + "!/lib/" + applicationInfo.primaryCpuAbi);
+            }
+        }
+    }
+
+    /*
+     * All indices received by the super class should be shifted by 1 when accessing mSplitNames,
+     * etc. The super class assumes the base APK is index 0, while the PackageManager APIs don't
+     * include the base APK in the list of splits.
+     */
+    private class SplitDependencyLoaderImpl extends SplitDependencyLoader<NameNotFoundException> {
+        private final String[][] mCachedResourcePaths;
+        private final ClassLoader[] mCachedClassLoaders;
+
+        SplitDependencyLoaderImpl(@NonNull SparseArray<int[]> dependencies) {
+            super(dependencies);
+            mCachedResourcePaths = new String[mSplitNames.length + 1][];
+            mCachedClassLoaders = new ClassLoader[mSplitNames.length + 1];
+        }
+
+        @Override
+        protected boolean isSplitCached(int splitIdx) {
+            return mCachedClassLoaders[splitIdx] != null;
+        }
+
+        @Override
+        protected void constructSplit(int splitIdx, @NonNull int[] configSplitIndices,
+                int parentSplitIdx) throws NameNotFoundException {
+            final ArrayList<String> splitPaths = new ArrayList<>();
+            if (splitIdx == 0) {
+                createOrUpdateClassLoaderLocked(null);
+                mCachedClassLoaders[0] = mClassLoader;
+
+                // Never add the base resources here, they always get added no matter what.
+                for (int configSplitIdx : configSplitIndices) {
+                    splitPaths.add(mSplitResDirs[configSplitIdx - 1]);
+                }
+                mCachedResourcePaths[0] = splitPaths.toArray(new String[splitPaths.size()]);
+                return;
+            }
+
+            // Since we handled the special base case above, parentSplitIdx is always valid.
+            final ClassLoader parent = mCachedClassLoaders[parentSplitIdx];
+            mCachedClassLoaders[splitIdx] = ApplicationLoaders.getDefault().getClassLoader(
+                    mSplitAppDirs[splitIdx - 1], getTargetSdkVersion(), false, null, null, parent,
+                    mSplitClassLoaderNames[splitIdx - 1]);
+
+            Collections.addAll(splitPaths, mCachedResourcePaths[parentSplitIdx]);
+            splitPaths.add(mSplitResDirs[splitIdx - 1]);
+            for (int configSplitIdx : configSplitIndices) {
+                splitPaths.add(mSplitResDirs[configSplitIdx - 1]);
+            }
+            mCachedResourcePaths[splitIdx] = splitPaths.toArray(new String[splitPaths.size()]);
+        }
+
+        private int ensureSplitLoaded(String splitName) throws NameNotFoundException {
+            int idx = 0;
+            if (splitName != null) {
+                idx = Arrays.binarySearch(mSplitNames, splitName);
+                if (idx < 0) {
+                    throw new PackageManager.NameNotFoundException(
+                            "Split name '" + splitName + "' is not installed");
+                }
+                idx += 1;
+            }
+            loadDependenciesForSplit(idx);
+            return idx;
+        }
+
+        ClassLoader getClassLoaderForSplit(String splitName) throws NameNotFoundException {
+            return mCachedClassLoaders[ensureSplitLoaded(splitName)];
+        }
+
+        String[] getSplitPathsForSplit(String splitName) throws NameNotFoundException {
+            return mCachedResourcePaths[ensureSplitLoaded(splitName)];
+        }
+    }
+
+    private SplitDependencyLoaderImpl mSplitLoader;
+
+    ClassLoader getSplitClassLoader(String splitName) throws NameNotFoundException {
+        if (mSplitLoader == null) {
+            return mClassLoader;
+        }
+        return mSplitLoader.getClassLoaderForSplit(splitName);
+    }
+
+    String[] getSplitPaths(String splitName) throws NameNotFoundException {
+        if (mSplitLoader == null) {
+            return mSplitResDirs;
+        }
+        return mSplitLoader.getSplitPathsForSplit(splitName);
     }
 
     private void createOrUpdateClassLoaderLocked(List<String> addedPaths) {
@@ -435,6 +615,7 @@ public final class LoadedApk {
             } else {
                 mClassLoader = ClassLoader.getSystemClassLoader();
             }
+            mAppComponentFactory = createAppFactory(mApplicationInfo, mClassLoader);
 
             return;
         }
@@ -442,8 +623,7 @@ public final class LoadedApk {
         // Avoid the binder call when the package is the current application package.
         // The activity manager will perform ensure that dexopt is performed before
         // spinning up the process.
-        if (!Objects.equals(mPackageName, ActivityThread.currentPackageName())) {
-            VMRuntime.getRuntime().vmInstructionSet();
+        if (!Objects.equals(mPackageName, ActivityThread.currentPackageName()) && mIncludeCode) {
             try {
                 ActivityThread.getPackageManager().notifyPackageUse(mPackageName,
                         PackageManager.NOTIFY_PACKAGE_USE_CROSS_PACKAGE);
@@ -454,7 +634,7 @@ public final class LoadedApk {
 
         if (mRegisterPackage) {
             try {
-                ActivityManagerNative.getDefault().addPackageDependency(mPackageName);
+                ActivityManager.getService().addPackageDependency(mPackageName);
             } catch (RemoteException e) {
                 throw e.rethrowFromSystemServer();
             }
@@ -468,17 +648,41 @@ public final class LoadedApk {
         // space and initialize to a small value (instead of incurring growth code).
         final List<String> zipPaths = new ArrayList<>(10);
         final List<String> libPaths = new ArrayList<>(10);
-        makePaths(mActivityThread, mApplicationInfo, zipPaths, libPaths);
 
-        final boolean isBundledApp = mApplicationInfo.isSystemApp()
+        boolean isBundledApp = mApplicationInfo.isSystemApp()
                 && !mApplicationInfo.isUpdatedSystemApp();
 
+        // Vendor apks are treated as bundled only when /vendor/lib is in the default search
+        // paths. If not, they are treated as unbundled; access to system libs is limited.
+        // Having /vendor/lib in the default search paths means that all system processes
+        // are allowed to use any vendor library, which in turn means that system is dependent
+        // on vendor partition. In the contrary, not having /vendor/lib in the default search
+        // paths mean that the two partitions are separated and thus we can treat vendor apks
+        // as unbundled.
+        final String defaultSearchPaths = System.getProperty("java.library.path");
+        final boolean treatVendorApkAsUnbundled = !defaultSearchPaths.contains("/vendor/lib");
+        if (mApplicationInfo.getCodePath() != null
+                && mApplicationInfo.isVendor() && treatVendorApkAsUnbundled) {
+            isBundledApp = false;
+        }
+
+        makePaths(mActivityThread, isBundledApp, mApplicationInfo, zipPaths, libPaths);
+
         String libraryPermittedPath = mDataDir;
+
         if (isBundledApp) {
+            // For bundled apps, add the base directory of the app (e.g.,
+            // /system/app/Foo/) to the permitted paths so that it can load libraries
+            // embedded in module apks under the directory. For now, GmsCore is relying
+            // on this, but this isn't specific to the app. Also note that, we don't
+            // need to do this for unbundled apps as entire /data is already set to
+            // the permitted paths for them.
+            libraryPermittedPath += File.pathSeparator
+                    + Paths.get(getAppDir()).getParent().toString();
+
             // This is necessary to grant bundled apps access to
             // libraries located in subdirectories of /system/lib
-            libraryPermittedPath += File.pathSeparator +
-                    System.getProperty("java.library.path");
+            libraryPermittedPath += File.pathSeparator + defaultSearchPaths;
         }
 
         final String librarySearchPath = TextUtils.join(File.pathSeparator, libPaths);
@@ -493,8 +697,10 @@ public final class LoadedApk {
                 StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
                 mClassLoader = ApplicationLoaders.getDefault().getClassLoader(
                         "" /* codePath */, mApplicationInfo.targetSdkVersion, isBundledApp,
-                        librarySearchPath, libraryPermittedPath, mBaseClassLoader);
+                        librarySearchPath, libraryPermittedPath, mBaseClassLoader,
+                        null /* classLoaderName */);
                 StrictMode.setThreadPolicy(oldPolicy);
+                mAppComponentFactory = AppComponentFactory.DEFAULT;
             }
 
             return;
@@ -509,8 +715,7 @@ public final class LoadedApk {
         final String zip = (zipPaths.size() == 1) ? zipPaths.get(0) :
                 TextUtils.join(File.pathSeparator, zipPaths);
 
-        if (ActivityThread.localLOGV)
-            Slog.v(ActivityThread.TAG, "Class path: " + zip +
+        if (DEBUG) Slog.v(ActivityThread.TAG, "Class path: " + zip +
                     ", JNI path: " + librarySearchPath);
 
         boolean needToSetupJitProfiles = false;
@@ -521,11 +726,61 @@ public final class LoadedApk {
 
             mClassLoader = ApplicationLoaders.getDefault().getClassLoader(zip,
                     mApplicationInfo.targetSdkVersion, isBundledApp, librarySearchPath,
-                    libraryPermittedPath, mBaseClassLoader);
+                    libraryPermittedPath, mBaseClassLoader,
+                    mApplicationInfo.classLoaderName);
+            mAppComponentFactory = createAppFactory(mApplicationInfo, mClassLoader);
 
             StrictMode.setThreadPolicy(oldPolicy);
             // Setup the class loader paths for profiling.
             needToSetupJitProfiles = true;
+        }
+
+        if (!libPaths.isEmpty() && SystemProperties.getBoolean(PROPERTY_NAME_APPEND_NATIVE, true)) {
+            // Temporarily disable logging of disk reads on the Looper thread as this is necessary
+            StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
+            try {
+                ApplicationLoaders.getDefault().addNative(mClassLoader, libPaths);
+            } finally {
+                StrictMode.setThreadPolicy(oldPolicy);
+            }
+        }
+
+        // /vendor/lib, /odm/lib and /product/lib are added to the native lib search
+        // paths of the classloader. Note that this is done AFTER the classloader is
+        // created by ApplicationLoaders.getDefault().getClassLoader(...). The
+        // reason is because if we have added the paths when creating the classloader
+        // above, the paths are also added to the search path of the linker namespace
+        // 'classloader-namespace', which will allow ALL libs in the paths to apps.
+        // Since only the libs listed in <partition>/etc/public.libraries.txt can be
+        // available to apps, we shouldn't add the paths then.
+        //
+        // However, we need to add the paths to the classloader (Java) though. This
+        // is because when a native lib is requested via System.loadLibrary(), the
+        // classloader first tries to find the requested lib in its own native libs
+        // search paths. If a lib is not found in one of the paths, dlopen() is not
+        // called at all. This can cause a problem that a vendor public native lib
+        // is accessible when directly opened via dlopen(), but inaccesible via
+        // System.loadLibrary(). In order to prevent the problem, we explicitly
+        // add the paths only to the classloader, and not to the native loader
+        // (linker namespace).
+        List<String> extraLibPaths = new ArrayList<>(3);
+        String abiSuffix = VMRuntime.getRuntime().is64Bit() ? "64" : "";
+        if (!defaultSearchPaths.contains("/vendor/lib")) {
+            extraLibPaths.add("/vendor/lib" + abiSuffix);
+        }
+        if (!defaultSearchPaths.contains("/odm/lib")) {
+            extraLibPaths.add("/odm/lib" + abiSuffix);
+        }
+        if (!defaultSearchPaths.contains("/product/lib")) {
+            extraLibPaths.add("/product/lib" + abiSuffix);
+        }
+        if (!extraLibPaths.isEmpty()) {
+            StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
+            try {
+                ApplicationLoaders.getDefault().addNative(mClassLoader, extraLibPaths);
+            } finally {
+                StrictMode.setThreadPolicy(oldPolicy);
+            }
         }
 
         if (addedPaths != null && addedPaths.size() > 0) {
@@ -558,13 +813,6 @@ public final class LoadedApk {
         }
     }
 
-    // Keep in sync with installd (frameworks/native/cmds/installd/commands.cpp).
-    private static File getPrimaryProfileFile(String packageName) {
-        File profileDir = Environment.getDataProfilesDePackageDirectory(
-                UserHandle.myUserId(), packageName);
-        return new File(profileDir, "primary.prof");
-    }
-
     private void setupJitProfileSupport() {
         if (!SystemProperties.getBoolean("dalvik.vm.usejitprofiles", false)) {
             return;
@@ -592,12 +840,17 @@ public final class LoadedApk {
             return;
         }
 
-        final File profileFile = getPrimaryProfileFile(mPackageName);
-        final File foreignDexProfilesFile =
-                Environment.getDataProfilesDeForeignDexDirectory(UserHandle.myUserId());
+        for (int i = codePaths.size() - 1; i >= 0; i--) {
+            String splitName = i == 0 ? null : mApplicationInfo.splitNames[i - 1];
+            String profileFile = ArtManager.getCurrentProfilePath(
+                    mPackageName, UserHandle.myUserId(), splitName);
+            VMRuntime.registerAppInfo(profileFile, new String[] {codePaths.get(i)});
+        }
 
-        VMRuntime.registerAppInfo(profileFile.getPath(), mApplicationInfo.dataDir,
-                codePaths.toArray(new String[codePaths.size()]), foreignDexProfilesFile.getPath());
+        // Register the app data directory with the reporter. It will
+        // help deciding whether or not a dex file is the primary apk or a
+        // secondary dex.
+        DexLoadReporter.getInstance().registerAppDataDir(mPackageName, mDataDir);
     }
 
     /**
@@ -609,7 +862,7 @@ public final class LoadedApk {
      * ClassLoader to a proxy that will warn about the use of Java
      * context ClassLoaders and then fall through to use the
      * system ClassLoader.
-     * <p>
+     *
      * <p> Note that this is similar to but not the same as the
      * android.content.Context.getClassLoader(). While both
      * context class loaders are typically set to the
@@ -650,13 +903,13 @@ public final class LoadedApk {
          */
         boolean sharedUserIdSet = (pi.sharedUserId != null);
         boolean processNameNotDefault =
-                (pi.applicationInfo != null &&
-                        !mPackageName.equals(pi.applicationInfo.processName));
+            (pi.applicationInfo != null &&
+             !mPackageName.equals(pi.applicationInfo.processName));
         boolean sharable = (sharedUserIdSet || processNameNotDefault);
         ClassLoader contextClassLoader =
-                (sharable)
-                        ? new WarningContextClassLoader()
-                        : mClassLoader;
+            (sharable)
+            ? new WarningContextClassLoader()
+            : mClassLoader;
         Thread.currentThread().setContextClassLoader(contextClassLoader);
     }
 
@@ -671,57 +924,49 @@ public final class LoadedApk {
             warned = true;
             Thread.currentThread().setContextClassLoader(getParent());
             Slog.w(ActivityThread.TAG, "ClassLoader." + methodName + ": " +
-                    "The class loader returned by " +
-                    "Thread.getContextClassLoader() may fail for processes " +
-                    "that host multiple applications. You should explicitly " +
-                    "specify a context class loader. For example: " +
-                    "Thread.setContextClassLoader(getClass().getClassLoader());");
+                  "The class loader returned by " +
+                  "Thread.getContextClassLoader() may fail for processes " +
+                  "that host multiple applications. You should explicitly " +
+                  "specify a context class loader. For example: " +
+                  "Thread.setContextClassLoader(getClass().getClassLoader());");
         }
 
-        @Override
-        public URL getResource(String resName) {
+        @Override public URL getResource(String resName) {
             warn("getResource");
             return getParent().getResource(resName);
         }
 
-        @Override
-        public Enumeration<URL> getResources(String resName) throws IOException {
+        @Override public Enumeration<URL> getResources(String resName) throws IOException {
             warn("getResources");
             return getParent().getResources(resName);
         }
 
-        @Override
-        public InputStream getResourceAsStream(String resName) {
+        @Override public InputStream getResourceAsStream(String resName) {
             warn("getResourceAsStream");
             return getParent().getResourceAsStream(resName);
         }
 
-        @Override
-        public Class<?> loadClass(String className) throws ClassNotFoundException {
+        @Override public Class<?> loadClass(String className) throws ClassNotFoundException {
             warn("loadClass");
             return getParent().loadClass(className);
         }
 
-        @Override
-        public void setClassAssertionStatus(String cname, boolean enable) {
+        @Override public void setClassAssertionStatus(String cname, boolean enable) {
             warn("setClassAssertionStatus");
             getParent().setClassAssertionStatus(cname, enable);
         }
 
-        @Override
-        public void setPackageAssertionStatus(String pname, boolean enable) {
+        @Override public void setPackageAssertionStatus(String pname, boolean enable) {
             warn("setPackageAssertionStatus");
             getParent().setPackageAssertionStatus(pname, enable);
         }
 
-        @Override
-        public void setDefaultAssertionStatus(boolean enable) {
+        @Override public void setDefaultAssertionStatus(boolean enable) {
             warn("setDefaultAssertionStatus");
             getParent().setDefaultAssertionStatus(enable);
         }
 
-        @Override
-        public void clearAssertionStatus() {
+        @Override public void clearAssertionStatus() {
             warn("clearAssertionStatus");
             getParent().clearAssertionStatus();
         }
@@ -767,20 +1012,30 @@ public final class LoadedApk {
         return mCredentialProtectedDataDirFile;
     }
 
-    public AssetManager getAssets(ActivityThread mainThread) {
-        return getResources(mainThread).getAssets();
+    public AssetManager getAssets() {
+        return getResources().getAssets();
     }
 
-    public Resources getResources(ActivityThread mainThread) {
+    public Resources getResources() {
         if (mResources == null) {
-            mResources = mainThread.getTopLevelResources(mResDir, mSplitResDirs, mOverlayDirs,
-                    mApplicationInfo.sharedLibraryFiles, Display.DEFAULT_DISPLAY, this);
+            final String[] splitPaths;
+            try {
+                splitPaths = getSplitPaths(null);
+            } catch (NameNotFoundException e) {
+                // This should never fail.
+                throw new AssertionError("null split not found");
+            }
+
+            mResources = ResourcesManager.getInstance().getResources(null, mResDir,
+                    splitPaths, mOverlayDirs, mApplicationInfo.sharedLibraryFiles,
+                    Display.DEFAULT_DISPLAY, null, getCompatibilityInfo(),
+                    getClassLoader());
         }
         return mResources;
     }
 
     public Application makeApplication(boolean forceDefaultAppClass,
-                                       Instrumentation instrumentation) {
+            Instrumentation instrumentation) {
         if (mApplication != null) {
             return mApplication;
         }
@@ -810,8 +1065,8 @@ public final class LoadedApk {
             if (!mActivityThread.mInstrumentation.onException(app, e)) {
                 Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
                 throw new RuntimeException(
-                        "Unable to instantiate application " + appClass
-                                + ": " + e.toString(), e);
+                    "Unable to instantiate application " + appClass
+                    + ": " + e.toString(), e);
             }
         }
         mActivityThread.mAllApplications.add(app);
@@ -825,15 +1080,14 @@ public final class LoadedApk {
                 if (!instrumentation.onException(app, e)) {
                     Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
                     throw new RuntimeException(
-                            "Unable to create application " + app.getClass().getName()
-                                    + ": " + e.toString(), e);
+                        "Unable to create application " + app.getClass().getName()
+                        + ": " + e.toString(), e);
                 }
             }
         }
 
         // Rewrite the R 'constants' for all library apks.
-        SparseArray<String> packageIdentifiers = getAssets(mActivityThread)
-                .getAssignedPackageIdentifiers();
+        SparseArray<String> packageIdentifiers = getAssets().getAssignedPackageIdentifiers();
         final int N = packageIdentifiers.size();
         for (int i = 0; i < N; i++) {
             final int id = packageIdentifiers.keyAt(i);
@@ -883,7 +1137,7 @@ public final class LoadedApk {
     }
 
     public void removeContextRegistrations(Context context,
-                                           String who, String what) {
+            String who, String what) {
         final boolean reportRegistrationLeaks = StrictMode.vmRegistrationLeaksEnabled();
         synchronized (mReceivers) {
             ArrayMap<BroadcastReceiver, LoadedApk.ReceiverDispatcher> rmap =
@@ -893,16 +1147,16 @@ public final class LoadedApk {
                     LoadedApk.ReceiverDispatcher rd = rmap.valueAt(i);
                     IntentReceiverLeaked leak = new IntentReceiverLeaked(
                             what + " " + who + " has leaked IntentReceiver "
-                                    + rd.getIntentReceiver() + " that was " +
-                                    "originally registered here. Are you missing a " +
-                                    "call to unregisterReceiver()?");
+                            + rd.getIntentReceiver() + " that was " +
+                            "originally registered here. Are you missing a " +
+                            "call to unregisterReceiver()?");
                     leak.setStackTrace(rd.getLocation().getStackTrace());
                     Slog.e(ActivityThread.TAG, leak.getMessage(), leak);
                     if (reportRegistrationLeaks) {
                         StrictMode.onIntentReceiverLeaked(leak);
                     }
                     try {
-                        ActivityManagerNative.getDefault().unregisterReceiver(
+                        ActivityManager.getService().unregisterReceiver(
                                 rd.getIIntentReceiver());
                     } catch (RemoteException e) {
                         throw e.rethrowFromSystemServer();
@@ -921,14 +1175,14 @@ public final class LoadedApk {
                     LoadedApk.ServiceDispatcher sd = smap.valueAt(i);
                     ServiceConnectionLeaked leak = new ServiceConnectionLeaked(
                             what + " " + who + " has leaked ServiceConnection "
-                                    + sd.getServiceConnection() + " that was originally bound here");
+                            + sd.getServiceConnection() + " that was originally bound here");
                     leak.setStackTrace(sd.getLocation().getStackTrace());
                     Slog.e(ActivityThread.TAG, leak.getMessage(), leak);
                     if (reportRegistrationLeaks) {
                         StrictMode.onServiceConnectionLeaked(leak);
                     }
                     try {
-                        ActivityManagerNative.getDefault().unbindService(
+                        ActivityManager.getService().unbindService(
                                 sd.getIServiceConnection());
                     } catch (RemoteException e) {
                         throw e.rethrowFromSystemServer();
@@ -946,8 +1200,8 @@ public final class LoadedApk {
     // HashMap中，并且以它们所关联的广播接收者为关键字。最后用来保存这些ReceiverDispatcher对象的HashMap
     // 又以它们所关联的Activity组件的Context接口为关键字保存在LoadApk类的成员变量mReceivers中
     public IIntentReceiver getReceiverDispatcher(BroadcastReceiver r,
-                                                 Context context, Handler handler,
-                                                 Instrumentation instrumentation, boolean registered) {
+            Context context, Handler handler,
+            Instrumentation instrumentation, boolean registered) {
         synchronized (mReceivers) {
             LoadedApk.ReceiverDispatcher rd = null;
             ArrayMap<BroadcastReceiver, LoadedApk.ReceiverDispatcher> map = null;
@@ -982,7 +1236,7 @@ public final class LoadedApk {
     }
 
     public IIntentReceiver forgetReceiverDispatcher(Context context,
-                                                    BroadcastReceiver r) {
+            BroadcastReceiver r) {
         synchronized (mReceivers) {
             ArrayMap<BroadcastReceiver, LoadedApk.ReceiverDispatcher> map = mReceivers.get(context);
             LoadedApk.ReceiverDispatcher rd = null;
@@ -1018,7 +1272,7 @@ public final class LoadedApk {
                     RuntimeException ex = rd.getUnregisterLocation();
                     throw new IllegalArgumentException(
                             "Unregistering Receiver " + r
-                                    + " that was already unregistered", ex);
+                            + " that was already unregistered", ex);
                 }
             }
             if (context == null) {
@@ -1044,7 +1298,7 @@ public final class LoadedApk {
 
             @Override
             public void performReceive(Intent intent, int resultCode, String data,
-                                       Bundle extras, boolean ordered, boolean sticky, int sendingUser) {
+                    Bundle extras, boolean ordered, boolean sticky, int sendingUser) {
                 final LoadedApk.ReceiverDispatcher rd;
                 if (intent == null) {
                     Log.wtf(TAG, "Null intent received");
@@ -1067,7 +1321,7 @@ public final class LoadedApk {
                     // behalf so that the system's broadcast sequence can continue.
                     if (ActivityThread.DEBUG_BROADCAST) Slog.i(ActivityThread.TAG,
                             "Finishing broadcast to unregistered receiver");
-                    IActivityManager mgr = ActivityManagerNative.getDefault();
+                    IActivityManager mgr = ActivityManager.getService();
                     try {
                         if (extras != null) {
                             extras.setAllowFds(false);
@@ -1090,16 +1344,16 @@ public final class LoadedApk {
         RuntimeException mUnregisterLocation;
         boolean mForgotten;
 
-        final class Args extends BroadcastReceiver.PendingResult implements Runnable {
+        final class Args extends BroadcastReceiver.PendingResult {
             // 用来描述一个广播，它的目标广播接收者便是ReceiverDispatcher类的成员变量mReceiver所指向的广播接收者
             private Intent mCurIntent;
             private final boolean mOrdered;// 用来描述成员变量mCurIntent所描述的广播是否是一个有序广播
             private boolean mDispatched;
-
+            private Throwable mPreviousRunStacktrace; // To investigate b/37809561. STOPSHIP remove.
             // 动态广播：参数mRegistered为true，mType就是TYPE_REGISTERED
             // 非ordered广播：ordered变量是false，mOrderedHint为false，mType是TYPE_REGISTERED
             public Args(Intent intent, int resultCode, String resultData, Bundle resultExtras,
-                        boolean ordered, boolean sticky, int sendingUser) {
+                    boolean ordered, boolean sticky, int sendingUser) {
                 super(resultCode, resultData, resultExtras,
                         mRegistered ? TYPE_REGISTERED : TYPE_UNREGISTERED, ordered,
                         sticky, mIIntentReceiver.asBinder(), sendingUser, intent.getFlags());
@@ -1107,77 +1361,82 @@ public final class LoadedApk {
                 mOrdered = ordered;
             }
 
-            public void run() {
+            public final Runnable getRunnable() {
+                return () -> {
                 // mReceiver指向一个广播接收者
-                final BroadcastReceiver receiver = mReceiver;
-                final boolean ordered = mOrdered;
+                    final BroadcastReceiver receiver = mReceiver;
+                    final boolean ordered = mOrdered;
 
-                if (ActivityThread.DEBUG_BROADCAST) {
-                    int seq = mCurIntent.getIntExtra("seq", -1);
-                    Slog.i(ActivityThread.TAG, "Dispatching broadcast " + mCurIntent.getAction()
-                            + " seq=" + seq + " to " + mReceiver);
-                    Slog.i(ActivityThread.TAG, "  mRegistered=" + mRegistered
-                            + " mOrderedHint=" + ordered);
-                }
-
-                final IActivityManager mgr = ActivityManagerNative.getDefault();
-                final Intent intent = mCurIntent;
-                if (intent == null) {
-                    Log.wtf(TAG, "Null intent being dispatched, mDispatched=" + mDispatched);
-                }
-
-                mCurIntent = null;
-                mDispatched = true;
-                if (receiver == null || intent == null || mForgotten) {
-                    if (mRegistered && ordered) {
-                        if (ActivityThread.DEBUG_BROADCAST) Slog.i(ActivityThread.TAG,
-                                "Finishing null broadcast to " + mReceiver);
-                        sendFinished(mgr);
+                    if (ActivityThread.DEBUG_BROADCAST) {
+                        int seq = mCurIntent.getIntExtra("seq", -1);
+                        Slog.i(ActivityThread.TAG, "Dispatching broadcast " + mCurIntent.getAction()
+                                + " seq=" + seq + " to " + mReceiver);
+                        Slog.i(ActivityThread.TAG, "  mRegistered=" + mRegistered
+                                + " mOrderedHint=" + ordered);
                     }
-                    return;
-                }
 
-                Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "broadcastReceiveReg");
+                    final IActivityManager mgr = ActivityManager.getService();
+                    final Intent intent = mCurIntent;
+                    if (intent == null) {
+                        Log.wtf(TAG, "Null intent being dispatched, mDispatched=" + mDispatched
+                                + ": run() previously called at "
+                                + Log.getStackTraceString(mPreviousRunStacktrace));
+                    }
+
+                    mCurIntent = null;
+                    mDispatched = true;
+                    mPreviousRunStacktrace = new Throwable("Previous stacktrace");
+                    if (receiver == null || intent == null || mForgotten) {
+                        if (mRegistered && ordered) {
+                            if (ActivityThread.DEBUG_BROADCAST) Slog.i(ActivityThread.TAG,
+                                    "Finishing null broadcast to " + mReceiver);
+                            sendFinished(mgr);
+                        }
+                        return;
+                    }
+
+                    Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "broadcastReceiveReg");
                 // 这里处理的是动态广播接收者，默认认为接收者BroadcastReceiver已经存在
-                try {
-                    ClassLoader cl = mReceiver.getClass().getClassLoader();
-                    intent.setExtrasClassLoader(cl);
-                    intent.prepareToEnterProcess();
-                    setExtrasClassLoader(cl);
+                    try {
+                        ClassLoader cl = mReceiver.getClass().getClassLoader();
+                        intent.setExtrasClassLoader(cl);
+                        intent.prepareToEnterProcess();
+                        setExtrasClassLoader(cl);
                     // 调用接收者的onReceive方法，这里还涉及到setPendingResult方法，相关具体内容请看
                     // BroadcastReceiver.goAsync方法
-                    receiver.setPendingResult(this);
+                        receiver.setPendingResult(this);
                     // 接受广播
-                    receiver.onReceive(mContext, intent);
+                        receiver.onReceive(mContext, intent);
                     // 然后调用BroadcastReceiver.PendingResult.finish函数，也就是下面的finish函数
-                } catch (Exception e) {
+                    } catch (Exception e) {
                     // 检查当前广播是否是有序广播，并且广播接收者是否已经注册到AMS中
-                    if (mRegistered && ordered) {
-                        if (ActivityThread.DEBUG_BROADCAST) Slog.i(ActivityThread.TAG,
-                                "Finishing failed broadcast to " + mReceiver);
+                        if (mRegistered && ordered) {
+                            if (ActivityThread.DEBUG_BROADCAST) Slog.i(ActivityThread.TAG,
+                                    "Finishing failed broadcast to " + mReceiver);
                         // 通知AMS，它前面转发过来的有序广播已经处理完了，这时AMS就可以继续将这个有序广播
                         // 转发给下一个目标广播接收者了
-                        sendFinished(mgr);
+                            sendFinished(mgr);
+                        }
+                        if (mInstrumentation == null ||
+                                !mInstrumentation.onException(mReceiver, e)) {
+                            Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+                            throw new RuntimeException(
+                                    "Error receiving broadcast " + intent
+                                            + " in " + mReceiver, e);
+                        }
                     }
-                    if (mInstrumentation == null ||
-                            !mInstrumentation.onException(mReceiver, e)) {
-                        Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
-                        throw new RuntimeException(
-                                "Error receiving broadcast " + intent
-                                        + " in " + mReceiver, e);
-                    }
-                }
 
-                if (receiver.getPendingResult() != null) {
-                    finish();
-                }
-                Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+                    if (receiver.getPendingResult() != null) {
+                        finish();
+                    }
+                    Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+                };
             }
         }
 
         ReceiverDispatcher(BroadcastReceiver receiver, Context context,
-                           Handler activityThread, Instrumentation instrumentation,
-                           boolean registered) {
+                Handler activityThread, Instrumentation instrumentation,
+                boolean registered) {
             if (activityThread == null) {
                 throw new NullPointerException("Handler must not be null");
             }
@@ -1201,15 +1460,15 @@ public final class LoadedApk {
         void validate(Context context, Handler activityThread) {
             if (mContext != context) {
                 throw new IllegalStateException(
-                        "Receiver " + mReceiver +
-                                " registered with differing Context (was " +
-                                mContext + " now " + context + ")");
+                    "Receiver " + mReceiver +
+                    " registered with differing Context (was " +
+                    mContext + " now " + context + ")");
             }
             if (mActivityThread != activityThread) {
                 throw new IllegalStateException(
-                        "Receiver " + mReceiver +
-                                " registered with differing handler (was " +
-                                mActivityThread + " now " + activityThread + ")");
+                    "Receiver " + mReceiver +
+                    " registered with differing handler (was " +
+                    mActivityThread + " now " + activityThread + ")");
             }
         }
 
@@ -1234,7 +1493,7 @@ public final class LoadedApk {
         }
 
         public void performReceive(Intent intent, int resultCode, String data,
-                                   Bundle extras, boolean ordered, boolean sticky, int sendingUser) {
+                Bundle extras, boolean ordered, boolean sticky, int sendingUser) {
             // 首先将参数Intent所描述的一个广播封装成一个Args对象，然后将这个Args对象封装成一个消息对象，
             // 然后将这个消息对象发送到应用程序主线程的消息队列中。
             final Args args = new Args(intent, resultCode, data, extras, ordered,
@@ -1251,9 +1510,9 @@ public final class LoadedApk {
                 }
             }
             // 上面将广播的参数封装在一个Args对象里面，然后通过post到主线程的消息队列里面
-            if (intent == null || !mActivityThread.post(args)) {
+            if (intent == null || !mActivityThread.post(args.getRunnable())) {
                 if (mRegistered && ordered) {
-                    IActivityManager mgr = ActivityManagerNative.getDefault();
+                    IActivityManager mgr = ActivityManager.getService();
                     if (ActivityThread.DEBUG_BROADCAST) Slog.i(ActivityThread.TAG,
                             "Finishing sync broadcast to " + mReceiver);
                     args.sendFinished(mgr);
@@ -1266,19 +1525,21 @@ public final class LoadedApk {
     // 每一个绑定过Service组件的Activity组件在LoadedApk类中都有一个对应的ServiceDispatcher对象，它负责将
     // 这个被绑定的Service组件与绑定它的Activity组件关联起来，这些ServiceDispatcher保存在map中
     public final IServiceConnection getServiceDispatcher(ServiceConnection c,
-                                                         Context context, Handler handler, int flags) {
+            Context context, Handler handler, int flags) {
         synchronized (mServices) {
             LoadedApk.ServiceDispatcher sd = null;
             ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher> map = mServices.get(context);
             // 检查成员变量mServices中是否存在一个以ServiceConnection对象c为关键字的ServiceDispatcher
             // 对象sd，如果不存在，则创建一个并且以context为关键字保存到mServices中
             if (map != null) {
+                if (DEBUG) Slog.d(TAG, "Returning existing dispatcher " + sd + " for conn " + c);
                 sd = map.get(c);
             }
             if (sd == null) {
                 sd = new ServiceDispatcher(c, context, handler, flags);
+                if (DEBUG) Slog.d(TAG, "Creating new dispatcher " + sd + " for conn " + c);
                 if (map == null) {
-                    map = new ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher>();
+                    map = new ArrayMap<>();
                     mServices.put(context, map);
                 }
                 map.put(c, sd);
@@ -1292,7 +1553,7 @@ public final class LoadedApk {
     }
 
     public final IServiceConnection forgetServiceDispatcher(Context context,
-                                                            ServiceConnection c) {
+            ServiceConnection c) {
         synchronized (mServices) {
             ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher> map
                     = mServices.get(context);
@@ -1300,12 +1561,13 @@ public final class LoadedApk {
             if (map != null) {
                 sd = map.get(c);
                 if (sd != null) {
+                    if (DEBUG) Slog.d(TAG, "Removing dispatcher " + sd + " for conn " + c);
                     map.remove(c);
                     sd.doForget();
                     if (map.size() == 0) {
                         mServices.remove(context);
                     }
-                    if ((sd.getFlags() & Context.BIND_DEBUG_UNBIND) != 0) {
+                    if ((sd.getFlags()&Context.BIND_DEBUG_UNBIND) != 0) {
                         ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher> holder
                                 = mUnboundServices.get(context);
                         if (holder == null) {
@@ -1329,7 +1591,7 @@ public final class LoadedApk {
                     RuntimeException ex = sd.getUnbindLocation();
                     throw new IllegalArgumentException(
                             "Unbinding Service " + c
-                                    + " that was already unbound", ex);
+                            + " that was already unbound", ex);
                 }
             }
             if (context == null) {
@@ -1366,19 +1628,20 @@ public final class LoadedApk {
                 mDispatcher = new WeakReference<LoadedApk.ServiceDispatcher>(sd);
             }
 
-            public void connected(ComponentName name, IBinder service) throws RemoteException {
+            public void connected(ComponentName name, IBinder service, boolean dead)
+                    throws RemoteException {
                 LoadedApk.ServiceDispatcher sd = mDispatcher.get();
                 if (sd != null) {
-                    sd.connected(name, service);
+                    sd.connected(name, service, dead);
                 }
             }
         }
 
         private final ArrayMap<ComponentName, ServiceDispatcher.ConnectionInfo> mActiveConnections
-                = new ArrayMap<ComponentName, ServiceDispatcher.ConnectionInfo>();
+            = new ArrayMap<ComponentName, ServiceDispatcher.ConnectionInfo>();
 
         ServiceDispatcher(ServiceConnection conn,
-                          Context context, Handler activityThread, int flags) {
+                Context context, Handler activityThread, int flags) {
             mIServiceConnection = new InnerConnection(this);
             mConnection = conn;
             mContext = context;
@@ -1391,21 +1654,21 @@ public final class LoadedApk {
         void validate(Context context, Handler activityThread) {
             if (mContext != context) {
                 throw new RuntimeException(
-                        "ServiceConnection " + mConnection +
-                                " registered with differing Context (was " +
-                                mContext + " now " + context + ")");
+                    "ServiceConnection " + mConnection +
+                    " registered with differing Context (was " +
+                    mContext + " now " + context + ")");
             }
             if (mActivityThread != activityThread) {
                 throw new RuntimeException(
-                        "ServiceConnection " + mConnection +
-                                " registered with differing handler (was " +
-                                mActivityThread + " now " + activityThread + ")");
+                    "ServiceConnection " + mConnection +
+                    " registered with differing handler (was " +
+                    mActivityThread + " now " + activityThread + ")");
             }
         }
 
         void doForget() {
-            synchronized (this) {
-                for (int i = 0; i < mActiveConnections.size(); i++) {
+            synchronized(this) {
+                for (int i=0; i<mActiveConnections.size(); i++) {
                     ServiceDispatcher.ConnectionInfo ci = mActiveConnections.valueAt(i);
                     ci.binder.unlinkToDeath(ci.deathMonitor, 0);
                 }
@@ -1439,25 +1702,25 @@ public final class LoadedApk {
             return mUnbindLocation;
         }
 
-        public void connected(ComponentName name, IBinder service) {
+        public void connected(ComponentName name, IBinder service, boolean dead) {
             // mActivityThread指向了ActivityThread类的成员变量mH，它是用来向应用程序的主线程的消息队列发送消息的
             if (mActivityThread != null) {
-                mActivityThread.post(new RunConnection(name, service, 0));
+                mActivityThread.post(new RunConnection(name, service, 0, dead));
             } else {
                 // 执行连接
-                doConnected(name, service);
+                doConnected(name, service, dead);
             }
         }
 
         public void death(ComponentName name, IBinder service) {
             if (mActivityThread != null) {
-                mActivityThread.post(new RunConnection(name, service, 1));
+                mActivityThread.post(new RunConnection(name, service, 1, false));
             } else {
                 doDeath(name, service);
             }
         }
 
-        public void doConnected(ComponentName name, IBinder service) {
+        public void doConnected(ComponentName name, IBinder service, boolean dead) {
             ServiceDispatcher.ConnectionInfo old;
             ServiceDispatcher.ConnectionInfo info;
 
@@ -1502,10 +1765,16 @@ public final class LoadedApk {
             if (old != null) {
                 mConnection.onServiceDisconnected(name);
             }
-            // If there is a new service, it is now connected.
+            if (dead) {
+                mConnection.onBindingDied(name);
+            }
+            // If there is a new viable service, it is now connected.
             if (service != null) {
                 // 调用onServiceConnected函数以便将参数service所描述的Binder本地对象传递给你要绑定的Service组件
                 mConnection.onServiceConnected(name, service);
+            } else {
+                // The binding machinery worked, but the remote returned null from onBind().
+                mConnection.onNullBinding(name);
             }
         }
 
@@ -1525,15 +1794,16 @@ public final class LoadedApk {
         }
 
         private final class RunConnection implements Runnable {
-            RunConnection(ComponentName name, IBinder service, int command) {
+            RunConnection(ComponentName name, IBinder service, int command, boolean dead) {
                 mName = name;
                 mService = service;
                 mCommand = command;
+                mDead = dead;
             }
 
             public void run() {
                 if (mCommand == 0) {
-                    doConnected(mName, mService);
+                    doConnected(mName, mService, mDead);
                 } else if (mCommand == 1) {
                     doDeath(mName, mService);
                 }
@@ -1542,9 +1812,11 @@ public final class LoadedApk {
             final ComponentName mName;
             final IBinder mService;
             final int mCommand;
+            final boolean mDead;
         }
 
-        private final class DeathMonitor implements IBinder.DeathRecipient {
+        private final class DeathMonitor implements IBinder.DeathRecipient
+        {
             DeathMonitor(ComponentName name, IBinder service) {
                 mName = name;
                 mService = service;

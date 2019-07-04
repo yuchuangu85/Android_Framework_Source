@@ -24,22 +24,22 @@ import libcore.util.Objects;
  * @hide
  */
 public final class StructUcred {
-  /** The peer's process id. */
-  public final int pid;
+    /** The peer's process id. */
+    public final int pid;
 
-  /** The peer process' uid. */
-  public final int uid;
+    /** The peer process' uid. */
+    public final int uid;
 
-  /** The peer process' gid. */
-  public final int gid;
+    /** The peer process' gid. */
+    public final int gid;
 
-  public StructUcred(int pid, int uid, int gid) {
-    this.pid = pid;
-    this.uid = uid;
-    this.gid = gid;
-  }
+    public StructUcred(int pid, int uid, int gid) {
+        this.pid = pid;
+        this.uid = uid;
+        this.gid = gid;
+    }
 
-  @Override public String toString() {
-    return Objects.toString(this);
-  }
+    @Override public String toString() {
+        return Objects.toString(this);
+    }
 }

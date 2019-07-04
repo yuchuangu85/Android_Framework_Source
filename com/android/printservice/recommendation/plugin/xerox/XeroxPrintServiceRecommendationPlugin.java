@@ -17,9 +17,10 @@ package com.android.printservice.recommendation.plugin.xerox;
 
 import android.content.Context;
 import android.net.nsd.NsdManager;
-import android.annotation.NonNull;
-import com.android.printservice.recommendation.PrintServicePlugin;
 
+import androidx.annotation.NonNull;
+
+import com.android.printservice.recommendation.PrintServicePlugin;
 import com.android.printservice.recommendation.R;
 
 public class XeroxPrintServiceRecommendationPlugin implements PrintServicePlugin, ServiceResolver.Observer {
@@ -69,11 +70,9 @@ public class XeroxPrintServiceRecommendationPlugin implements PrintServicePlugin
     @Override
     public void dataSetChanged() {
         synchronized (mLock) {
-            if (mDiscoveryCallback != null) mDiscoveryCallback.onChanged(getCount());
+            if (mDiscoveryCallback != null) {
+                mDiscoveryCallback.onChanged(mServiceResolver.getPrinters());
+            }
         }
-    }
-
-    public int getCount() {
-        return mServiceResolver.getCount();
     }
 }

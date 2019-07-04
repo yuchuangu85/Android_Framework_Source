@@ -21,6 +21,9 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Parcel;
 
+import androidx.annotation.RequiresApi;
+
+@RequiresApi(21)
 class MediaDescriptionCompatApi21 {
 
     public static String getMediaId(Object descriptionObj) {
@@ -96,5 +99,11 @@ class MediaDescriptionCompatApi21 {
         public static Object build(Object builderObj) {
             return ((MediaDescription.Builder) builderObj).build();
         }
+
+        private Builder() {
+        }
+    }
+
+    private MediaDescriptionCompatApi21() {
     }
 }

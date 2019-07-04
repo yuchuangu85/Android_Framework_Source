@@ -18,11 +18,13 @@ package android.provider;
 
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.content.ContentProviderClient;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.UriPermission;
 import android.database.Cursor;
 import android.database.DatabaseUtils;
 import android.database.sqlite.SQLiteException;
@@ -32,17 +34,23 @@ import android.graphics.Matrix;
 import android.media.MiniThumbFile;
 import android.media.ThumbnailUtils;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Environment;
 import android.os.ParcelFileDescriptor;
+import android.os.RemoteException;
 import android.service.media.CameraPrewarmService;
 import android.util.Log;
 
+import libcore.io.IoUtils;
+
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * The Media provider contains meta data for all available media on both internal
@@ -55,15 +63,6 @@ public final class MediaStore {
 
     private static final String CONTENT_AUTHORITY_SLASH = "content://" + AUTHORITY + "/";
 
-   /**
-     * Broadcast Action:  A broadcast to indicate the end of an MTP session with the host.
-     * This broadcast is only sent if MTP activity has modified the media database during the
-     * most recent MTP session.
-     *
-     * @hide
-     */
-    public static final String ACTION_MTP_SESSION_END = "android.provider.action.MTP_SESSION_END";
-
     /**
      * The method name used by the media scanner and mtp to tell the media provider to
      * rescan and reclassify that have become unhidden because of renaming folders or
@@ -71,6 +70,13 @@ public final class MediaStore {
      * @hide
      */
     public static final String UNHIDE_CALL = "unhide";
+
+    /**
+     * The method name used by the media scanner service to reload all localized ringtone titles due
+     * to a locale change.
+     * @hide
+     */
+    public static final String RETRANSLATE_CALL = "update_titles";
 
     /**
      * This is for internal use by the media scanner only.
@@ -526,6 +532,14 @@ public final class MediaStore {
         }
 
         /**
+         * Used to trigger special logic for directories.
+         * @hide
+         */
+        public static final Uri getDirectoryUri(String volumeName) {
+            return Uri.parse(CONTENT_AUTHORITY_SLASH + volumeName + "/dir");
+        }
+
+        /**
          * Fields for master table for all media files.
          * Table also contains MediaColumns._ID, DATA, SIZE and DATE_MODIFIED.
          */
@@ -678,8 +692,8 @@ public final class MediaStore {
             // Log.v(TAG, "getThumbnail: origId="+origId+", kind="+kind+", isVideo="+isVideo);
             // If the magic is non-zero, we simply return thumbnail if it does exist.
             // querying MediaProvider and simply return thumbnail.
-            MiniThumbFile thumbFile = new MiniThumbFile(isVideo ? Video.Media.EXTERNAL_CONTENT_URI
-                    : Images.Media.EXTERNAL_CONTENT_URI);
+            MiniThumbFile thumbFile = MiniThumbFile.instance(
+                    isVideo ? Video.Media.EXTERNAL_CONTENT_URI : Images.Media.EXTERNAL_CONTENT_URI);
             Cursor c = null;
             try {
                 long magic = thumbFile.getMagic(origId);
@@ -1342,6 +1356,18 @@ public final class MediaStore {
              * @hide
              */
             public static final String GENRE = "genre";
+
+            /**
+             * The resource URI of a localized title, if any
+             * <P>Type: TEXT</P>
+             * Conforms to this pattern:
+             *   Scheme: {@link ContentResolver.SCHEME_ANDROID_RESOURCE}
+             *   Authority: Package Name of ringtone title provider
+             *   First Path Segment: Type of resource (must be "string")
+             *   Second Path Segment: Resource ID of title
+             * @hide
+             */
+            public static final String TITLE_RESOURCE_URI = "title_resource_uri";
         }
 
         /**
@@ -1482,6 +1508,7 @@ public final class MediaStore {
              * May also contain the extra EXTRA_MAX_BYTES.
              * @see #EXTRA_MAX_BYTES
              */
+            @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
             public static final String RECORD_SOUND_ACTION =
                     "android.provider.MediaStore.RECORD_SOUND";
 
@@ -2296,5 +2323,87 @@ public final class MediaStore {
             }
         }
         return null;
+    }
+
+    /**
+     * Gets a URI backed by a {@link DocumentsProvider} that points to the same media
+     * file as the specified mediaUri. This allows apps who have permissions to access
+     * media files in Storage Access Framework to perform file operations through that
+     * on media files.
+     * <p>
+     * Note: this method doesn't grant any URI permission. Callers need to obtain
+     * permission before calling this method. One way to obtain permission is through
+     * a 3-step process:
+     * <ol>
+     *     <li>Call {@link android.os.storage.StorageManager#getStorageVolume(File)} to
+     *     obtain the {@link android.os.storage.StorageVolume} of a media file;</li>
+     *
+     *     <li>Invoke the intent returned by
+     *     {@link android.os.storage.StorageVolume#createAccessIntent(String)} to
+     *     obtain the access of the volume or one of its specific subdirectories;</li>
+     *
+     *     <li>Check whether permission is granted and take persistent permission.</li>
+     * </ol>
+     * @param mediaUri the media URI which document URI is requested
+     * @return the document URI
+     */
+    public static Uri getDocumentUri(Context context, Uri mediaUri) {
+
+        try {
+            final ContentResolver resolver = context.getContentResolver();
+
+            final String path = getFilePath(resolver, mediaUri);
+            final List<UriPermission> uriPermissions = resolver.getPersistedUriPermissions();
+
+            return getDocumentUri(resolver, path, uriPermissions);
+        } catch (RemoteException e) {
+            throw e.rethrowAsRuntimeException();
+        }
+    }
+
+    private static String getFilePath(ContentResolver resolver, Uri mediaUri)
+            throws RemoteException {
+
+        try (ContentProviderClient client =
+                     resolver.acquireUnstableContentProviderClient(AUTHORITY)) {
+            final Cursor c = client.query(
+                    mediaUri,
+                    new String[]{ MediaColumns.DATA },
+                    null, /* selection */
+                    null, /* selectionArg */
+                    null /* sortOrder */);
+
+            final String path;
+            try {
+                if (c.getCount() == 0) {
+                    throw new IllegalStateException("Not found media file under URI: " + mediaUri);
+                }
+
+                if (!c.moveToFirst()) {
+                    throw new IllegalStateException("Failed to move cursor to the first item.");
+                }
+
+                path = c.getString(0);
+            } finally {
+                IoUtils.closeQuietly(c);
+            }
+
+            return path;
+        }
+    }
+
+    private static Uri getDocumentUri(
+            ContentResolver resolver, String path, List<UriPermission> uriPermissions)
+            throws RemoteException {
+
+        try (ContentProviderClient client = resolver.acquireUnstableContentProviderClient(
+                DocumentsContract.EXTERNAL_STORAGE_PROVIDER_AUTHORITY)) {
+            final Bundle in = new Bundle();
+            in.putParcelableList(
+                    DocumentsContract.EXTERNAL_STORAGE_PROVIDER_AUTHORITY + ".extra.uriPermissions",
+                    uriPermissions);
+            final Bundle out = client.call("getDocumentId", path, in);
+            return out.getParcelable(DocumentsContract.EXTRA_URI);
+        }
     }
 }

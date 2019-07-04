@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,7 @@
 
 package java.util.zip;
 
+import dalvik.annotation.optimization.ReachabilitySensitive;
 import dalvik.system.CloseGuard;
 
 /**
@@ -75,6 +76,12 @@ import dalvik.system.CloseGuard;
 public
 class Deflater {
 
+    // Android-added: @ReachabilitySensitive
+    // Finalization clears zsRef, and thus can't be allowed to occur early.
+    // Unlike some other CloseGuard uses, the spec allows clients to rely on finalization
+    // here.  Thus dropping a deflater without calling close() should work correctly.
+    // It thus does not suffice to just rely on the CloseGuard annotation.
+    @ReachabilitySensitive
     private final ZStreamRef zsRef;
     private byte[] buf = new byte[0];
     private int off, len;
@@ -84,6 +91,8 @@ class Deflater {
     private long bytesRead;
     private long bytesWritten;
 
+    // Android-changed: added close guard
+    @ReachabilitySensitive
     private final CloseGuard guard = CloseGuard.get();
 
     /**
@@ -168,6 +177,7 @@ class Deflater {
         this.level = level;
         this.strategy = DEFAULT_STRATEGY;
         this.zsRef = new ZStreamRef(init(level, DEFAULT_STRATEGY, nowrap));
+        // Android-changed: added close guard
         guard.open("end");
     }
 
@@ -261,6 +271,12 @@ class Deflater {
 
     /**
      * Sets the compression strategy to the specified value.
+     *
+     * <p> If the compression strategy is changed, the next invocation
+     * of {@code deflate} will compress the input available so far with
+     * the old strategy (and may be flushed); the new strategy will take
+     * effect only after that invocation.
+     *
      * @param strategy the new compression strategy
      * @exception IllegalArgumentException if the compression strategy is
      *                                     invalid
@@ -283,7 +299,13 @@ class Deflater {
     }
 
     /**
-     * Sets the current compression level to the specified value.
+     * Sets the compression level to the specified value.
+     *
+     * <p> If the compression level is changed, the next invocation
+     * of {@code deflate} will compress the input available so far
+     * with the old level (and may be flushed); the new level will
+     * take effect only after that invocation.
+     *
      * @param level the new compression level (0-9)
      * @exception IllegalArgumentException if the compression level is invalid
      */
@@ -306,7 +328,9 @@ class Deflater {
      * should be called in order to provide more input
      */
     public boolean needsInput() {
-        return len <= 0;
+        synchronized (zsRef) {
+            return len <= 0;
+        }
     }
 
     /**
@@ -461,7 +485,7 @@ class Deflater {
     }
 
     /**
-     * Returns the total number of uncompressed bytes input so far.</p>
+     * Returns the total number of uncompressed bytes input so far.
      *
      * @return the total (non-negative) number of uncompressed bytes input so far
      * @since 1.5
@@ -487,7 +511,7 @@ class Deflater {
     }
 
     /**
-     * Returns the total number of compressed bytes output so far.</p>
+     * Returns the total number of compressed bytes output so far.
      *
      * @return the total (non-negative) number of compressed bytes output so far
      * @since 1.5
@@ -523,8 +547,8 @@ class Deflater {
      */
     public void end() {
         synchronized (zsRef) {
+            // Android-changed: added close guard
             guard.close();
-
             long addr = zsRef.address();
             zsRef.clear();
             if (addr != 0) {
@@ -538,10 +562,10 @@ class Deflater {
      * Closes the compressor when garbage is collected.
      */
     protected void finalize() {
+        // Android-changed: added close guard
         if (guard != null) {
             guard.warnIfOpen();
         }
-
         end();
     }
 
@@ -551,6 +575,8 @@ class Deflater {
             throw new NullPointerException("Deflater has been closed");
     }
 
+    // Android-changed: initIDs handled in register method.
+    // private native static void initIDs();
     private native static long init(int level, int strategy, boolean nowrap);
     private native static void setDictionary(long addr, byte[] b, int off, int len);
     private native int deflateBytes(long addr, byte[] b, int off, int len,

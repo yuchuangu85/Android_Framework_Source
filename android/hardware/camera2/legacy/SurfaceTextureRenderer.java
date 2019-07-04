@@ -248,7 +248,8 @@ public class SurfaceTextureRenderer {
         return program;
     }
 
-    private void drawFrame(SurfaceTexture st, int width, int height, int flipType) {
+    private void drawFrame(SurfaceTexture st, int width, int height, int flipType)
+            throws LegacyExceptionUtils.BufferQueueAbandonedException {
         checkGlError("onDrawFrame start");
         st.getTransformMatrix(mSTMatrix);
 
@@ -343,7 +344,7 @@ public class SurfaceTextureRenderer {
                 /*offset*/ 0);
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, /*offset*/ 0, /*count*/ 4);
-        checkGlError("glDrawArrays");
+        checkGlDrawError("glDrawArrays");
     }
 
     /**
@@ -528,14 +529,32 @@ public class SurfaceTextureRenderer {
     private boolean swapBuffers(EGLSurface surface)
             throws LegacyExceptionUtils.BufferQueueAbandonedException {
         boolean result = EGL14.eglSwapBuffers(mEGLDisplay, surface);
+
         int error = EGL14.eglGetError();
-        if (error == EGL14.EGL_BAD_SURFACE) {
-            throw new LegacyExceptionUtils.BufferQueueAbandonedException();
-        } else if (error != EGL14.EGL_SUCCESS) {
-            throw new IllegalStateException("swapBuffers: EGL error: 0x" +
-                    Integer.toHexString(error));
+        switch (error) {
+            case EGL14.EGL_SUCCESS:
+                return result;
+
+            // Check for an abandoned buffer queue, or other error conditions out
+            // of the user's control.
+            //
+            // From the EGL 1.4 spec (2013-12-04), Section 3.9.4 Posting Errors:
+            //
+            //   If eglSwapBuffers is called and the native window associated with
+            //   surface is no longer valid, an EGL_BAD_NATIVE_WINDOW error is
+            //   generated.
+            //
+            // We also interpret EGL_BAD_SURFACE as indicating an abandoned
+            // surface, even though the EGL spec does not document it as such, for
+            // backwards compatibility with older versions of this file.
+            case EGL14.EGL_BAD_NATIVE_WINDOW:
+            case EGL14.EGL_BAD_SURFACE:
+                throw new LegacyExceptionUtils.BufferQueueAbandonedException();
+
+            default:
+                throw new IllegalStateException(
+                        "swapBuffers: EGL error: 0x" + Integer.toHexString(error));
         }
-        return result;
     }
 
     private void checkEglError(String msg) {
@@ -548,7 +567,29 @@ public class SurfaceTextureRenderer {
     private void checkGlError(String msg) {
         int error;
         while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR) {
-            throw new IllegalStateException(msg + ": GLES20 error: 0x" + Integer.toHexString(error));
+            throw new IllegalStateException(
+                    msg + ": GLES20 error: 0x" + Integer.toHexString(error));
+        }
+    }
+
+    private void checkGlDrawError(String msg)
+            throws LegacyExceptionUtils.BufferQueueAbandonedException {
+        int error;
+        boolean surfaceAbandoned = false;
+        boolean glError = false;
+        while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR) {
+            if (error == GLES20.GL_OUT_OF_MEMORY) {
+                surfaceAbandoned = true;
+            } else {
+                glError = true;
+            }
+        }
+        if (glError) {
+            throw new IllegalStateException(
+                    msg + ": GLES20 error: 0x" + Integer.toHexString(error));
+        }
+        if (surfaceAbandoned) {
+            throw new LegacyExceptionUtils.BufferQueueAbandonedException();
         }
     }
 
@@ -759,9 +800,14 @@ public class SurfaceTextureRenderer {
             if (LegacyCameraDevice.containsSurfaceId(holder.surface, targetSurfaceIds)) {
                 makeCurrent(holder.eglSurface);
                 // glReadPixels reads from the bottom of the buffer, so add an extra vertical flip
-                drawFrame(mSurfaceTexture, holder.width, holder.height,
-                        (mFacing == CameraCharacteristics.LENS_FACING_FRONT) ?
-                                FLIP_TYPE_BOTH : FLIP_TYPE_VERTICAL);
+                try {
+                    drawFrame(mSurfaceTexture, holder.width, holder.height,
+                            (mFacing == CameraCharacteristics.LENS_FACING_FRONT) ?
+                                    FLIP_TYPE_BOTH : FLIP_TYPE_VERTICAL);
+                } catch (LegacyExceptionUtils.BufferQueueAbandonedException e) {
+                    // Should never hit this.
+                    throw new IllegalStateException("Surface abandoned, skipping drawFrame...", e);
+                }
                 mPBufferPixels.clear();
                 GLES20.glReadPixels(/*x*/ 0, /*y*/ 0, holder.width, holder.height,
                         GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, mPBufferPixels);

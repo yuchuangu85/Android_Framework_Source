@@ -30,6 +30,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -134,6 +135,13 @@ public class ArrayUtils {
     }
 
     /**
+     * Checks if given map is null or has zero elements.
+     */
+    public static boolean isEmpty(@Nullable Map<?, ?> map) {
+        return map == null || map.isEmpty();
+    }
+
+    /**
      * Checks if given array is null or has zero elements.
      */
     public static <T> boolean isEmpty(@Nullable T[] array) {
@@ -166,6 +174,20 @@ public class ArrayUtils {
      */
     public static boolean isEmpty(@Nullable boolean[] array) {
         return array == null || array.length == 0;
+    }
+
+    /**
+     * Length of the given array or 0 if it's null.
+     */
+    public static int size(@Nullable Object[] array) {
+        return array == null ? 0 : array.length;
+    }
+
+    /**
+     * Length of the given collection or 0 if it's null.
+     */
+    public static int size(@Nullable Collection<?> collection) {
+        return collection == null ? 0 : collection.size();
     }
 
     /**
@@ -236,6 +258,29 @@ public class ArrayUtils {
         return false;
     }
 
+    public static boolean contains(@Nullable char[] array, char value) {
+        if (array == null) return false;
+        for (char element : array) {
+            if (element == value) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Test if all {@code check} items are contained in {@code array}.
+     */
+    public static <T> boolean containsAll(@Nullable char[] array, char[] check) {
+        if (check == null) return true;
+        for (char checkItem : check) {
+            if (!contains(array, checkItem)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public static long total(@Nullable long[] array) {
         long total = 0;
         if (array != null) {
@@ -254,16 +299,34 @@ public class ArrayUtils {
         return array;
     }
 
+    public static @Nullable long[] convertToLongArray(@Nullable int[] intArray) {
+        if (intArray == null) return null;
+        long[] array = new long[intArray.length];
+        for (int i = 0; i < intArray.length; i++) {
+            array[i] = (long) intArray[i];
+        }
+        return array;
+    }
+
     /**
      * Adds value to given array if not already present, providing set-like
      * behavior.
      */
     @SuppressWarnings("unchecked")
     public static @NonNull <T> T[] appendElement(Class<T> kind, @Nullable T[] array, T element) {
+        return appendElement(kind, array, element, false);
+    }
+
+    /**
+     * Adds value to given array.
+     */
+    @SuppressWarnings("unchecked")
+    public static @NonNull <T> T[] appendElement(Class<T> kind, @Nullable T[] array, T element,
+            boolean allowDuplicates) {
         final T[] result;
         final int end;
         if (array != null) {
-            if (contains(array, element)) return array;
+            if (!allowDuplicates && contains(array, element)) return array;
             end = array.length;
             result = (T[])Array.newInstance(kind, end + 1);
             System.arraycopy(array, 0, result, 0, end);
@@ -299,23 +362,33 @@ public class ArrayUtils {
     }
 
     /**
-     * Adds value to given array if not already present, providing set-like
-     * behavior.
+     * Adds value to given array.
      */
-    public static @NonNull int[] appendInt(@Nullable int[] cur, int val) {
+    public static @NonNull int[] appendInt(@Nullable int[] cur, int val,
+            boolean allowDuplicates) {
         if (cur == null) {
             return new int[] { val };
         }
         final int N = cur.length;
-        for (int i = 0; i < N; i++) {
-            if (cur[i] == val) {
-                return cur;
+        if (!allowDuplicates) {
+            for (int i = 0; i < N; i++) {
+                if (cur[i] == val) {
+                    return cur;
+                }
             }
         }
         int[] ret = new int[N + 1];
         System.arraycopy(cur, 0, ret, 0, N);
         ret[N] = val;
         return ret;
+    }
+
+    /**
+     * Adds value to given array if not already present, providing set-like
+     * behavior.
+     */
+    public static @NonNull int[] appendInt(@Nullable int[] cur, int val) {
+        return appendInt(cur, val, false);
     }
 
     /**
@@ -368,20 +441,31 @@ public class ArrayUtils {
      * Adds value to given array if not already present, providing set-like
      * behavior.
      */
-    public static @NonNull long[] appendLong(@Nullable long[] cur, long val) {
+    public static @NonNull long[] appendLong(@Nullable long[] cur, long val,
+            boolean allowDuplicates) {
         if (cur == null) {
             return new long[] { val };
         }
         final int N = cur.length;
-        for (int i = 0; i < N; i++) {
-            if (cur[i] == val) {
-                return cur;
+        if (!allowDuplicates) {
+            for (int i = 0; i < N; i++) {
+                if (cur[i] == val) {
+                    return cur;
+                }
             }
         }
         long[] ret = new long[N + 1];
         System.arraycopy(cur, 0, ret, 0, N);
         ret[N] = val;
         return ret;
+    }
+
+    /**
+     * Adds value to given array if not already present, providing set-like
+     * behavior.
+     */
+    public static @NonNull long[] appendLong(@Nullable long[] cur, long val) {
+        return appendLong(cur, val, false);
     }
 
     /**
@@ -433,10 +517,6 @@ public class ArrayUtils {
         } else {
             return cur;
         }
-    }
-
-    public static <T> boolean contains(@Nullable ArraySet<T> cur, T val) {
-        return (cur != null) ? cur.contains(val) : false;
     }
 
     public static @NonNull <T> ArrayList<T> add(@Nullable ArrayList<T> cur, T val) {
@@ -537,5 +617,13 @@ public class ArrayUtils {
             collection.remove(i);
         }
         return size - leftIdx;
+    }
+
+    public static @NonNull int[] defeatNullable(@Nullable int[] val) {
+        return (val != null) ? val : EmptyArray.INT;
+    }
+
+    public static @NonNull String[] defeatNullable(@Nullable String[] val) {
+        return (val != null) ? val : EmptyArray.STRING;
     }
 }

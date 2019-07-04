@@ -16,21 +16,33 @@
 
 package com.android.systemui.qs.tiles;
 
+import static android.media.MediaRouter.ROUTE_TYPE_REMOTE_DISPLAY;
+
+import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
 import android.provider.Settings;
+import android.service.quicksettings.Tile;
 import android.util.Log;
 import android.view.View;
 import android.view.View.OnAttachStateChangeListener;
 import android.view.ViewGroup;
+import android.view.WindowManager.LayoutParams;
 import android.widget.Button;
 
+import com.android.internal.app.MediaRouteDialogPresenter;
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.MetricsProto.MetricsEvent;
+import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.systemui.Dependency;
 import com.android.systemui.R;
+import com.android.systemui.plugins.ActivityStarter;
+import com.android.systemui.plugins.qs.DetailAdapter;
+import com.android.systemui.plugins.qs.QSTile.BooleanState;
 import com.android.systemui.qs.QSDetailItems;
 import com.android.systemui.qs.QSDetailItems.Item;
-import com.android.systemui.qs.QSTile;
+import com.android.systemui.qs.QSHost;
+import com.android.systemui.qs.tileimpl.QSTileImpl;
+import com.android.systemui.statusbar.phone.SystemUIDialog;
 import com.android.systemui.statusbar.policy.CastController;
 import com.android.systemui.statusbar.policy.CastController.CastDevice;
 import com.android.systemui.statusbar.policy.KeyguardMonitor;
@@ -39,7 +51,7 @@ import java.util.LinkedHashMap;
 import java.util.Set;
 
 /** Quick settings tile: Cast **/
-public class CastTile extends QSTile<QSTile.BooleanState> {
+public class CastTile extends QSTileImpl<BooleanState> {
     private static final Intent CAST_SETTINGS =
             new Intent(Settings.ACTION_CAST_SETTINGS);
 
@@ -47,12 +59,16 @@ public class CastTile extends QSTile<QSTile.BooleanState> {
     private final CastDetailAdapter mDetailAdapter;
     private final KeyguardMonitor mKeyguard;
     private final Callback mCallback = new Callback();
+    private final ActivityStarter mActivityStarter;
+    private Dialog mDialog;
+    private boolean mRegistered;
 
-    public CastTile(Host host) {
+    public CastTile(QSHost host) {
         super(host);
-        mController = host.getCastController();
+        mController = Dependency.get(CastController.class);
         mDetailAdapter = new CastDetailAdapter();
-        mKeyguard = host.getKeyguardMonitor();
+        mKeyguard = Dependency.get(KeyguardMonitor.class);
+        mActivityStarter = Dependency.get(ActivityStarter.class);
     }
 
     @Override
@@ -66,9 +82,8 @@ public class CastTile extends QSTile<QSTile.BooleanState> {
     }
 
     @Override
-    public void setListening(boolean listening) {
-        if (mController == null) return;
-        if (DEBUG) Log.d(TAG, "setListening " + listening);
+    public void handleSetListening(boolean listening) {
+        if (DEBUG) Log.d(TAG, "handleSetListening " + listening);
         if (listening) {
             mController.addCallback(mCallback);
             mKeyguard.addCallback(mCallback);
@@ -82,7 +97,6 @@ public class CastTile extends QSTile<QSTile.BooleanState> {
     @Override
     protected void handleUserSwitch(int newUserId) {
         super.handleUserSwitch(newUserId);
-        if (mController == null) return;
         mController.setCurrentUserId(newUserId);
     }
 
@@ -92,20 +106,37 @@ public class CastTile extends QSTile<QSTile.BooleanState> {
     }
 
     @Override
+    protected void handleSecondaryClick() {
+        handleClick();
+    }
+
+    @Override
     protected void handleClick() {
         if (mKeyguard.isSecure() && !mKeyguard.canSkipBouncer()) {
-            mHost.startRunnableDismissingKeyguard(new Runnable() {
-                @Override
-                public void run() {
-                    MetricsLogger.action(mContext, getMetricsCategory());
-                    showDetail(true);
-                    mHost.openPanels();
-                }
+            mActivityStarter.postQSRunnableDismissingKeyguard(() -> {
+                showDetail(true);
             });
             return;
         }
-        MetricsLogger.action(mContext, getMetricsCategory());
         showDetail(true);
+    }
+
+    @Override
+    public void showDetail(boolean show) {
+        mUiHandler.post(() -> {
+            mDialog = MediaRouteDialogPresenter.createDialog(mContext, ROUTE_TYPE_REMOTE_DISPLAY,
+                    v -> {
+                        mDialog.dismiss();
+                        Dependency.get(ActivityStarter.class)
+                                .postStartActivityDismissingKeyguard(getLongClickIntent(), 0);
+                    });
+            mDialog.getWindow().setType(LayoutParams.TYPE_KEYGUARD_DIALOG);
+            SystemUIDialog.setShowForAllUsers(mDialog, true);
+            SystemUIDialog.registerDismissListener(mDialog);
+            SystemUIDialog.setWindowOnTop(mDialog);
+            mUiHandler.post(() -> mDialog.show());
+            mHost.collapsePanels();
+        });
     }
 
     @Override
@@ -118,7 +149,6 @@ public class CastTile extends QSTile<QSTile.BooleanState> {
         state.label = mContext.getString(R.string.quick_settings_cast_title);
         state.contentDescription = state.label;
         state.value = false;
-        state.autoMirrorDrawable = false;
         final Set<CastDevice> devices = mController.getCastDevices();
         boolean connecting = false;
         for (CastDevice device : devices) {
@@ -134,11 +164,11 @@ public class CastTile extends QSTile<QSTile.BooleanState> {
         if (!state.value && connecting) {
             state.label = mContext.getString(R.string.quick_settings_connecting);
         }
+        state.state = state.value ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE;
         state.icon = ResourceIcon.get(state.value ? R.drawable.ic_qs_cast_on
                 : R.drawable.ic_qs_cast_off);
         mDetailAdapter.updateItems(devices);
-        state.minimalAccessibilityClassName = state.expandedAccessibilityClassName =
-                Button.class.getName();
+        state.expandedAccessibilityClassName = Button.class.getName();
         state.contentDescription = state.contentDescription + ","
                 + mContext.getString(R.string.accessibility_quick_settings_open_details);
     }
@@ -169,7 +199,7 @@ public class CastTile extends QSTile<QSTile.BooleanState> {
         }
 
         @Override
-        public void onKeyguardChanged() {
+        public void onKeyguardShowingChanged() {
             refreshState();
         }
     };
@@ -239,7 +269,7 @@ public class CastTile extends QSTile<QSTile.BooleanState> {
                 for (CastDevice device : devices) {
                     if (device.state == CastDevice.STATE_CONNECTED) {
                         final Item item = new Item();
-                        item.icon = R.drawable.ic_qs_cast_on;
+                        item.iconResId = R.drawable.ic_qs_cast_on;
                         item.line1 = getDeviceName(device);
                         item.line2 = mContext.getString(R.string.quick_settings_connected);
                         item.tag = device;
@@ -259,7 +289,7 @@ public class CastTile extends QSTile<QSTile.BooleanState> {
                         final CastDevice device = mVisibleOrder.get(id);
                         if (!devices.contains(device)) continue;
                         final Item item = new Item();
-                        item.icon = R.drawable.ic_qs_cast_off;
+                        item.iconResId = R.drawable.ic_qs_cast_off;
                         item.line1 = getDeviceName(device);
                         if (device.state == CastDevice.STATE_CONNECTING) {
                             item.line2 = mContext.getString(R.string.quick_settings_connecting);

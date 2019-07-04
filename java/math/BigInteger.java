@@ -92,7 +92,7 @@ public class BigInteger extends Number
     private transient int hashCode = 0;
 
     BigInteger(BigInt bigInt) {
-        if (bigInt == null || bigInt.getNativeBIGNUM() == 0) {
+        if (bigInt == null || !bigInt.hasNativeBignum()) {
             throw new AssertionError();
         }
         setBigInt(bigInt);

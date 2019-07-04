@@ -16,6 +16,7 @@
 
 package android.database.sqlite;
 
+import android.annotation.TestApi;
 import android.content.res.Resources;
 import android.os.StatFs;
 import android.os.SystemProperties;
@@ -34,6 +35,7 @@ import android.os.SystemProperties;
  *
  * @hide
  */
+@TestApi
 public final class SQLiteGlobal {
     private static final String TAG = "SQLiteGlobal";
 
@@ -61,6 +63,8 @@ public final class SQLiteGlobal {
     public static int getDefaultPageSize() {
         synchronized (sLock) {
             if (sDefaultPageSize == 0) {
+                // If there is an issue accessing /data, something is so seriously
+                // wrong that we just let the IllegalArgumentException propagate.
                 sDefaultPageSize = new StatFs("/data").getBlockSize();
             }
             return SystemProperties.getInt("debug.sqlite.pagesize", sDefaultPageSize);
@@ -74,6 +78,16 @@ public final class SQLiteGlobal {
         return SystemProperties.get("debug.sqlite.journalmode",
                 Resources.getSystem().getString(
                 com.android.internal.R.string.db_default_journal_mode));
+    }
+
+    /**
+     * Returns true if compatibility WAL mode is supported. In this mode, only
+     * database journal mode is changed. Connection pool will use at most one connection.
+     */
+    public static boolean isCompatibilityWalSupported() {
+        return SystemProperties.getBoolean("debug.sqlite.compatibility_wal_supported",
+                Resources.getSystem().getBoolean(
+                        com.android.internal.R.bool.db_compatibility_wal_supported));
     }
 
     /**
@@ -122,4 +136,15 @@ public final class SQLiteGlobal {
                 com.android.internal.R.integer.db_connection_pool_size));
         return Math.max(2, value);
     }
+
+    /**
+     * The default number of milliseconds that SQLite connection is allowed to be idle before it
+     * is closed and removed from the pool.
+     */
+    public static int getIdleConnectionTimeout() {
+        return SystemProperties.getInt("debug.sqlite.idle_connection_timeout",
+                Resources.getSystem().getInteger(
+                        com.android.internal.R.integer.db_default_idle_connection_timeout));
+    }
+
 }

@@ -18,6 +18,7 @@ package com.android.systemui.stackdivider;
 
 import android.content.Context;
 import android.graphics.PixelFormat;
+import android.os.Binder;
 import android.view.View;
 import android.view.WindowManager;
 
@@ -27,6 +28,7 @@ import static android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
 import static android.view.WindowManager.LayoutParams.FLAG_SLIPPERY;
 import static android.view.WindowManager.LayoutParams.FLAG_SPLIT_TOUCH;
 import static android.view.WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH;
+import static android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
 import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_NO_MOVE_ANIMATION;
 import static android.view.WindowManager.LayoutParams.TYPE_DOCK_DIVIDER;
 
@@ -51,8 +53,10 @@ public class DividerWindowManager {
                 FLAG_NOT_FOCUSABLE | FLAG_NOT_TOUCH_MODAL
                         | FLAG_WATCH_OUTSIDE_TOUCH | FLAG_SPLIT_TOUCH | FLAG_SLIPPERY,
                 PixelFormat.TRANSLUCENT);
+        mLp.token = new Binder();
         mLp.setTitle(WINDOW_TITLE);
         mLp.privateFlags |= PRIVATE_FLAG_NO_MOVE_ANIMATION;
+        mLp.layoutInDisplayCutoutMode = LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
         view.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);

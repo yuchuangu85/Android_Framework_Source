@@ -153,4 +153,10 @@ public class DecimalFormatBenchmark {
     public void time_formatToCharacterIterator10e1000(int reps) {
         formatToCharacterIterator(BD10E1000, reps);
     }
+
+    public void time_instantiation(int reps) {
+        for (int i = 0; i < reps; i++) {
+            new DecimalFormat();
+        }
+    }
 }

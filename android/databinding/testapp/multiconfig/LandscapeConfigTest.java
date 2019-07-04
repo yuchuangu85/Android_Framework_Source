@@ -34,9 +34,15 @@ public class LandscapeConfigTest extends BaseLandDataBinderTest<MultiResLayoutBi
         super(MultiResLayoutBinding.class, ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
     }
 
+    @Override
+    protected void setUp() throws Exception {
+        super.setUp();
+        initBinder();
+        getInstrumentation().waitForIdleSync();
+    }
+
     public void testSharedViewIdAndVariableInheritance()
             throws InterruptedException, NoSuchMethodException, NoSuchFieldException {
-        initBinder();
         assertEquals("MultiResLayoutBindingLandImpl", mBinder.getClass().getSimpleName());
         assertPublicField(TextView.class, "objectInLandTextView");
         assertPublicField(TextView.class, "objectInDefaultTextView");
@@ -54,7 +60,6 @@ public class LandscapeConfigTest extends BaseLandDataBinderTest<MultiResLayoutBi
 
     @UiThreadTest
     public void testSetVariable() throws Throwable {
-        initBinder();
         assertTrue(mBinder.setVariable(BR.objectInBoth, null));
         assertTrue(mBinder.setVariable(BR.objectInDefault, null));
         assertTrue(mBinder.setVariable(BR.objectInLand, null));

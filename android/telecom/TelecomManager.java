@@ -16,11 +16,15 @@ package android.telecom;
 
 import android.Manifest;
 import android.annotation.RequiresPermission;
+import android.annotation.SuppressAutoDoc;
+import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
+import android.annotation.SystemService;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.RemoteException;
 import android.os.ServiceManager;
@@ -46,6 +50,8 @@ import java.util.List;
  * permissions declared in its manifest file. Where permissions apply, they are noted in the method
  * descriptions.
  */
+@SuppressAutoDoc
+@SystemService(Context.TELECOM_SERVICE)
 public class TelecomManager {
 
     /**
@@ -58,12 +64,15 @@ public class TelecomManager {
      * Input: get*Extra field {@link #EXTRA_PHONE_ACCOUNT_HANDLE} contains the component name of the
      * {@link android.telecom.ConnectionService} that Telecom should bind to. Telecom will then
      * ask the connection service for more information about the call prior to showing any UI.
+     *
+     * @deprecated Use {@link #addNewIncomingCall} instead.
      */
     public static final String ACTION_INCOMING_CALL = "android.telecom.action.INCOMING_CALL";
 
     /**
      * Similar to {@link #ACTION_INCOMING_CALL}, but is used only by Telephony to add a new
      * sim-initiated MO call for carrier testing.
+     * @deprecated Use {@link #addNewUnknownCall} instead.
      * @hide
      */
     public static final String ACTION_NEW_UNKNOWN_CALL = "android.telecom.action.NEW_UNKNOWN_CALL";
@@ -109,20 +118,26 @@ public class TelecomManager {
             "android.telecom.action.CHANGE_PHONE_ACCOUNTS";
 
     /**
-     * The {@link android.content.Intent} action used indicate that a new phone account was
-     * just registered.
-     * @hide
+     * {@link android.content.Intent} action used indicate that a new phone account was just
+     * registered.
+     * <p>
+     * The Intent {@link Intent#getExtras() extras} will contain {@link #EXTRA_PHONE_ACCOUNT_HANDLE}
+     * to indicate which {@link PhoneAccount} was registered.
+     * <p>
+     * Will only be sent to the default dialer app (see {@link #getDefaultDialerPackage()}).
      */
-    @SystemApi
     public static final String ACTION_PHONE_ACCOUNT_REGISTERED =
             "android.telecom.action.PHONE_ACCOUNT_REGISTERED";
 
     /**
-     * The {@link android.content.Intent} action used indicate that a phone account was
-     * just unregistered.
-     * @hide
+     * {@link android.content.Intent} action used indicate that a phone account was just
+     * unregistered.
+     * <p>
+     * The Intent {@link Intent#getExtras() extras} will contain {@link #EXTRA_PHONE_ACCOUNT_HANDLE}
+     * to indicate which {@link PhoneAccount} was unregistered.
+     * <p>
+     * Will only be sent to the default dialer app (see {@link #getDefaultDialerPackage()}).
      */
-    @SystemApi
     public static final String ACTION_PHONE_ACCOUNT_UNREGISTERED =
             "android.telecom.action.PHONE_ACCOUNT_UNREGISTERED";
 
@@ -178,6 +193,18 @@ public class TelecomManager {
             "android.telecom.extra.START_CALL_WITH_VIDEO_STATE";
 
     /**
+     * Optional extra for {@link #addNewIncomingCall(PhoneAccountHandle, Bundle)} containing an
+     * integer that determines the requested video state for an incoming call.
+     * Valid options:
+     * {@link VideoProfile#STATE_AUDIO_ONLY},
+     * {@link VideoProfile#STATE_BIDIRECTIONAL},
+     * {@link VideoProfile#STATE_RX_ENABLED},
+     * {@link VideoProfile#STATE_TX_ENABLED}.
+     */
+    public static final String EXTRA_INCOMING_VIDEO_STATE =
+            "android.telecom.extra.INCOMING_VIDEO_STATE";
+
+    /**
      * The extra used with an {@link android.content.Intent#ACTION_CALL} and
      * {@link android.content.Intent#ACTION_DIAL} {@code Intent} to specify a
      * {@link PhoneAccountHandle} to use when making the call.
@@ -208,6 +235,15 @@ public class TelecomManager {
      */
     public static final String EXTRA_INCOMING_CALL_EXTRAS =
             "android.telecom.extra.INCOMING_CALL_EXTRAS";
+
+    /**
+     * Optional extra for {@link #ACTION_INCOMING_CALL} containing a boolean to indicate that the
+     * call has an externally generated ringer. Used by the HfpClientConnectionService when In Band
+     * Ringtone is enabled to prevent two ringers from being generated.
+     * @hide
+     */
+    public static final String EXTRA_CALL_EXTERNAL_RINGER =
+            "android.telecom.extra.CALL_EXTERNAL_RINGER";
 
     /**
      * Optional extra for {@link android.content.Intent#ACTION_CALL} and
@@ -314,6 +350,72 @@ public class TelecomManager {
     public static final String EXTRA_CALL_BACK_NUMBER = "android.telecom.extra.CALL_BACK_NUMBER";
 
     /**
+     * The number of milliseconds that Telecom should wait after disconnecting a call via the
+     * ACTION_NEW_OUTGOING_CALL broadcast, in order to wait for the app which cancelled the call
+     * to make a new one.
+     * @hide
+     */
+    public static final String EXTRA_NEW_OUTGOING_CALL_CANCEL_TIMEOUT =
+            "android.telecom.extra.NEW_OUTGOING_CALL_CANCEL_TIMEOUT";
+
+    /**
+     * Boolean extra specified to indicate that the intention of adding a call is to handover an
+     * existing call from the user's device to a different {@link PhoneAccount}.
+     * <p>
+     * Used when calling {@link #addNewIncomingCall(PhoneAccountHandle, Bundle)}
+     * to indicate to Telecom that the purpose of adding a new incoming call is to handover an
+     * existing call from the user's device to a different {@link PhoneAccount}.  This occurs on
+     * the receiving side of a handover.
+     * <p>
+     * Used when Telecom calls
+     * {@link ConnectionService#onCreateOutgoingConnection(PhoneAccountHandle, ConnectionRequest)}
+     * to indicate that the purpose of Telecom requesting a new outgoing connection it to request
+     * a handover to this {@link ConnectionService} from an ongoing call on the user's device.  This
+     * occurs on the initiating side of a handover.
+     * <p>
+     * The phone number of the call used by Telecom to determine which call should be handed over.
+     * @hide
+     */
+    public static final String EXTRA_IS_HANDOVER = "android.telecom.extra.IS_HANDOVER";
+
+    /**
+     * When {@code true} indicates that a request to create a new connection is for the purpose of
+     * a handover.  Note: This is used with the
+     * {@link android.telecom.Call#handoverTo(PhoneAccountHandle, int, Bundle)} API as part of the
+     * internal communication mechanism with the {@link android.telecom.ConnectionService}.  It is
+     * not the same as the legacy {@link #EXTRA_IS_HANDOVER} extra.
+     * @hide
+     */
+    public static final String EXTRA_IS_HANDOVER_CONNECTION =
+            "android.telecom.extra.IS_HANDOVER_CONNECTION";
+
+    /**
+     * Parcelable extra used with {@link #EXTRA_IS_HANDOVER} to indicate the source
+     * {@link PhoneAccountHandle} when initiating a handover which {@link ConnectionService}
+     * the handover is from.
+     * @hide
+     */
+    public static final String EXTRA_HANDOVER_FROM_PHONE_ACCOUNT =
+            "android.telecom.extra.HANDOVER_FROM_PHONE_ACCOUNT";
+
+    /**
+     * Extra key specified in the {@link ConnectionRequest#getExtras()} when Telecom calls
+     * {@link ConnectionService#onCreateOutgoingConnection(PhoneAccountHandle, ConnectionRequest)}
+     * to inform the {@link ConnectionService} what the initial {@link CallAudioState} of the
+     * {@link Connection} will be.
+     * @hide
+     */
+    public static final String EXTRA_CALL_AUDIO_STATE = "android.telecom.extra.CALL_AUDIO_STATE";
+
+    /**
+     * A boolean extra, which when set on the {@link Intent#ACTION_CALL} intent or on the bundle
+     * passed into {@link #placeCall(Uri, Bundle)}, indicates that the call should be initiated with
+     * an RTT session open. See {@link android.telecom.Call.RttCall} for more information on RTT.
+     */
+    public static final String EXTRA_START_CALL_WITH_RTT =
+            "android.telecom.extra.START_CALL_WITH_RTT";
+
+    /**
      * A boolean meta-data value indicating whether an {@link InCallService} implements an
      * in-call user interface. Dialer implementations (see {@link #getDefaultDialerPackage()}) which
      * would also like to replace the in-call interface should set this meta-data to {@code true} in
@@ -351,6 +453,28 @@ public class TelecomManager {
      */
     public static final String METADATA_INCLUDE_EXTERNAL_CALLS =
             "android.telecom.INCLUDE_EXTERNAL_CALLS";
+
+    /**
+     * A boolean meta-data value indicating whether an {@link InCallService} wants to be informed of
+     * calls which have the {@link Call.Details#PROPERTY_SELF_MANAGED} property.  A self-managed
+     * call is one which originates from a self-managed {@link ConnectionService} which has chosen
+     * to implement its own call user interface.  An {@link InCallService} implementation which
+     * would like to be informed of external calls should set this meta-data to {@code true} in the
+     * manifest registration of their {@link InCallService}.  By default, the {@link InCallService}
+     * will NOT be informed about self-managed calls.
+     * <p>
+     * An {@link InCallService} which receives self-managed calls is free to view and control the
+     * state of calls in the self-managed {@link ConnectionService}.  An example use-case is
+     * exposing these calls to an automotive device via its companion app.
+     * <p>
+     * This meta-data can only be set for an {@link InCallService} which also sets
+     * {@link #METADATA_IN_CALL_SERVICE_UI}. Only the default phone/dialer app, or a car-mode
+     * {@link InCallService} can see self-managed calls.
+     * <p>
+     * See also {@link Connection#PROPERTY_SELF_MANAGED}.
+     */
+    public static final String METADATA_INCLUDE_SELF_MANAGED_CALLS =
+            "android.telecom.INCLUDE_SELF_MANAGED_CALLS";
 
     /**
      * The dual tone multi-frequency signaling character sent to indicate the dialing system should
@@ -479,13 +603,29 @@ public class TelecomManager {
             "android.telecom.extra.CALL_BACK_INTENT";
 
     /**
+     * The dialer activity responsible for placing emergency calls from, for example, a locked
+     * keyguard.
+     * @hide
+     */
+    public static final ComponentName EMERGENCY_DIALER_COMPONENT =
+            ComponentName.createRelative("com.android.phone", ".EmergencyDialer");
+
+    /**
+     * The boolean indicated by this extra controls whether or not a call is eligible to undergo
+     * assisted dialing. This extra is stored under {@link #EXTRA_OUTGOING_CALL_EXTRAS}.
+     * @hide
+     */
+    public static final String EXTRA_USE_ASSISTED_DIALING =
+            "android.telecom.extra.USE_ASSISTED_DIALING";
+
+    /**
      * The following 4 constants define how properties such as phone numbers and names are
      * displayed to the user.
      */
 
     /**
      * Indicates that the address or number of a call is allowed to be displayed for caller ID.
-    */
+     */
     public static final int PRESENTATION_ALLOWED = 1;
 
     /**
@@ -534,7 +674,6 @@ public class TelecomManager {
             mContext = context;
         }
         mTelecomServiceOverride = telecomServiceImpl;
-        android.telecom.Log.initMd5Sum();
     }
 
     /**
@@ -672,6 +811,10 @@ public class TelecomManager {
      * @hide
      */
     @SystemApi
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE,
+            android.Manifest.permission.READ_PHONE_STATE
+    })
     public List<PhoneAccountHandle> getPhoneAccountsSupportingScheme(String uriScheme) {
         try {
             if (isServiceConnected()) {
@@ -701,6 +844,32 @@ public class TelecomManager {
     }
 
     /**
+     * Returns a list of {@link PhoneAccountHandle}s for self-managed {@link ConnectionService}s.
+     * <p>
+     * Self-Managed {@link ConnectionService}s have a {@link PhoneAccount} with
+     * {@link PhoneAccount#CAPABILITY_SELF_MANAGED}.
+     * <p>
+     * Requires permission {@link android.Manifest.permission#READ_PHONE_STATE}, or that the caller
+     * is the default dialer app.
+     * <p>
+     * A {@link SecurityException} will be thrown if a called is not the default dialer, or lacks
+     * the {@link android.Manifest.permission#READ_PHONE_STATE} permission.
+     *
+     * @return A list of {@code PhoneAccountHandle} objects.
+     */
+    @RequiresPermission(android.Manifest.permission.READ_PHONE_STATE)
+    public List<PhoneAccountHandle> getSelfManagedPhoneAccounts() {
+        try {
+            if (isServiceConnected()) {
+                return getTelecomService().getSelfManagedPhoneAccounts(mContext.getOpPackageName());
+            }
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error calling ITelecomService#getSelfManagedPhoneAccounts()", e);
+        }
+        return new ArrayList<>();
+    }
+
+    /**
      * Returns a list of {@link PhoneAccountHandle}s including those which have not been enabled
      * by the user.
      *
@@ -727,6 +896,7 @@ public class TelecomManager {
      * @hide
      */
     @SystemApi
+    @SuppressLint("Doclava125")
     public List<PhoneAccountHandle> getPhoneAccountsForPackage() {
         try {
             if (isServiceConnected()) {
@@ -854,6 +1024,7 @@ public class TelecomManager {
      * @hide
      */
     @SystemApi
+    @SuppressLint("Doclava125")
     public void clearPhoneAccounts() {
         clearAccounts();
     }
@@ -863,6 +1034,7 @@ public class TelecomManager {
      * @hide
      */
     @SystemApi
+    @SuppressLint("Doclava125")
     public void clearAccounts() {
         try {
             if (isServiceConnected()) {
@@ -894,6 +1066,7 @@ public class TelecomManager {
      * @hide
      */
     @SystemApi
+    @SuppressLint("Doclava125")
     public ComponentName getDefaultPhoneApp() {
         try {
             if (isServiceConnected()) {
@@ -1031,10 +1204,12 @@ public class TelecomManager {
 
     /**
      * Returns whether there is an ongoing phone call (can be in dialing, ringing, active or holding
-     * states).
+     * states) originating from either a manager or self-managed {@link ConnectionService}.
      * <p>
      * Requires permission: {@link android.Manifest.permission#READ_PHONE_STATE}
-     * </p>
+     *
+     * @return {@code true} if there is an ongoing call in either a managed or self-managed
+     *      {@link ConnectionService}, {@code false} otherwise.
      */
     @RequiresPermission(android.Manifest.permission.READ_PHONE_STATE)
     public boolean isInCall() {
@@ -1044,6 +1219,31 @@ public class TelecomManager {
             }
         } catch (RemoteException e) {
             Log.e(TAG, "RemoteException calling isInCall().", e);
+        }
+        return false;
+    }
+
+    /**
+     * Returns whether there is an ongoing call originating from a managed
+     * {@link ConnectionService}.  An ongoing call can be in dialing, ringing, active or holding
+     * states.
+     * <p>
+     * If you also need to know if there are ongoing self-managed calls, use {@link #isInCall()}
+     * instead.
+     * <p>
+     * Requires permission: {@link android.Manifest.permission#READ_PHONE_STATE}
+     *
+     * @return {@code true} if there is an ongoing call in a managed {@link ConnectionService},
+     *      {@code false} otherwise.
+     */
+    @RequiresPermission(android.Manifest.permission.READ_PHONE_STATE)
+    public boolean isInManagedCall() {
+        try {
+            if (isServiceConnected()) {
+                return getTelecomService().isInManagedCall(mContext.getOpPackageName());
+            }
+        } catch (RemoteException e) {
+            Log.e(TAG, "RemoteException calling isInManagedCall().", e);
         }
         return false;
     }
@@ -1059,6 +1259,9 @@ public class TelecomManager {
      * {@link android.Manifest.permission#READ_PHONE_STATE} permission. This is intentional, to
      * preserve the behavior of {@link TelephonyManager#getCallState()}, which also did not require
      * the permission.
+     *
+     * Takes into consideration both managed and self-managed calls.
+     *
      * @hide
      */
     @SystemApi
@@ -1076,9 +1279,14 @@ public class TelecomManager {
     /**
      * Returns whether there currently exists is a ringing incoming-call.
      *
+     * @return {@code true} if there is a managed or self-managed ringing call.
      * @hide
      */
     @SystemApi
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE,
+            android.Manifest.permission.READ_PHONE_STATE
+    })
     public boolean isRinging() {
         try {
             if (isServiceConnected()) {
@@ -1091,16 +1299,22 @@ public class TelecomManager {
     }
 
     /**
-     * Ends an ongoing call.
-     * TODO: L-release - need to convert all invocations of ITelecomService#endCall to use this
-     * method (clockwork & gearhead).
-     * @hide
+     * Ends the foreground call on the device.
+     * <p>
+     * If there is a ringing call, calling this method rejects the ringing call.  Otherwise the
+     * foreground call is ended.
+     * <p>
+     * Requires permission {@link android.Manifest.permission#ANSWER_PHONE_CALLS}.
+     *
+     * @return {@code true} if there is a call which will be rejected or terminated, {@code false}
+     * otherwise.
      */
+    @RequiresPermission(Manifest.permission.ANSWER_PHONE_CALLS)
     @SystemApi
     public boolean endCall() {
         try {
             if (isServiceConnected()) {
-                return getTelecomService().endCall();
+                return getTelecomService().endCall(mContext.getPackageName());
             }
         } catch (RemoteException e) {
             Log.e(TAG, "Error calling ITelecomService#endCall", e);
@@ -1110,18 +1324,22 @@ public class TelecomManager {
 
     /**
      * If there is a ringing incoming call, this method accepts the call on behalf of the user.
-     * TODO: L-release - need to convert all invocation of ITelecmmService#answerRingingCall to use
-     * this method (clockwork & gearhead).
+     *
      * If the incoming call is a video call, the call will be answered with the same video state as
      * the incoming call requests.  This means, for example, that an incoming call requesting
      * {@link VideoProfile#STATE_BIDIRECTIONAL} will be answered, accepting that state.
-     * @hide
+     *
+     * Requires permission: {@link android.Manifest.permission#MODIFY_PHONE_STATE} or
+     * {@link android.Manifest.permission#ANSWER_PHONE_CALLS}
      */
-    @SystemApi
+    //TODO: L-release - need to convert all invocation of ITelecmmService#answerRingingCall to use
+    // this method (clockwork & gearhead).
+    @RequiresPermission(anyOf =
+            {Manifest.permission.ANSWER_PHONE_CALLS, Manifest.permission.MODIFY_PHONE_STATE})
     public void acceptRingingCall() {
         try {
             if (isServiceConnected()) {
-                getTelecomService().acceptRingingCall();
+                getTelecomService().acceptRingingCall(mContext.getPackageName());
             }
         } catch (RemoteException e) {
             Log.e(TAG, "Error calling ITelecomService#acceptRingingCall", e);
@@ -1132,14 +1350,18 @@ public class TelecomManager {
      * If there is a ringing incoming call, this method accepts the call on behalf of the user,
      * with the specified video state.
      *
+     * Requires permission: {@link android.Manifest.permission#MODIFY_PHONE_STATE} or
+     * {@link android.Manifest.permission#ANSWER_PHONE_CALLS}
+     *
      * @param videoState The desired video state to answer the call with.
-     * @hide
      */
-    @SystemApi
+    @RequiresPermission(anyOf =
+            {Manifest.permission.ANSWER_PHONE_CALLS, Manifest.permission.MODIFY_PHONE_STATE})
     public void acceptRingingCall(int videoState) {
         try {
             if (isServiceConnected()) {
-                getTelecomService().acceptRingingCallWithVideoState(videoState);
+                getTelecomService().acceptRingingCallWithVideoState(
+                        mContext.getPackageName(), videoState);
             }
         } catch (RemoteException e) {
             Log.e(TAG, "Error calling ITelecomService#acceptRingingCallWithVideoState", e);
@@ -1164,10 +1386,12 @@ public class TelecomManager {
 
     /**
      * Returns whether TTY is supported on this device.
-     *
-     * @hide
      */
     @SystemApi
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE,
+            android.Manifest.permission.READ_PHONE_STATE
+    })
     public boolean isTtySupported() {
         try {
             if (isServiceConnected()) {
@@ -1202,17 +1426,29 @@ public class TelecomManager {
 
     /**
      * Registers a new incoming call. A {@link ConnectionService} should invoke this method when it
-     * has an incoming call. The specified {@link PhoneAccountHandle} must have been registered
-     * with {@link #registerPhoneAccount} and the user must have enabled the corresponding
-     * {@link PhoneAccount}. This can be checked using {@link #getPhoneAccount}. Once invoked, this
-     * method will cause the system to bind to the {@link ConnectionService} associated with the
-     * {@link PhoneAccountHandle} and request additional information about the call
-     * (See {@link ConnectionService#onCreateIncomingConnection}) before starting the incoming
+     * has an incoming call. For managed {@link ConnectionService}s, the specified
+     * {@link PhoneAccountHandle} must have been registered with {@link #registerPhoneAccount} and
+     * the user must have enabled the corresponding {@link PhoneAccount}.  This can be checked using
+     * {@link #getPhoneAccount}. Self-managed {@link ConnectionService}s must have
+     * {@link android.Manifest.permission#MANAGE_OWN_CALLS} to add a new incoming call.
+     * <p>
+     * The incoming call you are adding is assumed to have a video state of
+     * {@link VideoProfile#STATE_AUDIO_ONLY}, unless the extra value
+     * {@link #EXTRA_INCOMING_VIDEO_STATE} is specified.
+     * <p>
+     * Once invoked, this method will cause the system to bind to the {@link ConnectionService}
+     * associated with the {@link PhoneAccountHandle} and request additional information about the
+     * call (See {@link ConnectionService#onCreateIncomingConnection}) before starting the incoming
      * call UI.
      * <p>
-     * A {@link SecurityException} will be thrown if either the {@link PhoneAccountHandle} does not
-     * correspond to a registered {@link PhoneAccount} or the associated {@link PhoneAccount} is not
-     * currently enabled by the user.
+     * For a managed {@link ConnectionService}, a {@link SecurityException} will be thrown if either
+     * the {@link PhoneAccountHandle} does not correspond to a registered {@link PhoneAccount} or
+     * the associated {@link PhoneAccount} is not currently enabled by the user.
+     * <p>
+     * For a self-managed {@link ConnectionService}, a {@link SecurityException} will be thrown if
+     * the {@link PhoneAccount} has {@link PhoneAccount#CAPABILITY_SELF_MANAGED} and the calling app
+     * does not have {@link android.Manifest.permission#MANAGE_OWN_CALLS}.
+     *
      * @param phoneAccount A {@link PhoneAccountHandle} registered with
      *            {@link #registerPhoneAccount}.
      * @param extras A bundle that will be passed through to
@@ -1221,6 +1457,13 @@ public class TelecomManager {
     public void addNewIncomingCall(PhoneAccountHandle phoneAccount, Bundle extras) {
         try {
             if (isServiceConnected()) {
+                if (extras != null && extras.getBoolean(EXTRA_IS_HANDOVER) &&
+                        mContext.getApplicationContext().getApplicationInfo().targetSdkVersion >
+                                Build.VERSION_CODES.O_MR1) {
+                    Log.e("TAG", "addNewIncomingCall failed. Use public api " +
+                            "acceptHandover for API > O-MR1");
+                    // TODO add "return" after DUO team adds support for new handover API
+                }
                 getTelecomService().addNewIncomingCall(
                         phoneAccount, extras == null ? new Bundle() : extras);
             }
@@ -1379,7 +1622,8 @@ public class TelecomManager {
      * method-caller is either the user selected default dialer app or preloaded system dialer
      * app, then emergency calls will also be allowed.
      *
-     * Requires permission: {@link android.Manifest.permission#CALL_PHONE}
+     * Placing a call via a managed {@link ConnectionService} requires permission:
+     * {@link android.Manifest.permission#CALL_PHONE}
      *
      * Usage example:
      * <pre>
@@ -1396,11 +1640,20 @@ public class TelecomManager {
      *   <li>{@link #EXTRA_START_CALL_WITH_SPEAKERPHONE}</li>
      *   <li>{@link #EXTRA_START_CALL_WITH_VIDEO_STATE}</li>
      * </ul>
+     * <p>
+     * An app which implements the self-managed {@link ConnectionService} API uses
+     * {@link #placeCall(Uri, Bundle)} to inform Telecom of a new outgoing call.  A self-managed
+     * {@link ConnectionService} must include {@link #EXTRA_PHONE_ACCOUNT_HANDLE} to specify its
+     * associated {@link android.telecom.PhoneAccountHandle}.
+     *
+     * Self-managed {@link ConnectionService}s require permission
+     * {@link android.Manifest.permission#MANAGE_OWN_CALLS}.
      *
      * @param address The address to make the call to.
      * @param extras Bundle of extras to use with the call.
      */
-    @RequiresPermission(android.Manifest.permission.CALL_PHONE)
+    @RequiresPermission(anyOf = {android.Manifest.permission.CALL_PHONE,
+            android.Manifest.permission.MANAGE_OWN_CALLS})
     public void placeCall(Uri address, Bundle extras) {
         ITelecomService service = getTelecomService();
         if (service != null) {
@@ -1424,6 +1677,7 @@ public class TelecomManager {
      * @hide
      */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.MODIFY_PHONE_STATE)
     public void enablePhoneAccount(PhoneAccountHandle handle, boolean isEnabled) {
         ITelecomService service = getTelecomService();
         if (service != null) {
@@ -1474,6 +1728,128 @@ public class TelecomManager {
             }
         }
         return result;
+    }
+
+    /**
+     * Determines whether Telecom would permit an incoming call to be added via the
+     * {@link #addNewIncomingCall(PhoneAccountHandle, Bundle)} API for the specified
+     * {@link PhoneAccountHandle}.
+     * <p>
+     * A {@link ConnectionService} may not add a call for the specified {@link PhoneAccountHandle}
+     * in the following situations:
+     * <ul>
+     *     <li>{@link PhoneAccount} does not have property
+     *     {@link PhoneAccount#CAPABILITY_SELF_MANAGED} set (i.e. it is a managed
+     *     {@link ConnectionService}), and the active or held call limit has
+     *     been reached.</li>
+     *     <li>There is an ongoing emergency call.</li>
+     * </ul>
+     *
+     * @param phoneAccountHandle The {@link PhoneAccountHandle} the call will be added for.
+     * @return {@code true} if telecom will permit an incoming call to be added, {@code false}
+     *      otherwise.
+     */
+    public boolean isIncomingCallPermitted(PhoneAccountHandle phoneAccountHandle) {
+        if (phoneAccountHandle == null) {
+            return false;
+        }
+
+        ITelecomService service = getTelecomService();
+        if (service != null) {
+            try {
+                return service.isIncomingCallPermitted(phoneAccountHandle);
+            } catch (RemoteException e) {
+                Log.e(TAG, "Error isIncomingCallPermitted", e);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Determines whether Telecom would permit an outgoing call to be placed via the
+     * {@link #placeCall(Uri, Bundle)} API for the specified {@link PhoneAccountHandle}.
+     * <p>
+     * A {@link ConnectionService} may not place a call for the specified {@link PhoneAccountHandle}
+     * in the following situations:
+     * <ul>
+     *     <li>{@link PhoneAccount} does not have property
+     *     {@link PhoneAccount#CAPABILITY_SELF_MANAGED} set (i.e. it is a managed
+     *     {@link ConnectionService}), and the active, held or ringing call limit has
+     *     been reached.</li>
+     *     <li>{@link PhoneAccount} has property {@link PhoneAccount#CAPABILITY_SELF_MANAGED} set
+     *     (i.e. it is a self-managed {@link ConnectionService} and there is an ongoing call in
+     *     another {@link ConnectionService}.</li>
+     *     <li>There is an ongoing emergency call.</li>
+     * </ul>
+     *
+     * @param phoneAccountHandle The {@link PhoneAccountHandle} the call will be added for.
+     * @return {@code true} if telecom will permit an outgoing call to be placed, {@code false}
+     *      otherwise.
+     */
+    public boolean isOutgoingCallPermitted(PhoneAccountHandle phoneAccountHandle) {
+        ITelecomService service = getTelecomService();
+        if (service != null) {
+            try {
+                return service.isOutgoingCallPermitted(phoneAccountHandle);
+            } catch (RemoteException e) {
+                Log.e(TAG, "Error isOutgoingCallPermitted", e);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Called by an app to indicate that it wishes to accept the handover of an ongoing call to a
+     * {@link PhoneAccountHandle} it defines.
+     * <p>
+     * A call handover is the process where an ongoing call is transferred from one app (i.e.
+     * {@link ConnectionService} to another app.  The user could, for example, choose to continue a
+     * mobile network call in a video calling app.  The mobile network call via the Telephony stack
+     * is referred to as the source of the handover, and the video calling app is referred to as the
+     * destination.
+     * <p>
+     * When considering a handover scenario the <em>initiating</em> device is where a user initiated
+     * the handover process (e.g. by calling {@link android.telecom.Call#handoverTo(
+     * PhoneAccountHandle, int, Bundle)}, and the other device is considered the <em>receiving</em>
+     * device.
+     * <p>
+     * For a full discussion of the handover process and the APIs involved, see
+     * {@link android.telecom.Call#handoverTo(PhoneAccountHandle, int, Bundle)}.
+     * <p>
+     * This method is called from the <em>receiving</em> side of a handover to indicate a desire to
+     * accept the handover of an ongoing call to another {@link ConnectionService} identified by
+     * {@link PhoneAccountHandle} destAcct. For managed {@link ConnectionService}s, the specified
+     * {@link PhoneAccountHandle} must have been registered with {@link #registerPhoneAccount} and
+     * the user must have enabled the corresponding {@link PhoneAccount}.  This can be checked using
+     * {@link #getPhoneAccount}. Self-managed {@link ConnectionService}s must have
+     * {@link android.Manifest.permission#MANAGE_OWN_CALLS} to handover a call to it.
+     * <p>
+     * Once invoked, this method will cause the system to bind to the {@link ConnectionService}
+     * associated with the {@link PhoneAccountHandle} destAcct and call
+     * (See {@link ConnectionService#onCreateIncomingHandoverConnection}).
+     * <p>
+     * For a managed {@link ConnectionService}, a {@link SecurityException} will be thrown if either
+     * the {@link PhoneAccountHandle} destAcct does not correspond to a registered
+     * {@link PhoneAccount} or the associated {@link PhoneAccount} is not currently enabled by the
+     * user.
+     * <p>
+     * For a self-managed {@link ConnectionService}, a {@link SecurityException} will be thrown if
+     * the calling app does not have {@link android.Manifest.permission#MANAGE_OWN_CALLS}.
+     *
+     * @param srcAddr The {@link android.net.Uri} of the ongoing call to handover to the caller’s
+     *                {@link ConnectionService}.
+     * @param videoState Video state after the handover.
+     * @param destAcct The {@link PhoneAccountHandle} registered to the calling package.
+     */
+    public void acceptHandover(Uri srcAddr, @VideoProfile.VideoState int videoState,
+            PhoneAccountHandle destAcct) {
+        try {
+            if (isServiceConnected()) {
+                getTelecomService().acceptHandover(srcAddr, videoState, destAcct);
+            }
+        } catch (RemoteException e) {
+            Log.e(TAG, "RemoteException acceptHandover: " + e);
+        }
     }
 
     private ITelecomService getTelecomService() {

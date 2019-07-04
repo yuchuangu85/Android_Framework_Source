@@ -33,14 +33,13 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
 
+import com.android.settingslib.Utils;
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
 
 public class BarTransitions {
     private static final boolean DEBUG = false;
     private static final boolean DEBUG_COLORS = false;
-
-    public static final boolean HIGH_END = ActivityManager.isHighEndGfx();
 
     public static final int MODE_OPAQUE = 0;
     public static final int MODE_SEMI_TRANSPARENT = 1;
@@ -51,7 +50,7 @@ public class BarTransitions {
     public static final int MODE_LIGHTS_OUT_TRANSPARENT = 6;
 
     public static final int LIGHTS_IN_DURATION = 250;
-    public static final int LIGHTS_OUT_DURATION = 750;
+    public static final int LIGHTS_OUT_DURATION = 1500;
     public static final int BACKGROUND_DURATION = 200;
 
     private final String mTag;
@@ -65,13 +64,15 @@ public class BarTransitions {
         mTag = "BarTransitions." + view.getClass().getSimpleName();
         mView = view;
         mBarBackground = new BarBackgroundDrawable(mView.getContext(), gradientResourceId);
-        if (HIGH_END) {
-            mView.setBackground(mBarBackground);
-        }
+        mView.setBackground(mBarBackground);
     }
 
     public int getMode() {
         return mMode;
+    }
+
+    public void setAutoDim(boolean autoDim) {
+        // Default is don't care.
     }
 
     /**
@@ -84,7 +85,7 @@ public class BarTransitions {
 
     public boolean isAlwaysOpaque() {
         // Low-end devices do not support translucent modes, fallback to opaque
-        return !HIGH_END || mAlwaysOpaque;
+        return mAlwaysOpaque;
     }
 
     public void transitionTo(int mode, boolean animate) {
@@ -104,9 +105,7 @@ public class BarTransitions {
     }
 
     protected void onTransition(int oldMode, int newMode, boolean animate) {
-        if (HIGH_END) {
-            applyModeBackground(oldMode, newMode, animate);
-        }
+        applyModeBackground(oldMode, newMode, animate);
     }
 
     protected void applyModeBackground(int oldMode, int newMode, boolean animate) {
@@ -167,7 +166,7 @@ public class BarTransitions {
                 mSemiTransparent = context.getColor(
                         com.android.internal.R.color.system_bar_background_semi_transparent);
                 mTransparent = context.getColor(R.color.system_bar_background_transparent);
-                mWarning = context.getColor(com.android.internal.R.color.battery_saver_mode_color);
+                mWarning = Utils.getColorAttr(context, android.R.attr.colorError);
             }
             mGradient = context.getDrawable(gradientResourceId);
         }

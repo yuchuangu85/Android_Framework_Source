@@ -16,41 +16,132 @@
 
 package com.android.systemui.statusbar.car;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.content.Context;
+import android.content.pm.UserInfo;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewStub;
 
+import android.support.v7.widget.GridLayoutManager;
+
+import com.android.settingslib.users.UserManagerHelper;
 import com.android.systemui.R;
-import com.android.systemui.statusbar.phone.PhoneStatusBar;
-import com.android.systemui.statusbar.policy.UserSwitcherController;
+import com.android.systemui.statusbar.phone.StatusBar;
 
 /**
  * Manages the fullscreen user switcher.
  */
 public class FullscreenUserSwitcher {
+    private final View mContainer;
+    private final View mParent;
+    private final UserGridRecyclerView mUserGridView;
+    private final int mShortAnimDuration;
+    private final StatusBar mStatusBar;
+    private final UserManagerHelper mUserManagerHelper;
+    private int mCurrentForegroundUserId;
+    private boolean mShowing;
 
-    private View mContainer;
-    private UserGridView mUserGridView;
-    private UserSwitcherController mUserSwitcherController;
+    public FullscreenUserSwitcher(StatusBar statusBar, ViewStub containerStub, Context context) {
+        mStatusBar = statusBar;
+        mParent = containerStub.inflate();
+        mContainer = mParent.findViewById(R.id.container);
+        mUserGridView = mContainer.findViewById(R.id.user_grid);
+        GridLayoutManager layoutManager = new GridLayoutManager(context,
+                context.getResources().getInteger(R.integer.user_fullscreen_switcher_num_col));
+        mUserGridView.getRecyclerView().setLayoutManager(layoutManager);
+        mUserGridView.buildAdapter();
+        mUserGridView.setUserSelectionListener(this::onUserSelected);
 
-    public FullscreenUserSwitcher(PhoneStatusBar statusBar,
-            UserSwitcherController userSwitcherController,
-            ViewStub containerStub) {
-        mUserSwitcherController = userSwitcherController;
-        mContainer = containerStub.inflate();
-        mUserGridView = (UserGridView) mContainer.findViewById(R.id.user_grid);
-        mUserGridView.init(statusBar, mUserSwitcherController);
-    }
+        mUserManagerHelper = new UserManagerHelper(context);
+        updateCurrentForegroundUser();
 
-    public void onUserSwitched(int newUserId) {
-        mUserGridView.onUserSwitched(newUserId);
+        mShortAnimDuration = mContainer.getResources()
+            .getInteger(android.R.integer.config_shortAnimTime);
     }
 
     public void show() {
-        mContainer.setVisibility(View.VISIBLE);
+        // On a switch from the system user, don't show the user switcher
+        if (mUserManagerHelper.isHeadlessSystemUser() && mUserManagerHelper
+            .userIsSystemUser(mUserManagerHelper.getForegroundUserInfo())) {
+            return;
+        }
+        if (mShowing) {
+            return;
+        }
+        mShowing = true;
+        mParent.setVisibility(View.VISIBLE);
     }
 
     public void hide() {
-        mContainer.setVisibility(View.GONE);
+        mShowing = false;
+        mParent.setVisibility(View.GONE);
+    }
+
+    public void onUserSwitched(int newUserId) {
+        // The logic for foreground user change is needed here to exclude the reboot case. On
+        // reboot, system fires ACTION_USER_SWITCHED change from -1 to 0 user. This is not an actual
+        // user switch. We only want to trigger keyguard dismissal when foreground user changes.
+        if (foregroundUserChanged()) {
+            toggleSwitchInProgress(false);
+            updateCurrentForegroundUser();
+            mParent.post(this::dismissKeyguard);
+        }
+    }
+
+    private boolean foregroundUserChanged() {
+        return mCurrentForegroundUserId != mUserManagerHelper.getForegroundUserId();
+    }
+
+    private void updateCurrentForegroundUser() {
+        mCurrentForegroundUserId = mUserManagerHelper.getForegroundUserId();
+    }
+
+    private void onUserSelected(UserGridRecyclerView.UserRecord record) {
+        if (record.mIsForeground) {
+            dismissKeyguard();
+            return;
+        }
+        toggleSwitchInProgress(true);
+    }
+
+    // Dismisses the keyguard and shows bouncer if authentication is necessary.
+    private void dismissKeyguard() {
+        mStatusBar.executeRunnableDismissingKeyguard(null/* runnable */, null /* cancelAction */,
+                true /* dismissShade */, true /* afterKeyguardGone */, true /* deferred */);
+    }
+
+    private void toggleSwitchInProgress(boolean inProgress) {
+        if (inProgress) {
+            fadeOut(mContainer);
+        } else {
+            fadeIn(mContainer);
+        }
+    }
+
+    private void fadeOut(View view) {
+        view.animate()
+                .alpha(0.0f)
+                .setDuration(mShortAnimDuration)
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        view.setVisibility(View.GONE);
+                    }
+                });
+    }
+
+    private void fadeIn(View view) {
+        view.animate()
+                .alpha(1.0f)
+                .setDuration(mShortAnimDuration)
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationStart(Animator animator) {
+                        view.setAlpha(0.0f);
+                        view.setVisibility(View.VISIBLE);
+                    }
+                });
     }
 }
-

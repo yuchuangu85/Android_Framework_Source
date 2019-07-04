@@ -21,9 +21,12 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 
+import androidx.annotation.RequiresApi;
+
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
+@RequiresApi(24)
 class MediaSessionCompatApi24 {
     private static final String TAG = "MediaSessionCompatApi24";
 
@@ -74,5 +77,8 @@ class MediaSessionCompatApi24 {
         public void onPrepareFromUri(Uri uri, Bundle extras) {
             mCallback.onPrepareFromUri(uri, extras);
         }
+    }
+
+    private MediaSessionCompatApi24() {
     }
 }

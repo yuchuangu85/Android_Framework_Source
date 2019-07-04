@@ -36,8 +36,7 @@ import java.util.Arrays;
  * }
  * </pre>
  */
-public class SntpClient
-{
+public class SntpClient {
     private static final String TAG = "SntpClient";
     private static final boolean DBG = true;
 
@@ -81,23 +80,31 @@ public class SntpClient
      *
      * @param host host name of the server.
      * @param timeout network timeout in milliseconds.
+     * @param network network over which to send the request.
      * @return true if the transaction was successful.
      */
-    public boolean requestTime(String host, int timeout) {
+    public boolean requestTime(String host, int timeout, Network network) {
+        // This flag only affects DNS resolution and not other socket semantics,
+        // therefore it's safe to set unilaterally rather than take more
+        // defensive measures like making a copy.
+        network.setPrivateDnsBypass(true);
         InetAddress address = null;
         try {
-            address = InetAddress.getByName(host);
+            address = network.getByName(host);
         } catch (Exception e) {
+            EventLogTags.writeNtpFailure(host, e.toString());
             if (DBG) Log.d(TAG, "request time failed: " + e);
             return false;
         }
-        return requestTime(address, NTP_PORT, timeout);
+        return requestTime(address, NTP_PORT, timeout, network);
     }
 
-    public boolean requestTime(InetAddress address, int port, int timeout) {
+    public boolean requestTime(InetAddress address, int port, int timeout, Network network) {
         DatagramSocket socket = null;
+        final int oldTag = TrafficStats.getAndSetThreadStatsTag(TrafficStats.TAG_SYSTEM_NTP);
         try {
             socket = new DatagramSocket();
+            network.bindSocket(socket);
             socket.setSoTimeout(timeout);
             byte[] buffer = new byte[NTP_PACKET_SIZE];
             DatagramPacket request = new DatagramPacket(buffer, buffer.length, address, port);
@@ -142,6 +149,7 @@ public class SntpClient
             //             = (transit + skew - transit + skew)/2
             //             = (2 * skew)/2 = skew
             long clockOffset = ((receiveTime - originateTime) + (transmitTime - responseTime))/2;
+            EventLogTags.writeNtpSuccess(address.toString(), roundTripTime, clockOffset);
             if (DBG) {
                 Log.d(TAG, "round trip: " + roundTripTime + "ms, " +
                         "clock offset: " + clockOffset + "ms");
@@ -153,15 +161,23 @@ public class SntpClient
             mNtpTimeReference = responseTicks;
             mRoundTripTime = roundTripTime;
         } catch (Exception e) {
+            EventLogTags.writeNtpFailure(address.toString(), e.toString());
             if (DBG) Log.d(TAG, "request time failed: " + e);
             return false;
         } finally {
             if (socket != null) {
                 socket.close();
             }
+            TrafficStats.setThreadStatsTag(oldTag);
         }
 
         return true;
+    }
+
+    @Deprecated
+    public boolean requestTime(String host, int timeout) {
+        Log.w(TAG, "Shame on you for calling the hidden API requestTime()!");
+        return false;
     }
 
     /**

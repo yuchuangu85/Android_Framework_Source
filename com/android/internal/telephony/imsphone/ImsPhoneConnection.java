@@ -23,6 +23,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.os.Messenger;
 import android.os.PersistableBundle;
 import android.os.PowerManager;
 import android.os.Registrant;
@@ -33,19 +34,18 @@ import android.telephony.DisconnectCause;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
+import android.telephony.ims.ImsCallProfile;
+import android.telephony.ims.ImsStreamMediaProfile;
 import android.text.TextUtils;
 
+import com.android.ims.ImsCall;
 import com.android.ims.ImsException;
-import com.android.ims.ImsStreamMediaProfile;
 import com.android.ims.internal.ImsVideoCallProviderWrapper;
 import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.Connection;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.UUSInfo;
-
-import com.android.ims.ImsCall;
-import com.android.ims.ImsCallProfile;
 
 import java.util.Objects;
 
@@ -80,6 +80,7 @@ public class ImsPhoneConnection extends Connection implements
 
     private UUSInfo mUusInfo;
     private Handler mHandler;
+    private Messenger mHandlerMessenger;
 
     private PowerManager.WakeLock mPartialWakeLock;
 
@@ -100,15 +101,27 @@ public class ImsPhoneConnection extends Connection implements
      */
     private boolean mShouldIgnoreVideoStateChanges = false;
 
+    private ImsVideoCallProviderWrapper mImsVideoCallProviderWrapper;
+
+    private int mPreciseDisconnectCause = 0;
+
+    private ImsRttTextHandler mRttTextHandler;
+    private android.telecom.Connection.RttTextStream mRttTextStream;
+    // This reflects the RTT status as reported to us by the IMS stack via the media profile.
+    private boolean mIsRttEnabledForCall = false;
+
     /**
-     * Used to indicate whether the wifi state is based on
-     * {@link com.android.ims.ImsConnectionStateListener#
-     *      onFeatureCapabilityChanged(int, int[], int[])} callbacks, or values received via the
-     * {@link ImsCallProfile#EXTRA_CALL_RAT_TYPE} extra.  Util we receive a value via the extras,
-     * we will use the wifi state based on the {@code onFeatureCapabilityChanged}.  Once a value
-     * is received via the extras, we will prefer those values going forward.
+     * Used to indicate that this call is in the midst of being merged into a conference.
      */
-    private boolean mIsWifiStateFromExtras = false;
+    private boolean mIsMergeInProcess = false;
+
+    /**
+     * Used as an override to determine whether video is locally available for this call.
+     * This allows video availability to be overridden in the case that the modem says video is
+     * currently available, but mobile data is off and the carrier is metering data for video
+     * calls.
+     */
+    private boolean mIsVideoEnabled = true;
 
     //***** Event Constants
     private static final int EVENT_DTMF_DONE = 1;
@@ -160,6 +173,7 @@ public class ImsPhoneConnection extends Connection implements
 
         mOwner = ct;
         mHandler = new MyHandler(mOwner.getLooper());
+        mHandlerMessenger = new Messenger(mHandler);
         mImsCall = imsCall;
 
         if ((imsCall != null) && (imsCall.getCallProfile() != null)) {
@@ -179,8 +193,6 @@ public class ImsPhoneConnection extends Connection implements
         mCreateTime = System.currentTimeMillis();
         mUusInfo = null;
 
-        updateWifiState();
-
         // Ensure any extras set on the ImsCallProfile at the start of the call are cached locally
         // in the ImsPhoneConnection.  This isn't going to inform any listeners (since the original
         // connection is not likely to be associated with a TelephonyConnection yet).
@@ -191,6 +203,11 @@ public class ImsPhoneConnection extends Connection implements
                 (mIsIncoming? ImsPhoneCall.State.INCOMING: ImsPhoneCall.State.DIALING));
 
         fetchDtmfToneDelay(phone);
+
+        if (phone.getContext().getResources().getBoolean(
+                com.android.internal.R.bool.config_use_voip_mode_for_ims)) {
+            setAudioModeIsVoip(true);
+        }
     }
 
     /** This is an MO call, created when dialing */
@@ -222,6 +239,11 @@ public class ImsPhoneConnection extends Connection implements
         mIsEmergency = isEmergency;
 
         fetchDtmfToneDelay(phone);
+
+        if (phone.getContext().getResources().getBoolean(
+                com.android.internal.R.bool.config_use_voip_mode_for_ims)) {
+            setAudioModeIsVoip(true);
+        }
     }
 
     public void dispose() {
@@ -232,11 +254,20 @@ public class ImsPhoneConnection extends Connection implements
         return (a == null) ? (b == null) : a.equals (b);
     }
 
-    private static int applyLocalCallCapabilities(ImsCallProfile localProfile, int capabilities) {
-        Rlog.w(LOG_TAG, "applyLocalCallCapabilities - localProfile = "+localProfile);
+    static boolean
+    equalsBaseDialString (String a, String b) {
+        return (a == null) ? (b == null) : (b != null && a.startsWith (b));
+    }
+
+    private int applyLocalCallCapabilities(ImsCallProfile localProfile, int capabilities) {
+        Rlog.i(LOG_TAG, "applyLocalCallCapabilities - localProfile = " + localProfile);
         capabilities = removeCapability(capabilities,
                 Connection.Capability.SUPPORTS_VT_LOCAL_BIDIRECTIONAL);
 
+        if (!mIsVideoEnabled) {
+            Rlog.i(LOG_TAG, "applyLocalCallCapabilities - disabling video (overidden)");
+            return capabilities;
+        }
         switch (localProfile.mCallType) {
             case ImsCallProfile.CALL_TYPE_VT:
                 // Fall-through
@@ -313,6 +344,23 @@ public class ImsPhoneConnection extends Connection implements
             return ImsPhoneCall.State.DISCONNECTED;
         } else {
             return super.getState();
+        }
+    }
+
+    @Override
+    public void deflect(String number) throws CallStateException {
+        if (mParent.getState().isRinging()) {
+            try {
+                if (mImsCall != null) {
+                    mImsCall.deflect(number);
+                } else {
+                    throw new CallStateException("no valid ims call to deflect");
+                }
+            } catch (ImsException e) {
+                throw new CallStateException("cannot deflect call");
+            }
+        } else {
+            throw new CallStateException("phone not ringing");
         }
     }
 
@@ -402,14 +450,17 @@ public class ImsPhoneConnection extends Connection implements
             mDisconnected = true;
 
             mOwner.mPhone.notifyDisconnect(this);
+            notifyDisconnect(mCause);
 
             if (mParent != null) {
                 changed = mParent.connectionDisconnected(this);
             } else {
                 Rlog.d(LOG_TAG, "onDisconnect: no parent");
             }
-            if (mImsCall != null) mImsCall.close();
-            mImsCall = null;
+            synchronized (this) {
+                if (mImsCall != null) mImsCall.close();
+                mImsCall = null;
+            }
         }
         releaseWakeLock();
         return changed;
@@ -447,7 +498,9 @@ public class ImsPhoneConnection extends Connection implements
     private boolean
     processPostDialChar(char c) {
         if (PhoneNumberUtils.is12Key(c)) {
-            mOwner.sendDtmf(c, mHandler.obtainMessage(EVENT_DTMF_DONE));
+            Message dtmfComplete = mHandler.obtainMessage(EVENT_DTMF_DONE);
+            dtmfComplete.replyTo = mHandlerMessenger;
+            mOwner.sendDtmf(c, dtmfComplete);
         } else if (c == PhoneNumberUtils.PAUSE) {
             // From TS 22.101:
             // It continues...
@@ -571,10 +624,12 @@ public class ImsPhoneConnection extends Connection implements
 
     void
     releaseWakeLock() {
-        synchronized(mPartialWakeLock) {
-            if (mPartialWakeLock.isHeld()) {
-                Rlog.d(LOG_TAG, "releaseWakeLock");
-                mPartialWakeLock.release();
+        if (mPartialWakeLock != null) {
+            synchronized (mPartialWakeLock) {
+                if (mPartialWakeLock.isHeld()) {
+                    Rlog.d(LOG_TAG, "releaseWakeLock");
+                    mPartialWakeLock.release();
+                }
             }
         }
     }
@@ -604,7 +659,7 @@ public class ImsPhoneConnection extends Connection implements
     }
 
     @Override
-    public boolean isMultiparty() {
+    public synchronized boolean isMultiparty() {
         return mImsCall != null && mImsCall.isMultiparty();
     }
 
@@ -617,11 +672,8 @@ public class ImsPhoneConnection extends Connection implements
      *      {@code false} otherwise.
      */
     @Override
-    public boolean isConferenceHost() {
-        if (mImsCall == null) {
-            return false;
-        }
-        return mImsCall.isConferenceHost();
+    public synchronized boolean isConferenceHost() {
+        return mImsCall != null && mImsCall.isConferenceHost();
     }
 
     @Override
@@ -629,11 +681,11 @@ public class ImsPhoneConnection extends Connection implements
         return !isConferenceHost();
     }
 
-    public ImsCall getImsCall() {
+    public synchronized ImsCall getImsCall() {
         return mImsCall;
     }
 
-    public void setImsCall(ImsCall imsCall) {
+    public synchronized void setImsCall(ImsCall imsCall) {
         mImsCall = imsCall;
     }
 
@@ -674,18 +726,20 @@ public class ImsPhoneConnection extends Connection implements
         }
 
         boolean updateParent = mParent.update(this, imsCall, state);
-        boolean updateWifiState = updateWifiState();
         boolean updateAddressDisplay = updateAddressDisplay(imsCall);
         boolean updateMediaCapabilities = updateMediaCapabilities(imsCall);
         boolean updateExtras = updateExtras(imsCall);
 
-        return updateParent || updateWifiState || updateAddressDisplay || updateMediaCapabilities
-                || updateExtras;
+        return updateParent || updateAddressDisplay || updateMediaCapabilities || updateExtras;
     }
 
     @Override
     public int getPreciseDisconnectCause() {
-        return 0;
+        return mPreciseDisconnectCause;
+    }
+
+    public void setPreciseDisconnectCause(int cause) {
+        mPreciseDisconnectCause = cause;
     }
 
     /**
@@ -740,7 +794,10 @@ public class ImsPhoneConnection extends Connection implements
 
         boolean changed = false;
         ImsCallProfile callProfile = imsCall.getCallProfile();
-        if (callProfile != null) {
+        if (callProfile != null && isIncoming()) {
+            // Only look for changes to the address for incoming calls.  The originating identity
+            // can change for outgoing calls due to, for example, a call being forwarded to
+            // voicemail.  This address change does not need to be presented to the user.
             String address = callProfile.getCallExtra(ImsCallProfile.EXTRA_OI);
             String name = callProfile.getCallExtra(ImsCallProfile.EXTRA_CNA);
             int nump = ImsCallProfile.OIRToPresentation(
@@ -748,29 +805,40 @@ public class ImsPhoneConnection extends Connection implements
             int namep = ImsCallProfile.OIRToPresentation(
                     callProfile.getCallExtraInt(ImsCallProfile.EXTRA_CNAP));
             if (Phone.DEBUG_PHONE) {
-                Rlog.d(LOG_TAG, "address = " + Rlog.pii(LOG_TAG, address) + " name = " + name +
-                        " nump = " + nump + " namep = " + namep);
+                Rlog.d(LOG_TAG, "updateAddressDisplay: callId = " + getTelecomCallId()
+                        + " address = " + Rlog.pii(LOG_TAG, address) + " name = "
+                        + Rlog.pii(LOG_TAG, name) + " nump = " + nump + " namep = " + namep);
             }
-            if(equalsHandlesNulls(mAddress, address)) {
-                mAddress = address;
-                changed = true;
-            }
-            if (TextUtils.isEmpty(name)) {
-                if (!TextUtils.isEmpty(mCnapName)) {
-                    mCnapName = "";
+            if (!mIsMergeInProcess) {
+                // Only process changes to the name and address when a merge is not in process.
+                // When call A initiated a merge with call B to form a conference C, there is a
+                // point in time when the ImsCall transfers the conference call session into A,
+                // at which point the ImsConferenceController creates the conference in Telecom.
+                // For some carriers C will have a unique conference URI address.  Swapping the
+                // conference session into A, which is about to be disconnected, to be logged to
+                // the call log using the conference address.  To prevent this we suppress updates
+                // to the call address while a merge is in process.
+                if (!equalsBaseDialString(mAddress, address)) {
+                    mAddress = address;
                     changed = true;
                 }
-            } else if (!name.equals(mCnapName)) {
-                mCnapName = name;
-                changed = true;
-            }
-            if (mNumberPresentation != nump) {
-                mNumberPresentation = nump;
-                changed = true;
-            }
-            if (mCnapNamePresentation != namep) {
-                mCnapNamePresentation = namep;
-                changed = true;
+                if (TextUtils.isEmpty(name)) {
+                    if (!TextUtils.isEmpty(mCnapName)) {
+                        mCnapName = "";
+                        changed = true;
+                    }
+                } else if (!name.equals(mCnapName)) {
+                    mCnapName = name;
+                    changed = true;
+                }
+                if (mNumberPresentation != nump) {
+                    mNumberPresentation = nump;
+                    changed = true;
+                }
+                if (mCnapNamePresentation != namep) {
+                    mCnapNamePresentation = namep;
+                    changed = true;
+                }
             }
         }
         return changed;
@@ -815,7 +883,7 @@ public class ImsPhoneConnection extends Connection implements
                     }
 
                     if (!mShouldIgnoreVideoStateChanges) {
-                        setVideoState(newVideoState);
+                        updateVideoState(newVideoState);
                         changed = true;
                     } else {
                         Rlog.d(LOG_TAG, "updateMediaCapabilities - ignoring video state change " +
@@ -828,6 +896,25 @@ public class ImsPhoneConnection extends Connection implements
                         // after setVideoState is called above to ensure Telecom is notified that
                         // the device has entered paused state.
                         mShouldIgnoreVideoStateChanges = true;
+                    }
+                }
+
+                if (negotiatedCallProfile.mMediaProfile != null) {
+                    mIsRttEnabledForCall = negotiatedCallProfile.mMediaProfile.isRttCall();
+
+                    if (mIsRttEnabledForCall && mRttTextHandler == null) {
+                        Rlog.d(LOG_TAG, "updateMediaCapabilities -- turning RTT on, profile="
+                                + negotiatedCallProfile);
+                        startRttTextProcessing();
+                        onRttInitiated();
+                        changed = true;
+                    } else if (!mIsRttEnabledForCall && mRttTextHandler != null) {
+                        Rlog.d(LOG_TAG, "updateMediaCapabilities -- turning RTT off, profile="
+                                + negotiatedCallProfile);
+                        mRttTextHandler.tearDown();
+                        mRttTextHandler = null;
+                        onRttTerminated();
+                        changed = true;
                     }
                 }
             }
@@ -878,26 +965,89 @@ public class ImsPhoneConnection extends Connection implements
         return changed;
     }
 
-    /**
-     * Check for a change in the wifi state of the ImsPhoneCallTracker and update the
-     * {@link ImsPhoneConnection} with this information.
-     *
-     * @return Whether the ImsPhoneCallTracker's usage of wifi has been changed.
-     */
-    public boolean updateWifiState() {
-        // If we've received the wifi state via the ImsCallProfile.EXTRA_CALL_RAT_TYPE extra, we
-        // will no longer use state updates which are based on the onFeatureCapabilityChanged
-        // callback.
-        if (mIsWifiStateFromExtras) {
-            return false;
+    private void updateVideoState(int newVideoState) {
+        if (mImsVideoCallProviderWrapper != null) {
+            mImsVideoCallProviderWrapper.onVideoStateChanged(newVideoState);
         }
+        setVideoState(newVideoState);
+    }
 
-        Rlog.d(LOG_TAG, "updateWifiState: " + mOwner.isVowifiEnabled());
-        if (isWifi() != mOwner.isVowifiEnabled()) {
-            setWifi(mOwner.isVowifiEnabled());
-            return true;
+    public void sendRttModifyRequest(android.telecom.Connection.RttTextStream textStream) {
+        getImsCall().sendRttModifyRequest();
+        setCurrentRttTextStream(textStream);
+    }
+
+    /**
+     * Sends the user's response to a remotely-issued RTT upgrade request
+     *
+     * @param textStream A valid {@link android.telecom.Connection.RttTextStream} if the user
+     *                   accepts, {@code null} if not.
+     */
+    public void sendRttModifyResponse(android.telecom.Connection.RttTextStream textStream) {
+        boolean accept = textStream != null;
+        ImsCall imsCall = getImsCall();
+
+        imsCall.sendRttModifyResponse(accept);
+        if (accept) {
+            setCurrentRttTextStream(textStream);
+        } else {
+            Rlog.e(LOG_TAG, "sendRttModifyResponse: foreground call has no connections");
         }
-        return false;
+    }
+
+    public void onRttMessageReceived(String message) {
+        synchronized (this) {
+            if (mRttTextHandler == null) {
+                Rlog.w(LOG_TAG, "onRttMessageReceived: RTT text handler not available."
+                        + " Attempting to create one.");
+                if (mRttTextStream == null) {
+                    Rlog.e(LOG_TAG, "onRttMessageReceived:"
+                            + " Unable to process incoming message. No textstream available");
+                    return;
+                }
+                createRttTextHandler();
+            }
+        }
+        mRttTextHandler.sendToInCall(message);
+    }
+
+    public void setCurrentRttTextStream(android.telecom.Connection.RttTextStream rttTextStream) {
+        synchronized (this) {
+            mRttTextStream = rttTextStream;
+            if (mRttTextHandler == null && mIsRttEnabledForCall) {
+                Rlog.i(LOG_TAG, "setCurrentRttTextStream: Creating a text handler");
+                createRttTextHandler();
+            }
+        }
+    }
+
+    public boolean hasRttTextStream() {
+        return mRttTextStream != null;
+    }
+
+    public boolean isRttEnabledForCall() {
+        return mIsRttEnabledForCall;
+    }
+
+    public void startRttTextProcessing() {
+        synchronized (this) {
+            if (mRttTextStream == null) {
+                Rlog.w(LOG_TAG, "startRttTextProcessing: no RTT text stream. Ignoring.");
+                return;
+            }
+            if (mRttTextHandler != null) {
+                Rlog.w(LOG_TAG, "startRttTextProcessing: RTT text handler already exists");
+                return;
+            }
+            createRttTextHandler();
+        }
+    }
+
+    // Make sure to synchronize on ImsPhoneConnection.this before calling.
+    private void createRttTextHandler() {
+        mRttTextHandler = new ImsRttTextHandler(Looper.getMainLooper(),
+                (message) -> getImsCall().sendRttMessage(message));
+        mRttTextHandler.initialize(mRttTextStream);
     }
 
     /**
@@ -910,10 +1060,6 @@ public class ImsPhoneConnection extends Connection implements
     private void updateWifiStateFromExtras(Bundle extras) {
         if (extras.containsKey(ImsCallProfile.EXTRA_CALL_RAT_TYPE) ||
                 extras.containsKey(ImsCallProfile.EXTRA_CALL_RAT_TYPE_ALT)) {
-
-            // We've received the extra indicating the radio technology, so we will continue to
-            // prefer the radio technology received via this extra going forward.
-            mIsWifiStateFromExtras = true;
 
             ImsCall call = getImsCall();
             boolean isWifi = false;
@@ -1027,13 +1173,24 @@ public class ImsPhoneConnection extends Connection implements
         sb.append(" address: ");
         sb.append(Rlog.pii(LOG_TAG, getAddress()));
         sb.append(" ImsCall: ");
-        if (mImsCall == null) {
-            sb.append("null");
-        } else {
-            sb.append(mImsCall);
+        synchronized (this) {
+            if (mImsCall == null) {
+                sb.append("null");
+            } else {
+                sb.append(mImsCall);
+            }
         }
         sb.append("]");
         return sb.toString();
+    }
+
+    @Override
+    public void setVideoProvider(android.telecom.Connection.VideoProvider videoProvider) {
+        super.setVideoProvider(videoProvider);
+
+        if (videoProvider instanceof ImsVideoCallProviderWrapper) {
+            mImsVideoCallProviderWrapper = (ImsVideoCallProviderWrapper) videoProvider;
+        }
     }
 
     /**
@@ -1085,6 +1242,91 @@ public class ImsPhoneConnection extends Connection implements
                     " while paused ; sending new videoState = " +
                     VideoProfile.videoStateToString(currentVideoState));
             setVideoState(currentVideoState);
+        }
+    }
+
+    /**
+     * Issues a request to pause the video using {@link VideoProfile#STATE_PAUSED} from a source
+     * other than the InCall UI.
+     *
+     * @param source The source of the pause request.
+     */
+    public void pauseVideo(int source) {
+        if (mImsVideoCallProviderWrapper == null) {
+            return;
+        }
+
+        mImsVideoCallProviderWrapper.pauseVideo(getVideoState(), source);
+    }
+
+    /**
+     * Issues a request to resume the video using {@link VideoProfile#STATE_PAUSED} from a source
+     * other than the InCall UI.
+     *
+     * @param source The source of the resume request.
+     */
+    public void resumeVideo(int source) {
+        if (mImsVideoCallProviderWrapper == null) {
+            return;
+        }
+
+        mImsVideoCallProviderWrapper.resumeVideo(getVideoState(), source);
+    }
+
+    /**
+     * Determines if a specified source has issued a pause request.
+     *
+     * @param source The source.
+     * @return {@code true} if the source issued a pause request, {@code false} otherwise.
+     */
+    public boolean wasVideoPausedFromSource(int source) {
+        if (mImsVideoCallProviderWrapper == null) {
+            return false;
+        }
+
+        return mImsVideoCallProviderWrapper.wasVideoPausedFromSource(source);
+    }
+
+    /**
+     * Mark the call as in the process of being merged and inform the UI of the merge start.
+     */
+    public void handleMergeStart() {
+        mIsMergeInProcess = true;
+        onConnectionEvent(android.telecom.Connection.EVENT_MERGE_START, null);
+    }
+
+    /**
+     * Mark the call as done merging and inform the UI of the merge start.
+     */
+    public void handleMergeComplete() {
+        mIsMergeInProcess = false;
+        onConnectionEvent(android.telecom.Connection.EVENT_MERGE_COMPLETE, null);
+    }
+
+    public void changeToPausedState() {
+        int newVideoState = getVideoState() | VideoProfile.STATE_PAUSED;
+        Rlog.i(LOG_TAG, "ImsPhoneConnection: changeToPausedState - setting paused bit; "
+                + "newVideoState=" + VideoProfile.videoStateToString(newVideoState));
+        updateVideoState(newVideoState);
+        mShouldIgnoreVideoStateChanges = true;
+    }
+
+    public void changeToUnPausedState() {
+        int newVideoState = getVideoState() & ~VideoProfile.STATE_PAUSED;
+        Rlog.i(LOG_TAG, "ImsPhoneConnection: changeToUnPausedState - unsetting paused bit; "
+                + "newVideoState=" + VideoProfile.videoStateToString(newVideoState));
+        updateVideoState(newVideoState);
+        mShouldIgnoreVideoStateChanges = false;
+    }
+
+    public void handleDataEnabledChange(boolean isDataEnabled) {
+        mIsVideoEnabled = isDataEnabled;
+        Rlog.i(LOG_TAG, "handleDataEnabledChange: isDataEnabled=" + isDataEnabled
+                + "; updating local video availability.");
+        updateMediaCapabilities(getImsCall());
+        if (mImsVideoCallProviderWrapper != null) {
+            mImsVideoCallProviderWrapper.setIsVideoEnabled(
+                    hasCapabilities(Connection.Capability.SUPPORTS_VT_LOCAL_BIDIRECTIONAL));
         }
     }
 }

@@ -17,6 +17,7 @@
 package android.security.keystore;
 
 import android.security.Credentials;
+import android.security.GateKeeper;
 import android.security.KeyStore;
 import android.security.keymaster.KeyCharacteristics;
 import android.security.keymaster.KeymasterArguments;
@@ -56,6 +57,12 @@ public abstract class AndroidKeyStoreKeyGeneratorSpi extends KeyGeneratorSpi {
                         "Unsupported key size: " + mKeySizeBits
                         + ". Supported: 128, 192, 256.");
             }
+        }
+    }
+
+    public static class DESede extends AndroidKeyStoreKeyGeneratorSpi {
+        public DESede() {
+            super(KeymasterDefs.KM_ALGORITHM_3DES, 168);
         }
     }
 
@@ -199,6 +206,11 @@ public abstract class AndroidKeyStoreKeyGeneratorSpi extends KeyGeneratorSpi {
                 }
 
                 if (mKeymasterAlgorithm == KeymasterDefs.KM_ALGORITHM_HMAC) {
+                    if (mKeySizeBits < 64) {
+                        throw new InvalidAlgorithmParameterException(
+                            "HMAC key size must be at least 64 bits.");
+                    }
+
                     // JCA HMAC key algorithm implies a digest (e.g., HmacSHA256 key algorithm
                     // implies SHA-256 digest). Because keymaster HMAC key is authorized only for
                     // one digest, we don't let algorithm parameter spec override the digest implied
@@ -231,11 +243,7 @@ public abstract class AndroidKeyStoreKeyGeneratorSpi extends KeyGeneratorSpi {
                 // Check that user authentication related parameters are acceptable. This method
                 // will throw an IllegalStateException if there are issues (e.g., secure lock screen
                 // not set up).
-                KeymasterUtils.addUserAuthArgs(new KeymasterArguments(),
-                        spec.isUserAuthenticationRequired(),
-                        spec.getUserAuthenticationValidityDurationSeconds(),
-                        spec.isUserAuthenticationValidWhileOnBody(),
-                        spec.isInvalidatedByBiometricEnrollment());
+                KeymasterUtils.addUserAuthArgs(new KeymasterArguments(), spec);
             } catch (IllegalStateException | IllegalArgumentException e) {
                 throw new InvalidAlgorithmParameterException(e);
             }
@@ -271,11 +279,7 @@ public abstract class AndroidKeyStoreKeyGeneratorSpi extends KeyGeneratorSpi {
         args.addEnums(KeymasterDefs.KM_TAG_BLOCK_MODE, mKeymasterBlockModes);
         args.addEnums(KeymasterDefs.KM_TAG_PADDING, mKeymasterPaddings);
         args.addEnums(KeymasterDefs.KM_TAG_DIGEST, mKeymasterDigests);
-        KeymasterUtils.addUserAuthArgs(args,
-                spec.isUserAuthenticationRequired(),
-                spec.getUserAuthenticationValidityDurationSeconds(),
-                spec.isUserAuthenticationValidWhileOnBody(),
-                spec.isInvalidatedByBiometricEnrollment());
+        KeymasterUtils.addUserAuthArgs(args, spec);
         KeymasterUtils.addMinMacLengthAuthorizationIfNecessary(
                 args,
                 mKeymasterAlgorithm,
@@ -297,7 +301,7 @@ public abstract class AndroidKeyStoreKeyGeneratorSpi extends KeyGeneratorSpi {
                 KeyStoreCryptoOperationUtils.getRandomBytesToMixIntoKeystoreRng(
                         mRng, (mKeySizeBits + 7) / 8);
         int flags = 0;
-        String keyAliasInKeystore = Credentials.USER_SECRET_KEY + spec.getKeystoreAlias();
+        String keyAliasInKeystore = Credentials.USER_PRIVATE_KEY + spec.getKeystoreAlias();
         KeyCharacteristics resultingKeyCharacteristics = new KeyCharacteristics();
         boolean success = false;
         try {

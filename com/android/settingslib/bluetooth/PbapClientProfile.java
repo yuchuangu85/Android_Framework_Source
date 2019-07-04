@@ -32,7 +32,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-final class PbapClientProfile implements LocalBluetoothProfile {
+public final class PbapClientProfile implements LocalBluetoothProfile {
     private static final String TAG = "PbapClientProfile";
     private static boolean V = false;
 
@@ -100,6 +100,11 @@ final class PbapClientProfile implements LocalBluetoothProfile {
         return mIsProfileReady;
     }
 
+    @Override
+    public int getProfileId() {
+        return BluetoothProfile.PBAP_CLIENT;
+    }
+
     PbapClientProfile(Context context, LocalBluetoothAdapter adapter,
             CachedBluetoothDeviceManager deviceManager,
             LocalBluetoothProfileManager profileManager) {
@@ -143,9 +148,6 @@ final class PbapClientProfile implements LocalBluetoothProfile {
                     Log.d(TAG,"Ignoring Connect");
                     return true;
                 }
-            }
-            for (BluetoothDevice src : srcs) {
-                mService.disconnect(device);
             }
         }
         Log.d(TAG,"PBAPClientProfile attempting to connect to " + device.getAddress());

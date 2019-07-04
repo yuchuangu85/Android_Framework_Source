@@ -214,7 +214,7 @@ class AndroidCameraCapabilities extends CameraCapabilities {
     }
 
     private void buildWhiteBalances(Camera.Parameters p) {
-        List<String> supportedWhiteBalances = p.getSupportedFocusModes();
+        List<String> supportedWhiteBalances = p.getSupportedWhiteBalance();
         if (supportedWhiteBalances != null) {
             for (String wb : supportedWhiteBalances) {
                 if (Camera.Parameters.WHITE_BALANCE_AUTO.equals(wb)) {

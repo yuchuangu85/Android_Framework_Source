@@ -23,19 +23,24 @@ import com.android.internal.util.Preconditions;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.ActivityManager;
-import android.app.ActivityManagerNative;
+import android.app.admin.DevicePolicyManager;
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Binder;
 import android.os.Bundle;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.service.persistentdata.PersistentDataBlockManager;
+import android.os.UserManagerInternal;
+import android.provider.Settings;
+import android.provider.Settings.Global;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.util.Log;
 import android.util.Slog;
+import android.util.SparseArray;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlSerializer;
@@ -66,21 +71,27 @@ public class UserRestrictionsUtils {
 
     public static final Set<String> USER_RESTRICTIONS = newSetWithUniqueCheck(new String[] {
             UserManager.DISALLOW_CONFIG_WIFI,
+            UserManager.DISALLOW_CONFIG_LOCALE,
             UserManager.DISALLOW_MODIFY_ACCOUNTS,
             UserManager.DISALLOW_INSTALL_APPS,
             UserManager.DISALLOW_UNINSTALL_APPS,
             UserManager.DISALLOW_SHARE_LOCATION,
             UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES,
             UserManager.DISALLOW_CONFIG_BLUETOOTH,
+            UserManager.DISALLOW_BLUETOOTH,
+            UserManager.DISALLOW_BLUETOOTH_SHARING,
             UserManager.DISALLOW_USB_FILE_TRANSFER,
             UserManager.DISALLOW_CONFIG_CREDENTIALS,
             UserManager.DISALLOW_REMOVE_USER,
+            UserManager.DISALLOW_REMOVE_MANAGED_PROFILE,
             UserManager.DISALLOW_DEBUGGING_FEATURES,
             UserManager.DISALLOW_CONFIG_VPN,
+            UserManager.DISALLOW_CONFIG_DATE_TIME,
             UserManager.DISALLOW_CONFIG_TETHERING,
             UserManager.DISALLOW_NETWORK_RESET,
             UserManager.DISALLOW_FACTORY_RESET,
             UserManager.DISALLOW_ADD_USER,
+            UserManager.DISALLOW_ADD_MANAGED_PROFILE,
             UserManager.ENSURE_VERIFY_APPS,
             UserManager.DISALLOW_CONFIG_CELL_BROADCASTS,
             UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS,
@@ -92,6 +103,7 @@ public class UserRestrictionsUtils {
             UserManager.DISALLOW_SMS,
             UserManager.DISALLOW_FUN,
             UserManager.DISALLOW_CREATE_WINDOWS,
+            UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS,
             UserManager.DISALLOW_CROSS_PROFILE_COPY_PASTE,
             UserManager.DISALLOW_OUTGOING_BEAM,
             UserManager.DISALLOW_WALLPAPER,
@@ -104,7 +116,17 @@ public class UserRestrictionsUtils {
             UserManager.DISALLOW_SET_USER_ICON,
             UserManager.DISALLOW_SET_WALLPAPER,
             UserManager.DISALLOW_OEM_UNLOCK,
-            UserManager.DISALLLOW_UNMUTE_DEVICE,
+            UserManager.DISALLOW_UNMUTE_DEVICE,
+            UserManager.DISALLOW_AUTOFILL,
+            UserManager.DISALLOW_USER_SWITCH,
+            UserManager.DISALLOW_UNIFIED_PASSWORD,
+            UserManager.DISALLOW_CONFIG_LOCATION,
+            UserManager.DISALLOW_AIRPLANE_MODE,
+            UserManager.DISALLOW_CONFIG_BRIGHTNESS,
+            UserManager.DISALLOW_SHARE_INTO_MANAGED_PROFILE,
+            UserManager.DISALLOW_AMBIENT_DISPLAY,
+            UserManager.DISALLOW_CONFIG_SCREEN_TIMEOUT,
+            UserManager.DISALLOW_PRINTING
     });
 
     /**
@@ -115,9 +137,11 @@ public class UserRestrictionsUtils {
     );
 
     /**
-     * User restrictions that can not be set by profile owners.
+     * User restrictions that cannot be set by profile owners of secondary users. When set by DO
+     * they will be applied to all users.
      */
-    private static final Set<String> DEVICE_OWNER_ONLY_RESTRICTIONS = Sets.newArraySet(
+    private static final Set<String> PRIMARY_USER_ONLY_RESTRICTIONS = Sets.newArraySet(
+            UserManager.DISALLOW_BLUETOOTH,
             UserManager.DISALLOW_USB_FILE_TRANSFER,
             UserManager.DISALLOW_CONFIG_TETHERING,
             UserManager.DISALLOW_NETWORK_RESET,
@@ -130,7 +154,15 @@ public class UserRestrictionsUtils {
             UserManager.DISALLOW_FUN,
             UserManager.DISALLOW_SAFE_BOOT,
             UserManager.DISALLOW_CREATE_WINDOWS,
-            UserManager.DISALLOW_DATA_ROAMING
+            UserManager.DISALLOW_DATA_ROAMING,
+            UserManager.DISALLOW_AIRPLANE_MODE
+    );
+
+    /**
+     * User restrictions that cannot be set by profile owners. Applied to all users.
+     */
+    private static final Set<String> DEVICE_OWNER_ONLY_RESTRICTIONS = Sets.newArraySet(
+            UserManager.DISALLOW_USER_SWITCH
     );
 
     /**
@@ -148,9 +180,38 @@ public class UserRestrictionsUtils {
      */
     private static final Set<String> GLOBAL_RESTRICTIONS = Sets.newArraySet(
             UserManager.DISALLOW_ADJUST_VOLUME,
+            UserManager.DISALLOW_BLUETOOTH_SHARING,
+            UserManager.DISALLOW_CONFIG_DATE_TIME,
+            UserManager.DISALLOW_SYSTEM_ERROR_DIALOGS,
             UserManager.DISALLOW_RUN_IN_BACKGROUND,
             UserManager.DISALLOW_UNMUTE_MICROPHONE,
-            UserManager.DISALLLOW_UNMUTE_DEVICE
+            UserManager.DISALLOW_UNMUTE_DEVICE
+    );
+
+    /**
+     * User restrictions that default to {@code true} for device owners.
+     */
+    private static final Set<String> DEFAULT_ENABLED_FOR_DEVICE_OWNERS = Sets.newArraySet(
+            UserManager.DISALLOW_ADD_MANAGED_PROFILE
+    );
+
+    /**
+     * User restrictions that default to {@code true} for managed profile owners.
+     *
+     * NB: {@link UserManager#DISALLOW_INSTALL_UNKNOWN_SOURCES} is also set by default but it is
+     * not set to existing profile owners unless they used to have INSTALL_NON_MARKET_APPS disabled
+     * in settings. So it is handled separately.
+     */
+    private static final Set<String> DEFAULT_ENABLED_FOR_MANAGED_PROFILES = Sets.newArraySet(
+            UserManager.DISALLOW_BLUETOOTH_SHARING
+    );
+
+    /**
+     * Special user restrictions that are always applied to all users no matter who sets them.
+     */
+    private static final Set<String> PROFILE_GLOBAL_RESTRICTIONS = Sets.newArraySet(
+            UserManager.ENSURE_VERIFY_APPS,
+            UserManager.DISALLOW_AIRPLANE_MODE
     );
 
     /**
@@ -187,12 +248,19 @@ public class UserRestrictionsUtils {
     }
 
     public static void readRestrictions(XmlPullParser parser, Bundle restrictions) {
+        restrictions.clear();
         for (String key : USER_RESTRICTIONS) {
             final String value = parser.getAttributeValue(null, key);
             if (value != null) {
                 restrictions.putBoolean(key, Boolean.parseBoolean(value));
             }
         }
+    }
+
+    public static Bundle readRestrictions(XmlPullParser parser) {
+        final Bundle result = new Bundle();
+        readRestrictions(parser, result);
+        return result;
     }
 
     /**
@@ -204,6 +272,14 @@ public class UserRestrictionsUtils {
 
     public static boolean isEmpty(@Nullable Bundle in) {
         return (in == null) || (in.size() == 0);
+    }
+
+    /**
+     * Returns {@code true} if given bundle is not null and contains {@code true} for a given
+     * restriction.
+     */
+    public static boolean contains(@Nullable Bundle in, String restriction) {
+        return in != null && in.getBoolean(restriction);
     }
 
     /**
@@ -231,6 +307,22 @@ public class UserRestrictionsUtils {
     }
 
     /**
+     * Merges a sparse array of restrictions bundles into one.
+     */
+    @Nullable
+    public static Bundle mergeAll(SparseArray<Bundle> restrictions) {
+        if (restrictions.size() == 0) {
+            return null;
+        } else {
+            final Bundle result = new Bundle();
+            for (int i = 0; i < restrictions.size(); i++) {
+                merge(result, restrictions.valueAt(i));
+            }
+            return result;
+        }
+    }
+
+    /**
      * @return true if a restriction is settable by device owner.
      */
     public static boolean canDeviceOwnerChange(String restriction) {
@@ -243,16 +335,39 @@ public class UserRestrictionsUtils {
      */
     public static boolean canProfileOwnerChange(String restriction, int userId) {
         return !IMMUTABLE_BY_OWNERS.contains(restriction)
+                && !DEVICE_OWNER_ONLY_RESTRICTIONS.contains(restriction)
                 && !(userId != UserHandle.USER_SYSTEM
-                    && DEVICE_OWNER_ONLY_RESTRICTIONS.contains(restriction));
+                    && PRIMARY_USER_ONLY_RESTRICTIONS.contains(restriction));
+    }
+
+    /**
+     * Returns the user restrictions that default to {@code true} for device owners.
+     * These user restrictions are local, though. ie only for the device owner's user id.
+     */
+    public static @NonNull Set<String> getDefaultEnabledForDeviceOwner() {
+        return DEFAULT_ENABLED_FOR_DEVICE_OWNERS;
+    }
+
+    /**
+     * Returns the user restrictions that default to {@code true} for managed profile owners.
+     */
+    public static @NonNull Set<String> getDefaultEnabledForManagedProfiles() {
+        return DEFAULT_ENABLED_FOR_MANAGED_PROFILES;
     }
 
     /**
      * Takes restrictions that can be set by device owner, and sort them into what should be applied
      * globally and what should be applied only on the current user.
      */
-    public static void sortToGlobalAndLocal(@Nullable Bundle in, @NonNull Bundle global,
-            @NonNull Bundle local) {
+    public static void sortToGlobalAndLocal(@Nullable Bundle in, boolean isDeviceOwner,
+            int cameraRestrictionScope,
+            @NonNull Bundle global, @NonNull Bundle local) {
+        // Camera restriction (as well as all others) goes to at most one bundle.
+        if (cameraRestrictionScope == UserManagerInternal.CAMERA_DISABLED_GLOBALLY) {
+            global.putBoolean(UserManager.DISALLOW_CAMERA, true);
+        } else if (cameraRestrictionScope == UserManagerInternal.CAMERA_DISABLED_LOCALLY) {
+            local.putBoolean(UserManager.DISALLOW_CAMERA, true);
+        }
         if (in == null || in.size() == 0) {
             return;
         }
@@ -260,12 +375,22 @@ public class UserRestrictionsUtils {
             if (!in.getBoolean(key)) {
                 continue;
             }
-            if (DEVICE_OWNER_ONLY_RESTRICTIONS.contains(key) || GLOBAL_RESTRICTIONS.contains(key)) {
+            if (isGlobal(isDeviceOwner, key)) {
                 global.putBoolean(key, true);
             } else {
                 local.putBoolean(key, true);
             }
         }
+    }
+
+    /**
+     * Whether given user restriction should be enforced globally.
+     */
+    private static boolean isGlobal(boolean isDeviceOwner, String key) {
+        return (isDeviceOwner &&
+                (PRIMARY_USER_ONLY_RESTRICTIONS.contains(key) || GLOBAL_RESTRICTIONS.contains(key)))
+                || PROFILE_GLOBAL_RESTRICTIONS.contains(key)
+                || DEVICE_OWNER_ONLY_RESTRICTIONS.contains(key);
     }
 
     /**
@@ -316,8 +441,7 @@ public class UserRestrictionsUtils {
     /**
      * Apply each user restriction.
      *
-     * <p>See also {@link
-     * com.android.providers.settings.SettingsProvider#isGlobalOrSecureSettingRestrictedForUser},
+     * <p>See also {@link #isSettingRestrictedForUser()},
      * which should be in sync with this method.
      */
     private static void applyUserRestriction(Context context, int userId, String key,
@@ -340,19 +464,13 @@ public class UserRestrictionsUtils {
         final long id = Binder.clearCallingIdentity();
         try {
             switch (key) {
-                case UserManager.DISALLOW_CONFIG_WIFI:
-                    if (newValue) {
-                        android.provider.Settings.Secure.putIntForUser(cr,
-                                android.provider.Settings.Global
-                                        .WIFI_NETWORKS_AVAILABLE_NOTIFICATION_ON, 0, userId);
-                    }
-                    break;
                 case UserManager.DISALLOW_DATA_ROAMING:
                     if (newValue) {
                         // DISALLOW_DATA_ROAMING user restriction is set.
 
                         // Multi sim device.
-                        SubscriptionManager subscriptionManager = new SubscriptionManager(context);
+                        SubscriptionManager subscriptionManager = context
+                                .getSystemService(SubscriptionManager.class);
                         final List<SubscriptionInfo> subscriptionInfoList =
                             subscriptionManager.getActiveSubscriptionInfoList();
                         if (subscriptionInfoList != null) {
@@ -400,18 +518,19 @@ public class UserRestrictionsUtils {
                     }
                     break;
                 case UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES:
-                    if (newValue) {
-                        android.provider.Settings.Secure.putIntForUser(cr,
-                                android.provider.Settings.Secure.INSTALL_NON_MARKET_APPS, 0,
-                                userId);
-                    }
+                    // Since Android O, the secure setting is not available to be changed by the
+                    // user. Hence, when the restriction is cleared, we need to reset the state of
+                    // the setting to its default value which is now 1.
+                    android.provider.Settings.Secure.putIntForUser(cr,
+                            android.provider.Settings.Secure.INSTALL_NON_MARKET_APPS,
+                            newValue ? 0 : 1, userId);
                     break;
                 case UserManager.DISALLOW_RUN_IN_BACKGROUND:
                     if (newValue) {
                         int currentUser = ActivityManager.getCurrentUser();
                         if (currentUser != userId && userId != UserHandle.USER_SYSTEM) {
                             try {
-                                ActivityManagerNative.getDefault().stopUser(userId, false, null);
+                                ActivityManager.getService().stopUser(userId, false, null);
                             } catch (RemoteException e) {
                                 throw e.rethrowAsRuntimeException();
                             }
@@ -429,25 +548,207 @@ public class UserRestrictionsUtils {
                             android.provider.Settings.Global.SAFE_BOOT_DISALLOWED,
                             newValue ? 1 : 0);
                     break;
-                case UserManager.DISALLOW_FACTORY_RESET:
-                case UserManager.DISALLOW_OEM_UNLOCK:
+                case UserManager.DISALLOW_AIRPLANE_MODE:
                     if (newValue) {
-                        PersistentDataBlockManager manager = (PersistentDataBlockManager) context
-                                .getSystemService(Context.PERSISTENT_DATA_BLOCK_SERVICE);
-                        if (manager != null
-                                && manager.getOemUnlockEnabled()
-                                && manager.getFlashLockState()
-                                        != PersistentDataBlockManager.FLASH_LOCK_UNLOCKED) {
-                            // Only disable OEM unlock if the bootloader is locked. If it's already
-                            // unlocked, setting the OEM unlock enabled flag to false has no effect
-                            // (the bootloader would remain unlocked).
-                            manager.setOemUnlockEnabled(false);
+                        final boolean airplaneMode = Settings.Global.getInt(
+                                context.getContentResolver(),
+                                Settings.Global.AIRPLANE_MODE_ON, 0) == 1;
+                        if (airplaneMode) {
+                            android.provider.Settings.Global.putInt(
+                                    context.getContentResolver(),
+                                    android.provider.Settings.Global.AIRPLANE_MODE_ON, 0);
+                            // Post the intent.
+                            Intent intent = new Intent(Intent.ACTION_AIRPLANE_MODE_CHANGED);
+                            intent.putExtra("state", false);
+                            context.sendBroadcastAsUser(intent, UserHandle.ALL);
                         }
+                    }
+                    break;
+                case UserManager.DISALLOW_AMBIENT_DISPLAY:
+                    if (newValue) {
+                        android.provider.Settings.Secure.putIntForUser(
+                                context.getContentResolver(),
+                                Settings.Secure.DOZE_ENABLED, 0, userId);
+                        android.provider.Settings.Secure.putIntForUser(
+                                context.getContentResolver(),
+                                Settings.Secure.DOZE_ALWAYS_ON, 0, userId);
+                        android.provider.Settings.Secure.putIntForUser(
+                                context.getContentResolver(),
+                                Settings.Secure.DOZE_PULSE_ON_PICK_UP, 0, userId);
+                        android.provider.Settings.Secure.putIntForUser(
+                                context.getContentResolver(),
+                                Settings.Secure.DOZE_PULSE_ON_LONG_PRESS, 0, userId);
+                        android.provider.Settings.Secure.putIntForUser(
+                                context.getContentResolver(),
+                                Settings.Secure.DOZE_PULSE_ON_DOUBLE_TAP, 0, userId);
+                    }
+                    break;
+                case UserManager.DISALLOW_CONFIG_LOCATION:
+                    // When DISALLOW_CONFIG_LOCATION is set on any user, we undo the global
+                    // kill switch.
+                    if (newValue) {
+                        android.provider.Settings.Global.putString(
+                                context.getContentResolver(),
+                                Global.LOCATION_GLOBAL_KILL_SWITCH, "0");
                     }
                     break;
             }
         } finally {
             Binder.restoreCallingIdentity(id);
+        }
+    }
+
+    public static boolean isSettingRestrictedForUser(Context context, @NonNull String setting,
+            int userId, String value, int callingUid) {
+        Preconditions.checkNotNull(setting);
+        final UserManager mUserManager = context.getSystemService(UserManager.class);
+        String restriction;
+        boolean checkAllUser = false;
+        switch (setting) {
+            case android.provider.Settings.Secure.LOCATION_MODE:
+                if (mUserManager.hasUserRestriction(
+                        UserManager.DISALLOW_CONFIG_LOCATION, UserHandle.of(userId))
+                        && callingUid != Process.SYSTEM_UID) {
+                    return true;
+                } else if (String.valueOf(Settings.Secure.LOCATION_MODE_OFF).equals(value)) {
+                    // Note LOCATION_MODE will be converted into LOCATION_PROVIDERS_ALLOWED
+                    // in android.provider.Settings.Secure.putStringForUser(), so we shouldn't come
+                    // here normally, but we still protect it here from a direct provider write.
+                    return false;
+                }
+                restriction = UserManager.DISALLOW_SHARE_LOCATION;
+                break;
+
+            case android.provider.Settings.Secure.LOCATION_PROVIDERS_ALLOWED:
+                if (mUserManager.hasUserRestriction(
+                        UserManager.DISALLOW_CONFIG_LOCATION, UserHandle.of(userId))
+                        && callingUid != Process.SYSTEM_UID) {
+                    return true;
+                } else if (value != null && value.startsWith("-")) {
+                    // See SettingsProvider.updateLocationProvidersAllowedLocked.  "-" is to disable
+                    // a provider, which should be allowed even if the user restriction is set.
+                    return false;
+                }
+                restriction = UserManager.DISALLOW_SHARE_LOCATION;
+                break;
+
+            case android.provider.Settings.Secure.INSTALL_NON_MARKET_APPS:
+                if ("0".equals(value)) {
+                    return false;
+                }
+                restriction = UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES;
+                break;
+
+            case android.provider.Settings.Global.ADB_ENABLED:
+                if ("0".equals(value)) {
+                    return false;
+                }
+                restriction = UserManager.DISALLOW_DEBUGGING_FEATURES;
+                break;
+
+            case android.provider.Settings.Global.PACKAGE_VERIFIER_ENABLE:
+            case android.provider.Settings.Global.PACKAGE_VERIFIER_INCLUDE_ADB:
+                if ("1".equals(value)) {
+                    return false;
+                }
+                restriction = UserManager.ENSURE_VERIFY_APPS;
+                break;
+
+            case android.provider.Settings.Global.PREFERRED_NETWORK_MODE:
+                restriction = UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS;
+                break;
+
+            case android.provider.Settings.Secure.ALWAYS_ON_VPN_APP:
+            case android.provider.Settings.Secure.ALWAYS_ON_VPN_LOCKDOWN:
+                // Whitelist system uid (ConnectivityService) and root uid to change always-on vpn
+                final int appId = UserHandle.getAppId(callingUid);
+                if (appId == Process.SYSTEM_UID || appId == Process.ROOT_UID) {
+                    return false;
+                }
+                restriction = UserManager.DISALLOW_CONFIG_VPN;
+                break;
+
+            case android.provider.Settings.Global.SAFE_BOOT_DISALLOWED:
+                if ("1".equals(value)) {
+                    return false;
+                }
+                restriction = UserManager.DISALLOW_SAFE_BOOT;
+                break;
+
+            case android.provider.Settings.Global.AIRPLANE_MODE_ON:
+                if ("0".equals(value)) {
+                    return false;
+                }
+                restriction = UserManager.DISALLOW_AIRPLANE_MODE;
+                break;
+
+            case android.provider.Settings.Secure.DOZE_ENABLED:
+            case android.provider.Settings.Secure.DOZE_ALWAYS_ON:
+            case android.provider.Settings.Secure.DOZE_PULSE_ON_PICK_UP:
+            case android.provider.Settings.Secure.DOZE_PULSE_ON_LONG_PRESS:
+            case android.provider.Settings.Secure.DOZE_PULSE_ON_DOUBLE_TAP:
+                if ("0".equals(value)) {
+                    return false;
+                }
+                restriction = UserManager.DISALLOW_AMBIENT_DISPLAY;
+                break;
+
+            case android.provider.Settings.Global.LOCATION_GLOBAL_KILL_SWITCH:
+                if ("0".equals(value)) {
+                    return false;
+                }
+                restriction = UserManager.DISALLOW_CONFIG_LOCATION;
+                checkAllUser = true;
+                break;
+
+            case android.provider.Settings.System.SCREEN_BRIGHTNESS:
+            case android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE:
+                if (callingUid == Process.SYSTEM_UID) {
+                    return false;
+                }
+                restriction = UserManager.DISALLOW_CONFIG_BRIGHTNESS;
+                break;
+
+            case android.provider.Settings.Global.AUTO_TIME:
+                DevicePolicyManager dpm = context.getSystemService(DevicePolicyManager.class);
+                if (dpm != null && dpm.getAutoTimeRequired()
+                        && "0".equals(value)) {
+                    return true;
+                } else if (callingUid == Process.SYSTEM_UID) {
+                    return false;
+                }
+                restriction = UserManager.DISALLOW_CONFIG_DATE_TIME;
+                break;
+
+            case android.provider.Settings.Global.AUTO_TIME_ZONE:
+                if (callingUid == Process.SYSTEM_UID) {
+                    return false;
+                }
+                restriction = UserManager.DISALLOW_CONFIG_DATE_TIME;
+                break;
+
+            case android.provider.Settings.System.SCREEN_OFF_TIMEOUT:
+                if (callingUid == Process.SYSTEM_UID) {
+                    return false;
+                }
+                restriction = UserManager.DISALLOW_CONFIG_SCREEN_TIMEOUT;
+                break;
+
+            default:
+                if (setting.startsWith(Settings.Global.DATA_ROAMING)) {
+                    if ("0".equals(value)) {
+                        return false;
+                    }
+                    restriction = UserManager.DISALLOW_DATA_ROAMING;
+                    break;
+                }
+                return false;
+        }
+
+        if (checkAllUser) {
+            return mUserManager.hasUserRestrictionOnAnyUser(restriction);
+        } else {
+            return mUserManager.hasUserRestriction(restriction, UserHandle.of(userId));
         }
     }
 
@@ -466,5 +767,50 @@ public class UserRestrictionsUtils {
         } else {
             pw.println(prefix + "null");
         }
+    }
+
+    /**
+     * Moves a particular restriction from one array of bundles to another, e.g. for all users.
+     */
+    public static void moveRestriction(String restrictionKey, SparseArray<Bundle> srcRestrictions,
+            SparseArray<Bundle> destRestrictions) {
+        for (int i = 0; i < srcRestrictions.size(); i++) {
+            final int key = srcRestrictions.keyAt(i);
+            final Bundle from = srcRestrictions.valueAt(i);
+            if (contains(from, restrictionKey)) {
+                from.remove(restrictionKey);
+                Bundle to = destRestrictions.get(key);
+                if (to == null) {
+                    to = new Bundle();
+                    destRestrictions.append(key, to);
+                }
+                to.putBoolean(restrictionKey, true);
+                // Don't keep empty bundles.
+                if (from.isEmpty()) {
+                    srcRestrictions.removeAt(i);
+                    i--;
+                }
+            }
+        }
+    }
+
+    /**
+     * Returns whether restrictions differ between two bundles.
+     * @param oldRestrictions old bundle of restrictions.
+     * @param newRestrictions new bundle of restrictions
+     * @param restrictions restrictions of interest, if empty, all restrictions are checked.
+     */
+    public static boolean restrictionsChanged(Bundle oldRestrictions, Bundle newRestrictions,
+            String... restrictions) {
+        if (restrictions.length == 0) {
+            return areEqual(oldRestrictions, newRestrictions);
+        }
+        for (final String restriction : restrictions) {
+            if (oldRestrictions.getBoolean(restriction, false) !=
+                    newRestrictions.getBoolean(restriction, false)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

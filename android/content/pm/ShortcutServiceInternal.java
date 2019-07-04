@@ -19,9 +19,12 @@ package android.content.pm;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.UserIdInt;
+import android.appwidget.AppWidgetProviderInfo;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.IntentSender;
 import android.content.pm.LauncherApps.ShortcutQuery;
+import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 
 import java.util.List;
@@ -43,7 +46,7 @@ public abstract class ShortcutServiceInternal {
             @NonNull String callingPackage, long changedSince,
             @Nullable String packageName, @Nullable List<String> shortcutIds,
             @Nullable ComponentName componentName, @ShortcutQuery.QueryFlags int flags,
-            int userId);
+            int userId, int callingPid, int callingUid);
 
     public abstract boolean
             isPinnedByCaller(int launcherUserId, @NonNull String callingPackage,
@@ -55,7 +58,8 @@ public abstract class ShortcutServiceInternal {
 
     public abstract Intent[] createShortcutIntents(
             int launcherUserId, @NonNull String callingPackage,
-            @NonNull String packageName, @NonNull String shortcutId, int userId);
+            @NonNull String packageName, @NonNull String shortcutId, int userId,
+            int callingPid, int callingUid);
 
     public abstract void addListener(@NonNull ShortcutChangeListener listener);
 
@@ -67,5 +71,17 @@ public abstract class ShortcutServiceInternal {
             @NonNull String packageName, @NonNull String shortcutId, int userId);
 
     public abstract boolean hasShortcutHostPermission(int launcherUserId,
-            @NonNull String callingPackage);
+            @NonNull String callingPackage, int callingPid, int callingUid);
+
+    public abstract void setShortcutHostPackage(@NonNull String type, @Nullable String packageName,
+            int userId);
+
+    public abstract boolean requestPinAppWidget(@NonNull String callingPackage,
+            @NonNull AppWidgetProviderInfo appWidget, @Nullable Bundle extras,
+            @Nullable IntentSender resultIntent, int userId);
+
+    public abstract boolean isRequestPinItemSupported(int callingUserId, int requestType);
+
+    public abstract boolean isForegroundDefaultLauncher(@NonNull String callingPackage,
+            int callingUid);
 }

@@ -40,13 +40,13 @@ import android.os.UserHandle;
 import android.provider.Settings;
 import android.provider.Settings.Global;
 import android.provider.Settings.Secure;
+import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Log;
 
-import com.android.ims.ImsConfig;
 import com.android.internal.content.PackageHelper;
+import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.RILConstants;
-import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.util.XmlUtils;
 import com.android.internal.widget.LockPatternUtils;
 import com.android.internal.widget.LockPatternView;
@@ -87,7 +87,6 @@ class DatabaseHelper extends SQLiteOpenHelper {
 
     private static final HashSet<String> mValidTables = new HashSet<String>();
 
-    private static final String DATABASE_JOURNAL_SUFFIX = "-journal";
     private static final String DATABASE_BACKUP_SUFFIX = "-backup";
 
     private static final String TABLE_SYSTEM = "system";
@@ -148,12 +147,7 @@ class DatabaseHelper extends SQLiteOpenHelper {
         }
         File databaseFile = mContext.getDatabasePath(getDatabaseName());
         if (databaseFile.exists()) {
-            databaseFile.delete();
-        }
-        File databaseJournalFile = mContext.getDatabasePath(getDatabaseName()
-                + DATABASE_JOURNAL_SUFFIX);
-        if (databaseJournalFile.exists()) {
-            databaseJournalFile.delete();
+            SQLiteDatabase.deleteDatabase(databaseFile);
         }
     }
 
@@ -446,20 +440,6 @@ class DatabaseHelper extends SQLiteOpenHelper {
         }
 
         if (upgradeVersion == 32) {
-            // The Wi-Fi watchdog SSID list is now seeded with the value of
-            // the property ro.com.android.wifi-watchlist
-            String wifiWatchList = SystemProperties.get("ro.com.android.wifi-watchlist");
-            if (!TextUtils.isEmpty(wifiWatchList)) {
-                db.beginTransaction();
-                try {
-                    db.execSQL("INSERT OR IGNORE INTO secure(name,value) values('" +
-                            Settings.Secure.WIFI_WATCHDOG_WATCH_LIST + "','" +
-                            wifiWatchList + "');");
-                    db.setTransactionSuccessful();
-                } finally {
-                    db.endTransaction();
-                }
-            }
             upgradeVersion = 33;
         }
 
@@ -645,7 +625,7 @@ class DatabaseHelper extends SQLiteOpenHelper {
 
         if (upgradeVersion == 45) {
              /*
-              * New settings for MountService
+              * New settings for StorageManagerService
               */
             db.beginTransaction();
             try {
@@ -834,27 +814,8 @@ class DatabaseHelper extends SQLiteOpenHelper {
 
         if (upgradeVersion == 57) {
             /*
-             * New settings to:
-             *  1. Enable injection of accessibility scripts in WebViews.
-             *  2. Define the key bindings for traversing web content in WebViews.
+             * No longer initializing deleted setting ACCESSIBILITY_SCRIPT_INJECTION.
              */
-            db.beginTransaction();
-            SQLiteStatement stmt = null;
-            try {
-                stmt = db.compileStatement("INSERT INTO secure(name,value)"
-                        + " VALUES(?,?);");
-                loadBooleanSetting(stmt, Settings.Secure.ACCESSIBILITY_SCRIPT_INJECTION,
-                        R.bool.def_accessibility_script_injection);
-                stmt.close();
-                stmt = db.compileStatement("INSERT INTO secure(name,value)"
-                        + " VALUES(?,?);");
-                loadStringSetting(stmt, Settings.Secure.ACCESSIBILITY_WEB_CONTENT_KEY_BINDINGS,
-                        R.string.def_accessibility_web_content_key_bindings);
-                db.setTransactionSuccessful();
-            } finally {
-                db.endTransaction();
-                if (stmt != null) stmt.close();
-            }
             upgradeVersion = 58;
         }
 
@@ -1099,18 +1060,7 @@ class DatabaseHelper extends SQLiteOpenHelper {
         }
 
         if (upgradeVersion == 74) {
-            // URL from which WebView loads a JavaScript based screen-reader.
-            db.beginTransaction();
-            SQLiteStatement stmt = null;
-            try {
-                stmt = db.compileStatement("INSERT INTO secure(name,value) VALUES(?,?);");
-                loadStringSetting(stmt, Settings.Secure.ACCESSIBILITY_SCREEN_READER_URL,
-                        R.string.def_accessibility_screen_reader_url);
-                db.setTransactionSuccessful();
-            } finally {
-                db.endTransaction();
-                if (stmt != null) stmt.close();
-            }
+            // No longer using URL from which WebView loads a JavaScript based screen-reader.
             upgradeVersion = 75;
         }
         if (upgradeVersion == 75) {
@@ -1161,19 +1111,7 @@ class DatabaseHelper extends SQLiteOpenHelper {
         }
 
         if (upgradeVersion == 78) {
-            // The JavaScript based screen-reader URL changes in JellyBean.
-            db.beginTransaction();
-            SQLiteStatement stmt = null;
-            try {
-                stmt = db.compileStatement("INSERT OR REPLACE INTO secure(name,value)"
-                        + " VALUES(?,?);");
-                loadStringSetting(stmt, Settings.Secure.ACCESSIBILITY_SCREEN_READER_URL,
-                        R.string.def_accessibility_screen_reader_url);
-                db.setTransactionSuccessful();
-            } finally {
-                db.endTransaction();
-                if (stmt != null) stmt.close();
-            }
+            // ACCESSIBILITY_SCREEN_READER_URL has been removed
             upgradeVersion = 79;
         }
 
@@ -1310,10 +1248,6 @@ class DatabaseHelper extends SQLiteOpenHelper {
                 loadFractionSetting(stmt, Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_SCALE,
                         R.fraction.def_accessibility_display_magnification_scale, 1);
                 stmt.close();
-                stmt = db.compileStatement("INSERT INTO secure(name,value) VALUES(?,?);");
-                loadBooleanSetting(stmt,
-                        Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_AUTO_UPDATE,
-                        R.bool.def_accessibility_display_magnification_auto_update);
 
                 db.setTransactionSuccessful();
             } finally {
@@ -1570,7 +1504,7 @@ class DatabaseHelper extends SQLiteOpenHelper {
                 try {
                     stmt = db.compileStatement("INSERT OR REPLACE INTO global(name,value)"
                             + " VALUES(?,?);");
-                    loadStringSetting(stmt, Settings.Global.WIRELESS_CHARGING_STARTED_SOUND,
+                    loadStringSetting(stmt, Settings.Global.CHARGING_STARTED_SOUND,
                             R.string.def_wireless_charging_started_sound);
                     db.setTransactionSuccessful();
                 } finally {
@@ -1896,20 +1830,10 @@ class DatabaseHelper extends SQLiteOpenHelper {
         }
 
         if (upgradeVersion < 116) {
-            if (mUserHandle == UserHandle.USER_SYSTEM) {
-                db.beginTransaction();
-                SQLiteStatement stmt = null;
-                try {
-                    stmt = db.compileStatement("INSERT OR IGNORE INTO global(name,value)"
-                            + " VALUES(?,?);");
-                    loadSetting(stmt, Settings.Global.ENHANCED_4G_MODE_ENABLED,
-                            ImsConfig.FeatureValueConstants.ON);
-                    db.setTransactionSuccessful();
-                } finally {
-                    db.endTransaction();
-                    if (stmt != null) stmt.close();
-                }
-            }
+            /*
+             * To control the default value by carrier config manager, initializing
+             * ENHANCED_4G_MODE_ENABLED has been removed.
+             */
             upgradeVersion = 116;
         }
 
@@ -2376,10 +2300,11 @@ class DatabaseHelper extends SQLiteOpenHelper {
             loadIntegerSetting(stmt, Settings.System.SCREEN_BRIGHTNESS,
                     R.integer.def_screen_brightness);
 
+            loadIntegerSetting(stmt, Settings.System.SCREEN_BRIGHTNESS_FOR_VR,
+                    com.android.internal.R.integer.config_screenBrightnessForVrSettingDefault);
+
             loadBooleanSetting(stmt, Settings.System.SCREEN_BRIGHTNESS_MODE,
                     R.bool.def_screen_brightness_automatic_mode);
-
-            loadDefaultAnimationSettings(stmt);
 
             loadBooleanSetting(stmt, Settings.System.ACCELEROMETER_ROTATION,
                     R.bool.def_accelerometer_rotation);
@@ -2439,11 +2364,6 @@ class DatabaseHelper extends SQLiteOpenHelper {
             loadStringSetting(stmt, Settings.Secure.LOCATION_PROVIDERS_ALLOWED,
                     R.string.def_location_providers_allowed);
 
-            String wifiWatchList = SystemProperties.get("ro.com.android.wifi-watchlist");
-            if (!TextUtils.isEmpty(wifiWatchList)) {
-                loadSetting(stmt, Settings.Secure.WIFI_WATCHDOG_WATCH_LIST, wifiWatchList);
-            }
-
             // Don't do this.  The SystemServer will initialize ADB_ENABLED from a
             // persistent system property instead.
             //loadSetting(stmt, Settings.Secure.ADB_ENABLED, 0);
@@ -2466,12 +2386,6 @@ class DatabaseHelper extends SQLiteOpenHelper {
             loadBooleanSetting(stmt, Settings.Secure.MOUNT_UMS_NOTIFY_ENABLED,
                     R.bool.def_mount_ums_notify_enabled);
 
-            loadBooleanSetting(stmt, Settings.Secure.ACCESSIBILITY_SCRIPT_INJECTION,
-                    R.bool.def_accessibility_script_injection);
-
-            loadStringSetting(stmt, Settings.Secure.ACCESSIBILITY_WEB_CONTENT_KEY_BINDINGS,
-                    R.string.def_accessibility_web_content_key_bindings);
-
             loadIntegerSetting(stmt, Settings.Secure.LONG_PRESS_TIMEOUT,
                     R.integer.def_long_press_timeout_millis);
 
@@ -2480,9 +2394,6 @@ class DatabaseHelper extends SQLiteOpenHelper {
 
             loadBooleanSetting(stmt, Settings.Secure.ACCESSIBILITY_SPEAK_PASSWORD,
                     R.bool.def_accessibility_speak_password);
-
-            loadStringSetting(stmt, Settings.Secure.ACCESSIBILITY_SCREEN_READER_URL,
-                    R.string.def_accessibility_screen_reader_url);
 
             if (SystemProperties.getBoolean("ro.lockscreen.disable.default", false) == true) {
                 loadSetting(stmt, Settings.System.LOCKSCREEN_DISABLED, "1");
@@ -2507,10 +2418,6 @@ class DatabaseHelper extends SQLiteOpenHelper {
 
             loadFractionSetting(stmt, Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_SCALE,
                     R.fraction.def_accessibility_display_magnification_scale, 1);
-
-            loadBooleanSetting(stmt,
-                    Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_AUTO_UPDATE,
-                    R.bool.def_accessibility_display_magnification_auto_update);
 
             loadBooleanSetting(stmt, Settings.Secure.USER_SETUP_COMPLETE,
                     R.bool.def_user_setup_complete);
@@ -2592,6 +2499,8 @@ class DatabaseHelper extends SQLiteOpenHelper {
             loadSetting(stmt, Settings.Global.MODE_RINGER,
                     AudioManager.RINGER_MODE_NORMAL);
 
+            loadDefaultAnimationSettings(stmt);
+
             // --- Previously in 'secure'
             loadBooleanSetting(stmt, Settings.Global.PACKAGE_VERIFIER_ENABLE,
                     R.bool.def_package_verifier_enable);
@@ -2662,6 +2571,8 @@ class DatabaseHelper extends SQLiteOpenHelper {
                     R.string.def_low_battery_sound);
             loadIntegerSetting(stmt, Settings.Global.DOCK_SOUNDS_ENABLED,
                     R.integer.def_dock_sounds_enabled);
+            loadIntegerSetting(stmt, Settings.Global.DOCK_SOUNDS_ENABLED_WHEN_ACCESSIBILITY,
+                    R.integer.def_dock_sounds_enabled_when_accessibility);
             loadStringSetting(stmt, Settings.Global.DESK_DOCK_SOUND,
                     R.string.def_desk_dock_sound);
             loadStringSetting(stmt, Settings.Global.DESK_UNDOCK_SOUND,
@@ -2670,7 +2581,7 @@ class DatabaseHelper extends SQLiteOpenHelper {
                     R.string.def_car_dock_sound);
             loadStringSetting(stmt, Settings.Global.CAR_UNDOCK_SOUND,
                     R.string.def_car_undock_sound);
-            loadStringSetting(stmt, Settings.Global.WIRELESS_CHARGING_STARTED_SOUND,
+            loadStringSetting(stmt, Settings.Global.CHARGING_STARTED_SOUND,
                     R.string.def_wireless_charging_started_sound);
 
             loadIntegerSetting(stmt, Settings.Global.DOCK_AUDIO_MEDIA_ENABLED,
@@ -2687,15 +2598,26 @@ class DatabaseHelper extends SQLiteOpenHelper {
             loadSetting(stmt, Settings.Global.CALL_AUTO_RETRY, 0);
 
             // Set the preferred network mode to target desired value or Default
-            // value defined in RILConstants
-            int type;
-            type = RILConstants.PREFERRED_NETWORK_MODE;
-            loadSetting(stmt, Settings.Global.PREFERRED_NETWORK_MODE, type);
+            // value defined in system property
+            String val = "";
+            String mode;
+            for (int phoneId = 0;
+                    phoneId < TelephonyManager.getDefault().getPhoneCount(); phoneId++) {
+                mode = TelephonyManager.getTelephonyProperty(phoneId,
+                        "ro.telephony.default_network",
+                        Integer.toString(RILConstants.PREFERRED_NETWORK_MODE));
+                if (phoneId == 0) {
+                    val = mode;
+                } else {
+                    val = val + "," + mode;
+                }
+            }
+            loadSetting(stmt, Settings.Global.PREFERRED_NETWORK_MODE, val);
 
             // Set the preferred cdma subscription source to target desired value or default
-            // value defined in CdmaSubscriptionSourceManager
-            type = SystemProperties.getInt("ro.telephony.default_cdma_sub",
-                        CdmaSubscriptionSourceManager.PREFERRED_CDMA_SUBSCRIPTION);
+            // value defined in Phone
+            int type = SystemProperties.getInt("ro.telephony.default_cdma_sub",
+                    Phone.PREFERRED_CDMA_SUBSCRIPTION);
             loadSetting(stmt, Settings.Global.CDMA_SUBSCRIPTION_MODE, type);
 
             loadIntegerSetting(stmt, Settings.Global.LOW_BATTERY_SOUND_TIMEOUT,
@@ -2708,9 +2630,6 @@ class DatabaseHelper extends SQLiteOpenHelper {
                     R.integer.def_heads_up_enabled);
 
             loadSetting(stmt, Settings.Global.DEVICE_NAME, getDefaultDeviceName());
-
-            loadSetting(stmt, Settings.Global.ENHANCED_4G_MODE_ENABLED,
-                    ImsConfig.FeatureValueConstants.ON);
 
             /*
              * IMPORTANT: Do not add any more upgrade steps here as the global,

@@ -121,7 +121,7 @@ public class SipPhone extends SipPhoneBase {
             try {
                 SipAudioCall sipAudioCall = (SipAudioCall) incomingCall;
                 if (DBG) log("takeIncomingCall: taking call from: "
-                        + sipAudioCall.getPeerProfile().getUriString());
+                        + hidePii(sipAudioCall.getPeerProfile().getUriString()));
                 String localUri = sipAudioCall.getLocalProfile().getUriString();
                 if (localUri.equals(mProfile.getUriString())) {
                     boolean makeCallWait = mForegroundCall.getState().isAlive();
@@ -183,9 +183,9 @@ public class SipPhone extends SipPhoneBase {
     }
 
     @Override
-    public Connection dial(String dialString, int videoState) throws CallStateException {
+    public Connection dial(String dialString, DialArgs dialArgs) throws CallStateException {
         synchronized (SipPhone.class) {
-            return dialInternal(dialString, videoState);
+            return dialInternal(dialString, dialArgs.videoState);
         }
     }
 
@@ -813,9 +813,10 @@ public class SipPhone extends SipPhoneBase {
                         setState(newState);
                     }
                     mOwner.onConnectionStateChanged(SipConnection.this);
-                    if (SCN_DBG) log("onChanged: "
-                            + mPeer.getUriString() + ": " + mState
-                            + " on phone " + getPhone());
+                    if (SCN_DBG) {
+                        log("onChanged: " + hidePii(mPeer.getUriString()) + ": " + mState
+                                + " on phone " + getPhone());
+                    }
                 }
             }
 
@@ -950,9 +951,11 @@ public class SipPhone extends SipPhoneBase {
         @Override
         public void hangup() throws CallStateException {
             synchronized (SipPhone.class) {
-                if (SCN_DBG) log("hangup: conn=" + mPeer.getUriString()
-                        + ": " + mState + ": on phone "
-                        + getPhone().getPhoneName());
+                if (SCN_DBG) {
+                    log("hangup: conn=" + hidePii(mPeer.getUriString())
+                            + ": " + mState + ": on phone "
+                            + getPhone().getPhoneName());
+                }
                 if (!mState.isAlive()) return;
                 try {
                     SipAudioCall sipAudioCall = mSipAudioCall;
@@ -1001,6 +1004,12 @@ public class SipPhone extends SipPhoneBase {
                 mSipAudioCall.startAudio();
                 call.onConnectionStateChanged(this);
             }
+        }
+
+        @Override
+        public void deflect(String number) throws CallStateException {
+            //Deflect is not supported.
+            throw new CallStateException ("deflect is not supported for SipPhone");
         }
 
         private void log(String s) {
@@ -1076,6 +1085,6 @@ public class SipPhone extends SipPhoneBase {
     }
 
     public static String hidePii(String s) {
-        return VDBG ? s : "xxxxx";
+        return VDBG ? Rlog.pii(LOG_TAG, s) : "xxxxx";
     }
 }

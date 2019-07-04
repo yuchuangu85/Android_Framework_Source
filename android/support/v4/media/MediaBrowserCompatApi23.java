@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,11 @@ package android.support.v4.media;
 
 import android.media.browse.MediaBrowser;
 import android.os.Parcel;
-import android.support.annotation.NonNull;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
+
+@RequiresApi(23)
 class MediaBrowserCompatApi23 {
 
     public static Object createItemCallback(ItemCallback callback) {
@@ -44,14 +47,21 @@ class MediaBrowserCompatApi23 {
 
         @Override
         public void onItemLoaded(MediaBrowser.MediaItem item) {
-            Parcel parcel = Parcel.obtain();
-            item.writeToParcel(parcel, 0);
-            mItemCallback.onItemLoaded(parcel);
+            if (item == null) {
+                mItemCallback.onItemLoaded(null);
+            } else {
+                Parcel parcel = Parcel.obtain();
+                item.writeToParcel(parcel, 0);
+                mItemCallback.onItemLoaded(parcel);
+            }
         }
 
         @Override
         public void onError(@NonNull String itemId) {
             mItemCallback.onError(itemId);
         }
+    }
+
+    private MediaBrowserCompatApi23() {
     }
 }

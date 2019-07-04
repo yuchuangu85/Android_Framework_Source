@@ -28,31 +28,31 @@ import libcore.util.Objects;
  * @hide
  */
 public final class StructAddrinfo {
-  /** Flags describing the kind of lookup to be done. (Such as AI_ADDRCONFIG.) */
-  public int ai_flags;
+    /** Flags describing the kind of lookup to be done. (Such as AI_ADDRCONFIG.) */
+    public int ai_flags;
 
-  /** Desired address family for results. (Such as AF_INET6 for IPv6. AF_UNSPEC means "any".) */
-  public int ai_family;
+    /** Desired address family for results. (Such as AF_INET6 for IPv6. AF_UNSPEC means "any".) */
+    public int ai_family;
 
-  /** Socket type. (Such as SOCK_DGRAM. 0 means "any".) */
-  public int ai_socktype;
+    /** Socket type. (Such as SOCK_DGRAM. 0 means "any".) */
+    public int ai_socktype;
 
-  /** Protocol. (Such as IPPROTO_IPV6 IPv6. 0 means "any".) */
-  public int ai_protocol;
+    /** Protocol. (Such as IPPROTO_IPV6 IPv6. 0 means "any".) */
+    public int ai_protocol;
 
-  /** Address length. (Not useful in Java.) */
-  // public int ai_addrlen;
+    /** Address length. (Not useful in Java.) */
+    // public int ai_addrlen;
 
-  /** Address. */
-  public InetAddress ai_addr;
+    /** Address. */
+    public InetAddress ai_addr;
 
-  /** Canonical name of service location (if AI_CANONNAME provided in ai_flags). */
-  // public String ai_canonname;
+    /** Canonical name of service location (if AI_CANONNAME provided in ai_flags). */
+    // public String ai_canonname;
 
-  /** Next element in linked list. */
-  public StructAddrinfo ai_next;
+    /** Next element in linked list. */
+    public StructAddrinfo ai_next;
 
-  @Override public String toString() {
-    return Objects.toString(this);
-  }
+    @Override public String toString() {
+        return Objects.toString(this);
+    }
 }

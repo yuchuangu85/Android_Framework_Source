@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,7 @@
 
 package java.util.zip;
 
+import dalvik.annotation.optimization.ReachabilitySensitive;
 import dalvik.system.CloseGuard;
 
 /**
@@ -76,6 +77,12 @@ import dalvik.system.CloseGuard;
 public
 class Inflater {
 
+    // Android-added: @ReachabilitySensitive
+    // Finalization clears zsRef, and thus can't be allowed to occur early.
+    // Unlike some other CloseGuard uses, the spec allows clients to rely on finalization
+    // here.  Thus dropping a deflater without calling close() should work correctly.
+    // It thus does not suffice to just rely on the CloseGuard annotation.
+    @ReachabilitySensitive
     private final ZStreamRef zsRef;
     private byte[] buf = defaultBuf;
     private int off, len;
@@ -84,6 +91,8 @@ class Inflater {
     private long bytesRead;
     private long bytesWritten;
 
+    // Android-changed: added CloseGuard instance
+    @ReachabilitySensitive
     private final CloseGuard guard = CloseGuard.get();
 
     private static final byte[] defaultBuf = new byte[0];
@@ -101,6 +110,7 @@ class Inflater {
      */
     public Inflater(boolean nowrap) {
         zsRef = new ZStreamRef(init(nowrap));
+        // Android-changed: added close guard
         guard.open("end");
     }
 
@@ -306,7 +316,7 @@ class Inflater {
     }
 
     /**
-     * Returns the total number of compressed bytes input so far.</p>
+     * Returns the total number of compressed bytes input so far.
      *
      * @return the total (non-negative) number of compressed bytes input so far
      * @since 1.5
@@ -332,7 +342,7 @@ class Inflater {
     }
 
     /**
-     * Returns the total number of uncompressed bytes output so far.</p>
+     * Returns the total number of uncompressed bytes output so far.
      *
      * @return the total (non-negative) number of uncompressed bytes output so far
      * @since 1.5
@@ -383,6 +393,7 @@ class Inflater {
      * Closes the decompressor when garbage is collected.
      */
     protected void finalize() {
+        // Android-changed: added close guard
         if (guard != null) {
             guard.warnIfOpen();
         }
@@ -392,7 +403,7 @@ class Inflater {
 
     private void ensureOpen () {
         assert Thread.holdsLock(zsRef);
-        // Android changed : Throw IllegalStateException instead of a NullPointerException.
+        // Android-changed: Throw IllegalStateException instead of a NullPointerException.
         if (zsRef.address() == 0)
             throw new IllegalStateException("Inflater has been closed");
     }
@@ -403,6 +414,8 @@ class Inflater {
         }
     }
 
+    // Android-changed: initIDs handled in register method.
+    // private native static void initIDs();
     private native static long init(boolean nowrap);
     private native static void setDictionary(long addr, byte[] b, int off,
                                              int len);

@@ -34,7 +34,7 @@ import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * A gesture is a hand-drawn shape on a touch screen. It can have one or multiple strokes(笔触).
+ * A gesture is a hand-drawn shape on a touch screen. It can have one or multiple strokes.
  * Each stroke is a sequence of timed points. A user-defined gesture can be recognized by 
  * a GestureLibrary. 
  */

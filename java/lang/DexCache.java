@@ -32,26 +32,35 @@
 
 package java.lang;
 
-import com.android.dex.Dex;
+import dalvik.annotation.optimization.FastNative;
 
 /**
  * A dex cache holds resolved copies of strings, fields, methods, and classes from the dexfile.
  */
 final class DexCache {
-    /** Lazily initialized dex file wrapper. Volatile to avoid double-check locking issues. */
-    private volatile Dex dex;
-
     /** The location of the associated dex file. */
-    String location;
+    private String location;
 
     /** Holds C pointer to dexFile. */
     private long dexFile;
+
+    /**
+     * References to CallSite (C array pointer) as they become resolved following
+     * interpreter semantics.
+     */
+    private long resolvedCallSites;
 
     /**
      * References to fields (C array pointer) as they become resolved following
      * interpreter semantics. May refer to fields defined in other dex files.
      */
     private long resolvedFields;
+
+    /**
+     * References to MethodType (C array pointer) as they become resolved following
+     * interpreter semantics.
+     */
+    private long resolvedMethodTypes;
 
     /**
      * References to methods (C array pointer) as they become resolved following
@@ -72,9 +81,19 @@ final class DexCache {
     private long strings;
 
     /**
+     * The number of elements in the native call sites array.
+     */
+    private int numResolvedCallSites;
+
+    /**
      * The number of elements in the native resolvedFields array.
      */
     private int numResolvedFields;
+
+    /**
+     * The number of elements in the native method types array.
+     */
+    private int numResolvedMethodTypes;
 
     /**
      * The number of elements in the native resolvedMethods array.
@@ -93,24 +112,5 @@ final class DexCache {
 
     // Only created by the VM.
     private DexCache() {}
-
-    Dex getDex() {
-        Dex result = dex;
-        if (result == null) {
-            synchronized (this) {
-                result = dex;
-                if (result == null) {
-                    dex = result = getDexNative();
-                }
-            }
-        }
-        return result;
-    }
-
-    native Class<?> getResolvedType(int typeIndex);
-    native String getResolvedString(int stringIndex);
-    native void setResolvedType(int typeIndex, Class<?> type);
-    native void setResolvedString(int stringIndex, String string);
-    private native Dex getDexNative();
 }
 

@@ -18,6 +18,7 @@ package android.os;
 
 import android.annotation.Nullable;
 import android.util.ArrayMap;
+import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.util.XmlUtils;
 
@@ -26,6 +27,7 @@ import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
 
 import java.io.IOException;
+import java.util.ArrayList;
 
 /**
  * A mapping from String keys to values of various types. The set of types
@@ -75,9 +77,12 @@ public final class PersistableBundle extends BaseBundle implements Cloneable, Pa
 
     /**
      * Constructs a PersistableBundle containing a copy of the mappings from the given
-     * PersistableBundle.
+     * PersistableBundle.  Does only a shallow copy of the original PersistableBundle -- see
+     * {@link #deepCopy()} if that is not what you want.
      *
      * @param b a PersistableBundle to be copied.
+     *
+     * @see #deepCopy()
      */
     public PersistableBundle(PersistableBundle b) {
         super(b);
@@ -86,7 +91,7 @@ public final class PersistableBundle extends BaseBundle implements Cloneable, Pa
 
 
     /**
-     * Constructs a PersistableBundle from a Bundle.
+     * Constructs a PersistableBundle from a Bundle.  Does only a shallow copy of the Bundle.
      *
      * @param b a Bundle to be copied.
      *
@@ -133,6 +138,13 @@ public final class PersistableBundle extends BaseBundle implements Cloneable, Pa
     }
 
     /**
+     * Constructs a PersistableBundle without initializing it.
+     */
+    PersistableBundle(boolean doInit) {
+        super(doInit);
+    }
+
+    /**
      * Make a PersistableBundle for a single key/value pair.
      *
      * @hide
@@ -150,6 +162,19 @@ public final class PersistableBundle extends BaseBundle implements Cloneable, Pa
     @Override
     public Object clone() {
         return new PersistableBundle(this);
+    }
+
+    /**
+     * Make a deep copy of the given bundle.  Traverses into inner containers and copies
+     * them as well, so they are not shared across bundles.  Will traverse in to
+     * {@link Bundle}, {@link PersistableBundle}, {@link ArrayList}, and all types of
+     * primitive arrays.  Other types of objects (such as Parcelable or Serializable)
+     * are referenced as-is and not copied in any way.
+     */
+    public PersistableBundle deepCopy() {
+        PersistableBundle b = new PersistableBundle(false);
+        b.copyInternal(this, true);
+        return b;
     }
 
     /**
@@ -284,5 +309,34 @@ public final class PersistableBundle extends BaseBundle implements Cloneable, Pa
             }
         }
         return "PersistableBundle[" + mMap.toString() + "]";
+    }
+
+    /** @hide */
+    synchronized public String toShortString() {
+        if (mParcelledData != null) {
+            if (isEmptyParcel()) {
+                return "EMPTY_PARCEL";
+            } else {
+                return "mParcelledData.dataSize=" + mParcelledData.dataSize();
+            }
+        }
+        return mMap.toString();
+    }
+
+    /** @hide */
+    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+        final long token = proto.start(fieldId);
+
+        if (mParcelledData != null) {
+            if (isEmptyParcel()) {
+                proto.write(PersistableBundleProto.PARCELLED_DATA_SIZE, 0);
+            } else {
+                proto.write(PersistableBundleProto.PARCELLED_DATA_SIZE, mParcelledData.dataSize());
+            }
+        } else {
+            proto.write(PersistableBundleProto.MAP_DATA, mMap.toString());
+        }
+
+        proto.end(token);
     }
 }

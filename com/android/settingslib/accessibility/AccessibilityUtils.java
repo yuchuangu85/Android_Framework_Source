@@ -20,6 +20,7 @@ import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ResolveInfo;
+import android.content.pm.ServiceInfo;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.UserHandle;
@@ -27,6 +28,8 @@ import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.ArraySet;
 import android.view.accessibility.AccessibilityManager;
+
+import com.android.internal.R;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -46,6 +49,19 @@ public class AccessibilityUtils {
      */
     public static Set<ComponentName> getEnabledServicesFromSettings(Context context) {
         return getEnabledServicesFromSettings(context, UserHandle.myUserId());
+    }
+
+    public static boolean hasServiceCrashed(String packageName, String serviceName,
+            List<AccessibilityServiceInfo> enabledServiceInfos) {
+        for (int i = 0; i < enabledServiceInfos.size(); i++) {
+            AccessibilityServiceInfo accessibilityServiceInfo = enabledServiceInfos.get(i);
+            final ServiceInfo serviceInfo = enabledServiceInfos.get(i).getResolveInfo().serviceInfo;
+            if (TextUtils.equals(serviceInfo.packageName, packageName)
+                    && TextUtils.equals(serviceInfo.name, serviceName)) {
+                return accessibilityServiceInfo.crashed;
+            }
+        }
+        return false;
     }
 
     /**
@@ -145,6 +161,39 @@ public class AccessibilityUtils {
         Settings.Secure.putStringForUser(context.getContentResolver(),
                 Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
                 enabledServicesBuilder.toString(), userId);
+    }
+
+    /**
+     * Get the name of the service that should be toggled by the accessibility shortcut. Use
+     * an OEM-configurable default if the setting has never been set.
+     *
+     * @param context A valid context
+     * @param userId The user whose settings should be checked
+     *
+     * @return The component name, flattened to a string, of the target service.
+     */
+    public static String getShortcutTargetServiceComponentNameString(
+            Context context, int userId) {
+        final String currentShortcutServiceId = Settings.Secure.getStringForUser(
+                context.getContentResolver(), Settings.Secure.ACCESSIBILITY_SHORTCUT_TARGET_SERVICE,
+                userId);
+        if (currentShortcutServiceId != null) {
+            return currentShortcutServiceId;
+        }
+        return context.getString(R.string.config_defaultAccessibilityService);
+    }
+
+    /**
+     * Check if the accessibility shortcut is enabled for a user
+     *
+     * @param context A valid context
+     * @param userId The user of interest
+     * @return {@code true} if the shortcut is enabled for the user. {@code false} otherwise.
+     *         Note that the shortcut may be enabled, but no action associated with it.
+     */
+    public static boolean isShortcutEnabled(Context context, int userId) {
+        return Settings.Secure.getIntForUser(context.getContentResolver(),
+                Settings.Secure.ACCESSIBILITY_SHORTCUT_ENABLED, 1, userId) == 1;
     }
 
     private static Set<ComponentName> getInstalledServices(Context context) {

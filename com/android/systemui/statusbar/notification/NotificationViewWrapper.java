@@ -16,19 +16,15 @@
 
 package com.android.systemui.statusbar.notification;
 
-import android.animation.Animator;
-import android.animation.ValueAnimator;
 import android.content.Context;
-import android.graphics.ColorMatrix;
-import android.service.notification.StatusBarNotification;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.view.NotificationHeaderView;
 import android.view.View;
 
-import com.android.systemui.Interpolators;
 import com.android.systemui.statusbar.CrossFadeHelper;
 import com.android.systemui.statusbar.ExpandableNotificationRow;
 import com.android.systemui.statusbar.TransformableView;
-import com.android.systemui.statusbar.phone.NotificationPanelView;
 
 /**
  * Wraps the actual notification content view; used to implement behaviors which are different for
@@ -36,11 +32,10 @@ import com.android.systemui.statusbar.phone.NotificationPanelView;
  */
 public abstract class NotificationViewWrapper implements TransformableView {
 
-    protected final ColorMatrix mGrayscaleColorMatrix = new ColorMatrix();
     protected final View mView;
     protected final ExpandableNotificationRow mRow;
-    protected boolean mDark;
-    protected boolean mDarkInitialized = false;
+
+    private int mBackgroundColor = 0;
 
     public static NotificationViewWrapper wrap(Context ctx, View v, ExpandableNotificationRow row) {
         if (v.getId() == com.android.internal.R.id.status_bar_latest_event_content) {
@@ -57,53 +52,36 @@ public abstract class NotificationViewWrapper implements TransformableView {
         } else if (v instanceof NotificationHeaderView) {
             return new NotificationHeaderViewWrapper(ctx, v, row);
         } else {
-            return new NotificationCustomViewWrapper(v, row);
+            return new NotificationCustomViewWrapper(ctx, v, row);
         }
     }
 
-    protected NotificationViewWrapper(View view, ExpandableNotificationRow row) {
+    protected NotificationViewWrapper(Context ctx, View view, ExpandableNotificationRow row) {
         mView = view;
         mRow = row;
-    }
-
-    /**
-     * In dark mode, we draw as little as possible, assuming a black background.
-     *
-     * @param dark whether we should display ourselves in dark mode
-     * @param fade whether to animate the transition if the mode changes
-     * @param delay if fading, the delay of the animation
-     */
-    public void setDark(boolean dark, boolean fade, long delay) {
-        mDark = dark;
-        mDarkInitialized = true;
+        onReinflated();
     }
 
     /**
      * Notifies this wrapper that the content of the view might have changed.
-     * @param notification
+     * @param row the row this wrapper is attached to
      */
-    public void notifyContentUpdated(StatusBarNotification notification) {
-        mDarkInitialized = false;
-    };
-
-
-    protected void startIntensityAnimation(ValueAnimator.AnimatorUpdateListener updateListener,
-            boolean dark, long delay, Animator.AnimatorListener listener) {
-        float startIntensity = dark ? 0f : 1f;
-        float endIntensity = dark ? 1f : 0f;
-        ValueAnimator animator = ValueAnimator.ofFloat(startIntensity, endIntensity);
-        animator.addUpdateListener(updateListener);
-        animator.setDuration(NotificationPanelView.DOZE_ANIMATION_DURATION);
-        animator.setInterpolator(Interpolators.LINEAR_OUT_SLOW_IN);
-        animator.setStartDelay(delay);
-        if (listener != null) {
-            animator.addListener(listener);
-        }
-        animator.start();
+    public void onContentUpdated(ExpandableNotificationRow row) {
     }
 
-    protected void updateGrayscaleMatrix(float intensity) {
-        mGrayscaleColorMatrix.setSaturation(1 - intensity);
+    public void onReinflated() {
+        if (shouldClearBackgroundOnReapply()) {
+            mBackgroundColor = 0;
+        }
+        Drawable background = mView.getBackground();
+        if (background instanceof ColorDrawable) {
+            mBackgroundColor = ((ColorDrawable) background).getColor();
+            mView.setBackground(null);
+        }
+    }
+
+    protected boolean shouldClearBackgroundOnReapply() {
+        return true;
     }
 
     /**
@@ -119,6 +97,10 @@ public abstract class NotificationViewWrapper implements TransformableView {
      */
     public NotificationHeaderView getNotificationHeader() {
         return null;
+    }
+
+    public int getHeaderTranslation() {
+        return 0;
     }
 
     @Override
@@ -155,12 +137,55 @@ public abstract class NotificationViewWrapper implements TransformableView {
     }
 
     public int getCustomBackgroundColor() {
-        return 0;
+        // Parent notifications should always use the normal background color
+        return mRow.isSummaryWithChildren() ? 0 : mBackgroundColor;
     }
 
-    public void setShowingLegacyBackground(boolean showing) {
+    protected int resolveBackgroundColor() {
+        int customBackgroundColor = getCustomBackgroundColor();
+        if (customBackgroundColor != 0) {
+            return customBackgroundColor;
+        }
+        return mView.getContext().getColor(
+                com.android.internal.R.color.notification_material_background_color);
+    }
+
+    public void setLegacy(boolean legacy) {
     }
 
     public void setContentHeight(int contentHeight, int minHeightHint) {
+    }
+
+    public void setRemoteInputVisible(boolean visible) {
+    }
+
+    public void setIsChildInGroup(boolean isChildInGroup) {
+    }
+
+    public boolean isDimmable() {
+        return true;
+    }
+
+    public boolean disallowSingleClick(float x, float y) {
+        return false;
+    }
+
+    public int getMinLayoutHeight() {
+        return 0;
+    }
+
+    public boolean shouldClipToRounding(boolean topRounded, boolean bottomRounded) {
+        return false;
+    }
+
+    public void setHeaderVisibleAmount(float headerVisibleAmount) {
+    }
+
+    /**
+     * Get the extra height that needs to be added to this view, such that it can be measured
+     * normally.
+     */
+    public int getExtraMeasureHeight() {
+        return 0;
     }
 }

@@ -24,6 +24,7 @@ import android.content.Context;
 import android.os.ParcelUuid;
 import android.util.Log;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -35,7 +36,7 @@ import java.util.Set;
  * are handled by {@link CachedBluetoothDeviceManager},
  * {@link BluetoothEventManager}, and {@link LocalBluetoothProfileManager}.
  */
-public final class LocalBluetoothAdapter {
+public class LocalBluetoothAdapter {
     private static final String TAG = "LocalBluetoothAdapter";
 
     /** This class does not allow direct access to the BluetoothAdapter. */
@@ -90,6 +91,10 @@ public final class LocalBluetoothAdapter {
         return mAdapter.disable();
     }
 
+    public String getAddress() {
+        return mAdapter.getAddress();
+    }
+
     void getProfileProxy(Context context,
             BluetoothProfile.ServiceListener listener, int profile) {
         mAdapter.getProfileProxy(context, listener, profile);
@@ -133,6 +138,10 @@ public final class LocalBluetoothAdapter {
 
     public void setDiscoverableTimeout(int timeout) {
         mAdapter.setDiscoverableTimeout(timeout);
+    }
+
+    public long getDiscoveryEndMillis() {
+        return mAdapter.getDiscoveryEndMillis();
     }
 
     public void setName(String name) {
@@ -186,8 +195,13 @@ public final class LocalBluetoothAdapter {
         return mState;
     }
 
-    synchronized void setBluetoothStateInt(int state) {
-        mState = state;
+    void setBluetoothStateInt(int state) {
+        synchronized(this) {
+            if (mState == state) {
+                return;
+            }
+            mState = state;
+        }
 
         if (state == BluetoothAdapter.STATE_ON) {
             // if mProfileManager hasn't been constructed yet, it will
@@ -230,5 +244,13 @@ public final class LocalBluetoothAdapter {
 
     public BluetoothDevice getRemoteDevice(String address) {
         return mAdapter.getRemoteDevice(address);
+    }
+
+    public int getMaxConnectedAudioDevices() {
+        return mAdapter.getMaxConnectedAudioDevices();
+    }
+
+    public List<Integer> getSupportedProfiles() {
+        return mAdapter.getSupportedProfiles();
     }
 }

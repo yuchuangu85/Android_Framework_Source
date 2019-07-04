@@ -41,13 +41,14 @@ import java.util.ArrayList;
 /**
  * Provides low-level communication with the system window manager for
  * operations that are not associated with any particular context.
- * <p>
+ *
  * This class is only used internally to implement global functions where
  * the caller already knows the display and relevant（有关） compatibility（兼容性的） information
  * for the operation.  For most purposes, you should use {@link WindowManager} instead
  * since it is bound to a context.
  *
  * @see WindowManagerImpl
+ * @hide
  */
 public final class WindowManagerGlobal {
     private static final String TAG = "WindowManager";
@@ -166,8 +167,10 @@ public final class WindowManagerGlobal {
                 sWindowManagerService = IWindowManager.Stub.asInterface(
                         ServiceManager.getService("window"));
                 try {
-                    sWindowManagerService = getWindowManagerService();
-                    ValueAnimator.setDurationScale(sWindowManagerService.getCurrentAnimatorScale());
+                    if (sWindowManagerService != null) {
+                        ValueAnimator.setDurationScale(
+                                sWindowManagerService.getCurrentAnimatorScale());
+                    }
                 } catch (RemoteException e) {
                     throw e.rethrowFromSystemServer();
                 }
@@ -228,7 +231,7 @@ public final class WindowManagerGlobal {
                     boolean isChild = false;
                     if (params.type >= WindowManager.LayoutParams.FIRST_SUB_WINDOW
                             && params.type <= WindowManager.LayoutParams.LAST_SUB_WINDOW) {
-                        for (int j = 0; j < numRoots; ++j) {
+                        for (int j = 0 ; j < numRoots; ++j) {
                             View viewj = mViews.get(j);
                             WindowManager.LayoutParams paramsj = mParams.get(j);
                             if (params.token == viewj.getWindowToken()
@@ -246,6 +249,19 @@ public final class WindowManagerGlobal {
             }
         }
         return views;
+    }
+
+    public View getWindowView(IBinder windowToken) {
+        synchronized (mLock) {
+            final int numViews = mViews.size();
+            for (int i = 0; i < numViews; ++i) {
+                final View view = mViews.get(i);
+                if (view.getWindowToken() == windowToken) {
+                    return view;
+                }
+            }
+        }
+        return null;
     }
 
     public View getRootView(String name) {
@@ -268,7 +284,7 @@ public final class WindowManagerGlobal {
      * @param parentWindow 要显示的窗口（Activity的PhoneWindow或者Dialog的PhoneWindow）
      */
     public void addView(View view, ViewGroup.LayoutParams params,
-                        Display display, Window parentWindow) {
+            Display display, Window parentWindow) {
         if (view == null) {
             throw new IllegalArgumentException("view must not be null");
         }
@@ -288,7 +304,7 @@ public final class WindowManagerGlobal {
             final Context context = view.getContext();
             if (context != null
                     && (context.getApplicationInfo().flags
-                    & ApplicationInfo.FLAG_HARDWARE_ACCELERATED) != 0) {
+                            & ApplicationInfo.FLAG_HARDWARE_ACCELERATED) != 0) {
                 wparams.flags |= WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED;
             }
         }
@@ -300,8 +316,7 @@ public final class WindowManagerGlobal {
             // Start watching for system property changes.
             if (mSystemPropertyUpdater == null) {
                 mSystemPropertyUpdater = new Runnable() {
-                    @Override
-                    public void run() {
+                    @Override public void run() {
                         synchronized (mLock) {
                             for (int i = mRoots.size() - 1; i >= 0; --i) {
                                 mRoots.get(i).loadSystemProperties();
@@ -344,20 +359,17 @@ public final class WindowManagerGlobal {
             mViews.add(view);
             mRoots.add(root);
             mParams.add(wparams);
-        }
 
-        // do this last because it fires off messages to start doing things
-        try {
-            root.setView(view, wparams, panelParentView);
-        } catch (RuntimeException e) {
-            // BadTokenException or InvalidDisplayException, clean up.
-            synchronized (mLock) {
-                final int index = findViewLocked(view, false);
+            // do this last because it fires off messages to start doing things
+            try {
+                root.setView(view, wparams, panelParentView);
+            } catch (RuntimeException e) {
+                // BadTokenException or InvalidDisplayException, clean up.
                 if (index >= 0) {
                     removeViewLocked(index, true);
                 }
+                throw e;
             }
-            throw e;
         }
     }
 
@@ -369,7 +381,7 @@ public final class WindowManagerGlobal {
             throw new IllegalArgumentException("Params must be WindowManager.LayoutParams");
         }
 
-        final WindowManager.LayoutParams wparams = (WindowManager.LayoutParams) params;
+        final WindowManager.LayoutParams wparams = (WindowManager.LayoutParams)params;
 
         view.setLayoutParams(wparams);
 
@@ -404,8 +416,8 @@ public final class WindowManagerGlobal {
      * Remove all roots with specified token.
      *
      * @param token app or window token.
-     * @param who   name of caller, used in logs.
-     * @param what  type of caller, used in logs.
+     * @param who name of caller, used in logs.
+     * @param what type of caller, used in logs.
      */
     public void closeAll(IBinder token, String who, String what) {
         closeAllExceptView(token, null /* view */, who, what);
@@ -415,10 +427,10 @@ public final class WindowManagerGlobal {
      * Remove all roots with specified token, except maybe one view.
      *
      * @param token app or window token.
-     * @param view  view that should be should be preserved along with it's root.
-     *              Pass null if everything should be removed.
-     * @param who   name of caller, used in logs.
-     * @param what  type of caller, used in logs.
+     * @param view view that should be should be preserved along with it's root.
+     *             Pass null if everything should be removed.
+     * @param who name of caller, used in logs.
+     * @param what type of caller, used in logs.
      */
     public void closeAllExceptView(IBinder token, View view, String who, String what) {
         synchronized (mLock) {
@@ -431,7 +443,7 @@ public final class WindowManagerGlobal {
                     if (who != null) {
                         WindowLeaked leak = new WindowLeaked(
                                 what + " " + who + " has leaked window "
-                                        + root.getView() + " that was originally added here");
+                                + root.getView() + " that was originally added here");
                         leak.setStackTrace(root.getLocation().getStackTrace());
                         Log.e(TAG, "", leak);
                     }
@@ -532,7 +544,7 @@ public final class WindowManagerGlobal {
             for (int i = mRoots.size() - 1; i >= 0; --i) {
                 final ViewRootImpl root = mRoots.get(i);
                 if (root.mView != null && root.getHostVisibility() == View.VISIBLE
-                        && root.mAttachInfo.mHardwareRenderer != null) {
+                        && root.mAttachInfo.mThreadedRenderer != null) {
                     hasVisibleWindows = true;
                 } else {
                     root.destroyHardwareResources();
@@ -560,7 +572,7 @@ public final class WindowManagerGlobal {
                     pw.printf("\n\t%s (visibility=%d)", name, root.getHostVisibility());
 
                     ThreadedRenderer renderer =
-                            root.getView().mAttachInfo.mHardwareRenderer;
+                            root.getView().mAttachInfo.mThreadedRenderer;
                     if (renderer != null) {
                         renderer.dumpGfxInfo(pw, fd, args);
                     }
@@ -602,10 +614,15 @@ public final class WindowManagerGlobal {
     public void setStoppedState(IBinder token, boolean stopped) {
         synchronized (mLock) {
             int count = mViews.size();
-            for (int i = 0; i < count; i++) {
+            for (int i = count - 1; i >= 0; i--) {
                 if (token == null || mParams.get(i).token == token) {
                     ViewRootImpl root = mRoots.get(i);
+                    // Client might remove the view by "stopped" event.
                     root.setWindowStopped(stopped);
+                    // Recursively forward stopped state to View's attached
+                    // to this Window rather than the root application token,
+                    // e.g. PopupWindow's.
+                    setStoppedState(root.mAttachInfo.mWindowToken, stopped);
                 }
             }
         }
@@ -615,16 +632,14 @@ public final class WindowManagerGlobal {
         synchronized (mLock) {
             int count = mViews.size();
             config = new Configuration(config);
-            for (int i = 0; i < count; i++) {
+            for (int i=0; i < count; i++) {
                 ViewRootImpl root = mRoots.get(i);
                 root.requestUpdateConfiguration(config);
             }
         }
     }
 
-    /**
-     *
-     */
+    /** @hide */
     public void changeCanvasOpacity(IBinder token, boolean opaque) {
         if (token == null) {
             return;

@@ -16,8 +16,10 @@
 
 package com.android.systemui.statusbar.policy;
 
+import static com.android.settingslib.RestrictedLockUtils.EnforcedAdmin;
+
+import android.R.attr;
 import android.app.ActivityManager;
-import android.app.ActivityManagerNative;
 import android.app.Dialog;
 import android.app.Notification;
 import android.app.NotificationManager;
@@ -30,6 +32,7 @@ import android.content.IntentFilter;
 import android.content.pm.UserInfo;
 import android.database.ContentObserver;
 import android.graphics.Bitmap;
+import android.graphics.PorterDuff.Mode;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Handler;
@@ -46,25 +49,30 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 
-import com.android.internal.logging.MetricsProto.MetricsEvent;
+import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
 import com.android.internal.util.UserIcons;
 import com.android.settingslib.RestrictedLockUtils;
+import com.android.settingslib.Utils;
+import com.android.systemui.Dependency;
 import com.android.systemui.GuestResumeSessionReceiver;
+import com.android.systemui.Prefs;
+import com.android.systemui.Prefs.Key;
 import com.android.systemui.R;
 import com.android.systemui.SystemUI;
 import com.android.systemui.SystemUISecondaryUserService;
-import com.android.systemui.qs.QSTile;
+import com.android.systemui.plugins.qs.DetailAdapter;
 import com.android.systemui.qs.tiles.UserDetailView;
-import com.android.systemui.statusbar.phone.ActivityStarter;
+import com.android.systemui.plugins.ActivityStarter;
 import com.android.systemui.statusbar.phone.SystemUIDialog;
+import com.android.systemui.util.NotificationChannels;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
-
-import static com.android.settingslib.RestrictedLockUtils.EnforcedAdmin;
 
 /**
  * Keeps a list of all users on the device for user switching.
@@ -75,30 +83,24 @@ public class UserSwitcherController {
     private static final boolean DEBUG = false;
     private static final String SIMPLE_USER_SWITCHER_GLOBAL_SETTING =
             "lockscreenSimpleUserSwitcher";
-    private static final String ACTION_REMOVE_GUEST = "com.android.systemui.REMOVE_GUEST";
-    private static final String ACTION_LOGOUT_USER = "com.android.systemui.LOGOUT_USER";
     private static final int PAUSE_REFRESH_USERS_TIMEOUT_MS = 3000;
-
-    private static final int ID_REMOVE_GUEST = 1010;
-    private static final int ID_LOGOUT_USER = 1011;
-    private static final String TAG_REMOVE_GUEST = "remove_guest";
-    private static final String TAG_LOGOUT_USER = "logout_user";
 
     private static final String PERMISSION_SELF = "com.android.systemui.permission.SELF";
 
-    private final Context mContext;
-    private final UserManager mUserManager;
+    protected final Context mContext;
+    protected final UserManager mUserManager;
     private final ArrayList<WeakReference<BaseUserAdapter>> mAdapters = new ArrayList<>();
     private final GuestResumeSessionReceiver mGuestResumeSessionReceiver
             = new GuestResumeSessionReceiver();
     private final KeyguardMonitor mKeyguardMonitor;
-    private final Handler mHandler;
+    protected final Handler mHandler;
     private final ActivityStarter mActivityStarter;
 
     private ArrayList<UserRecord> mUsers = new ArrayList<>();
     private Dialog mExitGuestDialog;
     private Dialog mAddUserDialog;
     private int mLastNonGuestUser = UserHandle.USER_SYSTEM;
+    private boolean mResumeUserOnGuestLogout = true;
     private boolean mSimpleUserSwitcher;
     private boolean mAddUsersWhenLocked;
     private boolean mPauseRefreshUsers;
@@ -127,8 +129,6 @@ public class UserSwitcherController {
         mSecondaryUserServiceIntent = new Intent(context, SystemUISecondaryUserService.class);
 
         filter = new IntentFilter();
-        filter.addAction(ACTION_REMOVE_GUEST);
-        filter.addAction(ACTION_LOGOUT_USER);
         mContext.registerReceiverAsUser(mReceiver, UserHandle.SYSTEM, filter,
                 PERMISSION_SELF, null /* scheduler */);
 
@@ -230,6 +230,9 @@ public class UserSwitcherController {
                         }
                     }
                 }
+                if (records.size() > 1 || guestRecord != null) {
+                    Prefs.putBoolean(mContext, Key.SEEN_MULTI_USER, true);
+                }
 
                 boolean systemCanCreateUsers = !mUserManager.hasBaseUserRestriction(
                                 UserManager.DISALLOW_ADD_USER, UserHandle.SYSTEM);
@@ -318,6 +321,10 @@ public class UserSwitcherController {
         return mContext.getResources().getBoolean(R.bool.config_enableFullscreenUserSwitcher);
     }
 
+    public void setResumeUserOnGuestLogout(boolean resume) {
+        mResumeUserOnGuestLogout = resume;
+    }
+
     public void logoutCurrentUser() {
         int currentUser = ActivityManager.getCurrentUser();
         if (currentUser != UserHandle.USER_SYSTEM) {
@@ -358,11 +365,21 @@ public class UserSwitcherController {
             id = record.info.id;
         }
 
-        if (ActivityManager.getCurrentUser() == id) {
+        int currUserId = ActivityManager.getCurrentUser();
+        if (currUserId == id) {
             if (record.isGuest) {
                 showExitGuestDialog(id);
             }
             return;
+        }
+
+        if (UserManager.isGuestUserEphemeral()) {
+            // If switching from guest, we want to bring up the guest exit dialog instead of switching
+            UserInfo currUserInfo = mUserManager.getUserInfo(currUserId);
+            if (currUserInfo != null && currUserInfo.isGuest()) {
+                showExitGuestDialog(currUserId, record.resolveId());
+                return;
+            }
         }
 
         switchToUserId(id);
@@ -393,24 +410,35 @@ public class UserSwitcherController {
         return count;
     }
 
-    private void switchToUserId(int id) {
+    protected void switchToUserId(int id) {
         try {
             pauseRefreshUsers();
-            ActivityManagerNative.getDefault().switchUser(id);
+            ActivityManager.getService().switchUser(id);
         } catch (RemoteException e) {
             Log.e(TAG, "Couldn't switch user.", e);
         }
     }
 
     private void showExitGuestDialog(int id) {
+        int newId = UserHandle.USER_SYSTEM;
+        if (mResumeUserOnGuestLogout && mLastNonGuestUser != UserHandle.USER_SYSTEM) {
+            UserInfo info = mUserManager.getUserInfo(mLastNonGuestUser);
+            if (info != null && info.isEnabled() && info.supportsSwitchToByUser()) {
+                newId = info.id;
+            }
+        }
+        showExitGuestDialog(id, newId);
+    }
+
+    protected void showExitGuestDialog(int id, int targetId) {
         if (mExitGuestDialog != null && mExitGuestDialog.isShowing()) {
             mExitGuestDialog.cancel();
         }
-        mExitGuestDialog = new ExitGuestDialog(mContext, id);
+        mExitGuestDialog = new ExitGuestDialog(mContext, id, targetId);
         mExitGuestDialog.show();
     }
 
-    private void showAddUserDialog() {
+    public void showAddUserDialog() {
         if (mAddUserDialog != null && mAddUserDialog.isShowing()) {
             mAddUserDialog.cancel();
         }
@@ -418,15 +446,8 @@ public class UserSwitcherController {
         mAddUserDialog.show();
     }
 
-    private void exitGuest(int id) {
-        int newId = UserHandle.USER_SYSTEM;
-        if (mLastNonGuestUser != UserHandle.USER_SYSTEM) {
-            UserInfo info = mUserManager.getUserInfo(mLastNonGuestUser);
-            if (info != null && info.isEnabled() && info.supportsSwitchToByUser()) {
-                newId = info.id;
-            }
-        }
-        switchToUserId(newId);
+    protected void exitGuest(int id, int targetId) {
+        switchToUserId(targetId);
         mUserManager.removeUser(id);
     }
 
@@ -443,11 +464,6 @@ public class UserSwitcherController {
             if (mCallState == state) return;
             if (DEBUG) Log.v(TAG, "Call state changed: " + state);
             mCallState = state;
-            int currentUserId = ActivityManager.getCurrentUser();
-            UserInfo userInfo = mUserManager.getUserInfo(currentUserId);
-            if (userInfo != null && userInfo.isGuest()) {
-                showGuestNotification(currentUserId);
-            }
             refreshUsers(UserHandle.USER_NULL);
         }
     };
@@ -463,16 +479,7 @@ public class UserSwitcherController {
             boolean unpauseRefreshUsers = false;
             int forcePictureLoadForId = UserHandle.USER_NULL;
 
-            if (ACTION_REMOVE_GUEST.equals(intent.getAction())) {
-                int currentUser = ActivityManager.getCurrentUser();
-                UserInfo userInfo = mUserManager.getUserInfo(currentUser);
-                if (userInfo != null && userInfo.isGuest()) {
-                    showExitGuestDialog(currentUser);
-                }
-                return;
-            } else if (ACTION_LOGOUT_USER.equals(intent.getAction())) {
-                logoutCurrentUser();
-            } else if (Intent.ACTION_USER_SWITCHED.equals(intent.getAction())) {
+            if (Intent.ACTION_USER_SWITCHED.equals(intent.getAction())) {
                 if (mExitGuestDialog != null && mExitGuestDialog.isShowing()) {
                     mExitGuestDialog.cancel();
                     mExitGuestDialog = null;
@@ -507,18 +514,10 @@ public class UserSwitcherController {
                 }
                 // Connect to the new secondary user's service (purely to ensure that a persistent
                 // SystemUI application is created for that user)
-                if (userInfo != null && !userInfo.isPrimary()) {
+                if (userInfo != null && userInfo.id != UserHandle.USER_SYSTEM) {
                     context.startServiceAsUser(mSecondaryUserServiceIntent,
                             UserHandle.of(userInfo.id));
                     mSecondaryUser = userInfo.id;
-                }
-
-                if (UserManager.isSplitSystemUser() && userInfo != null && !userInfo.isGuest()
-                        && userInfo.id != UserHandle.USER_SYSTEM) {
-                    showLogoutNotification(currentId);
-                }
-                if (userInfo != null && userInfo.isGuest()) {
-                    showGuestNotification(currentId);
                 }
                 unpauseRefreshUsers = true;
             } else if (Intent.ACTION_USER_INFO_CHANGED.equals(intent.getAction())) {
@@ -536,49 +535,7 @@ public class UserSwitcherController {
                 mUnpauseRefreshUsers.run();
             }
         }
-
-        private void showLogoutNotification(int userId) {
-            PendingIntent logoutPI = PendingIntent.getBroadcastAsUser(mContext,
-                    0, new Intent(ACTION_LOGOUT_USER), 0, UserHandle.SYSTEM);
-            Notification.Builder builder = new Notification.Builder(mContext)
-                    .setVisibility(Notification.VISIBILITY_SECRET)
-                    .setPriority(Notification.PRIORITY_MIN)
-                    .setSmallIcon(R.drawable.ic_person)
-                    .setContentTitle(mContext.getString(R.string.user_logout_notification_title))
-                    .setContentText(mContext.getString(R.string.user_logout_notification_text))
-                    .setContentIntent(logoutPI)
-                    .setOngoing(true)
-                    .setShowWhen(false)
-                    .addAction(R.drawable.ic_delete,
-                            mContext.getString(R.string.user_logout_notification_action),
-                            logoutPI);
-            SystemUI.overrideNotificationAppName(mContext, builder);
-            NotificationManager.from(mContext).notifyAsUser(TAG_LOGOUT_USER, ID_LOGOUT_USER,
-                    builder.build(), new UserHandle(userId));
-        }
     };
-
-    private void showGuestNotification(int guestUserId) {
-        boolean canSwitchUsers = mUserManager.canSwitchUsers();
-        // Disable 'Remove guest' action if cannot switch users right now
-        PendingIntent removeGuestPI = canSwitchUsers ? PendingIntent.getBroadcastAsUser(mContext,
-                0, new Intent(ACTION_REMOVE_GUEST), 0, UserHandle.SYSTEM) : null;
-
-        Notification.Builder builder = new Notification.Builder(mContext)
-                .setVisibility(Notification.VISIBILITY_SECRET)
-                .setPriority(Notification.PRIORITY_MIN)
-                .setSmallIcon(R.drawable.ic_person)
-                .setContentTitle(mContext.getString(R.string.guest_notification_title))
-                .setContentText(mContext.getString(R.string.guest_notification_text))
-                .setContentIntent(removeGuestPI)
-                .setShowWhen(false)
-                .addAction(R.drawable.ic_delete,
-                        mContext.getString(R.string.guest_notification_remove_action),
-                        removeGuestPI);
-        SystemUI.overrideNotificationAppName(mContext, builder);
-        NotificationManager.from(mContext).notifyAsUser(TAG_REMOVE_GUEST, ID_REMOVE_GUEST,
-                builder.build(), new UserHandle(guestUserId));
-    }
 
     private final Runnable mUnpauseRefreshUsers = new Runnable() {
         @Override
@@ -621,28 +578,61 @@ public class UserSwitcherController {
         refreshUsers(UserHandle.USER_ALL);
     }
 
+    @VisibleForTesting
+    public void addAdapter(WeakReference<BaseUserAdapter> adapter) {
+        mAdapters.add(adapter);
+    }
+
+    @VisibleForTesting
+    public ArrayList<UserRecord> getUsers() {
+        return mUsers;
+    }
+
     public static abstract class BaseUserAdapter extends BaseAdapter {
 
         final UserSwitcherController mController;
+        private final KeyguardMonitor mKeyguardMonitor;
 
         protected BaseUserAdapter(UserSwitcherController controller) {
             mController = controller;
-            controller.mAdapters.add(new WeakReference<>(this));
+            mKeyguardMonitor = Dependency.get(KeyguardMonitor.class);
+            controller.addAdapter(new WeakReference<>(this));
+        }
+
+        public int getUserCount() {
+            boolean secureKeyguardShowing = mKeyguardMonitor.isShowing()
+                    && mKeyguardMonitor.isSecure()
+                    && !mKeyguardMonitor.canSkipBouncer();
+            if (!secureKeyguardShowing) {
+                return mController.getUsers().size();
+            }
+            // The lock screen is secure and showing. Filter out restricted records.
+            final int N = mController.getUsers().size();
+            int count = 0;
+            for (int i = 0; i < N; i++) {
+                if (mController.getUsers().get(i).isGuest) continue;
+                if (mController.getUsers().get(i).isRestricted) {
+                    break;
+                } else {
+                    count++;
+                }
+            }
+            return count;
         }
 
         @Override
         public int getCount() {
-            boolean secureKeyguardShowing = mController.mKeyguardMonitor.isShowing()
-                    && mController.mKeyguardMonitor.isSecure()
-                    && !mController.mKeyguardMonitor.canSkipBouncer();
+            boolean secureKeyguardShowing = mKeyguardMonitor.isShowing()
+                    && mKeyguardMonitor.isSecure()
+                    && !mKeyguardMonitor.canSkipBouncer();
             if (!secureKeyguardShowing) {
-                return mController.mUsers.size();
+                return mController.getUsers().size();
             }
             // The lock screen is secure and showing. Filter out restricted records.
-            final int N = mController.mUsers.size();
+            final int N = mController.getUsers().size();
             int count = 0;
             for (int i = 0; i < N; i++) {
-                if (mController.mUsers.get(i).isRestricted) {
+                if (mController.getUsers().get(i).isRestricted) {
                     break;
                 } else {
                     count++;
@@ -653,7 +643,7 @@ public class UserSwitcherController {
 
         @Override
         public UserRecord getItem(int position) {
-            return mController.mUsers.get(position);
+            return mController.getUsers().get(position);
         }
 
         @Override
@@ -684,7 +674,13 @@ public class UserSwitcherController {
             if (item.isAddUser) {
                 return context.getDrawable(R.drawable.ic_add_circle_qs);
             }
-            return UserIcons.getDefaultUserIcon(item.resolveId(), /* light= */ true);
+            Drawable icon = UserIcons.getDefaultUserIcon(
+                    context.getResources(), item.resolveId(), /* light= */ false);
+            if (item.isGuest) {
+                icon.setColorFilter(Utils.getColorAttr(context, android.R.attr.colorForeground),
+                        Mode.SRC_IN);
+            }
+            return icon;
         }
 
         public void refresh() {
@@ -773,7 +769,7 @@ public class UserSwitcherController {
         }
     }
 
-    public final QSTile.DetailAdapter userDetailAdapter = new QSTile.DetailAdapter() {
+    public final DetailAdapter userDetailAdapter = new DetailAdapter() {
         private final Intent USER_SETTINGS_INTENT = new Intent(Settings.ACTION_USER_SETTINGS);
 
         @Override
@@ -816,8 +812,15 @@ public class UserSwitcherController {
 
     private final KeyguardMonitor.Callback mCallback = new KeyguardMonitor.Callback() {
         @Override
-        public void onKeyguardChanged() {
-            notifyAdapters();
+        public void onKeyguardShowingChanged() {
+
+            // When Keyguard is going away, we don't need to update our items immediately which
+            // helps making the transition faster.
+            if (!mKeyguardMonitor.isShowing()) {
+                mHandler.post(UserSwitcherController.this::notifyAdapters);
+            } else {
+                notifyAdapters();
+            }
         }
     };
 
@@ -825,8 +828,9 @@ public class UserSwitcherController {
             DialogInterface.OnClickListener {
 
         private final int mGuestId;
+        private final int mTargetId;
 
-        public ExitGuestDialog(Context context, int guestId) {
+        public ExitGuestDialog(Context context, int guestId, int targetId) {
             super(context);
             setTitle(R.string.guest_exit_guest_dialog_title);
             setMessage(context.getString(R.string.guest_exit_guest_dialog_message));
@@ -834,8 +838,10 @@ public class UserSwitcherController {
                     context.getString(android.R.string.cancel), this);
             setButton(DialogInterface.BUTTON_POSITIVE,
                     context.getString(R.string.guest_exit_guest_dialog_remove), this);
+            SystemUIDialog.setWindowOnTop(this);
             setCanceledOnTouchOutside(false);
             mGuestId = guestId;
+            mTargetId = targetId;
         }
 
         @Override
@@ -844,7 +850,7 @@ public class UserSwitcherController {
                 cancel();
             } else {
                 dismiss();
-                exitGuest(mGuestId);
+                exitGuest(mGuestId, mTargetId);
             }
         }
     }
@@ -860,6 +866,7 @@ public class UserSwitcherController {
                     context.getString(android.R.string.cancel), this);
             setButton(DialogInterface.BUTTON_POSITIVE,
                     context.getString(android.R.string.ok), this);
+            SystemUIDialog.setWindowOnTop(this);
         }
 
         @Override
@@ -880,7 +887,7 @@ public class UserSwitcherController {
                 }
                 int id = user.id;
                 Bitmap icon = UserIcons.convertToBitmap(UserIcons.getDefaultUserIcon(
-                        id, /* light= */ false));
+                        mContext.getResources(), id, /* light= */ false));
                 mUserManager.setUserIcon(id, icon);
                 switchToUserId(id);
             }

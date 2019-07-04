@@ -16,40 +16,50 @@
 
 package com.android.systemui;
 
+import android.app.AlarmManager;
 import android.content.Context;
+import android.util.ArrayMap;
 import android.util.Log;
-import android.view.View;
 import android.view.ViewGroup;
 
+import com.android.internal.logging.MetricsLogger;
+import com.android.internal.util.function.TriConsumer;
 import com.android.internal.widget.LockPatternUtils;
+import com.android.internal.colorextraction.ColorExtractor.GradientColors;
 import com.android.keyguard.ViewMediatorCallback;
-import com.android.systemui.R;
-import com.android.systemui.assist.AssistManager;
-import com.android.systemui.statusbar.BaseStatusBar;
+import com.android.systemui.Dependency.DependencyProvider;
+import com.android.systemui.classifier.FalsingManager;
+import com.android.systemui.keyguard.DismissCallbackRegistry;
+import com.android.systemui.qs.QSTileHost;
+import com.android.systemui.statusbar.KeyguardIndicationController;
+import com.android.systemui.statusbar.NotificationBlockingHelperManager;
+import com.android.systemui.statusbar.NotificationEntryManager;
+import com.android.systemui.statusbar.NotificationGutsManager;
+import com.android.systemui.statusbar.NotificationListener;
+import com.android.systemui.statusbar.NotificationLockscreenUserManager;
+import com.android.systemui.statusbar.NotificationLogger;
+import com.android.systemui.statusbar.NotificationMediaManager;
+import com.android.systemui.statusbar.NotificationRemoteInputManager;
+import com.android.systemui.statusbar.NotificationViewHierarchyManager;
 import com.android.systemui.statusbar.ScrimView;
+import com.android.systemui.statusbar.SmartReplyController;
+import com.android.systemui.statusbar.notification.VisualStabilityManager;
+import com.android.systemui.statusbar.phone.DozeParameters;
 import com.android.systemui.statusbar.phone.KeyguardBouncer;
+import com.android.systemui.statusbar.phone.KeyguardDismissUtil;
+import com.android.systemui.statusbar.phone.LockIcon;
 import com.android.systemui.statusbar.phone.LockscreenWallpaper;
+import com.android.systemui.statusbar.phone.NotificationGroupManager;
 import com.android.systemui.statusbar.phone.NotificationIconAreaController;
-import com.android.systemui.statusbar.phone.PhoneStatusBar;
-import com.android.systemui.statusbar.phone.QSTileHost;
 import com.android.systemui.statusbar.phone.ScrimController;
+import com.android.systemui.statusbar.phone.ScrimState;
+import com.android.systemui.statusbar.phone.StatusBar;
 import com.android.systemui.statusbar.phone.StatusBarIconController;
 import com.android.systemui.statusbar.phone.StatusBarKeyguardViewManager;
-import com.android.systemui.statusbar.phone.StatusBarWindowManager;
-import com.android.systemui.statusbar.policy.BatteryController;
-import com.android.systemui.statusbar.policy.BluetoothController;
-import com.android.systemui.statusbar.policy.CastController;
-import com.android.systemui.statusbar.policy.FlashlightController;
-import com.android.systemui.statusbar.policy.HotspotController;
-import com.android.systemui.statusbar.policy.KeyguardMonitor;
-import com.android.systemui.statusbar.policy.LocationController;
-import com.android.systemui.statusbar.policy.NetworkController;
-import com.android.systemui.statusbar.policy.NextAlarmController;
-import com.android.systemui.statusbar.policy.RotationLockController;
-import com.android.systemui.statusbar.policy.SecurityController;
-import com.android.systemui.statusbar.policy.UserInfoController;
-import com.android.systemui.statusbar.policy.UserSwitcherController;
-import com.android.systemui.statusbar.policy.ZenModeController;
+import com.android.systemui.statusbar.policy.RemoteInputQuickSettingsDisabler;
+import com.android.systemui.statusbar.policy.SmartReplyConstants;
+
+import java.util.function.Consumer;
 
 /**
  * Class factory to provide customizable SystemUI components.
@@ -87,40 +97,59 @@ public class SystemUIFactory {
     }
 
     public KeyguardBouncer createKeyguardBouncer(Context context, ViewMediatorCallback callback,
-            LockPatternUtils lockPatternUtils, StatusBarWindowManager windowManager,
-            ViewGroup container) {
-        return new KeyguardBouncer(context, callback, lockPatternUtils, windowManager, container);
+            LockPatternUtils lockPatternUtils,  ViewGroup container,
+            DismissCallbackRegistry dismissCallbackRegistry,
+            KeyguardBouncer.BouncerExpansionCallback expansionCallback) {
+        return new KeyguardBouncer(context, callback, lockPatternUtils, container,
+                dismissCallbackRegistry, FalsingManager.getInstance(context), expansionCallback);
     }
 
     public ScrimController createScrimController(ScrimView scrimBehind, ScrimView scrimInFront,
-            View headsUpScrim, LockscreenWallpaper lockscreenWallpaper) {
-        return new ScrimController(scrimBehind, scrimInFront, headsUpScrim);
+            LockscreenWallpaper lockscreenWallpaper,
+            TriConsumer<ScrimState, Float, GradientColors> scrimStateListener,
+            Consumer<Integer> scrimVisibleListener, DozeParameters dozeParameters,
+            AlarmManager alarmManager) {
+        return new ScrimController(scrimBehind, scrimInFront, scrimStateListener,
+                scrimVisibleListener, dozeParameters, alarmManager);
     }
 
     public NotificationIconAreaController createNotificationIconAreaController(Context context,
-            PhoneStatusBar phoneStatusBar) {
-        return new NotificationIconAreaController(context, phoneStatusBar);
+            StatusBar statusBar) {
+        return new NotificationIconAreaController(context, statusBar);
     }
 
-    public QSTileHost createQSTileHost(Context context, PhoneStatusBar statusBar,
-            BluetoothController bluetooth, LocationController location,
-            RotationLockController rotation, NetworkController network,
-            ZenModeController zen, HotspotController hotspot,
-            CastController cast, FlashlightController flashlight,
-            UserSwitcherController userSwitcher, UserInfoController userInfo,
-            KeyguardMonitor keyguard, SecurityController security,
-            BatteryController battery, StatusBarIconController iconController,
-            NextAlarmController nextAlarmController) {
-        return new QSTileHost(context, statusBar, bluetooth, location, rotation, network, zen,
-                hotspot, cast, flashlight, userSwitcher, userInfo, keyguard, security, battery,
-                iconController, nextAlarmController);
+    public KeyguardIndicationController createKeyguardIndicationController(Context context,
+            ViewGroup indicationArea, LockIcon lockIcon) {
+        return new KeyguardIndicationController(context, indicationArea, lockIcon);
     }
 
-    public <T> T createInstance(Class<T> classType) {
-        return null;
+    public QSTileHost createQSTileHost(Context context, StatusBar statusBar,
+            StatusBarIconController iconController) {
+        return new QSTileHost(context, statusBar, iconController);
     }
 
-    public AssistManager createAssistManager(BaseStatusBar bar, Context context) {
-        return new AssistManager(bar, context);
+    public void injectDependencies(ArrayMap<Object, DependencyProvider> providers,
+            Context context) {
+        providers.put(NotificationLockscreenUserManager.class,
+                () -> new NotificationLockscreenUserManager(context));
+        providers.put(VisualStabilityManager.class, VisualStabilityManager::new);
+        providers.put(NotificationGroupManager.class, NotificationGroupManager::new);
+        providers.put(NotificationMediaManager.class, () -> new NotificationMediaManager(context));
+        providers.put(NotificationGutsManager.class, () -> new NotificationGutsManager(context));
+        providers.put(NotificationBlockingHelperManager.class,
+                () -> new NotificationBlockingHelperManager(context));
+        providers.put(NotificationRemoteInputManager.class,
+                () -> new NotificationRemoteInputManager(context));
+        providers.put(SmartReplyConstants.class,
+                () -> new SmartReplyConstants(Dependency.get(Dependency.MAIN_HANDLER), context));
+        providers.put(NotificationListener.class, () -> new NotificationListener(context));
+        providers.put(NotificationLogger.class, NotificationLogger::new);
+        providers.put(NotificationViewHierarchyManager.class,
+                () -> new NotificationViewHierarchyManager(context));
+        providers.put(NotificationEntryManager.class, () -> new NotificationEntryManager(context));
+        providers.put(KeyguardDismissUtil.class, KeyguardDismissUtil::new);
+        providers.put(SmartReplyController.class, () -> new SmartReplyController());
+        providers.put(RemoteInputQuickSettingsDisabler.class,
+                () -> new RemoteInputQuickSettingsDisabler(context));
     }
 }

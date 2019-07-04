@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.telephony.SubscriptionInfo;
+
 /**
  * See also RIL_CardStatus in include/telephony/ril.h
  *
@@ -62,6 +64,9 @@ public class IccCardStatus {
     public int        mGsmUmtsSubscriptionAppIndex;
     public int        mCdmaSubscriptionAppIndex;
     public int        mImsSubscriptionAppIndex;
+    public int        physicalSlotIndex = UiccController.INVALID_SLOT_ID;
+    public String     atr;
+    public String     iccid;
 
     public IccCardApplicationStatus[] mApplications;
 
@@ -116,30 +121,36 @@ public class IccCardStatus {
         StringBuilder sb = new StringBuilder();
         sb.append("IccCardState {").append(mCardState).append(",")
         .append(mUniversalPinState)
-        .append(",num_apps=").append(mApplications.length)
-        .append(",gsm_id=").append(mGsmUmtsSubscriptionAppIndex);
-        if (mGsmUmtsSubscriptionAppIndex >=0
-                && mGsmUmtsSubscriptionAppIndex <CARD_MAX_APPS) {
+        .append(",num_apps=").append(mApplications.length);
+
+        sb.append(",gsm_id=").append(mGsmUmtsSubscriptionAppIndex);
+        if (mApplications != null
+                && mGsmUmtsSubscriptionAppIndex >= 0
+                && mGsmUmtsSubscriptionAppIndex < mApplications.length) {
             app = mApplications[mGsmUmtsSubscriptionAppIndex];
             sb.append(app == null ? "null" : app);
         }
 
         sb.append(",cdma_id=").append(mCdmaSubscriptionAppIndex);
-        if (mCdmaSubscriptionAppIndex >=0
-                && mCdmaSubscriptionAppIndex <CARD_MAX_APPS) {
+        if (mApplications != null
+                && mCdmaSubscriptionAppIndex >= 0
+                && mCdmaSubscriptionAppIndex < mApplications.length) {
             app = mApplications[mCdmaSubscriptionAppIndex];
             sb.append(app == null ? "null" : app);
         }
 
         sb.append(",ims_id=").append(mImsSubscriptionAppIndex);
-        if (mImsSubscriptionAppIndex >=0
-                && mImsSubscriptionAppIndex <CARD_MAX_APPS) {
+        if (mApplications != null
+                && mImsSubscriptionAppIndex >= 0
+                && mImsSubscriptionAppIndex < mApplications.length) {
             app = mApplications[mImsSubscriptionAppIndex];
             sb.append(app == null ? "null" : app);
         }
 
-        sb.append("}");
+        sb.append(",physical_slot_id=").append(physicalSlotIndex).append(",atr=").append(atr);
+        sb.append(",iccid=").append(SubscriptionInfo.givePrintableIccid(iccid));
 
+        sb.append("}");
         return sb.toString();
     }
 

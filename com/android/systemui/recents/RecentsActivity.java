@@ -16,10 +16,12 @@
 
 package com.android.systemui.recents;
 
+import static com.android.systemui.statusbar.phone.StatusBar.SYSTEM_DIALOG_REASON_HOME_KEY;
+
 import android.app.Activity;
-import android.app.ActivityManager;
 import android.app.ActivityOptions;
 import android.app.TaskStackBuilder;
+import android.app.WallpaperManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -28,6 +30,7 @@ import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.provider.Settings;
@@ -39,15 +42,19 @@ import android.view.ViewTreeObserver.OnPreDrawListener;
 import android.view.WindowManager;
 import android.view.WindowManager.LayoutParams;
 
+import com.android.internal.colorextraction.ColorExtractor;
+import com.android.internal.content.PackageMonitor;
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.MetricsProto.MetricsEvent;
+import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.internal.util.LatencyTracker;
+import com.android.systemui.DejankUtils;
+import com.android.systemui.Dependency;
 import com.android.systemui.Interpolators;
-import com.android.systemui.Prefs;
 import com.android.systemui.R;
+import com.android.systemui.colorextraction.SysuiColorExtractor;
 import com.android.systemui.recents.events.EventBus;
 import com.android.systemui.recents.events.activity.CancelEnterRecentsWindowAnimationEvent;
 import com.android.systemui.recents.events.activity.ConfigurationChangedEvent;
-import com.android.systemui.recents.events.activity.DebugFlagsChangedEvent;
 import com.android.systemui.recents.events.activity.DismissRecentsToHomeAnimationStarted;
 import com.android.systemui.recents.events.activity.DockedFirstAnimationFrameEvent;
 import com.android.systemui.recents.events.activity.DockedTopTaskEvent;
@@ -55,13 +62,16 @@ import com.android.systemui.recents.events.activity.EnterRecentsWindowAnimationC
 import com.android.systemui.recents.events.activity.EnterRecentsWindowLastAnimationFrameEvent;
 import com.android.systemui.recents.events.activity.ExitRecentsWindowFirstAnimationFrameEvent;
 import com.android.systemui.recents.events.activity.HideRecentsEvent;
-import com.android.systemui.recents.events.activity.IterateRecentsEvent;
 import com.android.systemui.recents.events.activity.LaunchTaskFailedEvent;
 import com.android.systemui.recents.events.activity.LaunchTaskSucceededEvent;
 import com.android.systemui.recents.events.activity.MultiWindowStateChangedEvent;
+import com.android.systemui.recents.events.activity.PackagesChangedEvent;
+import com.android.systemui.recents.events.activity.RecentsActivityStartingEvent;
 import com.android.systemui.recents.events.activity.ToggleRecentsEvent;
+import com.android.systemui.recents.events.component.ActivityUnpinnedEvent;
 import com.android.systemui.recents.events.component.RecentsVisibilityChangedEvent;
 import com.android.systemui.recents.events.component.ScreenPinningRequestEvent;
+import com.android.systemui.recents.events.component.SetWaitingForTransitionStartEvent;
 import com.android.systemui.recents.events.ui.AllTaskViewsDismissedEvent;
 import com.android.systemui.recents.events.ui.DeleteTaskDataEvent;
 import com.android.systemui.recents.events.ui.HideIncompatibleAppOverlayEvent;
@@ -69,31 +79,32 @@ import com.android.systemui.recents.events.ui.RecentsDrawnEvent;
 import com.android.systemui.recents.events.ui.ShowApplicationInfoEvent;
 import com.android.systemui.recents.events.ui.ShowIncompatibleAppOverlayEvent;
 import com.android.systemui.recents.events.ui.StackViewScrolledEvent;
-import com.android.systemui.recents.events.ui.UpdateFreeformTaskViewVisibilityEvent;
+import com.android.systemui.recents.events.ui.TaskViewDismissedEvent;
 import com.android.systemui.recents.events.ui.UserInteractionEvent;
 import com.android.systemui.recents.events.ui.focus.DismissFocusedTaskViewEvent;
 import com.android.systemui.recents.events.ui.focus.FocusNextTaskViewEvent;
 import com.android.systemui.recents.events.ui.focus.FocusPreviousTaskViewEvent;
-import com.android.systemui.recents.misc.DozeTrigger;
+import com.android.systemui.recents.events.ui.focus.NavigateTaskViewEvent;
+import com.android.systemui.recents.events.ui.focus.NavigateTaskViewEvent.Direction;
 import com.android.systemui.recents.misc.SystemServicesProxy;
-import com.android.systemui.recents.misc.Utilities;
-import com.android.systemui.recents.model.RecentsPackageMonitor;
-import com.android.systemui.recents.model.RecentsTaskLoadPlan;
-import com.android.systemui.recents.model.RecentsTaskLoader;
-import com.android.systemui.recents.model.Task;
-import com.android.systemui.recents.model.TaskStack;
+import com.android.systemui.shared.recents.utilities.Utilities;
+import com.android.systemui.shared.recents.model.RecentsTaskLoadPlan;
+import com.android.systemui.shared.recents.model.RecentsTaskLoader;
+import com.android.systemui.shared.recents.model.Task;
+import com.android.systemui.shared.recents.model.TaskStack;
 import com.android.systemui.recents.views.RecentsView;
 import com.android.systemui.recents.views.SystemBarScrimViews;
-import com.android.systemui.statusbar.BaseStatusBar;
+import com.android.systemui.shared.system.ActivityManagerWrapper;
 
+import com.android.systemui.shared.system.WindowManagerWrapper;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.util.List;
 
 /**
  * The main Recents activity that is started from RecentsComponent.
  */
-public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreDrawListener {
+public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreDrawListener,
+        ColorExtractor.OnColorsChangedListener {
 
     private final static String TAG = "RecentsActivity";
     private final static boolean DEBUG = false;
@@ -101,15 +112,30 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
     public final static int EVENT_BUS_PRIORITY = Recents.EVENT_BUS_PRIORITY + 1;
     public final static int INCOMPATIBLE_APP_ALPHA_DURATION = 150;
 
-    private RecentsPackageMonitor mPackageMonitor;
+    private PackageMonitor mPackageMonitor = new PackageMonitor() {
+            @Override
+            public void onPackageRemoved(String packageName, int uid) {
+                RecentsActivity.this.onPackageChanged(packageName, getChangingUserId());
+            }
+
+            @Override
+            public boolean onPackageChanged(String packageName, int uid, String[] components) {
+                RecentsActivity.this.onPackageChanged(packageName, getChangingUserId());
+                return true;
+            }
+
+            @Override
+            public void onPackageModified(String packageName) {
+                RecentsActivity.this.onPackageChanged(packageName, getChangingUserId());
+            }
+        };
     private Handler mHandler = new Handler();
     private long mLastTabKeyEventTime;
-    private int mLastDeviceOrientation = Configuration.ORIENTATION_UNDEFINED;
-    private int mLastDisplayDensity;
     private boolean mFinishedOnStartup;
     private boolean mIgnoreAltTabRelease;
     private boolean mIsVisible;
-    private boolean mReceivedNewIntent;
+    private boolean mRecentsStartRequested;
+    private Configuration mLastConfig;
 
     // Top level views
     private RecentsView mRecentsView;
@@ -121,11 +147,11 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
 
     // The trigger to automatically launch the current task
     private int mFocusTimerDuration;
-    private DozeTrigger mIterateTrigger;
     private final UserInteractionEvent mUserInteractionEvent = new UserInteractionEvent();
-    private final Runnable mSendEnterWindowAnimationCompleteRunnable = () -> {
-        EventBus.getDefault().send(new EnterRecentsWindowAnimationCompletedEvent());
-    };
+
+    // Theme and colors
+    private SysuiColorExtractor mColorExtractor;
+    private boolean mUsingDarkText;
 
     /**
      * A common Runnable to finish Recents by launching Home with an animation depending on the
@@ -172,34 +198,9 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
             if (action.equals(Intent.ACTION_SCREEN_OFF)) {
                 // When the screen turns off, dismiss Recents to Home
                 dismissRecentsToHomeIfVisible(false);
-            } else if (action.equals(Intent.ACTION_TIME_CHANGED)) {
-                // If the time shifts but the currentTime >= lastStackActiveTime, then that boundary
-                // is still valid.  Otherwise, we need to reset the lastStackactiveTime to the
-                // currentTime and remove the old tasks in between which would not be previously
-                // visible, but currently would be in the new currentTime
-                long oldLastStackActiveTime = Prefs.getLong(RecentsActivity.this,
-                        Prefs.Key.OVERVIEW_LAST_STACK_TASK_ACTIVE_TIME, -1);
-                if (oldLastStackActiveTime != -1) {
-                    long currentTime = System.currentTimeMillis();
-                    if (currentTime < oldLastStackActiveTime) {
-                        // We are only removing tasks that are between the new current time
-                        // and the old last stack active time, they were not visible and in the
-                        // TaskStack so we don't need to remove any associated TaskViews but we do
-                        // need to load the task id's from the system
-                        RecentsTaskLoadPlan loadPlan = Recents.getTaskLoader().createLoadPlan(ctx);
-                        loadPlan.preloadRawTasks(false /* includeFrontMostExcludedTask */);
-                        List<ActivityManager.RecentTaskInfo> tasks = loadPlan.getRawTasks();
-                        for (int i = tasks.size() - 1; i >= 0; i--) {
-                            ActivityManager.RecentTaskInfo task = tasks.get(i);
-                            if (currentTime <= task.lastActiveTime && task.lastActiveTime <
-                                    oldLastStackActiveTime) {
-                                Recents.getSystemServices().removeTask(task.persistentId);
-                            }
-                        }
-                        Prefs.putLong(RecentsActivity.this,
-                                Prefs.Key.OVERVIEW_LAST_STACK_TASK_ACTIVE_TIME, currentTime);
-                    }
-                }
+            } else if (action.equals(Intent.ACTION_USER_SWITCHED)) {
+                // When switching users, dismiss Recents to Home similar to screen off
+                finish();
             }
         }
     };
@@ -210,6 +211,15 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
                 public boolean onPreDraw() {
                     mRecentsView.getViewTreeObserver().removeOnPreDrawListener(this);
                     EventBus.getDefault().post(new RecentsDrawnEvent());
+                    if (LatencyTracker.isEnabled(getApplicationContext())) {
+                        DejankUtils.postAfterTraversal(() -> LatencyTracker.getInstance(
+                                getApplicationContext()).onActionEnd(
+                                LatencyTracker.ACTION_TOGGLE_RECENTS));
+                    }
+                    DejankUtils.postAfterTraversal(() -> {
+                        Recents.getTaskLoader().startLoader(RecentsActivity.this);
+                        Recents.getTaskLoader().getHighResThumbnailLoader().setVisible(true);
+                    });
                     return true;
                 }
             };
@@ -273,8 +283,7 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
                 new DismissRecentsToHomeAnimationStarted(animateTaskViews);
         dismissEvent.addPostAnimationCallback(new LaunchHomeRunnable(mHomeIntent,
                 overrideAnimation));
-        Recents.getSystemServices().sendCloseSystemWindows(
-                BaseStatusBar.SYSTEM_DIALOG_REASON_HOME_KEY);
+        ActivityManagerWrapper.getInstance().closeSystemWindows(SYSTEM_DIALOG_REASON_HOME_KEY);
         EventBus.getDefault().send(dismissEvent);
     }
 
@@ -308,33 +317,32 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
         EventBus.getDefault().register(this, EVENT_BUS_PRIORITY);
 
         // Initialize the package monitor
-        mPackageMonitor = new RecentsPackageMonitor();
-        mPackageMonitor.register(this);
+        mPackageMonitor.register(this, Looper.getMainLooper(), UserHandle.ALL,
+                true /* externalStorage */);
+
+        // Select theme based on wallpaper colors
+        mColorExtractor = Dependency.get(SysuiColorExtractor.class);
+        mColorExtractor.addOnColorsChangedListener(this);
+        mUsingDarkText = mColorExtractor.getColors(ColorExtractor.TYPE_DARK,
+                WallpaperManager.FLAG_SYSTEM, true).supportsDarkText();
+        setTheme(mUsingDarkText ? R.style.RecentsTheme_Wallpaper_Light
+                : R.style.RecentsTheme_Wallpaper);
 
         // Set the Recents layout
         setContentView(R.layout.recents);
         takeKeyEvents(true);
-        mRecentsView = (RecentsView) findViewById(R.id.recents_view);
-        mRecentsView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
-                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
-                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        mRecentsView = findViewById(R.id.recents_view);
         mScrimViews = new SystemBarScrimViews(this);
         getWindow().getAttributes().privateFlags |=
                 WindowManager.LayoutParams.PRIVATE_FLAG_FORCE_DECOR_VIEW_VISIBILITY;
+        if (Recents.getConfiguration().isLowRamDevice) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        }
 
-        Configuration appConfiguration = Utilities.getAppConfiguration(this);
-        mLastDeviceOrientation = appConfiguration.orientation;
-        mLastDisplayDensity = appConfiguration.densityDpi;
-        mFocusTimerDuration = getResources().getInteger(R.integer.recents_auto_advance_duration);
-        mIterateTrigger = new DozeTrigger(mFocusTimerDuration, new Runnable() {
-            @Override
-            public void run() {
-                dismissRecentsToFocusedTask(MetricsEvent.OVERVIEW_SELECT_TIMEOUT);
-            }
-        });
+        mLastConfig = new Configuration(Utilities.getAppConfiguration(this));
 
         // Set the window background
-        getWindow().setBackgroundDrawable(mRecentsView.getBackgroundScrim());
+        mRecentsView.updateBackgroundScrim(getWindow(), isInMultiWindowMode());
 
         // Create the home intent runnable
         mHomeIntent = new Intent(Intent.ACTION_MAIN, null);
@@ -345,34 +353,63 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
         // Register the broadcast receiver to handle messages when the screen is turned off
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_SCREEN_OFF);
-        filter.addAction(Intent.ACTION_TIME_CHANGED);
+        filter.addAction(Intent.ACTION_USER_SWITCHED);
         registerReceiver(mSystemBroadcastReceiver, filter);
 
         getWindow().addPrivateFlags(LayoutParams.PRIVATE_FLAG_NO_MOVE_ANIMATION);
-
-        // Reload the stack view
-        reloadStackView();
     }
 
     @Override
     protected void onStart() {
         super.onStart();
 
+        // Reload the stack view whenever we are made visible again
+        reloadStackView();
+
         // Notify that recents is now visible
         EventBus.getDefault().send(new RecentsVisibilityChangedEvent(this, true));
         MetricsLogger.visible(this, MetricsEvent.OVERVIEW_ACTIVITY);
 
+        // Getting system scrim colors ignoring wallpaper visibility since it should never be grey.
+        ColorExtractor.GradientColors systemColors = mColorExtractor.getColors(
+                ColorExtractor.TYPE_DARK, WallpaperManager.FLAG_SYSTEM, true);
+        // We don't want to interpolate colors because we're defining the initial state.
+        // Gradient should be set/ready when you open "Recents".
+        mRecentsView.setScrimColors(systemColors, false);
+
         // Notify of the next draw
         mRecentsView.getViewTreeObserver().addOnPreDrawListener(mRecentsDrawnEventListener);
+
+        // If Recents was restarted, then it should complete the enter animation with partially
+        // reset launch state with dock, app and home set to false
+        Object isRelaunching = getLastNonConfigurationInstance();
+        if (isRelaunching != null && isRelaunching instanceof Boolean && (boolean) isRelaunching) {
+            RecentsActivityLaunchState launchState = Recents.getConfiguration().getLaunchState();
+            launchState.launchedViaDockGesture = false;
+            launchState.launchedFromApp = false;
+            launchState.launchedFromHome = false;
+            onEnterAnimationComplete();
+        }
+        mRecentsStartRequested = false;
     }
 
     @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        mReceivedNewIntent = true;
-
-        // Reload the stack view
-        reloadStackView();
+    public void onColorsChanged(ColorExtractor colorExtractor, int which) {
+        if ((which & WallpaperManager.FLAG_SYSTEM) != 0) {
+            // Recents doesn't care about the wallpaper being visible or not, it always
+            // wants to scrim with wallpaper colors
+            ColorExtractor.GradientColors colors = mColorExtractor.getColors(
+                    WallpaperManager.FLAG_SYSTEM,
+                    ColorExtractor.TYPE_DARK, true /* ignoreVis */);
+            boolean darkText = colors.supportsDarkText();
+            if (darkText != mUsingDarkText) {
+                mUsingDarkText = darkText;
+                setTheme(mUsingDarkText ? R.style.RecentsTheme_Wallpaper_Light
+                        : R.style.RecentsTheme_Wallpaper);
+                mRecentsView.reevaluateStyles();
+            }
+            mRecentsView.setScrimColors(colors, true /* animated */);
+        }
     }
 
     /**
@@ -384,25 +421,23 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
         RecentsTaskLoader loader = Recents.getTaskLoader();
         RecentsTaskLoadPlan loadPlan = RecentsImpl.consumeInstanceLoadPlan();
         if (loadPlan == null) {
-            loadPlan = loader.createLoadPlan(this);
+            loadPlan = new RecentsTaskLoadPlan(this);
         }
 
         // Start loading tasks according to the load plan
         RecentsConfiguration config = Recents.getConfiguration();
         RecentsActivityLaunchState launchState = config.getLaunchState();
         if (!loadPlan.hasTasks()) {
-            loader.preloadTasks(loadPlan, launchState.launchedToTaskId,
-                    !launchState.launchedFromHome);
+            loader.preloadTasks(loadPlan, launchState.launchedToTaskId);
         }
 
         RecentsTaskLoadPlan.Options loadOpts = new RecentsTaskLoadPlan.Options();
         loadOpts.runningTaskId = launchState.launchedToTaskId;
         loadOpts.numVisibleTasks = launchState.launchedNumVisibleTasks;
         loadOpts.numVisibleTaskThumbnails = launchState.launchedNumVisibleThumbnails;
-        loader.loadTasks(this, loadPlan, loadOpts);
+        loader.loadTasks(loadPlan, loadOpts);
         TaskStack stack = loadPlan.getTaskStack();
-        mRecentsView.onReload(mIsVisible, stack.getTaskCount() == 0);
-        mRecentsView.updateStack(stack, true /* setStackViewTasks */);
+        mRecentsView.onReload(stack, mIsVisible);
 
         // Update the nav bar scrim, but defer the animation until the enter-window event
         boolean animateNavBarScrim = !launchState.launchedViaDockGesture;
@@ -427,7 +462,7 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
         if (launchState.launchedFromApp) {
             Task launchTarget = stack.getLaunchTarget();
             int launchTaskIndexInStack = launchTarget != null
-                    ? stack.indexOfStackTask(launchTarget)
+                    ? stack.indexOfTask(launchTarget)
                     : 0;
             MetricsLogger.count(this, "overview_source_app", 1);
             // If from an app, track the stack index of the app in the stack (for affiliated tasks)
@@ -447,16 +482,17 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
     @Override
     public void onEnterAnimationComplete() {
         super.onEnterAnimationComplete();
+        EventBus.getDefault().send(new EnterRecentsWindowAnimationCompletedEvent());
 
-        // Workaround for b/28705801, on first docking, we may receive the enter animation callback
-        // before the first layout, so in such cases, send the event on the next frame after all
-        // the views are laid out and attached (and registered to the EventBus).
-        mHandler.removeCallbacks(mSendEnterWindowAnimationCompleteRunnable);
-        if (!mReceivedNewIntent) {
-            mHandler.post(mSendEnterWindowAnimationCompleteRunnable);
-        } else {
-            mSendEnterWindowAnimationCompleteRunnable.run();
-        }
+        // Workaround for b/64694148: The animation started callback is not made (see
+        // RecentsImpl.getThumbnailTransitionActivityOptions) so reset the transition-waiting state
+        // once the enter animation has completed.
+        EventBus.getDefault().send(new SetWaitingForTransitionStartEvent(false));
+    }
+
+    @Override
+    public Object onRetainNonConfigurationInstance() {
+        return true;
     }
 
     @Override
@@ -464,7 +500,6 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
         super.onPause();
 
         mIgnoreAltTabRelease = false;
-        mIterateTrigger.stopDozing();
     }
 
     @Override
@@ -473,40 +508,26 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
 
         // Notify of the config change
         Configuration newDeviceConfiguration = Utilities.getAppConfiguration(this);
-        int numStackTasks = mRecentsView.getStack().getStackTaskCount();
+        int numStackTasks = mRecentsView.getStack().getTaskCount();
         EventBus.getDefault().send(new ConfigurationChangedEvent(false /* fromMultiWindow */,
-                mLastDeviceOrientation != newDeviceConfiguration.orientation,
-                mLastDisplayDensity != newDeviceConfiguration.densityDpi, numStackTasks > 0));
-        mLastDeviceOrientation = newDeviceConfiguration.orientation;
-        mLastDisplayDensity = newDeviceConfiguration.densityDpi;
+                mLastConfig.orientation != newDeviceConfiguration.orientation,
+                mLastConfig.densityDpi != newDeviceConfiguration.densityDpi, numStackTasks > 0));
+
+        mLastConfig.updateFrom(newDeviceConfiguration);
     }
 
     @Override
     public void onMultiWindowModeChanged(boolean isInMultiWindowMode) {
         super.onMultiWindowModeChanged(isInMultiWindowMode);
 
-        // Reload the task stack completely
-        RecentsConfiguration config = Recents.getConfiguration();
-        RecentsActivityLaunchState launchState = config.getLaunchState();
-        RecentsTaskLoader loader = Recents.getTaskLoader();
-        RecentsTaskLoadPlan loadPlan = loader.createLoadPlan(this);
-        loader.preloadTasks(loadPlan, -1 /* runningTaskId */,
-                false /* includeFrontMostExcludedTask */);
+        // Set the window background
+        mRecentsView.updateBackgroundScrim(getWindow(), isInMultiWindowMode);
 
-        RecentsTaskLoadPlan.Options loadOpts = new RecentsTaskLoadPlan.Options();
-        loadOpts.numVisibleTasks = launchState.launchedNumVisibleTasks;
-        loadOpts.numVisibleTaskThumbnails = launchState.launchedNumVisibleThumbnails;
-        loader.loadTasks(this, loadPlan, loadOpts);
-
-        TaskStack stack = loadPlan.getTaskStack();
-        int numStackTasks = stack.getStackTaskCount();
-        boolean showDeferredAnimation = numStackTasks > 0;
-
-        EventBus.getDefault().send(new ConfigurationChangedEvent(true /* fromMultiWindow */,
-                false /* fromDeviceOrientationChange */, false /* fromDisplayDensityChange */,
-                numStackTasks > 0));
-        EventBus.getDefault().send(new MultiWindowStateChangedEvent(isInMultiWindowMode,
-                showDeferredAnimation, stack));
+        // Reload the task stack view if we are still visible to pick up the change in tasks that
+        // result from entering/exiting multi-window
+        if (mIsVisible) {
+            reloadTaskStack(isInMultiWindowMode, true /* sendConfigChangedEvent */);
+        }
     }
 
     @Override
@@ -515,16 +536,23 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
 
         // Notify that recents is now hidden
         mIsVisible = false;
-        mReceivedNewIntent = false;
         EventBus.getDefault().send(new RecentsVisibilityChangedEvent(this, false));
         MetricsLogger.hidden(this, MetricsEvent.OVERVIEW_ACTIVITY);
+        Recents.getTaskLoader().getHighResThumbnailLoader().setVisible(false);
 
-        // Workaround for b/22542869, if the RecentsActivity is started again, but without going
-        // through SystemUI, we need to reset the config launch flags to ensure that we do not
-        // wait on the system to send a signal that was never queued.
-        RecentsConfiguration config = Recents.getConfiguration();
-        RecentsActivityLaunchState launchState = config.getLaunchState();
-        launchState.reset();
+        // When recents starts again before onStop, do not reset launch flags so entrance animation
+        // can run
+        if (!isChangingConfigurations() && !mRecentsStartRequested) {
+            // Workaround for b/22542869, if the RecentsActivity is started again, but without going
+            // through SystemUI, we need to reset the config launch flags to ensure that we do not
+            // wait on the system to send a signal that was never queued.
+            RecentsConfiguration config = Recents.getConfiguration();
+            RecentsActivityLaunchState launchState = config.getLaunchState();
+            launchState.reset();
+        }
+
+        // Force a gc to attempt to clean up bitmap references more quickly (b/38258699)
+        Recents.getSystemServices().gc();
     }
 
     @Override
@@ -578,8 +606,7 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
                     if (backward) {
                         EventBus.getDefault().send(new FocusPreviousTaskViewEvent());
                     } else {
-                        EventBus.getDefault().send(
-                                new FocusNextTaskViewEvent(0 /* timerIndicatorDuration */));
+                        EventBus.getDefault().send(new FocusNextTaskViewEvent());
                     }
                     mLastTabKeyEventTime = SystemClock.elapsedRealtime();
 
@@ -590,13 +617,12 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
                 }
                 return true;
             }
-            case KeyEvent.KEYCODE_DPAD_UP: {
-                EventBus.getDefault().send(
-                        new FocusNextTaskViewEvent(0 /* timerIndicatorDuration */));
-                return true;
-            }
-            case KeyEvent.KEYCODE_DPAD_DOWN: {
-                EventBus.getDefault().send(new FocusPreviousTaskViewEvent());
+            case KeyEvent.KEYCODE_DPAD_UP:
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT: {
+                final Direction direction = NavigateTaskViewEvent.getDirectionFromKeyCode(keyCode);
+                EventBus.getDefault().send(new NavigateTaskViewEvent(direction));
                 return true;
             }
             case KeyEvent.KEYCODE_DEL:
@@ -638,32 +664,8 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
         }
     }
 
-    public final void onBusEvent(IterateRecentsEvent event) {
-        final RecentsDebugFlags debugFlags = Recents.getDebugFlags();
-
-        // Start dozing after the recents button is clicked
-        int timerIndicatorDuration = 0;
-        if (debugFlags.isFastToggleRecentsEnabled()) {
-            timerIndicatorDuration = getResources().getInteger(
-                    R.integer.recents_subsequent_auto_advance_duration);
-
-            mIterateTrigger.setDozeDuration(timerIndicatorDuration);
-            if (!mIterateTrigger.isDozing()) {
-                mIterateTrigger.startDozing();
-            } else {
-                mIterateTrigger.poke();
-            }
-        }
-
-        // Focus the next task
-        EventBus.getDefault().send(new FocusNextTaskViewEvent(timerIndicatorDuration));
-
-        MetricsLogger.action(this, MetricsEvent.ACTION_OVERVIEW_PAGE);
-    }
-
-    public final void onBusEvent(UserInteractionEvent event) {
-        // Stop the fast-toggle dozer
-        mIterateTrigger.stopDozing();
+    public final void onBusEvent(RecentsActivityStartingEvent event) {
+        mRecentsStartRequested = true;
     }
 
     public final void onBusEvent(HideRecentsEvent event) {
@@ -683,15 +685,11 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
     }
 
     public final void onBusEvent(EnterRecentsWindowLastAnimationFrameEvent event) {
-        EventBus.getDefault().send(new UpdateFreeformTaskViewVisibilityEvent(true));
         mRecentsView.getViewTreeObserver().addOnPreDrawListener(this);
         mRecentsView.invalidate();
     }
 
     public final void onBusEvent(ExitRecentsWindowFirstAnimationFrameEvent event) {
-        if (mRecentsView.isLastTaskLaunchedFreeform()) {
-            EventBus.getDefault().send(new UpdateFreeformTaskViewVisibilityEvent(false));
-        }
         mRecentsView.getViewTreeObserver().addOnPreDrawListener(this);
         mRecentsView.invalidate();
     }
@@ -706,9 +704,8 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
         int launchToTaskId = launchState.launchedToTaskId;
         if (launchToTaskId != -1 &&
                 (event.launchTask == null || launchToTaskId != event.launchTask.key.id)) {
-            SystemServicesProxy ssp = Recents.getSystemServices();
-            ssp.cancelWindowTransition(launchState.launchedToTaskId);
-            ssp.cancelThumbnailTransition(getTaskId());
+            ActivityManagerWrapper am = ActivityManagerWrapper.getInstance();
+            am.cancelWindowTransition(launchState.launchedToTaskId);
         }
     }
 
@@ -755,8 +752,11 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
         loader.deleteTaskData(event.task, false);
 
         // Remove the task from activity manager
-        SystemServicesProxy ssp = Recents.getSystemServices();
-        ssp.removeTask(event.task.key.id);
+        ActivityManagerWrapper.getInstance().removeTask(event.task.key.id);
+    }
+
+    public final void onBusEvent(TaskViewDismissedEvent event) {
+        mRecentsView.updateScrimOpacity();
     }
 
     public final void onBusEvent(AllTaskViewsDismissedEvent event) {
@@ -787,11 +787,6 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
         MetricsLogger.count(this, "overview_screen_pinned", 1);
     }
 
-    public final void onBusEvent(DebugFlagsChangedEvent event) {
-        // Just finish recents so that we can reload the flags anew on the next instantiation
-        finish();
-    }
-
     public final void onBusEvent(StackViewScrolledEvent event) {
         // Once the user has scrolled while holding alt-tab, then we should ignore the release of
         // the key
@@ -803,18 +798,49 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
         mRecentsView.invalidate();
     }
 
+    public final void onBusEvent(final ActivityUnpinnedEvent event) {
+        if (mIsVisible) {
+            // Skip the configuration change event as the PiP activity does not actually affect the
+            // config of recents
+            reloadTaskStack(isInMultiWindowMode(), false /* sendConfigChangedEvent */);
+        }
+    }
+
+    private void reloadTaskStack(boolean isInMultiWindowMode, boolean sendConfigChangedEvent) {
+        // Reload the task stack completely
+        RecentsConfiguration config = Recents.getConfiguration();
+        RecentsActivityLaunchState launchState = config.getLaunchState();
+        RecentsTaskLoader loader = Recents.getTaskLoader();
+        RecentsTaskLoadPlan loadPlan = new RecentsTaskLoadPlan(this);
+        loader.preloadTasks(loadPlan, -1 /* runningTaskId */);
+
+        RecentsTaskLoadPlan.Options loadOpts = new RecentsTaskLoadPlan.Options();
+        loadOpts.numVisibleTasks = launchState.launchedNumVisibleTasks;
+        loadOpts.numVisibleTaskThumbnails = launchState.launchedNumVisibleThumbnails;
+        loader.loadTasks(loadPlan, loadOpts);
+
+        TaskStack stack = loadPlan.getTaskStack();
+        int numStackTasks = stack.getTaskCount();
+        boolean showDeferredAnimation = numStackTasks > 0;
+
+        if (sendConfigChangedEvent) {
+            EventBus.getDefault().send(new ConfigurationChangedEvent(true /* fromMultiWindow */,
+                    false /* fromDeviceOrientationChange */, false /* fromDisplayDensityChange */,
+                    numStackTasks > 0));
+        }
+        EventBus.getDefault().send(new MultiWindowStateChangedEvent(isInMultiWindowMode,
+                showDeferredAnimation, stack));
+    }
+
     @Override
     public boolean onPreDraw() {
         mRecentsView.getViewTreeObserver().removeOnPreDrawListener(this);
-        // We post to make sure that this information is delivered after this traversals is
-        // finished.
-        mRecentsView.post(new Runnable() {
-            @Override
-            public void run() {
-                Recents.getSystemServices().endProlongedAnimations();
-            }
-        });
         return true;
+    }
+
+    public void onPackageChanged(String packageName, int userId) {
+        Recents.getTaskLoader().onPackageChanged(packageName);
+        EventBus.getDefault().send(new PackagesChangedEvent(packageName, userId));
     }
 
     @Override
@@ -824,12 +850,9 @@ public class RecentsActivity extends Activity implements ViewTreeObserver.OnPreD
         Recents.getTaskLoader().dump(prefix, writer);
 
         String id = Integer.toHexString(System.identityHashCode(this));
-        long lastStackActiveTime = Prefs.getLong(this,
-                Prefs.Key.OVERVIEW_LAST_STACK_TASK_ACTIVE_TIME, -1);
 
         writer.print(prefix); writer.print(TAG);
         writer.print(" visible="); writer.print(mIsVisible ? "Y" : "N");
-        writer.print(" lastStackTaskActiveTime="); writer.print(lastStackActiveTime);
         writer.print(" currentTime="); writer.print(System.currentTimeMillis());
         writer.print(" [0x"); writer.print(id); writer.print("]");
         writer.println();

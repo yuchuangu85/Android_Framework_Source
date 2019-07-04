@@ -30,9 +30,11 @@ import android.net.DhcpResults;
 import android.net.InterfaceConfiguration;
 import android.net.LinkAddress;
 import android.net.NetworkUtils;
+import android.net.TrafficStats;
 import android.net.metrics.IpConnectivityLog;
 import android.net.metrics.DhcpClientEvent;
 import android.net.metrics.DhcpErrorEvent;
+import android.net.util.InterfaceParams;
 import android.os.Message;
 import android.os.RemoteException;
 import android.os.ServiceManager;
@@ -40,6 +42,7 @@ import android.os.SystemClock;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.PacketSocketAddress;
+import android.util.EventLog;
 import android.util.Log;
 import android.util.SparseArray;
 import android.util.TimeUtils;
@@ -48,7 +51,6 @@ import java.io.FileDescriptor;
 import java.io.IOException;
 import java.lang.Thread;
 import java.net.Inet4Address;
-import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -185,7 +187,8 @@ public class DhcpClient extends StateMachine {
     private final String mIfaceName;
 
     private boolean mRegisteredForPreDhcpNotification;
-    private NetworkInterface mIface;
+    private InterfaceParams mIface;
+    // TODO: MacAddress-ify more of this class hierarchy.
     private byte[] mHwAddr;
     private PacketSocketAddress mInterfaceBroadcastAddr;
     private int mTransactionId;
@@ -219,8 +222,9 @@ public class DhcpClient extends StateMachine {
         return new WakeupMessage(mContext, getHandler(), cmdName, cmd);
     }
 
+    // TODO: Take an InterfaceParams instance instead of an interface name String.
     private DhcpClient(Context context, StateMachine controller, String iface) {
-        super(TAG);
+        super(TAG, controller.getHandler());
 
         mContext = context;
         mController = controller;
@@ -260,23 +264,23 @@ public class DhcpClient extends StateMachine {
     }
 
     public static DhcpClient makeDhcpClient(
-            Context context, StateMachine controller, String intf) {
-        DhcpClient client = new DhcpClient(context, controller, intf);
+            Context context, StateMachine controller, InterfaceParams ifParams) {
+        DhcpClient client = new DhcpClient(context, controller, ifParams.name);
+        client.mIface = ifParams;
         client.start();
         return client;
     }
 
     private boolean initInterface() {
-        try {
-            mIface = NetworkInterface.getByName(mIfaceName);
-            mHwAddr = mIface.getHardwareAddress();
-            mInterfaceBroadcastAddr = new PacketSocketAddress(mIface.getIndex(),
-                    DhcpPacket.ETHER_BROADCAST);
-            return true;
-        } catch(SocketException | NullPointerException e) {
-            Log.e(TAG, "Can't determine ifindex or MAC address for " + mIfaceName, e);
+        if (mIface == null) mIface = InterfaceParams.getByName(mIfaceName);
+        if (mIface == null) {
+            Log.e(TAG, "Can't determine InterfaceParams for " + mIfaceName);
             return false;
         }
+
+        mHwAddr = mIface.macAddr.toByteArray();
+        mInterfaceBroadcastAddr = new PacketSocketAddress(mIface.index, DhcpPacket.ETHER_BROADCAST);
+        return true;
     }
 
     private void startNewTransaction() {
@@ -291,7 +295,7 @@ public class DhcpClient extends StateMachine {
     private boolean initPacketSocket() {
         try {
             mPacketSock = Os.socket(AF_PACKET, SOCK_RAW, ETH_P_IP);
-            PacketSocketAddress addr = new PacketSocketAddress((short) ETH_P_IP, mIface.getIndex());
+            PacketSocketAddress addr = new PacketSocketAddress((short) ETH_P_IP, mIface.index);
             Os.bind(mPacketSock, addr);
             NetworkUtils.attachDhcpFilter(mPacketSock);
         } catch(SocketException|ErrnoException e) {
@@ -302,6 +306,7 @@ public class DhcpClient extends StateMachine {
     }
 
     private boolean initUdpSocket() {
+        final int oldTag = TrafficStats.getAndSetThreadStatsTag(TrafficStats.TAG_SYSTEM_DHCP);
         try {
             mUdpSock = Os.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
             Os.setsockoptInt(mUdpSock, SOL_SOCKET, SO_REUSEADDR, 1);
@@ -313,6 +318,8 @@ public class DhcpClient extends StateMachine {
         } catch(SocketException|ErrnoException e) {
             Log.e(TAG, "Error creating UDP socket", e);
             return false;
+        } finally {
+            TrafficStats.setThreadStatsTag(oldTag);
         }
         return true;
     }
@@ -368,6 +375,13 @@ public class DhcpClient extends StateMachine {
                     Log.e(TAG, "Can't parse packet: " + e.getMessage());
                     if (PACKET_DBG) {
                         Log.d(TAG, HexDump.dumpHexString(mPacket, 0, length));
+                    }
+                    if (e.errorCode == DhcpErrorEvent.DHCP_NO_COOKIE) {
+                        int snetTagId = 0x534e4554;
+                        String bugId = "31850211";
+                        int uid = -1;
+                        String data = DhcpPacket.ParseException.class.getName();
+                        EventLog.writeEvent(snetTagId, bugId, uid, data);
                     }
                     logError(e.errorCode);
                 }
@@ -1011,10 +1025,10 @@ public class DhcpClient extends StateMachine {
     }
 
     private void logError(int errorCode) {
-        mMetricsLog.log(new DhcpErrorEvent(mIfaceName, errorCode));
+        mMetricsLog.log(mIfaceName, new DhcpErrorEvent(errorCode));
     }
 
     private void logState(String name, int durationMs) {
-        mMetricsLog.log(new DhcpClientEvent(mIfaceName, name, durationMs));
+        mMetricsLog.log(mIfaceName, new DhcpClientEvent(name, durationMs));
     }
 }

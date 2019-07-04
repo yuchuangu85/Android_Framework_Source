@@ -22,7 +22,7 @@ import android.util.Slog;
  * Determines the importance of the given notification.
  */
 public class ImportanceExtractor implements NotificationSignalExtractor {
-    private static final String TAG = "ImportantTopicExtractor";
+    private static final String TAG = "ImportanceExtractor";
     private static final boolean DBG = false;
 
     private RankingConfig mConfig;
@@ -41,9 +41,7 @@ public class ImportanceExtractor implements NotificationSignalExtractor {
             if (DBG) Slog.d(TAG, "missing config");
             return null;
         }
-
-        record.setUserImportance(
-                mConfig.getImportance(record.sbn.getPackageName(), record.sbn.getUid()));
+        record.setUserImportance(record.getChannel().getImportance());
 
         return null;
     }
@@ -51,5 +49,10 @@ public class ImportanceExtractor implements NotificationSignalExtractor {
     @Override
     public void setConfig(RankingConfig config) {
         mConfig = config;
+    }
+
+    @Override
+    public void setZenHelper(ZenModeHelper helper) {
+
     }
 }

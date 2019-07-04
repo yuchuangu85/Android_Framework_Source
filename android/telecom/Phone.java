@@ -17,7 +17,9 @@
 package android.telecom;
 
 import android.annotation.SystemApi;
+import android.bluetooth.BluetoothDevice;
 import android.os.Bundle;
+import android.os.RemoteException;
 import android.util.ArrayMap;
 
 import java.util.Collections;
@@ -125,13 +127,22 @@ public final class Phone {
 
     private boolean mCanAddCall = true;
 
-    Phone(InCallAdapter adapter) {
+    private final String mCallingPackage;
+
+    /**
+     * The Target SDK version of the InCallService implementation.
+     */
+    private final int mTargetSdkVersion;
+
+    Phone(InCallAdapter adapter, String callingPackage, int targetSdkVersion) {
         mInCallAdapter = adapter;
+        mCallingPackage = callingPackage;
+        mTargetSdkVersion = targetSdkVersion;
     }
 
     final void internalAddCall(ParcelableCall parcelableCall) {
         Call call = new Call(this, parcelableCall.getId(), mInCallAdapter,
-                parcelableCall.getState());
+                parcelableCall.getState(), mCallingPackage, mTargetSdkVersion);
         mCallByTelecomCallId.put(parcelableCall.getId(), call);
         mCalls.add(call);
         checkCallTree(parcelableCall);
@@ -195,6 +206,34 @@ public final class Phone {
         Call call = mCallByTelecomCallId.get(telecomId);
         if (call != null) {
             call.internalOnConnectionEvent(event, extras);
+        }
+    }
+
+    final void internalOnRttUpgradeRequest(String callId, int requestId) {
+        Call call = mCallByTelecomCallId.get(callId);
+        if (call != null) {
+            call.internalOnRttUpgradeRequest(requestId);
+        }
+    }
+
+    final void internalOnRttInitiationFailure(String callId, int reason) {
+        Call call = mCallByTelecomCallId.get(callId);
+        if (call != null) {
+            call.internalOnRttInitiationFailure(reason);
+        }
+    }
+
+    final void internalOnHandoverFailed(String callId, int error) {
+        Call call = mCallByTelecomCallId.get(callId);
+        if (call != null) {
+            call.internalOnHandoverFailed(error);
+        }
+    }
+
+    final void internalOnHandoverComplete(String callId) {
+        Call call = mCallByTelecomCallId.get(callId);
+        if (call != null) {
+            call.internalOnHandoverComplete();
         }
     }
 
@@ -269,6 +308,18 @@ public final class Phone {
      */
     public final void setAudioRoute(int route) {
         mInCallAdapter.setAudioRoute(route);
+    }
+
+    /**
+     * Request audio routing to a specific bluetooth device. Calling this method may result in
+     * the device routing audio to a different bluetooth device than the one specified. A list of
+     * available devices can be obtained via {@link CallAudioState#getSupportedBluetoothDevices()}
+     *
+     * @param bluetoothAddress The address of the bluetooth device to connect to, as returned by
+     * {@link BluetoothDevice#getAddress()}, or {@code null} if no device is preferred.
+     */
+    public void requestBluetoothAudio(String bluetoothAddress) {
+        mInCallAdapter.requestBluetoothAudio(bluetoothAddress);
     }
 
     /**

@@ -18,9 +18,12 @@ package android.media.projection;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SystemService;
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.media.projection.IMediaProjection;
 import android.os.Handler;
 import android.os.IBinder;
@@ -33,14 +36,8 @@ import java.util.Map;
 
 /**
  * Manages the retrieval of certain types of {@link MediaProjection} tokens.
- *
- * <p>
- * Get an instance of this class by calling {@link
- * android.content.Context#getSystemService(java.lang.String)
- * Context.getSystemService()} with the argument {@link
- * android.content.Context#MEDIA_PROJECTION_SERVICE}.
- * </p>
  */
+@SystemService(Context.MEDIA_PROJECTION_SERVICE)
 public final class MediaProjectionManager {
     private static final String TAG = "MediaProjectionManager";
     /** @hide */
@@ -76,8 +73,11 @@ public final class MediaProjectionManager {
      */
     public Intent createScreenCaptureIntent() {
         Intent i = new Intent();
-        i.setClassName("com.android.systemui",
-                "com.android.systemui.media.MediaProjectionPermissionActivity");
+        final ComponentName mediaProjectionPermissionDialogComponent =
+                ComponentName.unflattenFromString(mContext.getResources().getString(
+                        com.android.internal.R.string
+                        .config_mediaProjectionPermissionDialogComponent));
+        i.setComponent(mediaProjectionPermissionDialogComponent);
         return i;
     }
 

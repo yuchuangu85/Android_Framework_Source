@@ -27,6 +27,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
+import android.graphics.ImageDecoder;
 import android.graphics.Insets;
 import android.graphics.Matrix;
 import android.graphics.Outline;
@@ -41,6 +42,7 @@ import android.graphics.Xfermode;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.LayoutDirection;
+import android.util.TypedValue;
 import android.view.Gravity;
 
 import com.android.internal.R;
@@ -48,8 +50,9 @@ import com.android.internal.R;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
+import java.io.FileInputStream;
 import java.io.IOException;
-import java.util.Collection;
+import java.io.InputStream;
 
 /**
  * A Drawable that wraps a bitmap and can be tiled, stretched, or aligned. You can create a
@@ -110,7 +113,7 @@ public class BitmapDrawable extends Drawable {
      */
     @Deprecated
     public BitmapDrawable() {
-        mBitmapState = new BitmapState((Bitmap) null);
+        init(new BitmapState((Bitmap) null), null);
     }
 
     /**
@@ -123,8 +126,7 @@ public class BitmapDrawable extends Drawable {
     @SuppressWarnings("unused")
     @Deprecated
     public BitmapDrawable(Resources res) {
-        mBitmapState = new BitmapState((Bitmap) null);
-        mBitmapState.mTargetDensity = mTargetDensity;
+        init(new BitmapState((Bitmap) null), res);
     }
 
     /**
@@ -134,7 +136,7 @@ public class BitmapDrawable extends Drawable {
      */
     @Deprecated
     public BitmapDrawable(Bitmap bitmap) {
-        this(new BitmapState(bitmap), null);
+        init(new BitmapState(bitmap), null);
     }
 
     /**
@@ -142,8 +144,7 @@ public class BitmapDrawable extends Drawable {
      * the display metrics of the resources.
      */
     public BitmapDrawable(Resources res, Bitmap bitmap) {
-        this(new BitmapState(bitmap), res);
-        mBitmapState.mTargetDensity = mTargetDensity;
+        init(new BitmapState(bitmap), res);
     }
 
     /**
@@ -153,21 +154,29 @@ public class BitmapDrawable extends Drawable {
      */
     @Deprecated
     public BitmapDrawable(String filepath) {
-        this(new BitmapState(BitmapFactory.decodeFile(filepath)), null);
-        if (mBitmapState.mBitmap == null) {
-            android.util.Log.w("BitmapDrawable", "BitmapDrawable cannot decode " + filepath);
-        }
+        this(null, filepath);
     }
 
     /**
      * Create a drawable by opening a given file path and decoding the bitmap.
      */
-    @SuppressWarnings("unused")
+    @SuppressWarnings({ "unused", "ChainingConstructorIgnoresParameter" })
     public BitmapDrawable(Resources res, String filepath) {
-        this(new BitmapState(BitmapFactory.decodeFile(filepath)), null);
-        mBitmapState.mTargetDensity = mTargetDensity;
-        if (mBitmapState.mBitmap == null) {
-            android.util.Log.w("BitmapDrawable", "BitmapDrawable cannot decode " + filepath);
+        Bitmap bitmap = null;
+        try (FileInputStream stream = new FileInputStream(filepath)) {
+            bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(res, stream),
+                    (decoder, info, src) -> {
+                decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+            });
+        } catch (Exception e) {
+            /*  do nothing. This matches the behavior of BitmapFactory.decodeFile()
+                If the exception happened on decode, mBitmapState.mBitmap will be null.
+            */
+        } finally {
+            init(new BitmapState(bitmap), res);
+            if (mBitmapState.mBitmap == null) {
+                android.util.Log.w("BitmapDrawable", "BitmapDrawable cannot decode " + filepath);
+            }
         }
     }
 
@@ -178,21 +187,29 @@ public class BitmapDrawable extends Drawable {
      */
     @Deprecated
     public BitmapDrawable(java.io.InputStream is) {
-        this(new BitmapState(BitmapFactory.decodeStream(is)), null);
-        if (mBitmapState.mBitmap == null) {
-            android.util.Log.w("BitmapDrawable", "BitmapDrawable cannot decode " + is);
-        }
+        this(null, is);
     }
 
     /**
      * Create a drawable by decoding a bitmap from the given input stream.
      */
-    @SuppressWarnings("unused")
+    @SuppressWarnings({ "unused", "ChainingConstructorIgnoresParameter" })
     public BitmapDrawable(Resources res, java.io.InputStream is) {
-        this(new BitmapState(BitmapFactory.decodeStream(is)), null);
-        mBitmapState.mTargetDensity = mTargetDensity;
-        if (mBitmapState.mBitmap == null) {
-            android.util.Log.w("BitmapDrawable", "BitmapDrawable cannot decode " + is);
+        Bitmap bitmap = null;
+        try {
+            bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(res, is),
+                    (decoder, info, src) -> {
+                decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+            });
+        } catch (Exception e) {
+            /*  do nothing. This matches the behavior of BitmapFactory.decodeStream()
+                If the exception happened on decode, mBitmapState.mBitmap will be null.
+            */
+        } finally {
+            init(new BitmapState(bitmap), res);
+            if (mBitmapState.mBitmap == null) {
+                android.util.Log.w("BitmapDrawable", "BitmapDrawable cannot decode " + is);
+            }
         }
     }
 
@@ -738,13 +755,19 @@ public class BitmapDrawable extends Drawable {
                 || super.isStateful();
     }
 
+    /** @hide */
+    @Override
+    public boolean hasFocusStateSpecified() {
+        return mBitmapState.mTint != null && mBitmapState.mTint.hasFocusStateSpecified();
+    }
+
     @Override
     public void inflate(Resources r, XmlPullParser parser, AttributeSet attrs, Theme theme)
             throws XmlPullParserException, IOException {
         super.inflate(r, parser, attrs, theme);
 
         final TypedArray a = obtainAttributes(r, theme, attrs, R.styleable.BitmapDrawable);
-        updateStateFromTypedArray(a);
+        updateStateFromTypedArray(a, mSrcDensityOverride);
         verifyRequiredAttributes(a);
         a.recycle();
 
@@ -770,7 +793,8 @@ public class BitmapDrawable extends Drawable {
     /**
      * Updates the constant state from the values in the typed array.
      */
-    private void updateStateFromTypedArray(TypedArray a) throws XmlPullParserException {
+    private void updateStateFromTypedArray(TypedArray a, int srcDensityOverride)
+            throws XmlPullParserException {
         final Resources r = a.getResources();
         final BitmapState state = mBitmapState;
 
@@ -780,9 +804,47 @@ public class BitmapDrawable extends Drawable {
         // Extract the theme attributes, if any.
         state.mThemeAttrs = a.extractThemeAttrs();
 
+        state.mSrcDensityOverride = srcDensityOverride;
+
+        state.mTargetDensity = Drawable.resolveDensity(r, 0);
+
         final int srcResId = a.getResourceId(R.styleable.BitmapDrawable_src, 0);
         if (srcResId != 0) {
-            final Bitmap bitmap = BitmapFactory.decodeResource(r, srcResId);
+            final TypedValue value = new TypedValue();
+            r.getValueForDensity(srcResId, srcDensityOverride, value, true);
+
+            // Pretend the requested density is actually the display density. If
+            // the drawable returned is not the requested density, then force it
+            // to be scaled later by dividing its density by the ratio of
+            // requested density to actual device density. Drawables that have
+            // undefined density or no density don't need to be handled here.
+            if (srcDensityOverride > 0 && value.density > 0
+                    && value.density != TypedValue.DENSITY_NONE) {
+                if (value.density == srcDensityOverride) {
+                    value.density = r.getDisplayMetrics().densityDpi;
+                } else {
+                    value.density =
+                            (value.density * r.getDisplayMetrics().densityDpi) / srcDensityOverride;
+                }
+            }
+
+            int density = Bitmap.DENSITY_NONE;
+            if (value.density == TypedValue.DENSITY_DEFAULT) {
+                density = DisplayMetrics.DENSITY_DEFAULT;
+            } else if (value.density != TypedValue.DENSITY_NONE) {
+                density = value.density;
+            }
+
+            Bitmap bitmap = null;
+            try (InputStream is = r.openRawResource(srcResId, value)) {
+                ImageDecoder.Source source = ImageDecoder.createSource(r, is, density);
+                bitmap = ImageDecoder.decodeBitmap(source, (decoder, info, src) -> {
+                    decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                });
+            } catch (Exception e) {
+                // Do nothing and pick up the error below.
+            }
+
             if (bitmap == null) {
                 throw new XmlPullParserException(a.getPositionDescription() +
                         ": <bitmap> requires a valid 'src' attribute");
@@ -790,8 +852,6 @@ public class BitmapDrawable extends Drawable {
 
             state.mBitmap = bitmap;
         }
-
-        state.mTargetDensity = r.getDisplayMetrics().densityDpi;
 
         final boolean defMipMap = state.mBitmap != null ? state.mBitmap.hasMipMap() : false;
         setMipMap(a.getBoolean(R.styleable.BitmapDrawable_mipMap, defMipMap));
@@ -834,8 +894,6 @@ public class BitmapDrawable extends Drawable {
         if (tileModeY != TILE_MODE_UNDEFINED) {
             setTileModeY(parseTileMode(tileModeY));
         }
-
-        state.mTargetDensity = Drawable.resolveDensity(r, 0);
     }
 
     @Override
@@ -850,7 +908,7 @@ public class BitmapDrawable extends Drawable {
         if (state.mThemeAttrs != null) {
             final TypedArray a = t.resolveAttributes(state.mThemeAttrs, R.styleable.BitmapDrawable);
             try {
-                updateStateFromTypedArray(a);
+                updateStateFromTypedArray(a, state.mSrcDensityOverride);
             } catch (XmlPullParserException e) {
                 rethrowAsRuntimeException(e);
             } finally {
@@ -924,7 +982,14 @@ public class BitmapDrawable extends Drawable {
         float mBaseAlpha = 1.0f;
         Shader.TileMode mTileModeX = null;
         Shader.TileMode mTileModeY = null;
+
+        // The density to use when looking up the bitmap in Resources. A value of 0 means use
+        // the system's density.
+        int mSrcDensityOverride = 0;
+
+        // The density at which to render the bitmap.
         int mTargetDensity = DisplayMetrics.DENSITY_DEFAULT;
+
         boolean mAutoMirrored = false;
 
         @Config int mChangingConfigurations;
@@ -944,6 +1009,7 @@ public class BitmapDrawable extends Drawable {
             mGravity = bitmapState.mGravity;
             mTileModeX = bitmapState.mTileModeX;
             mTileModeY = bitmapState.mTileModeY;
+            mSrcDensityOverride = bitmapState.mSrcDensityOverride;
             mTargetDensity = bitmapState.mTargetDensity;
             mBaseAlpha = bitmapState.mBaseAlpha;
             mPaint = new Paint(bitmapState.mPaint);
@@ -954,14 +1020,6 @@ public class BitmapDrawable extends Drawable {
         @Override
         public boolean canApplyTheme() {
             return mThemeAttrs != null || mTint != null && mTint.canApplyTheme();
-        }
-
-        @Override
-        public int addAtlasableBitmaps(Collection<Bitmap> atlasList) {
-            if (isAtlasable(mBitmap) && atlasList.add(mBitmap)) {
-                return mBitmap.getWidth() * mBitmap.getHeight();
-            }
-            return 0;
         }
 
         @Override
@@ -981,14 +1039,21 @@ public class BitmapDrawable extends Drawable {
         }
     }
 
+    private BitmapDrawable(BitmapState state, Resources res) {
+        init(state, res);
+    }
+
     /**
-     * The one constructor to rule them all. This is called by all public
+     * The one helper to rule them all. This is called by all public & private
      * constructors to set the state and initialize local properties.
      */
-    private BitmapDrawable(BitmapState state, Resources res) {
+    private void init(BitmapState state, Resources res) {
         mBitmapState = state;
-
         updateLocalState(res);
+
+        if (mBitmapState != null && res != null) {
+            mBitmapState.mTargetDensity = mTargetDensity;
+        }
     }
 
     /**

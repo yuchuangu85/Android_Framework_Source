@@ -23,6 +23,7 @@ import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.Interpolator;
 
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
@@ -34,7 +35,8 @@ import java.util.Stack;
 /**
  * A view that can be transformed to and from.
  */
-public class ViewTransformationHelper implements TransformableView {
+public class ViewTransformationHelper implements TransformableView,
+        TransformState.TransformInfo {
 
     private static final int TAG_CONTAINS_TRANSFORMED_VIEW = R.id.contains_transformed_view;
 
@@ -58,7 +60,7 @@ public class ViewTransformationHelper implements TransformableView {
     public TransformState getCurrentState(int fadingView) {
         View view = mTransformedViews.get(fadingView);
         if (view != null && view.getVisibility() != View.GONE) {
-            return TransformState.createFrom(view);
+            return TransformState.createFrom(view, this);
         }
         return null;
     }
@@ -87,6 +89,7 @@ public class ViewTransformationHelper implements TransformableView {
                         endRunnable.run();
                     }
                     setVisible(false);
+                    mViewTransformationAnimation = null;
                 } else {
                     abortTransformations();
                 }
@@ -223,9 +226,6 @@ public class ViewTransformationHelper implements TransformableView {
         stack.push(viewRoot);
         while (!stack.isEmpty()) {
             View child = stack.pop();
-            if (child.getVisibility() == View.GONE) {
-                continue;
-            }
             Boolean containsView = (Boolean) child.getTag(TAG_CONTAINS_TRANSFORMED_VIEW);
             if (containsView == null) {
                 // This one is unhandled, let's add it to our list.
@@ -247,7 +247,7 @@ public class ViewTransformationHelper implements TransformableView {
     }
 
     public void resetTransformedView(View view) {
-        TransformState state = TransformState.createFrom(view);
+        TransformState state = TransformState.createFrom(view, this);
         state.setVisible(true /* visible */, true /* force */);
         state.recycle();
     }
@@ -257,6 +257,11 @@ public class ViewTransformationHelper implements TransformableView {
      */
     public ArraySet<View> getAllTransformingViews() {
         return new ArraySet<>(mTransformedViews.values());
+    }
+
+    @Override
+    public boolean isAnimating() {
+        return mViewTransformationAnimation != null && mViewTransformationAnimation.isRunning();
     }
 
     public static abstract class CustomTransformation {
@@ -297,6 +302,15 @@ public class ViewTransformationHelper implements TransformableView {
         public boolean customTransformTarget(TransformState ownState,
                 TransformState otherState) {
             return false;
+        }
+
+        /**
+         * Get a custom interpolator for this animation
+         * @param interpolationType the type of the interpolation, i.e TranslationX / TranslationY
+         * @param isFrom true if this transformation from the other view
+         */
+        public Interpolator getCustomInterpolator(int interpolationType, boolean isFrom) {
+            return null;
         }
     }
 }

@@ -27,6 +27,8 @@ public abstract class PanelBar extends FrameLayout {
     public static final boolean DEBUG = false;
     public static final String TAG = PanelBar.class.getSimpleName();
     private static final boolean SPEW = false;
+    private boolean mBouncerShowing;
+    private boolean mExpanded;
 
     public static final void LOG(String fmt, Object... args) {
         if (!DEBUG) return;
@@ -46,6 +48,10 @@ public abstract class PanelBar extends FrameLayout {
         mState = state;
     }
 
+    public int getState() {
+        return mState;
+    }
+
     public PanelBar(Context context, AttributeSet attrs) {
         super(context, attrs);
     }
@@ -61,12 +67,18 @@ public abstract class PanelBar extends FrameLayout {
     }
 
     public void setBouncerShowing(boolean showing) {
+        mBouncerShowing = showing;
         int important = showing ? IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                 : IMPORTANT_FOR_ACCESSIBILITY_AUTO;
 
         setImportantForAccessibility(important);
+        updateVisibility();
 
         if (mPanel != null) mPanel.setImportantForAccessibility(important);
+    }
+
+    private void updateVisibility() {
+        mPanel.setVisibility(mExpanded || mBouncerShowing ? VISIBLE : INVISIBLE);
     }
 
     public boolean panelEnabled() {
@@ -118,7 +130,8 @@ public abstract class PanelBar extends FrameLayout {
         boolean fullyOpened = false;
         if (SPEW) LOG("panelExpansionChanged: start state=%d", mState);
         PanelView pv = mPanel;
-        pv.setVisibility(expanded ? View.VISIBLE : View.INVISIBLE);
+        mExpanded = expanded;
+        updateVisibility();
         // adjust any other panels that may be partially visible
         if (expanded) {
             if (mState == STATE_CLOSED) {
@@ -164,6 +177,10 @@ public abstract class PanelBar extends FrameLayout {
 
     public void onPanelPeeked() {
         if (DEBUG) LOG("onPanelPeeked");
+    }
+
+    public boolean isClosed() {
+        return mState == STATE_CLOSED;
     }
 
     public void onPanelCollapsed() {

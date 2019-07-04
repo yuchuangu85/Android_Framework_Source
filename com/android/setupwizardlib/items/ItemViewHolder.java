@@ -27,7 +27,7 @@ class ItemViewHolder extends RecyclerView.ViewHolder
     private boolean mIsEnabled;
     private IItem mItem;
 
-    public ItemViewHolder(View itemView) {
+    ItemViewHolder(View itemView) {
         super(itemView);
     }
 

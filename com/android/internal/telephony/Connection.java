@@ -34,6 +34,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
  * {@hide}
  */
 public abstract class Connection {
+    private static final String TAG = "Connection";
 
     public interface PostDialListener {
         void onPostDialWait();
@@ -101,6 +102,11 @@ public abstract class Connection {
         public void onCallPullFailed(Connection externalConnection);
         public void onHandoverToWifiFailed();
         public void onConnectionEvent(String event, Bundle extras);
+        public void onRttModifyRequestReceived();
+        public void onRttModifyResponseReceived(int status);
+        public void onDisconnect(int cause);
+        public void onRttInitiated();
+        public void onRttTerminated();
     }
 
     /**
@@ -136,6 +142,16 @@ public abstract class Connection {
         public void onHandoverToWifiFailed() {}
         @Override
         public void onConnectionEvent(String event, Bundle extras) {}
+        @Override
+        public void onRttModifyRequestReceived() {}
+        @Override
+        public void onRttModifyResponseReceived(int status) {}
+        @Override
+        public void onDisconnect(int cause) {}
+        @Override
+        public void onRttInitiated() {}
+        @Override
+        public void onRttTerminated() {}
     }
 
     public static final int AUDIO_QUALITY_STANDARD = 1;
@@ -188,6 +204,7 @@ public abstract class Connection {
     private int mVideoState;
     private int mConnectionCapabilities;
     private boolean mIsWifi;
+    private boolean mAudioModeIsVoip;
     private int mAudioQuality;
     private int mCallSubstate;
     private android.telecom.Connection.VideoProvider mVideoProvider;
@@ -304,6 +321,15 @@ public abstract class Connection {
     }
 
     /**
+     * Sets the Connection connect time in {@link SystemClock#elapsedRealtime()} format.
+     *
+     * @param connectTimeReal the new connect time.
+     */
+    public void setConnectTimeReal(long connectTimeReal) {
+        mConnectTimeReal = connectTimeReal;
+    }
+
+    /**
      * Connection connect time in elapsedRealtime() format.
      * For outgoing calls: Begins at (DIALING|ALERTING) -> ACTIVE transition.
      * For incoming calls: Begins at (INCOMING|WAITING) -> ACTIVE transition.
@@ -378,6 +404,15 @@ public abstract class Connection {
      */
     public boolean isIncoming() {
         return mIsIncoming;
+    }
+
+    /**
+     * Sets whether this call is an incoming call or not.
+     * @param isIncoming {@code true} if the call is an incoming call, {@code false} if it is an
+     *                               outgoing call.
+     */
+    public void setIsIncoming(boolean isIncoming) {
+        mIsIncoming = isIncoming;
     }
 
     /**
@@ -459,6 +494,11 @@ public abstract class Connection {
     }
 
     /**
+     * Deflect individual Connection
+     */
+    public abstract void deflect(String number) throws CallStateException;
+
+    /**
      * Hangup individual Connection
      */
     public abstract void hangup() throws CallStateException;
@@ -490,7 +530,7 @@ public abstract class Connection {
         mUserData = null;
     }
 
-    public final void addPostDialListener(PostDialListener listener) {
+    public void addPostDialListener(PostDialListener listener) {
         if (!mPostDialListeners.contains(listener)) {
             mPostDialListeners.add(listener);
         }
@@ -501,7 +541,9 @@ public abstract class Connection {
     }
 
     protected final void clearPostDialListeners() {
-        mPostDialListeners.clear();
+        if (mPostDialListeners != null) {
+            mPostDialListeners.clear();
+        }
     }
 
     protected final void notifyPostDialListeners() {
@@ -624,6 +666,7 @@ public abstract class Connection {
         mOrigConnection = c.getOrigConnection();
         mPostDialString = c.mPostDialString;
         mNextPostDialChar = c.mNextPostDialChar;
+        mPostDialState = c.mPostDialState;
     }
 
     /**
@@ -631,7 +674,7 @@ public abstract class Connection {
      *
      * @param listener A listener.
      */
-    public final void addListener(Listener listener) {
+    public void addListener(Listener listener) {
         mListeners.add(listener);
     }
 
@@ -697,6 +740,15 @@ public abstract class Connection {
      */
     public boolean isWifi() {
         return mIsWifi;
+    }
+
+    /**
+     * Returns whether the connection uses voip audio mode
+     *
+     * @return {@code True} if the connection uses voip audio mode
+     */
+    public boolean getAudioModeIsVoip() {
+        return mAudioModeIsVoip;
     }
 
     /**
@@ -770,6 +822,15 @@ public abstract class Connection {
     }
 
     /**
+     * Set the voip audio mode for the connection
+     *
+     * @param isVoip {@code True} if voip audio mode is being used.
+     */
+    public void setAudioModeIsVoip(boolean isVoip) {
+        mAudioModeIsVoip = isVoip;
+    }
+
+    /**
      * Set the audio quality for the connection.
      *
      * @param audioQuality The audio quality.
@@ -790,6 +851,16 @@ public abstract class Connection {
     public void setConnectionExtras(Bundle extras) {
         if (extras != null) {
             mExtras = new Bundle(extras);
+
+            int previousCount = mExtras.size();
+            // Prevent vendors from passing in extras other than primitive types and android API
+            // parcelables.
+            mExtras = mExtras.filterValues();
+            int filteredCount = mExtras.size();
+            if (filteredCount != previousCount) {
+                Rlog.i(TAG, "setConnectionExtras: filtering " + (previousCount - filteredCount)
+                        + " invalid extras.");
+            }
         } else {
             mExtras = null;
         }
@@ -983,6 +1054,41 @@ public abstract class Connection {
      * to the local device.
      */
     public void pullExternalCall() {
+    }
+
+    public void onRttModifyRequestReceived() {
+        for (Listener l : mListeners) {
+            l.onRttModifyRequestReceived();
+        }
+    }
+
+    public void onRttModifyResponseReceived(int status) {
+        for (Listener l : mListeners) {
+            l.onRttModifyResponseReceived(status);
+        }
+    }
+
+    public void onRttInitiated() {
+        for (Listener l : mListeners) {
+            l.onRttInitiated();
+        }
+    }
+
+    public void onRttTerminated() {
+        for (Listener l : mListeners) {
+            l.onRttTerminated();
+        }
+    }
+    /**
+     * Notify interested parties that this connection disconnected.
+     * {@code TelephonyConnection}, for example, uses this.
+     * @param reason the disconnect code, per {@link DisconnectCause}.
+     */
+    protected void notifyDisconnect(int reason) {
+        Rlog.i(TAG, "notifyDisconnect: callId=" + getTelecomCallId() + ", reason=" + reason);
+        for (Listener l : mListeners) {
+            l.onDisconnect(reason);
+        }
     }
 
     /**

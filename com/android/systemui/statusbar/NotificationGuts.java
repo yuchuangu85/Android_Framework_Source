@@ -18,78 +18,98 @@ package com.android.systemui.statusbar;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
-import android.app.INotificationManager;
 import android.content.Context;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
-import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
-import android.os.RemoteException;
-import android.os.ServiceManager;
-import android.service.notification.NotificationListenerService;
-import android.service.notification.NotificationListenerService.Ranking;
-import android.service.notification.StatusBarNotification;
+import android.support.annotation.Nullable;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewAnimationUtils;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
-import android.widget.RadioButton;
-import android.widget.RadioGroup;
-import android.widget.SeekBar;
-import android.widget.TextView;
+import android.view.accessibility.AccessibilityEvent;
+import android.widget.FrameLayout;
 
-import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.MetricsProto.MetricsEvent;
-import com.android.settingslib.Utils;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.systemui.Dependency;
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.stack.StackStateAnimator;
-import com.android.systemui.tuner.TunerService;
-
-import java.util.Set;
 
 /**
  * The guts of a notification revealed when performing a long press.
  */
-public class NotificationGuts extends LinearLayout implements TunerService.Tunable {
-    public static final String SHOW_SLIDER = "show_importance_slider";
-
+public class NotificationGuts extends FrameLayout {
+    private static final String TAG = "NotificationGuts";
     private static final long CLOSE_GUTS_DELAY = 8000;
 
     private Drawable mBackground;
     private int mClipTopAmount;
+    private int mClipBottomAmount;
     private int mActualHeight;
     private boolean mExposed;
-    private INotificationManager mINotificationManager;
-    private int mStartingUserImportance;
-    private int mNotificationImportance;
-    private boolean mShowSlider;
-
-    private SeekBar mSeekBar;
-    private ImageView mAutoButton;
-    private ColorStateList mActiveSliderTint;
-    private ColorStateList mInactiveSliderTint;
-    private float mActiveSliderAlpha = 1.0f;
-    private float mInactiveSliderAlpha;
-    private TextView mImportanceSummary;
-    private TextView mImportanceTitle;
-    private boolean mAuto;
-
-    private RadioButton mBlock;
-    private RadioButton mSilent;
-    private RadioButton mReset;
 
     private Handler mHandler;
     private Runnable mFalsingCheck;
     private boolean mNeedsFalsingProtection;
-    private OnGutsClosedListener mListener;
+    private OnGutsClosedListener mClosedListener;
+    private OnHeightChangedListener mHeightListener;
+
+    private GutsContent mGutsContent;
+
+    public interface GutsContent {
+
+        public void setGutsParent(NotificationGuts listener);
+
+        /**
+         * Return the view to be shown in the notification guts.
+         */
+        public View getContentView();
+
+        /**
+         * Return the actual height of the content.
+         */
+        public int getActualHeight();
+
+        /**
+         * Called when the guts view have been told to close, typically after an outside
+         * interaction.
+         *
+         * @param save whether the state should be saved.
+         * @param force whether the guts view should be forced closed regardless of state.
+         * @return if closing the view has been handled.
+         */
+        public boolean handleCloseControls(boolean save, boolean force);
+
+        /**
+         * Return whether the notification associated with these guts is set to be removed.
+         */
+        public boolean willBeRemoved();
+
+        /**
+         * Return whether these guts are a leavebehind (e.g. {@link NotificationSnooze}).
+         */
+        public default boolean isLeavebehind() {
+            return false;
+        }
+
+        /**
+         * Return whether something changed and needs to be saved, possibly requiring a bouncer.
+         */
+        boolean shouldBeSaved();
+    }
 
     public interface OnGutsClosedListener {
         public void onGutsClosed(NotificationGuts guts);
+    }
+
+    public interface OnHeightChangedListener {
+        public void onHeightChanged(NotificationGuts guts);
+    }
+
+    interface OnSettingsClickListener {
+        void onClick(View v, int appUid);
     }
 
     public NotificationGuts(Context context, AttributeSet attrs) {
@@ -100,27 +120,27 @@ public class NotificationGuts extends LinearLayout implements TunerService.Tunab
             @Override
             public void run() {
                 if (mNeedsFalsingProtection && mExposed) {
-                    closeControls(-1 /* x */, -1 /* y */, true /* notify */);
+                    closeControls(-1 /* x */, -1 /* y */, false /* save */, false /* force */);
                 }
             }
         };
-        final TypedArray ta =
-                context.obtainStyledAttributes(attrs, com.android.internal.R.styleable.Theme, 0, 0);
-        mInactiveSliderAlpha =
-                ta.getFloat(com.android.internal.R.styleable.Theme_disabledAlpha, 0.5f);
+        final TypedArray ta = context.obtainStyledAttributes(attrs,
+                com.android.internal.R.styleable.Theme, 0, 0);
         ta.recycle();
     }
 
-    @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        TunerService.get(mContext).addTunable(this, SHOW_SLIDER);
+    public NotificationGuts(Context context) {
+        this(context, null);
     }
 
-    @Override
-    protected void onDetachedFromWindow() {
-        TunerService.get(mContext).removeTunable(this);
-        super.onDetachedFromWindow();
+    public void setGutsContent(GutsContent content) {
+        mGutsContent = content;
+        removeAllViews();
+        addView(mGutsContent.getContentView());
+    }
+
+    public GutsContent getGutsContent() {
+        return mGutsContent;
     }
 
     public void resetFalsingCheck() {
@@ -136,8 +156,10 @@ public class NotificationGuts extends LinearLayout implements TunerService.Tunab
     }
 
     private void draw(Canvas canvas, Drawable drawable) {
-        if (drawable != null) {
-            drawable.setBounds(0, mClipTopAmount, getWidth(), mActualHeight);
+        int top = mClipTopAmount;
+        int bottom = mActualHeight - mClipBottomAmount;
+        if (drawable != null && top < bottom) {
+            drawable.setBounds(0, top, getWidth(), bottom);
             drawable.draw(canvas);
         }
     }
@@ -174,252 +196,127 @@ public class NotificationGuts extends LinearLayout implements TunerService.Tunab
         }
     }
 
-    void bindImportance(final PackageManager pm, final StatusBarNotification sbn,
-            final Set<String> nonBlockablePkgs, final int importance) {
-        mINotificationManager = INotificationManager.Stub.asInterface(
-                ServiceManager.getService(Context.NOTIFICATION_SERVICE));
-        mStartingUserImportance = NotificationListenerService.Ranking.IMPORTANCE_UNSPECIFIED;
-        try {
-            mStartingUserImportance =
-                    mINotificationManager.getImportance(sbn.getPackageName(), sbn.getUid());
-        } catch (RemoteException e) {}
-        mNotificationImportance = importance;
+    public void openControls(
+            boolean shouldDoCircularReveal,
+            int x,
+            int y,
+            boolean needsFalsingProtection,
+            @Nullable Runnable onAnimationEnd) {
+        animateOpen(shouldDoCircularReveal, x, y, onAnimationEnd);
+        setExposed(true /* exposed */, needsFalsingProtection);
+    }
 
-        final View importanceSlider = findViewById(R.id.importance_slider);
-        final View importanceButtons = findViewById(R.id.importance_buttons);
-        final View cantTouchThis = findViewById(R.id.cant_silence_or_block);
-
-        final boolean essentialPackage =
-                (nonBlockablePkgs != null && nonBlockablePkgs.contains(sbn.getPackageName()));
-        if (essentialPackage) {
-            importanceButtons.setVisibility(View.GONE);
-            importanceSlider.setVisibility(View.GONE);
-            cantTouchThis.setVisibility(View.VISIBLE);
-        } else {
-            cantTouchThis.setVisibility(View.GONE);
-
-            boolean nonBlockable = false;
-            try {
-                final PackageInfo info =
-                        pm.getPackageInfo(sbn.getPackageName(), PackageManager.GET_SIGNATURES);
-                nonBlockable = Utils.isSystemPackage(getResources(), pm, info);
-            } catch (PackageManager.NameNotFoundException e) {
-                // unlikely.
-            }
-
-            if (mShowSlider) {
-                bindSlider(importanceSlider, nonBlockable);
-                importanceSlider.setVisibility(View.VISIBLE);
-                importanceButtons.setVisibility(View.GONE);
-            } else {
-                bindToggles(importanceButtons, mStartingUserImportance, nonBlockable);
-                importanceButtons.setVisibility(View.VISIBLE);
-                importanceSlider.setVisibility(View.GONE);
+    /**
+     * Hide controls if they are visible
+     * @param leavebehinds true if leavebehinds should be closed
+     * @param controls true if controls should be closed
+     * @param x x coordinate to animate the close circular reveal with
+     * @param y y coordinate to animate the close circular reveal with
+     * @param force whether the guts should be force-closed regardless of state.
+     */
+    public void closeControls(boolean leavebehinds, boolean controls, int x, int y, boolean force) {
+        if (mGutsContent != null) {
+            if ((mGutsContent.isLeavebehind() && leavebehinds)
+                    || (!mGutsContent.isLeavebehind() && controls)) {
+                closeControls(x, y, mGutsContent.shouldBeSaved(), force);
             }
         }
     }
 
-    public boolean hasImportanceChanged() {
-        return mStartingUserImportance != getSelectedImportance();
-    }
+    /**
+     * Closes any exposed guts/views.
+     *
+     * @param x x coordinate to animate the close circular reveal with
+     * @param y y coordinate to animate the close circular reveal with
+     * @param save whether the state should be saved
+     * @param force whether the guts should be force-closed regardless of state.
+     */
+    public void closeControls(int x, int y, boolean save, boolean force) {
+        // First try to dismiss any blocking helper.
+        boolean wasBlockingHelperDismissed =
+                Dependency.get(NotificationBlockingHelperManager.class)
+                        .dismissCurrentBlockingHelper();
 
-    void saveImportance(final StatusBarNotification sbn) {
-        int progress = getSelectedImportance();
-        MetricsLogger.action(mContext, MetricsEvent.ACTION_SAVE_IMPORTANCE,
-                progress - mStartingUserImportance);
-        try {
-            mINotificationManager.setImportance(sbn.getPackageName(), sbn.getUid(), progress);
-        } catch (RemoteException e) {
-            // :(
-        }
-    }
-
-    private int getSelectedImportance() {
-        if (mSeekBar!= null && mSeekBar.isShown()) {
-            if (mSeekBar.isEnabled()) {
-                return mSeekBar.getProgress();
-            } else {
-                return Ranking.IMPORTANCE_UNSPECIFIED;
-            }
-        } else {
-            if (mBlock.isChecked()) {
-                return Ranking.IMPORTANCE_NONE;
-            } else if (mSilent.isChecked()) {
-                return Ranking.IMPORTANCE_LOW;
-            } else {
-                return Ranking.IMPORTANCE_UNSPECIFIED;
-            }
-        }
-    }
-
-    private void bindToggles(final View importanceButtons, final int importance,
-            final boolean nonBlockable) {
-        ((RadioGroup) importanceButtons).setOnCheckedChangeListener(
-                new RadioGroup.OnCheckedChangeListener() {
-                    @Override
-                    public void onCheckedChanged(RadioGroup group, int checkedId) {
-                        resetFalsingCheck();
-                    }
-                });
-        mBlock = (RadioButton) importanceButtons.findViewById(R.id.block_importance);
-        mSilent = (RadioButton) importanceButtons.findViewById(R.id.silent_importance);
-        mReset = (RadioButton) importanceButtons.findViewById(R.id.reset_importance);
-        if (nonBlockable) {
-            mBlock.setVisibility(View.GONE);
-            mReset.setText(mContext.getString(R.string.do_not_silence));
-        } else {
-            mReset.setText(mContext.getString(R.string.do_not_silence_block));
-        }
-        mBlock.setText(mContext.getString(R.string.block));
-        mSilent.setText(mContext.getString(R.string.show_silently));
-        if (importance == NotificationListenerService.Ranking.IMPORTANCE_LOW) {
-            mSilent.setChecked(true);
-        } else {
-            mReset.setChecked(true);
-        }
-    }
-
-    private void bindSlider(final View importanceSlider, final boolean nonBlockable) {
-        mActiveSliderTint = ColorStateList.valueOf(Utils.getColorAccent(mContext));
-        mInactiveSliderTint = loadColorStateList(R.color.notification_guts_disabled_slider_color);
-
-        mImportanceSummary = ((TextView) importanceSlider.findViewById(R.id.summary));
-        mImportanceTitle = ((TextView) importanceSlider.findViewById(R.id.title));
-        mSeekBar = (SeekBar) importanceSlider.findViewById(R.id.seekbar);
-
-        final int minProgress = nonBlockable ?
-                NotificationListenerService.Ranking.IMPORTANCE_MIN
-                : NotificationListenerService.Ranking.IMPORTANCE_NONE;
-        mSeekBar.setMax(NotificationListenerService.Ranking.IMPORTANCE_MAX);
-        mSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                resetFalsingCheck();
-                if (progress < minProgress) {
-                    seekBar.setProgress(minProgress);
-                    progress = minProgress;
-                }
-                updateTitleAndSummary(progress);
-                if (fromUser) {
-                    MetricsLogger.action(mContext, MetricsEvent.ACTION_MODIFY_IMPORTANCE_SLIDER);
-                }
-            }
-
-            @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {
-                resetFalsingCheck();
-            }
-
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {
-                // no-op
-            }
-
-
-        });
-        mSeekBar.setProgress(mNotificationImportance);
-
-        mAutoButton = (ImageView) importanceSlider.findViewById(R.id.auto_importance);
-        mAutoButton.setOnClickListener(new OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                mAuto = !mAuto;
-                applyAuto();
-            }
-        });
-        mAuto = mStartingUserImportance == Ranking.IMPORTANCE_UNSPECIFIED;
-        applyAuto();
-    }
-
-    private void applyAuto() {
-        mSeekBar.setEnabled(!mAuto);
-
-        final ColorStateList starTint = mAuto ?  mActiveSliderTint : mInactiveSliderTint;
-        final float alpha = mAuto ? mInactiveSliderAlpha : mActiveSliderAlpha;
-        Drawable icon = mAutoButton.getDrawable().mutate();
-        icon.setTintList(starTint);
-        mAutoButton.setImageDrawable(icon);
-        mSeekBar.setAlpha(alpha);
-
-        if (mAuto) {
-            mSeekBar.setProgress(mNotificationImportance);
-            mImportanceSummary.setText(mContext.getString(
-                    R.string.notification_importance_user_unspecified));
-            mImportanceTitle.setText(mContext.getString(
-                    R.string.user_unspecified_importance));
-        } else {
-            updateTitleAndSummary(mSeekBar.getProgress());
-        }
-    }
-
-    private void updateTitleAndSummary(int progress) {
-        switch (progress) {
-            case Ranking.IMPORTANCE_NONE:
-                mImportanceSummary.setText(mContext.getString(
-                        R.string.notification_importance_blocked));
-                mImportanceTitle.setText(mContext.getString(R.string.blocked_importance));
-                break;
-            case Ranking.IMPORTANCE_MIN:
-                mImportanceSummary.setText(mContext.getString(
-                        R.string.notification_importance_min));
-                mImportanceTitle.setText(mContext.getString(R.string.min_importance));
-                break;
-            case Ranking.IMPORTANCE_LOW:
-                mImportanceSummary.setText(mContext.getString(
-                        R.string.notification_importance_low));
-                mImportanceTitle.setText(mContext.getString(R.string.low_importance));
-                break;
-            case Ranking.IMPORTANCE_DEFAULT:
-                mImportanceSummary.setText(mContext.getString(
-                        R.string.notification_importance_default));
-                mImportanceTitle.setText(mContext.getString(R.string.default_importance));
-                break;
-            case Ranking.IMPORTANCE_HIGH:
-                mImportanceSummary.setText(mContext.getString(
-                        R.string.notification_importance_high));
-                mImportanceTitle.setText(mContext.getString(R.string.high_importance));
-                break;
-            case Ranking.IMPORTANCE_MAX:
-                mImportanceSummary.setText(mContext.getString(
-                        R.string.notification_importance_max));
-                mImportanceTitle.setText(mContext.getString(R.string.max_importance));
-                break;
-        }
-    }
-
-    private ColorStateList loadColorStateList(int colorResId) {
-        return ColorStateList.valueOf(mContext.getColor(colorResId));
-    }
-
-    public void closeControls(int x, int y, boolean notify) {
         if (getWindowToken() == null) {
-            if (notify && mListener != null) {
-                mListener.onGutsClosed(this);
+            if (mClosedListener != null) {
+                mClosedListener.onGutsClosed(this);
             }
             return;
         }
-        if (x == -1 || y == -1) {
-            x = (getLeft() + getRight()) / 2;
-            y = (getTop() + getHeight() / 2);
-        }
-        final double horz = Math.max(getWidth() - x, x);
-        final double vert = Math.max(getHeight() - y, y);
-        final float r = (float) Math.hypot(horz, vert);
-        final Animator a = ViewAnimationUtils.createCircularReveal(this,
-                x, y, r, 0);
-        a.setDuration(StackStateAnimator.ANIMATION_DURATION_STANDARD);
-        a.setInterpolator(Interpolators.FAST_OUT_LINEAR_IN);
-        a.addListener(new AnimatorListenerAdapter() {
-            @Override
-            public void onAnimationEnd(Animator animation) {
-                super.onAnimationEnd(animation);
-                setVisibility(View.GONE);
+
+        if (mGutsContent == null
+                || !mGutsContent.handleCloseControls(save, force)
+                || wasBlockingHelperDismissed) {
+            // We only want to do a circular reveal if we're not showing the blocking helper.
+            animateClose(x, y, !wasBlockingHelperDismissed /* shouldDoCircularReveal */);
+
+            setExposed(false, mNeedsFalsingProtection);
+            if (mClosedListener != null) {
+                mClosedListener.onGutsClosed(this);
             }
-        });
-        a.start();
-        setExposed(false, mNeedsFalsingProtection);
-        if (notify && mListener != null) {
-            mListener.onGutsClosed(this);
+        }
+    }
+
+    /** Animates in the guts view via either a fade or a circular reveal. */
+    private void animateOpen(
+            boolean shouldDoCircularReveal, int x, int y, @Nullable Runnable onAnimationEnd) {
+        if (isAttachedToWindow()) {
+            if (shouldDoCircularReveal) {
+                double horz = Math.max(getWidth() - x, x);
+                double vert = Math.max(getHeight() - y, y);
+                float r = (float) Math.hypot(horz, vert);
+                // Circular reveal originating at (x, y)
+                Animator a = ViewAnimationUtils.createCircularReveal(this, x, y, 0, r);
+                a.setDuration(StackStateAnimator.ANIMATION_DURATION_STANDARD);
+                a.setInterpolator(Interpolators.LINEAR_OUT_SLOW_IN);
+                a.addListener(new AnimateOpenListener(onAnimationEnd));
+                a.start();
+            } else {
+                // Fade in content
+                this.setAlpha(0f);
+                this.animate()
+                        .alpha(1f)
+                        .setDuration(StackStateAnimator.ANIMATION_DURATION_BLOCKING_HELPER_FADE)
+                        .setInterpolator(Interpolators.ALPHA_IN)
+                        .setListener(new AnimateOpenListener(onAnimationEnd))
+                        .start();
+            }
+        } else {
+            Log.w(TAG, "Failed to animate guts open");
+        }
+    }
+
+
+    /** Animates out the guts view via either a fade or a circular reveal. */
+    @VisibleForTesting
+    void animateClose(int x, int y, boolean shouldDoCircularReveal) {
+        if (isAttachedToWindow()) {
+            if (shouldDoCircularReveal) {
+                // Circular reveal originating at (x, y)
+                if (x == -1 || y == -1) {
+                    x = (getLeft() + getRight()) / 2;
+                    y = (getTop() + getHeight() / 2);
+                }
+                double horz = Math.max(getWidth() - x, x);
+                double vert = Math.max(getHeight() - y, y);
+                float r = (float) Math.hypot(horz, vert);
+                Animator a = ViewAnimationUtils.createCircularReveal(this,
+                        x, y, r, 0);
+                a.setDuration(StackStateAnimator.ANIMATION_DURATION_STANDARD);
+                a.setInterpolator(Interpolators.FAST_OUT_LINEAR_IN);
+                a.addListener(new AnimateCloseListener(this /* view */));
+                a.start();
+            } else {
+                // Fade in the blocking helper.
+                this.animate()
+                        .alpha(0f)
+                        .setDuration(StackStateAnimator.ANIMATION_DURATION_BLOCKING_HELPER_FADE)
+                        .setInterpolator(Interpolators.ALPHA_OUT)
+                        .setListener(new AnimateCloseListener(this /* view */))
+                        .start();
+            }
+        } else {
+            Log.w(TAG, "Failed to animate guts close");
         }
     }
 
@@ -432,8 +329,17 @@ public class NotificationGuts extends LinearLayout implements TunerService.Tunab
         return mActualHeight;
     }
 
+    public int getIntrinsicHeight() {
+        return mGutsContent != null && mExposed ? mGutsContent.getActualHeight() : getHeight();
+    }
+
     public void setClipTopAmount(int clipTopAmount) {
         mClipTopAmount = clipTopAmount;
+        invalidate();
+    }
+
+    public void setClipBottomAmount(int clipBottomAmount) {
+        mClipBottomAmount = clipBottomAmount;
         invalidate();
     }
 
@@ -444,10 +350,22 @@ public class NotificationGuts extends LinearLayout implements TunerService.Tunab
     }
 
     public void setClosedListener(OnGutsClosedListener listener) {
-        mListener = listener;
+        mClosedListener = listener;
     }
 
-    public void setExposed(boolean exposed, boolean needsFalsingProtection) {
+    public void setHeightChangedListener(OnHeightChangedListener listener) {
+        mHeightListener = listener;
+    }
+
+    protected void onHeightChanged() {
+        if (mHeightListener != null) {
+            mHeightListener.onHeightChanged(this);
+        }
+    }
+
+    @VisibleForTesting
+    void setExposed(boolean exposed, boolean needsFalsingProtection) {
+        final boolean wasExposed = mExposed;
         mExposed = exposed;
         mNeedsFalsingProtection = needsFalsingProtection;
         if (mExposed && mNeedsFalsingProtection) {
@@ -455,16 +373,56 @@ public class NotificationGuts extends LinearLayout implements TunerService.Tunab
         } else {
             mHandler.removeCallbacks(mFalsingCheck);
         }
+        if (wasExposed != mExposed && mGutsContent != null) {
+            final View contentView = mGutsContent.getContentView();
+            contentView.sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
+            if (mExposed) {
+                contentView.requestAccessibilityFocus();
+            }
+        }
     }
 
-    public boolean areGutsExposed() {
+    public boolean willBeRemoved() {
+        return mGutsContent != null ? mGutsContent.willBeRemoved() : false;
+    }
+
+    public boolean isExposed() {
         return mExposed;
     }
 
-    @Override
-    public void onTuningChanged(String key, String newValue) {
-        if (SHOW_SLIDER.equals(key)) {
-            mShowSlider = newValue != null && Integer.parseInt(newValue) != 0;
+    public boolean isLeavebehind() {
+        return mGutsContent != null && mGutsContent.isLeavebehind();
+    }
+
+    /** Listener for animations executed in {@link #animateOpen(boolean, int, int, Runnable)}. */
+    private static class AnimateOpenListener extends AnimatorListenerAdapter {
+        final Runnable mOnAnimationEnd;
+
+        private AnimateOpenListener(Runnable onAnimationEnd) {
+            mOnAnimationEnd = onAnimationEnd;
+        }
+
+        @Override
+        public void onAnimationEnd(Animator animation) {
+            super.onAnimationEnd(animation);
+            if (mOnAnimationEnd != null) {
+                mOnAnimationEnd.run();
+            }
+        }
+    }
+
+    /** Listener for animations executed in {@link #animateClose(int, int, boolean)}. */
+    private static class AnimateCloseListener extends AnimatorListenerAdapter {
+        final View mView;
+
+        private AnimateCloseListener(View view) {
+            mView = view;
+        }
+
+        @Override
+        public void onAnimationEnd(Animator animation) {
+            super.onAnimationEnd(animation);
+            mView.setVisibility(View.GONE);
         }
     }
 }

@@ -14,10 +14,17 @@
 
 package com.android.systemui.statusbar.phone;
 
-import android.annotation.DrawableRes;
-import android.annotation.Nullable;
-import android.graphics.drawable.Drawable;
+import static com.android.systemui.Interpolators.ALPHA_IN;
+import static com.android.systemui.Interpolators.ALPHA_OUT;
+
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
 import android.view.View;
+
+import android.view.View.AccessibilityDelegate;
+import com.android.systemui.plugins.statusbar.phone.NavBarButtonProvider.ButtonInterface;
+import com.android.systemui.statusbar.policy.KeyButtonDrawable;
 
 import java.util.ArrayList;
 
@@ -26,6 +33,8 @@ import java.util.ArrayList;
  * multiples of the same nav bar icon appearing.
  */
 public class ButtonDispatcher {
+    private final static int FADE_DURATION_IN = 150;
+    private final static int FADE_DURATION_OUT = 100;
 
     private final ArrayList<View> mViews = new ArrayList<>();
 
@@ -34,12 +43,27 @@ public class ButtonDispatcher {
     private View.OnClickListener mClickListener;
     private View.OnTouchListener mTouchListener;
     private View.OnLongClickListener mLongClickListener;
+    private View.OnHoverListener mOnHoverListener;
     private Boolean mLongClickable;
-    private Integer mAlpha;
+    private Float mAlpha;
+    private Float mDarkIntensity;
     private Integer mVisibility = -1;
-    private int mImageResource = -1;
-    private Drawable mImageDrawable;
+    private Boolean mDelayTouchFeedback;
+    private KeyButtonDrawable mImageDrawable;
     private View mCurrentView;
+    private boolean mVertical;
+    private ValueAnimator mFadeAnimator;
+    private AccessibilityDelegate mAccessibilityDelegate;
+
+    private final ValueAnimator.AnimatorUpdateListener mAlphaListener = animation ->
+            setAlpha((float) animation.getAnimatedValue());
+
+    private final AnimatorListenerAdapter mFadeListener = new AnimatorListenerAdapter() {
+        @Override
+        public void onAnimationEnd(Animator animation) {
+            setVisibility(getAlpha() == 1 ? View.VISIBLE : View.INVISIBLE);
+        }
+    };
 
     public ButtonDispatcher(int id) {
         mId = id;
@@ -49,31 +73,36 @@ public class ButtonDispatcher {
         mViews.clear();
     }
 
-    void addView(View view, boolean landscape) {
-        addView(view);
-        if (view instanceof ButtonInterface) {
-            ((ButtonInterface) view).setLandscape(landscape);
-        }
-    }
-
     void addView(View view) {
         mViews.add(view);
         view.setOnClickListener(mClickListener);
         view.setOnTouchListener(mTouchListener);
         view.setOnLongClickListener(mLongClickListener);
+        view.setOnHoverListener(mOnHoverListener);
         if (mLongClickable != null) {
             view.setLongClickable(mLongClickable);
         }
         if (mAlpha != null) {
             view.setAlpha(mAlpha);
         }
-        if (mVisibility != null) {
+        if (mVisibility != null && mVisibility != -1) {
             view.setVisibility(mVisibility);
         }
-        if (mImageResource > 0) {
-            ((ButtonInterface) view).setImageResource(mImageResource);
-        } else if (mImageDrawable != null) {
-            ((ButtonInterface) view).setImageDrawable(mImageDrawable);
+        if (mAccessibilityDelegate != null) {
+            view.setAccessibilityDelegate(mAccessibilityDelegate);
+        }
+        if (view instanceof ButtonInterface) {
+            final ButtonInterface button = (ButtonInterface) view;
+            if (mDarkIntensity != null) {
+                button.setDarkIntensity(mDarkIntensity);
+            }
+            if (mImageDrawable != null) {
+                button.setImageDrawable(mImageDrawable);
+            }
+            if (mDelayTouchFeedback != null) {
+                button.setDelayTouchFeedback(mDelayTouchFeedback);
+            }
+            button.setVertical(mVertical);
         }
     }
 
@@ -85,25 +114,25 @@ public class ButtonDispatcher {
         return mVisibility != null ? mVisibility : View.VISIBLE;
     }
 
+    public boolean isVisible() {
+        return getVisibility() == View.VISIBLE;
+    }
+
     public float getAlpha() {
         return mAlpha != null ? mAlpha : 1;
     }
 
-    public void setImageDrawable(Drawable drawable) {
-        mImageDrawable = drawable;
-        mImageResource = -1;
-        final int N = mViews.size();
-        for (int i = 0; i < N; i++) {
-            ((ButtonInterface) mViews.get(i)).setImageDrawable(mImageDrawable);
-        }
+    public KeyButtonDrawable getImageDrawable() {
+        return mImageDrawable;
     }
 
-    public void setImageResource(int resource) {
-        mImageResource = resource;
-        mImageDrawable = null;
+    public void setImageDrawable(KeyButtonDrawable drawable) {
+        mImageDrawable = drawable;
         final int N = mViews.size();
         for (int i = 0; i < N; i++) {
-            ((ButtonInterface) mViews.get(i)).setImageResource(mImageResource);
+            if (mViews.get(i) instanceof ButtonInterface) {
+                ((ButtonInterface) mViews.get(i)).setImageDrawable(mImageDrawable);
+            }
         }
     }
 
@@ -120,15 +149,54 @@ public class ButtonDispatcher {
         // This seems to be an instantaneous thing, so not going to persist it.
         final int N = mViews.size();
         for (int i = 0; i < N; i++) {
-            ((ButtonInterface) mViews.get(i)).abortCurrentGesture();
+            if (mViews.get(i) instanceof ButtonInterface) {
+                ((ButtonInterface) mViews.get(i)).abortCurrentGesture();
+            }
         }
     }
 
-    public void setAlpha(int alpha) {
-        mAlpha = alpha;
+    public void setAlpha(float alpha) {
+        setAlpha(alpha, false /* animate */);
+    }
+
+    public void setAlpha(float alpha, boolean animate) {
+        if (animate) {
+            if (mFadeAnimator != null) {
+                mFadeAnimator.cancel();
+            }
+            mFadeAnimator = ValueAnimator.ofFloat(getAlpha(), alpha);
+            mFadeAnimator.setDuration(getAlpha() < alpha? FADE_DURATION_IN : FADE_DURATION_OUT);
+            mFadeAnimator.setInterpolator(getAlpha() < alpha ? ALPHA_IN : ALPHA_OUT);
+            mFadeAnimator.addListener(mFadeListener);
+            mFadeAnimator.addUpdateListener(mAlphaListener);
+            mFadeAnimator.start();
+            setVisibility(View.VISIBLE);
+        } else {
+            mAlpha = alpha;
+            final int N = mViews.size();
+            for (int i = 0; i < N; i++) {
+                mViews.get(i).setAlpha(alpha);
+            }
+        }
+    }
+
+    public void setDarkIntensity(float darkIntensity) {
+        mDarkIntensity = darkIntensity;
         final int N = mViews.size();
         for (int i = 0; i < N; i++) {
-            mViews.get(i).setAlpha(alpha);
+            if (mViews.get(i) instanceof ButtonInterface) {
+                ((ButtonInterface) mViews.get(i)).setDarkIntensity(darkIntensity);
+            }
+        }
+    }
+
+    public void setDelayTouchFeedback(boolean delay) {
+        mDelayTouchFeedback = delay;
+        final int N = mViews.size();
+        for (int i = 0; i < N; i++) {
+            if (mViews.get(i) instanceof ButtonInterface) {
+                ((ButtonInterface) mViews.get(i)).setDelayTouchFeedback(delay);
+            }
         }
     }
 
@@ -164,6 +232,30 @@ public class ButtonDispatcher {
         }
     }
 
+    public void setOnHoverListener(View.OnHoverListener hoverListener) {
+        mOnHoverListener = hoverListener;
+        final int N = mViews.size();
+        for (int i = 0; i < N; i++) {
+            mViews.get(i).setOnHoverListener(mOnHoverListener);
+        }
+    }
+
+    public void setAccessibilityDelegate(AccessibilityDelegate delegate) {
+        mAccessibilityDelegate = delegate;
+        final int N = mViews.size();
+        for (int i = 0; i < N; i++) {
+            mViews.get(i).setAccessibilityDelegate(delegate);
+        }
+    }
+
+    public void setClickable(boolean clickable) {
+        abortCurrentGesture();
+        final int N = mViews.size();
+        for (int i = 0; i < N; i++) {
+            mViews.get(i).setClickable(clickable);
+        }
+    }
+
     public ArrayList<View> getViews() {
         return mViews;
     }
@@ -176,28 +268,14 @@ public class ButtonDispatcher {
         mCurrentView = currentView.findViewById(mId);
     }
 
-    public void setCarMode(boolean carMode) {
+    public void setVertical(boolean vertical) {
+        mVertical = vertical;
         final int N = mViews.size();
         for (int i = 0; i < N; i++) {
             final View view = mViews.get(i);
             if (view instanceof ButtonInterface) {
-                ((ButtonInterface) view).setCarMode(carMode);
+                ((ButtonInterface) view).setVertical(vertical);
             }
         }
-    }
-
-    /**
-     * Interface for button actions.
-     */
-    public interface ButtonInterface {
-        void setImageResource(@DrawableRes int resId);
-
-        void setImageDrawable(@Nullable Drawable drawable);
-
-        void abortCurrentGesture();
-
-        void setLandscape(boolean landscape);
-
-        void setCarMode(boolean carMode);
     }
 }

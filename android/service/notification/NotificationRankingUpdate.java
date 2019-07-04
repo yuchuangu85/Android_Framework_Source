@@ -31,10 +31,18 @@ public class NotificationRankingUpdate implements Parcelable {
     private final int[] mImportance;
     private final Bundle mImportanceExplanation;
     private final Bundle mOverrideGroupKeys;
+    private final Bundle mChannels;
+    private final Bundle mOverridePeople;
+    private final Bundle mSnoozeCriteria;
+    private final Bundle mShowBadge;
+    private final Bundle mUserSentiment;
+    private final Bundle mHidden;
 
     public NotificationRankingUpdate(String[] keys, String[] interceptedKeys,
             Bundle visibilityOverrides, Bundle suppressedVisualEffects,
-            int[] importance, Bundle explanation, Bundle overrideGroupKeys) {
+            int[] importance, Bundle explanation, Bundle overrideGroupKeys,
+            Bundle channels, Bundle overridePeople, Bundle snoozeCriteria,
+            Bundle showBadge, Bundle userSentiment, Bundle hidden) {
         mKeys = keys;
         mInterceptedKeys = interceptedKeys;
         mVisibilityOverrides = visibilityOverrides;
@@ -42,6 +50,12 @@ public class NotificationRankingUpdate implements Parcelable {
         mImportance = importance;
         mImportanceExplanation = explanation;
         mOverrideGroupKeys = overrideGroupKeys;
+        mChannels = channels;
+        mOverridePeople = overridePeople;
+        mSnoozeCriteria = snoozeCriteria;
+        mShowBadge = showBadge;
+        mUserSentiment = userSentiment;
+        mHidden = hidden;
     }
 
     public NotificationRankingUpdate(Parcel in) {
@@ -53,6 +67,12 @@ public class NotificationRankingUpdate implements Parcelable {
         in.readIntArray(mImportance);
         mImportanceExplanation = in.readBundle();
         mOverrideGroupKeys = in.readBundle();
+        mChannels = in.readBundle();
+        mOverridePeople = in.readBundle();
+        mSnoozeCriteria = in.readBundle();
+        mShowBadge = in.readBundle();
+        mUserSentiment = in.readBundle();
+        mHidden = in.readBundle();
     }
 
     @Override
@@ -69,6 +89,12 @@ public class NotificationRankingUpdate implements Parcelable {
         out.writeIntArray(mImportance);
         out.writeBundle(mImportanceExplanation);
         out.writeBundle(mOverrideGroupKeys);
+        out.writeBundle(mChannels);
+        out.writeBundle(mOverridePeople);
+        out.writeBundle(mSnoozeCriteria);
+        out.writeBundle(mShowBadge);
+        out.writeBundle(mUserSentiment);
+        out.writeBundle(mHidden);
     }
 
     public static final Parcelable.Creator<NotificationRankingUpdate> CREATOR
@@ -108,5 +134,29 @@ public class NotificationRankingUpdate implements Parcelable {
 
     public Bundle getOverrideGroupKeys() {
         return mOverrideGroupKeys;
+    }
+
+    public Bundle getChannels() {
+        return mChannels;
+    }
+
+    public Bundle getOverridePeople() {
+        return mOverridePeople;
+    }
+
+    public Bundle getSnoozeCriteria() {
+        return mSnoozeCriteria;
+    }
+
+    public Bundle getShowBadge() {
+        return mShowBadge;
+    }
+
+    public Bundle getUserSentiment() {
+        return mUserSentiment;
+    }
+
+    public Bundle getHidden() {
+        return mHidden;
     }
 }

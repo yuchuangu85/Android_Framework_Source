@@ -16,40 +16,32 @@
 
 package com.android.internal.telephony.gsm;
 
-import android.app.Activity;
-import android.app.PendingIntent;
-import android.app.PendingIntent.CanceledException;
-import android.content.Intent;
-import android.net.Uri;
 import android.os.AsyncResult;
 import android.os.Message;
-import android.provider.Telephony.Sms;
 import android.provider.Telephony.Sms.Intents;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
+import android.util.Pair;
 
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.telephony.GsmAlphabet;
-import com.android.internal.telephony.ImsSMSDispatcher;
+import com.android.internal.telephony.GsmAlphabet.TextEncodingDetails;
 import com.android.internal.telephony.InboundSmsHandler;
 import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.SMSDispatcher;
 import com.android.internal.telephony.SmsConstants;
+import com.android.internal.telephony.SmsDispatchersController;
+import com.android.internal.telephony.SMSDispatcher;
 import com.android.internal.telephony.SmsHeader;
-import com.android.internal.telephony.SmsUsageMonitor;
+import com.android.internal.telephony.SmsMessageBase;
 import com.android.internal.telephony.uicc.IccRecords;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.UiccCardApplication;
 import com.android.internal.telephony.uicc.UiccController;
+import com.android.internal.telephony.util.SMSDispatcherUtil;
 
 import java.util.HashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class GsmSMSDispatcher extends SMSDispatcher {
     private static final String TAG = "GsmSMSDispatcher";
-    private static final boolean VDBG = false;
     protected UiccController mUiccController = null;
     private AtomicReference<IccRecords> mIccRecords = new AtomicReference<IccRecords>();
     private AtomicReference<UiccCardApplication> mUiccApplication =
@@ -59,10 +51,9 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
     /** Status report received */
     private static final int EVENT_NEW_SMS_STATUS_REPORT = 100;
 
-    public GsmSMSDispatcher(Phone phone, SmsUsageMonitor usageMonitor,
-            ImsSMSDispatcher imsSMSDispatcher,
+    public GsmSMSDispatcher(Phone phone, SmsDispatchersController smsDispatchersController,
             GsmInboundSmsHandler gsmInboundSmsHandler) {
-        super(phone, usageMonitor, imsSMSDispatcher);
+        super(phone, smsDispatchersController);
         mCi.setOnSmsStatus(this, EVENT_NEW_SMS_STATUS_REPORT, null);
         mGsmInboundSmsHandler = gsmInboundSmsHandler;
         mUiccController = UiccController.getInstance();
@@ -109,6 +100,32 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
         }
     }
 
+    @Override
+    protected boolean shouldBlockSmsForEcbm() {
+        // There is no such thing as ECBM for GSM. This only applies to CDMA.
+        return false;
+    }
+
+    @Override
+    protected SmsMessageBase.SubmitPduBase getSubmitPdu(String scAddr, String destAddr,
+            String message, boolean statusReportRequested, SmsHeader smsHeader, int priority,
+            int validityPeriod) {
+        return SMSDispatcherUtil.getSubmitPduGsm(scAddr, destAddr, message, statusReportRequested,
+                validityPeriod);
+    }
+
+    @Override
+    protected SmsMessageBase.SubmitPduBase getSubmitPdu(String scAddr, String destAddr,
+            int destPort, byte[] message, boolean statusReportRequested) {
+        return SMSDispatcherUtil.getSubmitPduGsm(scAddr, destAddr, destPort, message,
+                statusReportRequested);
+    }
+
+    @Override
+    protected TextEncodingDetails calculateLength(CharSequence messageBody, boolean use7bitOnly) {
+        return SMSDispatcherUtil.calculateLengthGsm(messageBody, use7bitOnly);
+    }
+
     /**
      * Called when a status report is received.  This should correspond to
      * a previously successful SEND.
@@ -117,130 +134,27 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
      *           be a String representing the status report PDU, as ASCII hex.
      */
     private void handleStatusReport(AsyncResult ar) {
-        String pduString = (String) ar.result;
-        SmsMessage sms = SmsMessage.newFromCDS(pduString);
+        byte[] pdu = (byte[]) ar.result;
+        SmsMessage sms = SmsMessage.newFromCDS(pdu);
 
         if (sms != null) {
-            int tpStatus = sms.getStatus();
             int messageRef = sms.mMessageRef;
             for (int i = 0, count = deliveryPendingList.size(); i < count; i++) {
                 SmsTracker tracker = deliveryPendingList.get(i);
                 if (tracker.mMessageRef == messageRef) {
-                    // Found it.  Remove from list and broadcast.
-                    if(tpStatus >= Sms.STATUS_FAILED || tpStatus < Sms.STATUS_PENDING ) {
-                       deliveryPendingList.remove(i);
-                       // Update the message status (COMPLETE or FAILED)
-                       tracker.updateSentMessageStatus(mContext, tpStatus);
+                    Pair<Boolean, Boolean> result = mSmsDispatchersController.handleSmsStatusReport(
+                            tracker,
+                            getFormat(),
+                            pdu);
+                    if (result.second) {
+                        deliveryPendingList.remove(i);
                     }
-                    PendingIntent intent = tracker.mDeliveryIntent;
-                    Intent fillIn = new Intent();
-                    fillIn.putExtra("pdu", IccUtils.hexStringToBytes(pduString));
-                    fillIn.putExtra("format", getFormat());
-                    try {
-                        intent.send(mContext, Activity.RESULT_OK, fillIn);
-                    } catch (CanceledException ex) {}
-
                     // Only expect to see one tracker matching this messageref
                     break;
                 }
             }
         }
         mCi.acknowledgeLastIncomingGsmSms(true, Intents.RESULT_SMS_HANDLED, null);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    protected void sendData(String destAddr, String scAddr, int destPort,
-            byte[] data, PendingIntent sentIntent, PendingIntent deliveryIntent) {
-        SmsMessage.SubmitPdu pdu = SmsMessage.getSubmitPdu(
-                scAddr, destAddr, destPort, data, (deliveryIntent != null));
-        if (pdu != null) {
-            HashMap map = getSmsTrackerMap(destAddr, scAddr, destPort, data, pdu);
-            SmsTracker tracker = getSmsTracker(map, sentIntent, deliveryIntent, getFormat(),
-                    null /*messageUri*/, false /*isExpectMore*/, null /*fullMessageText*/,
-                    false /*isText*/, true /*persistMessage*/);
-
-            String carrierPackage = getCarrierAppPackageName();
-            if (carrierPackage != null) {
-                Rlog.d(TAG, "Found carrier package.");
-                DataSmsSender smsSender = new DataSmsSender(tracker);
-                smsSender.sendSmsByCarrierApp(carrierPackage, new SmsSenderCallback(smsSender));
-            } else {
-                Rlog.v(TAG, "No carrier package.");
-                sendRawPdu(tracker);
-            }
-        } else {
-            Rlog.e(TAG, "GsmSMSDispatcher.sendData(): getSubmitPdu() returned null");
-        }
-    }
-
-    /** {@inheritDoc} */
-    @VisibleForTesting
-    @Override
-    public void sendText(String destAddr, String scAddr, String text, PendingIntent sentIntent,
-            PendingIntent deliveryIntent, Uri messageUri, String callingPkg,
-            boolean persistMessage) {
-        SmsMessage.SubmitPdu pdu = SmsMessage.getSubmitPdu(
-                scAddr, destAddr, text, (deliveryIntent != null));
-        if (pdu != null) {
-            HashMap map = getSmsTrackerMap(destAddr, scAddr, text, pdu);
-            SmsTracker tracker = getSmsTracker(map, sentIntent, deliveryIntent, getFormat(),
-                    messageUri, false /*isExpectMore*/, text /*fullMessageText*/, true /*isText*/,
-                    persistMessage);
-
-            String carrierPackage = getCarrierAppPackageName();
-            if (carrierPackage != null) {
-                Rlog.d(TAG, "Found carrier package.");
-                TextSmsSender smsSender = new TextSmsSender(tracker);
-                smsSender.sendSmsByCarrierApp(carrierPackage, new SmsSenderCallback(smsSender));
-            } else {
-                Rlog.v(TAG, "No carrier package.");
-                sendRawPdu(tracker);
-            }
-        } else {
-            Rlog.e(TAG, "GsmSMSDispatcher.sendText(): getSubmitPdu() returned null");
-        }
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    protected void injectSmsPdu(byte[] pdu, String format, PendingIntent receivedIntent) {
-        throw new IllegalStateException("This method must be called only on ImsSMSDispatcher");
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    protected GsmAlphabet.TextEncodingDetails calculateLength(CharSequence messageBody,
-            boolean use7bitOnly) {
-        return SmsMessage.calculateLength(messageBody, use7bitOnly);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    protected SmsTracker getNewSubmitPduTracker(String destinationAddress, String scAddress,
-            String message, SmsHeader smsHeader, int encoding,
-            PendingIntent sentIntent, PendingIntent deliveryIntent, boolean lastPart,
-            AtomicInteger unsentPartCount, AtomicBoolean anyPartFailed, Uri messageUri,
-            String fullMessageText) {
-        SmsMessage.SubmitPdu pdu = SmsMessage.getSubmitPdu(scAddress, destinationAddress,
-                message, deliveryIntent != null, SmsHeader.toByteArray(smsHeader),
-                encoding, smsHeader.languageTable, smsHeader.languageShiftTable);
-        if (pdu != null) {
-            HashMap map =  getSmsTrackerMap(destinationAddress, scAddress,
-                    message, pdu);
-            return getSmsTracker(map, sentIntent,
-                    deliveryIntent, getFormat(), unsentPartCount, anyPartFailed, messageUri,
-                    smsHeader, !lastPart, fullMessageText, true /*isText*/,
-                    false /*persistMessage*/);
-        } else {
-            Rlog.e(TAG, "GsmSMSDispatcher.sendNewSubmitPdu(): getSubmitPdu() returned null");
-            return null;
-        }
-    }
-
-    @Override
-    protected void sendSubmitPdu(SmsTracker tracker) {
-        sendRawPdu(tracker);
     }
 
     /** {@inheritDoc} */
@@ -269,14 +183,9 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
                 + " mRetryCount=" + tracker.mRetryCount
                 + " mImsRetry=" + tracker.mImsRetry
                 + " mMessageRef=" + tracker.mMessageRef
+                + " mUsesImsServiceForIms=" + tracker.mUsesImsServiceForIms
                 + " SS=" + mPhone.getServiceState().getState());
 
-        sendSmsByPstn(tracker);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    protected void sendSmsByPstn(SmsTracker tracker) {
         int ss = mPhone.getServiceState().getState();
         // if sms over IMS is not supported on data and voice is not available...
         if (!isIms() && ss != ServiceState.STATE_IN_SERVICE) {
@@ -284,26 +193,17 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
             return;
         }
 
-        HashMap<String, Object> map = tracker.getData();
-
         byte smsc[] = (byte[]) map.get("smsc");
-        byte[] pdu = (byte[]) map.get("pdu");
         Message reply = obtainMessage(EVENT_SEND_SMS_COMPLETE, tracker);
 
         // sms over gsm is used:
         //   if sms over IMS is not supported AND
         //   this is not a retry case after sms over IMS failed
-        //     indicated by mImsRetry > 0
-        if (0 == tracker.mImsRetry && !isIms()) {
-            if (tracker.mRetryCount > 0) {
-                // per TS 23.040 Section 9.2.3.6:  If TP-MTI SMS-SUBMIT (0x01) type
-                //   TP-RD (bit 2) is 1 for retry
-                //   and TP-MR is set to previously failed sms TP-MR
-                if (((0x01 & pdu[0]) == 0x01)) {
-                    pdu[0] |= 0x04; // TP-RD
-                    pdu[1] = (byte) tracker.mMessageRef; // TP-MR
-                }
-            }
+        //     indicated by mImsRetry > 0 OR
+        //   this tracker uses ImsSmsDispatcher to handle SMS over IMS. This dispatcher has received
+        //     this message because the ImsSmsDispatcher has indicated that the message needs to
+        //     fall back to sending over CS.
+        if (0 == tracker.mImsRetry && !isIms() || tracker.mUsesImsServiceForIms) {
             if (tracker.mRetryCount == 0 && tracker.mExpectMore) {
                 mCi.sendSMSExpectMore(IccUtils.bytesToHexString(smsc),
                         IccUtils.bytesToHexString(pdu), reply);

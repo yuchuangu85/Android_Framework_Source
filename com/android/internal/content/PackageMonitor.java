@@ -21,6 +21,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.UserHandle;
@@ -65,6 +66,7 @@ public abstract class PackageMonitor extends android.content.BroadcastReceiver {
     int mChangeType;
     int mChangeUserId = UserHandle.USER_NULL;
     boolean mSomePackagesChanged;
+    String[] mModifiedComponents;
 
     String[] mTempArray = new String[1];
 
@@ -195,6 +197,10 @@ public abstract class PackageMonitor extends android.content.BroadcastReceiver {
     public void onPackagesSuspended(String[] packages) {
     }
 
+    public void onPackagesSuspended(String[] packages, Bundle launcherExtras) {
+        onPackagesSuspended(packages);
+    }
+
     public void onPackagesUnsuspended(String[] packages) {
     }
 
@@ -269,6 +275,18 @@ public abstract class PackageMonitor extends android.content.BroadcastReceiver {
         }
         return false;
     }
+
+    public boolean isComponentModified(String className) {
+        if (className == null || mModifiedComponents == null) {
+            return false;
+        }
+        for (int i = mModifiedComponents.length - 1; i >= 0; i--) {
+            if (className.equals(mModifiedComponents[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
     
     public void onSomePackagesChanged() {
     }
@@ -301,6 +319,7 @@ public abstract class PackageMonitor extends android.content.BroadcastReceiver {
         
         mDisappearingPackages = mAppearingPackages = null;
         mSomePackagesChanged = false;
+        mModifiedComponents = null;
         
         String action = intent.getAction();
         if (Intent.ACTION_PACKAGE_ADDED.equals(action)) {
@@ -358,13 +377,13 @@ public abstract class PackageMonitor extends android.content.BroadcastReceiver {
         } else if (Intent.ACTION_PACKAGE_CHANGED.equals(action)) {
             String pkg = getPackageName(intent);
             int uid = intent.getIntExtra(Intent.EXTRA_UID, 0);
-            String[] components = intent.getStringArrayExtra(
+            mModifiedComponents = intent.getStringArrayExtra(
                     Intent.EXTRA_CHANGED_COMPONENT_NAME_LIST);
             if (pkg != null) {
                 mModifiedPackages = mTempArray;
                 mTempArray[0] = pkg;
                 mChangeType = PACKAGE_PERMANENT_CHANGE;
-                if (onPackageChanged(pkg, uid, components)) {
+                if (onPackageChanged(pkg, uid, mModifiedComponents)) {
                     mSomePackagesChanged = true;
                 }
                 onPackageModified(pkg);
@@ -419,8 +438,9 @@ public abstract class PackageMonitor extends android.content.BroadcastReceiver {
             }
         } else if (Intent.ACTION_PACKAGES_SUSPENDED.equals(action)) {
             String[] pkgList = intent.getStringArrayExtra(Intent.EXTRA_CHANGED_PACKAGE_LIST);
+            final Bundle launcherExtras = intent.getBundleExtra(Intent.EXTRA_LAUNCHER_EXTRAS);
             mSomePackagesChanged = true;
-            onPackagesSuspended(pkgList);
+            onPackagesSuspended(pkgList, launcherExtras);
         } else if (Intent.ACTION_PACKAGES_UNSUSPENDED.equals(action)) {
             String[] pkgList = intent.getStringArrayExtra(Intent.EXTRA_CHANGED_PACKAGE_LIST);
             mSomePackagesChanged = true;

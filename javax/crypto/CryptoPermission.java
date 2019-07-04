@@ -28,6 +28,8 @@ package javax.crypto;
 import java.security.*;
 import java.security.spec.AlgorithmParameterSpec;
 
+// Android-changed: Stubbed the implementation.  Android doesn't support SecurityManager.
+// See comments in java.lang.SecurityManager for details.
 /**
  * Legacy security code; do not use.
  */

@@ -25,8 +25,11 @@ import android.graphics.SurfaceTexture;
 import android.media.MediaCodecInfo.CodecCapabilities;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
+import android.os.IHwBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.PersistableBundle;
 import android.view.Surface;
 
 import java.io.IOException;
@@ -73,12 +76,12 @@ import java.util.Map;
  <h4>Compressed Buffers</h4>
  <p>
  Input buffers (for decoders) and output buffers (for encoders) contain compressed data according
- to the {@linkplain MediaFormat#KEY_MIME format's type}. For video types this is a single
+ to the {@linkplain MediaFormat#KEY_MIME format's type}. For video types this is normally a single
  compressed video frame. For audio data this is normally a single access unit (an encoded audio
  segment typically containing a few milliseconds of audio as dictated by the format type), but
  this requirement is slightly relaxed in that a buffer may contain multiple encoded access units
  of audio. In either case, buffers do not start or end on arbitrary byte boundaries, but rather on
- frame/access unit boundaries.
+ frame/access unit boundaries unless they are flagged with {@link #BUFFER_FLAG_PARTIAL_FRAME}.
 
  <h4>Raw Audio Buffers</h4>
  <p>
@@ -335,6 +338,13 @@ import java.util.Map;
         This overrides the pre-skip value in the identification header.</td>
     <td>Seek Pre-roll in nanosecs<br>
         (unsigned 64-bit {@linkplain ByteOrder#nativeOrder native-order} integer.)</td>
+   </tr>
+   <tr>
+    <td>FLAC</td>
+    <td>mandatory metadata block (called the STREAMINFO block),<br>
+        optionally followed by any number of other metadata blocks</td>
+    <td class=NA>Not Used</td>
+    <td class=NA>Not Used</td>
    </tr>
    <tr>
     <td>MPEG-4</td>
@@ -1567,6 +1577,27 @@ final public class MediaCodec {
      */
     public static final int BUFFER_FLAG_END_OF_STREAM = 4;
 
+    /**
+     * This indicates that the buffer only contains part of a frame,
+     * and the decoder should batch the data until a buffer without
+     * this flag appears before decoding the frame.
+     */
+    public static final int BUFFER_FLAG_PARTIAL_FRAME = 8;
+
+    /**
+     * This indicates that the buffer contains non-media data for the
+     * muxer to process.
+     *
+     * All muxer data should start with a FOURCC header that determines the type of data.
+     *
+     * For example, when it contains Exif data sent to a MediaMuxer track of
+     * {@link MediaFormat#MIMETYPE_IMAGE_ANDROID_HEIC} type, the data must start with
+     * Exif header ("Exif\0\0"), followed by the TIFF header (See JEITA CP-3451C Section 4.5.2.)
+     *
+     * @hide
+     */
+    public static final int BUFFER_FLAG_MUXER_DATA = 16;
+
     /** @hide */
     @IntDef(
         flag = true,
@@ -1575,6 +1606,8 @@ final public class MediaCodec {
             BUFFER_FLAG_KEY_FRAME,
             BUFFER_FLAG_CODEC_CONFIG,
             BUFFER_FLAG_END_OF_STREAM,
+            BUFFER_FLAG_PARTIAL_FRAME,
+            BUFFER_FLAG_MUXER_DATA,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface BufferFlag {}
@@ -1584,7 +1617,9 @@ final public class MediaCodec {
     private EventHandler mCallbackHandler;
     private Callback mCallback;
     private OnFrameRenderedListener mOnFrameRenderedListener;
-    private Object mListenerLock = new Object();
+    private final Object mListenerLock = new Object();
+    private MediaCodecInfo mCodecInfo;
+    private final Object mCodecInfoLock = new Object();
 
     private static final int EVENT_CALLBACK = 1;
     private static final int EVENT_SET_CALLBACK = 2;
@@ -1851,6 +1886,47 @@ final public class MediaCodec {
             @Nullable MediaFormat format,
             @Nullable Surface surface, @Nullable MediaCrypto crypto,
             @ConfigureFlag int flags) {
+        configure(format, surface, crypto, null, flags);
+    }
+
+    /**
+     * Configure a component to be used with a descrambler.
+     * @param format The format of the input data (decoder) or the desired
+     *               format of the output data (encoder). Passing {@code null}
+     *               as {@code format} is equivalent to passing an
+     *               {@link MediaFormat#MediaFormat an empty mediaformat}.
+     * @param surface Specify a surface on which to render the output of this
+     *                decoder. Pass {@code null} as {@code surface} if the
+     *                codec does not generate raw video output (e.g. not a video
+     *                decoder) and/or if you want to configure the codec for
+     *                {@link ByteBuffer} output.
+     * @param flags   Specify {@link #CONFIGURE_FLAG_ENCODE} to configure the
+     *                component as an encoder.
+     * @param descrambler Specify a descrambler object to facilitate secure
+     *                descrambling of the media data, or null for non-secure codecs.
+     * @throws IllegalArgumentException if the surface has been released (or is invalid),
+     * or the format is unacceptable (e.g. missing a mandatory key),
+     * or the flags are not set properly
+     * (e.g. missing {@link #CONFIGURE_FLAG_ENCODE} for an encoder).
+     * @throws IllegalStateException if not in the Uninitialized state.
+     * @throws CryptoException upon DRM error.
+     * @throws CodecException upon codec error.
+     */
+    public void configure(
+            @Nullable MediaFormat format, @Nullable Surface surface,
+            @ConfigureFlag int flags, @Nullable MediaDescrambler descrambler) {
+        configure(format, surface, null,
+                descrambler != null ? descrambler.getBinder() : null, flags);
+    }
+
+    private void configure(
+            @Nullable MediaFormat format, @Nullable Surface surface,
+            @Nullable MediaCrypto crypto, @Nullable IHwBinder descramblerBinder,
+            @ConfigureFlag int flags) {
+        if (crypto != null && descramblerBinder != null) {
+            throw new IllegalArgumentException("Can't use crypto and descrambler together!");
+        }
+
         String[] keys = null;
         Object[] values = null;
 
@@ -1881,7 +1957,7 @@ final public class MediaCodec {
 
         mHasSurface = surface != null;
 
-        native_configure(keys, values, surface, crypto, flags);
+        native_configure(keys, values, surface, crypto, descramblerBinder, flags);
     }
 
     /**
@@ -1959,7 +2035,8 @@ final public class MediaCodec {
 
     private native final void native_configure(
             @Nullable String[] keys, @Nullable Object[] values,
-            @Nullable Surface surface, @Nullable MediaCrypto crypto, @ConfigureFlag int flags);
+            @Nullable Surface surface, @Nullable MediaCrypto crypto,
+            @Nullable IHwBinder descramblerBinder, @ConfigureFlag int flags);
 
     /**
      * Requests a Surface to use as the input to an encoder, in place of input buffers.  This
@@ -2297,17 +2374,61 @@ final public class MediaCodec {
     public static final int CRYPTO_MODE_AES_CBC     = 2;
 
     /**
-     * Metadata describing the structure of a (at least partially) encrypted
-     * input sample.
-     * A buffer's data is considered to be partitioned into "subSamples",
-     * each subSample starts with a (potentially empty) run of plain,
-     * unencrypted bytes followed by a (also potentially empty) run of
-     * encrypted bytes. If pattern encryption applies, each of the latter runs
-     * is encrypted only partly, according to a repeating pattern of "encrypt"
-     * and "skip" blocks. numBytesOfClearData can be null to indicate that all
-     * data is encrypted. This information encapsulates per-sample metadata as
-     * outlined in ISO/IEC FDIS 23001-7:2011 "Common encryption in ISO base
-     * media file format files".
+     * Metadata describing the structure of an encrypted input sample.
+     * <p>
+     * A buffer's data is considered to be partitioned into "subSamples". Each subSample starts with
+     * a run of plain, unencrypted bytes followed by a run of encrypted bytes. Either of these runs
+     * may be empty. If pattern encryption applies, each of the encrypted runs is encrypted only
+     * partly, according to a repeating pattern of "encrypt" and "skip" blocks.
+     * {@link #numBytesOfClearData} can be null to indicate that all data is encrypted, and
+     * {@link #numBytesOfEncryptedData} can be null to indicate that all data is clear. At least one
+     * of {@link #numBytesOfClearData} and {@link #numBytesOfEncryptedData} must be non-null.
+     * <p>
+     * This information encapsulates per-sample metadata as outlined in ISO/IEC FDIS 23001-7:2016
+     * "Common encryption in ISO base media file format files".
+     * <p>
+     * <h3>ISO-CENC Schemes</h3>
+     * ISO/IEC FDIS 23001-7:2016 defines four possible schemes by which media may be encrypted,
+     * corresponding to each possible combination of an AES mode with the presence or absence of
+     * patterned encryption.
+     *
+     * <table style="width: 0%">
+     *   <thead>
+     *     <tr>
+     *       <th>&nbsp;</th>
+     *       <th>AES-CTR</th>
+     *       <th>AES-CBC</th>
+     *     </tr>
+     *   </thead>
+     *   <tbody>
+     *     <tr>
+     *       <th>Without Patterns</th>
+     *       <td>cenc</td>
+     *       <td>cbc1</td>
+     *     </tr><tr>
+     *       <th>With Patterns</th>
+     *       <td>cens</td>
+     *       <td>cbcs</td>
+     *     </tr>
+     *   </tbody>
+     * </table>
+     *
+     * For {@code CryptoInfo}, the scheme is selected implicitly by the combination of the
+     * {@link #mode} field and the value set with {@link #setPattern}. For the pattern, setting the
+     * pattern to all zeroes (that is, both {@code blocksToEncrypt} and {@code blocksToSkip} are
+     * zero) is interpreted as turning patterns off completely. A scheme that does not use patterns
+     * will be selected, either cenc or cbc1. Setting the pattern to any nonzero value will choose
+     * one of the pattern-supporting schemes, cens or cbcs. The default pattern if
+     * {@link #setPattern} is never called is all zeroes.
+     * <p>
+     * <h4>HLS SAMPLE-AES Audio</h4>
+     * HLS SAMPLE-AES audio is encrypted in a manner compatible with the cbcs scheme, except that it
+     * does not use patterned encryption. However, if {@link #setPattern} is used to set the pattern
+     * to all zeroes, this will be interpreted as selecting the cbc1 scheme. The cbc1 scheme cannot
+     * successfully decrypt HLS SAMPLE-AES audio because of differences in how the IVs are handled.
+     * For this reason, it is recommended that a pattern of {@code 1} encrypted block and {@code 0}
+     * skip blocks be used with HLS SAMPLE-AES audio. This will trigger decryption to use cbcs mode
+     * while still decrypting every block.
      */
     public final static class CryptoInfo {
         /**
@@ -2315,11 +2436,13 @@ final public class MediaCodec {
          */
         public int numSubSamples;
         /**
-         * The number of leading unencrypted bytes in each subSample.
+         * The number of leading unencrypted bytes in each subSample. If null, all bytes are treated
+         * as encrypted and {@link #numBytesOfEncryptedData} must be specified.
          */
         public int[] numBytesOfClearData;
         /**
-         * The number of trailing encrypted bytes in each subSample.
+         * The number of trailing encrypted bytes in each subSample. If null, all bytes are treated
+         * as clear and {@link #numBytesOfClearData} must be specified.
          */
         public int[] numBytesOfEncryptedData;
         /**
@@ -2338,35 +2461,34 @@ final public class MediaCodec {
         public int mode;
 
         /**
-         * Metadata describing an encryption pattern for the protected bytes in
-         * a subsample.  An encryption pattern consists of a repeating sequence
-         * of crypto blocks comprised of a number of encrypted blocks followed
-         * by a number of unencrypted, or skipped, blocks.
+         * Metadata describing an encryption pattern for the protected bytes in a subsample.  An
+         * encryption pattern consists of a repeating sequence of crypto blocks comprised of a
+         * number of encrypted blocks followed by a number of unencrypted, or skipped, blocks.
          */
         public final static class Pattern {
             /**
-             * Number of blocks to be encrypted in the pattern. If zero, pattern
-             * encryption is inoperative.
+             * Number of blocks to be encrypted in the pattern. If both this and
+             * {@link #mSkipBlocks} are zero, pattern encryption is inoperative.
              */
             private int mEncryptBlocks;
 
             /**
-             * Number of blocks to be skipped (left clear) in the pattern. If zero,
-             * pattern encryption is inoperative.
+             * Number of blocks to be skipped (left clear) in the pattern. If both this and
+             * {@link #mEncryptBlocks} are zero, pattern encryption is inoperative.
              */
             private int mSkipBlocks;
 
             /**
-             * Construct a sample encryption pattern given the number of blocks to
-             * encrypt and skip in the pattern.
+             * Construct a sample encryption pattern given the number of blocks to encrypt and skip
+             * in the pattern. If both parameters are zero, pattern encryption is inoperative.
              */
             public Pattern(int blocksToEncrypt, int blocksToSkip) {
                 set(blocksToEncrypt, blocksToSkip);
             }
 
             /**
-             * Set the number of blocks to encrypt and skip in a sample encryption
-             * pattern.
+             * Set the number of blocks to encrypt and skip in a sample encryption pattern. If both
+             * parameters are zero, pattern encryption is inoperative.
              */
             public void set(int blocksToEncrypt, int blocksToSkip) {
                 mEncryptBlocks = blocksToEncrypt;
@@ -2387,6 +2509,8 @@ final public class MediaCodec {
                 return mEncryptBlocks;
             }
         };
+
+        private final Pattern zeroPattern = new Pattern(0, 0);
 
         /**
          * The pattern applicable to the protected data in each subsample.
@@ -2410,7 +2534,7 @@ final public class MediaCodec {
             key = newKey;
             iv = newIV;
             mode = newMode;
-            pattern = new Pattern(0, 0);
+            pattern = zeroPattern;
         }
 
         /**
@@ -2419,6 +2543,10 @@ final public class MediaCodec {
          */
         public void setPattern(Pattern newPattern) {
             pattern = newPattern;
+        }
+
+        private void setPattern(int blocksToEncrypt, int blocksToSkip) {
+            pattern = new Pattern(blocksToEncrypt, blocksToSkip);
         }
 
         @Override
@@ -3134,6 +3262,23 @@ final public class MediaCodec {
     public native final String getName();
 
     /**
+     *  Return Metrics data about the current codec instance.
+     *
+     * @return a {@link PersistableBundle} containing the set of attributes and values
+     * available for the media being handled by this instance of MediaCodec
+     * The attributes are descibed in {@link MetricsConstants}.
+     *
+     * Additional vendor-specific fields may also be present in
+     * the return value.
+     */
+    public PersistableBundle getMetrics() {
+        PersistableBundle bundle = native_getMetrics();
+        return bundle;
+    }
+
+    private native PersistableBundle native_getMetrics();
+
+    /**
      * Change a video encoder's target bitrate on the fly. The value is an
      * Integer object containing the new bitrate in bps.
      */
@@ -3390,8 +3535,24 @@ final public class MediaCodec {
      */
     @NonNull
     public MediaCodecInfo getCodecInfo() {
-        return MediaCodecList.getInfoFor(getName());
+        // Get the codec name first. If the codec is already released,
+        // IllegalStateException will be thrown here.
+        String name = getName();
+        synchronized (mCodecInfoLock) {
+            if (mCodecInfo == null) {
+                // Get the codec info for this codec itself first. Only initialize
+                // the full codec list if this somehow fails because it can be slow.
+                mCodecInfo = getOwnCodecInfo();
+                if (mCodecInfo == null) {
+                    mCodecInfo = MediaCodecList.getInfoFor(name);
+                }
+            }
+            return mCodecInfo;
+        }
     }
+
+    @NonNull
+    private native final MediaCodecInfo getOwnCodecInfo();
 
     @NonNull
     private native final ByteBuffer[] getBuffers(boolean input);
@@ -3431,6 +3592,9 @@ final public class MediaCodec {
 
         private final static int TYPE_YUV = 1;
 
+        private final int mTransform = 0; //Default no transform
+        private final int mScalingMode = 0; //Default frozen scaling mode
+
         @Override
         public int getFormat() {
             throwISEIfImageIsInvalid();
@@ -3447,6 +3611,18 @@ final public class MediaCodec {
         public int getWidth() {
             throwISEIfImageIsInvalid();
             return mWidth;
+        }
+
+        @Override
+        public int getTransform() {
+            throwISEIfImageIsInvalid();
+            return mTransform;
+        }
+
+        @Override
+        public int getScalingMode() {
+            throwISEIfImageIsInvalid();
+            return mScalingMode;
         }
 
         @Override
@@ -3589,5 +3765,81 @@ final public class MediaCodec {
             private final int mColInc;
             private final ByteBuffer mData;
         }
+    }
+
+    public final static class MetricsConstants
+    {
+        private MetricsConstants() {}
+
+        /**
+         * Key to extract the codec being used
+         * from the {@link MediaCodec#getMetrics} return value.
+         * The value is a String.
+         */
+        public static final String CODEC = "android.media.mediacodec.codec";
+
+        /**
+         * Key to extract the MIME type
+         * from the {@link MediaCodec#getMetrics} return value.
+         * The value is a String.
+         */
+        public static final String MIME_TYPE = "android.media.mediacodec.mime";
+
+        /**
+         * Key to extract what the codec mode
+         * from the {@link MediaCodec#getMetrics} return value.
+         * The value is a String. Values will be one of the constants
+         * {@link #MODE_AUDIO} or {@link #MODE_VIDEO}.
+         */
+        public static final String MODE = "android.media.mediacodec.mode";
+
+        /**
+         * The value returned for the key {@link #MODE} when the
+         * codec is a audio codec.
+         */
+        public static final String MODE_AUDIO = "audio";
+
+        /**
+         * The value returned for the key {@link #MODE} when the
+         * codec is a video codec.
+         */
+        public static final String MODE_VIDEO = "video";
+
+        /**
+         * Key to extract the flag indicating whether the codec is running
+         * as an encoder or decoder from the {@link MediaCodec#getMetrics} return value.
+         * The value is an integer.
+         * A 0 indicates decoder; 1 indicates encoder.
+         */
+        public static final String ENCODER = "android.media.mediacodec.encoder";
+
+        /**
+         * Key to extract the flag indicating whether the codec is running
+         * in secure (DRM) mode from the {@link MediaCodec#getMetrics} return value.
+         * The value is an integer.
+         */
+        public static final String SECURE = "android.media.mediacodec.secure";
+
+        /**
+         * Key to extract the width (in pixels) of the video track
+         * from the {@link MediaCodec#getMetrics} return value.
+         * The value is an integer.
+         */
+        public static final String WIDTH = "android.media.mediacodec.width";
+
+        /**
+         * Key to extract the height (in pixels) of the video track
+         * from the {@link MediaCodec#getMetrics} return value.
+         * The value is an integer.
+         */
+        public static final String HEIGHT = "android.media.mediacodec.height";
+
+        /**
+         * Key to extract the rotation (in degrees) to properly orient the video
+         * from the {@link MediaCodec#getMetrics} return.
+         * The value is a integer.
+         */
+        public static final String ROTATION = "android.media.mediacodec.rotation";
+
     }
 }

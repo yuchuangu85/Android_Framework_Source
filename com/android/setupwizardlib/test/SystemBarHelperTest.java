@@ -16,6 +16,10 @@
 
 package com.android.setupwizardlib.test;
 
+import static com.google.common.truth.Truth.assertThat;
+
+import static org.junit.Assert.assertEquals;
+
 import android.annotation.SuppressLint;
 import android.app.Dialog;
 import android.content.Context;
@@ -24,8 +28,12 @@ import android.os.Build.VERSION_CODES;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.SystemClock;
-import android.test.AndroidTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.InstrumentationRegistry;
+import android.support.test.annotation.UiThreadTest;
+import android.support.test.filters.SmallTest;
+import android.support.test.rule.UiThreadTestRule;
+import android.support.test.runner.AndroidJUnit4;
+import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -33,7 +41,16 @@ import android.view.WindowManager;
 import com.android.setupwizardlib.test.util.MockWindow;
 import com.android.setupwizardlib.util.SystemBarHelper;
 
-public class SystemBarHelperTest extends AndroidTestCase {
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+@RunWith(AndroidJUnit4.class)
+@SmallTest
+public class SystemBarHelperTest {
+
+    @Rule
+    public UiThreadTestRule mUiThreadTestRule = new UiThreadTestRule();
 
     private static final int STATUS_BAR_DISABLE_BACK = 0x00400000;
 
@@ -49,7 +66,8 @@ public class SystemBarHelperTest extends AndroidTestCase {
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                     | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
 
-    @SmallTest
+    @UiThreadTest
+    @Test
     public void testAddVisibilityFlagView() {
         final View view = createViewWithSystemUiVisibility(0x456);
         SystemBarHelper.addVisibilityFlag(view, 0x1400);
@@ -59,7 +77,8 @@ public class SystemBarHelperTest extends AndroidTestCase {
         }
     }
 
-    @SmallTest
+    @UiThreadTest
+    @Test
     public void testRemoveVisibilityFlagView() {
         final View view = createViewWithSystemUiVisibility(0x456);
         SystemBarHelper.removeVisibilityFlag(view, 0x1400);
@@ -69,7 +88,8 @@ public class SystemBarHelperTest extends AndroidTestCase {
         }
     }
 
-    @SmallTest
+    @UiThreadTest
+    @Test
     public void testAddVisibilityFlagWindow() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.addVisibilityFlag(window, 0x1400);
@@ -80,7 +100,8 @@ public class SystemBarHelperTest extends AndroidTestCase {
         }
     }
 
-    @SmallTest
+    @UiThreadTest
+    @Test
     public void testRemoveVisibilityFlagWindow() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.removeVisibilityFlag(window, 0x1400);
@@ -91,7 +112,8 @@ public class SystemBarHelperTest extends AndroidTestCase {
         }
     }
 
-    @SmallTest
+    @UiThreadTest
+    @Test
     public void testHideSystemBarsWindow() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.hideSystemBars(window);
@@ -108,10 +130,13 @@ public class SystemBarHelperTest extends AndroidTestCase {
         }
     }
 
-    @SmallTest
+    @UiThreadTest
+    @Test
     public void testShowSystemBarsWindow() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
-        SystemBarHelper.showSystemBars(window, getContext());
+        Context context = new ContextThemeWrapper(
+                InstrumentationRegistry.getContext(), android.R.style.Theme);
+        SystemBarHelper.showSystemBars(window, context);
         if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
             assertEquals(
                     "DEFAULT_IMMERSIVE_FLAGS should be removed from window's systemUiVisibility",
@@ -128,9 +153,10 @@ public class SystemBarHelperTest extends AndroidTestCase {
         }
     }
 
-    @SmallTest
+    @UiThreadTest
+    @Test
     public void testHideSystemBarsNoInfiniteLoop() throws InterruptedException {
-        final TestWindow window = new TestWindow(getContext(), null);
+        final TestWindow window = new TestWindow(InstrumentationRegistry.getContext(), null);
         final HandlerThread thread = new HandlerThread("SystemBarHelperTest");
         thread.start();
         final Handler handler = new Handler(thread.getLooper());
@@ -149,9 +175,10 @@ public class SystemBarHelperTest extends AndroidTestCase {
         }
     }
 
-    @SmallTest
+    @UiThreadTest
+    @Test
     public void testHideSystemBarsDialog() {
-        final Dialog dialog = new Dialog(mContext);
+        final Dialog dialog = new Dialog(InstrumentationRegistry.getContext());
         if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
             final WindowManager.LayoutParams attrs = dialog.getWindow().getAttributes();
             attrs.systemUiVisibility = 0x456;
@@ -166,28 +193,38 @@ public class SystemBarHelperTest extends AndroidTestCase {
         }
     }
 
-    @SmallTest
+    @UiThreadTest
+    @Test
     public void testSetBackButtonVisibleTrue() {
-        final Window window = createWindowWithSystemUiVisibility(0x456);
+        final Window window = createWindowWithSystemUiVisibility(STATUS_BAR_DISABLE_BACK | 0x456);
         SystemBarHelper.setBackButtonVisible(window, true);
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
-            assertEquals("View visibility should be 0x456", 0x456,
-                    window.getAttributes().systemUiVisibility);
+            assertThat(window.getAttributes().systemUiVisibility)
+                    .named("window sysUiVisibility")
+                    .isEqualTo(0x456);
+            assertThat(window.getDecorView().getSystemUiVisibility())
+                    .named("decor view sysUiVisibility")
+                    .isEqualTo(0x456);
         }
     }
 
-    @SmallTest
+    @UiThreadTest
+    @Test
     public void testSetBackButtonVisibleFalse() {
         final Window window = createWindowWithSystemUiVisibility(0x456);
         SystemBarHelper.setBackButtonVisible(window, false);
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
-            assertEquals("STATUS_BAR_DISABLE_BACK should be added to systemUiVisibility",
-                    0x456 | STATUS_BAR_DISABLE_BACK, window.getAttributes().systemUiVisibility);
+            assertThat(window.getAttributes().systemUiVisibility)
+                    .named("window sysUiVisibility")
+                    .isEqualTo(0x456 | STATUS_BAR_DISABLE_BACK);
+            assertThat(window.getDecorView().getSystemUiVisibility())
+                    .named("decor view sysUiVisibility")
+                    .isEqualTo(0x456 | STATUS_BAR_DISABLE_BACK);
         }
     }
 
     private View createViewWithSystemUiVisibility(int vis) {
-        final View view = new View(getContext());
+        final View view = new View(InstrumentationRegistry.getContext());
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
             view.setSystemUiVisibility(vis);
         }
@@ -195,7 +232,8 @@ public class SystemBarHelperTest extends AndroidTestCase {
     }
 
     private Window createWindowWithSystemUiVisibility(int vis) {
-        final Window window = new TestWindow(getContext(), createViewWithSystemUiVisibility(vis));
+        final Window window = new TestWindow(InstrumentationRegistry.getContext(),
+                createViewWithSystemUiVisibility(vis));
         if (VERSION.SDK_INT >= VERSION_CODES.HONEYCOMB) {
             WindowManager.LayoutParams attrs = window.getAttributes();
             attrs.systemUiVisibility = vis;
@@ -212,7 +250,7 @@ public class SystemBarHelperTest extends AndroidTestCase {
         private int mNavigationBarColor = -1;
         private int mStatusBarColor = -1;
 
-        public TestWindow(Context context, View decorView) {
+        TestWindow(Context context, View decorView) {
             super(context);
             mDecorView = decorView;
         }

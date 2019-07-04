@@ -92,6 +92,11 @@ final class HfpClientProfile implements LocalBluetoothProfile {
         return mIsProfileReady;
     }
 
+    @Override
+    public int getProfileId() {
+        return BluetoothProfile.HEADSET_CLIENT;
+    }
+
     HfpClientProfile(Context context, LocalBluetoothAdapter adapter,
             CachedBluetoothDeviceManager deviceManager,
             LocalBluetoothProfileManager profileManager) {
@@ -131,11 +136,6 @@ final class HfpClientProfile implements LocalBluetoothProfile {
                     Log.d(TAG,"Ignoring Connect");
                     return true;
                 }
-            }
-            // Handsfree HF only supports one source connection and hence it is OK to disconnect
-            // the only connected device here.
-            for (BluetoothDevice src : srcs) {
-                mService.disconnect(src);
             }
         }
         return mService.connect(device);

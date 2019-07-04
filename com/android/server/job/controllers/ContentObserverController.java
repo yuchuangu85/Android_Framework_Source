@@ -18,33 +18,33 @@ package com.android.server.job.controllers;
 
 import android.annotation.UserIdInt;
 import android.app.job.JobInfo;
-import android.content.Context;
 import android.database.ContentObserver;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.UserHandle;
+import android.util.ArrayMap;
+import android.util.ArraySet;
+import android.util.Log;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.util.TimeUtils;
-import android.util.ArrayMap;
-import android.util.ArraySet;
+import android.util.proto.ProtoOutputStream;
 
-import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.job.JobSchedulerService;
-import com.android.server.job.StateChangedListener;
+import com.android.server.job.StateControllerProto;
+import com.android.server.job.StateControllerProto.ContentObserverController.Observer.TriggerContentData;
 
-import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Objects;
+import java.util.function.Predicate;
 
 /**
  * Controller for monitoring changes to content URIs through a ContentObserver.
  */
-public class ContentObserverController extends StateController {
-    private static final String TAG = "JobScheduler.Content";
-    private static final boolean DEBUG = false;
+public final class ContentObserverController extends StateController {
+    private static final String TAG = "JobScheduler.ContentObserver";
+    private static final boolean DEBUG = JobSchedulerService.DEBUG
+            || Log.isLoggable(TAG, Log.DEBUG);
 
     /**
      * Maximum number of changing URIs we will batch together to report.
@@ -58,37 +58,17 @@ public class ContentObserverController extends StateController {
      */
     private static final int URIS_URGENT_THRESHOLD = 40;
 
-    private static final Object sCreationLock = new Object();
-    private static volatile ContentObserverController sController;
-
-    final private List<JobStatus> mTrackedTasks = new ArrayList<JobStatus>();
+    final private ArraySet<JobStatus> mTrackedTasks = new ArraySet<>();
     /**
      * Per-userid {@link JobInfo.TriggerContentUri} keyed ContentObserver cache.
      */
-    SparseArray<ArrayMap<JobInfo.TriggerContentUri, ObserverInstance>> mObservers =
+    final SparseArray<ArrayMap<JobInfo.TriggerContentUri, ObserverInstance>> mObservers =
             new SparseArray<>();
     final Handler mHandler;
 
-    public static ContentObserverController get(JobSchedulerService taskManagerService) {
-        synchronized (sCreationLock) {
-            if (sController == null) {
-                sController = new ContentObserverController(taskManagerService,
-                        taskManagerService.getContext(), taskManagerService.getLock());
-            }
-        }
-        return sController;
-    }
-
-    @VisibleForTesting
-    public static ContentObserverController getForTesting(StateChangedListener stateChangedListener,
-                                           Context context) {
-        return new ContentObserverController(stateChangedListener, context, new Object());
-    }
-
-    private ContentObserverController(StateChangedListener stateChangedListener, Context context,
-                Object lock) {
-        super(stateChangedListener, context, lock);
-        mHandler = new Handler(context.getMainLooper());
+    public ContentObserverController(JobSchedulerService service) {
+        super(service);
+        mHandler = new Handler(mContext.getMainLooper());
     }
 
     @Override
@@ -101,6 +81,7 @@ public class ContentObserverController extends StateController {
                 Slog.i(TAG, "Tracking content-trigger job " + taskStatus);
             }
             mTrackedTasks.add(taskStatus);
+            taskStatus.setTrackingController(JobStatus.TRACKING_CONTENT);
             boolean havePendingUris = false;
             // If there is a previous job associated with the new job, propagate over
             // any pending content URI trigger reports.
@@ -156,7 +137,8 @@ public class ContentObserverController extends StateController {
     @Override
     public void maybeStopTrackingJobLocked(JobStatus taskStatus, JobStatus incomingJob,
             boolean forUpdate) {
-        if (taskStatus.hasContentTriggerConstraint()) {
+        if (taskStatus.clearTrackingController(JobStatus.TRACKING_CONTENT)) {
+            mTrackedTasks.remove(taskStatus);
             if (taskStatus.contentObserverJobInstance != null) {
                 taskStatus.contentObserverJobInstance.unscheduleLocked();
                 if (incomingJob != null) {
@@ -164,7 +146,7 @@ public class ContentObserverController extends StateController {
                             && taskStatus.contentObserverJobInstance.mChangedAuthorities != null) {
                         // We are stopping this job, but it is going to be replaced by this given
                         // incoming job.  We want to propagate our state over to it, so we don't
-                        // lose any content changes that had happend since the last one started.
+                        // lose any content changes that had happened since the last one started.
                         // If there is a previous job associated with the new job, propagate over
                         // any pending content URI trigger reports.
                         if (incomingJob.contentObserverJobInstance == null) {
@@ -190,21 +172,18 @@ public class ContentObserverController extends StateController {
             if (DEBUG) {
                 Slog.i(TAG, "No longer tracking job " + taskStatus);
             }
-            mTrackedTasks.remove(taskStatus);
         }
     }
 
     @Override
-    public void rescheduleForFailure(JobStatus newJob, JobStatus failureToReschedule) {
+    public void rescheduleForFailureLocked(JobStatus newJob, JobStatus failureToReschedule) {
         if (failureToReschedule.hasContentTriggerConstraint()
                 && newJob.hasContentTriggerConstraint()) {
-            synchronized (mLock) {
-                // Our job has failed, and we are scheduling a new job for it.
-                // Copy the last reported content changes in to the new job, so when
-                // we schedule the new one we will pick them up and report them again.
-                newJob.changedAuthorities = failureToReschedule.changedAuthorities;
-                newJob.changedUris = failureToReschedule.changedUris;
-            }
+            // Our job has failed, and we are scheduling a new job for it.
+            // Copy the last reported content changes in to the new job, so when
+            // we schedule the new one we will pick them up and report them again.
+            newJob.changedAuthorities = failureToReschedule.changedAuthorities;
+            newJob.changedUris = failureToReschedule.changedUris;
         }
     }
 
@@ -374,23 +353,25 @@ public class ContentObserverController extends StateController {
     }
 
     @Override
-    public void dumpControllerStateLocked(PrintWriter pw, int filterUid) {
-        pw.println("Content:");
-        Iterator<JobStatus> it = mTrackedTasks.iterator();
-        while (it.hasNext()) {
-            JobStatus js = it.next();
-            if (!js.shouldDump(filterUid)) {
+    public void dumpControllerStateLocked(IndentingPrintWriter pw,
+            Predicate<JobStatus> predicate) {
+        for (int i = 0; i < mTrackedTasks.size(); i++) {
+            JobStatus js = mTrackedTasks.valueAt(i);
+            if (!predicate.test(js)) {
                 continue;
             }
-            pw.print("  #");
+            pw.print("#");
             js.printUniqueId(pw);
             pw.print(" from ");
             UserHandle.formatUid(pw, js.getSourceUid());
             pw.println();
         }
+        pw.println();
+
         int N = mObservers.size();
         if (N > 0) {
-            pw.println("  Observers:");
+            pw.println("Observers:");
+            pw.increaseIndent();
             for (int userIdx = 0; userIdx < N; userIdx++) {
                 final int userId = mObservers.keyAt(userIdx);
                 ArrayMap<JobInfo.TriggerContentUri, ObserverInstance> observersOfUser =
@@ -402,7 +383,7 @@ public class ContentObserverController extends StateController {
                     boolean shouldDump = false;
                     for (int j = 0; j < M; j++) {
                         JobInstance inst = obs.mJobs.valueAt(j);
-                        if (inst.mJobStatus.shouldDump(filterUid)) {
+                        if (predicate.test(inst.mJobStatus)) {
                             shouldDump = true;
                             break;
                         }
@@ -410,7 +391,6 @@ public class ContentObserverController extends StateController {
                     if (!shouldDump) {
                         continue;
                     }
-                    pw.print("    ");
                     JobInfo.TriggerContentUri trigger = observersOfUser.keyAt(observerIdx);
                     pw.print(trigger.getUri());
                     pw.print(" 0x");
@@ -418,17 +398,20 @@ public class ContentObserverController extends StateController {
                     pw.print(" (");
                     pw.print(System.identityHashCode(obs));
                     pw.println("):");
-                    pw.println("      Jobs:");
+                    pw.increaseIndent();
+                    pw.println("Jobs:");
+                    pw.increaseIndent();
                     for (int j = 0; j < M; j++) {
                         JobInstance inst = obs.mJobs.valueAt(j);
-                        pw.print("        #");
+                        pw.print("#");
                         inst.mJobStatus.printUniqueId(pw);
                         pw.print(" from ");
                         UserHandle.formatUid(pw, inst.mJobStatus.getSourceUid());
                         if (inst.mChangedAuthorities != null) {
                             pw.println(":");
+                            pw.increaseIndent();
                             if (inst.mTriggerPending) {
-                                pw.print("          Trigger pending: update=");
+                                pw.print("Trigger pending: update=");
                                 TimeUtils.formatDuration(
                                         inst.mJobStatus.getTriggerContentUpdateDelay(), pw);
                                 pw.print(", max=");
@@ -436,24 +419,126 @@ public class ContentObserverController extends StateController {
                                         inst.mJobStatus.getTriggerContentMaxDelay(), pw);
                                 pw.println();
                             }
-                            pw.println("          Changed Authorities:");
+                            pw.println("Changed Authorities:");
                             for (int k = 0; k < inst.mChangedAuthorities.size(); k++) {
-                                pw.print("          ");
                                 pw.println(inst.mChangedAuthorities.valueAt(k));
                             }
                             if (inst.mChangedUris != null) {
                                 pw.println("          Changed URIs:");
                                 for (int k = 0; k < inst.mChangedUris.size(); k++) {
-                                    pw.print("          ");
                                     pw.println(inst.mChangedUris.valueAt(k));
                                 }
                             }
+                            pw.decreaseIndent();
                         } else {
                             pw.println();
                         }
                     }
+                    pw.decreaseIndent();
+                    pw.decreaseIndent();
                 }
             }
+            pw.decreaseIndent();
         }
+    }
+
+    @Override
+    public void dumpControllerStateLocked(ProtoOutputStream proto, long fieldId,
+            Predicate<JobStatus> predicate) {
+        final long token = proto.start(fieldId);
+        final long mToken = proto.start(StateControllerProto.CONTENT_OBSERVER);
+
+        for (int i = 0; i < mTrackedTasks.size(); i++) {
+            JobStatus js = mTrackedTasks.valueAt(i);
+            if (!predicate.test(js)) {
+                continue;
+            }
+            final long jsToken =
+                    proto.start(StateControllerProto.ContentObserverController.TRACKED_JOBS);
+            js.writeToShortProto(proto,
+                    StateControllerProto.ContentObserverController.TrackedJob.INFO);
+            proto.write(StateControllerProto.ContentObserverController.TrackedJob.SOURCE_UID,
+                    js.getSourceUid());
+            proto.end(jsToken);
+        }
+
+        final int n = mObservers.size();
+        for (int userIdx = 0; userIdx < n; userIdx++) {
+            final long oToken =
+                    proto.start(StateControllerProto.ContentObserverController.OBSERVERS);
+            final int userId = mObservers.keyAt(userIdx);
+
+            proto.write(StateControllerProto.ContentObserverController.Observer.USER_ID, userId);
+
+            ArrayMap<JobInfo.TriggerContentUri, ObserverInstance> observersOfUser =
+                    mObservers.get(userId);
+            int numbOfObserversPerUser = observersOfUser.size();
+            for (int observerIdx = 0 ; observerIdx < numbOfObserversPerUser; observerIdx++) {
+                ObserverInstance obs = observersOfUser.valueAt(observerIdx);
+                int m = obs.mJobs.size();
+                boolean shouldDump = false;
+                for (int j = 0; j < m; j++) {
+                    JobInstance inst = obs.mJobs.valueAt(j);
+                    if (predicate.test(inst.mJobStatus)) {
+                        shouldDump = true;
+                        break;
+                    }
+                }
+                if (!shouldDump) {
+                    continue;
+                }
+                final long tToken = proto.start(
+                        StateControllerProto.ContentObserverController.Observer.TRIGGERS);
+
+                JobInfo.TriggerContentUri trigger = observersOfUser.keyAt(observerIdx);
+                Uri u = trigger.getUri();
+                if (u != null) {
+                    proto.write(TriggerContentData.URI, u.toString());
+                }
+                proto.write(TriggerContentData.FLAGS, trigger.getFlags());
+
+                for (int j = 0; j < m; j++) {
+                    final long jToken = proto.start(TriggerContentData.JOBS);
+                    JobInstance inst = obs.mJobs.valueAt(j);
+
+                    inst.mJobStatus.writeToShortProto(proto, TriggerContentData.JobInstance.INFO);
+                    proto.write(TriggerContentData.JobInstance.SOURCE_UID,
+                            inst.mJobStatus.getSourceUid());
+
+                    if (inst.mChangedAuthorities == null) {
+                        proto.end(jToken);
+                        continue;
+                    }
+                    if (inst.mTriggerPending) {
+                        proto.write(TriggerContentData.JobInstance.TRIGGER_CONTENT_UPDATE_DELAY_MS,
+                                inst.mJobStatus.getTriggerContentUpdateDelay());
+                        proto.write(TriggerContentData.JobInstance.TRIGGER_CONTENT_MAX_DELAY_MS,
+                                inst.mJobStatus.getTriggerContentMaxDelay());
+                    }
+                    for (int k = 0; k < inst.mChangedAuthorities.size(); k++) {
+                        proto.write(TriggerContentData.JobInstance.CHANGED_AUTHORITIES,
+                                inst.mChangedAuthorities.valueAt(k));
+                    }
+                    if (inst.mChangedUris != null) {
+                        for (int k = 0; k < inst.mChangedUris.size(); k++) {
+                            u = inst.mChangedUris.valueAt(k);
+                            if (u != null) {
+                                proto.write(TriggerContentData.JobInstance.CHANGED_URIS,
+                                        u.toString());
+                            }
+                        }
+                    }
+
+                    proto.end(jToken);
+                }
+
+                proto.end(tToken);
+            }
+
+            proto.end(oToken);
+        }
+
+        proto.end(mToken);
+        proto.end(token);
     }
 }

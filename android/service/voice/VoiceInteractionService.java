@@ -287,6 +287,20 @@ public class VoiceInteractionService extends Service {
         return mKeyphraseEnrollmentInfo;
     }
 
+    /**
+      * Checks if a given keyphrase and locale are supported to create an
+      * {@link AlwaysOnHotwordDetector}.
+      *
+      * @return true if the keyphrase and locale combination is supported, false otherwise.
+      * @hide
+      */
+    public final boolean isKeyphraseAndLocaleSupportedForHotword(String keyphrase, Locale locale) {
+        if (mKeyphraseEnrollmentInfo == null) {
+            return false;
+        }
+        return mKeyphraseEnrollmentInfo.getKeyphraseMetadata(keyphrase, locale) != null;
+    }
+
     private void safelyShutdownHotwordDetector() {
         try {
             synchronized (mLock) {

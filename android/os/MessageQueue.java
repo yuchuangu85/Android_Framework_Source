@@ -18,9 +18,11 @@ package android.os;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.os.MessageQueueProto;
 import android.util.Log;
 import android.util.Printer;
 import android.util.SparseArray;
+import android.util.proto.ProtoOutputStream;
 
 import java.io.FileDescriptor;
 import java.lang.annotation.Retention;
@@ -31,7 +33,7 @@ import java.util.ArrayList;
  * Low-level class holding the list of messages to be dispatched by a
  * {@link Looper}.  Messages are not added directly to a MessageQueue,
  * but rather through {@link Handler} objects associated with the Looper.
- * <p>
+ *
  * <p>You can retrieve the MessageQueue for the current thread with
  * {@link Looper#myQueue() Looper.myQueue()}.
  */
@@ -59,15 +61,10 @@ public final class MessageQueue {
     private int mNextBarrierToken;
 
     private native static long nativeInit();
-
     private native static void nativeDestroy(long ptr);
-
     private native void nativePollOnce(long ptr, int timeoutMillis); /*non-static for callbacks*/
-
     private native static void nativeWake(long ptr);
-
     private native static boolean nativeIsPolling(long ptr);
-
     private native static void nativeSetFileDescriptorEvents(long ptr, int fd, int events);
 
     MessageQueue(boolean quitAllowed) {
@@ -96,7 +93,7 @@ public final class MessageQueue {
 
     /**
      * Returns true if the looper has no pending messages which are due to be processed.
-     * <p>
+     *
      * <p>This method is safe to call from any thread.
      *
      * @return True if the looper is idle.
@@ -113,7 +110,7 @@ public final class MessageQueue {
      * removed automatically for you by returning false from
      * {@link IdleHandler#queueIdle IdleHandler.queueIdle()} when it is
      * invoked, or explicitly removing it with {@link #removeIdleHandler}.
-     * <p>
+     *
      * <p>This method is safe to call from any thread.
      *
      * @param handler The IdleHandler to be added.
@@ -131,7 +128,7 @@ public final class MessageQueue {
      * Remove an {@link IdleHandler} from the queue that was previously added
      * with {@link #addIdleHandler}.  If the given object is not currently
      * in the idle list, nothing is done.
-     * <p>
+     *
      * <p>This method is safe to call from any thread.
      *
      * @param handler The IdleHandler to be removed.
@@ -147,10 +144,11 @@ public final class MessageQueue {
      * This is a good signal that the loop is still alive rather than being stuck
      * handling a callback.  Note that this method is intrinsically racy, since the
      * state of the loop can change before you get the result back.
-     * <p>
+     *
      * <p>This method is safe to call from any thread.
      *
      * @return True if the looper is currently polling for events.
+     * @hide
      */
     public boolean isPolling() {
         synchronized (this) {
@@ -176,20 +174,20 @@ public final class MessageQueue {
      * is no longer of use.
      * </p>
      *
-     * @param fd       The file descriptor for which a listener will be registered.
-     * @param events   The set of events to receive: a combination of the
-     *                 {@link OnFileDescriptorEventListener#EVENT_INPUT},
-     *                 {@link OnFileDescriptorEventListener#EVENT_OUTPUT}, and
-     *                 {@link OnFileDescriptorEventListener#EVENT_ERROR} event masks.  If the requested
-     *                 set of events is zero, then the listener is unregistered.
+     * @param fd The file descriptor for which a listener will be registered.
+     * @param events The set of events to receive: a combination of the
+     * {@link OnFileDescriptorEventListener#EVENT_INPUT},
+     * {@link OnFileDescriptorEventListener#EVENT_OUTPUT}, and
+     * {@link OnFileDescriptorEventListener#EVENT_ERROR} event masks.  If the requested
+     * set of events is zero, then the listener is unregistered.
      * @param listener The listener to invoke when file descriptor events occur.
      *
      * @see OnFileDescriptorEventListener
      * @see #removeOnFileDescriptorEventListener
      */
     public void addOnFileDescriptorEventListener(@NonNull FileDescriptor fd,
-                                                 @OnFileDescriptorEventListener.Events int events,
-                                                 @NonNull OnFileDescriptorEventListener listener) {
+            @OnFileDescriptorEventListener.Events int events,
+            @NonNull OnFileDescriptorEventListener listener) {
         if (fd == null) {
             throw new IllegalArgumentException("fd must not be null");
         }
@@ -225,7 +223,7 @@ public final class MessageQueue {
     }
 
     private void updateOnFileDescriptorEventListenerLocked(FileDescriptor fd, int events,
-                                                           OnFileDescriptorEventListener listener) {
+            OnFileDescriptorEventListener listener) {
         final int fdNum = fd.getInt$();
 
         int index = -1;
@@ -257,6 +255,7 @@ public final class MessageQueue {
         } else if (record != null) {
             record.mEvents = 0;
             mFileDescriptorRecords.removeAt(index);
+            nativeSetFileDescriptorEvents(mPtr, fdNum, 0);
         }
     }
 
@@ -449,24 +448,26 @@ public final class MessageQueue {
 
     /**
      * Posts a synchronization barrier to the Looper's message queue.
-     * <p>
+     *
      * Message processing occurs as usual until the message queue encounters the
      * synchronization barrier that has been posted.  When the barrier is encountered,
      * later synchronous messages in the queue are stalled (prevented from being executed)
      * until the barrier is released by calling {@link #removeSyncBarrier} and specifying
      * the token that identifies the synchronization barrier.
-     * <p>
+     *
      * This method is used to immediately postpone execution of all subsequently posted
      * synchronous messages until a condition is met that releases the barrier.
      * Asynchronous messages (see {@link Message#isAsynchronous} are exempt from the barrier
      * and continue to be processed as usual.
-     * <p>
+     *
      * This call must be always matched by a call to {@link #removeSyncBarrier} with
      * the same token to ensure that the message queue resumes normal operation.
      * Otherwise the application will probably hang!
      *
      * @return A token that uniquely identifies the barrier.  This token must be
      * passed to {@link #removeSyncBarrier} to release the barrier.
+     *
+     * @hide
      */
     public int postSyncBarrier() {
         return postSyncBarrier(SystemClock.uptimeMillis());
@@ -505,9 +506,11 @@ public final class MessageQueue {
      * Removes a synchronization barrier.
      *
      * @param token The synchronization barrier token that was returned by
-     *              {@link #postSyncBarrier}.
+     * {@link #postSyncBarrier}.
      *
      * @throws IllegalStateException if the barrier was not found.
+     *
+     * @hide
      */
     public void removeSyncBarrier(int token) {
         // Remove a sync barrier token from the queue.
@@ -644,6 +647,23 @@ public final class MessageQueue {
         }
     }
 
+    boolean hasMessages(Handler h) {
+        if (h == null) {
+            return false;
+        }
+
+        synchronized (this) {
+            Message p = mMessages;
+            while (p != null) {
+                if (p.target == h) {
+                    return true;
+                }
+                p = p.next;
+            }
+            return false;
+        }
+    }
+
     void removeMessages(Handler h, int what, Object object) {
         if (h == null) {
             return;
@@ -655,7 +675,7 @@ public final class MessageQueue {
             // Remove all messages at front.
             //从消息队列的头部开始，移除所有符合条件的消息
             while (p != null && p.target == h && p.what == what
-                    && (object == null || p.obj == object)) {
+                   && (object == null || p.obj == object)) {
                 Message n = p.next;
                 mMessages = n;
                 p.recycleUnchecked();
@@ -668,7 +688,7 @@ public final class MessageQueue {
                 Message n = p.next;
                 if (n != null) {
                     if (n.target == h && n.what == what
-                            && (object == null || n.obj == object)) {
+                        && (object == null || n.obj == object)) {
                         Message nn = n.next;
                         n.recycleUnchecked();
                         p.next = nn;
@@ -691,7 +711,7 @@ public final class MessageQueue {
             // Remove all messages at front.
             //从消息队列的头部开始，移除所有符合条件的消息
             while (p != null && p.target == h && p.callback == r
-                    && (object == null || p.obj == object)) {
+                   && (object == null || p.obj == object)) {
                 Message n = p.next;
                 mMessages = n;
                 p.recycleUnchecked();
@@ -704,7 +724,7 @@ public final class MessageQueue {
                 Message n = p.next;
                 if (n != null) {
                     if (n.target == h && n.callback == r
-                            && (object == null || n.obj == object)) {
+                        && (object == null || n.obj == object)) {
                         Message nn = n.next;
                         n.recycleUnchecked();
                         p.next = nn;
@@ -767,7 +787,7 @@ public final class MessageQueue {
                 removeAllMessagesLocked();
             } else {
                 Message n;
-                for (; ; ) {
+                for (;;) {
                     n = p.next;
                     if (n == null) {
                         return;
@@ -787,17 +807,31 @@ public final class MessageQueue {
         }
     }
 
-    void dump(Printer pw, String prefix) {
+    void dump(Printer pw, String prefix, Handler h) {
         synchronized (this) {
             long now = SystemClock.uptimeMillis();
             int n = 0;
             for (Message msg = mMessages; msg != null; msg = msg.next) {
-                pw.println(prefix + "Message " + n + ": " + msg.toString(now));
+                if (h == null || h == msg.target) {
+                    pw.println(prefix + "Message " + n + ": " + msg.toString(now));
+                }
                 n++;
             }
             pw.println(prefix + "(Total messages: " + n + ", polling=" + isPollingLocked()
                     + ", quitting=" + mQuitting + ")");
         }
+    }
+
+    void writeToProto(ProtoOutputStream proto, long fieldId) {
+        final long messageQueueToken = proto.start(fieldId);
+        synchronized (this) {
+            for (Message msg = mMessages; msg != null; msg = msg.next) {
+                msg.writeToProto(proto, MessageQueueProto.MESSAGES);
+            }
+            proto.write(MessageQueueProto.IS_POLLING_LOCKED, isPollingLocked());
+            proto.write(MessageQueueProto.IS_QUITTING, mQuitting);
+        }
+        proto.end(messageQueueToken);
     }
 
     /**
@@ -868,25 +902,26 @@ public final class MessageQueue {
 
         /** @hide */
         @Retention(RetentionPolicy.SOURCE)
-        @IntDef(flag = true, value = {EVENT_INPUT, EVENT_OUTPUT, EVENT_ERROR})
-        public @interface Events {
-        }
+        @IntDef(flag = true, prefix = { "EVENT_" }, value = {
+                EVENT_INPUT,
+                EVENT_OUTPUT,
+                EVENT_ERROR
+        })
+        public @interface Events {}
 
         /**
          * Called when a file descriptor receives events.
          *
-         * @param fd     The file descriptor.
+         * @param fd The file descriptor.
          * @param events The set of events that occurred: a combination of the
-         *               {@link #EVENT_INPUT}, {@link #EVENT_OUTPUT}, and {@link #EVENT_ERROR} event masks.
-         *
+         * {@link #EVENT_INPUT}, {@link #EVENT_OUTPUT}, and {@link #EVENT_ERROR} event masks.
          * @return The new set of events to watch, or 0 to unregister the listener.
          *
          * @see #EVENT_INPUT
          * @see #EVENT_OUTPUT
          * @see #EVENT_ERROR
          */
-        @Events
-        int onFileDescriptorEvents(@NonNull FileDescriptor fd, @Events int events);
+        @Events int onFileDescriptorEvents(@NonNull FileDescriptor fd, @Events int events);
     }
 
     private static final class FileDescriptorRecord {
@@ -896,7 +931,7 @@ public final class MessageQueue {
         public int mSeq;
 
         public FileDescriptorRecord(FileDescriptor descriptor,
-                                    int events, OnFileDescriptorEventListener listener) {
+                int events, OnFileDescriptorEventListener listener) {
             mDescriptor = descriptor;
             mEvents = events;
             mListener = listener;

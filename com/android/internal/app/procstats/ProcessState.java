@@ -17,20 +17,18 @@
 package com.android.internal.app.procstats;
 
 import android.os.Parcel;
-import android.os.Parcelable;
 import android.os.SystemClock;
-import android.os.SystemProperties;
 import android.os.UserHandle;
-import android.text.format.DateFormat;
+import android.service.procstats.ProcessStatsProto;
 import android.util.ArrayMap;
-import android.util.ArraySet;
 import android.util.DebugUtils;
 import android.util.Log;
+import android.util.LongSparseArray;
 import android.util.Slog;
-import android.util.SparseArray;
 import android.util.TimeUtils;
+import android.util.proto.ProtoOutputStream;
+import android.util.proto.ProtoUtils;
 
-import com.android.internal.app.procstats.ProcessStats;
 import com.android.internal.app.procstats.ProcessStats.PackageState;
 import com.android.internal.app.procstats.ProcessStats.ProcessStateHolder;
 import com.android.internal.app.procstats.ProcessStats.TotalMemoryUseCollection;
@@ -38,6 +36,9 @@ import static com.android.internal.app.procstats.ProcessStats.PSS_SAMPLE_COUNT;
 import static com.android.internal.app.procstats.ProcessStats.PSS_MINIMUM;
 import static com.android.internal.app.procstats.ProcessStats.PSS_AVERAGE;
 import static com.android.internal.app.procstats.ProcessStats.PSS_MAXIMUM;
+import static com.android.internal.app.procstats.ProcessStats.PSS_RSS_MINIMUM;
+import static com.android.internal.app.procstats.ProcessStats.PSS_RSS_AVERAGE;
+import static com.android.internal.app.procstats.ProcessStats.PSS_RSS_MAXIMUM;
 import static com.android.internal.app.procstats.ProcessStats.PSS_USS_MINIMUM;
 import static com.android.internal.app.procstats.ProcessStats.PSS_USS_AVERAGE;
 import static com.android.internal.app.procstats.ProcessStats.PSS_USS_MAXIMUM;
@@ -59,17 +60,10 @@ import static com.android.internal.app.procstats.ProcessStats.STATE_CACHED_ACTIV
 import static com.android.internal.app.procstats.ProcessStats.STATE_CACHED_EMPTY;
 import static com.android.internal.app.procstats.ProcessStats.STATE_COUNT;
 
-import dalvik.system.VMRuntime;
-import libcore.util.EmptyArray;
-
-import java.io.IOException;
-import java.io.InputStream;
 import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.Comparator;
-import java.util.Objects;
+import java.util.HashMap;
+import java.util.Map;
 
 public final class ProcessState {
     private static final String TAG = "ProcessStats";
@@ -81,19 +75,21 @@ public final class ProcessState {
         STATE_PERSISTENT,               // ActivityManager.PROCESS_STATE_PERSISTENT
         STATE_PERSISTENT,               // ActivityManager.PROCESS_STATE_PERSISTENT_UI
         STATE_TOP,                      // ActivityManager.PROCESS_STATE_TOP
-        STATE_IMPORTANT_FOREGROUND,     // ActivityManager.PROCESS_STATE_BOUND_FOREGROUND_SERVICE
         STATE_IMPORTANT_FOREGROUND,     // ActivityManager.PROCESS_STATE_FOREGROUND_SERVICE
-        STATE_TOP,                      // ActivityManager.PROCESS_STATE_TOP_SLEEPING
+        STATE_IMPORTANT_FOREGROUND,     // ActivityManager.PROCESS_STATE_BOUND_FOREGROUND_SERVICE
         STATE_IMPORTANT_FOREGROUND,     // ActivityManager.PROCESS_STATE_IMPORTANT_FOREGROUND
         STATE_IMPORTANT_BACKGROUND,     // ActivityManager.PROCESS_STATE_IMPORTANT_BACKGROUND
+        STATE_IMPORTANT_BACKGROUND,     // ActivityManager.PROCESS_STATE_TRANSIENT_BACKGROUND
         STATE_BACKUP,                   // ActivityManager.PROCESS_STATE_BACKUP
-        STATE_HEAVY_WEIGHT,             // ActivityManager.PROCESS_STATE_HEAVY_WEIGHT
         STATE_SERVICE,                  // ActivityManager.PROCESS_STATE_SERVICE
         STATE_RECEIVER,                 // ActivityManager.PROCESS_STATE_RECEIVER
+        STATE_TOP,                      // ActivityManager.PROCESS_STATE_TOP_SLEEPING
+        STATE_HEAVY_WEIGHT,             // ActivityManager.PROCESS_STATE_HEAVY_WEIGHT
         STATE_HOME,                     // ActivityManager.PROCESS_STATE_HOME
         STATE_LAST_ACTIVITY,            // ActivityManager.PROCESS_STATE_LAST_ACTIVITY
         STATE_CACHED_ACTIVITY,          // ActivityManager.PROCESS_STATE_CACHED_ACTIVITY
         STATE_CACHED_ACTIVITY_CLIENT,   // ActivityManager.PROCESS_STATE_CACHED_ACTIVITY_CLIENT
+        STATE_CACHED_ACTIVITY,          // ActivityManager.PROCESS_STATE_CACHED_RECENT
         STATE_CACHED_EMPTY,             // ActivityManager.PROCESS_STATE_CACHED_EMPTY
     };
 
@@ -128,7 +124,7 @@ public final class ProcessState {
     private final String mName;
     private final String mPackage;
     private final int mUid;
-    private final int mVersion;
+    private final long mVersion;
     private final DurationsTable mDurations;
     private final PssTable mPssTable;
 
@@ -143,7 +139,6 @@ public final class ProcessState {
     private int mNumActiveServices;
     private int mNumStartedServices;
 
-    private int mNumExcessiveWake;
     private int mNumExcessiveCpu;
 
     private int mNumCachedKill;
@@ -161,7 +156,7 @@ public final class ProcessState {
      * Create a new top-level process state, for the initial case where there is only
      * a single package running in a process.  The initial state is not running.
      */
-    public ProcessState(ProcessStats processStats, String pkg, int uid, int vers, String name) {
+    public ProcessState(ProcessStats processStats, String pkg, int uid, long vers, String name) {
         mStats = processStats;
         mName = name;
         mCommonProcess = this;
@@ -177,7 +172,7 @@ public final class ProcessState {
      * state.  The current running state of the top-level process is also copied,
      * marked as started running at 'now'.
      */
-    public ProcessState(ProcessState commonProcess, String pkg, int uid, int vers, String name,
+    public ProcessState(ProcessState commonProcess, String pkg, int uid, long vers, String name,
             long now) {
         mStats = commonProcess.mStats;
         mName = name;
@@ -195,7 +190,6 @@ public final class ProcessState {
         ProcessState pnew = new ProcessState(this, mPackage, mUid, mVersion, mName, now);
         pnew.mDurations.addDurations(mDurations);
         pnew.mPssTable.copyFrom(mPssTable, PSS_COUNT);
-        pnew.mNumExcessiveWake = mNumExcessiveWake;
         pnew.mNumExcessiveCpu = mNumExcessiveCpu;
         pnew.mNumCachedKill = mNumCachedKill;
         pnew.mMinCachedKillPss = mMinCachedKillPss;
@@ -230,7 +224,7 @@ public final class ProcessState {
         return mUid;
     }
 
-    public int getVersion() {
+    public long getVersion() {
         return mVersion;
     }
 
@@ -249,7 +243,6 @@ public final class ProcessState {
     public void add(ProcessState other) {
         mDurations.addDurations(other.mDurations);
         mPssTable.mergeStats(other.mPssTable);
-        mNumExcessiveWake += other.mNumExcessiveWake;
         mNumExcessiveCpu += other.mNumExcessiveCpu;
         if (other.mNumCachedKill > 0) {
             addCachedKill(other.mNumCachedKill, other.mMinCachedKillPss,
@@ -263,7 +256,6 @@ public final class ProcessState {
         mStartTime = now;
         mLastPssState = STATE_NOTHING;
         mLastPssTime = 0;
-        mNumExcessiveWake = 0;
         mNumExcessiveCpu = 0;
         mNumCachedKill = 0;
         mMinCachedKillPss = mAvgCachedKillPss = mMaxCachedKillPss = 0;
@@ -285,7 +277,7 @@ public final class ProcessState {
         out.writeInt(mMultiPackage ? 1 : 0);
         mDurations.writeToParcel(out);
         mPssTable.writeToParcel(out);
-        out.writeInt(mNumExcessiveWake);
+        out.writeInt(0);  // was mNumExcessiveWake
         out.writeInt(mNumExcessiveCpu);
         out.writeInt(mNumCachedKill);
         if (mNumCachedKill > 0) {
@@ -308,7 +300,7 @@ public final class ProcessState {
         if (!mPssTable.readFromParcel(in)) {
             return false;
         }
-        mNumExcessiveWake = in.readInt();
+        in.readInt(); // was mNumExcessiveWake
         mNumExcessiveCpu = in.readInt();
         mNumCachedKill = in.readInt();
         if (mNumCachedKill > 0) {
@@ -379,7 +371,7 @@ public final class ProcessState {
 
     public void setState(int state, long now) {
         ensureNotDead();
-        if (mCurState != state) {
+        if (!mDead && (mCurState != state)) {
             //Slog.i(TAG, "Setting state in " + mName + "/" + mPackage + ": " + state);
             commitStateTime(now);
             mCurState = state;
@@ -463,9 +455,31 @@ public final class ProcessState {
         }
     }
 
-    public void addPss(long pss, long uss, boolean always,
+    public void addPss(long pss, long uss, long rss, boolean always, int type, long duration,
             ArrayMap<String, ProcessStateHolder> pkgList) {
         ensureNotDead();
+        switch (type) {
+            case ProcessStats.ADD_PSS_INTERNAL_SINGLE:
+                mStats.mInternalSinglePssCount++;
+                mStats.mInternalSinglePssTime += duration;
+                break;
+            case ProcessStats.ADD_PSS_INTERNAL_ALL_MEM:
+                mStats.mInternalAllMemPssCount++;
+                mStats.mInternalAllMemPssTime += duration;
+                break;
+            case ProcessStats.ADD_PSS_INTERNAL_ALL_POLL:
+                mStats.mInternalAllPollPssCount++;
+                mStats.mInternalAllPollPssTime += duration;
+                break;
+            case ProcessStats.ADD_PSS_EXTERNAL:
+                mStats.mExternalPssCount++;
+                mStats.mExternalPssTime += duration;
+                break;
+            case ProcessStats.ADD_PSS_EXTERNAL_SLOW:
+                mStats.mExternalSlowPssCount++;
+                mStats.mExternalSlowPssTime += duration;
+                break;
+        }
         if (!always) {
             if (mLastPssState == mCurState && SystemClock.uptimeMillis()
                     < (mLastPssTime+(30*1000))) {
@@ -476,7 +490,8 @@ public final class ProcessState {
         mLastPssTime = SystemClock.uptimeMillis();
         if (mCurState != STATE_NOTHING) {
             // First update the common process.
-            mCommonProcess.mPssTable.mergeStats(mCurState, 1, pss, pss, pss, uss, uss, uss);
+            mCommonProcess.mPssTable.mergeStats(mCurState, 1, pss, pss, pss, uss, uss, uss,
+                    rss, rss, rss);
 
             // If the common process is not multi-package, there is nothing else to do.
             if (!mCommonProcess.mMultiPackage) {
@@ -486,21 +501,9 @@ public final class ProcessState {
             if (pkgList != null) {
                 for (int ip=pkgList.size()-1; ip>=0; ip--) {
                     pullFixedProc(pkgList, ip).mPssTable.mergeStats(mCurState, 1,
-                            pss, pss, pss, uss, uss, uss);
+                            pss, pss, pss, uss, uss, uss, rss, rss, rss);
                 }
             }
-        }
-    }
-
-    public void reportExcessiveWake(ArrayMap<String, ProcessStateHolder> pkgList) {
-        ensureNotDead();
-        mCommonProcess.mNumExcessiveWake++;
-        if (!mCommonProcess.mMultiPackage) {
-            return;
-        }
-
-        for (int ip=pkgList.size()-1; ip>=0; ip--) {
-            pullFixedProc(pkgList, ip).mNumExcessiveWake++;
         }
     }
 
@@ -552,7 +555,7 @@ public final class ProcessState {
             // The array map is still pointing to a common process state
             // that is now shared across packages.  Update it to point to
             // the new per-package state.
-            SparseArray<PackageState> vpkg = mStats.mPackages.get(pkgName, mUid);
+            LongSparseArray<PackageState> vpkg = mStats.mPackages.get(pkgName, mUid);
             if (vpkg == null) {
                 throw new IllegalStateException("Didn't find package " + pkgName
                         + " / " + mUid);
@@ -590,7 +593,7 @@ public final class ProcessState {
             // The array map is still pointing to a common process state
             // that is now shared across packages.  Update it to point to
             // the new per-package state.
-            SparseArray<PackageState> vpkg = mStats.mPackages.get(pkgList.keyAt(index),
+            LongSparseArray<PackageState> vpkg = mStats.mPackages.get(pkgList.keyAt(index),
                     proc.mUid);
             if (vpkg == null) {
                 throw new IllegalStateException("No existing package "
@@ -648,6 +651,18 @@ public final class ProcessState {
 
     public long getPssUssMaximum(int state) {
         return mPssTable.getValueForId((byte)state, PSS_USS_MAXIMUM);
+    }
+
+    public long getPssRssMinimum(int state) {
+        return mPssTable.getValueForId((byte)state, PSS_RSS_MINIMUM);
+    }
+
+    public long getPssRssAverage(int state) {
+        return mPssTable.getValueForId((byte)state, PSS_RSS_AVERAGE);
+    }
+
+    public long getPssRssMaximum(int state) {
+        return mPssTable.getValueForId((byte)state, PSS_RSS_MAXIMUM);
     }
 
     /**
@@ -785,6 +800,8 @@ public final class ProcessState {
                 new int[] {STATE_SERVICE_RESTARTING}, now, totalTime, true);
         dumpProcessSummaryDetails(pw, prefix, "      Receiver: ", screenStates, memStates,
                 new int[] {STATE_RECEIVER}, now, totalTime, true);
+        dumpProcessSummaryDetails(pw, prefix, "         Heavy: ", screenStates, memStates,
+                new int[] {STATE_HOME}, now, totalTime, true);
         dumpProcessSummaryDetails(pw, prefix, "        (Home): ", screenStates, memStates,
                 new int[] {STATE_HOME}, now, totalTime, true);
         dumpProcessSummaryDetails(pw, prefix, "    (Last Act): ", screenStates, memStates,
@@ -889,14 +906,16 @@ public final class ProcessState {
                         DebugUtils.printSizeValue(pw, getPssUssAverage(bucket) * 1024);
                         pw.print(" ");
                         DebugUtils.printSizeValue(pw, getPssUssMaximum(bucket) * 1024);
+                        pw.print(" / ");
+                        DebugUtils.printSizeValue(pw, getPssRssMinimum(bucket) * 1024);
+                        pw.print(" ");
+                        DebugUtils.printSizeValue(pw, getPssRssAverage(bucket) * 1024);
+                        pw.print(" ");
+                        DebugUtils.printSizeValue(pw, getPssRssMaximum(bucket) * 1024);
                         pw.println();
                     }
                 }
             }
-        }
-        if (mNumExcessiveWake != 0) {
-            pw.print(prefix); pw.print("Killed for excessive wake locks: ");
-                    pw.print(mNumExcessiveWake); pw.println(" times");
         }
         if (mNumExcessiveCpu != 0) {
             pw.print(prefix); pw.print("Killed for excessive CPU use: ");
@@ -965,7 +984,8 @@ public final class ProcessState {
     public void computeProcessData(ProcessStats.ProcessDataCollection data, long now) {
         data.totalTime = 0;
         data.numPss = data.minPss = data.avgPss = data.maxPss =
-                data.minUss = data.avgUss = data.maxUss = 0;
+                data.minUss = data.avgUss = data.maxUss =
+                data.minRss = data.avgRss = data.maxRss = 0;
         for (int is=0; is<data.screenStates.length; is++) {
             for (int im=0; im<data.memStates.length; im++) {
                 for (int ip=0; ip<data.procStates.length; ip++) {
@@ -980,6 +1000,9 @@ public final class ProcessState {
                         long minUss = getPssUssMinimum(bucket);
                         long avgUss = getPssUssAverage(bucket);
                         long maxUss = getPssUssMaximum(bucket);
+                        long minRss = getPssRssMinimum(bucket);
+                        long avgRss = getPssRssAverage(bucket);
+                        long maxRss = getPssRssMaximum(bucket);
                         if (data.numPss == 0) {
                             data.minPss = minPss;
                             data.avgPss = avgPss;
@@ -987,6 +1010,9 @@ public final class ProcessState {
                             data.minUss = minUss;
                             data.avgUss = avgUss;
                             data.maxUss = maxUss;
+                            data.minRss = minRss;
+                            data.avgRss = avgRss;
+                            data.maxRss = maxRss;
                         } else {
                             if (minPss < data.minPss) {
                                 data.minPss = minPss;
@@ -1003,6 +1029,14 @@ public final class ProcessState {
                                     + (avgUss*(double)samples)) / (data.numPss+samples) );
                             if (maxUss > data.maxUss) {
                                 data.maxUss = maxUss;
+                            }
+                            if (minRss < data.minRss) {
+                                data.minRss = minRss;
+                            }
+                            data.avgRss = (long)( ((data.avgRss*(double)data.numPss)
+                                    + (avgRss*(double)samples)) / (data.numPss+samples) );
+                            if (maxRss > data.maxRss) {
+                                data.maxRss = maxRss;
                             }
                         }
                         data.numPss += samples;
@@ -1047,7 +1081,7 @@ public final class ProcessState {
         }
     }
 
-    public void dumpPackageProcCheckin(PrintWriter pw, String pkgName, int uid, int vers,
+    public void dumpPackageProcCheckin(PrintWriter pw, String pkgName, int uid, long vers,
             String itemName, long now) {
         pw.print("pkgproc,");
         pw.print(pkgName);
@@ -1071,7 +1105,7 @@ public final class ProcessState {
             dumpAllPssCheckin(pw);
             pw.println();
         }
-        if (mNumExcessiveWake > 0 || mNumExcessiveCpu > 0 || mNumCachedKill > 0) {
+        if (mNumExcessiveCpu > 0 || mNumCachedKill > 0) {
             pw.print("pkgkills,");
             pw.print(pkgName);
             pw.print(",");
@@ -1081,7 +1115,7 @@ public final class ProcessState {
             pw.print(",");
             pw.print(DumpUtils.collapseString(pkgName, itemName));
             pw.print(",");
-            pw.print(mNumExcessiveWake);
+            pw.print("0"); // was mNumExcessiveWake
             pw.print(",");
             pw.print(mNumExcessiveCpu);
             pw.print(",");
@@ -1113,13 +1147,13 @@ public final class ProcessState {
             dumpAllPssCheckin(pw);
             pw.println();
         }
-        if (mNumExcessiveWake > 0 || mNumExcessiveCpu > 0 || mNumCachedKill > 0) {
+        if (mNumExcessiveCpu > 0 || mNumCachedKill > 0) {
             pw.print("kills,");
             pw.print(procName);
             pw.print(",");
             pw.print(uid);
             pw.print(",");
-            pw.print(mNumExcessiveWake);
+            pw.print("0"); // was mNumExcessiveWake
             pw.print(",");
             pw.print(mNumExcessiveCpu);
             pw.print(",");
@@ -1172,9 +1206,16 @@ public final class ProcessState {
             pw.print(mPssTable.getValue(key, PSS_USS_AVERAGE));
             pw.print(':');
             pw.print(mPssTable.getValue(key, PSS_USS_MAXIMUM));
+            pw.print(':');
+            pw.print(mPssTable.getValue(key, PSS_RSS_MINIMUM));
+            pw.print(':');
+            pw.print(mPssTable.getValue(key, PSS_RSS_AVERAGE));
+            pw.print(':');
+            pw.print(mPssTable.getValue(key, PSS_RSS_MAXIMUM));
         }
     }
 
+    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder(128);
         sb.append("ProcessState{").append(Integer.toHexString(System.identityHashCode(this)))
@@ -1184,5 +1225,84 @@ public final class ProcessState {
         if (mCommonProcess != this) sb.append(" (sub)");
         sb.append("}");
         return sb.toString();
+    }
+
+    public void writeToProto(ProtoOutputStream proto, long fieldId,
+            String procName, int uid, long now) {
+        final long token = proto.start(fieldId);
+        proto.write(ProcessStatsProto.PROCESS, procName);
+        proto.write(ProcessStatsProto.UID, uid);
+        if (mNumExcessiveCpu > 0 || mNumCachedKill > 0 ) {
+            final long killToken = proto.start(ProcessStatsProto.KILL);
+            proto.write(ProcessStatsProto.Kill.CPU, mNumExcessiveCpu);
+            proto.write(ProcessStatsProto.Kill.CACHED, mNumCachedKill);
+            ProtoUtils.toAggStatsProto(proto, ProcessStatsProto.Kill.CACHED_PSS,
+                    mMinCachedKillPss, mAvgCachedKillPss, mMaxCachedKillPss);
+            proto.end(killToken);
+        }
+
+        // Group proc stats by type (screen state + mem state + process state)
+        Map<Integer, Long> durationByState = new HashMap<>();
+        boolean didCurState = false;
+        for (int i=0; i<mDurations.getKeyCount(); i++) {
+            final int key = mDurations.getKeyAt(i);
+            final int type = SparseMappingTable.getIdFromKey(key);
+            long time = mDurations.getValue(key);
+            if (mCurState == type) {
+                didCurState = true;
+                time += now - mStartTime;
+            }
+            durationByState.put(type, time);
+        }
+        if (!didCurState && mCurState != STATE_NOTHING) {
+            durationByState.put(mCurState, now - mStartTime);
+        }
+
+        for (int i=0; i<mPssTable.getKeyCount(); i++) {
+            final int key = mPssTable.getKeyAt(i);
+            final int type = SparseMappingTable.getIdFromKey(key);
+            if (!durationByState.containsKey(type)) {
+                // state without duration should not have stats!
+                continue;
+            }
+            final long stateToken = proto.start(ProcessStatsProto.STATES);
+            DumpUtils.printProcStateTagProto(proto,
+                    ProcessStatsProto.State.SCREEN_STATE,
+                    ProcessStatsProto.State.MEMORY_STATE,
+                    ProcessStatsProto.State.PROCESS_STATE,
+                    type);
+
+            long duration = durationByState.get(type);
+            durationByState.remove(type); // remove the key since it is already being dumped.
+            proto.write(ProcessStatsProto.State.DURATION_MS, duration);
+
+            proto.write(ProcessStatsProto.State.SAMPLE_SIZE, mPssTable.getValue(key, PSS_SAMPLE_COUNT));
+            ProtoUtils.toAggStatsProto(proto, ProcessStatsProto.State.PSS,
+                    mPssTable.getValue(key, PSS_MINIMUM),
+                    mPssTable.getValue(key, PSS_AVERAGE),
+                    mPssTable.getValue(key, PSS_MAXIMUM));
+            ProtoUtils.toAggStatsProto(proto, ProcessStatsProto.State.USS,
+                    mPssTable.getValue(key, PSS_USS_MINIMUM),
+                    mPssTable.getValue(key, PSS_USS_AVERAGE),
+                    mPssTable.getValue(key, PSS_USS_MAXIMUM));
+            ProtoUtils.toAggStatsProto(proto, ProcessStatsProto.State.RSS,
+                    mPssTable.getValue(key, PSS_RSS_MINIMUM),
+                    mPssTable.getValue(key, PSS_RSS_AVERAGE),
+                    mPssTable.getValue(key, PSS_RSS_MAXIMUM));
+
+            proto.end(stateToken);
+        }
+
+        for (Map.Entry<Integer, Long> entry : durationByState.entrySet()) {
+            final long stateToken = proto.start(ProcessStatsProto.STATES);
+            DumpUtils.printProcStateTagProto(proto,
+                    ProcessStatsProto.State.SCREEN_STATE,
+                    ProcessStatsProto.State.MEMORY_STATE,
+                    ProcessStatsProto.State.PROCESS_STATE,
+                    entry.getKey());
+            proto.write(ProcessStatsProto.State.DURATION_MS, entry.getValue());
+            proto.end(stateToken);
+        }
+        proto.end(token);
     }
 }

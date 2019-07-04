@@ -16,8 +16,12 @@
 
 package android.hardware.usb;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import com.android.internal.util.Preconditions;
 
 /**
  * A class representing a configuration on a {@link UsbDevice}.
@@ -35,20 +39,20 @@ import android.os.Parcelable;
 public class UsbConfiguration implements Parcelable {
 
     private final int mId;
-    private final String mName;
+    private final @Nullable String mName;
     private final int mAttributes;
     private final int mMaxPower;
-    private Parcelable[] mInterfaces;
+
+    /** All interfaces for this config, only null during creation */
+    private @Nullable Parcelable[] mInterfaces;
 
     /**
      * Mask for "self-powered" bit in the configuration's attributes.
-     * @see #getAttributes
      */
     private static final int ATTR_SELF_POWERED = 1 << 6;
 
     /**
      * Mask for "remote wakeup" bit in the configuration's attributes.
-     * @see #getAttributes
      */
     private static final int ATTR_REMOTE_WAKEUP = 1 << 5;
 
@@ -56,7 +60,7 @@ public class UsbConfiguration implements Parcelable {
      * UsbConfiguration should only be instantiated by UsbService implementation
      * @hide
      */
-    public UsbConfiguration(int id, String name, int attributes, int maxPower) {
+    public UsbConfiguration(int id, @Nullable String name, int attributes, int maxPower) {
         mId = id;
         mName = name;
         mAttributes = attributes;
@@ -76,9 +80,9 @@ public class UsbConfiguration implements Parcelable {
     /**
      * Returns the configuration's name.
      *
-     * @return the configuration's name
+     * @return the configuration's name, or {@code null} if the property could not be read
      */
-    public String getName() {
+    public @Nullable String getName() {
         return mName;
     }
 
@@ -100,6 +104,17 @@ public class UsbConfiguration implements Parcelable {
      */
     public boolean isRemoteWakeup() {
         return (mAttributes & ATTR_REMOTE_WAKEUP) != 0;
+    }
+
+    /**
+     * Returns the attributes of this configuration
+     *
+     * @return the configuration's attributes
+     *
+     * @hide
+     */
+    public int getAttributes() {
+        return mAttributes;
     }
 
     /**
@@ -125,7 +140,7 @@ public class UsbConfiguration implements Parcelable {
      *
      * @return the interface
      */
-    public UsbInterface getInterface(int index) {
+    public @NonNull UsbInterface getInterface(int index) {
         return (UsbInterface)mInterfaces[index];
     }
 
@@ -133,8 +148,8 @@ public class UsbConfiguration implements Parcelable {
      * Only used by UsbService implementation
      * @hide
      */
-    public void setInterfaces(Parcelable[] interfaces) {
-        mInterfaces = interfaces;
+    public void setInterfaces(@NonNull Parcelable[] interfaces) {
+        mInterfaces = Preconditions.checkArrayElementsNotNull(interfaces, "interfaces");
     }
 
     @Override

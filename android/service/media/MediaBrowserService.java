@@ -31,6 +31,8 @@ import android.media.session.MediaSession;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
+import android.media.session.MediaSessionManager;
+import android.media.session.MediaSessionManager.RemoteUserInfo;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
@@ -48,12 +50,13 @@ import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 
 /**
- * Base class for media browse services.
+ * Base class for media browser services.
  * <p>
- * Media browse services enable applications to browse media content provided by an application
+ * Media browser services enable applications to browse media content provided by an application
  * and ask the application to start playing it. They may also be used to control content that
  * is already playing by way of a {@link MediaSession}.
  * </p>
@@ -84,16 +87,20 @@ public abstract class MediaBrowserService extends Service {
 
     /**
      * A key for passing the MediaItem to the ResultReceiver in getItem.
-     *
      * @hide
      */
     public static final String KEY_MEDIA_ITEM = "media_item";
 
-    private static final int RESULT_FLAG_OPTION_NOT_HANDLED = 0x00000001;
+    private static final int RESULT_FLAG_OPTION_NOT_HANDLED = 1 << 0;
+    private static final int RESULT_FLAG_ON_LOAD_ITEM_NOT_IMPLEMENTED = 1 << 1;
+
+    private static final int RESULT_ERROR = -1;
+    private static final int RESULT_OK = 0;
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(flag=true, value = { RESULT_FLAG_OPTION_NOT_HANDLED })
+    @IntDef(flag=true, value = { RESULT_FLAG_OPTION_NOT_HANDLED,
+            RESULT_FLAG_ON_LOAD_ITEM_NOT_IMPLEMENTED })
     private @interface ResultFlags { }
 
     private final ArrayMap<IBinder, ConnectionRecord> mConnections = new ArrayMap<>();
@@ -105,12 +112,24 @@ public abstract class MediaBrowserService extends Service {
     /**
      * All the info about a connection.
      */
-    private class ConnectionRecord {
+    private class ConnectionRecord implements IBinder.DeathRecipient {
         String pkg;
+        int uid;
+        int pid;
         Bundle rootHints;
         IMediaBrowserServiceCallbacks callbacks;
         BrowserRoot root;
         HashMap<String, List<Pair<IBinder, Bundle>>> subscriptions = new HashMap<>();
+
+        @Override
+        public void binderDied() {
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    mConnections.remove(callbacks.asBinder());
+                }
+            });
+        }
     }
 
     /**
@@ -184,6 +203,7 @@ public abstract class MediaBrowserService extends Service {
         public void connect(final String pkg, final Bundle rootHints,
                 final IMediaBrowserServiceCallbacks callbacks) {
 
+            final int pid = Binder.getCallingPid();
             final int uid = Binder.getCallingUid();
             if (!isValidPackage(pkg, uid)) {
                 throw new IllegalArgumentException("Package/uid mismatch: uid=" + uid
@@ -200,10 +220,14 @@ public abstract class MediaBrowserService extends Service {
 
                         final ConnectionRecord connection = new ConnectionRecord();
                         connection.pkg = pkg;
+                        connection.pid = pid;
+                        connection.uid = uid;
                         connection.rootHints = rootHints;
                         connection.callbacks = callbacks;
 
+                        mCurConnection = connection;
                         connection.root = MediaBrowserService.this.onGetRoot(pkg, uid, rootHints);
+                        mCurConnection = null;
 
                         // If they didn't return something, don't allow this client.
                         if (connection.root == null) {
@@ -218,6 +242,7 @@ public abstract class MediaBrowserService extends Service {
                         } else {
                             try {
                                 mConnections.put(b, connection);
+                                b.linkToDeath(connection, 0);
                                 if (mSession != null) {
                                     callbacks.onConnect(connection.root.getRootId(),
                                             mSession, connection.root.getExtras());
@@ -243,6 +268,7 @@ public abstract class MediaBrowserService extends Service {
                         final ConnectionRecord old = mConnections.remove(b);
                         if (old != null) {
                             // TODO
+                            old.callbacks.asBinder().unlinkToDeath(old, 0);
                         }
                     }
                 });
@@ -304,10 +330,6 @@ public abstract class MediaBrowserService extends Service {
         @Override
         public void getMediaItem(final String mediaId, final ResultReceiver receiver,
                 final IMediaBrowserServiceCallbacks callbacks) {
-            if (TextUtils.isEmpty(mediaId) || receiver == null) {
-                return;
-            }
-
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -355,7 +377,7 @@ public abstract class MediaBrowserService extends Service {
      * @param clientUid The uid of the application which is requesting access to
      *            browse media.
      * @param rootHints An optional bundle of service-specific arguments to send
-     *            to the media browse service when connecting and retrieving the
+     *            to the media browser service when connecting and retrieving the
      *            root id for browsing, or null if none. The contents of this
      *            bundle may affect the information returned when browsing.
      * @return The {@link BrowserRoot} for accessing this app's content or null.
@@ -408,8 +430,8 @@ public abstract class MediaBrowserService extends Service {
      * @param parentId The id of the parent media item whose children are to be
      *            queried.
      * @param result The Result to send the list of children to.
-     * @param options A bundle of service-specific arguments sent from the media
-     *            browse. The information returned through the result should be
+     * @param options The bundle of service-specific arguments sent from the media
+     *            browser. The information returned through the result should be
      *            affected by the contents of this bundle.
      */
     public void onLoadChildren(@NonNull String parentId,
@@ -431,11 +453,9 @@ public abstract class MediaBrowserService extends Service {
      * been loaded.
      * </p><p>
      * When the given {@code itemId} is invalid, implementations must call
-     * {@link Result#sendResult result.sendResult} with {@code null}, which will
-     * invoke {@link MediaBrowser.ItemCallback#onError}.
+     * {@link Result#sendResult result.sendResult} with {@code null}.
      * </p><p>
-     * The default implementation calls {@link Result#sendResult result.sendResult}
-     * with {@code null}.
+     * The default implementation will invoke {@link MediaBrowser.ItemCallback#onError}.
      * </p>
      *
      * @param itemId The id for the specific
@@ -443,6 +463,7 @@ public abstract class MediaBrowserService extends Service {
      * @param result The Result to send the item to.
      */
     public void onLoadItem(String itemId, Result<MediaBrowser.MediaItem> result) {
+        result.setFlags(RESULT_FLAG_ON_LOAD_ITEM_NOT_IMPLEMENTED);
         result.sendResult(null);
     }
 
@@ -465,14 +486,15 @@ public abstract class MediaBrowserService extends Service {
         mHandler.post(new Runnable() {
             @Override
             public void run() {
-                for (IBinder key : mConnections.keySet()) {
-                    ConnectionRecord connection = mConnections.get(key);
+                Iterator<ConnectionRecord> iter = mConnections.values().iterator();
+                while (iter.hasNext()){
+                    ConnectionRecord connection = iter.next();
                     try {
                         connection.callbacks.onConnect(connection.root.getRootId(), token,
                                 connection.root.getExtras());
                     } catch (RemoteException e) {
                         Log.w(TAG, "Connection for " + connection.pkg + " is no longer valid.");
-                        mConnections.remove(key);
+                        iter.remove();
                     }
                 }
             }
@@ -493,18 +515,34 @@ public abstract class MediaBrowserService extends Service {
      * media browser service when connecting and retrieving the root id for browsing, or null if
      * none. The contents of this bundle may affect the information returned when browsing.
      *
-     * @throws IllegalStateException If this method is called outside of {@link #onLoadChildren}
-     *             or {@link #onLoadItem}
+     * @throws IllegalStateException If this method is called outside of {@link #onGetRoot} or
+     *             {@link #onLoadChildren} or {@link #onLoadItem}.
      * @see MediaBrowserService.BrowserRoot#EXTRA_RECENT
      * @see MediaBrowserService.BrowserRoot#EXTRA_OFFLINE
      * @see MediaBrowserService.BrowserRoot#EXTRA_SUGGESTED
      */
     public final Bundle getBrowserRootHints() {
         if (mCurConnection == null) {
-            throw new IllegalStateException("This should be called inside of onLoadChildren or"
-                    + " onLoadItem methods");
+            throw new IllegalStateException("This should be called inside of onGetRoot or"
+                    + " onLoadChildren or onLoadItem methods");
         }
         return mCurConnection.rootHints == null ? null : new Bundle(mCurConnection.rootHints);
+    }
+
+    /**
+     * Gets the browser information who sent the current request.
+     *
+     * @throws IllegalStateException If this method is called outside of {@link #onGetRoot} or
+     *             {@link #onLoadChildren} or {@link #onLoadItem}.
+     * @see MediaSessionManager#isTrustedForMediaControl(RemoteUserInfo)
+     */
+    public final RemoteUserInfo getCurrentBrowserInfo() {
+        if (mCurConnection == null) {
+            throw new IllegalStateException("This should be called inside of onGetRoot or"
+                    + " onLoadChildren or onLoadItem methods");
+        }
+        return new RemoteUserInfo(mCurConnection.pkg, mCurConnection.pid, mCurConnection.uid,
+                mCurConnection.callbacks.asBinder());
     }
 
     /**
@@ -526,8 +564,8 @@ public abstract class MediaBrowserService extends Service {
      *
      * @param parentId The id of the parent media item whose
      *            children changed.
-     * @param options A bundle of service-specific arguments to send
-     *            to the media browse. The contents of this bundle may
+     * @param options The bundle of service-specific arguments to send
+     *            to the media browser. The contents of this bundle may
      *            contain the information about the change.
      */
     public void notifyChildrenChanged(@NonNull String parentId, @NonNull Bundle options) {
@@ -610,10 +648,11 @@ public abstract class MediaBrowserService extends Service {
         boolean removed = false;
         List<Pair<IBinder, Bundle>> callbackList = connection.subscriptions.get(id);
         if (callbackList != null) {
-            for (Pair<IBinder, Bundle> callback : callbackList) {
-                if (token == callback.first) {
+            Iterator<Pair<IBinder, Bundle>> iter = callbackList.iterator();
+            while (iter.hasNext()){
+                if (token == iter.next().first) {
                     removed = true;
-                    callbackList.remove(callback);
+                    iter.remove();
                 }
             }
             if (callbackList.size() == 0) {
@@ -698,9 +737,20 @@ public abstract class MediaBrowserService extends Service {
                 new Result<MediaBrowser.MediaItem>(itemId) {
             @Override
             void onResultSent(MediaBrowser.MediaItem item, @ResultFlags int flag) {
+                if (mConnections.get(connection.callbacks.asBinder()) != connection) {
+                    if (DBG) {
+                        Log.d(TAG, "Not sending onLoadItem result for connection that has"
+                                + " been disconnected. pkg=" + connection.pkg + " id=" + itemId);
+                    }
+                    return;
+                }
+                if ((flag & RESULT_FLAG_ON_LOAD_ITEM_NOT_IMPLEMENTED) != 0) {
+                    receiver.send(RESULT_ERROR, null);
+                    return;
+                }
                 Bundle bundle = new Bundle();
                 bundle.putParcelable(KEY_MEDIA_ITEM, item);
-                receiver.send(0, bundle);
+                receiver.send(RESULT_OK, bundle);
             }
         };
 

@@ -18,7 +18,7 @@ package com.android.internal.app;
 
 import com.android.internal.R;
 
-import android.app.ActivityManagerNative;
+import android.app.ActivityManager;
 import android.app.IActivityManager;
 import android.app.ListFragment;
 import android.app.backup.BackupManager;
@@ -93,23 +93,12 @@ public class LocalePicker extends ListFragment {
         return context.getResources().getStringArray(R.array.supported_locales);
     }
 
-    public static String[] getPseudoLocales() {
-        return pseudoLocales;
-    }
-
     public static List<LocaleInfo> getAllAssetLocales(Context context, boolean isInDeveloperMode) {
         final Resources resources = context.getResources();
 
         final String[] locales = getSystemAssetLocales();
         List<String> localeList = new ArrayList<String>(locales.length);
         Collections.addAll(localeList, locales);
-
-        // Don't show the pseudolocales unless we're in developer mode. http://b/17190407.
-        if (!isInDeveloperMode) {
-            for (String locale : pseudoLocales) {
-                localeList.remove(locale);
-            }
-        }
 
         Collections.sort(localeList);
         final String[] specialLocaleCodes = resources.getStringArray(R.array.special_locale_codes);
@@ -120,6 +109,10 @@ public class LocalePicker extends ListFragment {
             final Locale l = Locale.forLanguageTag(locale.replace('_', '-'));
             if (l == null || "und".equals(l.getLanguage())
                     || l.getLanguage().isEmpty() || l.getCountry().isEmpty()) {
+                continue;
+            }
+            // Don't show the pseudolocales unless we're in developer mode. http://b/17190407.
+            if (!isInDeveloperMode && LocaleList.isPseudoLocale(l)) {
                 continue;
             }
 
@@ -269,7 +262,7 @@ public class LocalePicker extends ListFragment {
      */
     public static void updateLocales(LocaleList locales) {
         try {
-            final IActivityManager am = ActivityManagerNative.getDefault();
+            final IActivityManager am = ActivityManager.getService();
             final Configuration config = am.getConfiguration();
 
             config.setLocales(locales);
@@ -290,7 +283,7 @@ public class LocalePicker extends ListFragment {
      */
     public static LocaleList getLocales() {
         try {
-            return ActivityManagerNative.getDefault()
+            return ActivityManager.getService()
                     .getConfiguration().getLocales();
         } catch (RemoteException e) {
             // If something went wrong

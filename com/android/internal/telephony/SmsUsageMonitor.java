@@ -29,8 +29,8 @@ import android.os.RemoteException;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.telephony.PhoneNumberUtils;
-import android.util.AtomicFile;
 import android.telephony.Rlog;
+import android.util.AtomicFile;
 import android.util.Xml;
 
 import com.android.internal.util.FastXmlSerializer;
@@ -48,10 +48,10 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
 /**
@@ -85,7 +85,7 @@ public class SmsUsageMonitor {
     static final int CATEGORY_STANDARD_SHORT_CODE = 2;
 
     /** Return value from {@link #checkDestination} for possible premium short codes. */
-    static final int CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE = 3;
+    public static final int CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE = 3;
 
     /** Return value from {@link #checkDestination} for premium short codes. */
     static final int CATEGORY_PREMIUM_SHORT_CODE = 4;

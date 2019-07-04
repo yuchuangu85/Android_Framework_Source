@@ -26,6 +26,7 @@ import android.hardware.camera2.ICameraDeviceCallbacks;
 import android.hardware.camera2.ICameraDeviceUser;
 import android.hardware.camera2.impl.CameraMetadataNative;
 import android.hardware.camera2.impl.CaptureResultExtras;
+import android.hardware.camera2.impl.PhysicalCaptureResultInfo;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.utils.SubmitInfo;
 import android.os.ConditionVariable;
@@ -206,6 +207,7 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         private static final int RESULT_RECEIVED = 3;
         private static final int PREPARED = 4;
         private static final int REPEATING_REQUEST_ERROR = 5;
+        private static final int REQUEST_QUEUE_EMPTY = 6;
 
         private final HandlerThread mHandlerThread;
         private Handler mHandler;
@@ -248,7 +250,8 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
 
         @Override
         public void onResultReceived(final CameraMetadataNative result,
-                final CaptureResultExtras resultExtras) {
+                final CaptureResultExtras resultExtras,
+                PhysicalCaptureResultInfo physicalResults[]) {
             Object[] resultArray = new Object[] { result, resultExtras };
             Message msg = getHandler().obtainMessage(RESULT_RECEIVED,
                     /*obj*/ resultArray);
@@ -262,12 +265,18 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
             getHandler().sendMessage(msg);
         }
 
+        @Override
+        public void onRepeatingRequestError(long lastFrameNumber, int repeatingRequestId) {
+            Object[] objArray = new Object[] { lastFrameNumber, repeatingRequestId };
+            Message msg = getHandler().obtainMessage(REPEATING_REQUEST_ERROR,
+                    /*obj*/ objArray);
+            getHandler().sendMessage(msg);
+        }
 
         @Override
-        public void onRepeatingRequestError(long lastFrameNumber) {
-            Message msg = getHandler().obtainMessage(REPEATING_REQUEST_ERROR,
-                    /*arg1*/ (int) (lastFrameNumber & 0xFFFFFFFFL),
-                    /*arg2*/ (int) ( (lastFrameNumber >> 32) & 0xFFFFFFFFL));
+        public void onRequestQueueEmpty() {
+            Message msg = getHandler().obtainMessage(REQUEST_QUEUE_EMPTY,
+                    /* arg1 */ 0, /* arg2 */ 0);
             getHandler().sendMessage(msg);
         }
 
@@ -313,7 +322,8 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
                             Object[] resultArray = (Object[]) msg.obj;
                             CameraMetadataNative result = (CameraMetadataNative) resultArray[0];
                             CaptureResultExtras resultExtras = (CaptureResultExtras) resultArray[1];
-                            mCallbacks.onResultReceived(result, resultExtras);
+                            mCallbacks.onResultReceived(result, resultExtras,
+                                    new PhysicalCaptureResultInfo[0]);
                             break;
                         }
                         case PREPARED: {
@@ -322,9 +332,14 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
                             break;
                         }
                         case REPEATING_REQUEST_ERROR: {
-                            long lastFrameNumber = msg.arg2 & 0xFFFFFFFFL;
-                            lastFrameNumber = (lastFrameNumber << 32) | (msg.arg1 & 0xFFFFFFFFL);
-                            mCallbacks.onRepeatingRequestError(lastFrameNumber);
+                            Object[] objArray = (Object[]) msg.obj;
+                            long lastFrameNumber = (Long) objArray[0];
+                            int repeatingRequestId = (Integer) objArray[1];
+                            mCallbacks.onRepeatingRequestError(lastFrameNumber, repeatingRequestId);
+                            break;
+                        }
+                        case REQUEST_QUEUE_EMPTY: {
+                            mCallbacks.onRequestQueueEmpty();
                             break;
                         }
                         default:
@@ -486,14 +501,26 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
     }
 
     @Override
-    public void endConfigure(boolean isConstrainedHighSpeed) {
+    public void endConfigure(int operatingMode, CameraMetadataNative sessionParams) {
         if (DEBUG) {
             Log.d(TAG, "endConfigure called.");
         }
         if (mLegacyDevice.isClosed()) {
             String err = "Cannot end configure, device has been closed.";
             Log.e(TAG, err);
+            synchronized(mConfigureLock) {
+                mConfiguring = false;
+            }
             throw new ServiceSpecificException(ICameraService.ERROR_DISCONNECTED, err);
+        }
+
+        if (operatingMode != ICameraDeviceUser.NORMAL_MODE) {
+            String err = "LEGACY devices do not support this operating mode";
+            Log.e(TAG, err);
+            synchronized(mConfigureLock) {
+                mConfiguring = false;
+            }
+            throw new ServiceSpecificException(ICameraService.ERROR_ILLEGAL_ARGUMENT, err);
         }
 
         SparseArray<Surface> surfaces = null;
@@ -567,8 +594,8 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
     }
 
     @Override
-    public void setDeferredConfiguration(int steamId, OutputConfiguration config) {
-        String err = "Set deferred configuration is not supported on legacy devices";
+    public void finalizeOutputConfigurations(int steamId, OutputConfiguration config) {
+        String err = "Finalizing output configuration is not supported on legacy devices";
         Log.e(TAG, err);
         throw new ServiceSpecificException(ICameraService.ERROR_INVALID_OPERATION, err);
     }
@@ -619,6 +646,11 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         // TODO: implement getCameraInfo.
         Log.e(TAG, "getCameraInfo unimplemented.");
         return null;
+    }
+
+    @Override
+    public void updateOutputConfiguration(int streamId, OutputConfiguration config) {
+        // TODO: b/63912484 implement updateOutputConfiguration.
     }
 
     @Override

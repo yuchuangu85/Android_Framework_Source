@@ -728,13 +728,10 @@ public class DatabaseUtils {
      * @param values the {@link ContentValues} to put the row into.
      */
     public static void cursorRowToContentValues(Cursor cursor, ContentValues values) {
-        AbstractWindowedCursor awc =
-                (cursor instanceof AbstractWindowedCursor) ? (AbstractWindowedCursor) cursor : null;
-
         String[] columns = cursor.getColumnNames();
         int length = columns.length;
         for (int i = 0; i < length; i++) {
-            if (awc != null && awc.isBlob(i)) {
+            if (cursor.getType(i) == Cursor.FIELD_TYPE_BLOB) {
                 values.put(columns[i], cursor.getBlob(i));
             } else {
                 values.put(columns[i], cursor.getString(i));
@@ -1411,6 +1408,12 @@ public class DatabaseUtils {
         } else if (prefixSql.equals("END")) {
             return STATEMENT_COMMIT;
         } else if (prefixSql.equals("ROL")) {
+            boolean isRollbackToSavepoint = sql.toUpperCase(Locale.ROOT).contains(" TO ");
+            if (isRollbackToSavepoint) {
+                Log.w(TAG, "Statement '" + sql
+                        + "' may not work on API levels 16-27, use ';" + sql + "' instead");
+                return STATEMENT_OTHER;
+            }
             return STATEMENT_ABORT;
         } else if (prefixSql.equals("BEG")) {
             return STATEMENT_BEGIN;

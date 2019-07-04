@@ -24,11 +24,13 @@ import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.Space;
 
+import com.android.systemui.Dependency;
 import com.android.systemui.R;
-import com.android.systemui.qs.QSTile.SignalState;
-import com.android.systemui.qs.QSTile.State;
+import com.android.systemui.plugins.qs.QSTile;
+import com.android.systemui.plugins.qs.QSTile.SignalState;
+import com.android.systemui.plugins.qs.QSTile.State;
+import com.android.systemui.plugins.qs.QSTileView;
 import com.android.systemui.qs.customize.QSCustomizer;
-import com.android.systemui.statusbar.phone.QSTileHost;
 import com.android.systemui.tuner.TunerService;
 import com.android.systemui.tuner.TunerService.Tunable;
 
@@ -42,12 +44,15 @@ public class QuickQSPanel extends QSPanel {
 
     public static final String NUM_QUICK_TILES = "sysui_qqs_count";
 
+    private boolean mDisabledByPolicy;
     private int mMaxTiles;
-    private QSPanel mFullPanel;
-    private View mHeader;
+    protected QSPanel mFullPanel;
 
     public QuickQSPanel(Context context, AttributeSet attrs) {
         super(context, attrs);
+        if (mFooter != null) {
+            removeView(mFooter.getView());
+        }
         if (mTileLayout != null) {
             for (int i = 0; i < mRecords.size(); i++) {
                 mTileLayout.removeTile(mRecords.get(i));
@@ -56,24 +61,33 @@ public class QuickQSPanel extends QSPanel {
         }
         mTileLayout = new HeaderTileLayout(context);
         mTileLayout.setListening(mListening);
-        addView((View) mTileLayout, 1 /* Between brightness and footer */);
+        addView((View) mTileLayout, 0 /* Between brightness and footer */);
+        super.setPadding(0, 0, 0, 0);
+    }
+
+    @Override
+    public void setPadding(int left, int top, int right, int bottom) {
+        // Always have no padding.
+    }
+
+    @Override
+    protected void addDivider() {
     }
 
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        TunerService.get(mContext).addTunable(mNumTiles, NUM_QUICK_TILES);
+        Dependency.get(TunerService.class).addTunable(mNumTiles, NUM_QUICK_TILES);
     }
 
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        TunerService.get(mContext).removeTunable(mNumTiles);
+        Dependency.get(TunerService.class).removeTunable(mNumTiles);
     }
 
     public void setQSPanelAndHeader(QSPanel fullPanel, View header) {
         mFullPanel = fullPanel;
-        mHeader = header;
     }
 
     @Override
@@ -84,19 +98,14 @@ public class QuickQSPanel extends QSPanel {
     @Override
     protected void drawTile(TileRecord r, State state) {
         if (state instanceof SignalState) {
-            State copy = r.tile.newTileState();
+            SignalState copy = new SignalState();
             state.copyTo(copy);
             // No activity shown in the quick panel.
-            ((SignalState) copy).activityIn = false;
-            ((SignalState) copy).activityOut = false;
+            copy.activityIn = false;
+            copy.activityOut = false;
             state = copy;
         }
         super.drawTile(r, state);
-    }
-
-    @Override
-    protected QSTileBaseView createTileView(QSTile<?> tile, boolean collapsedView) {
-        return new QSTileBaseView(mContext, tile.createTileView(mContext), collapsedView);
     }
 
     @Override
@@ -113,23 +122,17 @@ public class QuickQSPanel extends QSPanel {
     }
 
     @Override
-    protected void onTileClick(QSTile<?> tile) {
-        tile.secondaryClick();
-    }
-
-    @Override
     public void onTuningChanged(String key, String newValue) {
-        // No tunings for you.
-        if (key.equals(QS_SHOW_BRIGHTNESS)) {
-            // No Brightness for you.
+        if (QS_SHOW_BRIGHTNESS.equals(key)) {
+            // No Brightness or Tooltip for you!
             super.onTuningChanged(key, "0");
         }
     }
 
     @Override
-    public void setTiles(Collection<QSTile<?>> tiles) {
-        ArrayList<QSTile<?>> quickTiles = new ArrayList<>();
-        for (QSTile<?> tile : tiles) {
+    public void setTiles(Collection<QSTile> tiles) {
+        ArrayList<QSTile> quickTiles = new ArrayList<>();
+        for (QSTile tile : tiles) {
             quickTiles.add(tile);
             if (quickTiles.size() == mMaxTiles) {
                 break;
@@ -145,21 +148,85 @@ public class QuickQSPanel extends QSPanel {
         }
     };
 
-    public int getNumQuickTiles(Context context) {
-        return TunerService.get(context).getValue(NUM_QUICK_TILES, 6);
+    public static int getNumQuickTiles(Context context) {
+        return Dependency.get(TunerService.class).getValue(NUM_QUICK_TILES, 6);
+    }
+
+    void setDisabledByPolicy(boolean disabled) {
+        if (disabled != mDisabledByPolicy) {
+            mDisabledByPolicy = disabled;
+            setVisibility(disabled ? View.GONE : View.VISIBLE);
+        }
+    }
+
+    /**
+     * Sets the visibility of this {@link QuickQSPanel}. This method has no effect when this panel
+     * is disabled by policy through {@link #setDisabledByPolicy(boolean)}, and in this case the
+     * visibility will always be {@link View#GONE}. This method is called externally by
+     * {@link QSAnimator} only.
+     */
+    @Override
+    public void setVisibility(int visibility) {
+        if (mDisabledByPolicy) {
+            if (getVisibility() == View.GONE) {
+                return;
+            }
+            visibility = View.GONE;
+        }
+        super.setVisibility(visibility);
     }
 
     private static class HeaderTileLayout extends LinearLayout implements QSTileLayout {
 
         protected final ArrayList<TileRecord> mRecords = new ArrayList<>();
         private boolean mListening;
+        /** Size of the QS tile (width & height). */
+        private int mTileDimensionSize;
 
         public HeaderTileLayout(Context context) {
             super(context);
             setClipChildren(false);
             setClipToPadding(false);
-            setGravity(Gravity.CENTER_VERTICAL);
+
+            mTileDimensionSize = mContext.getResources().getDimensionPixelSize(
+                    R.dimen.qs_quick_tile_size);
+
+            setGravity(Gravity.CENTER);
             setLayoutParams(new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+        }
+
+        @Override
+        protected void onConfigurationChanged(Configuration newConfig) {
+            super.onConfigurationChanged(newConfig);
+
+            setGravity(Gravity.CENTER);
+            LayoutParams staticSpaceLayoutParams = generateSpaceLayoutParams(
+                    mContext.getResources().getDimensionPixelSize(
+                            R.dimen.qs_quick_tile_space_width));
+
+            // Update space params since they fill any open space in portrait orientation and have
+            // a static width in landscape orientation.
+            final int childViewCount = getChildCount();
+            for (int i = 0; i < childViewCount; i++) {
+                View childView = getChildAt(i);
+                if (childView instanceof Space) {
+                    childView.setLayoutParams(staticSpaceLayoutParams);
+                }
+            }
+        }
+
+        /**
+         * Returns {@link LayoutParams} based on the given {@code spaceWidth}. If the width is 0,
+         * then we're going to have the space expand to take up as much space as possible. If the
+         * width is non-zero, we want the inter-tile spacers to be fixed.
+         */
+        private LayoutParams generateSpaceLayoutParams(int spaceWidth) {
+            LayoutParams lp = new LayoutParams(spaceWidth, mTileDimensionSize);
+            if (spaceWidth == 0) {
+                lp.weight = 1;
+            }
+            lp.gravity = Gravity.CENTER;
+            return lp;
         }
 
         @Override
@@ -174,25 +241,22 @@ public class QuickQSPanel extends QSPanel {
         @Override
         public void addTile(TileRecord tile) {
             if (getChildCount() != 0) {
-                // Add a spacer.
-                addView(new Space(mContext), getChildCount(), generateSpaceParams());
+                // Add a spacer between tiles. We want static-width spaces if we're in landscape to
+                // keep the tiles close. For portrait, we stick with spaces that fill up any
+                // available space.
+                LayoutParams spaceLayoutParams = generateSpaceLayoutParams(
+                        mContext.getResources().getDimensionPixelSize(
+                                R.dimen.qs_quick_tile_space_width));
+                addView(new Space(mContext), getChildCount(), spaceLayoutParams);
             }
-            addView(tile.tileView, getChildCount(), generateLayoutParams());
+
+            addView(tile.tileView, getChildCount(), generateTileLayoutParams());
             mRecords.add(tile);
             tile.tile.setListening(this, mListening);
         }
 
-        private LayoutParams generateSpaceParams() {
-            int size = mContext.getResources().getDimensionPixelSize(R.dimen.qs_quick_tile_size);
-            LayoutParams lp = new LayoutParams(0, size);
-            lp.weight = 1;
-            lp.gravity = Gravity.CENTER;
-            return lp;
-        }
-
-        private LayoutParams generateLayoutParams() {
-            int size = mContext.getResources().getDimensionPixelSize(R.dimen.qs_quick_tile_size);
-            LayoutParams lp = new LayoutParams(size, size);
+        private LayoutParams generateTileLayoutParams() {
+            LayoutParams lp = new LayoutParams(mTileDimensionSize, mTileDimensionSize);
             lp.gravity = Gravity.CENTER;
             return lp;
         }
@@ -210,9 +274,9 @@ public class QuickQSPanel extends QSPanel {
             tile.tile.setListening(this, false);
         }
 
-        private int getChildIndex(QSTileBaseView tileView) {
-            final int N = getChildCount();
-            for (int i = 0; i < N; i++) {
+        private int getChildIndex(QSTileView tileView) {
+            final int childViewCount = getChildCount();
+            for (int i = 0; i < childViewCount; i++) {
                 if (getChildAt(i) == tileView) {
                     return i;
                 }

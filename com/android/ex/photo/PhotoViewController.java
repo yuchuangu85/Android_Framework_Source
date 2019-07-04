@@ -78,7 +78,7 @@ public class PhotoViewController implements
         public Context getApplicationContext();
         public Intent getIntent();
         public void setContentView(int resId);
-        public View findViewById(int id);
+        public <T extends View> T findViewById(int id);
         public Resources getResources();
         public FragmentManager getSupportFragmentManager();
         public LoaderManager getSupportLoaderManager();

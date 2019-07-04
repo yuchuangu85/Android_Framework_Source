@@ -1,4 +1,33 @@
 /*
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
+ */
+
+/*
+ * This file is available under and governed by the GNU General Public
+ * License version 2 only, as published by the Free Software Foundation.
+ * However, the following notice accompanied the original version of this
+ * file:
+ *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -59,13 +88,6 @@ package java.util.concurrent;
  * <a href="package-summary.html#MemoryVisibility"> <i>happen-before</i></a>
  * actions following the corresponding {@code Future.get()} in another thread.
  *
- * Future代表异步任务的执行结果
- *
- * Future提供了三种功能：
- * 　　1）判断任务是否完成；
- * 　　2）能够中断任务；
- * 　　3）能够获取任务执行结果。
- *
  * @see FutureTask
  * @see Executor
  * @since 1.5
@@ -88,8 +110,6 @@ public interface Future<V> {
      * always return {@code true}.  Subsequent calls to {@link #isCancelled}
      * will always return {@code true} if this method returned {@code true}.
      *
-     * 尝试取消一个任务，如果这个任务不能被取消（通常是因为已经执行完了），返回false，否则返回true。
-     *
      * @param mayInterruptIfRunning {@code true} if the thread executing this
      * task should be interrupted; otherwise, in-progress tasks are allowed
      * to complete
@@ -103,8 +123,6 @@ public interface Future<V> {
      * Returns {@code true} if this task was cancelled before it completed
      * normally.
      *
-     * 返回代表的任务是否在完成之前被取消了
-     *
      * @return {@code true} if this task was cancelled before it completed
      */
     boolean isCancelled();
@@ -116,8 +134,6 @@ public interface Future<V> {
      * cancellation -- in all of these cases, this method will return
      * {@code true}.
      *
-     * 如果任务已经完成，返回true
-     *
      * @return {@code true} if this task completed
      */
     boolean isDone();
@@ -125,8 +141,6 @@ public interface Future<V> {
     /**
      * Waits if necessary for the computation to complete, and then
      * retrieves its result.
-     *
-     * 获取异步任务的执行结果（如果任务没执行完将等待）
      *
      * @return the computed result
      * @throws CancellationException if the computation was cancelled
@@ -140,8 +154,6 @@ public interface Future<V> {
     /**
      * Waits if necessary for at most the given time for the computation
      * to complete, and then retrieves its result, if available.
-     *
-     * 获取异步任务的执行结果（有最常等待时间的限制）
      *
      * @param timeout the maximum time to wait
      * @param unit the time unit of the timeout argument

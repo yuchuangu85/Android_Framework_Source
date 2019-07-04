@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1995, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,7 @@
 
 package java.lang;
 
+import dalvik.annotation.optimization.FastNative;
 import java.io.*;
 import java.util.StringTokenizer;
 import sun.reflect.CallerSensitive;
@@ -181,11 +182,11 @@ public class Runtime {
      *
      *   <ul>
      *
-     *   <p> <li> The program <i>exits</i> normally, when the last non-daemon
+     *   <li> The program <i>exits</i> normally, when the last non-daemon
      *   thread exits or when the <tt>{@link #exit exit}</tt> (equivalently,
-     *   <tt>{@link System#exit(int) System.exit}</tt>) method is invoked, or
+     *   {@link System#exit(int) System.exit}) method is invoked, or
      *
-     *   <p> <li> The virtual machine is <i>terminated</i> in response to a
+     *   <li> The virtual machine is <i>terminated</i> in response to a
      *   user interrupt, such as typing <tt>^C</tt>, or a system-wide event,
      *   such as user logoff or system shutdown.
      *
@@ -719,6 +720,7 @@ public class Runtime {
      * @return  an approximation to the total amount of memory currently
      *          available for future allocated objects, measured in bytes.
      */
+    @FastNative
     public native long freeMemory();
 
     /**
@@ -732,17 +734,19 @@ public class Runtime {
      * @return  the total amount of memory currently available for current
      *          and future objects, measured in bytes.
      */
+    @FastNative
     public native long totalMemory();
 
     /**
      * Returns the maximum amount of memory that the Java virtual machine will
      * attempt to use.  If there is no inherent limit then the value {@link
-     * java.lang.Long#MAX_VALUE} will be returned. </p>
+     * java.lang.Long#MAX_VALUE} will be returned.
      *
      * @return  the maximum amount of memory that the virtual machine will
      *          attempt to use, measured in bytes
      * @since 1.4
      */
+    @FastNative
     public native long maxMemory();
 
     /**
@@ -803,11 +807,10 @@ public class Runtime {
      * method causes the virtual machine to stop performing the
      * detailed instruction trace it is performing.
      *
-     * @param enable   <code>true</code> to enable instruction tracing;
+     * @param   on   <code>true</code> to enable instruction tracing;
      *               <code>false</code> to disable this feature.
      */
-    // Android changed - param name s/on/enable
-    public void traceInstructions(boolean enable) {
+    public void traceInstructions(boolean on) {
     }
 
     /**
@@ -822,27 +825,41 @@ public class Runtime {
      * <p>
      * Calling this method with argument false suggests that the
      * virtual machine cease emitting per-call debugging information.
+     * <p>
+     * Calling this method on Android Lollipop or later (API level >= 21)
+     * with {@code true} argument will cause it to throw an
+     * {@code UnsupportedOperationException}.
      *
-     * @param enable   <code>true</code> to enable instruction tracing;
+     * @param   on   <code>true</code> to enable instruction tracing;
      *               <code>false</code> to disable this feature.
      */
-    // Android changed - param name s/on/enable
-    public void traceMethodCalls(boolean enable) {
-        if (enable != tracingMethods) {
-            if (enable) {
+    public void traceMethodCalls(boolean on) {
+        if (on != tracingMethods) {
+            if (on) {
                 VMDebug.startMethodTracing();
             } else {
                 VMDebug.stopMethodTracing();
             }
-            tracingMethods = enable;
+            tracingMethods = on;
         }
     }
 
     /**
-     * Loads the specified filename as a dynamic library. The filename
-     * argument must be a complete path name,
+     * Loads the native library specified by the filename argument.  The filename
+     * argument must be an absolute path name.
      * (for example
      * <code>Runtime.getRuntime().load("/home/avh/lib/libX11.so");</code>).
+     *
+     * If the filename argument, when stripped of any platform-specific library
+     * prefix, path, and file extension, indicates a library whose name is,
+     * for example, L, and a native library called L is statically linked
+     * with the VM, then the JNI_OnLoad_L function exported by the library
+     * is invoked rather than attempting to load a dynamic library.
+     * A filename matching the argument does not have to exist in the file
+     * system. See the JNI Specification for more details.
+     *
+     * Otherwise, the filename argument is mapped to a native library image in
+     * an implementation-dependent manner.
      * <p>
      * First, if there is a security manager, its <code>checkLink</code>
      * method is called with the <code>filename</code> as its argument.
@@ -859,7 +876,10 @@ public class Runtime {
      * @exception  SecurityException  if a security manager exists and its
      *             <code>checkLink</code> method doesn't allow
      *             loading of the specified dynamic library
-     * @exception  UnsatisfiedLinkError  if the file does not exist.
+     * @exception  UnsatisfiedLinkError  if either the filename is not an
+     *             absolute path name, the native library is not statically
+     *             linked with the VM, or the library cannot be mapped to
+     *             a native library image by the host system.
      * @exception  NullPointerException if <code>filename</code> is
      *             <code>null</code>
      * @see        java.lang.Runtime#getRuntime()
@@ -889,13 +909,13 @@ public class Runtime {
         if (absolutePath == null) {
             throw new NullPointerException("absolutePath == null");
         }
-        String error = doLoad(absolutePath, loader);
+        String error = nativeLoad(absolutePath, loader);
         if (error != null) {
             throw new UnsatisfiedLinkError(error);
         }
     }
 
-    synchronized void load0(Class fromClass, String filename) {
+    synchronized void load0(Class<?> fromClass, String filename) {
         if (!(new File(filename).isAbsolute())) {
             throw new UnsatisfiedLinkError(
                 "Expecting an absolute path of the library: " + filename);
@@ -903,19 +923,23 @@ public class Runtime {
         if (filename == null) {
             throw new NullPointerException("filename == null");
         }
-        String error = doLoad(filename, fromClass.getClassLoader());
+        String error = nativeLoad(filename, fromClass.getClassLoader());
         if (error != null) {
             throw new UnsatisfiedLinkError(error);
         }
     }
 
     /**
-     * Loads the dynamic library with the specified library name.
-     * A file containing native code is loaded from the local file system
-     * from a place where library files are conventionally obtained. The
-     * details of this process are implementation-dependent. The
-     * mapping from a library name to a specific filename is done in a
-     * system-specific manner.
+     * Loads the native library specified by the <code>libname</code>
+     * argument.  The <code>libname</code> argument must not contain any platform
+     * specific prefix, file extension or path. If a native library
+     * called <code>libname</code> is statically linked with the VM, then the
+     * JNI_OnLoad_<code>libname</code> function exported by the library is invoked.
+     * See the JNI Specification for more details.
+     *
+     * Otherwise, the libname argument is loaded from a system library
+     * location and mapped to a native library image in an implementation-
+     * dependent manner.
      * <p>
      * First, if there is a security manager, its <code>checkLink</code>
      * method is called with the <code>libname</code> as its argument.
@@ -940,7 +964,10 @@ public class Runtime {
      * @exception  SecurityException  if a security manager exists and its
      *             <code>checkLink</code> method doesn't allow
      *             loading of the specified dynamic library
-     * @exception  UnsatisfiedLinkError  if the library does not exist.
+     * @exception  UnsatisfiedLinkError if either the libname argument
+     *             contains a file path, the native library is not statically
+     *             linked with the VM,  or the library cannot be mapped to a
+     *             native library image by the host system.
      * @exception  NullPointerException if <code>libname</code> is
      *             <code>null</code>
      * @see        java.lang.SecurityException
@@ -984,7 +1011,7 @@ public class Runtime {
                 throw new UnsatisfiedLinkError(loader + " couldn't find \"" +
                                                System.mapLibraryName(libraryName) + "\"");
             }
-            String error = doLoad(filename, loader);
+            String error = nativeLoad(filename, loader);
             if (error != null) {
                 throw new UnsatisfiedLinkError(error);
             }
@@ -999,7 +1026,7 @@ public class Runtime {
             candidates.add(candidate);
 
             if (IoUtils.canOpenReadOnly(candidate)) {
-                String error = doLoad(candidate, loader);
+                String error = nativeLoad(candidate, loader);
                 if (error == null) {
                     return; // We successfully loaded the library. Job done.
                 }
@@ -1040,42 +1067,8 @@ public class Runtime {
         }
         return paths;
     }
-    private String doLoad(String name, ClassLoader loader) {
-        // Android apps are forked from the zygote, so they can't have a custom LD_LIBRARY_PATH,
-        // which means that by default an app's shared library directory isn't on LD_LIBRARY_PATH.
 
-        // The PathClassLoader set up by frameworks/base knows the appropriate path, so we can load
-        // libraries with no dependencies just fine, but an app that has multiple libraries that
-        // depend on each other needed to load them in most-dependent-first order.
-
-        // We added API to Android's dynamic linker so we can update the library path used for
-        // the currently-running process. We pull the desired path out of the ClassLoader here
-        // and pass it to nativeLoad so that it can call the private dynamic linker API.
-
-        // We didn't just change frameworks/base to update the LD_LIBRARY_PATH once at the
-        // beginning because multiple apks can run in the same process and third party code can
-        // use its own BaseDexClassLoader.
-
-        // We didn't just add a dlopen_with_custom_LD_LIBRARY_PATH call because we wanted any
-        // dlopen(3) calls made from a .so's JNI_OnLoad to work too.
-
-        // So, find out what the native library search path is for the ClassLoader in question...
-        String librarySearchPath = null;
-        if (loader != null && loader instanceof BaseDexClassLoader) {
-            BaseDexClassLoader dexClassLoader = (BaseDexClassLoader) loader;
-            librarySearchPath = dexClassLoader.getLdLibraryPath();
-        }
-        // nativeLoad should be synchronized so there's only one LD_LIBRARY_PATH in use regardless
-        // of how many ClassLoaders are in the system, but dalvik doesn't support synchronized
-        // internal natives.
-        synchronized (this) {
-            return nativeLoad(name, loader, librarySearchPath);
-        }
-    }
-
-    // TODO: should be synchronized, but dalvik doesn't support synchronized internal natives.
-    private static native String nativeLoad(String filename, ClassLoader loader,
-                                            String librarySearchPath);
+    private static native String nativeLoad(String filename, ClassLoader loader);
 
     /**
      * Creates a localized version of an input stream. This method takes

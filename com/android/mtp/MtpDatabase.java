@@ -34,6 +34,7 @@ import android.mtp.MtpConstants;
 import android.mtp.MtpObjectInfo;
 import android.net.Uri;
 import android.provider.DocumentsContract;
+import android.provider.MetadataReader;
 import android.provider.DocumentsContract.Document;
 import android.provider.DocumentsContract.Root;
 
@@ -200,10 +201,7 @@ class MtpDatabase {
                     storageCursor.close();
                 }
 
-                final RowBuilder row = result.newRow();
-                for (final String key : values.keySet()) {
-                    row.add(key, values.get(key));
-                }
+                putValuesToCursor(values, result);
             }
 
             return result;
@@ -760,7 +758,9 @@ class MtpDatabase {
                 Document.MIME_TYPE_DIR,
                 0,
                 MtpConstants.PROTECTION_STATUS_NONE,
-                DOCUMENT_TYPE_DEVICE));
+                // Storages are placed under device so we cannot create a document just under
+                // device.
+                DOCUMENT_TYPE_DEVICE) & ~Document.FLAG_DIR_SUPPORTS_CREATE);
         values.putNull(Document.COLUMN_SIZE);
 
         extraValues.clear();
@@ -901,6 +901,9 @@ class MtpDatabase {
                 protectionState == MtpConstants.PROTECTION_STATUS_NONE) {
             flag |= Document.FLAG_DIR_SUPPORTS_CREATE;
         }
+        if (MetadataReader.isSupportedMimeType(mimeType)) {
+            flag |= Document.FLAG_SUPPORTS_METADATA;
+        }
         if (thumbnailSize > 0) {
             flag |= Document.FLAG_SUPPORTS_THUMBNAIL;
         }
@@ -913,6 +916,13 @@ class MtpDatabase {
             results[i] = Objects.toString(args[i]);
         }
         return results;
+    }
+
+    static void putValuesToCursor(ContentValues values, MatrixCursor cursor) {
+        final RowBuilder row = cursor.newRow();
+        for (final String name : cursor.getColumnNames()) {
+            row.add(values.get(name));
+        }
     }
 
     private static String getIdList(Set<String> ids) {

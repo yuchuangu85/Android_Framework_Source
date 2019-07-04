@@ -22,6 +22,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.graphics.drawable.Drawable;
+import android.metrics.LogMaker;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.IBinder;
@@ -30,22 +31,28 @@ import android.provider.Settings;
 import android.service.quicksettings.IQSTileService;
 import android.service.quicksettings.Tile;
 import android.service.quicksettings.TileService;
-import android.text.SpannableStringBuilder;
-import android.text.style.ForegroundColorSpan;
+import android.text.format.DateUtils;
 import android.util.Log;
 import android.view.IWindowManager;
-import android.view.WindowManager;
 import android.view.WindowManagerGlobal;
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.MetricsProto.MetricsEvent;
-import com.android.systemui.R;
-import com.android.systemui.qs.QSTile;
+import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.systemui.Dependency;
+import com.android.systemui.plugins.ActivityStarter;
+import com.android.systemui.plugins.qs.QSTile;
+import com.android.systemui.plugins.qs.QSTile.State;
+import com.android.systemui.qs.tileimpl.QSTileImpl;
 import com.android.systemui.qs.external.TileLifecycleManager.TileChangeListener;
-import com.android.systemui.statusbar.phone.QSTileHost;
-import libcore.util.Objects;
+import com.android.systemui.qs.QSTileHost;
+import java.util.Objects;
 
-public class CustomTile extends QSTile<QSTile.State> implements TileChangeListener {
+import static android.view.Display.DEFAULT_DISPLAY;
+import static android.view.WindowManager.LayoutParams.TYPE_QS_DIALOG;
+
+public class CustomTile extends QSTileImpl<State> implements TileChangeListener {
     public static final String PREFIX = "custom(";
+
+    private static final long CUSTOM_STALE_TIMEOUT = DateUtils.HOUR_IN_MILLIS;
 
     private static final boolean DEBUG = false;
 
@@ -79,10 +86,15 @@ public class CustomTile extends QSTile<QSTile.State> implements TileChangeListen
         mUser = ActivityManager.getCurrentUser();
     }
 
+    @Override
+    protected long getStaleTimeout() {
+        return CUSTOM_STALE_TIMEOUT + DateUtils.MINUTE_IN_MILLIS * mHost.indexOf(getTileSpec());
+    }
+
     private void setTileIcon() {
         try {
             PackageManager pm = mContext.getPackageManager();
-            int flags = PackageManager.MATCH_ENCRYPTION_AWARE_AND_UNAWARE;
+            int flags = PackageManager.MATCH_DIRECT_BOOT_UNAWARE | PackageManager.MATCH_DIRECT_BOOT_AWARE;
             if (isSystemApp(pm)) {
                 flags |= PackageManager.MATCH_DISABLED_COMPONENTS;
             }
@@ -128,7 +140,7 @@ public class CustomTile extends QSTile<QSTile.State> implements TileChangeListen
         if (icon1.getResId() != icon2.getResId()) {
             return false;
         }
-        if (!Objects.equal(icon1.getResPackage(), icon2.getResPackage())) {
+        if (!Objects.equals(icon1.getResPackage(), icon2.getResPackage())) {
             return false;
         }
         return true;
@@ -152,6 +164,11 @@ public class CustomTile extends QSTile<QSTile.State> implements TileChangeListen
         return mComponent;
     }
 
+    @Override
+    public LogMaker populate(LogMaker logMaker) {
+        return super.populate(logMaker).setComponentName(mComponent);
+    }
+
     public Tile getQsTile() {
         return mTile;
     }
@@ -171,13 +188,13 @@ public class CustomTile extends QSTile<QSTile.State> implements TileChangeListen
         mIsShowingDialog = false;
         try {
             if (DEBUG) Log.d(TAG, "Removing token");
-            mWindowManager.removeWindowToken(mToken);
+            mWindowManager.removeWindowToken(mToken, DEFAULT_DISPLAY);
         } catch (RemoteException e) {
         }
     }
 
     @Override
-    public void setListening(boolean listening) {
+    public void handleSetListening(boolean listening) {
         if (mListening == listening) return;
         mListening = listening;
         try {
@@ -193,7 +210,7 @@ public class CustomTile extends QSTile<QSTile.State> implements TileChangeListen
                 if (mIsTokenGranted && !mIsShowingDialog) {
                     try {
                         if (DEBUG) Log.d(TAG, "Removing token");
-                        mWindowManager.removeWindowToken(mToken);
+                        mWindowManager.removeWindowToken(mToken, DEFAULT_DISPLAY);
                     } catch (RemoteException e) {
                     }
                     mIsTokenGranted = false;
@@ -212,7 +229,7 @@ public class CustomTile extends QSTile<QSTile.State> implements TileChangeListen
         if (mIsTokenGranted) {
             try {
                 if (DEBUG) Log.d(TAG, "Removing token");
-                mWindowManager.removeWindowToken(mToken);
+                mWindowManager.removeWindowToken(mToken, DEFAULT_DISPLAY);
             } catch (RemoteException e) {
             }
         }
@@ -221,7 +238,8 @@ public class CustomTile extends QSTile<QSTile.State> implements TileChangeListen
 
     @Override
     public State newTileState() {
-        return new State();
+        State state = new State();
+        return state;
     }
 
     @Override
@@ -230,6 +248,8 @@ public class CustomTile extends QSTile<QSTile.State> implements TileChangeListen
         i.setPackage(mComponent.getPackageName());
         i = resolveIntent(i);
         if (i != null) {
+            i.putExtra(Intent.EXTRA_COMPONENT_NAME, mComponent);
+            i.putExtra(TileService.EXTRA_STATE, mTile.getState());
             return i;
         }
         return new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(
@@ -250,7 +270,7 @@ public class CustomTile extends QSTile<QSTile.State> implements TileChangeListen
         }
         try {
             if (DEBUG) Log.d(TAG, "Adding token");
-            mWindowManager.addWindowToken(mToken, WindowManager.LayoutParams.TYPE_QS_DIALOG);
+            mWindowManager.addWindowToken(mToken, TYPE_QS_DIALOG, DEFAULT_DISPLAY);
             mIsTokenGranted = true;
         } catch (RemoteException e) {
         }
@@ -263,7 +283,6 @@ public class CustomTile extends QSTile<QSTile.State> implements TileChangeListen
         } catch (RemoteException e) {
             // Called through wrapper, won't happen here.
         }
-        MetricsLogger.action(mContext, getMetricsCategory(), mComponent.getPackageName());
     }
 
     @Override
@@ -277,23 +296,25 @@ public class CustomTile extends QSTile<QSTile.State> implements TileChangeListen
         if (mServiceManager.hasPendingBind()) {
             tileState = Tile.STATE_UNAVAILABLE;
         }
+        state.state = tileState;
         Drawable drawable;
         try {
             drawable = mTile.getIcon().loadDrawable(mContext);
         } catch (Exception e) {
             Log.w(TAG, "Invalid icon, forcing into unavailable state");
-            tileState = Tile.STATE_UNAVAILABLE;
+            state.state = Tile.STATE_UNAVAILABLE;
             drawable = mDefaultIcon.loadDrawable(mContext);
         }
-        int color = mContext.getColor(getColor(tileState));
-        drawable.setTint(color);
-        state.icon = new DrawableIcon(drawable);
+
+        final Drawable drawableF = drawable;
+        state.iconSupplier = () -> {
+            Drawable.ConstantState cs = drawableF.getConstantState();
+            if (cs != null) {
+                return new DrawableIcon(cs.newDrawable());
+            }
+            return null;
+        };
         state.label = mTile.getLabel();
-        if (tileState == Tile.STATE_UNAVAILABLE) {
-            state.label = new SpannableStringBuilder().append(state.label,
-                    new ForegroundColorSpan(color),
-                    SpannableStringBuilder.SPAN_INCLUSIVE_INCLUSIVE);
-        }
         if (mTile.getContentDescription() != null) {
             state.contentDescription = mTile.getContentDescription();
         } else {
@@ -307,27 +328,12 @@ public class CustomTile extends QSTile<QSTile.State> implements TileChangeListen
     }
 
     public void startUnlockAndRun() {
-        mHost.startRunnableDismissingKeyguard(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    mService.onUnlockComplete();
-                } catch (RemoteException e) {
-                }
+        Dependency.get(ActivityStarter.class).postQSRunnableDismissingKeyguard(() -> {
+            try {
+                mService.onUnlockComplete();
+            } catch (RemoteException e) {
             }
         });
-    }
-
-    private static int getColor(int state) {
-        switch (state) {
-            case Tile.STATE_UNAVAILABLE:
-                return R.color.qs_tile_tint_unavailable;
-            case Tile.STATE_INACTIVE:
-                return R.color.qs_tile_tint_inactive;
-            case Tile.STATE_ACTIVE:
-                return R.color.qs_tile_tint_active;
-        }
-        return 0;
     }
 
     public static String toSpec(ComponentName name) {
@@ -342,7 +348,7 @@ public class CustomTile extends QSTile<QSTile.State> implements TileChangeListen
         return ComponentName.unflattenFromString(action);
     }
 
-    public static QSTile<?> create(QSTileHost host, String spec) {
+    public static CustomTile create(QSTileHost host, String spec) {
         if (spec == null || !spec.startsWith(PREFIX) || !spec.endsWith(")")) {
             throw new IllegalArgumentException("Bad custom tile spec: " + spec);
         }

@@ -23,16 +23,18 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.RegistrantList;
 import android.os.SystemProperties;
+import android.os.WorkSource;
 import android.telephony.CellInfo;
 import android.telephony.CellLocation;
+import android.telephony.NetworkScanRequest;
+import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
-import android.telephony.Rlog;
 import android.util.Pair;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Call;
 import com.android.internal.telephony.Connection;
-import com.android.internal.telephony.dataconnection.DataConnection;
 import com.android.internal.telephony.IccCard;
 import com.android.internal.telephony.IccPhoneBookInterfaceManager;
 import com.android.internal.telephony.MmiCode;
@@ -41,6 +43,7 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneNotifier;
 import com.android.internal.telephony.TelephonyProperties;
+import com.android.internal.telephony.dataconnection.DataConnection;
 import com.android.internal.telephony.uicc.IccFileHandler;
 
 import java.util.ArrayList;
@@ -102,7 +105,8 @@ abstract class ImsPhoneBase extends Phone {
      *
      * @param cn The connection.
      */
-    protected void startOnHoldTone(Connection cn) {
+    @VisibleForTesting
+    public void startOnHoldTone(Connection cn) {
         Pair<Connection, Boolean> result = new Pair<Connection, Boolean>(cn, Boolean.TRUE);
         mOnHoldRegistrants.notifyRegistrants(new AsyncResult(null, result, null));
     }
@@ -145,12 +149,12 @@ abstract class ImsPhoneBase extends Phone {
      * @return all available cell information or null if none.
      */
     @Override
-    public List<CellInfo> getAllCellInfo() {
-        return getServiceStateTracker().getAllCellInfo();
+    public List<CellInfo> getAllCellInfo(WorkSource workSource) {
+        return getServiceStateTracker().getAllCellInfo(workSource);
     }
 
     @Override
-    public CellLocation getCellLocation() {
+    public CellLocation getCellLocation(WorkSource workSource) {
         return null;
     }
 
@@ -219,13 +223,15 @@ abstract class ImsPhoneBase extends Phone {
 
     public void notifyDisconnect(Connection cn) {
         mDisconnectRegistrants.notifyResult(cn);
+
+        mNotifier.notifyDisconnectCause(cn.getDisconnectCause(), cn.getPreciseDisconnectCause());
     }
 
     void notifyUnknownConnection() {
         mUnknownConnectionRegistrants.notifyResult(this);
     }
 
-    void notifySuppServiceFailed(SuppService code) {
+    public void notifySuppServiceFailed(SuppService code) {
         mSuppServiceFailedRegistrants.notifyResult(code);
     }
 
@@ -424,20 +430,20 @@ abstract class ImsPhoneBase extends Phone {
     }
 
     @Override
+    public void startNetworkScan(NetworkScanRequest nsr, Message response) {
+    }
+
+    @Override
+    public void stopNetworkScan(Message response) {
+    }
+
+    @Override
     public void setNetworkSelectionModeAutomatic(Message response) {
     }
 
     @Override
     public void selectNetworkManually(OperatorInfo network, boolean persistSelection,
             Message response) {
-    }
-
-    @Override
-    public void getNeighboringCids(Message response) {
-    }
-
-    @Override
-    public void getDataCallList(Message response) {
     }
 
     public List<DataConnection> getCurrentDataConnectionList () {
@@ -466,12 +472,17 @@ abstract class ImsPhoneBase extends Phone {
     }
 
     @Override
-    public boolean getDataEnabled() {
+    public boolean isUserDataEnabled() {
         return false;
     }
 
     @Override
-    public void setDataEnabled(boolean enable) {
+    public boolean isDataEnabled() {
+        return false;
+    }
+
+    @Override
+    public void setUserDataEnabled(boolean enable) {
     }
 
 
@@ -484,11 +495,8 @@ abstract class ImsPhoneBase extends Phone {
     }
 
     @Override
-    public boolean isDataConnectivityPossible() {
+    public boolean isDataAllowed() {
         return false;
-    }
-
-    public void saveClirSetting(int commandInterfaceCLIRMode) {
     }
 
     @Override
@@ -528,6 +536,16 @@ abstract class ImsPhoneBase extends Phone {
     public LinkProperties getLinkProperties(String apnType) {
         // FIXME: what's this for Volte?
         return null;
+    }
+
+    @Override
+    public void getCallBarring(String facility, String password, Message onComplete,
+            int serviceClass) {
+    }
+
+    @Override
+    public void setCallBarring(String facility, boolean lockState, String password,
+            Message onComplete, int serviceClass) {
     }
 
     @Override

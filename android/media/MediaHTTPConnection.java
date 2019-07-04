@@ -61,8 +61,9 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
     private final static int MAX_REDIRECTS = 20;
 
     public MediaHTTPConnection() {
-        if (CookieHandler.getDefault() == null) {
-            CookieHandler.setDefault(new CookieManager());
+        CookieHandler cookieHandler = CookieHandler.getDefault();
+        if (cookieHandler == null) {
+            Log.w(TAG, "MediaHTTPConnection: Unexpected. No CookieHandler found.");
         }
 
         native_setup();
@@ -135,7 +136,13 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
 
     private void teardownConnection() {
         if (mConnection != null) {
-            mInputStream = null;
+            if (mInputStream != null) {
+                try {
+                    mInputStream.close();
+                } catch (IOException e) {
+                }
+                mInputStream = null;
+            }
 
             mConnection.disconnect();
             mConnection = null;
@@ -297,8 +304,7 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
             mCurrentOffset = offset;
         } catch (IOException e) {
             mTotalSize = -1;
-            mInputStream = null;
-            mConnection = null;
+            teardownConnection();
             mCurrentOffset = -1;
 
             throw e;
@@ -317,8 +323,10 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
         StrictMode.setThreadPolicy(policy);
 
         try {
-            if (offset != mCurrentOffset) {
-                seekTo(offset);
+            synchronized(this) {
+                if (offset != mCurrentOffset) {
+                    seekTo(offset);
+                }
             }
 
             int n = mInputStream.read(data, 0, size);
@@ -360,7 +368,7 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
     }
 
     @Override
-    public long getSize() {
+    public synchronized long getSize() {
         if (mConnection == null) {
             try {
                 seekTo(0);
@@ -373,7 +381,7 @@ public class MediaHTTPConnection extends IMediaHTTPConnection.Stub {
     }
 
     @Override
-    public String getMIMEType() {
+    public synchronized String getMIMEType() {
         if (mConnection == null) {
             try {
                 seekTo(0);

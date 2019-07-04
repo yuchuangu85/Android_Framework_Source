@@ -20,10 +20,15 @@ import android.content.Context;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiScanner;
 import android.os.Looper;
+import android.text.TextUtils;
 
 import com.android.server.wifi.Clock;
+import com.android.server.wifi.WifiInjector;
+import com.android.server.wifi.WifiMonitor;
 import com.android.server.wifi.WifiNative;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.Comparator;
 
 /**
@@ -44,11 +49,19 @@ public abstract class WifiScannerImpl {
      */
     public static final WifiScannerImplFactory DEFAULT_FACTORY = new WifiScannerImplFactory() {
             public WifiScannerImpl create(Context context, Looper looper, Clock clock) {
-                WifiNative wifiNative = WifiNative.getWlanNativeInterface();
-                if (wifiNative.getScanCapabilities(new WifiNative.ScanCapabilities())) {
-                    return new HalWifiScannerImpl(context, wifiNative, looper, clock);
+                WifiNative wifiNative = WifiInjector.getInstance().getWifiNative();
+                WifiMonitor wifiMonitor = WifiInjector.getInstance().getWifiMonitor();
+                String ifaceName = wifiNative.getClientInterfaceName();
+                if (TextUtils.isEmpty(ifaceName)) {
+                    return null;
+                }
+                if (wifiNative.getBgScanCapabilities(
+                        ifaceName, new WifiNative.ScanCapabilities())) {
+                    return new HalWifiScannerImpl(context, ifaceName, wifiNative, wifiMonitor,
+                            looper, clock);
                 } else {
-                    return new SupplicantWifiScannerImpl(context, wifiNative, looper, clock);
+                    return new WificondScannerImpl(context, ifaceName, wifiNative, wifiMonitor,
+                            new WificondChannelHelper(wifiNative), looper, clock);
                 }
             }
         };
@@ -149,31 +162,5 @@ public abstract class WifiScannerImpl {
      */
     public abstract boolean isHwPnoSupported(boolean isConnectedPno);
 
-    /**
-     * This returns whether a background scan should be running for HW PNO scan or not.
-     * @return true if background scan needs to be started, false otherwise.
-     */
-    public abstract boolean shouldScheduleBackgroundScanForHwPno();
-
-    /**
-     * Set a new hotlist
-     */
-    public abstract boolean setHotlist(WifiScanner.HotlistSettings settings,
-            WifiNative.HotlistEventHandler eventHandler);
-
-    /**
-     * Reset any active hotlist
-     */
-    public abstract void resetHotlist();
-
-    /**
-     * Start tracking significant wifi changes
-     */
-    public abstract boolean trackSignificantWifiChange(WifiScanner.WifiChangeSettings settings,
-            WifiNative.SignificantWifiChangeEventHandler handler);
-
-    /**
-     * Stop tracking significant wifi changes
-     */
-    public abstract void untrackSignificantWifiChange();
+    protected abstract void dump(FileDescriptor fd, PrintWriter pw, String[] args);
 }

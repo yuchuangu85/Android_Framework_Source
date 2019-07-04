@@ -25,7 +25,7 @@ public class ViewFieldExpr extends BuiltInVariableExpr {
     private final BindingTarget mBindingTarget;
 
     ViewFieldExpr(BindingTarget bindingTarget) {
-        super(LayoutBinderWriterKt.getFieldName(bindingTarget), initialType(bindingTarget),
+        super(LayoutBinderWriterKt.getFieldName(bindingTarget), bindingTarget.getInterfaceType(),
                 LayoutBinderWriterKt.getFieldName(bindingTarget));
         mBindingTarget = bindingTarget;
     }
@@ -33,12 +33,6 @@ public class ViewFieldExpr extends BuiltInVariableExpr {
     @Override
     public String getInvertibleError() {
         return "View fields may not be the target of two-way binding";
-    }
-
-    private static String initialType(BindingTarget bindingTarget) {
-        return bindingTarget.isBinder()
-                ? "android.databinding.ViewDataBinding"
-                : bindingTarget.getInterfaceType();
     }
 
     public BindingTarget getBindingTarget() {
@@ -49,8 +43,13 @@ public class ViewFieldExpr extends BuiltInVariableExpr {
     protected ModelClass resolveType(ModelAnalyzer modelAnalyzer) {
         final ModelClass type = modelAnalyzer.findClass(mBindingTarget.getInterfaceType(), null);
         if (type == null) {
-            return modelAnalyzer.findClass("android.databinding.ViewDataBinding", null);
+            return modelAnalyzer.findClass(ModelAnalyzer.VIEW_DATA_BINDING, null);
         }
         return type;
+    }
+
+    @Override
+    public Expr cloneToModel(ExprModel model) {
+        return model.viewFieldExpr(mBindingTarget);
     }
 }

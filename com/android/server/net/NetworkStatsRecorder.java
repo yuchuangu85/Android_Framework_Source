@@ -20,6 +20,7 @@ import static android.net.NetworkStats.TAG_NONE;
 import static android.net.TrafficStats.KB_IN_BYTES;
 import static android.net.TrafficStats.MB_IN_BYTES;
 import static android.text.format.DateUtils.YEAR_IN_MILLIS;
+
 import static com.android.internal.util.Preconditions.checkNotNull;
 
 import android.annotation.Nullable;
@@ -28,14 +29,20 @@ import android.net.NetworkStats.NonMonotonicObserver;
 import android.net.NetworkStatsHistory;
 import android.net.NetworkTemplate;
 import android.net.TrafficStats;
+import android.os.Binder;
 import android.os.DropBoxManager;
+import android.service.NetworkStatsRecorderProto;
 import android.util.Log;
 import android.util.MathUtils;
 import android.util.Slog;
+import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.net.VpnInfo;
 import com.android.internal.util.FileRotator;
 import com.android.internal.util.IndentingPrintWriter;
+
+import libcore.io.IoUtils;
+
 import com.google.android.collect.Sets;
 
 import java.io.ByteArrayOutputStream;
@@ -49,8 +56,6 @@ import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
-
-import libcore.io.IoUtils;
 
 /**
  * Logic to record deltas between periodic {@link NetworkStats} snapshots into
@@ -148,7 +153,7 @@ public class NetworkStatsRecorder {
 
     public NetworkStats.Entry getTotalSinceBootLocked(NetworkTemplate template) {
         return mSinceBoot.getSummary(template, Long.MIN_VALUE, Long.MAX_VALUE,
-                NetworkStatsAccess.Level.DEVICE).getTotal(null);
+                NetworkStatsAccess.Level.DEVICE, Binder.getCallingUid()).getTotal(null);
     }
 
     public NetworkStatsCollection getSinceBoot() {
@@ -236,6 +241,20 @@ public class NetworkStatsRecorder {
         NetworkStats.Entry entry = null;
         for (int i = 0; i < delta.size(); i++) {
             entry = delta.getValues(i, entry);
+
+            // As a last-ditch sanity check, report any negative values and
+            // clamp them so recording below doesn't croak.
+            if (entry.isNegative()) {
+                if (mObserver != null) {
+                    mObserver.foundNonMonotonic(delta, i, mCookie);
+                }
+                entry.rxBytes = Math.max(entry.rxBytes, 0);
+                entry.rxPackets = Math.max(entry.rxPackets, 0);
+                entry.txBytes = Math.max(entry.txBytes, 0);
+                entry.txPackets = Math.max(entry.txPackets, 0);
+                entry.operations = Math.max(entry.operations, 0);
+            }
+
             final NetworkIdentitySet ident = ifaceIdent.get(entry.iface);
             if (ident == null) {
                 unknownIfaces.add(entry.iface);
@@ -463,6 +482,15 @@ public class NetworkStatsRecorder {
             pw.println("History since boot:");
             mSinceBoot.dump(pw);
         }
+    }
+
+    public void writeToProtoLocked(ProtoOutputStream proto, long tag) {
+        final long start = proto.start(tag);
+        if (mPending != null) {
+            proto.write(NetworkStatsRecorderProto.PENDING_TOTAL_BYTES, mPending.getTotalBytes());
+        }
+        getOrLoadCompleteLocked().writeToProto(proto, NetworkStatsRecorderProto.COMPLETE_HISTORY);
+        proto.end(start);
     }
 
     public void dumpCheckin(PrintWriter pw, long start, long end) {

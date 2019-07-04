@@ -21,6 +21,7 @@ import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Pools;
+import android.view.accessibility.AccessibilityNodeInfo;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -41,11 +42,13 @@ public class WindowInfo implements Parcelable {
     public int layer;
     public IBinder token;
     public IBinder parentToken;
+    public IBinder activityToken;
     public boolean focused;
     public final Rect boundsInScreen = new Rect();
     public List<IBinder> childTokens;
     public CharSequence title;
-    public int accessibilityIdOfAnchor = View.NO_ID;
+    public long accessibilityIdOfAnchor = AccessibilityNodeInfo.UNDEFINED_NODE_ID;
+    public boolean inPictureInPicture;
 
     private WindowInfo() {
         /* do nothing - hide constructor */
@@ -65,10 +68,12 @@ public class WindowInfo implements Parcelable {
         window.layer = other.layer;
         window.token = other.token;
         window.parentToken = other.parentToken;
+        window.activityToken = other.activityToken;
         window.focused = other.focused;
         window.boundsInScreen.set(other.boundsInScreen);
         window.title = other.title;
         window.accessibilityIdOfAnchor = other.accessibilityIdOfAnchor;
+        window.inPictureInPicture = other.inPictureInPicture;
 
         if (other.childTokens != null && !other.childTokens.isEmpty()) {
             if (window.childTokens == null) {
@@ -97,10 +102,12 @@ public class WindowInfo implements Parcelable {
         parcel.writeInt(layer);
         parcel.writeStrongBinder(token);
         parcel.writeStrongBinder(parentToken);
+        parcel.writeStrongBinder(activityToken);
         parcel.writeInt(focused ? 1 : 0);
         boundsInScreen.writeToParcel(parcel, flags);
         parcel.writeCharSequence(title);
-        parcel.writeInt(accessibilityIdOfAnchor);
+        parcel.writeLong(accessibilityIdOfAnchor);
+        parcel.writeInt(inPictureInPicture ? 1 : 0);
 
         if (childTokens != null && !childTokens.isEmpty()) {
             parcel.writeInt(1);
@@ -132,10 +139,12 @@ public class WindowInfo implements Parcelable {
         layer = parcel.readInt();
         token = parcel.readStrongBinder();
         parentToken = parcel.readStrongBinder();
+        activityToken = parcel.readStrongBinder();
         focused = (parcel.readInt() == 1);
         boundsInScreen.readFromParcel(parcel);
         title = parcel.readCharSequence();
-        accessibilityIdOfAnchor = parcel.readInt();
+        accessibilityIdOfAnchor = parcel.readLong();
+        inPictureInPicture = (parcel.readInt() == 1);
 
         final boolean hasChildren = (parcel.readInt() == 1);
         if (hasChildren) {
@@ -151,11 +160,13 @@ public class WindowInfo implements Parcelable {
         layer = 0;
         token = null;
         parentToken = null;
+        activityToken = null;
         focused = false;
         boundsInScreen.setEmpty();
         if (childTokens != null) {
             childTokens.clear();
         }
+        inPictureInPicture = false;
     }
 
     public static final Parcelable.Creator<WindowInfo> CREATOR =

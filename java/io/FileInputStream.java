@@ -28,11 +28,12 @@ package java.io;
 
 import java.nio.channels.FileChannel;
 
+import dalvik.annotation.optimization.ReachabilitySensitive;
 import dalvik.system.BlockGuard;
 import dalvik.system.CloseGuard;
 import sun.nio.ch.FileChannelImpl;
-import sun.misc.IoTrace;
 import libcore.io.IoBridge;
+import libcore.io.IoTracker;
 
 
 /**
@@ -55,18 +56,30 @@ public
 class FileInputStream extends InputStream
 {
     /* File Descriptor - handle to the open file */
+    // Android-added: @ReachabilitySensitive
+    @ReachabilitySensitive
     private final FileDescriptor fd;
 
-    /* The path of the referenced file (null if the stream is created with a file descriptor) */
+    /**
+     * The path of the referenced file
+     * (null if the stream is created with a file descriptor)
+     */
     private final String path;
 
     private FileChannel channel = null;
 
     private final Object closeLock = new Object();
     private volatile boolean closed = false;
+
+    // Android-added: Field for tracking whether the stream owns the underlying FileDescriptor.
     private final boolean isFdOwner;
 
+    // Android-added: CloseGuard support.
+    @ReachabilitySensitive
     private final CloseGuard guard = CloseGuard.get();
+
+    // Android-added: Tracking of unbuffered I/O.
+    private final IoTracker tracker = new IoTracker();
 
     /**
      * Creates a <code>FileInputStream</code> by
@@ -139,14 +152,23 @@ class FileInputStream extends InputStream
             throw new FileNotFoundException("Invalid file path");
         }
         fd = new FileDescriptor();
-        isFdOwner = true;
-        this.path = name;
 
+        // Android-changed: Tracking mechanism for FileDescriptor sharing.
+        // fd.attach(this);
+        isFdOwner = true;
+
+        path = name;
+
+        // Android-added: BlockGuard support.
         BlockGuard.getThreadPolicy().onReadFromDisk();
+
         open(name);
+
+        // Android-added: CloseGuard support.
         guard.open("close");
     }
 
+    // Android-removed: Documentation around SecurityException. Not thrown on Android.
     /**
      * Creates a <code>FileInputStream</code> by using the file descriptor
      * <code>fdObj</code>, which represents an existing connection to an
@@ -168,24 +190,46 @@ class FileInputStream extends InputStream
      * @param      fdObj   the file descriptor to be opened for reading.
      */
     public FileInputStream(FileDescriptor fdObj) {
+        // Android-changed: Delegate to added hidden constructor.
         this(fdObj, false /* isFdOwner */);
     }
 
+    // Android-added: Internal/hidden constructor for specifying FileDescriptor ownership.
+    // Android-removed: SecurityManager calls.
     /** @hide */
     public FileInputStream(FileDescriptor fdObj, boolean isFdOwner) {
         if (fdObj == null) {
+            // Android-changed: Improved NullPointerException message.
             throw new NullPointerException("fdObj == null");
         }
         fd = fdObj;
-        this.isFdOwner = isFdOwner;
         path = null;
+
+        // Android-changed: FileDescriptor ownership tracking mechanism.
+        /*
+        /*
+         * FileDescriptor is being shared by streams.
+         * Register this stream with FileDescriptor tracker.
+         *
+        fd.attach(this);
+        */
+        this.isFdOwner = isFdOwner;
     }
 
     /**
      * Opens the specified file for reading.
      * @param name the name of the file
      */
-    private native void open(String name) throws FileNotFoundException;
+    private native void open0(String name) throws FileNotFoundException;
+
+    // wrap native call to allow instrumentation
+    /**
+     * Opens the specified file for reading.
+     * @param name the name of the file
+     */
+    private void open(String name) throws FileNotFoundException {
+        open0(name);
+    }
 
     /**
      * Reads a byte of data from this input stream. This method blocks
@@ -196,17 +240,25 @@ class FileInputStream extends InputStream
      * @exception  IOException  if an I/O error occurs.
      */
     public int read() throws IOException {
-        Object traceContext = IoTrace.fileReadBegin(path);
-
+        // Android-changed: Read methods delegate to read(byte[], int, int) to share Android logic.
         byte[] b = new byte[1];
-        int res = -1;
-        try {
-            res = read(b, 0, 1);
-        } finally {
-            IoTrace.fileReadEnd(traceContext, res);
-        }
-        return (res != -1) ? b[0] & 0xff : -1;
+        return (read(b, 0, 1) != -1) ? b[0] & 0xff : -1;
     }
+
+    // Android-removed: Read methods delegate to read(byte[], int, int) to share Android logic.
+    // private native int read0() throws IOException;
+
+    // Android-removed: Read methods delegate to read(byte[], int, int) to share Android logic.
+    /*
+    /**
+     * Reads a subarray as a sequence of bytes.
+     * @param b the data to be written
+     * @param off the start offset in the data
+     * @param len the number of bytes that are written
+     * @exception IOException If an I/O error has occurred.
+     *
+    private native int readBytes(byte b[], int off, int len) throws IOException;
+    */
 
     /**
      * Reads up to <code>b.length</code> bytes of data from this input
@@ -220,6 +272,7 @@ class FileInputStream extends InputStream
      * @exception  IOException  if an I/O error occurs.
      */
     public int read(byte b[]) throws IOException {
+        // Android-changed: Read methods delegate to read(byte[], int, int) to share Android logic.
         return read(b, 0, b.length);
     }
 
@@ -242,18 +295,16 @@ class FileInputStream extends InputStream
      * @exception  IOException  if an I/O error occurs.
      */
     public int read(byte b[], int off, int len) throws IOException {
+        // Android-added: close() check before I/O.
         if (closed && len > 0) {
             throw new IOException("Stream Closed");
         }
 
-        Object traceContext = IoTrace.fileReadBegin(path);
-        int bytesRead = 0;
-        try {
-            bytesRead = IoBridge.read(fd, b, off, len);
-        } finally {
-            IoTrace.fileReadEnd(traceContext, bytesRead == -1 ? 0 : bytesRead);
-        }
-        return bytesRead;
+        // Android-added: Tracking of unbuffered I/O.
+        tracker.trackIo(len);
+
+        // Android-changed: Use IoBridge instead of calling native method.
+        return IoBridge.read(fd, b, off, len);
     }
 
     /**
@@ -262,13 +313,15 @@ class FileInputStream extends InputStream
      *
      * <p>The <code>skip</code> method may, for a variety of
      * reasons, end up skipping over some smaller number of bytes,
-     * possibly <code>0</code>. If <code>n</code> is negative, an
-     * <code>IOException</code> is thrown, even though the <code>skip</code>
-     * method of the {@link InputStream} superclass does nothing in this case.
-     * The actual number of bytes skipped is returned.
+     * possibly <code>0</code>. If <code>n</code> is negative, the method
+     * will try to skip backwards. In case the backing file does not support
+     * backward skip at its current position, an <code>IOException</code> is
+     * thrown. The actual number of bytes skipped is returned. If it skips
+     * forwards, it returns a positive value. If it skips backwards, it
+     * returns a negative value.
      *
-     * <p>This method may skip more bytes than are remaining in the backing
-     * file. This produces no exception and the number of bytes skipped
+     * <p>This method may skip more bytes than what are remaining in the
+     * backing file. This produces no exception and the number of bytes skipped
      * may include some number of bytes that were beyond the EOF of the
      * backing file. Attempting to read from the stream after skipping past
      * the end will result in -1 indicating the end of the file.
@@ -278,12 +331,15 @@ class FileInputStream extends InputStream
      * @exception  IOException  if n is negative, if the stream does not
      *             support seek, or if an I/O error occurs.
      */
+    // BEGIN Android-changed: skip(long) implementation changed from bare native.
     public long skip(long n) throws IOException {
+        // Android-added: close() check before I/O.
         if (closed) {
             throw new IOException("Stream Closed");
         }
 
         try {
+            // Android-added: BlockGuard support.
             BlockGuard.getThreadPolicy().onReadFromDisk();
             return skip0(n);
         } catch(UseManualSkipException e) {
@@ -298,13 +354,15 @@ class FileInputStream extends InputStream
      */
     private static class UseManualSkipException extends Exception {
     }
+    // END Android-changed: skip(long) implementation changed from bare native.
 
     /**
      * Returns an estimate of the number of remaining bytes that can be read (or
      * skipped over) from this input stream without blocking by the next
-     * invocation of a method for this input stream. The next invocation might be
-     * the same thread or another thread.  A single read or skip of this
-     * many bytes will not block, but may read or skip fewer bytes.
+     * invocation of a method for this input stream. Returns 0 when the file
+     * position is beyond EOF. The next invocation might be the same thread
+     * or another thread. A single read or skip of this many bytes will not
+     * block, but may read or skip fewer bytes.
      *
      * <p> In some cases, a non-blocking read (or skip) may appear to be
      * blocked when it is merely slow, for example when reading large
@@ -315,7 +373,9 @@ class FileInputStream extends InputStream
      * @exception  IOException  if this file input stream has been closed by calling
      *             {@code close} or an I/O error occurs.
      */
+    // BEGIN Android-changed: available() implementation changed from bare native.
     public int available() throws IOException {
+        // Android-added: close() check before I/O.
         if (closed) {
             throw new IOException("Stream Closed");
         }
@@ -324,6 +384,7 @@ class FileInputStream extends InputStream
     }
 
     private native int available0() throws IOException;
+    // END Android-changed: available() implementation changed from bare native.
 
     /**
      * Closes this file input stream and releases any system resources
@@ -345,20 +406,18 @@ class FileInputStream extends InputStream
             closed = true;
         }
 
+        // Android-added: CloseGuard support.
         guard.close();
 
         if (channel != null) {
-            /*
-             * Decrement the FD use count associated with the channel
-             * The use count is incremented whenever a new channel
-             * is obtained from this stream.
-             */
            channel.close();
         }
 
+        // BEGIN Android-changed: Close handling / notification of blocked threads.
         if (isFdOwner) {
             IoBridge.closeAndSignalBlockedThreads(fd);
         }
+        // END Android-changed: Close handling / notification of blocked threads.
     }
 
     /**
@@ -372,7 +431,9 @@ class FileInputStream extends InputStream
      * @see        java.io.FileDescriptor
      */
     public final FileDescriptor getFD() throws IOException {
-        if (fd != null) return fd;
+        if (fd != null) {
+            return fd;
+        }
         throw new IOException();
     }
 
@@ -381,7 +442,7 @@ class FileInputStream extends InputStream
      * object associated with this file input stream.
      *
      * <p> The initial {@link java.nio.channels.FileChannel#position()
-     * </code>position<code>} of the returned channel will be equal to the
+     * position} of the returned channel will be equal to the
      * number of bytes read from the file so far.  Reading bytes from this
      * stream will increment the channel's position.  Changing the channel's
      * position, either explicitly or by reading, will change this stream's
@@ -396,11 +457,22 @@ class FileInputStream extends InputStream
         synchronized (this) {
             if (channel == null) {
                 channel = FileChannelImpl.open(fd, path, true, false, this);
-
             }
             return channel;
         }
     }
+
+    // BEGIN Android-removed: Unused code.
+    /*
+    private static native void initIDs();
+
+    private native void close0() throws IOException;
+
+    static {
+        initIDs();
+    }
+    */
+    // END Android-changed: Unused code.
 
     /**
      * Ensures that the <code>close</code> method of this file input stream is
@@ -410,11 +482,13 @@ class FileInputStream extends InputStream
      * @see        java.io.FileInputStream#close()
      */
     protected void finalize() throws IOException {
+        // Android-added: CloseGuard support.
         if (guard != null) {
             guard.warnIfOpen();
         }
 
         if ((fd != null) &&  (fd != FileDescriptor.in)) {
+            // Android-removed: Obsoleted comment about shared FileDescriptor handling.
             close();
         }
     }

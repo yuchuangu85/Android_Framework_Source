@@ -16,6 +16,7 @@
 
 package android.widget;
 
+import android.annotation.Nullable;
 import android.database.DataSetObservable;
 import android.database.DataSetObserver;
 import android.view.View;
@@ -31,6 +32,7 @@ public abstract class BaseAdapter implements ListAdapter, SpinnerAdapter {
 
     // 观察者管理类
     private final DataSetObservable mDataSetObservable = new DataSetObservable();
+    private CharSequence[] mAutofillOptions;
 
     public boolean hasStableIds() {
         return false;
@@ -45,7 +47,7 @@ public abstract class BaseAdapter implements ListAdapter, SpinnerAdapter {
     public void unregisterDataSetObserver(DataSetObserver observer) {
         mDataSetObservable.unregisterObserver(observer);
     }
-
+    
     /**
      * 通知数据改变了
      * <p>
@@ -95,5 +97,17 @@ public abstract class BaseAdapter implements ListAdapter, SpinnerAdapter {
     // 适配器数据是否为空
     public boolean isEmpty() {
         return getCount() == 0;
+    }
+
+    @Override
+    public CharSequence[] getAutofillOptions() {
+        return mAutofillOptions;
+    }
+
+    /**
+     * Sets the value returned by {@link #getAutofillOptions()}
+     */
+    public void setAutofillOptions(@Nullable CharSequence... options) {
+        mAutofillOptions = options;
     }
 }

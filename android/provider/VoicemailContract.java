@@ -16,7 +16,6 @@
 
 package android.provider;
 
-import android.Manifest;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.content.ComponentName;
@@ -30,6 +29,7 @@ import android.provider.CallLog.Calls;
 import android.telecom.PhoneAccount;
 import android.telecom.PhoneAccountHandle;
 import android.telecom.Voicemail;
+
 import java.util.List;
 
 /**
@@ -49,7 +49,8 @@ import java.util.List;
  * </ul>
  *
  * <P> The minimum permission needed to access this content provider is
- * {@link Manifest.permission#ADD_VOICEMAIL}
+ * {@link android.Manifest.permission#ADD_VOICEMAIL} or carrier privileges (see
+ * {@link android.telephony.TelephonyManager#hasCarrierPrivileges}).
  *
  * <P>Voicemails are inserted by what is called as a "voicemail source"
  * application, which is responsible for syncing voicemail data between a remote
@@ -106,58 +107,35 @@ public class VoicemailContract {
 
     /**
      * Broadcast intent to inform a new visual voicemail SMS has been received. This intent will
-     * only be delivered to the voicemail client. The intent will have the following extra values:
+     * only be delivered to the telephony service.
      *
-     * <ul>
-     *   <li><em>{@link #EXTRA_VOICEMAIL_SMS_TYPE}</em> - (String) The event type of the SMS. Common
-     *   values are "SYNC" or "STATUS"</li>
-     *   <li><em>{@link #EXTRA_VOICEMAIL_SMS_DATA}</em> - (Bundle) The fields sent by the SMS</li>
-     *   <li><em>{@link #EXTRA_VOICEMAIL_SMS_SUBID}</em> - (Integer) The subscription ID of the
-     *   phone account that received the SMS</li>
-     * </ul>
-     */
-    /** @hide */
+     * @see #EXTRA_VOICEMAIL_SMS
+     * @see #EXTRA_TARGET_PACKAGE
+     *
+     * @hide */
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_VOICEMAIL_SMS_RECEIVED =
-            "android.intent.action.VOICEMAIL_SMS_RECEIVED";
+            "com.android.internal.provider.action.VOICEMAIL_SMS_RECEIVED";
 
     /**
-     * Optional extra included in {@link #ACTION_VOICEMAIL_SMS_RECEIVED} broadcast intents to
-     * indicate the event type of the SMS. Common values are "SYNC" or "STATUS". The extra will not
-     * exist if the framework cannot parse the SMS as voicemail but the carrier pattern indicates
-     * it is.
-     */
-    /** @hide */
-    public static final String EXTRA_VOICEMAIL_SMS_PREFIX =
-            "com.android.voicemail.extra.VOICEMAIL_SMS_PREFIX";
-
-    /**
-     * Optional extra included in {@link #ACTION_VOICEMAIL_SMS_RECEIVED} broadcast intents to
-     * indicate the fields sent by the SMS. The extra will not exist if the framework cannot
-     * parse the SMS as voicemail but the carrier pattern indicates it is.
-     */
-    /** @hide */
-    public static final String EXTRA_VOICEMAIL_SMS_FIELDS =
-            "com.android.voicemail.extra.VOICEMAIL_SMS_FIELDS";
-
-    /**
-     * Extra included in {@link #ACTION_VOICEMAIL_SMS_RECEIVED} broadcast intents to indicate the
-     * message body of the SMS. This extra is included if the framework cannot
-     * parse the SMS as voicemail but the carrier pattern indicates it is.
-     */
-    /**
+     * Extra in {@link #ACTION_VOICEMAIL_SMS_RECEIVED} indicating the content of the SMS.
+     *
      * @hide
      */
-    public static final String EXTRA_VOICEMAIL_SMS_MESSAGE_BODY =
-        "com.android.voicemail.extra.VOICEMAIL_SMS_MESSAGE_BODY";
+    public static final String EXTRA_VOICEMAIL_SMS = "android.provider.extra.VOICEMAIL_SMS";
 
     /**
-     * Extra included in {@link #ACTION_VOICEMAIL_SMS_RECEIVED} broadcast intents to indicate he
-     * subscription ID of the phone account that received the SMS.
+     * Extra in {@link #ACTION_VOICEMAIL_SMS_RECEIVED} indicating the target package to bind {@link
+     * android.telephony.VisualVoicemailService}.
+     *
+     * <p>This extra should be set to android.telephony.VisualVoicemailSmsFilterSettings#packageName
+     * while performing filtering. Since the default dialer might change between the filter sending
+     * it and telephony binding to the service, this ensures the service will not receive SMS
+     * filtered by the previous app.
+     *
+     * @hide
      */
-    /** @hide */
-    public static final String EXTRA_VOICEMAIL_SMS_SUBID =
-            "com.android.voicemail.extra.VOICEMAIL_SMS_SUBID";
+    public static final String EXTRA_TARGET_PACKAGE = "android.provider.extra.TARGET_PACAKGE";
 
     /**
      * Extra included in {@link Intent#ACTION_PROVIDER_CHANGED} broadcast intents to indicate if the
@@ -210,6 +188,11 @@ public class VoicemailContract {
          * <P>Type: INTEGER (long)</P>
          */
         public static final String DURATION = Calls.DURATION;
+        /**
+         * Whether or not the voicemail has been acknowledged (notification sent to the user).
+         * <P>Type: INTEGER (boolean)</P>
+         */
+        public static final String NEW = Calls.NEW;
         /**
          * Whether this item has been read or otherwise consumed by the user.
          * <P>Type: INTEGER (boolean)</P>
@@ -270,6 +253,39 @@ public class VoicemailContract {
          */
         public static final String TRANSCRIPTION = "transcription";
         /**
+         * The state of the voicemail transcription.
+         * <P> Possible values: {@link #TRANSCRIPTION_NOT_STARTED},
+         * {@link #TRANSCRIPTION_IN_PROGRESS}, {@link #TRANSCRIPTION_FAILED},
+         * {@link #TRANSCRIPTION_AVAILABLE}.
+         * <P>Type: INTEGER</P>
+         * @hide
+         */
+        public static final String TRANSCRIPTION_STATE = "transcription_state";
+        /**
+         * Value of {@link #TRANSCRIPTION_STATE} when the voicemail transcription has not yet
+         * been attempted.
+         * @hide
+         */
+        public static final int TRANSCRIPTION_NOT_STARTED = 0;
+        /**
+         * Value of {@link #TRANSCRIPTION_STATE} when the voicemail transcription has begun
+         * but is not yet complete.
+         * @hide
+         */
+        public static final int TRANSCRIPTION_IN_PROGRESS = 1;
+        /**
+         * Value of {@link #TRANSCRIPTION_STATE} when the voicemail transcription has
+         * been attempted and failed.
+         * @hide
+         */
+        public static final int TRANSCRIPTION_FAILED = 2;
+        /**
+         * Value of {@link #TRANSCRIPTION_STATE} when the voicemail transcription has
+         * completed and the result has been stored in the {@link #TRANSCRIPTION} column.
+         * @hide
+         */
+        public static final int TRANSCRIPTION_AVAILABLE = 3;
+        /**
          * Path to the media content file. Internal only field.
          * @hide
          */
@@ -298,9 +314,24 @@ public class VoicemailContract {
          * Flag used to indicate that local, unsynced changes are present.
          * Currently, this is used to indicate that the voicemail was read or deleted.
          * The value will be 1 if dirty is true, 0 if false.
+         *
+         * <p>When a caller updates a voicemail row (either with {@link ContentResolver#update} or
+         * {@link ContentResolver#applyBatch}), and if the {@link ContentValues} doesn't contain
+         * this column, the voicemail provider implicitly sets it to 0 if the calling package is
+         * the {@link #SOURCE_PACKAGE} or to 1 otherwise. To prevent this behavior, explicitly set
+         * {@link #DIRTY_RETAIN} to DIRTY in the {@link ContentValues}.
+         *
          * <P>Type: INTEGER (boolean)</P>
+         *
+         * @see #DIRTY_RETAIN
          */
         public static final String DIRTY = "dirty";
+
+        /**
+         * Value of {@link #DIRTY} when updating to indicate that the value should not be updated
+         * during this operation.
+         */
+        public static final int DIRTY_RETAIN = -1;
 
         /**
          * Flag used to indicate that the voicemail was deleted but not synced to the server.
@@ -316,6 +347,44 @@ public class VoicemailContract {
          * <P>Type: INTEGER (long)</P>
          */
         public static final String LAST_MODIFIED = "last_modified";
+
+        /**
+         * Flag to indicate the voicemail was backed up. The value will be 1 if backed up, 0 if
+         * not.
+         *
+         * <P>Type: INTEGER (boolean)</P>
+         */
+        public static final String BACKED_UP = "backed_up";
+
+        /**
+         * Flag to indicate the voicemail was restored from a backup. The value will be 1 if
+         * restored, 0 if not.
+         *
+         * <P>Type: INTEGER (boolean)</P>
+         */
+        public static final String RESTORED = "restored";
+
+        /**
+         * Flag to indicate the voicemail was marked as archived. Archived voicemail should not be
+         * deleted even if it no longer exist on the server. The value will be 1 if archived true, 0
+         * if not.
+         *
+         * <P>Type: INTEGER (boolean)</P>
+         */
+        public static final String ARCHIVED = "archived";
+
+        /**
+         * Flag to indicate the voicemail is a OMTP voicemail handled by the {@link
+         * android.telephony.VisualVoicemailService}. The UI should only show OMTP voicemails from
+         * the current visual voicemail package. For example, the selection could be
+         * {@code WHERE (IS_OMTP_VOICEMAIL == 0) OR ( IS_OMTP_VOICEMAIL == 1 AND SOURCE_PACKAGE ==
+         * "current.vvm.package")}
+         *
+         * <P>Type: INTEGER (boolean)</P>
+         *
+         * @see android.telephony.TelephonyManager#getVisualVoicemailPackageName
+         */
+        public static final String IS_OMTP_VOICEMAIL = "is_omtp_voicemail";
 
         /**
          * A convenience method to build voicemail URI specific to a source package by appending

@@ -71,7 +71,7 @@ public class WifiLockManager {
         if (!isValidLockMode(lockMode)) {
             throw new IllegalArgumentException("lockMode =" + lockMode);
         }
-        if (ws == null || ws.size() == 0) {
+        if (ws == null || ws.isEmpty()) {
             ws = new WorkSource(Binder.getCallingUid());
         } else {
             mContext.enforceCallingOrSelfPermission(
@@ -144,18 +144,27 @@ public class WifiLockManager {
         }
 
         WorkSource newWorkSource;
-        if (ws == null || ws.size() == 0) {
+        if (ws == null || ws.isEmpty()) {
             newWorkSource = new WorkSource(Binder.getCallingUid());
         } else {
             // Make a copy of the WorkSource before adding it to the WakeLock
             newWorkSource = new WorkSource(ws);
         }
 
+        if (mVerboseLoggingEnabled) {
+            Slog.d(TAG, "updateWifiLockWakeSource: " + wl + ", newWorkSource=" + newWorkSource);
+        }
+
         long ident = Binder.clearCallingIdentity();
         try {
+            // Log the acquire before the release to avoid "holes" in the collected data due to
+            // an acquire event immediately after a release in the case where newWorkSource and
+            // wl.mWorkSource share one or more attribution UIDs. BatteryStats can correctly match
+            // "nested" acquire / release pairs.
+            mBatteryStats.noteFullWifiLockAcquiredFromSource(newWorkSource);
             mBatteryStats.noteFullWifiLockReleasedFromSource(wl.mWorkSource);
+
             wl.mWorkSource = newWorkSource;
-            mBatteryStats.noteFullWifiLockAcquiredFromSource(wl.mWorkSource);
         } catch (RemoteException e) {
         } finally {
             Binder.restoreCallingIdentity(ident);
@@ -323,7 +332,8 @@ public class WifiLockManager {
         }
 
         public String toString() {
-            return "WifiLock{" + this.mTag + " type=" + this.mMode + " uid=" + mUid + "}";
+            return "WifiLock{" + this.mTag + " type=" + this.mMode + " uid=" + mUid
+                    + " workSource=" + mWorkSource + "}";
         }
     }
 }

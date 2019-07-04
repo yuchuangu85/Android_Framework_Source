@@ -18,15 +18,12 @@
 package com.android.internal.telephony;
 
 import android.content.Context;
-import android.os.Message;
-import android.os.RegistrantList;
-import android.os.Registrant;
-import android.os.Handler;
 import android.os.AsyncResult;
-import android.telephony.RadioAccessFamily;
+import android.os.Handler;
+import android.os.Message;
+import android.os.Registrant;
+import android.os.RegistrantList;
 import android.telephony.TelephonyManager;
-
-import com.android.internal.telephony.RadioCapability;
 
 /**
  * {@hide}
@@ -43,11 +40,12 @@ public abstract class BaseCommands implements CommandsInterface {
     protected RegistrantList mOffOrNotAvailRegistrants = new RegistrantList();
     protected RegistrantList mNotAvailRegistrants = new RegistrantList();
     protected RegistrantList mCallStateRegistrants = new RegistrantList();
-    protected RegistrantList mVoiceNetworkStateRegistrants = new RegistrantList();
-    protected RegistrantList mDataNetworkStateRegistrants = new RegistrantList();
+    protected RegistrantList mNetworkStateRegistrants = new RegistrantList();
+    protected RegistrantList mDataCallListChangedRegistrants = new RegistrantList();
     protected RegistrantList mVoiceRadioTechChangedRegistrants = new RegistrantList();
     protected RegistrantList mImsNetworkStateChangedRegistrants = new RegistrantList();
     protected RegistrantList mIccStatusChangedRegistrants = new RegistrantList();
+    protected RegistrantList mIccSlotStatusChangedRegistrants = new RegistrantList();
     protected RegistrantList mVoicePrivacyOnRegistrants = new RegistrantList();
     protected RegistrantList mVoicePrivacyOffRegistrants = new RegistrantList();
     protected Registrant mUnsolOemHookRawRegistrant;
@@ -74,7 +72,12 @@ public abstract class BaseCommands implements CommandsInterface {
     protected RegistrantList mPhoneRadioCapabilityChangedRegistrants =
             new RegistrantList();
     protected RegistrantList mPcoDataRegistrants = new RegistrantList();
-
+    protected RegistrantList mCarrierInfoForImsiEncryptionRegistrants = new RegistrantList();
+    protected RegistrantList mRilNetworkScanResultRegistrants = new RegistrantList();
+    protected RegistrantList mModemResetRegistrants = new RegistrantList();
+    protected RegistrantList mNattKeepaliveStatusRegistrants = new RegistrantList();
+    protected RegistrantList mPhysicalChannelConfigurationRegistrants = new RegistrantList();
+    protected RegistrantList mLceInfoRegistrants = new RegistrantList();
 
     protected Registrant mGsmSmsRegistrant;
     protected Registrant mCdmaSmsRegistrant;
@@ -95,7 +98,6 @@ public abstract class BaseCommands implements CommandsInterface {
     protected Registrant mGsmBroadcastSmsRegistrant;
     protected Registrant mCatCcAlphaRegistrant;
     protected Registrant mSsRegistrant;
-    protected Registrant mLceInfoRegistrant;
 
     // Preferred network type received from PhoneFactory.
     // This is used when establishing a connection to the
@@ -237,27 +239,27 @@ public abstract class BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void registerForVoiceNetworkStateChanged(Handler h, int what, Object obj) {
+    public void registerForNetworkStateChanged(Handler h, int what, Object obj) {
         Registrant r = new Registrant (h, what, obj);
 
-        mVoiceNetworkStateRegistrants.add(r);
+        mNetworkStateRegistrants.add(r);
     }
 
     @Override
-    public void unregisterForVoiceNetworkStateChanged(Handler h) {
-        mVoiceNetworkStateRegistrants.remove(h);
+    public void unregisterForNetworkStateChanged(Handler h) {
+        mNetworkStateRegistrants.remove(h);
     }
 
     @Override
-    public void registerForDataNetworkStateChanged(Handler h, int what, Object obj) {
+    public void registerForDataCallListChanged(Handler h, int what, Object obj) {
         Registrant r = new Registrant (h, what, obj);
 
-        mDataNetworkStateRegistrants.add(r);
+        mDataCallListChangedRegistrants.add(r);
     }
 
     @Override
-    public void unregisterForDataNetworkStateChanged(Handler h) {
-        mDataNetworkStateRegistrants.remove(h);
+    public void unregisterForDataCallListChanged(Handler h) {
+        mDataCallListChangedRegistrants.remove(h);
     }
 
     @Override
@@ -280,6 +282,17 @@ public abstract class BaseCommands implements CommandsInterface {
     @Override
     public void unregisterForIccStatusChanged(Handler h) {
         mIccStatusChangedRegistrants.remove(h);
+    }
+
+    @Override
+    public void registerForIccSlotStatusChanged(Handler h, int what, Object obj) {
+        Registrant r = new Registrant(h, what, obj);
+        mIccSlotStatusChangedRegistrants.add(r);
+    }
+
+    @Override
+    public void unregisterForIccSlotStatusChanged(Handler h) {
+        mIccSlotStatusChangedRegistrants.remove(h);
     }
 
     @Override
@@ -732,6 +745,17 @@ public abstract class BaseCommands implements CommandsInterface {
         mHardwareConfigChangeRegistrants.remove(h);
     }
 
+    @Override
+    public void registerForNetworkScanResult(Handler h, int what, Object obj) {
+        Registrant r = new Registrant(h, what, obj);
+        mRilNetworkScanResultRegistrants.add(r);
+    }
+
+    @Override
+    public void unregisterForNetworkScanResult(Handler h) {
+        mRilNetworkScanResultRegistrants.remove(h);
+    }
+
     /**
      * {@inheritDoc}
      */
@@ -785,7 +809,6 @@ public abstract class BaseCommands implements CommandsInterface {
 
             if (mState.isAvailable() && !oldState.isAvailable()) {
                 mAvailRegistrants.notifyRegistrants();
-                onRadioAvailable();
             }
 
             if (!mState.isAvailable() && oldState.isAvailable()) {
@@ -802,9 +825,6 @@ public abstract class BaseCommands implements CommandsInterface {
                 mOffOrNotAvailRegistrants.notifyRegistrants();
             }
         }
-    }
-
-    protected void onRadioAvailable() {
     }
 
     /**
@@ -826,6 +846,17 @@ public abstract class BaseCommands implements CommandsInterface {
     @Override
     public void unregisterForCellInfoList(Handler h) {
         mRilCellInfoListRegistrants.remove(h);
+    }
+
+    @Override
+    public void registerForPhysicalChannelConfiguration(Handler h, int what, Object obj) {
+        Registrant r = new Registrant(h, what, obj);
+        mPhysicalChannelConfigurationRegistrants.add(r);
+    }
+
+    @Override
+    public void unregisterForPhysicalChannelConfiguration(Handler h) {
+        mPhysicalChannelConfigurationRegistrants.remove(h);
     }
 
     @Override
@@ -892,15 +923,28 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForLceInfo(Handler h, int what, Object obj) {
-      mLceInfoRegistrant = new Registrant(h, what, obj);
+        Registrant r = new Registrant(h, what, obj);
+
+        synchronized (mStateMonitor) {
+            mLceInfoRegistrants.add(r);
+        }
     }
 
     @Override
     public void unregisterForLceInfo(Handler h) {
-      if (mLceInfoRegistrant != null && mLceInfoRegistrant.getHandler() == h) {
-          mLceInfoRegistrant.clear();
-          mLceInfoRegistrant = null;
-      }
+        synchronized (mStateMonitor) {
+            mLceInfoRegistrants.remove(h);
+        }
+    }
+
+    @Override
+    public void registerForModemReset(Handler h, int what, Object obj) {
+        mModemResetRegistrants.add(new Registrant(h, what, obj));
+    }
+
+    @Override
+    public void unregisterForModemReset(Handler h) {
+        mModemResetRegistrants.remove(h);
     }
 
     @Override
@@ -911,5 +955,31 @@ public abstract class BaseCommands implements CommandsInterface {
     @Override
     public void unregisterForPcoData(Handler h) {
         mPcoDataRegistrants.remove(h);
+    }
+
+    @Override
+    public void registerForCarrierInfoForImsiEncryption(Handler h, int what, Object obj) {
+        mCarrierInfoForImsiEncryptionRegistrants.add(new Registrant(h, what, obj));
+    }
+
+    @Override
+    public void unregisterForCarrierInfoForImsiEncryption(Handler h) {
+        mCarrierInfoForImsiEncryptionRegistrants.remove(h);
+    }
+
+    @Override
+    public void registerForNattKeepaliveStatus(Handler h, int what, Object obj) {
+        Registrant r = new Registrant(h, what, obj);
+
+        synchronized (mStateMonitor) {
+            mNattKeepaliveStatusRegistrants.add(r);
+        }
+    }
+
+    @Override
+    public void unregisterForNattKeepaliveStatus(Handler h) {
+        synchronized (mStateMonitor) {
+            mNattKeepaliveStatusRegistrants.remove(h);
+        }
     }
 }

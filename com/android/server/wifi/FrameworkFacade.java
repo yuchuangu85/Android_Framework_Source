@@ -16,43 +16,33 @@
 
 package com.android.server.wifi;
 
+import android.app.ActivityManager;
 import android.app.AppGlobals;
+import android.app.Notification;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.net.ConnectivityManager;
+import android.database.ContentObserver;
 import android.net.TrafficStats;
-import android.net.ip.IpManager;
-import android.net.wifi.IWifiScanner;
-import android.net.wifi.WifiScanner;
+import android.net.Uri;
+import android.net.ip.IpClient;
+import android.os.BatteryStats;
 import android.os.Handler;
 import android.os.IBinder;
-import android.os.INetworkManagementService;
-import android.os.Looper;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.os.UserManager;
+import android.os.storage.StorageManager;
 import android.provider.Settings;
-import android.security.KeyStore;
 import android.telephony.CarrierConfigManager;
 
-import java.util.ArrayList;
+import com.android.internal.app.IBatteryStats;
+import com.android.server.wifi.util.WifiAsyncChannel;
 
 /**
  * This class allows overriding objects with mocks to write unit tests
  */
 public class FrameworkFacade {
     public static final String TAG = "FrameworkFacade";
-
-    public BaseWifiLogger makeBaseLogger() {
-        return new BaseWifiLogger();
-    }
-
-    public BaseWifiLogger makeRealLogger(
-            Context context, WifiStateMachine stateMachine, WifiNative wifiNative,
-            BuildProperties buildProperties) {
-        return new WifiLogger(context, stateMachine, wifiNative, buildProperties);
-    }
 
     public boolean setIntegerSetting(Context context, String name, int def) {
         return Settings.Global.putInt(context.getContentResolver(), name, def);
@@ -74,22 +64,65 @@ public class FrameworkFacade {
         return Settings.Global.getString(context.getContentResolver(), name);
     }
 
+    /**
+     * Mockable facade to Settings.Secure.getInt(.).
+     */
+    public int getSecureIntegerSetting(Context context, String name, int def) {
+        return Settings.Secure.getInt(context.getContentResolver(), name, def);
+    }
+
+    /**
+     * Helper method for classes to register a ContentObserver
+     * {@see ContentResolver#registerContentObserver(Uri,boolean,ContentObserver)}.
+     *
+     * @param context
+     * @param uri
+     * @param notifyForDescendants
+     * @param contentObserver
+     */
+    public void registerContentObserver(Context context, Uri uri,
+            boolean notifyForDescendants, ContentObserver contentObserver) {
+        context.getContentResolver().registerContentObserver(uri, notifyForDescendants,
+                contentObserver);
+    }
+
+    /**
+     * Helper method for classes to unregister a ContentObserver
+     * {@see ContentResolver#unregisterContentObserver(ContentObserver)}.
+     *
+     * @param context
+     * @param contentObserver
+     */
+    public void unregisterContentObserver(Context context, ContentObserver contentObserver) {
+        context.getContentResolver().unregisterContentObserver(contentObserver);
+    }
+
     public IBinder getService(String serviceName) {
         return ServiceManager.getService(serviceName);
     }
 
-    public WifiScanner makeWifiScanner(Context context, Looper looper) {
-        return new WifiScanner(context, IWifiScanner.Stub.asInterface(
-                        getService(Context.WIFI_SCANNING_SERVICE)), looper);
+    /**
+     * Returns the battery stats interface
+     * @return IBatteryStats BatteryStats service interface
+     */
+    public IBatteryStats getBatteryService() {
+        return IBatteryStats.Stub.asInterface(getService(BatteryStats.SERVICE_NAME));
     }
 
     public PendingIntent getBroadcast(Context context, int requestCode, Intent intent, int flags) {
         return PendingIntent.getBroadcast(context, requestCode, intent, flags);
     }
 
+    /**
+     * Wrapper for {@link PendingIntent#getActivity}.
+     */
+    public PendingIntent getActivity(Context context, int requestCode, Intent intent, int flags) {
+        return PendingIntent.getActivity(context, requestCode, intent, flags);
+    }
+
     public SupplicantStateTracker makeSupplicantStateTracker(Context context,
             WifiConfigManager configManager, Handler handler) {
-        return new SupplicantStateTracker(context, configManager, handler);
+        return new SupplicantStateTracker(context, configManager, this, handler);
     }
 
     public boolean getConfigWiFiDisableInECBM(Context context) {
@@ -122,31 +155,9 @@ public class FrameworkFacade {
         return TrafficStats.getRxPackets(iface);
     }
 
-    public IpManager makeIpManager(
-            Context context, String iface, IpManager.Callback callback) {
-        return new IpManager(context, iface, callback);
-    }
-
-    /**
-     * Create a SoftApManager.
-     * @param context current context
-     * @param looper current thread looper
-     * @param wifiNative reference to WifiNative
-     * @param nmService reference to NetworkManagementService
-     * @param cm reference to ConnectivityManager
-     * @param countryCode Country code
-     * @param allowed2GChannels list of allowed 2G channels
-     * @param listener listener for SoftApManager
-     * @return an instance of SoftApManager
-     */
-    public SoftApManager makeSoftApManager(
-            Context context, Looper looper, WifiNative wifiNative,
-            INetworkManagementService nmService, ConnectivityManager cm,
-            String countryCode, ArrayList<Integer> allowed2GChannels,
-            SoftApManager.Listener listener) {
-        return new SoftApManager(
-                looper, wifiNative, nmService, countryCode,
-                allowed2GChannels, listener);
+    public IpClient makeIpClient(
+            Context context, String iface, IpClient.Callback callback) {
+        return new IpClient(context, iface, callback);
     }
 
     /**
@@ -160,10 +171,41 @@ public class FrameworkFacade {
         return AppGlobals.getPackageManager().checkUidPermission(permName, uid);
     }
 
-    public WifiConfigManager makeWifiConfigManager(Context context, WifiNative wifiNative,
-            FrameworkFacade frameworkFacade, Clock clock, UserManager userManager,
-            KeyStore keyStore) {
-        return new WifiConfigManager(context, wifiNative, frameworkFacade, clock, userManager,
-                keyStore);
+    /**
+     * Create a new instance of WifiAsyncChannel
+     * @param tag String corresponding to the service creating the channel
+     * @return WifiAsyncChannel object created
+     */
+    public WifiAsyncChannel makeWifiAsyncChannel(String tag) {
+        return new WifiAsyncChannel(tag);
+    }
+
+    /**
+     * Check if the device will be restarting after decrypting during boot by calling {@link
+     * StorageManager.inCryptKeeperBounce}.
+     * @return true if the device will restart, false otherwise
+     */
+    public boolean inStorageManagerCryptKeeperBounce() {
+        return StorageManager.inCryptKeeperBounce();
+    }
+
+    /**
+     * Check if the provided uid is the app in the foreground.
+     * @param uid the uid to check
+     * @return true if the app is in the foreground, false otherwise
+     * @throws RemoteException
+     */
+    public boolean isAppForeground(int uid) throws RemoteException {
+        return ActivityManager.getService().isAppForeground(uid);
+    }
+
+    /**
+     * Create a new instance of {@link Notification.Builder}.
+     * @param context reference to a Context
+     * @param channelId ID of the notification channel
+     * @return an instance of Notification.Builder
+     */
+    public Notification.Builder makeNotificationBuilder(Context context, String channelId) {
+        return new Notification.Builder(context, channelId);
     }
 }

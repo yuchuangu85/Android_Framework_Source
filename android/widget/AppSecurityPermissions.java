@@ -16,21 +16,19 @@
 */
 package android.widget;
 
-import android.annotation.SystemApi;
-import android.os.UserHandle;
-import com.android.internal.R;
-
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.PermissionGroupInfo;
 import android.content.pm.PermissionInfo;
 import android.graphics.drawable.Drawable;
 import android.os.Parcel;
+import android.os.UserHandle;
 import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
 import android.util.AttributeSet;
@@ -38,6 +36,8 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+
+import com.android.internal.R;
 
 import java.text.Collator;
 import java.util.ArrayList;
@@ -57,7 +57,7 @@ import java.util.Set;
  * extended information consisting of all groups and permissions.
  * To use this view define a LinearLayout or any ViewGroup and add this
  * view by instantiating AppSecurityPermissions and invoking getPermissionsView.
- * 
+ *
  * {@hide}
  */
 public class AppSecurityPermissions {
@@ -152,8 +152,8 @@ public class AppSecurityPermissions {
             mShowRevokeUI = showRevokeUI;
             mPackageName = packageName;
 
-            ImageView permGrpIcon = (ImageView) findViewById(R.id.perm_icon);
-            TextView permNameView = (TextView) findViewById(R.id.perm_name);
+            ImageView permGrpIcon = findViewById(R.id.perm_icon);
+            TextView permNameView = findViewById(R.id.perm_name);
 
             PackageManager pm = getContext().getPackageManager();
             Drawable icon = null;
@@ -324,7 +324,7 @@ public class AppSecurityPermissions {
         return getPermissionItemViewOld(context, inflater, grpName,
                 description, dangerous, icon);
     }
-    
+
     private void getAllUsedPermissions(int sharedUid, Set<MyPermissionInfo> permSet) {
         String sharedPkgList[] = mPm.getPackagesForUid(sharedUid);
         if(sharedPkgList == null || (sharedPkgList.length == 0)) {
@@ -334,7 +334,7 @@ public class AppSecurityPermissions {
             getPermissionsForPackage(sharedPkg, permSet);
         }
     }
-    
+
     private void getPermissionsForPackage(String packageName, Set<MyPermissionInfo> permSet) {
         try {
             PackageInfo pkgInfo = mPm.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS);
@@ -417,7 +417,7 @@ public class AppSecurityPermissions {
             }
         }
     }
-    
+
     public int getPermissionCount() {
         return getPermissionCount(WHICH_ALL);
     }
@@ -452,7 +452,7 @@ public class AppSecurityPermissions {
 
     private View getPermissionsView(int which, boolean showRevokeUI) {
         LinearLayout permsView = (LinearLayout) mInflater.inflate(R.layout.app_perms_summary, null);
-        LinearLayout displayList = (LinearLayout) permsView.findViewById(R.id.perms_list);
+        LinearLayout displayList = permsView.findViewById(R.id.perms_list);
         View noPermsView = permsView.findViewById(R.id.no_permissions);
 
         displayPermissions(mPermGroupsList, displayList, which, showRevokeUI);
@@ -518,8 +518,8 @@ public class AppSecurityPermissions {
             CharSequence grpName, CharSequence permList, boolean dangerous, Drawable icon) {
         View permView = inflater.inflate(R.layout.app_permission_item_old, null);
 
-        TextView permGrpView = (TextView) permView.findViewById(R.id.permission_group);
-        TextView permDescView = (TextView) permView.findViewById(R.id.permission_list);
+        TextView permGrpView = permView.findViewById(R.id.permission_group);
+        TextView permDescView = permView.findViewById(R.id.permission_list);
 
         ImageView imgView = (ImageView)permView.findViewById(R.id.perm_icon);
         imgView.setImageDrawable(icon);
@@ -570,7 +570,7 @@ public class AppSecurityPermissions {
         }
         return false;
     }
-    
+
     private static class PermissionGroupInfoComparator implements Comparator<MyPermissionGroupInfo> {
         private final Collator sCollator = Collator.getInstance();
         @Override
@@ -578,7 +578,7 @@ public class AppSecurityPermissions {
             return sCollator.compare(a.mLabel, b.mLabel);
         }
     }
-    
+
     private static class PermissionInfoComparator implements Comparator<MyPermissionInfo> {
         private final Collator sCollator = Collator.getInstance();
         PermissionInfoComparator() {
@@ -591,7 +591,8 @@ public class AppSecurityPermissions {
     private void addPermToList(List<MyPermissionInfo> permList,
             MyPermissionInfo pInfo) {
         if (pInfo.mLabel == null) {
-            pInfo.mLabel = pInfo.loadLabel(mPm);
+            pInfo.mLabel = pInfo.loadSafeLabel(mPm, 20000, PackageItemInfo.SAFE_LABEL_FLAG_TRIM
+                    | PackageItemInfo.SAFE_LABEL_FLAG_FIRST_LINE);
         }
         int idx = Collections.binarySearch(permList, pInfo, mPermComparator);
         if(localLOGV) Log.i(TAG, "idx="+idx+", list.size="+permList.size());
@@ -612,7 +613,9 @@ public class AppSecurityPermissions {
                 }
                 MyPermissionGroupInfo group = mPermGroups.get(pInfo.group);
                 if (group != null) {
-                    pInfo.mLabel = pInfo.loadLabel(mPm);
+                    pInfo.mLabel = pInfo.loadSafeLabel(mPm, 20000,
+                            PackageItemInfo.SAFE_LABEL_FLAG_TRIM
+                            | PackageItemInfo.SAFE_LABEL_FLAG_FIRST_LINE);
                     addPermToList(group.mAllPermissions, pInfo);
                     if (pInfo.mNew) {
                         addPermToList(group.mNewPermissions, pInfo);
@@ -623,14 +626,18 @@ public class AppSecurityPermissions {
 
         for (MyPermissionGroupInfo pgrp : mPermGroups.values()) {
             if (pgrp.labelRes != 0 || pgrp.nonLocalizedLabel != null) {
-                pgrp.mLabel = pgrp.loadLabel(mPm);
+                pgrp.mLabel = pgrp.loadSafeLabel(mPm, 20000, PackageItemInfo.SAFE_LABEL_FLAG_TRIM
+                        | PackageItemInfo.SAFE_LABEL_FLAG_FIRST_LINE);
             } else {
                 ApplicationInfo app;
                 try {
                     app = mPm.getApplicationInfo(pgrp.packageName, 0);
-                    pgrp.mLabel = app.loadLabel(mPm);
+                    pgrp.mLabel = app.loadSafeLabel(mPm, 20000, PackageItemInfo.SAFE_LABEL_FLAG_TRIM
+                            | PackageItemInfo.SAFE_LABEL_FLAG_FIRST_LINE);
                 } catch (NameNotFoundException e) {
-                    pgrp.mLabel = pgrp.loadLabel(mPm);
+                    pgrp.mLabel = pgrp.loadSafeLabel(mPm, 20000,
+                            PackageItemInfo.SAFE_LABEL_FLAG_TRIM
+                            | PackageItemInfo.SAFE_LABEL_FLAG_FIRST_LINE);
                 }
             }
             mPermGroupsList.add(pgrp);

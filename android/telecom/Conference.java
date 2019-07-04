@@ -20,6 +20,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.telecom.Connection.VideoProvider;
 import android.util.ArraySet;
 
@@ -80,6 +81,7 @@ public abstract class Conference extends Conferenceable {
     private int mConnectionProperties;
     private String mDisconnectMessage;
     private long mConnectTimeMillis = CONNECT_TIME_NOT_SPECIFIED;
+    private long mConnectionStartElapsedRealTime = CONNECT_TIME_NOT_SPECIFIED;
     private StatusHints mStatusHints;
     private Bundle mExtras;
     private Set<String> mPreviousExtraKeys;
@@ -581,12 +583,36 @@ public abstract class Conference extends Conferenceable {
     }
 
     /**
-     * Sets the connection start time of the {@code Conference}.
+     * Sets the connection start time of the {@code Conference}.  This is used in the call log to
+     * indicate the date and time when the conference took place.
+     * <p>
+     * Should be specified in wall-clock time returned by {@link System#currentTimeMillis()}.
+     * <p>
+     * When setting the connection time, you should always set the connection elapsed time via
+     * {@link #setConnectionStartElapsedRealTime(long)} to ensure the duration is reflected.
      *
-     * @param connectionTimeMillis The connection time, in milliseconds.
+     * @param connectionTimeMillis The connection time, in milliseconds, as returned by
+     *                             {@link System#currentTimeMillis()}.
      */
     public final void setConnectionTime(long connectionTimeMillis) {
         mConnectTimeMillis = connectionTimeMillis;
+    }
+
+    /**
+     * Sets the start time of the {@link Conference} which is the basis for the determining the
+     * duration of the {@link Conference}.
+     * <p>
+     * You should use a value returned by {@link SystemClock#elapsedRealtime()} to ensure that time
+     * zone changes do not impact the conference duration.
+     * <p>
+     * When setting this, you should also set the connection time via
+     * {@link #setConnectionTime(long)}.
+     *
+     * @param connectionStartElapsedRealTime The connection time, as measured by
+     * {@link SystemClock#elapsedRealtime()}.
+     */
+    public final void setConnectionStartElapsedRealTime(long connectionStartElapsedRealTime) {
+        mConnectionStartElapsedRealTime = connectionStartElapsedRealTime;
     }
 
     /**
@@ -608,6 +634,21 @@ public abstract class Conference extends Conferenceable {
      */
     public final long getConnectionTime() {
         return mConnectTimeMillis;
+    }
+
+    /**
+     * Retrieves the connection start time of the {@link Conference}, if specified.  A value of
+     * {@link #CONNECT_TIME_NOT_SPECIFIED} indicates that Telecom should determine the start time
+     * of the conference.
+     *
+     * This is based on the value of {@link SystemClock#elapsedRealtime()} to ensure that it is not
+     * impacted by wall clock changes (user initiated, network initiated, time zone change, etc).
+     *
+     * @return The elapsed time at which the {@link Conference} was connected.
+     * @hide
+     */
+    public final long getConnectionStartElapsedRealTime() {
+        return mConnectionStartElapsedRealTime;
     }
 
     /**

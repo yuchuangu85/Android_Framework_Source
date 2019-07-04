@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -475,12 +475,12 @@ public class ExemptionMechanism {
         return n;
     }
 
-    /**
-     * Ensures that the key stored away by this ExemptionMechanism
-     * object will be wiped out when there are no more references to it.
-     */
+    // Android-removed: Unnecessary finalize() method.
+    // OpenJDK 9 also removed the method.
+    /*
     protected void finalize() {
         keyStored = null;
         // Are there anything else we could do?
     }
+    */
 }

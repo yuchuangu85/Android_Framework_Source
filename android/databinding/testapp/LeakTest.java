@@ -19,6 +19,7 @@ import android.util.Log;
 import android.widget.FrameLayout;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 
 public class LeakTest extends ActivityInstrumentationTestCase2<TestActivity> {
     WeakReference<LeakTestBinding> mWeakReference = new WeakReference<LeakTestBinding>(null);
@@ -63,8 +64,9 @@ public class LeakTest extends ActivityInstrumentationTestCase2<TestActivity> {
             }
         });
         WeakReference<Object> canary = new WeakReference<Object>(new Object());
+        ArrayList<WeakReference<byte[]>> leak = new ArrayList<>();
         while (canary.get() != null) {
-            byte[] b = new byte[1024 * 1024];
+            leak.add(new WeakReference<byte[]>(new byte[100]));
             System.gc();
         }
         assertNull(mWeakReference.get());

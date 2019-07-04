@@ -28,7 +28,6 @@ import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
-import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Insets;
@@ -41,7 +40,6 @@ import android.util.DisplayMetrics;
 import android.view.View;
 
 import java.io.IOException;
-import java.util.Collection;
 
 /**
  * Drawable container with only one child element.
@@ -133,6 +131,7 @@ public abstract class DrawableWrapper extends Drawable implements Drawable.Callb
         final int densityDpi = r.getDisplayMetrics().densityDpi;
         final int targetDensity = densityDpi == 0 ? DisplayMetrics.DENSITY_DEFAULT : densityDpi;
         state.setDensity(targetDensity);
+        state.mSrcDensityOverride = mSrcDensityOverride;
 
         final TypedArray a = obtainAttributes(r, theme, attrs, R.styleable.DrawableWrapper);
         updateStateFromTypedArray(a);
@@ -297,6 +296,15 @@ public abstract class DrawableWrapper extends Drawable implements Drawable.Callb
     }
 
     @Override
+    public ColorFilter getColorFilter() {
+        final Drawable drawable = getDrawable();
+        if (drawable != null) {
+            return drawable.getColorFilter();
+        }
+        return super.getColorFilter();
+    }
+
+    @Override
     public void setTintList(@Nullable ColorStateList tint) {
         if (mDrawable != null) {
             mDrawable.setTintList(tint);
@@ -323,6 +331,12 @@ public abstract class DrawableWrapper extends Drawable implements Drawable.Callb
     @Override
     public boolean isStateful() {
         return mDrawable != null && mDrawable.isStateful();
+    }
+
+    /** @hide */
+    @Override
+    public boolean hasFocusStateSpecified() {
+        return mDrawable != null && mDrawable.hasFocusStateSpecified();
     }
 
     @Override
@@ -433,7 +447,8 @@ public abstract class DrawableWrapper extends Drawable implements Drawable.Callb
         while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
                 && (type != XmlPullParser.END_TAG || parser.getDepth() > outerDepth)) {
             if (type == XmlPullParser.START_TAG) {
-                dr = Drawable.createFromXmlInner(r, parser, attrs, theme);
+                dr = Drawable.createFromXmlInnerForDensity(r, parser, attrs,
+                        mState.mSrcDensityOverride, theme);
             }
         }
 
@@ -448,6 +463,14 @@ public abstract class DrawableWrapper extends Drawable implements Drawable.Callb
         @Config int mChangingConfigurations;
         int mDensity = DisplayMetrics.DENSITY_DEFAULT;
 
+        /**
+         * The density to use when looking up resources from
+         * {@link Resources#getDrawableForDensity(int, int, Theme)}.
+         * A value of 0 means there is no override and the system density will be used.
+         * @hide
+         */
+        int mSrcDensityOverride = 0;
+
         Drawable.ConstantState mDrawableState;
 
         DrawableWrapperState(@Nullable DrawableWrapperState orig, @Nullable Resources res) {
@@ -455,6 +478,7 @@ public abstract class DrawableWrapper extends Drawable implements Drawable.Callb
                 mThemeAttrs = orig.mThemeAttrs;
                 mChangingConfigurations = orig.mChangingConfigurations;
                 mDrawableState = orig.mDrawableState;
+                mSrcDensityOverride = orig.mSrcDensityOverride;
             }
 
             final int density;
@@ -505,15 +529,6 @@ public abstract class DrawableWrapper extends Drawable implements Drawable.Callb
             return mThemeAttrs != null
                     || (mDrawableState != null && mDrawableState.canApplyTheme())
                     || super.canApplyTheme();
-        }
-
-        @Override
-        public int addAtlasableBitmaps(Collection<Bitmap> atlasList) {
-            final Drawable.ConstantState state = mDrawableState;
-            if (state != null) {
-                return state.addAtlasableBitmaps(atlasList);
-            }
-            return 0;
         }
 
         @Override

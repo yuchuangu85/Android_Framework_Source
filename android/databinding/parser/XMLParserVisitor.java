@@ -1,70 +1,61 @@
-// Generated from XMLParser.g4 by ANTLR 4.4
+// Generated from XMLParser.g4 by ANTLR 4.5.3
 package android.databinding.parser;
-import org.antlr.v4.runtime.Token;
-import org.antlr.v4.runtime.misc.NotNull;
 import org.antlr.v4.runtime.tree.ParseTreeVisitor;
 
 /**
  * This interface defines a complete generic visitor for a parse tree produced
  * by {@link XMLParser}.
  *
- * @param <Result> The return type of the visit operation. Use {@link Void} for
+ * @param <T> The return type of the visit operation. Use {@link Void} for
  * operations with no return type.
  */
-public interface XMLParserVisitor<Result> extends ParseTreeVisitor<Result> {
-	/**
-	 * Visit a parse tree produced by {@link XMLParser#content}.
-	 * @param ctx the parse tree
-	 * @return the visitor result
-	 */
-	Result visitContent(@NotNull XMLParser.ContentContext ctx);
-
-	/**
-	 * Visit a parse tree produced by {@link XMLParser#element}.
-	 * @param ctx the parse tree
-	 * @return the visitor result
-	 */
-	Result visitElement(@NotNull XMLParser.ElementContext ctx);
-
-	/**
-	 * Visit a parse tree produced by {@link XMLParser#prolog}.
-	 * @param ctx the parse tree
-	 * @return the visitor result
-	 */
-	Result visitProlog(@NotNull XMLParser.PrologContext ctx);
-
+public interface XMLParserVisitor<T> extends ParseTreeVisitor<T> {
 	/**
 	 * Visit a parse tree produced by {@link XMLParser#document}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
 	 */
-	Result visitDocument(@NotNull XMLParser.DocumentContext ctx);
-
+	T visitDocument(XMLParser.DocumentContext ctx);
 	/**
-	 * Visit a parse tree produced by {@link XMLParser#attribute}.
+	 * Visit a parse tree produced by {@link XMLParser#prolog}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
 	 */
-	Result visitAttribute(@NotNull XMLParser.AttributeContext ctx);
-
+	T visitProlog(XMLParser.PrologContext ctx);
 	/**
-	 * Visit a parse tree produced by {@link XMLParser#chardata}.
+	 * Visit a parse tree produced by {@link XMLParser#content}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
 	 */
-	Result visitChardata(@NotNull XMLParser.ChardataContext ctx);
-
+	T visitContent(XMLParser.ContentContext ctx);
+	/**
+	 * Visit a parse tree produced by {@link XMLParser#element}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitElement(XMLParser.ElementContext ctx);
 	/**
 	 * Visit a parse tree produced by {@link XMLParser#reference}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
 	 */
-	Result visitReference(@NotNull XMLParser.ReferenceContext ctx);
-
+	T visitReference(XMLParser.ReferenceContext ctx);
+	/**
+	 * Visit a parse tree produced by {@link XMLParser#attribute}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitAttribute(XMLParser.AttributeContext ctx);
+	/**
+	 * Visit a parse tree produced by {@link XMLParser#chardata}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitChardata(XMLParser.ChardataContext ctx);
 	/**
 	 * Visit a parse tree produced by {@link XMLParser#misc}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
 	 */
-	Result visitMisc(@NotNull XMLParser.MiscContext ctx);
+	T visitMisc(XMLParser.MiscContext ctx);
 }

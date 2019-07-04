@@ -395,12 +395,12 @@ public class KeyguardAffordanceHelper {
                         false, false, false, false);
             } else {
                 updateIcon(targetView, 0.0f, fadeOutAlpha * targetView.getRestingAlpha(),
-                        animateIcons, slowAnimation, false, forceNoCircleAnimation);
+                        animateIcons, slowAnimation, true /* isReset */, forceNoCircleAnimation);
             }
             updateIcon(otherView, 0.0f, fadeOutAlpha * otherView.getRestingAlpha(),
-                    animateIcons, slowAnimation, false, forceNoCircleAnimation);
+                    animateIcons, slowAnimation, isReset, forceNoCircleAnimation);
             updateIcon(mCenterIcon, 0.0f, fadeOutAlpha * mCenterIcon.getRestingAlpha(),
-                    animateIcons, slowAnimation, false, forceNoCircleAnimation);
+                    animateIcons, slowAnimation, isReset, forceNoCircleAnimation);
 
             mTranslation = translation;
         }
@@ -509,7 +509,7 @@ public class KeyguardAffordanceHelper {
 
     public void reset(boolean animate) {
         cancelAnimation();
-        setTranslation(0.0f, true, animate);
+        setTranslation(0.0f, true /* isReset */, animate);
         mMotionCancelled = true;
         if (mSwipingInProgress) {
             mCallback.onSwipingAborted();
@@ -529,6 +529,13 @@ public class KeyguardAffordanceHelper {
         KeyguardAffordanceView targetView = left ? mLeftIcon : mRightIcon;
         KeyguardAffordanceView otherView = left ? mRightIcon : mLeftIcon;
         startSwiping(targetView);
+
+        // Do not animate the circle expanding if the affordance isn't visible,
+        // otherwise the circle will be meaningless.
+        if (targetView.getVisibility() != View.VISIBLE) {
+            animate = false;
+        }
+
         if (animate) {
             fling(0, false, !left);
             updateIcon(otherView, 0.0f, 0, true, false, true, false);

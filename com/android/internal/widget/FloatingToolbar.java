@@ -21,6 +21,7 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
+import android.annotation.Nullable;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Color;
@@ -32,6 +33,7 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
 import android.util.Size;
+import android.util.TypedValue;
 import android.view.ContextThemeWrapper;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -48,12 +50,10 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.view.animation.Animation;
 import android.view.animation.AnimationSet;
-import android.view.animation.Transformation;
 import android.view.animation.AnimationUtils;
 import android.view.animation.Interpolator;
-import android.widget.AdapterView;
+import android.view.animation.Transformation;
 import android.widget.ArrayAdapter;
-import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -61,12 +61,14 @@ import android.widget.ListView;
 import android.widget.PopupWindow;
 import android.widget.TextView;
 
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-
 import com.android.internal.R;
 import com.android.internal.util.Preconditions;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * A floating toolbar for showing contextual menu items.
@@ -82,12 +84,7 @@ public final class FloatingToolbar {
     public static final String FLOATING_TOOLBAR_TAG = "floating_toolbar";
 
     private static final MenuItem.OnMenuItemClickListener NO_OP_MENUITEM_CLICK_LISTENER =
-            new MenuItem.OnMenuItemClickListener() {
-                @Override
-                public boolean onMenuItemClick(MenuItem item) {
-                    return false;
-                }
-            };
+            item -> false;
 
     private final Context mContext;
     private final Window mWindow;
@@ -97,7 +94,7 @@ public final class FloatingToolbar {
     private final Rect mPreviousContentRect = new Rect();
 
     private Menu mMenu;
-    private List<Object> mShowingMenuItems = new ArrayList<Object>();
+    private List<MenuItem> mShowingMenuItems = new ArrayList<>();
     private MenuItem.OnMenuItemClickListener mMenuItemClickListener = NO_OP_MENUITEM_CLICK_LISTENER;
 
     private int mSuggestedWidth;
@@ -123,10 +120,42 @@ public final class FloatingToolbar {
     };
 
     /**
+     * Sorts the list of menu items to conform to certain requirements.
+     */
+    private final Comparator<MenuItem> mMenuItemComparator = (menuItem1, menuItem2) -> {
+        // Ensure the assist menu item is always the first item:
+        if (menuItem1.getItemId() == android.R.id.textAssist) {
+            return menuItem2.getItemId() == android.R.id.textAssist ? 0 : -1;
+        }
+        if (menuItem2.getItemId() == android.R.id.textAssist) {
+            return 1;
+        }
+
+        // Order by SHOW_AS_ACTION type:
+        if (menuItem1.requiresActionButton()) {
+            return menuItem2.requiresActionButton() ? 0 : -1;
+        }
+        if (menuItem2.requiresActionButton()) {
+            return 1;
+        }
+        if (menuItem1.requiresOverflow()) {
+            return menuItem2.requiresOverflow() ? 0 : 1;
+        }
+        if (menuItem2.requiresOverflow()) {
+            return -1;
+        }
+
+        // Order by order value:
+        return menuItem1.getOrder() - menuItem2.getOrder();
+    };
+
+    /**
      * Initializes a floating toolbar.
      */
-    public FloatingToolbar(Context context, Window window) {
-        mContext = applyDefaultTheme(Preconditions.checkNotNull(context));
+    public FloatingToolbar(Window window) {
+        // TODO(b/65172902): Pass context in constructor when DecorView (and other callers)
+        // supports multi-display.
+        mContext = applyDefaultTheme(window.getContext());
         mWindow = Preconditions.checkNotNull(window);
         mPopup = new FloatingToolbarPopup(mContext, window.getDecorView());
     }
@@ -231,12 +260,29 @@ public final class FloatingToolbar {
         return mPopup.isHidden();
     }
 
+    /**
+     * If this is set to true, the action mode view will dismiss itself on touch events outside of
+     * its window. If the toolbar is already showing, it will be re-shown so that this setting takes
+     * effect immediately.
+     *
+     * @param outsideTouchable whether or not this action mode is "outside touchable"
+     * @param onDismiss optional. Sets a callback for when this action mode popup dismisses itself
+     */
+    public void setOutsideTouchable(
+            boolean outsideTouchable, @Nullable PopupWindow.OnDismissListener onDismiss) {
+        if (mPopup.setOutsideTouchable(outsideTouchable, onDismiss) && isShowing()) {
+            dismiss();
+            doShow();
+        }
+    }
+
     private void doShow() {
         List<MenuItem> menuItems = getVisibleAndEnabledMenuItems(mMenu);
+        menuItems.sort(mMenuItemComparator);
         if (!isCurrentlyShowing(menuItems) || mWidthChanged) {
             mPopup.dismiss();
             mPopup.layoutMenuItems(menuItems, mMenuItemClickListener, mSuggestedWidth);
-            mShowingMenuItems = getShowingMenuItemsReferences(menuItems);
+            mShowingMenuItems = menuItems;
         }
         if (!mPopup.isShowing()) {
             mPopup.show(mContentRect);
@@ -251,7 +297,23 @@ public final class FloatingToolbar {
      * Returns true if this floating toolbar is currently showing the specified menu items.
      */
     private boolean isCurrentlyShowing(List<MenuItem> menuItems) {
-        return mShowingMenuItems.equals(getShowingMenuItemsReferences(menuItems));
+        if (mShowingMenuItems == null || menuItems.size() != mShowingMenuItems.size()) {
+            return false;
+        }
+
+        final int size = menuItems.size();
+        for (int i = 0; i < size; i++) {
+            final MenuItem menuItem = menuItems.get(i);
+            final MenuItem showingItem = mShowingMenuItems.get(i);
+            if (menuItem.getItemId() != showingItem.getItemId()
+                    || !TextUtils.equals(menuItem.getTitle(), showingItem.getTitle())
+                    || !Objects.equals(menuItem.getIcon(), showingItem.getIcon())
+                    || menuItem.getGroupId() != showingItem.getGroupId()) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -259,7 +321,7 @@ public final class FloatingToolbar {
      * This method is recursive.
      */
     private List<MenuItem> getVisibleAndEnabledMenuItems(Menu menu) {
-        List<MenuItem> menuItems = new ArrayList<MenuItem>();
+        List<MenuItem> menuItems = new ArrayList<>();
         for (int i = 0; (menu != null) && (i < menu.size()); i++) {
             MenuItem menuItem = menu.getItem(i);
             if (menuItem.isVisible() && menuItem.isEnabled()) {
@@ -272,18 +334,6 @@ public final class FloatingToolbar {
             }
         }
         return menuItems;
-    }
-
-    private List<Object> getShowingMenuItemsReferences(List<MenuItem> menuItems) {
-        List<Object> references = new ArrayList<Object>();
-        for (MenuItem menuItem : menuItems) {
-            if (isIconOnlyMenuItem(menuItem)) {
-                references.add(menuItem.getIcon());
-            } else {
-                references.add(menuItem.getTitle());
-            }
-        }
-        return references;
     }
 
     private void registerOrientationHandler() {
@@ -348,20 +398,19 @@ public final class FloatingToolbar {
         private final Point mCoordsOnWindow = new Point();  // popup window coordinates.
         /* Temporary data holders. Reset values before using. */
         private final int[] mTmpCoords = new int[2];
-        private final Rect mTmpRect = new Rect();
 
         private final Region mTouchableRegion = new Region();
         private final ViewTreeObserver.OnComputeInternalInsetsListener mInsetsComputer =
-                new ViewTreeObserver.OnComputeInternalInsetsListener() {
-                    public void onComputeInternalInsets(
-                            ViewTreeObserver.InternalInsetsInfo info) {
-                        info.contentInsets.setEmpty();
-                        info.visibleInsets.setEmpty();
-                        info.touchableRegion.set(mTouchableRegion);
-                        info.setTouchableInsets(ViewTreeObserver.InternalInsetsInfo
-                                .TOUCHABLE_INSETS_REGION);
-                    }
+                info -> {
+                    info.contentInsets.setEmpty();
+                    info.visibleInsets.setEmpty();
+                    info.touchableRegion.set(mTouchableRegion);
+                    info.setTouchableInsets(
+                            ViewTreeObserver.InternalInsetsInfo.TOUCHABLE_INSETS_REGION);
                 };
+
+        private final int mLineHeight;
+        private final int mIconTextSpacing;
 
         /**
          * @see OverflowPanelViewHelper#preparePopupContent().
@@ -417,6 +466,10 @@ public final class FloatingToolbar {
                     .getDimensionPixelSize(R.dimen.floating_toolbar_horizontal_margin);
             mMarginVertical = parent.getResources()
                     .getDimensionPixelSize(R.dimen.floating_toolbar_vertical_margin);
+            mLineHeight = context.getResources()
+                    .getDimensionPixelSize(R.dimen.floating_toolbar_height);
+            mIconTextSpacing = context.getResources()
+                    .getDimensionPixelSize(R.dimen.floating_toolbar_icon_text_spacing);
 
             // Interpolators
             mLogAccelerateInterpolator = new LogAccelerateInterpolator();
@@ -445,7 +498,7 @@ public final class FloatingToolbar {
             mOverflowButton = createOverflowButton();
             mOverflowButtonSize = measure(mOverflowButton);
             mMainPanel = createMainPanel();
-            mOverflowPanelViewHelper = new OverflowPanelViewHelper(mContext);
+            mOverflowPanelViewHelper = new OverflowPanelViewHelper(mContext, mIconTextSpacing);
             mOverflowPanel = createOverflowPanel();
 
             // Animation. Need views.
@@ -474,6 +527,32 @@ public final class FloatingToolbar {
                             mPopupWindow.dismiss();
                         }
                     });
+        }
+
+        /**
+         * Makes this toolbar "outside touchable" and sets the onDismissListener.
+         * This will take effect the next time the toolbar is re-shown.
+         *
+         * @param outsideTouchable if true, the popup will be made "outside touchable" and
+         *      "non focusable". The reverse will happen if false.
+         * @param onDismiss
+         *
+         * @return true if the "outsideTouchable" setting was modified. Otherwise returns false
+         *
+         * @see PopupWindow#setOutsideTouchable(boolean)
+         * @see PopupWindow#setFocusable(boolean)
+         * @see PopupWindow.OnDismissListener
+         */
+        public boolean setOutsideTouchable(
+                boolean outsideTouchable, @Nullable PopupWindow.OnDismissListener onDismiss) {
+            boolean ret = false;
+            if (mPopupWindow.isOutsideTouchable() ^ outsideTouchable) {
+                mPopupWindow.setOutsideTouchable(outsideTouchable);
+                mPopupWindow.setFocusable(!outsideTouchable);
+                ret = true;
+            }
+            mPopupWindow.setOnDismissListener(onDismiss);
+            return ret;
         }
 
         /**
@@ -606,7 +685,7 @@ public final class FloatingToolbar {
                     mViewPortOnScreen.bottom - contentRectOnScreen.bottom;
 
             final int margin = 2 * mMarginVertical;
-            final int toolbarHeightWithVerticalMargin = getLineHeight(mContext) + margin;
+            final int toolbarHeightWithVerticalMargin = mLineHeight + margin;
 
             if (!hasOverflow()) {
                 if (availableHeightAboveContent >= toolbarHeightWithVerticalMargin) {
@@ -615,7 +694,7 @@ public final class FloatingToolbar {
                 } else if (availableHeightBelowContent >= toolbarHeightWithVerticalMargin) {
                     // There is enough space at the bottom of the content.
                     y = contentRectOnScreen.bottom;
-                } else if (availableHeightBelowContent >= getLineHeight(mContext)) {
+                } else if (availableHeightBelowContent >= mLineHeight) {
                     // Just enough space to fit the toolbar with no vertical margins.
                     y = contentRectOnScreen.bottom - mMarginVertical;
                 } else {
@@ -992,7 +1071,7 @@ public final class FloatingToolbar {
         private void updateOverflowHeight(int suggestedHeight) {
             if (hasOverflow()) {
                 final int maxItemSize = (suggestedHeight - mOverflowButtonSize.getHeight()) /
-                        getLineHeight(mContext);
+                        mLineHeight;
                 final int newHeight = calculateOverflowHeight(maxItemSize);
                 if (mOverflowPanelSize.getHeight() != newHeight) {
                     mOverflowPanelSize = new Size(mOverflowPanelSize.getWidth(), newHeight);
@@ -1108,15 +1187,41 @@ public final class FloatingToolbar {
             Preconditions.checkNotNull(menuItems);
 
             int availableWidth = toolbarWidth;
-            final LinkedList<MenuItem> remainingMenuItems = new LinkedList<MenuItem>(menuItems);
+
+            final LinkedList<MenuItem> remainingMenuItems = new LinkedList<>();
+            // add the overflow menu items to the end of the remainingMenuItems list.
+            final LinkedList<MenuItem> overflowMenuItems = new LinkedList();
+            for (MenuItem menuItem : menuItems) {
+                if (menuItem.getItemId() != android.R.id.textAssist
+                        && menuItem.requiresOverflow()) {
+                    overflowMenuItems.add(menuItem);
+                } else {
+                    remainingMenuItems.add(menuItem);
+                }
+            }
+            remainingMenuItems.addAll(overflowMenuItems);
 
             mMainPanel.removeAllViews();
             mMainPanel.setPaddingRelative(0, 0, 0, 0);
 
+            int lastGroupId = -1;
             boolean isFirstItem = true;
             while (!remainingMenuItems.isEmpty()) {
                 final MenuItem menuItem = remainingMenuItems.peek();
-                View menuItemButton = createMenuItemButton(mContext, menuItem);
+
+                // if this is the first item, regardless of requiresOverflow(), it should be
+                // displayed on the main panel. Otherwise all items including this one will be
+                // overflow items, and should be displayed in overflow panel.
+                if(!isFirstItem && menuItem.requiresOverflow()) {
+                    break;
+                }
+
+                final boolean showIcon = isFirstItem && menuItem.getItemId() == R.id.textAssist;
+                final View menuItemButton = createMenuItemButton(
+                        mContext, menuItem, mIconTextSpacing, showIcon);
+                if (!showIcon && menuItemButton instanceof LinearLayout) {
+                    ((LinearLayout) menuItemButton).setGravity(Gravity.CENTER);
+                }
 
                 // Adding additional start padding for the first button to even out button spacing.
                 if (isFirstItem) {
@@ -1125,11 +1230,11 @@ public final class FloatingToolbar {
                             menuItemButton.getPaddingTop(),
                             menuItemButton.getPaddingEnd(),
                             menuItemButton.getPaddingBottom());
-                    isFirstItem = false;
                 }
 
                 // Adding additional end padding for the last button to even out button spacing.
-                if (remainingMenuItems.size() == 1) {
+                boolean isLastItem = remainingMenuItems.size() == 1;
+                if (isLastItem) {
                     menuItemButton.setPaddingRelative(
                             menuItemButton.getPaddingStart(),
                             menuItemButton.getPaddingTop(),
@@ -1138,26 +1243,37 @@ public final class FloatingToolbar {
                 }
 
                 menuItemButton.measure(MeasureSpec.UNSPECIFIED, MeasureSpec.UNSPECIFIED);
-                int menuItemButtonWidth = Math.min(menuItemButton.getMeasuredWidth(), toolbarWidth);
+                final int menuItemButtonWidth = Math.min(
+                        menuItemButton.getMeasuredWidth(), toolbarWidth);
+
                 // Check if we can fit an item while reserving space for the overflowButton.
-                boolean canFitWithOverflow =
-                        menuItemButtonWidth <= availableWidth - mOverflowButtonSize.getWidth();
-                boolean canFitNoOverflow =
-                        remainingMenuItems.size() == 1 && menuItemButtonWidth <= availableWidth;
+                final boolean canFitWithOverflow =
+                        menuItemButtonWidth <=
+                                availableWidth - mOverflowButtonSize.getWidth();
+                final boolean canFitNoOverflow =
+                        isLastItem && menuItemButtonWidth <= availableWidth;
                 if (canFitWithOverflow || canFitNoOverflow) {
                     setButtonTagAndClickListener(menuItemButton, menuItem);
+                    // Set tooltips for main panel items, but not overflow items (b/35726766).
+                    menuItemButton.setTooltipText(menuItem.getTooltipText());
                     mMainPanel.addView(menuItemButton);
-                    ViewGroup.LayoutParams params = menuItemButton.getLayoutParams();
+                    final ViewGroup.LayoutParams params = menuItemButton.getLayoutParams();
                     params.width = menuItemButtonWidth;
                     menuItemButton.setLayoutParams(params);
                     availableWidth -= menuItemButtonWidth;
                     remainingMenuItems.pop();
                 } else {
-                    // Reserve space for overflowButton.
-                    mMainPanel.setPaddingRelative(0, 0, mOverflowButtonSize.getWidth(), 0);
                     break;
                 }
+                lastGroupId = menuItem.getGroupId();
+                isFirstItem = false;
             }
+
+            if (!remainingMenuItems.isEmpty()) {
+                // Reserve space for overflowButton.
+                mMainPanel.setPaddingRelative(0, 0, mOverflowButtonSize.getWidth(), 0);
+            }
+
             mMainPanelSize = measure(mMainPanel);
             return remainingMenuItems;
         }
@@ -1255,20 +1371,16 @@ public final class FloatingToolbar {
             if (actualSize < mOverflowPanel.getCount()) {
                 // The overflow will require scrolling to get to all the items.
                 // Extend the height so that part of the hidden items is displayed.
-                extension = (int) (getLineHeight(mContext) * 0.5f);
+                extension = (int) (mLineHeight * 0.5f);
             }
-            return actualSize * getLineHeight(mContext)
+            return actualSize * mLineHeight
                     + mOverflowButtonSize.getHeight()
                     + extension;
         }
 
         private void setButtonTagAndClickListener(View menuItemButton, MenuItem menuItem) {
-            View button = menuItemButton;
-            if (isIconOnlyMenuItem(menuItem)) {
-                button = menuItemButton.findViewById(R.id.floating_toolbar_menu_item_image_button);
-            }
-            button.setTag(menuItem);
-            button.setOnClickListener(mMenuItemButtonOnClickListener);
+            menuItemButton.setTag(menuItem);
+            menuItemButton.setOnClickListener(mMenuItemButtonOnClickListener);
         }
 
         /**
@@ -1327,18 +1439,15 @@ public final class FloatingToolbar {
             final ImageButton overflowButton = (ImageButton) LayoutInflater.from(mContext)
                     .inflate(R.layout.floating_popup_overflow_button, null);
             overflowButton.setImageDrawable(mOverflow);
-            overflowButton.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    if (mIsOverflowOpen) {
-                        overflowButton.setImageDrawable(mToOverflow);
-                        mToOverflow.start();
-                        closeOverflow();
-                    } else {
-                        overflowButton.setImageDrawable(mToArrow);
-                        mToArrow.start();
-                        openOverflow();
-                    }
+            overflowButton.setOnClickListener(v -> {
+                if (mIsOverflowOpen) {
+                    overflowButton.setImageDrawable(mToOverflow);
+                    mToOverflow.start();
+                    closeOverflow();
+                } else {
+                    overflowButton.setImageDrawable(mToArrow);
+                    mToArrow.start();
+                    openOverflow();
                 }
             });
             return overflowButton;
@@ -1354,16 +1463,6 @@ public final class FloatingToolbar {
             final ArrayAdapter adapter =
                     new ArrayAdapter<MenuItem>(mContext, 0) {
                         @Override
-                        public int getViewTypeCount() {
-                            return mOverflowPanelViewHelper.getViewTypeCount();
-                        }
-
-                        @Override
-                        public int getItemViewType(int position) {
-                            return mOverflowPanelViewHelper.getItemViewType(getItem(position));
-                        }
-
-                        @Override
                         public View getView(int position, View convertView, ViewGroup parent) {
                             return mOverflowPanelViewHelper.getView(
                                     getItem(position), mOverflowPanelSize.getWidth(), convertView);
@@ -1371,13 +1470,10 @@ public final class FloatingToolbar {
                     };
             overflowPanel.setAdapter(adapter);
 
-            overflowPanel.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-                @Override
-                public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                    MenuItem menuItem = (MenuItem) overflowPanel.getAdapter().getItem(position);
-                    if (mOnMenuItemClickListener != null) {
-                        mOnMenuItemClickListener.onMenuItemClick(menuItem);
-                    }
+            overflowPanel.setOnItemClickListener((parent, view, position, id) -> {
+                MenuItem menuItem = (MenuItem) overflowPanel.getAdapter().getItem(position);
+                if (mOnMenuItemClickListener != null) {
+                    mOnMenuItemClickListener.onMenuItemClick(menuItem);
                 }
             });
 
@@ -1409,12 +1505,9 @@ public final class FloatingToolbar {
                 public void onAnimationEnd(Animation animation) {
                     // Posting this because it seems like this is called before the animation
                     // actually ends.
-                    mContentContainer.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            setPanelsStatesAtRestingPosition();
-                            setContentAreaAsTouchableSurface();
-                        }
+                    mContentContainer.post(() -> {
+                        setPanelsStatesAtRestingPosition();
+                        setContentAreaAsTouchableSurface();
                     });
                 }
 
@@ -1453,10 +1546,6 @@ public final class FloatingToolbar {
         private static void setHeight(View view, int height) {
             ViewGroup.LayoutParams params = view.getLayoutParams();
             setSize(view, params.width, height);
-        }
-
-        private static int getLineHeight(Context context) {
-            return context.getResources().getDimensionPixelSize(R.dimen.floating_toolbar_height);
         }
 
         /**
@@ -1521,128 +1610,103 @@ public final class FloatingToolbar {
          */
         private static final class OverflowPanelViewHelper {
 
-            private static final int NUM_OF_VIEW_TYPES = 2;
-            private static final int VIEW_TYPE_STRING_TITLE = 0;
-            private static final int VIEW_TYPE_ICON_ONLY = 1;
-
-            private final TextView mStringTitleViewCalculator;
-            private final View mIconOnlyViewCalculator;
+            private final View mCalculator;
+            private final int mIconTextSpacing;
+            private final int mSidePadding;
 
             private final Context mContext;
 
-            public OverflowPanelViewHelper(Context context) {
+            public OverflowPanelViewHelper(Context context, int iconTextSpacing) {
                 mContext = Preconditions.checkNotNull(context);
-                mStringTitleViewCalculator = getStringTitleView(null, 0, null);
-                mIconOnlyViewCalculator = getIconOnlyView(null, 0, null);
-            }
-
-            public int getViewTypeCount() {
-                return NUM_OF_VIEW_TYPES;
+                mIconTextSpacing = iconTextSpacing;
+                mSidePadding = context.getResources()
+                        .getDimensionPixelSize(R.dimen.floating_toolbar_overflow_side_padding);
+                mCalculator = createMenuButton(null);
             }
 
             public View getView(MenuItem menuItem, int minimumWidth, View convertView) {
                 Preconditions.checkNotNull(menuItem);
-                if (getItemViewType(menuItem) == VIEW_TYPE_ICON_ONLY) {
-                    return getIconOnlyView(menuItem, minimumWidth, convertView);
+                if (convertView != null) {
+                    updateMenuItemButton(
+                            convertView, menuItem, mIconTextSpacing, shouldShowIcon(menuItem));
+                } else {
+                    convertView = createMenuButton(menuItem);
                 }
-                return getStringTitleView(menuItem, minimumWidth, convertView);
-            }
-
-            public int getItemViewType(MenuItem menuItem) {
-                Preconditions.checkNotNull(menuItem);
-                if (isIconOnlyMenuItem(menuItem)) {
-                    return VIEW_TYPE_ICON_ONLY;
-                }
-                return VIEW_TYPE_STRING_TITLE;
+                convertView.setMinimumWidth(minimumWidth);
+                return convertView;
             }
 
             public int calculateWidth(MenuItem menuItem) {
-                final View calculator;
-                if (isIconOnlyMenuItem(menuItem)) {
-                    ((ImageView) mIconOnlyViewCalculator
-                            .findViewById(R.id.floating_toolbar_menu_item_image_button))
-                            .setImageDrawable(menuItem.getIcon());
-                    calculator = mIconOnlyViewCalculator;
-                } else {
-                    mStringTitleViewCalculator.setText(menuItem.getTitle());
-                    calculator = mStringTitleViewCalculator;
-                }
-                calculator.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
-                return calculator.getMeasuredWidth();
+                updateMenuItemButton(
+                        mCalculator, menuItem, mIconTextSpacing, shouldShowIcon(menuItem));
+                mCalculator.measure(
+                        View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+                return mCalculator.getMeasuredWidth();
             }
 
-            private TextView getStringTitleView(
-                    MenuItem menuItem, int minimumWidth, View convertView) {
-                TextView menuButton;
-                if (convertView != null) {
-                    menuButton = (TextView) convertView;
-                } else {
-                    menuButton = (TextView) LayoutInflater.from(mContext)
-                            .inflate(R.layout.floating_popup_overflow_list_item, null);
-                    menuButton.setLayoutParams(new ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT));
-                }
-                if (menuItem != null) {
-                    menuButton.setText(menuItem.getTitle());
-                    menuButton.setContentDescription(menuItem.getTitle());
-                    menuButton.setMinimumWidth(minimumWidth);
-                }
-                return menuButton;
+            private View createMenuButton(MenuItem menuItem) {
+                View button = createMenuItemButton(
+                        mContext, menuItem, mIconTextSpacing, shouldShowIcon(menuItem));
+                button.setPadding(mSidePadding, 0, mSidePadding, 0);
+                return button;
             }
 
-            private View getIconOnlyView(
-                    MenuItem menuItem, int minimumWidth, View convertView) {
-                View menuButton;
-                if (convertView != null) {
-                    menuButton = convertView;
-                } else {
-                    menuButton = LayoutInflater.from(mContext).inflate(
-                            R.layout.floating_popup_overflow_image_list_item, null);
-                    menuButton.setLayoutParams(new ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT));
-                }
+            private boolean shouldShowIcon(MenuItem menuItem) {
                 if (menuItem != null) {
-                    ((ImageView) menuButton
-                            .findViewById(R.id.floating_toolbar_menu_item_image_button))
-                            .setImageDrawable(menuItem.getIcon());
-                    menuButton.setMinimumWidth(minimumWidth);
+                    return menuItem.getGroupId() == android.R.id.textAssist;
                 }
-                return menuButton;
+                return false;
             }
         }
-    }
-
-    /**
-     * @return {@code true} if the menu item does not not have a string title but has an icon.
-     *   {@code false} otherwise.
-     */
-    private static boolean isIconOnlyMenuItem(MenuItem menuItem) {
-        if (TextUtils.isEmpty(menuItem.getTitle()) && menuItem.getIcon() != null) {
-            return true;
-        }
-        return false;
     }
 
     /**
      * Creates and returns a menu button for the specified menu item.
      */
-    private static View createMenuItemButton(Context context, MenuItem menuItem) {
-        if (isIconOnlyMenuItem(menuItem)) {
-            View imageMenuItemButton = LayoutInflater.from(context)
-                    .inflate(R.layout.floating_popup_menu_image_button, null);
-            ((ImageButton) imageMenuItemButton
-                    .findViewById(R.id.floating_toolbar_menu_item_image_button))
-                    .setImageDrawable(menuItem.getIcon());
-            return imageMenuItemButton;
-        }
-
-        Button menuItemButton = (Button) LayoutInflater.from(context)
+    private static View createMenuItemButton(
+            Context context, MenuItem menuItem, int iconTextSpacing, boolean showIcon) {
+        final View menuItemButton = LayoutInflater.from(context)
                 .inflate(R.layout.floating_popup_menu_button, null);
-        menuItemButton.setText(menuItem.getTitle());
-        menuItemButton.setContentDescription(menuItem.getTitle());
+        if (menuItem != null) {
+            updateMenuItemButton(menuItemButton, menuItem, iconTextSpacing, showIcon);
+        }
         return menuItemButton;
+    }
+
+    /**
+     * Updates the specified menu item button with the specified menu item data.
+     */
+    private static void updateMenuItemButton(
+            View menuItemButton, MenuItem menuItem, int iconTextSpacing, boolean showIcon) {
+        final TextView buttonText = menuItemButton.findViewById(
+                R.id.floating_toolbar_menu_item_text);
+        buttonText.setEllipsize(null);
+        if (TextUtils.isEmpty(menuItem.getTitle())) {
+            buttonText.setVisibility(View.GONE);
+        } else {
+            buttonText.setVisibility(View.VISIBLE);
+            buttonText.setText(menuItem.getTitle());
+        }
+        final ImageView buttonIcon = menuItemButton.findViewById(
+                R.id.floating_toolbar_menu_item_image);
+        if (menuItem.getIcon() == null || !showIcon) {
+            buttonIcon.setVisibility(View.GONE);
+            if (buttonText != null) {
+                buttonText.setPaddingRelative(0, 0, 0, 0);
+            }
+        } else {
+            buttonIcon.setVisibility(View.VISIBLE);
+            buttonIcon.setImageDrawable(menuItem.getIcon());
+            if (buttonText != null) {
+                buttonText.setPaddingRelative(iconTextSpacing, 0, 0, 0);
+            }
+        }
+        final CharSequence contentDescription = menuItem.getContentDescription();
+        if (TextUtils.isEmpty(contentDescription)) {
+            menuItemButton.setContentDescription(menuItem.getTitle());
+        } else {
+            menuItemButton.setContentDescription(contentDescription);
+        }
     }
 
     private static ViewGroup createContentContainer(Context context) {
@@ -1651,6 +1715,7 @@ public final class FloatingToolbar {
         contentContainer.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         contentContainer.setTag(FLOATING_TOOLBAR_TAG);
+        contentContainer.setClipToOutline(true);
         return contentContainer;
     }
 
@@ -1705,7 +1770,8 @@ public final class FloatingToolbar {
     private static Context applyDefaultTheme(Context originalContext) {
         TypedArray a = originalContext.obtainStyledAttributes(new int[]{R.attr.isLightTheme});
         boolean isLightTheme = a.getBoolean(0, true);
-        int themeId = isLightTheme ? R.style.Theme_Material_Light : R.style.Theme_Material;
+        int themeId
+                = isLightTheme ? R.style.Theme_DeviceDefault_Light : R.style.Theme_DeviceDefault;
         a.recycle();
         return new ContextThemeWrapper(originalContext, themeId);
     }

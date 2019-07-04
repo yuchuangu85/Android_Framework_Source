@@ -16,6 +16,8 @@
 
 package android.telecom;
 
+import android.net.Uri;
+import android.bluetooth.BluetoothDevice;
 import android.os.Bundle;
 import android.os.RemoteException;
 
@@ -34,7 +36,7 @@ import java.util.List;
  * <p>
  * The adapter will stop functioning when there are no more calls.
  *
- * {@hide}
+ * @hide
  */
 public final class InCallAdapter {
     private final IInCallAdapter mAdapter;
@@ -55,6 +57,19 @@ public final class InCallAdapter {
     public void answerCall(String callId, int videoState) {
         try {
             mAdapter.answerCall(callId, videoState);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Instructs Telecom to deflect the specified call.
+     *
+     * @param callId The identifier of the call to deflect.
+     * @param address The address to deflect.
+     */
+    public void deflectCall(String callId, Uri address) {
+        try {
+            mAdapter.deflectCall(callId, address);
         } catch (RemoteException e) {
         }
     }
@@ -128,7 +143,22 @@ public final class InCallAdapter {
      */
     public void setAudioRoute(int route) {
         try {
-            mAdapter.setAudioRoute(route);
+            mAdapter.setAudioRoute(route, null);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Request audio routing to a specific bluetooth device. Calling this method may result in
+     * the device routing audio to a different bluetooth device than the one specified. A list of
+     * available devices can be obtained via {@link CallAudioState#getSupportedBluetoothDevices()}
+     *
+     * @param bluetoothAddress The address of the bluetooth device to connect to, as returned by
+     * {@link BluetoothDevice#getAddress()}, or {@code null} if no device is preferred.
+     */
+    public void requestBluetoothAudio(String bluetoothAddress) {
+        try {
+            mAdapter.setAudioRoute(CallAudioState.ROUTE_BLUETOOTH, bluetoothAddress);
         } catch (RemoteException e) {
         }
     }
@@ -270,11 +300,12 @@ public final class InCallAdapter {
      *
      * @param callId The callId to send the event for.
      * @param event The event.
+     * @param targetSdkVer Target sdk version of the app calling this api
      * @param extras Extras associated with the event.
      */
-    public void sendCallEvent(String callId, String event, Bundle extras) {
+    public void sendCallEvent(String callId, String event, int targetSdkVer, Bundle extras) {
         try {
-            mAdapter.sendCallEvent(callId, event, extras);
+            mAdapter.sendCallEvent(callId, event, targetSdkVer, extras);
         } catch (RemoteException ignored) {
         }
     }
@@ -372,6 +403,67 @@ public final class InCallAdapter {
     public void turnProximitySensorOff(boolean screenOnImmediately) {
         try {
             mAdapter.turnOffProximitySensor(screenOnImmediately);
+        } catch (RemoteException ignored) {
+        }
+    }
+
+    /**
+     * Sends an RTT upgrade request to the remote end of the connection.
+     */
+    public void sendRttRequest(String callId) {
+        try {
+            mAdapter.sendRttRequest(callId);
+        } catch (RemoteException ignored) {
+        }
+    }
+
+    /**
+     * Responds to an RTT upgrade request initiated from the remote end.
+     *
+     * @param id the ID of the request as specified by Telecom
+     * @param accept Whether the request should be accepted.
+     */
+    public void respondToRttRequest(String callId, int id, boolean accept) {
+        try {
+            mAdapter.respondToRttRequest(callId, id, accept);
+        } catch (RemoteException ignored) {
+        }
+    }
+
+    /**
+     * Instructs Telecom to shut down the RTT communication channel.
+     */
+    public void stopRtt(String callId) {
+        try {
+            mAdapter.stopRtt(callId);
+        } catch (RemoteException ignored) {
+        }
+    }
+
+    /**
+     * Sets the RTT audio mode.
+     * @param mode the desired RTT audio mode
+     */
+    public void setRttMode(String callId, int mode) {
+        try {
+            mAdapter.setRttMode(callId, mode);
+        } catch (RemoteException ignored) {
+        }
+    }
+
+
+    /**
+     * Initiates a handover of this {@link Call} to the {@link ConnectionService} identified
+     * by destAcct.
+     * @param callId The callId of the Call which calls this function.
+     * @param destAcct ConnectionService to which the call should be handed over.
+     * @param videoState The video state desired after the handover.
+     * @param extras Extra information to be passed to ConnectionService
+     */
+    public void handoverTo(String callId, PhoneAccountHandle destAcct, int videoState,
+                           Bundle extras) {
+        try {
+            mAdapter.handoverTo(callId, destAcct, videoState, extras);
         } catch (RemoteException ignored) {
         }
     }

@@ -18,6 +18,7 @@ package android.net;
 
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.Slog;
 
 /**
  * Snapshot of network state.
@@ -25,6 +26,8 @@ import android.os.Parcelable;
  * @hide
  */
 public class NetworkState implements Parcelable {
+    private static final boolean SANITY_CHECK_ROAMING = false;
+
     public static final NetworkState EMPTY = new NetworkState(null, null, null, null, null, null);
 
     public final NetworkInfo networkInfo;
@@ -43,6 +46,16 @@ public class NetworkState implements Parcelable {
         this.network = network;
         this.subscriberId = subscriberId;
         this.networkId = networkId;
+
+        // This object is an atomic view of a network, so the various components
+        // should always agree on roaming state.
+        if (SANITY_CHECK_ROAMING && networkInfo != null && networkCapabilities != null) {
+            if (networkInfo.isRoaming() == networkCapabilities
+                    .hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING)) {
+                Slog.wtf("NetworkState", "Roaming state disagreement between " + networkInfo
+                        + " and " + networkCapabilities);
+            }
+        }
     }
 
     public NetworkState(Parcel in) {

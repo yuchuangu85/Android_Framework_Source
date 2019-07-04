@@ -29,6 +29,7 @@ import android.text.TextUtils;
 import android.content.res.Resources;
 
 import com.android.internal.telephony.GsmAlphabet.TextEncodingDetails;
+import com.android.internal.telephony.SmsAddress;
 import com.android.internal.telephony.SmsConstants;
 import com.android.internal.telephony.SmsHeader;
 import com.android.internal.telephony.SmsMessageBase;
@@ -98,8 +99,26 @@ public class SmsMessage extends SmsMessageBase {
     private static final int RETURN_NO_ACK  = 0;
     private static final int RETURN_ACK     = 1;
 
+    /**
+     * Supported priority modes for CDMA SMS messages
+     * (See 3GPP2 C.S0015-B, v2.0, table 4.5.9-1)
+     */
+    private static final int PRIORITY_NORMAL        = 0x0;
+    private static final int PRIORITY_INTERACTIVE   = 0x1;
+    private static final int PRIORITY_URGENT        = 0x2;
+    private static final int PRIORITY_EMERGENCY     = 0x3;
+
     private SmsEnvelope mEnvelope;
     private BearerData mBearerData;
+
+    /** @hide */
+    public SmsMessage(SmsAddress addr, SmsEnvelope env) {
+        mOriginatingAddress = addr;
+        mEnvelope = env;
+        createPdu();
+    }
+
+    public SmsMessage() {}
 
     public static class SubmitPdu extends SubmitPduBase {
     }
@@ -121,108 +140,6 @@ public class SmsMessage extends SmsMessageBase {
             Log.e(LOG_TAG, "SMS PDU parsing failed with out of memory: ", e);
             return null;
         }
-    }
-
-    /**
-     *  Create a "raw" CDMA SmsMessage from a Parcel that was forged in ril.cpp.
-     *  Note: Only primitive fields are set.
-     */
-    public static SmsMessage newFromParcel(Parcel p) {
-        // Note: Parcel.readByte actually reads one Int and masks to byte
-        SmsMessage msg = new SmsMessage();
-        SmsEnvelope env = new SmsEnvelope();
-        CdmaSmsAddress addr = new CdmaSmsAddress();
-        CdmaSmsSubaddress subaddr = new CdmaSmsSubaddress();
-        byte[] data;
-        byte count;
-        int countInt;
-        int addressDigitMode;
-
-        //currently not supported by the modem-lib: env.mMessageType
-        env.teleService = p.readInt(); //p_cur->uTeleserviceID
-
-        if (0 != p.readByte()) { //p_cur->bIsServicePresent
-            env.messageType = SmsEnvelope.MESSAGE_TYPE_BROADCAST;
-        }
-        else {
-            if (SmsEnvelope.TELESERVICE_NOT_SET == env.teleService) {
-                // assume type ACK
-                env.messageType = SmsEnvelope.MESSAGE_TYPE_ACKNOWLEDGE;
-            } else {
-                env.messageType = SmsEnvelope.MESSAGE_TYPE_POINT_TO_POINT;
-            }
-        }
-        env.serviceCategory = p.readInt(); //p_cur->uServicecategory
-
-        // address
-        addressDigitMode = p.readInt();
-        addr.digitMode = (byte) (0xFF & addressDigitMode); //p_cur->sAddress.digit_mode
-        addr.numberMode = (byte) (0xFF & p.readInt()); //p_cur->sAddress.number_mode
-        addr.ton = p.readInt(); //p_cur->sAddress.number_type
-        addr.numberPlan = (byte) (0xFF & p.readInt()); //p_cur->sAddress.number_plan
-        count = p.readByte(); //p_cur->sAddress.number_of_digits
-        addr.numberOfDigits = count;
-        data = new byte[count];
-        //p_cur->sAddress.digits[digitCount]
-        for (int index=0; index < count; index++) {
-            data[index] = p.readByte();
-
-            // convert the value if it is 4-bit DTMF to 8 bit
-            if (addressDigitMode == CdmaSmsAddress.DIGIT_MODE_4BIT_DTMF) {
-                data[index] = msg.convertDtmfToAscii(data[index]);
-            }
-        }
-
-        addr.origBytes = data;
-
-        subaddr.type = p.readInt(); // p_cur->sSubAddress.subaddressType
-        subaddr.odd = p.readByte();     // p_cur->sSubAddress.odd
-        count = p.readByte();           // p_cur->sSubAddress.number_of_digits
-
-        if (count < 0) {
-            count = 0;
-        }
-
-        // p_cur->sSubAddress.digits[digitCount] :
-
-        data = new byte[count];
-
-        for (int index = 0; index < count; ++index) {
-            data[index] = p.readByte();
-        }
-
-        subaddr.origBytes = data;
-
-        /* currently not supported by the modem-lib:
-            env.bearerReply
-            env.replySeqNo
-            env.errorClass
-            env.causeCode
-        */
-
-        // bearer data
-        countInt = p.readInt(); //p_cur->uBearerDataLen
-        if (countInt < 0) {
-            countInt = 0;
-        }
-
-        data = new byte[countInt];
-        for (int index=0; index < countInt; index++) {
-            data[index] = p.readByte();
-        }
-        // BD gets further decoded when accessed in SMSDispatcher
-        env.bearerData = data;
-
-        // link the the filled objects to the SMS
-        env.origAddress = addr;
-        env.origSubaddress = subaddr;
-        msg.mOriginatingAddress = addr;
-        msg.mEnvelope = env;
-
-        // create byte stream representation for transportation through the layers.
-        msg.createPdu();
-
-        return msg;
     }
 
     /**
@@ -253,7 +170,7 @@ public class SmsMessage extends SmsMessageBase {
 
             // Second byte is the MSG_LEN, length of the message
             // See 3GPP2 C.S0023 3.4.27
-            int size = data[1];
+            int size = data[1] & 0xFF;
 
             // Note: Data may include trailing FF's.  That's OK; message
             // should still parse correctly.
@@ -303,6 +220,26 @@ public class SmsMessage extends SmsMessageBase {
      */
     public static SubmitPdu getSubmitPdu(String scAddr, String destAddr, String message,
             boolean statusReportRequested, SmsHeader smsHeader) {
+        return getSubmitPdu(scAddr, destAddr, message, statusReportRequested, smsHeader, -1);
+    }
+
+    /**
+     * Get an SMS-SUBMIT PDU for a destination address and a message
+     *
+     * @param scAddr                Service Centre address.  Null means use default.
+     * @param destAddr              Address of the recipient.
+     * @param message               String representation of the message payload.
+     * @param statusReportRequested Indicates whether a report is requested for this message.
+     * @param smsHeader             Array containing the data for the User Data Header, preceded
+     *                              by the Element Identifiers.
+     * @param priority              Priority level of the message
+     * @return a <code>SubmitPdu</code> containing the encoded SC
+     *         address, if applicable, and the encoded message.
+     *         Returns null on encode error.
+     * @hide
+     */
+    public static SubmitPdu getSubmitPdu(String scAddr, String destAddr, String message,
+            boolean statusReportRequested, SmsHeader smsHeader, int priority) {
 
         /**
          * TODO(cleanup): Do we really want silent failure like this?
@@ -316,7 +253,7 @@ public class SmsMessage extends SmsMessageBase {
         UserData uData = new UserData();
         uData.payloadStr = message;
         uData.userDataHeader = smsHeader;
-        return privateGetSubmitPdu(destAddr, statusReportRequested, uData);
+        return privateGetSubmitPdu(destAddr, statusReportRequested, uData, priority);
     }
 
     /**
@@ -371,6 +308,22 @@ public class SmsMessage extends SmsMessageBase {
     public static SubmitPdu getSubmitPdu(String destAddr, UserData userData,
             boolean statusReportRequested) {
         return privateGetSubmitPdu(destAddr, statusReportRequested, userData);
+    }
+
+    /**
+     * Get an SMS-SUBMIT PDU for a data message to a destination address &amp; port
+     *
+     * @param destAddr the address of the destination for the message
+     * @param userData the data for the message
+     * @param statusReportRequested Indicates whether a report is requested for this message.
+     * @param priority Priority level of the message
+     * @return a <code>SubmitPdu</code> containing the encoded SC
+     *         address, if applicable, and the encoded message.
+     *         Returns null on encode error.
+     */
+    public static SubmitPdu getSubmitPdu(String destAddr, UserData userData,
+            boolean statusReportRequested, int priority) {
+        return privateGetSubmitPdu(destAddr, statusReportRequested, userData, priority);
     }
 
     /**
@@ -517,6 +470,9 @@ public class SmsMessage extends SmsMessageBase {
         int bearerDataLength;
         SmsEnvelope env = new SmsEnvelope();
         CdmaSmsAddress addr = new CdmaSmsAddress();
+        // We currently do not parse subaddress in PDU, but it is required when determining
+        // fingerprint (see getIncomingSmsFingerprint()).
+        CdmaSmsSubaddress subaddr = new CdmaSmsSubaddress();
 
         try {
             env.messageType = dis.readInt();
@@ -567,6 +523,7 @@ public class SmsMessage extends SmsMessageBase {
         // link the filled objects to this SMS
         mOriginatingAddress = addr;
         env.origAddress = addr;
+        env.origSubaddress = subaddr;
         mEnvelope = env;
         mPdu = pdu;
 
@@ -856,6 +813,15 @@ public class SmsMessage extends SmsMessageBase {
      */
     private static SubmitPdu privateGetSubmitPdu(String destAddrStr, boolean statusReportRequested,
             UserData userData) {
+        return privateGetSubmitPdu(destAddrStr, statusReportRequested, userData, -1);
+    }
+
+    /**
+     * Creates BearerData and Envelope from parameters for a Submit SMS.
+     * @return byte stream for SubmitPdu.
+     */
+    private static SubmitPdu privateGetSubmitPdu(String destAddrStr, boolean statusReportRequested,
+            UserData userData, int priority) {
 
         /**
          * TODO(cleanup): give this function a more meaningful name.
@@ -884,6 +850,10 @@ public class SmsMessage extends SmsMessageBase {
         bearerData.userAckReq = false;
         bearerData.readAckReq = false;
         bearerData.reportReq = false;
+        if (priority >= PRIORITY_NORMAL && priority <= PRIORITY_EMERGENCY) {
+            bearerData.priorityIndicatorSet = true;
+            bearerData.priority = priority;
+        }
 
         bearerData.userData = userData;
 
@@ -946,8 +916,9 @@ public class SmsMessage extends SmsMessageBase {
     /**
      * Creates byte array (pseudo pdu) from SMS object.
      * Note: Do not call this method more than once per object!
+     * @hide
      */
-    private void createPdu() {
+    public void createPdu() {
         SmsEnvelope env = mEnvelope;
         CdmaSmsAddress addr = env.origAddress;
         ByteArrayOutputStream baos = new ByteArrayOutputStream(100);
@@ -991,8 +962,9 @@ public class SmsMessage extends SmsMessageBase {
 
     /**
      * Converts a 4-Bit DTMF encoded symbol from the calling address number to ASCII character
+     * @hide
      */
-    private byte convertDtmfToAscii(byte dtmfDigit) {
+    public static byte convertDtmfToAscii(byte dtmfDigit) {
         byte asciiDigit;
 
         switch (dtmfDigit) {
@@ -1041,8 +1013,11 @@ public class SmsMessage extends SmsMessageBase {
         output.write(mEnvelope.teleService);
         output.write(mEnvelope.origAddress.origBytes, 0, mEnvelope.origAddress.origBytes.length);
         output.write(mEnvelope.bearerData, 0, mEnvelope.bearerData.length);
-        output.write(mEnvelope.origSubaddress.origBytes, 0,
-                mEnvelope.origSubaddress.origBytes.length);
+        // subaddress is not set when parsing some MT SMS.
+        if (mEnvelope.origSubaddress != null && mEnvelope.origSubaddress.origBytes != null) {
+            output.write(mEnvelope.origSubaddress.origBytes, 0,
+                    mEnvelope.origSubaddress.origBytes.length);
+        }
 
         return output.toByteArray();
     }

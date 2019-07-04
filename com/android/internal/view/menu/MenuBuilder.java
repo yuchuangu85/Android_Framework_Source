@@ -37,6 +37,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.SubMenu;
 import android.view.View;
+import android.view.ViewConfiguration;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -156,7 +157,12 @@ public class MenuBuilder implements Menu {
      * Currently expanded menu item; must be collapsed when we clear.
      */
     private MenuItemImpl mExpandedItem;
-    
+
+    /**
+     * Whether group dividers are enabled.
+     */
+    private boolean mGroupDividerEnabled = false;
+
     /**
      * Called by menu to notify of close and selection changes.
      */
@@ -462,6 +468,15 @@ public class MenuBuilder implements Menu {
         return addSubMenu(group, id, categoryOrder, mResources.getString(title));
     }
 
+    @Override
+    public void setGroupDividerEnabled(boolean groupDividerEnabled) {
+        mGroupDividerEnabled = groupDividerEnabled;
+    }
+
+    public boolean isGroupDividerEnabled() {
+        return mGroupDividerEnabled;
+    }
+
     public int addIntentOptions(int group, int id, int categoryOrder, ComponentName caller,
             Intent[] specifics, Intent intent, int flags, MenuItem[] outSpecificItems) {
         PackageManager pm = mContext.getPackageManager();
@@ -537,6 +552,7 @@ public class MenuBuilder implements Menu {
         mPreventDispatchingItemsChanged = true;
         clear();
         clearHeader();
+        mPresenters.clear();
         mPreventDispatchingItemsChanged = false;
         mItemsChangedWhileDispatchPrevented = false;
         onItemsChanged(true);
@@ -738,8 +754,7 @@ public class MenuBuilder implements Menu {
     private void setShortcutsVisibleInner(boolean shortcutsVisible) {
         mShortcutsVisible = shortcutsVisible
                 && mResources.getConfiguration().keyboard != Configuration.KEYBOARD_NOKEYS
-                && mResources.getBoolean(
-                        com.android.internal.R.bool.config_showMenuShortcutsWhenKeyboardPresent);
+                && ViewConfiguration.get(mContext).shouldShowMenuShortcutsWhenKeyboardPresent();
     }
 
     /**
@@ -805,7 +820,7 @@ public class MenuBuilder implements Menu {
      */
     void findItemsWithShortcutForKey(List<MenuItemImpl> items, int keyCode, KeyEvent event) {
         final boolean qwerty = isQwertyMode();
-        final int metaState = event.getMetaState();
+        final int modifierState = event.getModifiers();
         final KeyCharacterMap.KeyData possibleChars = new KeyCharacterMap.KeyData();
         // Get the chars associated with the keyCode (i.e using any chording combo)
         final boolean isKeyCodeMapped = event.getKeyData(possibleChars);
@@ -821,9 +836,13 @@ public class MenuBuilder implements Menu {
             if (item.hasSubMenu()) {
                 ((MenuBuilder)item.getSubMenu()).findItemsWithShortcutForKey(items, keyCode, event);
             }
-            final char shortcutChar = qwerty ? item.getAlphabeticShortcut() : item.getNumericShortcut();
-            if (((metaState & (KeyEvent.META_SHIFT_ON | KeyEvent.META_SYM_ON)) == 0) &&
-                  (shortcutChar != 0) &&
+            final char shortcutChar =
+                    qwerty ? item.getAlphabeticShortcut() : item.getNumericShortcut();
+            final int shortcutModifiers =
+                    qwerty ? item.getAlphabeticModifiers() : item.getNumericModifiers();
+            final boolean isModifiersExactMatch = (modifierState & SUPPORTED_MODIFIERS_MASK)
+                    == (shortcutModifiers & SUPPORTED_MODIFIERS_MASK);
+            if (isModifiersExactMatch && (shortcutChar != 0) &&
                   (shortcutChar == possibleChars.meta[0]
                       || shortcutChar == possibleChars.meta[2]
                       || (qwerty && shortcutChar == '\b' &&

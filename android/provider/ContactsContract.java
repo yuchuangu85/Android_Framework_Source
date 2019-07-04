@@ -17,10 +17,12 @@
 package android.provider;
 
 import android.accounts.Account;
+import android.annotation.SdkConstant;
+import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
 import android.app.Activity;
-import android.app.admin.DevicePolicyManager;
-import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.ContentProviderClient;
 import android.content.ContentProviderOperation;
 import android.content.ContentResolver;
@@ -32,6 +34,7 @@ import android.content.CursorEntityIterator;
 import android.content.Entity;
 import android.content.EntityIterator;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.Resources;
 import android.database.Cursor;
@@ -40,11 +43,11 @@ import android.database.DatabaseUtils;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.RemoteException;
+import android.telecom.PhoneAccountHandle;
 import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.util.Pair;
 import android.view.View;
-import android.widget.Toast;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -116,6 +119,12 @@ public final class ContactsContract {
     public static final String AUTHORITY = "com.android.contacts";
     /** A content:// style uri to the authority for the contacts provider */
     public static final Uri AUTHORITY_URI = Uri.parse("content://" + AUTHORITY);
+
+    /**
+     * Prefix for column names that are not visible to client apps.
+     * @hide
+     */
+    public static final String HIDDEN_COLUMN_PREFIX = "x_";
 
     /**
      * An optional URI parameter for insert, update, or delete queries
@@ -661,6 +670,12 @@ public final class ContactsContract {
             ContentValues contentValues = new ContentValues();
             resolver.update(Directory.CONTENT_URI, contentValues, null, null);
         }
+
+        /**
+         * A query parameter that's passed to directory providers which indicates the client
+         * package name that has made the query requests.
+         */
+        public static final String CALLER_PACKAGE_PARAM_KEY = "callerPackage";
     }
 
     /**
@@ -862,6 +877,25 @@ public final class ContactsContract {
          * <P>Type: INTEGER</P>
          */
         public static final String LAST_TIME_CONTACTED = "last_time_contacted";
+
+        /** @hide Raw value. */
+        public static final String RAW_TIMES_CONTACTED = HIDDEN_COLUMN_PREFIX + TIMES_CONTACTED;
+
+        /** @hide Raw value. */
+        public static final String RAW_LAST_TIME_CONTACTED =
+                HIDDEN_COLUMN_PREFIX + LAST_TIME_CONTACTED;
+
+        /**
+         * @hide
+         * Low res version.  Same as {@link #TIMES_CONTACTED} but use it in CP2 for clarification.
+         */
+        public static final String LR_TIMES_CONTACTED = TIMES_CONTACTED;
+
+        /**
+         * @hide
+         * Low res version.  Same as {@link #TIMES_CONTACTED} but use it in CP2 for clarification.
+         */
+        public static final String LR_LAST_TIME_CONTACTED = LAST_TIME_CONTACTED;
 
         /**
          * Is the contact starred?
@@ -1669,7 +1703,7 @@ public final class ContactsContract {
             Uri uri = ContentUris.withAppendedId(CONTENT_URI, contactId);
             ContentValues values = new ContentValues();
             // TIMES_CONTACTED will be incremented when LAST_TIME_CONTACTED is modified.
-            values.put(LAST_TIME_CONTACTED, System.currentTimeMillis());
+            values.put(LR_LAST_TIME_CONTACTED, System.currentTimeMillis());
             resolver.update(uri, values, null, null);
         }
 
@@ -1847,7 +1881,6 @@ public final class ContactsContract {
          * @deprecated - Do not use. This will not be supported in the future. In the future,
          * cursors returned from related queries will be empty.
          *
-         * @hide
          * @removed
          */
         @Deprecated
@@ -2944,7 +2977,6 @@ public final class ContactsContract {
          * @deprecated - Do not use. This will not be supported in the future. In the future,
          * cursors returned from related queries will be empty.
          *
-         * @hide
          * @removed
          */
         @Deprecated
@@ -3383,7 +3415,6 @@ public final class ContactsContract {
      * @deprecated - Do not use. This will not be supported in the future. In the future,
      * cursors returned from related queries will be empty.
      *
-     * @hide
      * @removed
      */
     @Deprecated
@@ -3484,7 +3515,6 @@ public final class ContactsContract {
          * @deprecated - Do not use. This will not be supported in the future. In the future,
          * cursors returned from related queries will be empty.
          *
-         * @hide
          * @removed
          */
         @Deprecated
@@ -3537,7 +3567,6 @@ public final class ContactsContract {
      * @deprecated - Do not use. This will not be supported in the future. In the future,
      * cursors returned from related queries will be empty.
      *
-     * @hide
      * @removed
      */
     @Deprecated
@@ -3930,7 +3959,6 @@ public final class ContactsContract {
      * @deprecated - Do not use. This will not be supported in the future. In the future,
      * cursors returned from related queries will be empty.
      *
-     * @hide
      * @removed
      */
     @Deprecated
@@ -3971,7 +3999,6 @@ public final class ContactsContract {
      * @deprecated - Do not use. This will not be supported in the future. In the future,
      * cursors returned from related queries will be empty.
      *
-     * @hide
      * @removed
      */
     @Deprecated
@@ -4213,6 +4240,45 @@ public final class ContactsContract {
          * current carrier. An allowed bitmask of {@link #CARRIER_PRESENCE}.
          */
         public static final int CARRIER_PRESENCE_VT_CAPABLE = 0x01;
+
+        /**
+         * The flattened {@link android.content.ComponentName} of a  {@link
+         * android.telecom.PhoneAccountHandle} that is the preferred {@code PhoneAccountHandle} to
+         * call the contact with.
+         *
+         * <p> On a multi-SIM device this field can be used in a {@link CommonDataKinds.Phone} row
+         * to indicate the {@link PhoneAccountHandle} to call the number with, instead of using
+         * {@link android.telecom.TelecomManager#getDefaultOutgoingPhoneAccount(String)} or asking
+         * every time.
+         *
+         * <p>{@link android.telecom.TelecomManager#placeCall(Uri, android.os.Bundle)}
+         * should be called with {@link android.telecom.TelecomManager#EXTRA_PHONE_ACCOUNT_HANDLE}
+         * set to the {@link PhoneAccountHandle} using the {@link ComponentName} from this field.
+         *
+         * @see #PREFERRED_PHONE_ACCOUNT_ID
+         * @see PhoneAccountHandle#getComponentName()
+         * @see ComponentName#flattenToString()
+         */
+        String PREFERRED_PHONE_ACCOUNT_COMPONENT_NAME = "preferred_phone_account_component_name";
+
+        /**
+         * The ID of a {@link
+         * android.telecom.PhoneAccountHandle} that is the preferred {@code PhoneAccountHandle} to
+         * call the contact with. Used by {@link CommonDataKinds.Phone}.
+         *
+         * <p> On a multi-SIM device this field can be used in a {@link CommonDataKinds.Phone} row
+         * to indicate the {@link PhoneAccountHandle} to call the number with, instead of using
+         * {@link android.telecom.TelecomManager#getDefaultOutgoingPhoneAccount(String)} or asking
+         * every time.
+         *
+         * <p>{@link android.telecom.TelecomManager#placeCall(Uri, android.os.Bundle)}
+         * should be called with {@link android.telecom.TelecomManager#EXTRA_PHONE_ACCOUNT_HANDLE}
+         * set to the {@link PhoneAccountHandle} using the id from this field.
+         *
+         * @see #PREFERRED_PHONE_ACCOUNT_COMPONENT_NAME
+         * @see PhoneAccountHandle#getId()
+         */
+        String PREFERRED_PHONE_ACCOUNT_ID = "preferred_phone_account_id";
     }
 
     /**
@@ -4224,6 +4290,24 @@ public final class ContactsContract {
 
         /** The number of times the referenced {@link Data} has been used. */
         public static final String TIMES_USED = "times_used";
+
+        /** @hide Raw value. */
+        public static final String RAW_LAST_TIME_USED = HIDDEN_COLUMN_PREFIX + LAST_TIME_USED;
+
+        /** @hide Raw value. */
+        public static final String RAW_TIMES_USED = HIDDEN_COLUMN_PREFIX + TIMES_USED;
+
+        /**
+         * @hide
+         * Low res version.  Same as {@link #LAST_TIME_USED} but use it in CP2 for clarification.
+         */
+        public static final String LR_LAST_TIME_USED = LAST_TIME_USED;
+
+        /**
+         * @hide
+         * Low res version.  Same as {@link #TIMES_USED} but use it in CP2 for clarification.
+         */
+        public static final String LR_TIMES_USED = TIMES_USED;
     }
 
     /**
@@ -5166,7 +5250,7 @@ public final class ContactsContract {
      * </table>
      */
     public static final class PhoneLookup implements BaseColumns, PhoneLookupColumns,
-            ContactsColumns, ContactOptionsColumns {
+            ContactsColumns, ContactOptionsColumns, ContactNameColumns {
         /**
          * This utility class cannot be instantiated
          */
@@ -8155,6 +8239,13 @@ public final class ContactsContract {
          * on the device.
          */
         public static final int STATUS_EMPTY = 2;
+
+        /**
+         * Timestamp (milliseconds since epoch) of when the provider's database was created.
+         *
+         * <P>Type: long
+         */
+        public static final String DATABASE_CREATION_TIMESTAMP = "database_creation_timestamp";
     }
 
     /**
@@ -8347,6 +8438,7 @@ public final class ContactsContract {
          * Action used to launch the system contacts application and bring up a QuickContact dialog
          * for the provided {@link Contacts} entry.
          */
+        @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
         public static final String ACTION_QUICK_CONTACT =
                 "android.provider.action.QUICK_CONTACT";
 
@@ -8722,6 +8814,13 @@ public final class ContactsContract {
         /**
          * This is the intent that is fired when the contacts database is created. <p> The
          * READ_CONTACT permission is required to receive these broadcasts.
+         *
+         * <p>Because this is an implicit broadcast, apps targeting Android O will no longer
+         * receive this broadcast via a manifest broadcast receiver.  (Broadcast receivers
+         * registered at runtime with
+         * {@link Context#registerReceiver(BroadcastReceiver, IntentFilter)} will still receive it.)
+         * Instead, an app can use {@link ProviderStatus#DATABASE_CREATION_TIMESTAMP} to see if the
+         * contacts database has been initialized when it starts.
          */
         public static final String CONTACTS_DATABASE_CREATED =
                 "android.provider.Contacts.DATABASE_CREATED";
@@ -8859,6 +8958,7 @@ public final class ContactsContract {
          * @see #METADATA_ACCOUNT_TYPE
          * @see #METADATA_MIMETYPE
          */
+        @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
         public static final String ACTION_VOICE_SEND_MESSAGE_TO_CONTACTS =
                 "android.provider.action.VOICE_SEND_MESSAGE_TO_CONTACTS";
 

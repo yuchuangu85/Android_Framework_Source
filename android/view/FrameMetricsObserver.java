@@ -25,7 +25,7 @@ import com.android.internal.util.VirtualRefBasePtr;
 import java.lang.ref.WeakReference;
 
 /**
- * Provides streaming access to 1 stats information from the rendering
+ * Provides streaming access to frame stats information from the rendering
  * subsystem to apps.
  *
  * @hide

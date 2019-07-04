@@ -16,16 +16,21 @@
 
 package com.android.server.policy;
 
+import static com.android.server.wm.BarControllerProto.STATE;
+import static com.android.server.wm.BarControllerProto.TRANSIENT_STATE;
+
 import android.app.StatusBarManager;
+import android.graphics.Rect;
 import android.os.Handler;
+import android.os.Message;
 import android.os.SystemClock;
 import android.util.Slog;
+import android.util.proto.ProtoOutputStream;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.WindowManager;
-import android.view.WindowManagerPolicy.WindowState;
 
 import com.android.server.LocalServices;
+import com.android.server.policy.WindowManagerPolicy.WindowState;
 import com.android.server.statusbar.StatusBarManagerInternal;
 
 import java.io.PrintWriter;
@@ -42,6 +47,8 @@ public class BarController {
     private static final int TRANSIENT_BAR_HIDING = 3;
 
     private static final int TRANSLUCENT_ANIMATION_DELAY_MS = 1000;
+
+    private static final int MSG_NAV_BAR_VISIBILITY_CHANGED = 1;
 
     protected final String mTag;
     private final int mTransientFlag;
@@ -62,6 +69,9 @@ public class BarController {
     private boolean mShowTransparent;
     private boolean mSetUnHideFlagWhenNextTransparent;
     private boolean mNoAnimationOnNextShow;
+    private final Rect mContentFrame = new Rect();
+
+    private OnBarVisibilityChangedListener mVisibilityChangeListener;
 
     public BarController(String tag, int transientFlag, int unhideFlag, int translucentFlag,
             int statusBarManagerId, int translucentWmFlag, int transparentFlag) {
@@ -72,11 +82,20 @@ public class BarController {
         mStatusBarManagerId = statusBarManagerId;
         mTranslucentWmFlag = translucentWmFlag;
         mTransparentFlag = transparentFlag;
-        mHandler = new Handler();
+        mHandler = new BarHandler();
     }
 
     public void setWindow(WindowState win) {
         mWin = win;
+    }
+
+    /**
+     * Sets the frame within which the bar will display its content.
+     *
+     * This is used to determine if letterboxes interfere with the display of such content.
+     */
+    public void setContentFrame(Rect frame) {
+        mContentFrame.set(frame);
     }
 
     public void setShowTransparent(boolean transparent) {
@@ -127,7 +146,8 @@ public class BarController {
                 } else {
                     vis &= ~mTranslucentFlag;
                 }
-                if ((fl & WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS) != 0) {
+                if ((fl & WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS) != 0
+                        && isTransparentAllowed(win)) {
                     vis |= mTransparentFlag;
                 } else {
                     vis &= ~mTransparentFlag;
@@ -138,6 +158,10 @@ public class BarController {
             }
         }
         return vis;
+    }
+
+    boolean isTransparentAllowed(WindowState win) {
+        return win == null || !win.isLetterboxedOverlappingWith(mContentFrame);
     }
 
     public boolean setBarShowingLw(final boolean show) {
@@ -153,7 +177,22 @@ public class BarController {
         mNoAnimationOnNextShow = false;
         final int state = computeStateLw(wasVis, wasAnim, mWin, change);
         final boolean stateChanged = updateStateLw(state);
+
+        if (change && (mVisibilityChangeListener != null)) {
+            mHandler.obtainMessage(MSG_NAV_BAR_VISIBILITY_CHANGED, show ? 1 : 0, 0).sendToTarget();
+        }
+
         return change || stateChanged;
+    }
+
+    void setOnBarVisibilityChangedListener(OnBarVisibilityChangedListener listener,
+            boolean invokeWithState) {
+        mVisibilityChangeListener = listener;
+        if (invokeWithState) {
+            // Optionally report the initial window state for initialization purposes
+            mHandler.obtainMessage(MSG_NAV_BAR_VISIBILITY_CHANGED,
+                    (mState == StatusBarManager.WINDOW_STATE_SHOWING) ? 1 : 0, 0).sendToTarget();
+        }
     }
 
     protected boolean skipAnimation() {
@@ -291,6 +330,13 @@ public class BarController {
         throw new IllegalArgumentException("Unknown state " + state);
     }
 
+    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+        final long token = proto.start(fieldId);
+        proto.write(STATE, mState);
+        proto.write(TRANSIENT_STATE, mTransientBarState);
+        proto.end(token);
+    }
+
     public void dump(PrintWriter pw, String prefix) {
         if (mWin != null) {
             pw.print(prefix); pw.println(mTag);
@@ -298,6 +344,25 @@ public class BarController {
             pw.println(StatusBarManager.windowStateToString(mState));
             pw.print(prefix); pw.print("  "); pw.print("mTransientBar"); pw.print('=');
             pw.println(transientBarStateToString(mTransientBarState));
+            pw.print(prefix); pw.print("  mContentFrame="); pw.println(mContentFrame);
         }
+    }
+
+    private class BarHandler extends Handler {
+        @Override
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case MSG_NAV_BAR_VISIBILITY_CHANGED:
+                    final boolean visible = msg.arg1 != 0;
+                    if (mVisibilityChangeListener != null) {
+                        mVisibilityChangeListener.onBarVisibilityChanged(visible);
+                    }
+                    break;
+            }
+        }
+    }
+
+    interface OnBarVisibilityChangedListener {
+        void onBarVisibilityChanged(boolean visible);
     }
 }

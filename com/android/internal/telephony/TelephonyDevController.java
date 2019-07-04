@@ -154,6 +154,7 @@ public class TelephonyDevController extends Handler {
                 if (item.uuid.compareTo(hw.uuid) == 0) {
                     if (DBG) logd("updateOrInsert: removing: " + item);
                     list.remove(i);
+                    break;
                 }
             }
             if (DBG) logd("updateOrInsert: inserting: " + hw);

@@ -16,9 +16,6 @@
 
 package android.widget;
 
-import com.android.internal.R;
-import com.android.internal.widget.ExploreByTouchHelper;
-
 import android.annotation.Nullable;
 import android.content.Context;
 import android.content.res.ColorStateList;
@@ -42,16 +39,20 @@ import android.util.MathUtils;
 import android.util.StateSet;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.PointerIcon;
 import android.view.View;
 import android.view.ViewParent;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
 
-import java.text.NumberFormat;
-import java.util.Locale;
+import com.android.internal.R;
+import com.android.internal.widget.ExploreByTouchHelper;
 
 import libcore.icu.LocaleData;
+
+import java.text.NumberFormat;
+import java.util.Locale;
 
 /**
  * A calendar-like view displaying a specified month and the appropriate selectable day numbers
@@ -516,6 +517,8 @@ class SimpleMonthView extends View {
     private int findClosestRow(@Nullable Rect previouslyFocusedRect) {
         if (previouslyFocusedRect == null) {
             return 3;
+        } else if (mDayHeight == 0) {
+            return 0; // There hasn't been a layout, so just choose the first row
         } else {
             int centerY = previouslyFocusedRect.centerY();
 
@@ -544,6 +547,8 @@ class SimpleMonthView extends View {
     private int findClosestColumn(@Nullable Rect previouslyFocusedRect) {
         if (previouslyFocusedRect == null) {
             return DAYS_IN_WEEK / 2;
+        } else if (mCellWidth == 0) {
+            return 0; // There hasn't been a layout, so we can just choose the first column
         } else {
             int centerX = previouslyFocusedRect.centerX() - mPaddingLeft;
             final int columnFromLeft =
@@ -975,7 +980,7 @@ class SimpleMonthView extends View {
      * @param id the day of the month
      * @param outBounds the rect to populate with bounds
      */
-    private boolean getBoundsForDay(int id, Rect outBounds) {
+    public boolean getBoundsForDay(int id, Rect outBounds) {
         if (!isValidDayOfMonth(id)) {
             return false;
         }
@@ -1023,6 +1028,21 @@ class SimpleMonthView extends View {
         // This is a no-op if accessibility is turned off.
         mTouchHelper.sendEventForVirtualView(day, AccessibilityEvent.TYPE_VIEW_CLICKED);
         return true;
+    }
+
+    @Override
+    public PointerIcon onResolvePointerIcon(MotionEvent event, int pointerIndex) {
+        if (!isEnabled()) {
+            return null;
+        }
+        // Add 0.5f to event coordinates to match the logic in onTouchEvent.
+        final int x = (int) (event.getX() + 0.5f);
+        final int y = (int) (event.getY() + 0.5f);
+        final int dayUnderPointer = getDayAtLocation(x, y);
+        if (dayUnderPointer >= 0) {
+            return PointerIcon.getSystemIcon(getContext(), PointerIcon.TYPE_HAND);
+        }
+        return super.onResolvePointerIcon(event, pointerIndex);
     }
 
     /**

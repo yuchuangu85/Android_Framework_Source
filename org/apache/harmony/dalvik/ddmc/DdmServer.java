@@ -16,6 +16,7 @@
 
 package org.apache.harmony.dalvik.ddmc;
 
+import dalvik.annotation.optimization.FastNative;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -97,6 +98,7 @@ public class DdmServer {
     }
 
     /* send a chunk to the DDM server */
+    @FastNative
     native private static void nativeSendChunk(int type, byte[] data,
         int offset, int length);
 

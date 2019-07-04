@@ -16,6 +16,8 @@
 
 package com.android.ims;
 
+import android.telephony.ims.ImsReasonInfo;
+
 /**
  * This class defines a general IMS-related exception.
  *
@@ -32,7 +34,7 @@ public class ImsException extends Exception {
     }
 
     public ImsException(String message, int code) {
-        super(message + ", code = " + code);
+        super(message + "(" + code + ")");
         mCode = code;
     }
 

@@ -16,25 +16,23 @@
 
 package android.databinding.tool;
 
+import android.databinding.tool.expr.CallbackArgExpr;
+import android.databinding.tool.expr.CallbackExprModel;
 import android.databinding.tool.expr.Expr;
 import android.databinding.tool.expr.ExprModel;
 import android.databinding.tool.expr.FieldAccessExpr;
+import android.databinding.tool.expr.IdentifierExpr;
 import android.databinding.tool.processing.ErrorMessages;
 import android.databinding.tool.processing.Scope;
 import android.databinding.tool.processing.scopes.LocationScopeProvider;
 import android.databinding.tool.reflection.ModelAnalyzer;
 import android.databinding.tool.reflection.ModelClass;
+import android.databinding.tool.solver.ExecutionPath;
 import android.databinding.tool.store.Location;
 import android.databinding.tool.store.SetterStore;
 import android.databinding.tool.store.SetterStore.BindingGetterCall;
 import android.databinding.tool.store.SetterStore.BindingSetterCall;
 import android.databinding.tool.util.L;
-import android.databinding.tool.util.Preconditions;
-import android.databinding.tool.writer.FlagSet;
-import android.databinding.tool.writer.KCode;
-import android.databinding.tool.writer.LayoutBinderWriterKt;
-
-import kotlin.jvm.functions.Function2;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,11 +44,38 @@ public class InverseBinding implements LocationScopeProvider {
     private final BindingTarget mTarget;
     private BindingGetterCall mGetterCall;
     private final ArrayList<FieldAccessExpr> mChainedExpressions = new ArrayList<FieldAccessExpr>();
+    private final CallbackExprModel mCallbackExprModel;
+    private final Expr mInverseExpr;
+    private final CallbackArgExpr mVariableExpr;
+    private final ExecutionPath mExecutionPath;
 
-    public InverseBinding(BindingTarget target, String name, Expr expr) {
+    public InverseBinding(BindingTarget target, String name, Expr expr, String bindingClassName) {
         mTarget = target;
         mName = name;
-        mExpr = expr;
+        mCallbackExprModel = new CallbackExprModel(expr.getModel());
+        mExpr = expr.cloneToModel(mCallbackExprModel);
+        setGetterCall(mExpr);
+        mVariableExpr = mCallbackExprModel.callbackArg("callbackArg_0");
+        ModelAnalyzer modelAnalyzer = ModelAnalyzer.getInstance();
+        ModelClass type = modelAnalyzer.findClass(getGetterCall().getGetterType(), null);
+        mVariableExpr.setClassFromCallback(type);
+        mVariableExpr.setUserDefinedType(getGetterCall().getGetterType());
+        mInverseExpr =
+                mExpr.generateInverse(mCallbackExprModel, mVariableExpr, bindingClassName);
+        mExecutionPath = ExecutionPath.createRoot();
+        mInverseExpr.toExecutionPath(mExecutionPath);
+        mCallbackExprModel.seal();
+    }
+
+    public InverseBinding(BindingTarget target, String name, BindingGetterCall getterCall) {
+        mTarget = target;
+        mName = name;
+        mExpr = null;
+        mCallbackExprModel = null;
+        mInverseExpr = null;
+        mVariableExpr = null;
+        mExecutionPath = null;
+        setGetterCall(getterCall);
     }
 
     @Override
@@ -62,7 +87,7 @@ public class InverseBinding implements LocationScopeProvider {
         }
     }
 
-    void setGetterCall(BindingGetterCall getterCall) {
+    private void setGetterCall(BindingGetterCall getterCall) {
         mGetterCall = getterCall;
     }
 
@@ -74,74 +99,56 @@ public class InverseBinding implements LocationScopeProvider {
         return mTarget.getResolvedType().isViewDataBinding();
     }
 
-    private SetterStore.BindingGetterCall getGetterCall() {
-        if (mGetterCall == null) {
-            if (mExpr != null) {
-                mExpr.getResolvedType(); // force resolve of ObservableFields
+    private void setGetterCall(Expr expr) {
+        try {
+            Scope.enter(mTarget);
+            Scope.enter(this);
+            ModelClass viewType = mTarget.getResolvedType();
+            final SetterStore setterStore = SetterStore.get(ModelAnalyzer.getInstance());
+            final ModelClass resolvedType = expr == null ? null : expr.getResolvedType();
+            mGetterCall = setterStore.getGetterCall(mName, viewType, resolvedType,
+                    expr.getModel().getImports());
+            if (mGetterCall == null) {
+                L.e(ErrorMessages.CANNOT_FIND_GETTER_CALL, mName,
+                        expr == null ? "Unknown" : mExpr.getResolvedType(),
+                        mTarget.getResolvedType());
             }
-            try {
-                Scope.enter(mTarget);
-                Scope.enter(this);
-                resolveGetterCall();
-                if (mGetterCall == null) {
-                    L.e(ErrorMessages.CANNOT_FIND_GETTER_CALL, mName,
-                            mExpr == null ? "Unknown" : mExpr.getResolvedType(),
-                            mTarget.getResolvedType());
-                }
-            } finally {
-                Scope.exit();
-                Scope.exit();
-            }
+        } finally {
+            Scope.exit();
+            Scope.exit();
         }
-        return mGetterCall;
     }
 
-    private void resolveGetterCall() {
-        ModelClass viewType = mTarget.getResolvedType();
-        final SetterStore setterStore = SetterStore.get(ModelAnalyzer.getInstance());
-        final ModelClass resolvedType = mExpr == null ? null : mExpr.getResolvedType();
-        mGetterCall = setterStore.getGetterCall(mName, viewType, resolvedType,
-                getModel().getImports());
+    public SetterStore.BindingGetterCall getGetterCall() {
+        return mGetterCall;
     }
 
     public BindingTarget getTarget() {
         return mTarget;
     }
 
-    public KCode toJavaCode(String bindingComponent, final FlagSet flagField) {
-        final String targetViewName = LayoutBinderWriterKt.getFieldName(getTarget());
-        KCode code = new KCode();
-        // A chained expression will have substituted its chained value for the expression
-        // unless the attribute has no expression. Therefore, chaining and expressions are
-        // mutually exclusive.
-        Preconditions.check((mExpr == null) != mChainedExpressions.isEmpty(),
-                "Chained expressions are only against unbound attributes.");
-        if (mExpr != null) {
-            code.app("", mExpr.toInverseCode(new KCode(getGetterCall().toJava(bindingComponent,
-                    targetViewName))));
-        } else { // !mChainedExpressions.isEmpty())
-            final String fieldName = flagField.getLocalName();
-            FlagSet flagSet = new FlagSet();
-            for (FieldAccessExpr expr : mChainedExpressions) {
-                flagSet = flagSet.or(new FlagSet(expr.getId()));
-            }
-            final FlagSet allFlags = flagSet;
-            code.nl(new KCode("synchronized(this) {"));
-            code.tab(LayoutBinderWriterKt
-                    .mapOr(flagField, flagSet, new Function2<String, Integer, KCode>() {
-                        @Override
-                        public KCode invoke(String suffix, Integer index) {
-                            return new KCode(fieldName)
-                                    .app(suffix)
-                                    .app(" |= ")
-                                    .app(LayoutBinderWriterKt.binaryCode(allFlags, index))
-                                    .app(";");
-                        }
-                    }));
-            code.nl(new KCode("}"));
-            code.nl(new KCode("requestRebind()"));
-        }
-        return code;
+    public Expr getExpr() {
+        return mExpr;
+    }
+
+    public Expr getInverseExpr() {
+        return mInverseExpr;
+    }
+
+    public IdentifierExpr getVariableExpr() {
+        return mVariableExpr;
+    }
+
+    public ExecutionPath getExecutionPath() {
+        return mExecutionPath;
+    }
+
+    public CallbackExprModel getCallbackExprModel() {
+        return mCallbackExprModel;
+    }
+
+    public List<FieldAccessExpr> getChainedExpressions() {
+        return mChainedExpressions;
     }
 
     public String getBindingAdapterInstanceClass() {

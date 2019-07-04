@@ -16,20 +16,23 @@
 
 package com.android.internal.telephony;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-
 import android.content.Context;
-import android.os.Build;
-import android.text.TextUtils;
 import android.database.Cursor;
 import android.database.SQLException;
+import android.os.Binder;
+import android.os.Build;
+import android.os.PersistableBundle;
+import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneNumberUtils;
-import android.telephony.TelephonyManager;
 import android.telephony.Rlog;
+import android.telephony.TelephonyManager;
+import android.text.TextUtils;
 
 import com.android.internal.telephony.HbpcdLookup.MccIdd;
 import com.android.internal.telephony.HbpcdLookup.MccLookup;
+
+import java.util.ArrayList;
+import java.util.HashMap;
 
 
  /**
@@ -528,10 +531,11 @@ public class SmsNumberUtils {
      *  Filter the destination number if using VZW sim card.
      */
     public static String filterDestAddr(Phone phone, String destAddr) {
-        if (DBG) Rlog.d(TAG, "enter filterDestAddr. destAddr=\"" + destAddr + "\"" );
+        if (DBG) Rlog.d(TAG, "enter filterDestAddr. destAddr=\"" + Rlog.pii(TAG, destAddr) + "\"" );
 
         if (destAddr == null || !PhoneNumberUtils.isGlobalPhoneNumber(destAddr)) {
-            Rlog.w(TAG, "destAddr" + destAddr + " is not a global phone number! Nothing changed.");
+            Rlog.w(TAG, "destAddr" + Rlog.pii(TAG, destAddr) +
+                    " is not a global phone number! Nothing changed.");
             return destAddr;
         }
 
@@ -551,7 +555,8 @@ public class SmsNumberUtils {
 
         if (DBG) {
             Rlog.d(TAG, "destAddr is " + ((result != null)?"formatted.":"not formatted."));
-            Rlog.d(TAG, "leave filterDestAddr, new destAddr=\"" + (result != null ? result : destAddr) + "\"" );
+            Rlog.d(TAG, "leave filterDestAddr, new destAddr=\"" + (result != null ? Rlog.pii(TAG,
+                    result) : Rlog.pii(TAG, destAddr)) + "\"");
         }
         return result != null ? result : destAddr;
     }
@@ -597,28 +602,24 @@ public class SmsNumberUtils {
     }
 
     private static boolean needToConvert(Phone phone) {
-        boolean bNeedToConvert  = false;
-        String[] listArray = phone.getContext().getResources()
-                .getStringArray(com.android.internal.R.array
-                .config_sms_convert_destination_number_support);
-        if (listArray != null && listArray.length > 0) {
-            for (int i=0; i<listArray.length; i++) {
-                if (!TextUtils.isEmpty(listArray[i])) {
-                    String[] needToConvertArray = listArray[i].split(";");
-                    if (needToConvertArray != null && needToConvertArray.length > 0) {
-                        if (needToConvertArray.length == 1) {
-                            bNeedToConvert = "true".equalsIgnoreCase(needToConvertArray[0]);
-                        } else if (needToConvertArray.length == 2 &&
-                                !TextUtils.isEmpty(needToConvertArray[1]) &&
-                                compareGid1(phone, needToConvertArray[1])) {
-                            bNeedToConvert = "true".equalsIgnoreCase(needToConvertArray[0]);
-                            break;
-                        }
-                    }
+        // Calling package may not have READ_PHONE_STATE which is required for getConfig().
+        // Clear the calling identity so that it is called as self.
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            CarrierConfigManager configManager = (CarrierConfigManager)
+                    phone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
+            if (configManager != null) {
+                PersistableBundle bundle = configManager.getConfig();
+                if (bundle != null) {
+                    return bundle.getBoolean(CarrierConfigManager
+                            .KEY_SMS_REQUIRES_DESTINATION_NUMBER_CONVERSION_BOOL);
                 }
             }
+        } finally {
+            Binder.restoreCallingIdentity(identity);
         }
-        return bNeedToConvert;
+        // by default this value is false
+        return false;
     }
 
     private static boolean compareGid1(Phone phone, String serviceGid1) {

@@ -37,6 +37,7 @@ public final class ParcelableConnection implements Parcelable {
     private final int mState;
     private final int mConnectionCapabilities;
     private final int mConnectionProperties;
+    private final int mSupportedAudioRoutes;
     private final Uri mAddress;
     private final int mAddressPresentation;
     private final String mCallerDisplayName;
@@ -46,10 +47,12 @@ public final class ParcelableConnection implements Parcelable {
     private final boolean mRingbackRequested;
     private final boolean mIsVoipAudioMode;
     private final long mConnectTimeMillis;
+    private final long mConnectElapsedTimeMillis;
     private final StatusHints mStatusHints;
     private final DisconnectCause mDisconnectCause;
     private final List<String> mConferenceableConnectionIds;
     private final Bundle mExtras;
+    private String mParentCallId;
 
     /** @hide */
     public ParcelableConnection(
@@ -57,6 +60,7 @@ public final class ParcelableConnection implements Parcelable {
             int state,
             int capabilities,
             int properties,
+            int supportedAudioRoutes,
             Uri address,
             int addressPresentation,
             String callerDisplayName,
@@ -66,6 +70,37 @@ public final class ParcelableConnection implements Parcelable {
             boolean ringbackRequested,
             boolean isVoipAudioMode,
             long connectTimeMillis,
+            long connectElapsedTimeMillis,
+            StatusHints statusHints,
+            DisconnectCause disconnectCause,
+            List<String> conferenceableConnectionIds,
+            Bundle extras,
+            String parentCallId) {
+        this(phoneAccount, state, capabilities, properties, supportedAudioRoutes, address,
+                addressPresentation, callerDisplayName, callerDisplayNamePresentation,
+                videoProvider, videoState, ringbackRequested, isVoipAudioMode, connectTimeMillis,
+                connectElapsedTimeMillis, statusHints, disconnectCause, conferenceableConnectionIds,
+                extras);
+        mParentCallId = parentCallId;
+    }
+
+    /** @hide */
+    public ParcelableConnection(
+            PhoneAccountHandle phoneAccount,
+            int state,
+            int capabilities,
+            int properties,
+            int supportedAudioRoutes,
+            Uri address,
+            int addressPresentation,
+            String callerDisplayName,
+            int callerDisplayNamePresentation,
+            IVideoProvider videoProvider,
+            int videoState,
+            boolean ringbackRequested,
+            boolean isVoipAudioMode,
+            long connectTimeMillis,
+            long connectElapsedTimeMillis,
             StatusHints statusHints,
             DisconnectCause disconnectCause,
             List<String> conferenceableConnectionIds,
@@ -74,6 +109,7 @@ public final class ParcelableConnection implements Parcelable {
         mState = state;
         mConnectionCapabilities = capabilities;
         mConnectionProperties = properties;
+        mSupportedAudioRoutes = supportedAudioRoutes;
         mAddress = address;
         mAddressPresentation = addressPresentation;
         mCallerDisplayName = callerDisplayName;
@@ -83,10 +119,12 @@ public final class ParcelableConnection implements Parcelable {
         mRingbackRequested = ringbackRequested;
         mIsVoipAudioMode = isVoipAudioMode;
         mConnectTimeMillis = connectTimeMillis;
+        mConnectElapsedTimeMillis = connectElapsedTimeMillis;
         mStatusHints = statusHints;
         mDisconnectCause = disconnectCause;
         mConferenceableConnectionIds = conferenceableConnectionIds;
         mExtras = extras;
+        mParentCallId = null;
     }
 
     public PhoneAccountHandle getPhoneAccount() {
@@ -115,6 +153,10 @@ public final class ParcelableConnection implements Parcelable {
      */
     public int getConnectionProperties() {
         return mConnectionProperties;
+    }
+
+    public int getSupportedAudioRoutes() {
+        return mSupportedAudioRoutes;
     }
 
     public Uri getHandle() {
@@ -153,6 +195,10 @@ public final class ParcelableConnection implements Parcelable {
         return mConnectTimeMillis;
     }
 
+    public long getConnectElapsedTimeMillis() {
+        return mConnectElapsedTimeMillis;
+    }
+
     public final StatusHints getStatusHints() {
         return mStatusHints;
     }
@@ -169,6 +215,10 @@ public final class ParcelableConnection implements Parcelable {
         return mExtras;
     }
 
+    public final String getParentCallId() {
+        return mParentCallId;
+    }
+
     @Override
     public String toString() {
         return new StringBuilder()
@@ -182,6 +232,8 @@ public final class ParcelableConnection implements Parcelable {
                 .append(Connection.propertiesToString(mConnectionProperties))
                 .append(", extras:")
                 .append(mExtras)
+                .append(", parent:")
+                .append(mParentCallId)
                 .toString();
     }
 
@@ -210,12 +262,16 @@ public final class ParcelableConnection implements Parcelable {
             source.readStringList(conferenceableConnectionIds);
             Bundle extras = Bundle.setDefusable(source.readBundle(classLoader), true);
             int properties = source.readInt();
+            int supportedAudioRoutes = source.readInt();
+            String parentCallId = source.readString();
+            long connectElapsedTimeMillis = source.readLong();
 
             return new ParcelableConnection(
                     phoneAccount,
                     state,
                     capabilities,
                     properties,
+                    supportedAudioRoutes,
                     address,
                     addressPresentation,
                     callerDisplayName,
@@ -225,10 +281,12 @@ public final class ParcelableConnection implements Parcelable {
                     ringbackRequested,
                     audioModeIsVoip,
                     connectTimeMillis,
+                    connectElapsedTimeMillis,
                     statusHints,
                     disconnectCause,
                     conferenceableConnectionIds,
-                    extras);
+                    extras,
+                    parentCallId);
         }
 
         @Override
@@ -264,5 +322,8 @@ public final class ParcelableConnection implements Parcelable {
         destination.writeStringList(mConferenceableConnectionIds);
         destination.writeBundle(mExtras);
         destination.writeInt(mConnectionProperties);
+        destination.writeInt(mSupportedAudioRoutes);
+        destination.writeString(mParentCallId);
+        destination.writeLong(mConnectElapsedTimeMillis);
     }
 }

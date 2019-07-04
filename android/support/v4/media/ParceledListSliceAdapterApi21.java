@@ -18,6 +18,8 @@ package android.support.v4.media;
 
 import android.media.browse.MediaBrowser;
 
+import androidx.annotation.RequiresApi;
+
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
@@ -25,6 +27,7 @@ import java.util.List;
 /**
  * An adapter class for accessing the hidden framework classes, ParceledListSlice using reflection.
  */
+@RequiresApi(21)
 class ParceledListSliceAdapterApi21 {
     private static Constructor sConstructor;
     static {
@@ -44,5 +47,8 @@ class ParceledListSliceAdapterApi21 {
             e.printStackTrace();
         }
         return result;
+    }
+
+    private ParceledListSliceAdapterApi21() {
     }
 }
