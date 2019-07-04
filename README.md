@@ -1,19 +1,11 @@
 # Android-25 Framework源码
 
-基于Android 25版本的framework源码，添加了详细注释。
+基于Android 28版本的framework源码，添加了详细注释。
 
-### 更新时间：
+## 更新时间：
+2019-07-04
 
----
-
-2019-04-10
-
-
-
-###  博客：
-
-----
-
+##  博客：
 * [Android系统源码分析--消息循环机制](http://codemx.cn/2017/07/13/AndroidOS004-HandleMessageLooper/)
 * [Android系统源码分析--Process启动过程](http://codemx.cn/2017/09/13/AndroidOS005-Process/)
 * [Android系统源码分析--Broadcast注册和注销](http://codemx.cn/2017/12/21/AndroidOS006-Broadcast1/)
@@ -27,10 +19,7 @@
 
 
 
-### 流程图：
-
-----
-
+## 流程图：
 <img src="/source/images/Android/AndroidOS.png" width="" height="" alt="Android系统结构"/>
 <img src="/source/images/Android/Zygote.jpg" width="" height="" alt="Zygote启动流程"/>
 <img src="/source/images/Android/SystemServer.jpg" width="" height="" alt="System Server启动流程"/>
