@@ -25,9 +25,9 @@ import android.view.animation.Interpolator;
 
 
 /**
- * <p>This class encapsulates scrolling. You can use scrollers ({@link Scroller}
+ * <p>This class encapsulates(封装) scrolling. You can use scrollers ({@link Scroller}
  * or {@link OverScroller}) to collect the data you need to produce a scrolling
- * animation&mdash;for example, in response to a fling gesture. Scrollers track
+ * animation&mdash;for example, in response to（为了应对） a fling gesture. Scrollers track
  * scroll offsets for you over time, but they don't automatically apply those
  * positions to your view. It's your responsibility to get and apply new
  * coordinates at a rate that will make the scrolling animation look smooth.</p>
