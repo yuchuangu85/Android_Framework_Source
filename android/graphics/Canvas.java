@@ -953,7 +953,7 @@ public class Canvas extends BaseCanvas {
     }
 
     /**
-     * Intersect the current clip with the specified rectangle, which is
+     * Intersect(相交) the current clip(剪切) with the specified rectangle(矩形), which is
      * expressed in local coordinates.
      *
      * @param left   The left side of the rectangle to intersect with the

@@ -3817,6 +3817,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     protected ViewParent mParent;
 
     /**
+	 * 这个是ViewRootImpl中创建的，在调用dispatchAttachedToWindow是传入的
+	 *
      * {@hide}
      */
     AttachInfo mAttachInfo;
@@ -15475,7 +15477,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     }
 
     /**
-     * The visual x position of this view, in pixels. This is equivalent to the
+     * The visual x position of this view, in pixels. This is equivalent(等效) to the
      * {@link #setTranslationX(float) translationX} property plus the current
      * {@link #getLeft() left} property.
      *
@@ -15999,6 +16001,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
     /**
      * Offset this view's vertical location by the specified number of pixels.
+	 *
+	 * 上下移动
      *
      * @param offset the number of pixels to offset the view by
      */
@@ -16050,6 +16054,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
     /**
      * Offset this view's horizontal location by the specified amount of pixels.
+	 *
+	 * 左右移动
      *
      * @param offset the number of pixels to offset the view by
      */
@@ -16152,6 +16158,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * Set the scrolled position of your view. This will cause a call to
      * {@link #onScrollChanged(int, int, int, int)} and the view will be
      * invalidated.
+	 *
+	 * 移动多少距离，这里移动的不是View本身，而是其内容或者子View(如果是View，移动内容；如果是ViewGroup，
+	 * 移动的是子View)。这个方法会调用刷新，也就是draw方法
+	 *
      * @param x the x position to scroll to
      * @param y the y position to scroll to
      */
@@ -16173,6 +16183,9 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * Move the scrolled position of your view. This will cause a call to
      * {@link #onScrollChanged(int, int, int, int)} and the view will be
      * invalidated.
+	 *
+	 * 移动到哪里，这里移动的不是View本身，而是其内容或者子View(如果是View，移动内容；如果是ViewGroup，移动的是子View)
+	 *
      * @param x the amount of pixels to scroll by horizontally
      * @param y the amount of pixels to scroll by vertically
      */
@@ -16467,11 +16480,12 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                 mPrivateFlags &= ~PFLAG_DRAWING_CACHE_VALID;
             }
 
-            // Propagate the damage rectangle to the parent view.
+            // Propagate（传送） the damage rectangle to the parent view.
             final AttachInfo ai = mAttachInfo;
             final ViewParent p = mParent;
             if (p != null && ai != null && l < r && t < b) {
                 final Rect damage = ai.mTmpInvalRect;
+                // 当前View的区域
                 damage.set(l, t, r, b);
                 p.invalidateChild(this, damage);
             }
@@ -20297,7 +20311,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
 
             drawAutofilledHighlight(canvas);
 
-            // Overlay is part of the content and draws beneath Foreground
+            // Overlay is part of the content and draws beneath(下) Foreground
             if (mOverlay != null && !mOverlay.isEmpty()) {
                 mOverlay.getOverlayView().dispatchDraw(canvas);
             }

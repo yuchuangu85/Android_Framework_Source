@@ -2041,6 +2041,8 @@ public final class MotionEvent extends InputEvent implements Parcelable {
      * {@link #getX(int)} for the first pointer index (may be an
      * arbitrary pointer identifier).
      *
+     * 获取触摸点距离当前控件左边的距离，也就是视图坐标
+     *
      * @see #AXIS_X
      */
     public final float getX() {
@@ -2050,6 +2052,8 @@ public final class MotionEvent extends InputEvent implements Parcelable {
     /**
      * {@link #getY(int)} for the first pointer index (may be an
      * arbitrary pointer identifier).
+     *
+     * 获取触摸点距离当前控件顶边的距离，也就是视图坐标
      *
      * @see #AXIS_Y
      */
@@ -2450,6 +2454,8 @@ public final class MotionEvent extends InputEvent implements Parcelable {
      * on the screen, before it had been adjusted for the containing window
      * and views.
      *
+     * 获取触摸点距离屏幕左边的距离，也就是绝对坐标
+     *
      * @see #getX(int)
      * @see #AXIS_X
      */
@@ -2462,6 +2468,8 @@ public final class MotionEvent extends InputEvent implements Parcelable {
      * events on the screen, this is the original location of the event
      * on the screen, before it had been adjusted for the containing window
      * and views.
+     *
+     * 获取触摸点距离屏幕顶边的距离，也就是绝对坐标
      *
      * @see #getY(int)
      * @see #AXIS_Y

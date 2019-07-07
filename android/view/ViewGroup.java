@@ -5940,6 +5940,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
                     }
                 }
 
+                // 刷新子视图(location是子View的位置，dirty是子View的区域)
                 parent = parent.invalidateChildInParent(location, dirty);
                 if (view != null) {
                     // Account for transform on current parent
@@ -5976,6 +5977,8 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             // either DRAWN, or DRAWING_CACHE_VALID
             if ((mGroupFlags & (FLAG_OPTIMIZE_INVALIDATE | FLAG_ANIMATION_DONE))
                     != FLAG_OPTIMIZE_INVALIDATE) {
+                // 将当前View的绘制区域移动，如果mScrollX为正，这里是减，所以为左移，反之右移（
+                // 如果是ViewGroup区域，则移动子View；如果是View，则移动绘制区域）
                 dirty.offset(location[CHILD_LEFT_INDEX] - mScrollX,
                         location[CHILD_TOP_INDEX] - mScrollY);
                 if ((mGroupFlags & FLAG_CLIP_CHILDREN) == 0) {
