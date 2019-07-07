@@ -5856,6 +5856,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
     @Override
     public final void invalidateChild(View child, final Rect dirty) {
         final AttachInfo attachInfo = mAttachInfo;
+        // 硬件加速
         if (attachInfo != null && attachInfo.mHardwareAccelerated) {
             // HW accelerated fast path
             onDescendantInvalidated(child, child);

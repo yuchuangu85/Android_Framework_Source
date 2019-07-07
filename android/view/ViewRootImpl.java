@@ -3471,8 +3471,9 @@ public final class ViewRootImpl implements ViewParent,
                 }
 
                 // 执行绘制
-                if (!drawSoftware(surface, mAttachInfo, xOffset, yOffset, scalingRequired, dirty)) {
-                    return;
+                if (!drawSoftware(surface, mAttachInfo, xOffset, yOffset, scalingRequired, dirty,
+                        surfaceInsets)) {
+                    return false;
                 }
             }
         }
@@ -7428,6 +7429,7 @@ public final class ViewRootImpl implements ViewParent,
 
                 viewCount = mViews.size();
                 if (viewCount != 0) {
+                    // 临时变量
                     mTempViews = mViews.toArray(mTempViews != null
                             ? mTempViews : new View[viewCount]);
                     mViews.clear();
