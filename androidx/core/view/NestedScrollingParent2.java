@@ -36,6 +36,9 @@ import androidx.core.view.ViewCompat.ScrollAxis;
  * {@link ViewCompat}, {@link ViewGroupCompat} or {@link ViewParentCompat} compatibility
  * shim static methods. This ensures interoperability with nested scrolling views on all versions
  * of Android.</p>
+ *
+ * 参考：
+ * https://blog.csdn.net/qq_42944793/article/details/88417127
  */
 public interface NestedScrollingParent2 extends NestedScrollingParent {
     /**

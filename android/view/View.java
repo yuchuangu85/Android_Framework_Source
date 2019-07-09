@@ -4039,6 +4039,9 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     /**
      * The offset, in pixels, by which the content of this view is scrolled
      * horizontally.
+     *
+     * 横向偏移量，scrollBy方法中获取值
+     *
      * {@hide}
      */
     @ViewDebug.ExportedProperty(category = "scrolling")
@@ -4046,6 +4049,9 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     /**
      * The offset, in pixels, by which the content of this view is scrolled
      * vertically.
+     *
+     * 纵向偏移量，scrollBy方法中获取值
+     *
      * {@hide}
      */
     @ViewDebug.ExportedProperty(category = "scrolling")
@@ -17364,7 +17370,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * <p>The default range is the drawing width of this view.</p>
      *
      * @return the total horizontal range represented by the horizontal
-     *         scrollbar
+     *         scrollbar(横向滚动条所代表的整个横向范围)
      *
      * @see #computeHorizontalScrollExtent()
      * @see #computeHorizontalScrollOffset()
@@ -17385,7 +17391,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      *
      * <p>The default offset is the scroll offset of this view.</p>
      *
-     * @return the horizontal offset of the scrollbar's thumb
+     * @return the horizontal offset of the scrollbar's thumb（滚动条的横向偏移量）
      *
      * @see #computeHorizontalScrollRange()
      * @see #computeHorizontalScrollExtent()
@@ -17406,7 +17412,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      *
      * <p>The default extent is the drawing width of this view.</p>
      *
-     * @return the horizontal extent of the scrollbar's thumb
+     * @return the horizontal extent of the scrollbar's thumb（滚动条的横向范围）
      *
      * @see #computeHorizontalScrollRange()
      * @see #computeHorizontalScrollOffset()
@@ -17423,7 +17429,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * units used by {@link #computeVerticalScrollExtent()} and
      * {@link #computeVerticalScrollOffset()}.</p>
      *
-     * @return the total vertical range represented by the vertical scrollbar
+     * @return the total vertical range represented by the vertical scrollbar（滚动条所表示的整个纵向范围）
      *
      * <p>The default range is the drawing height of this view.</p>
      *
@@ -17446,7 +17452,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      *
      * <p>The default offset is the scroll offset of this view.</p>
      *
-     * @return the vertical offset of the scrollbar's thumb
+     * @return the vertical offset of the scrollbar's thumb（滚动条的纵向偏移量）
      *
      * @see #computeVerticalScrollRange()
      * @see #computeVerticalScrollExtent()
@@ -17467,7 +17473,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      *
      * <p>The default extent is the drawing height of this view.</p>
      *
-     * @return the vertical extent of the scrollbar's thumb
+     * @return the vertical extent of the scrollbar's thumb（滚动条的纵向范围）
      *
      * @see #computeVerticalScrollRange()
      * @see #computeVerticalScrollOffset()

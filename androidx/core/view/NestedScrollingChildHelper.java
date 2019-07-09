@@ -63,6 +63,7 @@ import static androidx.core.view.ViewCompat.TYPE_TOUCH;
  * https://segmentfault.com/a/1190000019272870
  * https://blog.csdn.net/lmj623565791/article/details/52204039
  * https://juejin.im/entry/5ccf9c2451882541332f5a9c
+ * https://www.jianshu.com/p/6547ec3202bd
  *
  */
 public class NestedScrollingChildHelper {
@@ -172,7 +173,7 @@ public class NestedScrollingChildHelper {
      * @return true if a cooperating parent view was found and nested scrolling started successfully
      */
     public boolean startNestedScroll(@ScrollAxis int axes, @NestedScrollType int type) {
- // 首次调用为false，该方法的后面部分开始初始化mNestedScrollingParent
+        // 首次调用为false，该方法的后面部分开始初始化mNestedScrollingParent
         if (hasNestedScrollingParent(type)) {
             // Already in progress
             return true;
@@ -181,7 +182,7 @@ public class NestedScrollingChildHelper {
             ViewParent p = mView.getParent();
             View child = mView;
             while (p != null) {// 循环查找循环滑动的父布局
- 		// 重点在这------->
+ 		        // 重点在这------->
                 // 在子View开始滑动前通知嵌套滑动父View，回调嵌套滑动父View的onStartNestedScroll()方法，
                 // 嵌套滑动父View需要嵌套滑动则返回true：
                 if (ViewParentCompat.onStartNestedScroll(p, child, mView, axes, type)) {
@@ -333,7 +334,7 @@ public class NestedScrollingChildHelper {
                 }
                 consumed[0] = 0;
                 consumed[1] = 0;
-		 // 然后调用父View的onNestedPreScroll并把当前的dx，dy以及用来保存父View需要消耗距离的consumed传递过去
+		        // 然后调用父View的onNestedPreScroll并把当前的dx，dy以及用来保存父View需要消耗距离的consumed传递过去
                 ViewParentCompat.onNestedPreScroll(parent, mView, dx, dy, consumed, type);
 
                 if (offsetInWindow != null) {

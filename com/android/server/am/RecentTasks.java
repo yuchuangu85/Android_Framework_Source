@@ -84,8 +84,8 @@ import java.util.concurrent.TimeUnit;
  * Class for managing the recent tasks list. The list is ordered by most recent (index 0) to the
  * least recent.
  *
- * The trimming logic can be boiled down to the following.  For recent task list with a number of
- * tasks, the visible tasks are an interleaving subset of tasks that would normally be presented to
+ * The trimming(修剪) logic can be boiled down to the following.  For recent task list with a number of
+ * tasks, the visible tasks are an interleaving(交叉) subset(子集) of tasks that would normally be presented to
  * the user. Non-visible tasks are not considered for trimming. Of the visible tasks, only a
  * sub-range are presented to the user, based on the device type, last task active time, or other
  * task state. Tasks that are not in the visible range and are not returnable from the SystemUI
@@ -104,6 +104,7 @@ class RecentTasks {
     private static final String TAG_TASKS = TAG + POSTFIX_TASKS;
     private static final boolean TRIMMED = true;
 
+    // 默认容量
     private static final int DEFAULT_INITIAL_CAPACITY = 5;
 
     // Whether or not to move all affiliated tasks to the front when one of the tasks is launched
@@ -113,7 +114,7 @@ class RecentTasks {
     private static final Comparator<TaskRecord> TASK_ID_COMPARATOR =
             (lhs, rhs) -> rhs.taskId - lhs.taskId;
 
-    // Placeholder variables to keep track of activities/apps that are no longer avialble while
+    // Placeholder(占位符) variables to keep track of activities/apps that are no longer avialble while
     // iterating through the recents list
     private static final ActivityInfo NO_ACTIVITY_INFO_TOKEN = new ActivityInfo();
     private static final ApplicationInfo NO_APPLICATION_INFO_TOKEN = new ApplicationInfo();

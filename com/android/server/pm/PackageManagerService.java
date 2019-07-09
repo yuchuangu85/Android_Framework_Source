@@ -405,6 +405,8 @@ import java.util.function.Predicate;
  * 安装一个程序PMS主要完成两件事：
  * 第一件：解析这个应用程序的配置文件AndroidManifest.xml，以便可以获得它的安装信息；
  * 第二件：为这个应用程序分配Linux用户ID和Linux用户组ID，以便它可以在系统中获得合适的运行权限
+ *
+ * Stub是一个Binder
  */
 public class PackageManagerService extends IPackageManager.Stub
         implements PackageSender {
